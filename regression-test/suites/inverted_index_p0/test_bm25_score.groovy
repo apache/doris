@@ -139,7 +139,7 @@ suite("test_bm25_score", "p0") {
 
         test {
             sql """ select score() as score from test_bm25_score where request = 'button.03.gif' order by score() limit 10; """
-            exception "WHERE clause must contain at least one MATCH function for score() push down optimization"
+            exception "WHERE clause must contain at least one MATCH or SEARCH function for score() push down optimization"
         }
 
         test {
@@ -156,10 +156,8 @@ suite("test_bm25_score", "p0") {
             exception "score() function requires WHERE clause with MATCH function, ORDER BY and LIMIT for optimization"
         }
 
-        test {
-            sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
-            exception "score() function can only be used in SELECT clause, not in WHERE clause"
-        }
+        // score() > 0.5 with ORDER BY and LIMIT is now supported after score range filter pushdown feature
+        sql """ select *, score() from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5 order by score() limit 10; """
 
         test {
             sql """ select *, score() as score from test_bm25_score where request match_any 'button.03.gif' and score() > 0.5; """

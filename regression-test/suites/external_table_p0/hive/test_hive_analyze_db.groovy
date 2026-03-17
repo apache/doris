@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
- suite("test_hive_analyze_db", "p0,external,hive,external_docker,external_docker_hive") {
+ suite("test_hive_analyze_db", "p0,external") {
 
      def verify_column_stats_result = { column, result, count, ndv, nulls, size, avg_size, min, max ->
          def found = false;

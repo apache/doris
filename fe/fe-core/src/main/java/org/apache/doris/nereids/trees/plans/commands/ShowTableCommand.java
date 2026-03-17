@@ -24,7 +24,6 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
@@ -39,7 +38,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
@@ -107,7 +105,7 @@ public class ShowTableCommand extends ShowCommand {
      * isShowTablesCaseSensitive
      */
     public boolean isShowTablesCaseSensitive() {
-        if (GlobalVariable.lowerCaseTableNames == 0) {
+        if (Env.getLowerCaseTableNames(catalog) == 0) {
             return CaseSensibility.TABLE.getCaseSensibility();
         }
         return false;
@@ -117,7 +115,7 @@ public class ShowTableCommand extends ShowCommand {
             throws AnalysisException {
         List<AliasInfo> selectList = new ArrayList<>();
         selectList.add(AliasInfo.of("TABLE_NAME",
-                NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db)));
+                NAME_COL_PREFIX + db));
         if (isVerbose) {
             selectList.add(AliasInfo.of("TABLE_TYPE", TYPE_COL));
         }
@@ -191,7 +189,7 @@ public class ShowTableCommand extends ShowCommand {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(
-                new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ScalarType.createVarchar(20)));
+                new Column(NAME_COL_PREFIX + db, ScalarType.createVarchar(20)));
         if (isVerbose) {
             builder.addColumn(new Column(TYPE_COL, ScalarType.createVarchar(20)));
             // TODO: using where can only show two columns, maybe this is a bug?

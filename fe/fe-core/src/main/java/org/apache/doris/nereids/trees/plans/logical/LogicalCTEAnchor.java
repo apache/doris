@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -55,7 +56,8 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalCTEAnchor<>(cteId, children.get(0), children.get(1));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCTEAnchor<>(cteId, children.get(0), children.get(1)));
     }
 
     @Override
@@ -70,13 +72,15 @@ public class LogicalCTEAnchor<LEFT_CHILD_TYPE extends Plan,
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalCTEAnchor<>(cteId, groupExpression, Optional.of(getLogicalProperties()), left(), right());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCTEAnchor<>(cteId, groupExpression, Optional.of(getLogicalProperties()), left(), right()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalCTEAnchor<>(cteId, groupExpression, logicalProperties, children.get(0), children.get(1));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalCTEAnchor<>(cteId, groupExpression, logicalProperties, children.get(0), children.get(1)));
     }
 
     @Override

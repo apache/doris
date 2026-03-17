@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
@@ -155,11 +154,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public synchronized void resetToUninitialized(boolean invalidCache) {
-        super.resetToUninitialized(invalidCache);
-    }
-
-    @Override
     public void onClose() {
         super.onClose();
         if (null != fileSystemExecutor) {
@@ -176,14 +170,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
-        return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
+    protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
+        return metadataOps.listTableNames(dbName);
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return metadataOps.tableExist(ClusterNamespace.getNameFromFullName(dbName), tblName);
+        return metadataOps.tableExist(dbName, tblName);
     }
 
     @Override
@@ -193,7 +186,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (hmsExternalDatabase == null) {
             return false;
         }
-        return hmsExternalDatabase.getTable(ClusterNamespace.getNameFromFullName(tblName)).isPresent();
+        return hmsExternalDatabase.getTable(tblName).isPresent();
     }
 
     public HMSCachedClient getClient() {

@@ -50,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPartitionTopN;
@@ -175,6 +176,17 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     }
 
     @Override
+    public Void visitPhysicalMaxComputeTableSink(
+            PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, PlanContext context) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(mcTableSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
     public Void visitPhysicalJdbcTableSink(
             PhysicalJdbcTableSink<? extends Plan> jdbcTableSink, PlanContext context) {
         // Always use gather properties for jdbcTableSink
@@ -295,13 +307,14 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
             // shuffle all column
             // TODO: for wide table, may be we should add a upper limit of shuffle columns
 
+            // TODO: open comment when support `enable_local_shuffle_planner` and change to REQUIRE
             // intersect/except always need hash distribution, we use REQUIRE to auto select
             // bucket shuffle or execution shuffle
             addRequestPropertyToChildren(setOperation.getRegularChildrenOutputs().stream()
                     .map(childOutputs -> childOutputs.stream()
                             .map(SlotReference::getExprId)
                             .collect(ImmutableList.toImmutableList()))
-                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.REQUIRE))
+                    .map(l -> PhysicalProperties.createHash(l, ShuffleType.EXECUTION_BUCKETED))
                     .collect(Collectors.toList()));
         }
         return null;

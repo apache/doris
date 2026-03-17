@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -85,8 +86,8 @@ public class PhysicalRecursiveUnionProducer<CHILD_TYPE extends Plan> extends Phy
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRecursiveUnionProducer<>(cteName, groupExpression, getLogicalProperties(),
-                children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnionProducer<>(cteName, groupExpression,
+                getLogicalProperties(), children.get(0)));
     }
 
     @Override
@@ -101,14 +102,16 @@ public class PhysicalRecursiveUnionProducer<CHILD_TYPE extends Plan> extends Phy
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalRecursiveUnionProducer<>(cteName, groupExpression, getLogicalProperties(), child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnionProducer<>(cteName, groupExpression,
+                getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRecursiveUnionProducer<>(cteName, groupExpression, logicalProperties.get(), child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnionProducer<>(cteName, groupExpression,
+                logicalProperties.get(), child()));
     }
 
     @Override
@@ -133,7 +136,7 @@ public class PhysicalRecursiveUnionProducer<CHILD_TYPE extends Plan> extends Phy
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalRecursiveUnionProducer<>(cteName, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRecursiveUnionProducer<>(cteName, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 }

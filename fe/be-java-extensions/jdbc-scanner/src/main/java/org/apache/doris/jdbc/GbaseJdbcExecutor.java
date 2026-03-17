@@ -27,6 +27,10 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.util.Objects;
 
+/**
+ * @deprecated Use {@link GbaseTypeHandler} instead.
+ */
+@Deprecated
 public class GbaseJdbcExecutor extends BaseJdbcExecutor {
 
     public GbaseJdbcExecutor(byte[] thriftParams) throws Exception {

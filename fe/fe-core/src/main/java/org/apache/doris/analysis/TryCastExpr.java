@@ -20,26 +20,23 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
 
 public class TryCastExpr extends CastExpr {
 
     private boolean originCastNullable = false;
 
+    public boolean isOriginCastNullable() {
+        return originCastNullable;
+    }
+
     public TryCastExpr(Type targetType, Expr e, boolean nullable, boolean originCastNullable) {
         super(targetType, e, nullable);
-        this.opcode = TExprOpcode.TRY_CAST;
         this.originCastNullable = originCastNullable;
     }
 
     protected TryCastExpr(TryCastExpr other) {
         super(other);
-        opcode = TExprOpcode.TRY_CAST;
         originCastNullable = other.originCastNullable;
     }
 
@@ -49,23 +46,7 @@ public class TryCastExpr extends CastExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return "TRY_CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
-        if (needExternalSql) {
-            return getChild(0).toSql(disableTableName, needExternalSql, tableType, table);
-        }
-        return "TRY_CAST(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table) + " AS "
-                + type.toSql() + ")";
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.TRY_CAST_EXPR;
-        msg.setIsCastNullable(originCastNullable);
-        msg.setOpcode(opcode);
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitTryCastExpr(this, context);
     }
 }

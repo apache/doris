@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -96,15 +97,15 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOneRowRelation(relationId, projects,
+                groupExpression, logicalPropertiesSupplier.get(), physicalProperties, statistics));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOneRowRelation(relationId, projects,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics));
     }
 
     @Override
@@ -154,8 +155,8 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
     @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOneRowRelation(relationId, projects,
+                groupExpression, logicalPropertiesSupplier.get(), physicalProperties, statistics));
     }
 
     @Override

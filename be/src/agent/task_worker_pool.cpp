@@ -55,6 +55,7 @@
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -63,35 +64,35 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "olap/cumulative_compaction_time_series_policy.h"
-#include "olap/data_dir.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "olap/task/engine_batch_load_task.h"
-#include "olap/task/engine_checksum_task.h"
-#include "olap/task/engine_clone_task.h"
-#include "olap/task/engine_cloud_index_change_task.h"
-#include "olap/task/engine_index_change_task.h"
-#include "olap/task/engine_publish_version_task.h"
-#include "olap/task/engine_storage_migration_task.h"
-#include "olap/txn_manager.h"
-#include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/index_policy/index_policy_mgr.h"
 #include "runtime/memory/global_memory_arbitrator.h"
 #include "runtime/snapshot_loader.h"
+#include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/data_dir.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/snapshot/snapshot_manager.h"
+#include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/task/engine_batch_load_task.h"
+#include "storage/task/engine_checksum_task.h"
+#include "storage/task/engine_clone_task.h"
+#include "storage/task/engine_cloud_index_change_task.h"
+#include "storage/task/engine_index_change_task.h"
+#include "storage/task/engine_publish_version_task.h"
+#include "storage/task/engine_storage_migration_task.h"
+#include "storage/txn/txn_manager.h"
+#include "storage/utils.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
 #include "util/jni-util.h"
 #include "util/mem_info.h"
 #include "util/random.h"
@@ -961,6 +962,11 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             }
             tablet->tablet_meta()->set_time_series_compaction_level_threshold(
                     tablet_meta_info.time_series_compaction_level_threshold);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.vertical_compaction_num_columns_per_group) {
+            tablet->tablet_meta()->set_vertical_compaction_num_columns_per_group(
+                    tablet_meta_info.vertical_compaction_num_columns_per_group);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.replica_id) {
@@ -2396,12 +2402,17 @@ void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
 }
 
 void clean_udf_cache_callback(const TAgentTaskRequest& req) {
+    const auto& clean_req = req.clean_udf_cache_req;
+
     if (doris::config::enable_java_support) {
-        LOG(INFO) << "clean udf cache start: " << req.clean_udf_cache_req.function_signature;
-        static_cast<void>(
-                Jni::Util::clean_udf_class_load_cache(req.clean_udf_cache_req.function_signature));
-        LOG(INFO) << "clean udf cache  finish: " << req.clean_udf_cache_req.function_signature;
+        static_cast<void>(Jni::Util::clean_udf_class_load_cache(clean_req.function_signature));
     }
+
+    if (clean_req.__isset.function_id && clean_req.function_id > 0) {
+        UserFunctionCache::instance()->drop_function_cache(clean_req.function_id);
+    }
+
+    LOG(INFO) << "clean udf cache finish: function_signature=" << clean_req.function_signature;
 }
 
 void report_index_policy_callback(const ClusterInfo* cluster_info) {

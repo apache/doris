@@ -19,8 +19,10 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -176,7 +178,8 @@ public class PointQueryExecutor implements CoordInterface {
                 slot = (SlotRef) binaryPredicate.getChildWithoutCast(0);
                 updateChildIdx = 1;
             } else {
-                Preconditions.checkState(false, "Should contains literal in " + binaryPredicate.toSqlImpl());
+                Preconditions.checkState(false, "Should contains literal in "
+                        + binaryPredicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
             // not a placeholder to replace
             if (!colNameToConjunct.containsKey(slot.getColumnName())) {
@@ -278,6 +281,12 @@ public class PointQueryExecutor implements CoordInterface {
                     .setOutputExpr(shortCircuitQueryContext.serializedOutputExpr)
                     .setQueryOptions(shortCircuitQueryContext.serializedQueryOptions)
                     .setIsBinaryRow(ConnectContext.get().command == MysqlCommand.COM_STMT_EXECUTE);
+            // Set timezone for functions like from_unixtime
+            String timeZone = ConnectContext.get().getSessionVariable().getTimeZone();
+            if ("CST".equals(timeZone)) {
+                timeZone = "Asia/Shanghai";
+            }
+            requestBuilder.setTimeZone(timeZone);
             if (snapshotVisibleVersions != null && !snapshotVisibleVersions.isEmpty()) {
                 requestBuilder.setVersion(snapshotVisibleVersions.get(0));
             }

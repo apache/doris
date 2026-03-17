@@ -17,12 +17,14 @@
 
 package org.apache.doris.nereids.load;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.Separator;
+import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.BinaryOperator;
@@ -368,10 +370,12 @@ public class NereidsStreamLoadTask implements NereidsLoadTaskInfo {
     public void setMultiTableBaseTaskInfo(LoadTaskInfo task) throws UserException {
         this.mergeType = task.getMergeType();
         this.columnSeparator = task.getColumnSeparator();
-        this.whereExpr = task.getWhereExpr() != null ? parseWhereExpr(task.getWhereExpr().toSqlWithoutTbl()) : null;
+        this.whereExpr = task.getWhereExpr() != null ? parseWhereExpr(
+                task.getWhereExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE)) : null;
         this.partitionNamesInfo = task.getPartitionNamesInfo();
         this.deleteCondition = task.getDeleteCondition() != null
-                ? parseWhereExpr(task.getDeleteCondition().toSqlWithoutTbl())
+                ? parseWhereExpr(task.getDeleteCondition().accept(
+                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE))
                 : null;
         this.lineDelimiter = task.getLineDelimiter();
         this.strictMode = task.isStrictMode();

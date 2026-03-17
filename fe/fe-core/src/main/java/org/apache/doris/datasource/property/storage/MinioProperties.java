@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
@@ -36,6 +36,10 @@ public class MinioProperties extends AbstractS3CompatibleProperties {
     protected String endpoint = "";
     @Getter
     @Setter
+    @ConnectorProperty(names = {"minio.region", "s3.region", "AWS_REGION", "region", "REGION"},
+            required = false,
+            isRegionField = true,
+            description = "The region of MinIO.")
     protected String region = "us-east-1";
 
     @Getter

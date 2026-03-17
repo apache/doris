@@ -19,10 +19,12 @@ package org.apache.doris.datasource.maxcompute;
 
 import org.apache.doris.analysis.DistributionDesc;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.MapType;
@@ -31,6 +33,10 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.CreateOrReplaceBranchInfo;
+import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
+import org.apache.doris.catalog.info.DropBranchInfo;
+import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -38,11 +44,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.operations.ExternalMetadataOps;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.CreateOrReplaceTagInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropBranchInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.DropTagInfo;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
@@ -102,21 +104,61 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
         return dorisCatalog.listTableNames(null, dbName);
     }
 
-    // ==================== Create Database (not supported yet) ====================
+    // ==================== Create/Drop Database ====================
 
     @Override
     public boolean createDbImpl(String dbName, boolean ifNotExists, Map<String, String> properties)
             throws DdlException {
-        throw new DdlException("Create database is not supported for MaxCompute catalog.");
+        ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable(dbName);
+        boolean exists = databaseExist(dbName);
+        if (dorisDb != null || exists) {
+            if (ifNotExists) {
+                LOG.info("create database[{}] which already exists", dbName);
+                return true;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_CREATE_EXISTS, dbName);
+            }
+        }
+        dorisCatalog.getMcStructureHelper().createDb(odps, dbName, ifNotExists);
+        return false;
+    }
+
+    @Override
+    public void afterCreateDb() {
+        dorisCatalog.resetMetaCacheNames();
     }
 
     @Override
     public void dropDbImpl(String dbName, boolean ifExists, boolean force) throws DdlException {
-        throw new DdlException("Drop database is not supported for MaxCompute catalog.");
+        ExternalDatabase<?> dorisDb = dorisCatalog.getDbNullable(dbName);
+        if (dorisDb == null) {
+            if (ifExists) {
+                LOG.info("drop database[{}] which does not exist", dbName);
+                return;
+            } else {
+                ErrorReport.reportDdlException(ErrorCode.ERR_DB_DROP_EXISTS, dbName);
+            }
+        }
+        if (force) {
+            List<String> remoteTableNames = listTableNames(dorisDb.getRemoteName());
+            for (String remoteTableName : remoteTableNames) {
+                ExternalTable tbl = null;
+                try {
+                    tbl = (ExternalTable) dorisDb.getTableOrDdlException(remoteTableName);
+                } catch (DdlException e) {
+                    LOG.warn("failed to get table when force drop database [{}], table[{}], error: {}",
+                            dbName, remoteTableName, e.getMessage());
+                    continue;
+                }
+                dropTableImpl(tbl, true);
+            }
+        }
+        dorisCatalog.getMcStructureHelper().dropDb(odps, dbName, ifExists);
     }
 
     @Override
     public void afterDropDb(String dbName) {
+        dorisCatalog.unregisterDatabase(dbName);
     }
 
     // ==================== Create Table ====================
@@ -194,7 +236,7 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
         }
 
         if (bucketNum != null) {
-            creator.withBucketNum(bucketNum);
+            creator.withDeltaTableBucketNum(bucketNum);
         }
 
         try {
@@ -411,7 +453,8 @@ public class MaxComputeMetadataOps implements ExternalMetadataOps {
                         "MaxCompute does not support partition transform '" + funcName
                                 + "'. Only identity partitions are supported.");
             } else {
-                throw new UserException("Invalid partition expression: " + expr.toSql());
+                throw new UserException("Invalid partition expression: "
+                        + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
     }

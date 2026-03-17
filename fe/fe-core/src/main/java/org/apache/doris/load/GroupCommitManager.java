@@ -213,7 +213,15 @@ public class GroupCommitManager {
             try {
                 long backendId = new MasterOpExecutor(context)
                         .getGroupCommitLoadBeId(tableId, clusterName);
-                return Env.getCurrentSystemInfo().getBackend(backendId);
+                Backend be = Env.getCurrentSystemInfo().getBackend(backendId);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("selectBackendForGroupCommit on non-master: tableId={}, clusterName={},"
+                            + " backendId={}, backend={}, backendCluster={}",
+                            tableId, clusterName, backendId,
+                            be != null ? be.getHost() + ":" + be.getBePort() : "null",
+                            be != null ? be.getCloudClusterName() : "null");
+                }
+                return be;
             } catch (Exception e) {
                 throw new LoadException(e.getMessage());
             }
@@ -350,7 +358,9 @@ public class GroupCommitManager {
                 }
                 Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
                 if (backend != null && backend.isAlive() && !backend.isDecommissioned()
-                        && (!Config.isCloudMode() || !backend.isDecommissioning())) {
+                        && (!Config.isCloudMode() || !backend.isDecommissioning())
+                        && (!Config.isCloudMode() || cluster == null
+                                || cluster.equals(backend.getCloudClusterName()))) {
                     return backend.getId();
                 } else {
                     tableToBeMap.remove(encode(cluster, tableId));

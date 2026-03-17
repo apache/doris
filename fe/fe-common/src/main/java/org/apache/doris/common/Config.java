@@ -138,6 +138,10 @@ public class Config extends ConfigBase {
     @ConfField(description = {"是否压缩 FE 的 Audit 日志", "enable compression for FE audit log file"})
     public static boolean audit_log_enable_compress = false;
 
+    @ConfField(description = {"启用的数据血缘插件列表，需要填写 LineagePlugin.name() 返回的名称，",
+            "Active lineage plugins, need to fill in the name returned by LineagePlugin.name()"})
+    public static String[] activate_lineage_plugin = {};
+
     @ConfField(description = {"是否使用文件记录日志。当使用 --console 启动 FE 时，全部日志同时写入到标准输出和文件。"
             + "如果关闭这个选项，不再使用文件记录日志。",
             "Whether to use file to record log. When starting FE with --console, "
@@ -3497,6 +3501,21 @@ public class Config extends ConfigBase {
                     + "Default 10000. <=0 disables TopN segmentation."})
     public static int cloud_active_partition_scheduling_topn = 10000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时，active 集合刷新间隔（秒）。默认 60 秒，"
+                    + "表示 60 秒内复用同一批 active tablet，避免每轮重算。",
+            "Refresh interval in seconds for the active-tablet snapshot when active priority scheduling is enabled. "
+                    + "Default 60 seconds. Reuses the same active-tablet set within the interval."})
+    public static long cloud_active_tablet_ids_refresh_interval_second = 60L;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "活跃 tablet 优先调度开启时，若 active 阶段连续 N 轮未达均衡，"
+                    + "则强制执行一轮 inactive 阶段以避免长期饥饿。默认 10，<=0 表示关闭该强制机制。",
+            "When active priority scheduling is enabled and the active phase remains unbalanced for N consecutive "
+                    + "rounds, force one inactive phase round to avoid long-term starvation. "
+                    + "Default 10. <=0 disables this forced mechanism."})
+    public static int cloud_active_unbalanced_force_inactive_after_rounds = 10;
+
     @ConfField(mutable = true, masterOnly = false)
     public static String security_checker_class_name = "";
 
@@ -3509,13 +3528,46 @@ public class Config extends ConfigBase {
     public static String[] s3_load_endpoint_white_list = {};
 
     @ConfField(mutable = true, description = {
-            "此参数控制是否强制使用 Azure global endpoint。默认值为 false，系统将使用用户指定的 endpoint。"
-            + "如果设置为 true，系统将强制使用 {account}.blob.core.windows.net。",
-            "This parameter controls whether to force the use of the Azure global endpoint. "
-            + "The default is false, meaning the system will use the user-specified endpoint. "
-            + "If set to true, the system will force the use of {account}.blob.core.windows.net."
+            "对于确定性的 S3 路径（无通配符如 *, ?），使用 HEAD 请求代替 ListObjects 来避免需要 ListBucket 权限。"
+            + "花括号模式 {1,2,3} 和非否定方括号模式 [abc] 会展开为具体路径。"
+            + "这对于只有 GetObject 权限的场景很有用。如果遇到问题可以设置为 false 回退到原有行为。",
+            "For deterministic S3 paths (without wildcards like *, ?), use HEAD requests instead of "
+            + "ListObjects to avoid requiring ListBucket permission. Brace patterns {1,2,3} and "
+            + "non-negated bracket patterns [abc] are expanded to concrete paths. This is useful when only "
+            + "GetObject permission is granted. Set to false to fall back to the original listing behavior."
     })
-    public static boolean force_azure_blob_global_endpoint = false;
+    public static boolean s3_skip_list_for_deterministic_path = true;
+
+    @ConfField(mutable = true, description = {
+            "当使用 HEAD 请求代替 ListObjects 时，展开路径的最大数量。如果展开的路径数量超过此限制，"
+            + "将回退到使用 ListObjects。这可以防止类似 {1..100}/{1..100} 的模式触发过多的 HEAD 请求。",
+            "Maximum number of expanded paths when using HEAD requests instead of ListObjects. "
+            + "If the expanded path count exceeds this limit, falls back to ListObjects. "
+            + "This prevents patterns like {1..100}/{1..100} from triggering too many HEAD requests."
+    })
+    public static int s3_head_request_max_paths = 100;
+    @ConfField(mutable = true, description = {
+            "指定 Azure endpoint 域名后缀白名单（包含 blob 与 dfs），多个值使用逗号分隔。"
+                    + "默认值为 .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de。",
+            "The host suffix whitelist for Azure endpoints (both blob and dfs), separated by commas. "
+                    + "The default value is .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de."
+    })
+    public static String[] azure_blob_host_suffixes = {
+            ".blob.core.windows.net",
+            ".dfs.core.windows.net",
+            ".blob.core.chinacloudapi.cn",
+            ".dfs.core.chinacloudapi.cn",
+            ".blob.core.usgovcloudapi.net",
+            ".dfs.core.usgovcloudapi.net",
+            ".blob.core.cloudapi.de",
+            ".dfs.core.cloudapi.de"
+    };
 
     @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
@@ -3567,6 +3619,10 @@ public class Config extends ConfigBase {
     //* audit_event_log_queue_size = qps * query_audit_log_timeout_ms
     @ConfField(mutable = true)
     public static int audit_event_log_queue_size = 250000;
+
+    @ConfField(description = {"血缘事件队列最大长度，超过长度事件会被舍弃",
+            "Max size of lineage event queue， events will be discarded when exceeded"})
+    public static int lineage_event_queue_size = 50000;
 
     @ConfField(mutable = true, description = {
             "streamload 导入使用的转发策略，可选值为 public-private/public/private/direct/random-be/空",
@@ -3630,6 +3686,25 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Get tablet stat task 的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
+
+    @ConfField(description = {"存算分离模式下同步 table 和 partition version 的间隔. 所有 frontend 都会检查",
+            "Cloud table and partition version syncer interval. All frontends will perform the checking"})
+    public static int cloud_version_syncer_interval_second = 20;
+
+    @ConfField(mutable = true, description = {"存算分离模式下是否启用同步 table 和 partition version 的功能",
+            "Whether to enable the function of syncing table and partition version in cloud mode"})
+    public static boolean cloud_enable_version_syncer = true;
+
+    @ConfField(description = {"Get version task 的并发数", "Concurrent num of get version task."})
+    public static int cloud_get_version_task_threads_num = 4;
+
+    @ConfField(description = {"Master FE 发送给其它 FE sync version task 的最大并发数",
+            "Maximal concurrent num of sync version task between Master FE and other FEs."})
+    public static int cloud_sync_version_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"Get version task 包含的 table 或 partition 数目的 batch size",
+            "Maximal table or partition batch size of get version task."})
+    public static int cloud_get_version_task_batch_size = 2000;
 
     @ConfField(mutable = true, description = {"schema change job 失败是否重试",
             "Whether to enable retry when a schema change job fails, default is true."})
@@ -3856,6 +3931,16 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+    @ConfField(description = {
+            "是否在 catalog 级权限检查中跳过 FE 内部的 catalog 权限校验。仅对配置了自定义 access controller 的外部 "
+                    + "catalog 的 SHOW/SELECT 生效；内部 catalog、未配置自定义 access controller 的 catalog，"
+                    + "以及 CREATE/LOAD/ALTER 等其他权限仍按默认逻辑校验",
+            "Whether to skip the FE internal catalog privilege check in catalog-level privilege validation. "
+                    + "This only applies to SHOW/SELECT on external catalogs with a custom access controller. "
+                    + "Internal catalogs, catalogs without a custom access controller, and other privileges such "
+                    + "as CREATE/LOAD/ALTER are still validated by the default logic"
+    })
+    public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下，计算删除位图时，是否批量获取分区版本信息，默认开启",

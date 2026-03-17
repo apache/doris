@@ -38,6 +38,7 @@ import org.apache.doris.datasource.paimon.profile.PaimonMetricRegistry;
 import org.apache.doris.datasource.paimon.profile.PaimonScanMetricsReporter;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
@@ -150,8 +151,9 @@ public class PaimonScanNode extends FileQueryScanNode {
     public PaimonScanNode(PlanNodeId id,
                           TupleDescriptor desc,
                           boolean needCheckColumnPriv,
-                          SessionVariable sv) {
-        super(id, desc, "PAIMON_SCAN_NODE", needCheckColumnPriv, sv);
+                          SessionVariable sv,
+                          ScanContext scanContext) {
+        super(id, desc, "PAIMON_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -228,9 +230,19 @@ public class PaimonScanNode extends FileQueryScanNode {
 
         String fileFormat = getFileFormat(paimonSplit.getPathString());
         if (split != null) {
-            // use jni reader
+            // use jni reader or paimon-cpp reader
             rangeDesc.setFormatType(TFileFormatType.FORMAT_JNI);
-            fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            // Use Paimon native serialization for paimon-cpp reader
+            if (sessionVariable.isEnablePaimonCppReader() && split instanceof DataSplit) {
+                fileDesc.setPaimonSplit(PaimonUtil.encodeDataSplitToString((DataSplit) split));
+            } else {
+                fileDesc.setPaimonSplit(PaimonUtil.encodeObjectToString(split));
+            }
+            // Set table location for paimon-cpp reader
+            String tableLocation = source.getTableLocation();
+            if (tableLocation != null) {
+                fileDesc.setPaimonTable(tableLocation);
+            }
             rangeDesc.setSelfSplitWeight(paimonSplit.getSelfSplitWeight());
         } else {
             // use native reader
@@ -432,7 +444,8 @@ public class PaimonScanNode extends FileQueryScanNode {
         // if applyCountPushdown is true, calcute row count for count pushdown
         if (applyCountPushdown && !pushDownCountSplits.isEmpty()) {
             if (pushDownCountSum > COUNT_WITH_PARALLEL_SPLITS) {
-                int minSplits = sessionVariable.getParallelExecInstanceNum() * numBackends;
+                int minSplits = sessionVariable.getParallelExecInstanceNum(scanContext.getClusterName())
+                        * numBackends;
                 pushDownCountSplits = pushDownCountSplits.subList(0, Math.min(pushDownCountSplits.size(), minSplits));
             } else {
                 pushDownCountSplits = Collections.singletonList(pushDownCountSplits.get(0));
@@ -526,7 +539,7 @@ public class PaimonScanNode extends FileQueryScanNode {
                 .newScan();
         PaimonMetricRegistry registry = new PaimonMetricRegistry();
         if (scan instanceof InnerTableScan) {
-            scan = ((InnerTableScan) scan).withMetricsRegistry(registry);
+            scan = ((InnerTableScan) scan).withMetricRegistry(registry);
         }
         List<org.apache.paimon.table.source.Split> splits = scan.plan().splits();
         PaimonScanMetricsReporter.report(source.getTargetTable(), paimonTable.name(), registry);

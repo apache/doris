@@ -21,18 +21,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TSlotRef;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -116,6 +106,22 @@ public class SlotRef extends Expr {
         return new SlotRef(this);
     }
 
+    public TableNameInfo getTableNameInfo() {
+        return tableNameInfo;
+    }
+
+    public String getCol() {
+        return col;
+    }
+
+    public String getLabel() {
+        return label;
+    }
+
+    public List<String> getSubColPath() {
+        return subColPath;
+    }
+
     public SlotDescriptor getDesc() {
         return desc;
     }
@@ -156,147 +162,16 @@ public class SlotRef extends Expr {
     }
 
     @Override
-    public String toSqlImpl() {
-        StringBuilder sb = new StringBuilder();
-        String subColumnPaths = "";
-        if (subColPath != null && !subColPath.isEmpty()) {
-            subColumnPaths = "." + String.join(".", subColPath);
-        }
-        if (tableNameInfo != null) {
-            return tableNameInfo.toSql() + "." + label + subColumnPaths;
-        } else if (label != null) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getState().isNereids()
-                    && !ConnectContext.get().getState().isQuery()
-                    && ConnectContext.get().getSessionVariable() != null
-                    && desc != null) {
-                return label + "[#" + desc.getId().asInt() + "]";
-            } else {
-                return label;
-            }
-        } else if (desc == null) {
-            // virtual slot of an alias function
-            // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
-            // is null, and we just need the name of col.
-            return "`" + col + "`";
-        } else if (desc.getSourceExprs() != null) {
-            if ((ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
-                if (desc.getId().asInt() != 1) {
-                    sb.append("<slot " + desc.getId().asInt() + ">");
-                }
-            }
-            for (Expr expr : desc.getSourceExprs()) {
-                sb.append(" ");
-                sb.append(expr.toSql());
-            }
-            return sb.toString();
-        } else {
-            return "<slot " + desc.getId().asInt() + ">" + sb.toString();
-        }
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf inputTable) {
-        if (needExternalSql) {
-            return toExternalSqlImpl(tableType, inputTable);
-        }
-
-        if (disableTableName && label != null) {
-            return label;
-        }
-
-        StringBuilder sb = new StringBuilder();
-        String subColumnPaths = "";
-        if (subColPath != null && !subColPath.isEmpty()) {
-            subColumnPaths = "." + String.join(".", subColPath);
-        }
-        if (tableNameInfo != null) {
-            return tableNameInfo.toSql() + "." + label + subColumnPaths;
-        } else if (label != null) {
-            if (ConnectContext.get() != null
-                    && ConnectContext.get().getState().isNereids()
-                    && !ConnectContext.get().getState().isQuery()
-                    && ConnectContext.get().getSessionVariable() != null
-                    && desc != null) {
-                return label + "[#" + desc.getId().asInt() + "]";
-            } else {
-                return label;
-            }
-        } else if (desc == null) {
-            // virtual slot of an alias function
-            // when we try to translate an alias function to Nereids style, the desc in the place holding slotRef
-            // is null, and we just need the name of col.
-            return "`" + col + "`";
-        } else if (desc.getSourceExprs() != null) {
-            if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
-                if (desc.getId().asInt() != 1) {
-                    sb.append("<slot " + desc.getId().asInt() + ">");
-                }
-            }
-            for (Expr expr : desc.getSourceExprs()) {
-                if (!disableTableName) {
-                    sb.append(" ");
-                }
-                sb.append(disableTableName ? expr.toSqlWithoutTbl() : expr.toSql());
-            }
-            return sb.toString();
-        } else {
-            return "<slot " + desc.getId().asInt() + ">" + sb.toString();
-        }
-    }
-
-    private String toExternalSqlImpl(TableType tableType, TableIf inputTable) {
-        if (col != null) {
-            if (tableType.equals(TableType.JDBC_EXTERNAL_TABLE) || tableType.equals(TableType.JDBC) || tableType
-                    .equals(TableType.ODBC)) {
-                if (inputTable instanceof JdbcTable) {
-                    return ((JdbcTable) inputTable).getProperRemoteColumnName(
-                            ((JdbcTable) inputTable).getJdbcTableType(), col);
-                } else if (inputTable instanceof OdbcTable) {
-                    return JdbcTable.databaseProperName(((OdbcTable) inputTable).getOdbcTableType(), col);
-                } else {
-                    return col;
-                }
-            } else {
-                return col;
-            }
-        } else {
-            return "<slot " + Integer.toString(desc.getId().asInt()) + ">";
-        }
-    }
-
-    @Override
-    public String toColumnLabel() {
-        return col;
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitSlotRef(this, context);
     }
 
     @Override
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(toColumnLabel());
+            this.exprName = Optional.of(accept(ExprToColumnLabelVisitor.INSTANCE, null));
         }
         return this.exprName.get();
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.SLOT_REF;
-        msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
-        msg.slot_ref.setColUniqueId(desc.getUniqueId());
-        msg.slot_ref.setIsVirtualSlot(desc.getVirtualColumn() != null);
-        msg.setLabel(label);
-    }
-
-    @Override
-    protected void normalize(TExprNode msg, Normalizer normalizer) {
-        msg.node_type = TExprNodeType.SLOT_REF;
-        // we should eliminate the different tuple id to reuse query cache
-        msg.slot_ref = new TSlotRef(
-                normalizer.normalizeSlotId(desc.getId().asInt()),
-                0
-        );
-        msg.slot_ref.setColUniqueId(desc.getUniqueId());
     }
 
     @Override
@@ -381,12 +256,11 @@ public class SlotRef extends Expr {
                 expr.getTableIdToColumnNames(tableIdToColumnNames);
             }
         } else {
-            TableIf table = desc.getParent().getTable();
-            if (table == null) {
+            if (desc.getParent().getTable() == null) {
                 // Maybe this column comes from inline view.
                 return;
             }
-            Long tableId = table.getId();
+            Long tableId = desc.getParent().getTable().getId();
             Set<String> columnNames = tableIdToColumnNames.get(tableId);
             if (columnNames == null) {
                 columnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);

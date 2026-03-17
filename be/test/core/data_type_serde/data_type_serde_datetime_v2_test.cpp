@@ -1,0 +1,282 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+#include <arrow/api.h>
+#include <cctz/time_zone.h>
+#include <gtest/gtest-message.h>
+#include <gtest/gtest-test-part.h>
+#include <gtest/gtest.h>
+#include <streamvbyte.h>
+
+#include <cstddef>
+#include <iostream>
+#include <limits>
+#include <type_traits>
+
+#include "core/assert_cast.h"
+#include "core/column/column.h"
+#include "core/data_type/common_data_type_serder_test.h"
+#include "core/data_type/common_data_type_test.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type_serde/data_type_datetimev2_serde.h"
+#include "core/data_type_serde/data_type_datev2_serde.h"
+#include "core/data_type_serde/data_type_time_serde.h"
+#include "core/types.h"
+#include "testutil/test_util.h"
+#include "util/slice.h"
+#include "util/string_util.h"
+namespace doris {
+static std::string test_data_dir;
+
+static auto serde_date_v2 = std::make_shared<DataTypeDateV2SerDe>();
+static auto serde_datetime_v2_0 = std::make_shared<DataTypeDateTimeV2SerDe>(0);
+static auto serde_datetime_v2_5 = std::make_shared<DataTypeDateTimeV2SerDe>(5);
+static auto serde_datetime_v2_6 = std::make_shared<DataTypeDateTimeV2SerDe>(6);
+
+static auto serde_time_v2_6 = std::make_shared<DataTypeTimeV2SerDe>(6);
+static auto serde_time_v2_5 = std::make_shared<DataTypeTimeV2SerDe>(5);
+static auto serde_time_v2_0 = std::make_shared<DataTypeTimeV2SerDe>(0);
+
+static ColumnDateTimeV2::MutablePtr column_datetime_v2_0;
+static ColumnDateTimeV2::MutablePtr column_datetime_v2_5;
+static ColumnDateTimeV2::MutablePtr column_datetime_v2_6;
+static ColumnDateV2::MutablePtr column_date_v2;
+
+static ColumnTimeV2::MutablePtr column_time_v2_6;
+static ColumnTimeV2::MutablePtr column_time_v2_5;
+static ColumnTimeV2::MutablePtr column_time_v2_0;
+
+class DataTypeDateTimeV2SerDeTest : public ::testing::Test {
+public:
+    static void SetUpTestSuite() {
+        auto root_dir = std::string(getenv("ROOT"));
+        test_data_dir = root_dir + "/be/test/data/vec/columns";
+
+        column_datetime_v2_0 = ColumnDateTimeV2::create();
+        column_datetime_v2_5 = ColumnDateTimeV2::create();
+        column_datetime_v2_6 = ColumnDateTimeV2::create();
+        column_date_v2 = ColumnDateV2::create();
+        column_time_v2_6 = ColumnTimeV2::create();
+        column_time_v2_5 = ColumnTimeV2::create();
+        column_time_v2_0 = ColumnTimeV2::create();
+
+        load_columns_data();
+    }
+    static void load_columns_data() {
+        std::cout << "loading test dataset" << std::endl;
+        auto test_func = [&](const MutableColumnPtr& column, const auto& serde,
+                             const std::string& data_file_name) {
+            MutableColumns columns;
+            columns.push_back(column->get_ptr());
+            DataTypeSerDeSPtrs serdes = {serde};
+            load_columns_data_from_file(columns, serdes, ';', {0},
+                                        test_data_dir + "/" + data_file_name);
+            EXPECT_TRUE(!column->empty());
+        };
+        test_func(column_datetime_v2_0->get_ptr(), serde_datetime_v2_0, "DATETIMEV2(0).csv");
+        test_func(column_datetime_v2_5->get_ptr(), serde_datetime_v2_5, "DATETIMEV2(5).csv");
+        test_func(column_datetime_v2_6->get_ptr(), serde_datetime_v2_6, "DATETIMEV2(6).csv");
+        test_func(column_date_v2->get_ptr(), serde_date_v2, "DATEV2.csv");
+
+        test_func(column_time_v2_6->get_ptr(), serde_time_v2_6, "TIMEV2(6).csv");
+        test_func(column_time_v2_5->get_ptr(), serde_time_v2_5, "TIMEV2(6).csv");
+        test_func(column_time_v2_0->get_ptr(), serde_time_v2_0, "TIMEV2(6).csv");
+
+        std::cout << "loading test dataset done" << std::endl;
+    }
+};
+TEST_F(DataTypeDateTimeV2SerDeTest, serdes) {
+    auto test_func = [](const auto& serde, const auto& source_column) {
+        using SerdeType = decltype(serde);
+        using ColumnType = typename std::remove_reference<SerdeType>::type::ColumnType;
+
+        auto row_count = source_column->size();
+        auto option = DataTypeSerDe::FormatOptions();
+        char field_delim = ';';
+        option.field_delim = std::string(1, field_delim);
+
+        {
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(row_count);
+            MutableColumnPtr deser_column = source_column->clone_empty();
+            const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
+
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            for (size_t j = 0; j != row_count; ++j) {
+                auto st =
+                        serde.serialize_one_cell_to_json(*source_column, j, buffer_writer, option);
+                EXPECT_TRUE(st.ok()) << "Failed to serialize column at row " << j << ": " << st;
+
+                buffer_writer.commit();
+                std::string actual_str_value = ser_col->get_data_at(j).to_string();
+                Slice slice {actual_str_value.data(), actual_str_value.size()};
+                st = serde.deserialize_one_cell_from_json(*deser_column, slice, option);
+                EXPECT_TRUE(st.ok()) << "Failed to deserialize column at row " << j << ": " << st;
+                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+            }
+        }
+
+        // test serialize_column_to_json
+        {
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(row_count);
+
+            VectorBufferWriter buffer_writer(*ser_col.get());
+            auto st = serde.serialize_column_to_json(*source_column, 0, source_column->size(),
+                                                     buffer_writer, option);
+            EXPECT_TRUE(st.ok()) << "Failed to serialize column to json: " << st;
+            buffer_writer.commit();
+
+            std::string json_data((char*)ser_col->get_chars().data(), ser_col->get_chars().size());
+            std::vector<std::string> strs = doris::split(json_data, std::string(1, field_delim));
+            std::vector<Slice> slices;
+            for (const auto& s : strs) {
+                Slice tmp_slice(s.data(), s.size());
+                tmp_slice.trim_prefix();
+                slices.emplace_back(tmp_slice);
+            }
+
+            MutableColumnPtr deser_column = source_column->clone_empty();
+            const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
+            uint64_t num_deserialized = 0;
+            st = serde.deserialize_column_from_json_vector(*deser_column, slices, &num_deserialized,
+                                                           option);
+            EXPECT_TRUE(st.ok()) << "Failed to deserialize column from json: " << st;
+            EXPECT_EQ(num_deserialized, row_count);
+            for (size_t j = 0; j != row_count; ++j) {
+                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+            }
+        }
+
+        {
+            // test write_column_to_pb/read_column_from_pb
+            PValues pv = PValues();
+            Status st = serde.write_column_to_pb(*source_column, pv, 0, row_count);
+            EXPECT_TRUE(st.ok()) << "Failed to write column to pb: " << st;
+
+            MutableColumnPtr deser_column = source_column->clone_empty();
+            const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
+            st = serde.read_column_from_pb(*deser_column, pv);
+            EXPECT_TRUE(st.ok()) << "Failed to read column from pb: " << st;
+            for (size_t j = 0; j != row_count; ++j) {
+                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+            }
+        }
+        {
+            // test write_one_cell_to_jsonb/read_one_cell_from_jsonb
+            JsonbWriterT<JsonbOutStream> jsonb_writer;
+            jsonb_writer.writeStartObject();
+            Arena pool;
+            DataTypeSerDe::FormatOptions options;
+            auto tz = cctz::utc_time_zone();
+            options.timezone = &tz;
+
+            for (size_t j = 0; j != row_count; ++j) {
+                serde.write_one_cell_to_jsonb(*source_column, jsonb_writer, pool, 0, j, options);
+            }
+            jsonb_writer.writeEndObject();
+
+            auto ser_col = ColumnString::create();
+            ser_col->reserve(row_count);
+            MutableColumnPtr deser_column = source_column->clone_empty();
+            const auto* deser_col_with_type = assert_cast<const ColumnType*>(deser_column.get());
+            const JsonbDocument* pdoc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_writer.getOutput()->getBuffer(),
+                                                            jsonb_writer.getOutput()->getSize(),
+                                                            &pdoc);
+            EXPECT_TRUE(st.ok()) << "Failed to create JsonbDocument: " << st;
+            const JsonbDocument& doc = *pdoc;
+            for (auto it = doc->begin(); it != doc->end(); ++it) {
+                serde.read_one_cell_from_jsonb(*deser_column, it->value());
+            }
+            for (size_t j = 0; j != row_count; ++j) {
+                EXPECT_EQ(deser_col_with_type->get_element(j), source_column->get_element(j));
+            }
+        }
+    };
+    test_func(*serde_datetime_v2_0, column_datetime_v2_0);
+    test_func(*serde_datetime_v2_5, column_datetime_v2_5);
+    test_func(*serde_datetime_v2_6, column_datetime_v2_6);
+    test_func(*serde_date_v2, column_date_v2);
+    test_func(*serde_time_v2_6, column_time_v2_6);
+    test_func(*serde_time_v2_5, column_time_v2_5);
+    test_func(*serde_time_v2_0, column_time_v2_0);
+}
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDate) {
+    // 1.Prepare the data.
+    std::vector<int32_t> dates = {0, 365, 1000, 5000, 10000};
+    const int64_t num_elements = dates.size();
+    const int64_t element_size = sizeof(int32_t);
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> data_storage(num_elements * element_size + 10);
+    uint8_t* unaligned_data = data_storage.data() + 1;
+
+    // 3.Copy data to unaligned memory
+    for (size_t i = 0; i < dates.size(); ++i) {
+        memcpy(unaligned_data + i * element_size, &dates[i], element_size);
+    }
+
+    // 4. Create Arrow array with unaligned memory
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+    auto arr = std::make_shared<arrow::Date32Array>(num_elements, unaligned_buffer);
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_EQ(address % 4, 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st = serde_date_v2->read_column_from_arrow(*column_date_v2, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
+}
+
+// Run with UBSan enabled to catch misalignment errors.
+TEST_F(DataTypeDateTimeV2SerDeTest, ArrowMemNotAlignedDateTime) {
+    // 1.Prepare the data.
+    std::vector<int64_t> timestamps = {0, 86400000000, 31536000000000, 100000000000, 500000000000};
+    const int64_t num_elements = timestamps.size();
+    const int64_t element_size = sizeof(int64_t);
+
+    // 2.Create an unaligned memory buffer.
+    std::vector<uint8_t> data_storage(num_elements * element_size + 10);
+    uint8_t* unaligned_data = data_storage.data() + 1;
+
+    // 3. Copy data to unaligned memory
+    for (size_t i = 0; i < timestamps.size(); ++i) {
+        memcpy(unaligned_data + i * element_size, &timestamps[i], element_size);
+    }
+
+    // 4. Create Arrow array with unaligned memory
+    auto unaligned_buffer = arrow::Buffer::Wrap(unaligned_data, num_elements * element_size);
+    auto timestamp_type = arrow::timestamp(arrow::TimeUnit::MICRO);
+    auto arr =
+            std::make_shared<arrow::TimestampArray>(timestamp_type, num_elements, unaligned_buffer);
+
+    const auto* raw_values_ptr = arr->raw_values();
+    uintptr_t address = reinterpret_cast<uintptr_t>(raw_values_ptr);
+    EXPECT_EQ(address % 4, 1);
+
+    // 5.Test read_column_from_arrow
+    cctz::time_zone tz;
+    auto st =
+            serde_datetime_v2_6->read_column_from_arrow(*column_datetime_v2_6, arr.get(), 0, 1, tz);
+    EXPECT_TRUE(st.ok());
+}
+
+} // namespace doris

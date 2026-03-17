@@ -17,7 +17,7 @@
 
 
 
-suite("test_hive_struct_add_column", "all_types,p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_struct_add_column", "p0,external") {
 
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")

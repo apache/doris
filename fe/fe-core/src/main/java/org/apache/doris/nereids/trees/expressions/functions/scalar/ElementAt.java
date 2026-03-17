@@ -52,6 +52,8 @@ public class ElementAt extends ScalarFunction
                     .args(ArrayType.of(new AnyDataType(0)), BigIntType.INSTANCE),
             FunctionSignature.ret(VariantType.INSTANCE)
                     .args(VariantType.INSTANCE, VarcharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(VariantType.INSTANCE)
+                    .args(VariantType.INSTANCE, BigIntType.INSTANCE),
             FunctionSignature.ret(new FollowToAnyDataType(1))
                     .args(MapType.of(new AnyDataType(0), new AnyDataType(1)), new FollowToAnyDataType(0))
     );

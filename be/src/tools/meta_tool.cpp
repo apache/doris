@@ -31,33 +31,33 @@
 #include <string>
 
 #include "common/status.h"
+#include "core/assert_cast.h"
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/decimal12.h"
+#include "core/field.h"
+#include "core/types.h"
+#include "core/value/large_int_value.h"
 #include "cpp/private_member_accessor.hpp"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
-#include "olap/data_dir.h"
-#include "olap/decimal12.h"
-#include "olap/olap_common.h"
-#include "olap/options.h"
-#include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/rowset/segment_v2/encoding_info.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_meta_manager.h"
-#include "olap/tablet_schema.h"
-#include "olap/types.h"
 #include "runtime/exec_env.h"
-#include "runtime/large_int_value.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "storage/data_dir.h"
+#include "storage/olap_common.h"
+#include "storage/options.h"
+#include "storage/segment/column_reader.h"
+#include "storage/segment/encoding_info.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_meta_manager.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/types.h"
 #include "util/coding.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/assert_cast.h"
-#include "vec/core/field.h"
-#include "vec/core/types.h"
-#include "vec/data_types/data_type_factory.hpp"
 
 using doris::DataDir;
 using doris::StorageEngine;
@@ -69,7 +69,7 @@ using doris::segment_v2::SegmentFooterPB;
 using doris::io::FileReaderSPtr;
 
 using namespace doris::segment_v2;
-using namespace doris::vectorized;
+using namespace doris;
 using namespace doris;
 
 DEFINE_string(root_path, "", "storage root path");
@@ -438,7 +438,7 @@ std::string get_compression_string(doris::segment_v2::CompressionTypePB compress
 }
 
 // Helper function to format a single value from a column
-std::string format_column_value(const doris::vectorized::IColumn& column, size_t row,
+std::string format_column_value(const doris::IColumn& column, size_t row,
                                 doris::FieldType field_type) {
     try {
         switch (field_type) {
@@ -624,7 +624,7 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
     }
 
     // Create destination column for reading data
-    auto data_type = doris::vectorized::DataTypeFactory::instance().create_data_type(column_meta);
+    auto data_type = doris::DataTypeFactory::instance().create_data_type(column_meta);
     if (!data_type) {
         std::cout << indent << "(Failed to create data type for field type "
                   << static_cast<int>(field_type) << ")" << std::endl;

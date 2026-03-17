@@ -47,19 +47,19 @@
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "olap/base_tablet.h"
-#include "olap/compaction.h"
-#include "olap/cumulative_compaction_time_series_policy.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_fwd.h"
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet_schema.h"
-#include "olap/txn_manager.h"
+#include "storage/compaction/compaction.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/olap_define.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_fwd.h"
+#include "storage/rowset/rowset_writer.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/base_tablet.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/txn/txn_manager.h"
 #include "util/debug_points.h"
 #include "util/stack_util.h"
 
@@ -1394,6 +1394,14 @@ Status CloudTablet::sync_meta() {
     if (_tablet_meta->tablet_schema()->disable_auto_compaction() != new_disable_auto_compaction) {
         _tablet_meta->mutable_tablet_schema()->set_disable_auto_compaction(
                 new_disable_auto_compaction);
+    }
+    // Sync vertical_compaction_num_columns_per_group
+    auto new_vertical_compaction_num_columns_per_group =
+            tablet_meta->vertical_compaction_num_columns_per_group();
+    if (_tablet_meta->vertical_compaction_num_columns_per_group() !=
+        new_vertical_compaction_num_columns_per_group) {
+        _tablet_meta->set_vertical_compaction_num_columns_per_group(
+                new_vertical_compaction_num_columns_per_group);
     }
 
     return Status::OK();

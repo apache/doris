@@ -25,11 +25,14 @@ import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.ExprToExternalSqlVisitor;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.JdbcTable;
@@ -37,25 +40,44 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalFunctionRules;
-import org.apache.doris.datasource.ExternalScanNode;
+import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TJdbcScanNode;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TOdbcTableType;
-import org.apache.doris.thrift.TPlanNode;
-import org.apache.doris.thrift.TPlanNodeType;
+import org.apache.doris.thrift.TTableFormatFileDesc;
 
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
-public class JdbcScanNode extends ExternalScanNode {
+/**
+ * JdbcScanNode extends FileQueryScanNode to integrate JDBC scanning into
+ * the unified FileScanner framework (FORMAT_JNI path).
+ *
+ * <p>This replaces the old ExternalScanNode-based JDBC_SCAN_NODE with:
+ * <pre>
+ *   FE: JdbcScanNode(extends FileQueryScanNode) → TFileScanRange(FORMAT_JNI)
+ *   BE: FileScanOperatorX → FileScanner → JdbcJniReader → JniConnector → JdbcJniScanner
+ * </pre>
+ *
+ * <p>All predicate push-down logic (createJdbcFilters, getJdbcQueryStr, etc.)
+ * is preserved from the original implementation.
+ */
+public class JdbcScanNode extends FileQueryScanNode {
 
     private final List<String> columns = new ArrayList<String>();
     private final List<String> filters = new ArrayList<String>();
@@ -69,8 +91,9 @@ public class JdbcScanNode extends ExternalScanNode {
     private JdbcTable tbl;
     private long catalogId;
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
-        super(id, desc, "JdbcScanNode", false);
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable, ScanContext scanContext) {
+        super(id, desc, "JdbcScanNode", scanContext, false,
+                ConnectContext.get() != null ? ConnectContext.get().getSessionVariable() : new SessionVariable());
         if (isJdbcExternalTable) {
             JdbcExternalTable jdbcExternalTable = (JdbcExternalTable) (desc.getTable());
             tbl = jdbcExternalTable.getJdbcTable();
@@ -81,8 +104,10 @@ public class JdbcScanNode extends ExternalScanNode {
         tableName = tbl.getProperRemoteFullTableName(jdbcType);
     }
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query) {
-        super(id, desc, "JdbcScanNode", false);
+    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isTableValuedFunction, String query,
+            ScanContext scanContext) {
+        super(id, desc, "JdbcScanNode", scanContext, false,
+                ConnectContext.get() != null ? ConnectContext.get().getSessionVariable() : new SessionVariable());
         this.isTableValuedFunction = isTableValuedFunction;
         this.query = query;
         tbl = (JdbcTable) desc.getTable();
@@ -91,15 +116,113 @@ public class JdbcScanNode extends ExternalScanNode {
         catalogId = tbl.getCatalogId();
     }
 
+    // ========= FileQueryScanNode abstract method implementations =========
 
-    /**
-     * Used for Nereids. Should NOT use this function in anywhere else.
-     */
     @Override
-    public void init() throws UserException {
-        super.init();
-        numNodes = numNodes <= 0 ? 1 : numNodes;
-        cardinality = -1;
+    public TFileFormatType getFileFormatType() {
+        return TFileFormatType.FORMAT_JNI;
+    }
+
+    @Override
+    public List<String> getPathPartitionKeys() {
+        // JDBC has no file path partitions
+        return Collections.emptyList();
+    }
+
+    @Override
+    public TableIf getTargetTable() {
+        return desc.getTable();
+    }
+
+    @Override
+    protected Map<String, String> getLocationProperties() {
+        // JDBC does not need storage location properties
+        return Collections.emptyMap();
+    }
+
+    @Override
+    public List<Split> getSplits(int numBackends) throws UserException {
+        // JDBC always produces a single split — the query cannot be partitioned
+        createJdbcColumns();
+        createJdbcFilters();
+
+        String querySql = isTableValuedFunction ? query : getJdbcQueryStr();
+
+        JdbcSplit split = new JdbcSplit(
+                querySql,
+                tbl.getJdbcUrl(),
+                tbl.getJdbcUser(),
+                tbl.getJdbcPasswd(),
+                tbl.getDriverClass(),
+                tbl.getDriverUrl(),
+                tbl.getCheckSum(),
+                tbl.getCatalogId(),
+                jdbcType,
+                tbl.getConnectionPoolMinSize(),
+                tbl.getConnectionPoolMaxSize(),
+                tbl.getConnectionPoolMaxWaitTime(),
+                tbl.getConnectionPoolMaxLifeTime(),
+                tbl.isConnectionPoolKeepAlive()
+        );
+
+        List<Split> splits = new ArrayList<>();
+        splits.add(split);
+        return splits;
+    }
+
+    @Override
+    protected void setScanParams(TFileRangeDesc rangeDesc, Split split) {
+        if (!(split instanceof JdbcSplit)) {
+            return;
+        }
+        JdbcSplit jdbcSplit = (JdbcSplit) split;
+
+        TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();
+        tableFormatFileDesc.setTableFormatType("jdbc");
+
+        // Build JDBC params map — these are passed to JdbcJniScanner via JniConnector
+        Map<String, String> jdbcParams = new HashMap<>();
+        jdbcParams.put("jdbc_url", jdbcSplit.getJdbcUrl());
+        jdbcParams.put("jdbc_user", jdbcSplit.getJdbcUser());
+        jdbcParams.put("jdbc_password", jdbcSplit.getJdbcPassword());
+        jdbcParams.put("jdbc_driver_class", jdbcSplit.getDriverClass());
+        jdbcParams.put("jdbc_driver_url", jdbcSplit.getDriverUrl());
+        jdbcParams.put("jdbc_driver_checksum", jdbcSplit.getDriverChecksum());
+        jdbcParams.put("query_sql", jdbcSplit.getQuerySql());
+        jdbcParams.put("catalog_id", String.valueOf(jdbcSplit.getCatalogId()));
+        jdbcParams.put("table_type", jdbcSplit.getTableType().name());
+        jdbcParams.put("connection_pool_min_size",
+                String.valueOf(jdbcSplit.getConnectionPoolMinSize()));
+        jdbcParams.put("connection_pool_max_size",
+                String.valueOf(jdbcSplit.getConnectionPoolMaxSize()));
+        jdbcParams.put("connection_pool_max_wait_time",
+                String.valueOf(jdbcSplit.getConnectionPoolMaxWaitTime()));
+        jdbcParams.put("connection_pool_max_life_time",
+                String.valueOf(jdbcSplit.getConnectionPoolMaxLifeTime()));
+        jdbcParams.put("connection_pool_keep_alive",
+                jdbcSplit.isConnectionPoolKeepAlive() ? "true" : "false");
+
+        tableFormatFileDesc.setJdbcParams(jdbcParams);
+        rangeDesc.setTableFormatParams(tableFormatFileDesc);
+    }
+
+    // ========= JDBC-specific query generation (preserved from original) =========
+
+    @Override
+    protected void doInitialize() throws UserException {
+        super.doInitialize();
+    }
+
+    @Override
+    protected void convertPredicate() {
+        // Predicate push-down is handled in getSplits() via createJdbcFilters()
+        // Nothing needed here since JDBC manages its own filter push-down
+    }
+
+    @Override
+    public int getNumInstances() {
+        // JDBC always uses a single instance — no parallelism at the data source
+        return 1;
     }
 
     private void createJdbcFilters() {
@@ -225,7 +348,8 @@ public class JdbcScanNode extends ExternalScanNode {
             output.append(prefix).append("QUERY: ").append(getJdbcQueryStr()).append("\n");
             if (!conjuncts.isEmpty()) {
                 Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-                output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+                output.append(prefix).append("PREDICATES: ")
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             }
         }
         if (useTopnFilter()) {
@@ -239,36 +363,12 @@ public class JdbcScanNode extends ExternalScanNode {
 
     @Override
     public void finalizeForNereids() throws UserException {
-        createJdbcColumns();
-        createJdbcFilters();
-        createScanRangeLocations();
+        // FileQueryScanNode.doFinalize() calls convertPredicate() + createScanRangeLocations()
+        // JDBC-specific predicate preparation (createJdbcColumns/Filters) happens in getSplits()
+        doFinalize();
     }
 
-    @Override
-    protected void createScanRangeLocations() throws UserException {
-        scanRangeLocations = Lists.newArrayList(createSingleScanRangeLocations(backendPolicy));
-    }
-
-    @Override
-    protected void toThrift(TPlanNode msg) {
-        msg.node_type = TPlanNodeType.JDBC_SCAN_NODE;
-        msg.jdbc_scan_node = new TJdbcScanNode();
-        msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
-        msg.jdbc_scan_node.setTableName(tableName);
-        if (isTableValuedFunction) {
-            msg.jdbc_scan_node.setQueryString(query);
-        } else {
-            msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
-        }
-        msg.jdbc_scan_node.setTableType(jdbcType);
-        msg.jdbc_scan_node.setIsTvf(isTableValuedFunction);
-        super.toThrift(msg);
-    }
-
-    @Override
-    public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
-    }
+    // ========= Static helper methods for predicate push-down =========
 
     private static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
         // Prevent pushing down expressions with NullLiteral to Oracle
@@ -331,15 +431,18 @@ public class JdbcScanNode extends ExternalScanNode {
 
         if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {
             ArrayList<Expr> children = expr.getChildren();
-            String filter = children.get(0).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+            ToSqlParams params = new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl);
+            String filter = children.get(0).accept(ExprToExternalSqlVisitor.INSTANCE, params);
             filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
 
             if (tableType.equals(TOdbcTableType.ORACLE)) {
                 filter += handleOracleDateFormat(children.get(1), tbl);
             } else if (tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO)) {
                 filter += handleTrinoDateFormat(children.get(1), tbl);
+            } else if (tableType.equals(TOdbcTableType.SQLSERVER)) {
+                filter += handleSQLServerDateFormat(children.get(1), tbl);
             } else {
-                filter += children.get(1).toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+                filter += children.get(1).accept(ExprToExternalSqlVisitor.INSTANCE, params);
             }
 
             return filter;
@@ -348,7 +451,8 @@ public class JdbcScanNode extends ExternalScanNode {
         if (expr.contains(DateLiteral.class) && expr instanceof InPredicate) {
             InPredicate inPredicate = (InPredicate) expr;
             Expr leftChild = inPredicate.getChild(0);
-            String filter = leftChild.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+            ToSqlParams params = new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl);
+            String filter = leftChild.accept(ExprToExternalSqlVisitor.INSTANCE, params);
 
             if (inPredicate.isNotIn()) {
                 filter += " NOT";
@@ -362,8 +466,10 @@ public class JdbcScanNode extends ExternalScanNode {
                     inItemStrings.add(handleOracleDateFormat(inItem, tbl));
                 } else if (tableType.equals(TOdbcTableType.TRINO) || tableType.equals(TOdbcTableType.PRESTO)) {
                     inItemStrings.add(handleTrinoDateFormat(inItem, tbl));
+                } else if (tableType.equals(TOdbcTableType.SQLSERVER)) {
+                    inItemStrings.add(handleSQLServerDateFormat(inItem, tbl));
                 } else {
-                    inItemStrings.add(inItem.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl));
+                    inItemStrings.add(inItem.accept(ExprToExternalSqlVisitor.INSTANCE, params));
                 }
             }
 
@@ -378,7 +484,8 @@ public class JdbcScanNode extends ExternalScanNode {
             return "1 = 1";
         }
 
-        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
     }
 
     private static String handleOracleDateFormat(Expr expr, TableIf tbl) {
@@ -395,7 +502,8 @@ public class JdbcScanNode extends ExternalScanNode {
             // Regular datetime without fractional seconds
             return "to_date('" + dateStr + "', 'yyyy-mm-dd hh24:mi:ss')";
         }
-        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
     }
 
     @NotNull
@@ -422,7 +530,24 @@ public class JdbcScanNode extends ExternalScanNode {
                 return "timestamp '" + expr.getStringValue() + "'";
             }
         }
-        return expr.toExternalSql(TableType.JDBC_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
+    }
+
+    private static String handleSQLServerDateFormat(Expr expr, TableIf tbl) {
+        if (expr.isConstant()) {
+            if (expr.getType().isDatetime() || expr.getType().isDatetimeV2()) {
+                // Use CONVERT with style 121 (ODBC canonical: yyyy-mm-dd hh:mi:ss.mmm)
+                // which is language-independent and handles fractional seconds
+                return "CONVERT(DATETIME, '" + expr.getStringValue() + "', 121)";
+            } else if (expr.getType().isDate() || expr.getType().isDateV2()) {
+                // Use CONVERT with style 23 (ISO8601: yyyy-mm-dd)
+                // which is language-independent
+                return "CONVERT(DATE, '" + expr.getStringValue() + "', 23)";
+            }
+        }
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, tbl));
     }
 
     private static boolean containsNullLiteral(Expr expr) {

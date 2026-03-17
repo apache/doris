@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "jsonb_document.h"
+#include "util/jsonb_document.h"
 
 #include <memory>
 #include <string>

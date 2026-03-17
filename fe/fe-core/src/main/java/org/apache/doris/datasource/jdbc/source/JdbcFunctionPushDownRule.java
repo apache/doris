@@ -18,9 +18,11 @@
 package org.apache.doris.datasource.jdbc.source;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToExternalSqlVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.TimestampArithmeticExpr;
+import org.apache.doris.analysis.ToSqlParams;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.ExternalFunctionRules;
@@ -126,8 +128,9 @@ public class JdbcFunctionPushDownRule {
             // 1. check can push down
             if (!functionRules.getFunctionPushDownRule().canPushDown(func)) {
                 if (LOG.isDebugEnabled()) {
-                    String errMsg = "Unsupported function: " + func + " in expr: " + expr.toExternalSql(
-                            TableType.JDBC_EXTERNAL_TABLE, null)
+                    String errMsg = "Unsupported function: " + func + " in expr: "
+                            + expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                                    new ToSqlParams(false, true, TableType.JDBC_EXTERNAL_TABLE, null))
                             + " in JDBC Table Type: " + tableType;
                     LOG.debug(errMsg);
                 }

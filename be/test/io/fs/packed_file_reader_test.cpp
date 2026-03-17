@@ -33,6 +33,7 @@ namespace doris::io {
 using doris::Status;
 
 // Mock FileReader for testing PackedFileReader
+namespace {
 class MockFileReader : public FileReader {
 public:
     explicit MockFileReader(std::string content) : _content(std::move(content)) {}
@@ -48,15 +49,9 @@ public:
 
     bool closed() const override { return _closed; }
 
-    void set_read_status(Status st) { _read_status = std::move(st); }
-
 protected:
     Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                         const IOContext* /*io_ctx*/) override {
-        if (!_read_status.ok()) {
-            return _read_status;
-        }
-
         if (offset >= _content.size()) {
             *bytes_read = 0;
             return Status::OK();
@@ -75,8 +70,8 @@ private:
     Path _path = Path("mock_file");
     std::string _content;
     bool _closed = false;
-    Status _read_status = Status::OK();
 };
+} // anonymous namespace
 
 // Test fixture for PackedFileReader
 class PackedFileReaderTest : public testing::Test {

@@ -30,14 +30,14 @@
 #include <utility>
 
 #include "arrow/type_fwd.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
+#include "exec/sink/writer/vmysql_result_writer.h"
 #include "runtime/result_block_buffer.h"
-#include "util/doris_metrics.h"
-#include "util/metrics.h"
 #include "util/thread.h"
 #include "util/uid_util.h"
-#include "vec/sink/varrow_flight_result_writer.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 
@@ -84,11 +84,10 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
     std::shared_ptr<ResultBlockBufferBase> control_block = nullptr;
 
     if (arrow_flight) {
-        control_block = std::make_shared<vectorized::ArrowFlightResultBlockBuffer>(
-                unique_id, state, schema, buffer_size);
+        control_block = std::make_shared<ArrowFlightResultBlockBuffer>(unique_id, state, schema,
+                                                                       buffer_size);
     } else {
-        control_block =
-                std::make_shared<vectorized::MySQLResultBlockBuffer>(unique_id, state, buffer_size);
+        control_block = std::make_shared<MySQLResultBlockBuffer>(unique_id, state, buffer_size);
     }
 
     {
@@ -186,10 +185,9 @@ void ResultBufferMgr::cancel_thread() {
 }
 
 template Status ResultBufferMgr::find_buffer(
-        const TUniqueId& finst_id,
-        std::shared_ptr<doris::vectorized::ArrowFlightResultBlockBuffer>& buffer);
+        const TUniqueId& finst_id, std::shared_ptr<doris::ArrowFlightResultBlockBuffer>& buffer);
 template Status ResultBufferMgr::find_buffer(
         const TUniqueId& finst_id,
-        std::shared_ptr<doris::ResultBlockBuffer<doris::vectorized::GetResultBatchCtx>>& buffer);
+        std::shared_ptr<doris::ResultBlockBuffer<doris::GetResultBatchCtx>>& buffer);
 
 } // namespace doris

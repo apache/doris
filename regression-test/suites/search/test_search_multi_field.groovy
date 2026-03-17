@@ -22,16 +22,19 @@
  * This is similar to Elasticsearch's query_string 'fields' parameter.
  *
  * Example:
- *   search('hello', '{"fields":["title","content"]}')
+ *   search('hello', '{"mode":"standard","fields":["title","content"]}')
  *   -> Equivalent to: (title:hello OR content:hello)
  *
- *   search('hello world', '{"fields":["title","content"],"default_operator":"and"}')
+ *   search('hello world', '{"mode":"standard","fields":["title","content"],"default_operator":"and"}')
  *   -> Equivalent to: (title:hello OR content:hello) AND (title:world OR content:world)
  *
  * Multi-field search can also be combined with Lucene mode for MUST/SHOULD/MUST_NOT semantics.
  */
-suite("test_search_multi_field") {
+suite("test_search_multi_field", "p0") {
     def tableName = "search_multi_field_test"
+
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -77,7 +80,7 @@ suite("test_search_multi_field") {
     qt_multi_field_single_term """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine', '{"fields":["title","content"]}')
+        WHERE search('machine', '{"mode":"standard","fields":["title","content"]}')
         ORDER BY id
     """
 
@@ -89,7 +92,7 @@ suite("test_search_multi_field") {
     qt_multi_field_multi_term_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","type":"cross_fields"}')
+        WHERE search('machine learning', '{"mode":"standard","fields":["title","content"],"default_operator":"and","type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -107,7 +110,7 @@ suite("test_search_multi_field") {
     qt_multi_field_multi_term_or """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"or"}')
+        WHERE search('machine learning', '{"mode":"standard","fields":["title","content"],"default_operator":"or"}')
         ORDER BY id
     """
 
@@ -116,7 +119,7 @@ suite("test_search_multi_field") {
     qt_multi_field_explicit_and """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND learning', '{"fields":["title","content"],"type":"cross_fields"}')
+        WHERE search('machine AND learning', '{"mode":"standard","fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -124,7 +127,7 @@ suite("test_search_multi_field") {
     qt_multi_field_mixed """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, category
         FROM ${tableName}
-        WHERE search('machine AND category:tech', '{"fields":["title","content"],"type":"cross_fields"}')
+        WHERE search('machine AND category:tech', '{"mode":"standard","fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -132,7 +135,7 @@ suite("test_search_multi_field") {
     qt_three_fields """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('ai', '{"fields":["title","content","tags"]}')
+        WHERE search('ai', '{"mode":"standard","fields":["title","content","tags"]}')
         ORDER BY id
     """
 
@@ -140,7 +143,7 @@ suite("test_search_multi_field") {
     qt_multi_field_wildcard """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('learn*', '{"fields":["title","content","tags"]}')
+        WHERE search('learn*', '{"mode":"standard","fields":["title","content","tags"]}')
         ORDER BY id
     """
 
@@ -148,7 +151,7 @@ suite("test_search_multi_field") {
     qt_multi_field_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine AND NOT cooking', '{"fields":["title","content"],"type":"cross_fields"}')
+        WHERE search('machine AND NOT cooking', '{"mode":"standard","fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -156,7 +159,7 @@ suite("test_search_multi_field") {
     qt_multi_field_complex """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('(machine OR ai) AND NOT cooking', '{"fields":["title","content"],"type":"cross_fields"}')
+        WHERE search('(machine OR ai) AND NOT cooking', '{"mode":"standard","fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -164,7 +167,7 @@ suite("test_search_multi_field") {
     qt_single_field_array """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine', '{"fields":["title"]}')
+        WHERE search('machine', '{"mode":"standard","fields":["title"]}')
         ORDER BY id
     """
 
@@ -185,7 +188,7 @@ suite("test_search_multi_field") {
     qt_multi_field_cross_fields_verify """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title, content
         FROM ${tableName}
-        WHERE search('machine AND learning', '{"fields":["title","content"],"type":"cross_fields"}')
+        WHERE search('machine AND learning', '{"mode":"standard","fields":["title","content"],"type":"cross_fields"}')
         ORDER BY id
     """
 
@@ -227,7 +230,7 @@ suite("test_search_multi_field") {
     qt_compare_default_field """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine', '{"default_field":"title"}')
+        WHERE search('machine', '{"mode":"standard","default_field":"title"}')
         ORDER BY id
     """
 
@@ -235,7 +238,7 @@ suite("test_search_multi_field") {
     qt_compare_fields_single """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine', '{"fields":["title"]}')
+        WHERE search('machine', '{"mode":"standard","fields":["title"]}')
         ORDER BY id
     """
 
@@ -243,7 +246,7 @@ suite("test_search_multi_field") {
     qt_multi_field_exact """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('EXACT(machine learning)', '{"fields":["title","content"]}')
+        WHERE search('EXACT(machine learning)', '{"mode":"standard","fields":["title","content"]}')
         ORDER BY id
     """
 
@@ -251,7 +254,7 @@ suite("test_search_multi_field") {
     qt_multi_field_any """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('ANY(machine cooking)', '{"fields":["title","content"]}')
+        WHERE search('ANY(machine cooking)', '{"mode":"standard","fields":["title","content"]}')
         ORDER BY id
     """
 
@@ -262,7 +265,7 @@ suite("test_search_multi_field") {
     qt_multi_field_best_fields_default """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and"}')
+        WHERE search('machine learning', '{"mode":"standard","fields":["title","content"],"default_operator":"and"}')
         ORDER BY id
     """
 
@@ -272,11 +275,13 @@ suite("test_search_multi_field") {
     qt_multi_field_cross_fields """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
-        WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","type":"cross_fields"}')
+        WHERE search('machine learning', '{"mode":"standard","fields":["title","content"],"default_operator":"and","type":"cross_fields"}')
         ORDER BY id
     """
 
     // ============ Test 21: best_fields with Lucene mode ============
+    // In lucene mode, best_fields uses per-clause expansion (matching ES query_string),
+    // so id=1 and id=9 both match (terms can be across different fields)
     qt_multi_field_best_fields_lucene """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}
@@ -290,6 +295,36 @@ suite("test_search_multi_field") {
         FROM ${tableName}
         WHERE search('machine learning', '{"fields":["title","content"],"default_operator":"and","mode":"lucene","type":"cross_fields"}')
         ORDER BY id
+    """
+
+    // ============ Test 23: MATCH_ALL_DOCS (*) with best_fields + lucene mode ============
+    // Regression test for DORIS-24536: search('*', ...) with multi-field should not error
+    // "*" is a match-all query that should return all rows
+    qt_multi_field_match_all_best_fields """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"fields":["title","content"],"type":"best_fields","default_operator":"AND","mode":"lucene","minimum_should_match":0}')
+    """
+
+    // ============ Test 24: MATCH_ALL_DOCS (*) with cross_fields + lucene mode ============
+    qt_multi_field_match_all_cross_fields """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"fields":["title","content"],"type":"cross_fields","default_operator":"AND","mode":"lucene","minimum_should_match":0}')
+    """
+
+    // ============ Test 25: MATCH_ALL_DOCS (*) with single default_field + lucene mode ============
+    qt_match_all_single_field """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"default_field":"title","default_operator":"AND","mode":"lucene","minimum_should_match":0}')
+    """
+
+    // ============ Test 26: MATCH_ALL_DOCS (*) with best_fields standard mode (no lucene) ============
+    qt_multi_field_match_all_standard """
+        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ count(*)
+        FROM ${tableName}
+        WHERE search('*', '{"mode":"standard","fields":["title","content"],"type":"best_fields","default_operator":"AND"}')
     """
 
     // Cleanup

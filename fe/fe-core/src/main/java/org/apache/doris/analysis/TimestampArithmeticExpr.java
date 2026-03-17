@@ -20,15 +20,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.ErrorCode;
-import org.apache.doris.common.ErrorReport;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
@@ -100,11 +93,6 @@ public class TimestampArithmeticExpr extends Expr {
                 Lists.newArrayList(e1.getType(), e2.getType()), dataType,
                 false, true, NullableMode.DEPEND_ON_ARGUMENT);
         this.nullable = nullable;
-        try {
-            opcode = getOpCode();
-        } catch (AnalysisException e) {
-            throw new RuntimeException(e);
-        }
     }
 
     protected TimestampArithmeticExpr(TimestampArithmeticExpr other) {
@@ -121,146 +109,29 @@ public class TimestampArithmeticExpr extends Expr {
         return new TimestampArithmeticExpr(this);
     }
 
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.COMPUTE_FUNCTION_CALL;
-        msg.setOpcode(opcode);
+    public String getFuncName() {
+        return funcName;
     }
 
-    private TExprOpcode getOpCode() throws AnalysisException {
-        // Select appropriate opcode based on op and timeUnit.
-        switch (timeUnit) {
-            case YEAR: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_YEARS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_YEARS_SUB;
-                }
-            }
-            case MONTH: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_MONTHS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_MONTHS_SUB;
-                }
-            }
-            case WEEK: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_WEEKS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_WEEKS_SUB;
-                }
-            }
-            case DAY: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_DAYS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_DAYS_SUB;
-                }
-            }
-            case HOUR: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_HOURS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_HOURS_SUB;
-                }
-            }
-            case MINUTE: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_MINUTES_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_MINUTES_SUB;
-                }
-            }
-            case SECOND: {
-                if (op == Operator.ADD) {
-                    return TExprOpcode.TIMESTAMP_SECONDS_ADD;
-                } else {
-                    return TExprOpcode.TIMESTAMP_SECONDS_SUB;
-                }
-            }
-            default: {
-                ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_TIMEUNIT, timeUnit);
-            }
-        }
-        return null;
+    public String getTimeUnitIdent() {
+        return timeUnitIdent;
+    }
+
+    public boolean isIntervalFirst() {
+        return intervalFirst;
+    }
+
+    public Operator getOp() {
+        return op;
+    }
+
+    public TimeUnit getTimeUnit() {
+        return timeUnit;
     }
 
     @Override
-    public String toSqlImpl() {
-        StringBuilder strBuilder = new StringBuilder();
-        if (funcName != null) {
-            if (funcName.equalsIgnoreCase("TIMESTAMPDIFF") || funcName.equalsIgnoreCase("TIMESTAMPADD")) {
-                strBuilder.append(funcName).append("(");
-                strBuilder.append(timeUnitIdent).append(", ");
-                strBuilder.append(getChild(1).toSql()).append(", ");
-                strBuilder.append(getChild(0).toSql()).append(")");
-                return strBuilder.toString();
-            }
-            // Function-call like version.
-            strBuilder.append(funcName).append("(");
-            strBuilder.append(getChild(0).toSql()).append(", ");
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toSql());
-            strBuilder.append(" ").append(timeUnitIdent);
-            strBuilder.append(")");
-            return strBuilder.toString();
-        }
-        if (intervalFirst) {
-            // Non-function-call like version with interval as first operand.
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toSql() + " ");
-            strBuilder.append(timeUnitIdent);
-            strBuilder.append(" ").append(op.toString()).append(" ");
-            strBuilder.append(getChild(0).toSql());
-        } else {
-            // Non-function-call like version with interval as second operand.
-            strBuilder.append(getChild(0).toSql());
-            strBuilder.append(" " + op.toString() + " ");
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toSql() + " ");
-            strBuilder.append(timeUnitIdent);
-        }
-        return strBuilder.toString();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        StringBuilder strBuilder = new StringBuilder();
-        if (funcName != null) {
-            if (funcName.equalsIgnoreCase("TIMESTAMPDIFF") || funcName.equalsIgnoreCase("TIMESTAMPADD")) {
-                strBuilder.append(funcName).append("(");
-                strBuilder.append(timeUnitIdent).append(", ");
-                strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table)).append(", ");
-                strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table)).append(")");
-                return strBuilder.toString();
-            }
-            // Function-call like version.
-            strBuilder.append(funcName).append("(");
-            strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table)).append(", ");
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table));
-            strBuilder.append(" ").append(timeUnitIdent);
-            strBuilder.append(")");
-            return strBuilder.toString();
-        }
-        if (intervalFirst) {
-            // Non-function-call like version with interval as first operand.
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + " ");
-            strBuilder.append(timeUnitIdent);
-            strBuilder.append(" ").append(op.toString()).append(" ");
-            strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table));
-        } else {
-            // Non-function-call like version with interval as second operand.
-            strBuilder.append(getChild(0).toSql(disableTableName, needExternalSql, tableType, table));
-            strBuilder.append(" " + op.toString() + " ");
-            strBuilder.append("INTERVAL ");
-            strBuilder.append(getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + " ");
-            strBuilder.append(timeUnitIdent);
-        }
-        return strBuilder.toString();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitTimestampArithmeticExpr(this, context);
     }
 
     // Time units supported in timestamp arithmetic.

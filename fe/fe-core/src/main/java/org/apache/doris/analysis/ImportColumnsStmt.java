@@ -29,9 +29,4 @@ public class ImportColumnsStmt extends StatementBase {
     public List<ImportColumnDesc> getColumns() {
         return columns;
     }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return null;
-    }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -47,6 +47,7 @@ public class COSProperties extends AbstractS3CompatibleProperties {
     @Setter
     @ConnectorProperty(names = {"cos.region", "s3.region", "AWS_REGION", "region", "REGION"},
             required = false,
+            isRegionField = true,
             description = "The region of COS.")
     protected String region = "";
 

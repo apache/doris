@@ -20,12 +20,12 @@
 #include <gen_cpp/BackendService_types.h>
 #include <gtest/gtest.h>
 
-#include "pipeline/task_scheduler.h"
+#include "exec/pipeline/task_scheduler.h"
+#include "exec/scan/scanner_scheduler.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_management/resource_context.h"
 #include "runtime/workload_management/workload_condition.h"
 #include "util/threadpool.h"
-#include "vec/exec/scan/scanner_scheduler.h"
 
 namespace doris {
 

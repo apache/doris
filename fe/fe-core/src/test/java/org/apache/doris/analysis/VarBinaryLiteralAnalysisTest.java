@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TVarBinaryLiteral;
@@ -37,7 +37,7 @@ public class VarBinaryLiteralAnalysisTest {
     @Test
     public void testToSqlFormat() throws Exception {
         VarBinaryLiteral lit = new VarBinaryLiteral(bytes("hello"));
-        Assertions.assertEquals("X'68656C6C6F'", lit.toSql());
+        Assertions.assertEquals("X'68656C6C6F'", lit.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -55,7 +55,7 @@ public class VarBinaryLiteralAnalysisTest {
     public void testToThrift() throws Exception {
         VarBinaryLiteral lit = new VarBinaryLiteral(new byte[] { 'a', 0x00, 'b' });
         TExprNode node = new TExprNode();
-        lit.toThrift(node);
+        lit.accept(ExprToThriftVisitor.INSTANCE, node);
         Assertions.assertEquals(TExprNodeType.VARBINARY_LITERAL, node.node_type);
         TVarBinaryLiteral v = node.getVarbinaryLiteral();
         Assertions.assertNotNull(v);
@@ -87,7 +87,7 @@ public class VarBinaryLiteralAnalysisTest {
         Assertions.assertNotSame(a, b);
         Assertions.assertEquals(a.getStringValue(), b.getStringValue());
         TExprNode node = new TExprNode();
-        b.toThrift(node);
+        b.accept(ExprToThriftVisitor.INSTANCE, node);
         Assertions.assertEquals(TExprNodeType.VARBINARY_LITERAL, node.node_type);
     }
 }

@@ -21,7 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -139,27 +139,30 @@ public class HdfsStorageVault extends StorageVault {
             Status st = dfsFileSystem.makeDir(remotePath);
             if (st != Status.OK) {
                 throw new DdlException(
-                        "checkConnectivity(makeDir) failed, status: " + st + ", properties: " + new PrintableMap<>(
+                        "checkConnectivity(makeDir) failed, status: " + st
+                                + ", properties: " + new DatasourcePrintableMap<>(
                                 newProperties, "=", true, false, true, false));
             }
 
             st = dfsFileSystem.exists(remotePath);
             if (st != Status.OK) {
                 throw new DdlException(
-                        "checkConnectivity(exist) failed, status: " + st + ", properties: " + new PrintableMap<>(
+                        "checkConnectivity(exist) failed, status: " + st
+                                + ", properties: " + new DatasourcePrintableMap<>(
                                 newProperties, "=", true, false, true, false));
             }
 
             st = dfsFileSystem.delete(remotePath);
             if (st != Status.OK) {
                 throw new DdlException(
-                        "checkConnectivity(exist) failed, status: " + st + ", properties: " + new PrintableMap<>(
+                        "checkConnectivity(exist) failed, status: " + st
+                                + ", properties: " + new DatasourcePrintableMap<>(
                                 newProperties, "=", true, false, true, false));
             }
         } catch (IOException e) {
-            LOG.warn("checkConnectivity failed, properties:{}", new PrintableMap<>(
+            LOG.warn("checkConnectivity failed, properties:{}", new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
-            throw new DdlException("checkConnectivity failed, properties: " + new PrintableMap<>(
+            throw new DdlException("checkConnectivity failed, properties: " + new DatasourcePrintableMap<>(
                     newProperties, "=", true, false, true, false), e);
         }
     }

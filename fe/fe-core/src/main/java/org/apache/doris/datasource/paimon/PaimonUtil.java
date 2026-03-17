@@ -51,6 +51,7 @@ import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.data.InternalRow;
 import org.apache.paimon.data.Timestamp;
 import org.apache.paimon.data.serializer.InternalRowSerializer;
+import org.apache.paimon.io.DataOutputViewStreamWrapper;
 import org.apache.paimon.options.ConfigOption;
 import org.apache.paimon.partition.Partition;
 import org.apache.paimon.predicate.Predicate;
@@ -60,6 +61,7 @@ import org.apache.paimon.table.DataTable;
 import org.apache.paimon.table.FileStoreTable;
 import org.apache.paimon.table.SpecialFields;
 import org.apache.paimon.table.Table;
+import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.ReadBuilder;
 import org.apache.paimon.tag.Tag;
 import org.apache.paimon.types.ArrayType;
@@ -78,6 +80,7 @@ import org.apache.paimon.utils.Pair;
 import org.apache.paimon.utils.Projection;
 import org.apache.paimon.utils.RowDataToObjectArrayConverter;
 
+import java.io.ByteArrayOutputStream;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.time.DateTimeException;
@@ -102,9 +105,18 @@ public class PaimonUtil {
     private static final String SYS_TABLE_TYPE_AUDIT_LOG = "audit_log";
     private static final String SYS_TABLE_TYPE_BINLOG = "binlog";
     private static final String TABLE_READ_SEQUENCE_NUMBER_ENABLED = "table-read.sequence-number.enabled";
+    private static final String PARTITION_LEGACY_NAME = "partition.legacy-name";
 
     public static boolean isDigitalString(String value) {
         return value != null && DIGITAL_REGEX.matcher(value).matches();
+    }
+
+    /**
+     * Extract the legacy partition name configuration from Paimon table options.
+     */
+    public static boolean isLegacyPartitionName(Table paimonTable) {
+        return Boolean.parseBoolean(
+                paimonTable.options().getOrDefault(PARTITION_LEGACY_NAME, "true"));
     }
 
     public static List<InternalRow> read(
@@ -138,7 +150,7 @@ public class PaimonUtil {
     }
 
     public static PaimonPartitionInfo generatePartitionInfo(List<Column> partitionColumns,
-            List<Partition> paimonPartitions) {
+            List<Partition> paimonPartitions, boolean legacyPartitionName) {
 
         if (CollectionUtils.isEmpty(partitionColumns) || paimonPartitions.isEmpty()) {
             return PaimonPartitionInfo.EMPTY;
@@ -158,8 +170,11 @@ public class PaimonUtil {
             StringBuilder sb = new StringBuilder();
             for (Map.Entry<String, String> entry : spec.entrySet()) {
                 sb.append(entry.getKey()).append("=");
-                // Paimon stores DATE type as days since 1970-01-01 (epoch), so we convert the integer to a date string.
-                if (columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
+                // When partition.legacy-name = true (default), Paimon stores DATE type as days since
+                // 1970-01-01 (epoch integer), so we need to convert the integer to a date string.
+                // When partition.legacy-name = false, the value is already a human read date string.
+                if (legacyPartitionName
+                        && columnNameToType.getOrDefault(entry.getKey(), Type.NULL).isDateV2()) {
                     sb.append(DateTimeUtils.formatDate(Integer.parseInt(entry.getValue()))).append("/");
                 } else {
                     sb.append(entry.getValue()).append("/");
@@ -509,6 +524,23 @@ public class PaimonUtil {
         }
     }
 
+    /**
+     * Serialize DataSplit using Paimon's native binary format.
+     * This format is compatible with paimon-cpp reader.
+     * Uses standard Base64 encoding (not URL-safe) for BE compatibility.
+     */
+    public static String encodeDataSplitToString(DataSplit split) {
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            DataOutputViewStreamWrapper out = new DataOutputViewStreamWrapper(baos);
+            split.serialize(out);
+            byte[] bytes = baos.toByteArray();
+            return Base64.getEncoder().encodeToString(bytes);
+        } catch (IOException e) {
+            throw new RuntimeException("Failed to serialize DataSplit using Paimon native format", e);
+        }
+    }
+
     public static Map<String, String> getPartitionInfoMap(Table table, BinaryRow partitionValues, String timeZone) {
         Map<String, String> partitionInfoMap = new HashMap<>();
         List<String> partitionKeys = table.partitionKeys();
@@ -545,7 +577,8 @@ public class PaimonUtil {
                     return null;
                 }
                 return value.toString();
-            // case binary, varbinary should not supported, because if return string with utf8,
+            // case binary:
+            // case varbinary: should not supported, because if return string with utf8,
             // the data maybe be corrupted
             case DATE:
                 if (value == null) {

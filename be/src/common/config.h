@@ -56,6 +56,25 @@
     static RegisterConfValidator reg_validator_##FIELD_NAME( \
             #FIELD_NAME, []() -> bool { return validator_##FIELD_NAME(FIELD_NAME); });
 
+// DEFINE_ON_UPDATE macro is used to register a callback function that will be called
+// when the config field is updated at runtime.
+// The callback function signature is: void callback(T old_value, T new_value)
+// where T is the type of the config field.
+// Example:
+//   DEFINE_ON_UPDATE(my_config, [](int64_t old_val, int64_t new_val) {
+//       LOG(INFO) << "my_config changed from " << old_val << " to " << new_val;
+//   });
+#define DEFINE_ON_UPDATE_IMPL(FIELD_NAME, CALLBACK)                               \
+    static auto on_update_callback_##FIELD_NAME = CALLBACK;                       \
+    static RegisterConfUpdateCallback reg_update_callback_##FIELD_NAME(           \
+            #FIELD_NAME, [](const void* old_ptr, const void* new_ptr) {           \
+                on_update_callback_##FIELD_NAME(                                  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(old_ptr),  \
+                        *reinterpret_cast<const decltype(FIELD_NAME)*>(new_ptr)); \
+            });
+
+#define DEFINE_ON_UPDATE(name, callback) DEFINE_ON_UPDATE_IMPL(name, callback)
+
 #define DEFINE_Int16(name, defaultstr) DEFINE_FIELD(int16_t, name, defaultstr, false)
 #define DEFINE_Bools(name, defaultstr) DEFINE_FIELD(std::vector<bool>, name, defaultstr, false)
 #define DEFINE_Doubles(name, defaultstr) DEFINE_FIELD(std::vector<double>, name, defaultstr, false)
@@ -1171,6 +1190,8 @@ DECLARE_String(python_venv_root_path);
 DECLARE_String(python_venv_interpreter_paths);
 // max python processes in global shared pool, each version can have up to this many processes
 DECLARE_mInt32(max_python_process_num);
+// Memory limit in bytes for all Python UDF processes; warning is logged when exceeded
+DECLARE_mInt64(python_udf_processes_memory_limit_bytes);
 
 // Set config randomly to check more issues in github workflow
 DECLARE_Bool(enable_fuzzy_mode);
@@ -1394,6 +1415,13 @@ DECLARE_mBool(variant_throw_exeception_on_invalid_json);
 // Enable vertical compact subcolumns of variant column
 DECLARE_mBool(enable_vertical_compact_variant_subcolumns);
 DECLARE_mBool(enable_variant_doc_sparse_write_subcolumns);
+// Maximum depth of nested arrays to track with NestedGroup
+// Reserved for future use when NestedGroup expansion moves to storage layer
+DECLARE_mInt32(variant_nested_group_max_depth);
+// When true, discard scalar data that conflicts with NestedGroup array<object>
+// data at the same path. This simplifies compaction by always prioritizing
+// nested structure over scalar. When false, report an error on conflict.
+DECLARE_mBool(variant_nested_group_discard_scalar_on_conflict);
 
 DECLARE_mBool(enable_merge_on_write_correctness_check);
 // USED FOR DEBUGING
@@ -1479,6 +1507,7 @@ DECLARE_String(doris_cgroup_cpu_path);
 DECLARE_mBool(enable_be_proc_monitor);
 DECLARE_mInt32(be_proc_monitor_interval_ms);
 DECLARE_Int32(workload_group_metrics_interval_ms);
+DECLARE_Int32(workload_policy_check_interval_ms);
 
 // This config controls whether the s3 file writer would flush cache asynchronously
 DECLARE_Bool(enable_flush_file_cache_async);
@@ -1539,8 +1568,6 @@ DECLARE_mBool(check_segment_when_build_rowset_meta);
 
 DECLARE_Int32(num_query_ctx_map_partitions);
 
-DECLARE_mBool(force_azure_blob_global_endpoint);
-
 DECLARE_mBool(enable_s3_rate_limiter);
 DECLARE_mInt64(s3_get_bucket_tokens);
 DECLARE_mInt64(s3_get_token_per_second);
@@ -1559,6 +1586,7 @@ DECLARE_mInt32(max_s3_client_retry);
 DECLARE_mInt32(s3_read_base_wait_time_ms);
 DECLARE_mInt32(s3_read_max_wait_time_ms);
 DECLARE_mBool(enable_s3_object_check_after_upload);
+DECLARE_mInt32(aws_client_request_timeout_ms);
 
 // write as inverted index tmp directory
 DECLARE_String(tmp_file_dir);
@@ -1823,6 +1851,26 @@ public:
         }
         // register validator to _s_field_validator
         _s_field_validator->insert(std::make_pair(std::string(fname), validator));
+    }
+};
+
+// RegisterConfUpdateCallback class is used to store callback functions that will be called
+// when a config field is updated at runtime.
+// The callback function takes two void pointers: old_value and new_value.
+// The actual type casting is done in the DEFINE_ON_UPDATE macro.
+class RegisterConfUpdateCallback {
+public:
+    using CallbackFunc = std::function<void(const void* old_ptr, const void* new_ptr)>;
+    // Callback map for each config name.
+    static std::map<std::string, CallbackFunc>* _s_field_update_callback;
+
+public:
+    RegisterConfUpdateCallback(const char* fname, const CallbackFunc& callback) {
+        if (_s_field_update_callback == nullptr) {
+            _s_field_update_callback = new std::map<std::string, CallbackFunc>();
+        }
+        // register callback to _s_field_update_callback
+        _s_field_update_callback->insert(std::make_pair(std::string(fname), callback));
     }
 };
 

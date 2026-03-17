@@ -28,10 +28,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exec/tablet_info.h" // DorisNodesInfo
-#include "olap/id_manager.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
+#include "core/block/block.h"
+#include "core/data_type/data_type.h"
+#include "storage/id_manager.h"
+#include "storage/tablet_info.h" // DorisNodesInfo
 
 namespace doris {
 
@@ -51,12 +51,10 @@ inline void fetch_callback(bthread::CountdownEvent* counter) {
     Defer __defer([&] { counter->signal(); });
 }
 
-namespace vectorized {
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 class MutableBlock;
-} // namespace vectorized
 
 // fetch rows by global rowid
 // tablet_id/rowset_name/segment_id/ordinal_id
@@ -71,14 +69,13 @@ class RowIDFetcher {
 public:
     RowIDFetcher(FetchOption fetch_opt) : _fetch_option(std::move(fetch_opt)) {}
     Status init();
-    Status fetch(const vectorized::ColumnPtr& row_ids, vectorized::Block* block);
+    Status fetch(const ColumnPtr& row_ids, Block* block);
 
 private:
-    PMultiGetRequest _init_fetch_request(const vectorized::ColumnString& row_ids) const;
+    PMultiGetRequest _init_fetch_request(const ColumnString& row_ids) const;
     Status _merge_rpc_results(const PMultiGetRequest& request,
                               const std::vector<PMultiGetResponse>& rsps,
-                              const std::vector<brpc::Controller>& cntls,
-                              vectorized::Block* output_block,
+                              const std::vector<brpc::Controller>& cntls, Block* output_block,
                               std::vector<PRowLocation>* rows_id) const;
 
     std::vector<std::shared_ptr<PBackendService_Stub>> _stubs;
@@ -88,7 +85,7 @@ private:
 struct RowStoreReadStruct {
     RowStoreReadStruct(std::string& buffer) : row_store_buffer(buffer) {};
     std::string& row_store_buffer;
-    vectorized::DataTypeSerDeSPtrs serdes;
+    DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     std::vector<std::string> default_values;
 };
@@ -115,28 +112,26 @@ private:
             int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
             int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
             std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-            vectorized::Block& result_block);
+            Block& result_block);
 
     static Status read_batch_doris_format_row(
             const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-            std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
-            vectorized::Block& result_block, OlapReaderStatistics& stats,
-            int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
-            int64_t* lookup_row_data_ms);
+            std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
+            OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
+            int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms);
 
     static Status read_batch_external_row(
             const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
             std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
             std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
-            vectorized::Block& result_block, PRuntimeProfileTree* pprofile,
-            int64_t* init_reader_avg_ms, int64_t* get_block_avg_ms, size_t* scan_range_cnt);
+            Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
+            int64_t* get_block_avg_ms, size_t* scan_range_cnt);
 
     static Status read_external_row_from_file_mapping(
             size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
             const std::shared_ptr<FileMapping>& file_mapping,
             const std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
-            const std::shared_ptr<RuntimeState>& runtime_state,
-            std::vector<vectorized::Block>& scan_blocks,
+            const std::shared_ptr<RuntimeState>& runtime_state, std::vector<Block>& scan_blocks,
             std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
             std::vector<ExternalFetchStatistics>& fetch_statistics,
             const TFileScanRangeParams& rpc_scan_params,

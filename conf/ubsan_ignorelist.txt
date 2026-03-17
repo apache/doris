@@ -1,10 +1,10 @@
 src:*/rapidjson/*
-src:*/olap/key_coder.h
-src:*/olap/types.h:
-src:*/olap/field.h
-src:*/olap/row_cursor.cpp
-src:*/olap/wrapper_field.h
-src:*/olap/wrapper_field.cpp
+src:*/storage/key_coder.h
+src:*/storage/types.h
+src:*/storage/field.h
+src:*/storage/row_cursor.cpp
+src:*/storage/wrapper_field.h
+src:*/storage/wrapper_field.cpp
 src:*/segment_v2/column_reader.cpp
 src:*/json/new_json_reader.cpp
 src:*/common/memcpy_small.h

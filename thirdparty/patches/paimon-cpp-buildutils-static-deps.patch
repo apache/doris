@@ -41,7 +41,7 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
 @@ -923,6 +920,13 @@ macro(build_orc)
          -DBUILD_TOOLS=OFF
          -DBUILD_CPP_ENABLE_METRICS=ON)
- 
+
 +    if(ORC_RPATH)
 +        list(APPEND ORC_CMAKE_ARGS
 +             "-DCMAKE_EXE_LINKER_FLAGS=-Wl,-rpath,${ORC_RPATH}"
@@ -82,7 +82,7 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
 +    set(THIRDPARTY_ZLIB_STATIC_LIB
 +        "${THIRDPARTY_ZLIB_ROOT}/lib/${CMAKE_STATIC_LIBRARY_PREFIX}z${CMAKE_STATIC_LIBRARY_SUFFIX}"
 +    )
- 
+
      # Strip lto flags (which may be added by dh_auto_configure)
      # See https://github.com/protocolbuffers/protobuf/issues/7092
 @@ -778,6 +781,10 @@ macro(build_protobuf)
@@ -96,6 +96,156 @@ diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyT
          -Dprotobuf_BUILD_TESTS=OFF
          -Dprotobuf_DEBUG_POSTFIX=)
      set(PROTOBUF_CONFIGURE SOURCE_SUBDIR "cmake" CMAKE_ARGS ${PROTOBUF_CMAKE_ARGS})
+
+diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cmake_modules/ThirdpartyToolchain.cmake
+@@ -34,6 +34,16 @@ set(EP_COMMON_TOOLCHAIN "-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
+                         "-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}")
+
++option(PAIMON_USE_EXTERNAL_ARROW "Reuse external Arrow/Parquet instead of building arrow_ep" OFF)
++set(PAIMON_EXTERNAL_ARROW_INCLUDE_DIR "" CACHE PATH
++    "Include directory for external Arrow/Parquet headers")
++set(PAIMON_EXTERNAL_ARROW_LIB "" CACHE FILEPATH "Path to external libarrow.a")
++set(PAIMON_EXTERNAL_ARROW_DATASET_LIB "" CACHE FILEPATH "Path to external libarrow_dataset.a")
++set(PAIMON_EXTERNAL_ARROW_ACERO_LIB "" CACHE FILEPATH "Path to external libarrow_acero.a")
++set(PAIMON_EXTERNAL_PARQUET_LIB "" CACHE FILEPATH "Path to external libparquet.a")
++set(PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB "" CACHE FILEPATH
++    "Path to external libarrow_bundled_dependencies.a")
++
+ macro(set_urls URLS)
+     set(${URLS} ${ARGN})
+ endmacro()
+
+diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cmake_modules/ThirdpartyToolchain.cmake
+@@ -961,5 +961,95 @@ macro(build_orc)
+ endmacro()
+
+ macro(build_arrow)
+-    message(STATUS "Building Arrow from source")
++    if(PAIMON_USE_EXTERNAL_ARROW)
++        set(ARROW_INCLUDE_DIR "${CMAKE_CURRENT_BINARY_DIR}/doris_external_arrow_include")
++        file(MAKE_DIRECTORY "${ARROW_INCLUDE_DIR}")
++        if(NOT EXISTS "${ARROW_INCLUDE_DIR}/arrow")
++            execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink
++                            "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}/arrow"
++                            "${ARROW_INCLUDE_DIR}/arrow")
++        endif()
++        if(EXISTS "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}/parquet"
++           AND NOT EXISTS "${ARROW_INCLUDE_DIR}/parquet")
++            execute_process(COMMAND "${CMAKE_COMMAND}" -E create_symlink
++                            "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}/parquet"
++                            "${ARROW_INCLUDE_DIR}/parquet")
++        endif()
++
++        if(NOT PAIMON_EXTERNAL_ARROW_INCLUDE_DIR)
++            message(FATAL_ERROR
++                    "PAIMON_EXTERNAL_ARROW_INCLUDE_DIR must be set when PAIMON_USE_EXTERNAL_ARROW=ON"
++            )
++        endif()
++        if(NOT EXISTS "${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}")
++            message(FATAL_ERROR
++                    "PAIMON_EXTERNAL_ARROW_INCLUDE_DIR not found: ${PAIMON_EXTERNAL_ARROW_INCLUDE_DIR}"
++            )
++        endif()
++
++        foreach(_paimon_external_lib
++                IN ITEMS PAIMON_EXTERNAL_ARROW_LIB
++                         PAIMON_EXTERNAL_ARROW_DATASET_LIB
++                         PAIMON_EXTERNAL_ARROW_ACERO_LIB
++                         PAIMON_EXTERNAL_PARQUET_LIB
++                         PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB)
++            if(NOT ${_paimon_external_lib})
++                message(FATAL_ERROR
++                        "${_paimon_external_lib} must be set when PAIMON_USE_EXTERNAL_ARROW=ON")
++            endif()
++            if(NOT EXISTS "${${_paimon_external_lib}}")
++                message(FATAL_ERROR
++                        "${_paimon_external_lib} not found: ${${_paimon_external_lib}}")
++            endif()
++        endforeach()
++
++        add_library(arrow STATIC IMPORTED)
++        set_target_properties(arrow
++                              PROPERTIES IMPORTED_LOCATION "${PAIMON_EXTERNAL_ARROW_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        add_library(arrow_dataset STATIC IMPORTED)
++        set_target_properties(arrow_dataset
++                              PROPERTIES IMPORTED_LOCATION
++                                         "${PAIMON_EXTERNAL_ARROW_DATASET_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        add_library(arrow_acero STATIC IMPORTED)
++        set_target_properties(arrow_acero
++                              PROPERTIES IMPORTED_LOCATION
++                                         "${PAIMON_EXTERNAL_ARROW_ACERO_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        add_library(parquet STATIC IMPORTED)
++        set_target_properties(parquet
++                              PROPERTIES IMPORTED_LOCATION "${PAIMON_EXTERNAL_PARQUET_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        add_library(arrow_bundled_dependencies STATIC IMPORTED)
++        set_target_properties(arrow_bundled_dependencies
++                              PROPERTIES IMPORTED_LOCATION
++                                         "${PAIMON_EXTERNAL_ARROW_BUNDLED_DEPS_LIB}"
++                                         INTERFACE_INCLUDE_DIRECTORIES
++                                         "${ARROW_INCLUDE_DIR}")
++
++        target_link_libraries(arrow_acero INTERFACE arrow)
++
++        target_link_libraries(arrow_dataset INTERFACE arrow_acero)
++
++        target_link_libraries(arrow
++                              INTERFACE zstd
++                                        snappy
++                                        lz4
++                                        zlib
++                                        arrow_bundled_dependencies)
++
++        target_link_libraries(parquet
++                              INTERFACE zstd snappy lz4 zlib arrow_bundled_dependencies
++                                        arrow_dataset)
++    else()
++        message(STATUS "Building Arrow from source")
+
+     get_target_property(ARROW_SNAPPY_INCLUDE_DIR snappy INTERFACE_INCLUDE_DIRECTORIES)
+     get_filename_component(ARROW_SNAPPY_ROOT "${ARROW_SNAPPY_INCLUDE_DIR}" DIRECTORY)
+
+diff --git a/cmake_modules/ThirdpartyToolchain.cmake b/cmake_modules/ThirdpartyToolchain.cmake
+--- a/cmake_modules/ThirdpartyToolchain.cmake
++++ b/cmake_modules/ThirdpartyToolchain.cmake
+@@ -1121,6 +1121,7 @@ macro(build_arrow)
+                                     zlib
+                                     arrow_bundled_dependencies
+                                     arrow_dataset)
++    endif()
+ 
+ endmacro(build_arrow)
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -326,10 +326,10 @@ if(PAIMON_ENABLE_LUMINA)
+     include_directories("${CMAKE_SOURCE_DIR}/third_party/lumina/include")
+ endif()
+ 
++include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
+ include_directories(SYSTEM ${ARROW_INCLUDE_DIR})
+ include_directories(SYSTEM ${TBB_INCLUDE_DIR})
+ 
+-include_directories(SYSTEM ${GLOG_INCLUDE_DIR})
+ add_compile_definitions("GLOG_USE_GLOG_EXPORT")
+ 
+ set(THREADS_PREFER_PTHREAD_FLAG ON)
 
 diff --git a/src/paimon/common/logging/logging.cpp b/src/paimon/common/logging/logging.cpp
 --- a/src/paimon/common/logging/logging.cpp
@@ -116,7 +266,7 @@ diff --git a/src/paimon/common/memory/memory_pool.cpp b/src/paimon/common/memory
 @@ -55,7 +55,7 @@ void* MemoryPoolImpl::Malloc(uint64_t size, uint64_t alignment) {
      return memptr;
  }
- 
+
 -void* MemoryPoolImpl::Realloc(void* p, size_t old_size, size_t new_size, size_t alignment) {
 +void* MemoryPoolImpl::Realloc(void* p, size_t old_size, size_t new_size, uint64_t alignment) {
      if (alignment == 0) {
@@ -144,7 +294,7 @@ diff --git a/src/paimon/format/blob/blob_format_writer.cpp b/src/paimon/format/b
 +        read_len = static_cast<uint32_t>(
 +            std::min<uint64_t>(file_length - total_read_length, tmp_buffer_->size()));
      }
- 
+
      // write bin length
 
 --- a/cmake_modules/arrow.diff
@@ -160,7 +310,7 @@ diff --git a/src/paimon/format/blob/blob_format_writer.cpp b/src/paimon/format/b
 +@@ -1789,7 +1789,20 @@ if(ARROW_WITH_THRIFT)
 +                     REQUIRED_VERSION
 +                     0.11.0)
-+ 
++
 +-  string(REPLACE "." ";" Thrift_VERSION_LIST ${Thrift_VERSION})
 ++  if(NOT Thrift_VERSION)
 ++    if(DEFINED thrift_PC_VERSION AND thrift_PC_VERSION)

@@ -17,29 +17,27 @@
 
 #pragma once
 
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_variant.h"
-#include "vec/common/variant_util.h"
-#include "vec/data_types/data_type_string.h"
+#include "core/column/column_string.h"
+#include "core/column/column_variant.h"
+#include "core/data_type/data_type_string.h"
+#include "exec/common/variant_util.h"
 
 namespace doris {
-
-using namespace vectorized;
 
 class VariantUtil {
 public:
     using VariantStringCreator = std::function<void(ColumnString*, size_t)>;
 
-    static doris::vectorized::Field get_field(std::string_view type) {
-        static std::unordered_map<std::string_view, doris::vectorized::Field> field_map;
+    static doris::Field get_field(std::string_view type) {
+        static std::unordered_map<std::string_view, doris::Field> field_map;
         if (field_map.empty()) {
-            auto int_field = doris::vectorized::Field::create_field<TYPE_INT>(20);
-            auto str_field = doris::vectorized::Field::create_field<TYPE_STRING>(String("str", 3));
-            auto arr_int_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
+            auto int_field = doris::Field::create_field<TYPE_INT>(20);
+            auto str_field = doris::Field::create_field<TYPE_STRING>(String("str", 3));
+            auto arr_int_field = doris::Field::create_field<TYPE_ARRAY>(Array());
             auto& array1 = arr_int_field.get<TYPE_ARRAY>();
             array1.emplace_back(int_field);
             array1.emplace_back(int_field);
-            auto arr_str_field = doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
+            auto arr_str_field = doris::Field::create_field<TYPE_ARRAY>(Array());
             auto& array2 = arr_str_field.get<TYPE_ARRAY>();
             array2.emplace_back(str_field);
             array2.emplace_back(str_field);
@@ -49,20 +47,19 @@ public:
             field_map["array_str"] = arr_str_field;
 
             // add other int value
-            field_map["int_16"] = doris::vectorized::Field::create_field<TYPE_SMALLINT>(
-                    std::numeric_limits<Int16>::max());
-            field_map["int_32"] = doris::vectorized::Field::create_field<TYPE_INT>(
-                    std::numeric_limits<Int32>::max());
-            field_map["int_64"] = doris::vectorized::Field::create_field<TYPE_BIGINT>(
+            field_map["int_16"] =
+                    doris::Field::create_field<TYPE_SMALLINT>(std::numeric_limits<Int16>::max());
+            field_map["int_32"] =
+                    doris::Field::create_field<TYPE_INT>(std::numeric_limits<Int32>::max());
+            field_map["int_64"] = doris::Field::create_field<TYPE_BIGINT>(
                     Int64(static_cast<Int64>(std::numeric_limits<Int32>::max()) + 1));
         }
         return field_map[type];
     }
 
-    static doris::vectorized::Field construct_variant_map(
-            const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
-        doris::vectorized::Field res =
-                doris::vectorized::Field::create_field<TYPE_VARIANT>(VariantMap());
+    static doris::Field construct_variant_map(
+            const std::vector<std::pair<std::string, doris::Field>>& key_and_values) {
+        doris::Field res = doris::Field::create_field<TYPE_VARIANT>(VariantMap());
         auto& object = res.get<TYPE_VARIANT>();
         for (const auto& [k, v] : key_and_values) {
             PathInData path(k);
@@ -75,26 +72,23 @@ public:
         // 1. create an empty variant column
         auto variant = ColumnVariant::create(5);
 
-        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+        std::vector<std::pair<std::string, doris::Field>> data;
 
         // 2. subcolumn path
-        data.emplace_back("v.a", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
-        data.emplace_back("v.c", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.f", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.a", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.b", doris::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.c", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.f", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.e", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
         for (int i = 0; i < 5; ++i) {
             auto field = construct_variant_map(data);
             variant->try_insert(field);
         }
 
         // 3. sparse column path
-        data.emplace_back("v.d.d",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
-        data.emplace_back("v.c.d", doris::vectorized::Field::create_field<TYPE_INT>(30));
-        data.emplace_back("v.b.d", doris::vectorized::Field::create_field<TYPE_INT>(30));
+        data.emplace_back("v.d.d", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.c.d", doris::Field::create_field<TYPE_INT>(30));
+        data.emplace_back("v.b.d", doris::Field::create_field<TYPE_INT>(30));
         for (int i = 0; i < 5; ++i) {
             auto field = construct_variant_map(data);
             variant->try_insert(field);
@@ -104,19 +98,13 @@ public:
 
     static auto construct_dst_varint_column() {
         // 1. create an empty variant column
-        vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
-        dynamic_subcolumns.create_root(
-                vectorized::ColumnVariant::Subcolumn(0, true, true /*root*/));
-        dynamic_subcolumns.add(vectorized::PathInData("v.f"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.e"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.b"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.b.d"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
-        dynamic_subcolumns.add(vectorized::PathInData("v.c.d"),
-                               vectorized::ColumnVariant::Subcolumn {0, true});
+        ColumnVariant::Subcolumns dynamic_subcolumns;
+        dynamic_subcolumns.create_root(ColumnVariant::Subcolumn(0, true, true /*root*/));
+        dynamic_subcolumns.add(PathInData("v.f"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.e"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.b.d"), ColumnVariant::Subcolumn {0, true});
+        dynamic_subcolumns.add(PathInData("v.c.d"), ColumnVariant::Subcolumn {0, true});
         return ColumnVariant::create(5, std::move(dynamic_subcolumns));
     }
 
@@ -124,7 +112,7 @@ public:
         // 1. create an empty variant column
         auto variant = ColumnVariant::create(5);
 
-        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+        std::vector<std::pair<std::string, doris::Field>> data;
 
         // 2. subcolumn path
         data.emplace_back("v.a", get_field("int"));
@@ -167,16 +155,14 @@ public:
         // 1. create an empty variant column
         auto variant = ColumnVariant::create(5);
 
-        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+        std::vector<std::pair<std::string, doris::Field>> data;
 
         // 2. subcolumn path
-        data.emplace_back("v.a", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
-        data.emplace_back("v.c", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.f", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.a", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.b", doris::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.c", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.f", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.e", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
         for (int i = 0; i < 5; ++i) {
             auto field = construct_variant_map(data);
             variant->try_insert(field);
@@ -184,15 +170,14 @@ public:
 
         // 3. root
         VariantMap root;
-        insert_root_scalar_field(*variant, doris::vectorized::Field::create_field<TYPE_INT>(20));
+        insert_root_scalar_field(*variant, doris::Field::create_field<TYPE_INT>(20));
         return variant;
     }
 
-    static doris::vectorized::Field create_nested_array_field(
-            std::vector<std::map<std::string, doris::vectorized::Field>> data) {
-        doris::vectorized::Field array_field =
-                doris::vectorized::Field::create_field<TYPE_ARRAY>(Array());
-        auto variant_field = doris::vectorized::Field::create_field<TYPE_VARIANT>(VariantMap());
+    static doris::Field create_nested_array_field(
+            std::vector<std::map<std::string, doris::Field>> data) {
+        doris::Field array_field = doris::Field::create_field<TYPE_ARRAY>(Array());
+        auto variant_field = doris::Field::create_field<TYPE_VARIANT>(VariantMap());
         for (const auto& entry : data) {
             auto& variant_map = variant_field.get<TYPE_VARIANT>();
             for (const auto& [k, v] : entry) {
@@ -203,28 +188,25 @@ public:
         return array_field;
     }
 
-    static void insert_root_scalar_field(ColumnVariant& variant, doris::vectorized::Field&& field) {
+    static void insert_root_scalar_field(ColumnVariant& variant, doris::Field&& field) {
         VariantMap root;
         root.try_emplace(PathInData(), FieldWithDataType {.field = field});
-        variant.try_insert(doris::vectorized::Field::create_field<TYPE_VARIANT>(std::move(root)));
+        variant.try_insert(doris::Field::create_field<TYPE_VARIANT>(std::move(root)));
     }
 
     static auto construct_varint_column_more_subcolumns() {
         // 1. create an empty variant column
         auto variant = ColumnVariant::create(5);
 
-        std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+        std::vector<std::pair<std::string, doris::Field>> data;
 
         // 2. subcolumn path
-        data.emplace_back("v.a", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.b",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("20", 2)));
-        data.emplace_back("v.c", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.f", doris::vectorized::Field::create_field<TYPE_INT>(20));
-        data.emplace_back("v.e",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("50", 2)));
-        data.emplace_back("v.s",
-                          doris::vectorized::Field::create_field<TYPE_STRING>(String("str", 3)));
+        data.emplace_back("v.a", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.b", doris::Field::create_field<TYPE_STRING>(String("20", 2)));
+        data.emplace_back("v.c", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.f", doris::Field::create_field<TYPE_INT>(20));
+        data.emplace_back("v.e", doris::Field::create_field<TYPE_STRING>(String("50", 2)));
+        data.emplace_back("v.s", doris::Field::create_field<TYPE_STRING>(String("str", 3)));
         data.emplace_back("v.x", get_field("int_16"));
         data.emplace_back("v.y", get_field("int_32"));
         data.emplace_back("v.z", get_field("int_64"));
@@ -316,11 +298,11 @@ public:
 
     static std::unordered_map<std::string, int> fill_object_column_with_test_data(
             auto& column_object, int size, std::unordered_map<int, std::string>* inserted_jsonstr) {
-        auto type_string = std::make_shared<vectorized::DataTypeString>();
+        auto type_string = std::make_shared<DataTypeString>();
         auto column = type_string->create_column();
         auto column_string = assert_cast<ColumnString*>(column.get());
         auto res = fill_string_column_with_test_data(column_string, size, inserted_jsonstr);
-        vectorized::ParseConfig config;
+        ParseConfig config;
         config.enable_flatten_nested = false;
         variant_util::parse_json_to_variant(*column_object, *column_string, config);
         return res;
@@ -359,7 +341,7 @@ public:
     static void fill_variant_column(auto& variant_column, int size, int uid,
                                     bool has_nested = false,
                                     VariantStringCreator* callback_variant_creator = nullptr) {
-        auto type_string = std::make_shared<vectorized::DataTypeString>();
+        auto type_string = std::make_shared<DataTypeString>();
         auto column = type_string->create_column();
         auto column_string = assert_cast<ColumnString*>(column.get());
         if (callback_variant_creator != nullptr) {
@@ -372,7 +354,7 @@ public:
             assert(inserted_jsonstr.size() == size);
         }
         assert(column_string->size() == size);
-        vectorized::ParseConfig config;
+        ParseConfig config;
         // do not treat array with jsonb field
         config.enable_flatten_nested = has_nested;
         variant_util::parse_json_to_variant(*variant_column, *column_string, config);
@@ -380,11 +362,11 @@ public:
 
     static std::unordered_map<std::string, int> fill_object_column_with_nested_test_data(
             auto& column_object, int size, std::unordered_map<int, std::string>* inserted_jsonstr) {
-        auto type_string = std::make_shared<vectorized::DataTypeString>();
+        auto type_string = std::make_shared<DataTypeString>();
         auto column = type_string->create_column();
         auto column_string = assert_cast<ColumnString*>(column.get());
         auto res = fill_string_column_with_nested_test_data(column_string, size, inserted_jsonstr);
-        vectorized::ParseConfig config;
+        ParseConfig config;
         config.enable_flatten_nested = false;
         variant_util::parse_json_to_variant(*column_object, *column_string, config);
         return res;

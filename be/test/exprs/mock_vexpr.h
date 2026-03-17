@@ -20,21 +20,18 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "vec/exprs/vexpr.h"
+#include "exprs/vexpr.h"
 
 namespace doris {
-namespace vectorized {
 
 class MockVExpr : public VExpr {
 public:
     MOCK_CONST_METHOD0(clone, VExprSPtr());
     MOCK_CONST_METHOD0(expr_name, const std::string&());
-    MOCK_CONST_METHOD3(execute, Status(VExprContext* context, vectorized::Block* block,
-                                       int* result_column_id));
+    MOCK_CONST_METHOD3(execute, Status(VExprContext* context, Block* block, int* result_column_id));
     MOCK_CONST_METHOD5(execute_column,
-                       Status(VExprContext* context, const vectorized::Block* block,
-                              Selector* selector, size_t count, ColumnPtr& result_column));
+                       Status(VExprContext* context, const Block* block, Selector* selector,
+                              size_t count, ColumnPtr& result_column));
 }; // class MockVExpr
 
-} // namespace vectorized
 } // namespace doris

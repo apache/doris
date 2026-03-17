@@ -20,7 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.fs.SchemaTypeMapper;
 import org.apache.doris.thrift.TFileType;
@@ -312,6 +312,10 @@ public class LocationPath {
         if (type == StorageProperties.Type.S3
                 && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
             return storagePropertiesMap.get(StorageProperties.Type.MINIO);
+        }
+        if (type == StorageProperties.Type.S3
+                && storagePropertiesMap.containsKey(StorageProperties.Type.OZONE)) {
+            return storagePropertiesMap.get(StorageProperties.Type.OZONE);
         }
 
         // Step 3: Compatibility fallback based on schema

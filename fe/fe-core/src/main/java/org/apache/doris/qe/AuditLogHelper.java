@@ -23,7 +23,6 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -47,6 +46,7 @@ import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.resource.workloadgroup.QueueToken;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.common.base.Strings;
@@ -234,6 +234,8 @@ public class AuditLogHelper {
         }
         String cluster = Config.isCloudMode() ? cloudCluster : "";
         String stmtType = getStmtType(parsedStmt);
+        long queueTimeMs = getQueueTimeMs(ctx);
+
 
         AuditEventBuilder auditEventBuilder = ctx.getAuditEventBuilder();
         // ATTN: MUST reset, otherwise, the same AuditEventBuilder instance will be used in the next query.
@@ -243,15 +245,16 @@ public class AuditLogHelper {
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
-                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
+                .setUser(ctx.getQualifiedUser())
                 .setFeIp(FrontendOptions.getLocalHostAddress())
                 .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
-                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
+                .setDb(ctx.getDatabase())
                 .setState(ctx.getState().toString())
                 .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :
                         ctx.getState().getErrorMessage().replace("\n", " ").replace("\t", " ")))
                 .setQueryTime(elapseMs)
+                .setQueueTimeMs(queueTimeMs)
                 .setCpuTimeMs(statistics == null ? 0 : statistics.getCpuMs())
                 .setPeakMemoryBytes(statistics == null ? 0 : statistics.getMaxPeakMemoryBytes())
                 .setScanBytes(statistics == null ? 0 : statistics.getScanBytes())
@@ -445,6 +448,14 @@ public class AuditLogHelper {
         if (LOG.isDebugEnabled()) {
             LOG.debug("submit audit event: {}", event.queryId);
         }
+    }
+
+    private static long getQueueTimeMs(ConnectContext ctx) {
+        QueueToken queueToken = null;
+        if (ctx.getExecutor() != null && ctx.getExecutor().getCoord() != null) {
+            queueToken = ctx.getExecutor().getCoord().getQueueToken();
+        }
+        return queueToken == null ? -1 : queueToken.getQueueEndTime() - queueToken.getQueueStartTime();
     }
 
     private static String getStmtType(StatementBase stmt) {

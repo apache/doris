@@ -22,17 +22,11 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprOpcode;
+import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -59,15 +53,10 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     public static final String DEFAULT_EXPR_NAME = "expr";
 
-    protected boolean disableTableName = false;
-
     protected boolean nullable = false;
 
     @SerializedName("type")
     protected Type type;  // result of analysis
-
-    @SerializedName("opcode")
-    protected TExprOpcode opcode;  // opcode for this expr
 
     // The function to call. This can either be a scalar or aggregate function.
     // Set in analyze().
@@ -81,13 +70,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     protected Expr() {
         super();
         type = Type.INVALID;
-        opcode = TExprOpcode.INVALID_OPCODE;
     }
 
     protected Expr(Expr other) {
         super();
         type = other.type;
-        opcode = other.opcode;
         isConstant = other.isConstant;
         fn = other.fn;
         children = Expr.cloneList(other.children);
@@ -101,7 +88,8 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // alias or is not slotRef
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
+            this.exprName = Optional.of(
+                    NameFormatUtils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
         }
         return this.exprName.get();
     }
@@ -113,10 +101,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // add by cmy. for restoring
     public void setType(Type type) {
         this.type = type;
-    }
-
-    public TExprOpcode getOpcode() {
-        return opcode;
     }
 
     public Function getFn() {
@@ -146,14 +130,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         Preconditions.checkArgument(i < children.size(), "child index {0} out of range {1}", i, children.size());
         Expr child = children.get(i);
         return child instanceof CastExpr ? child.children.get(0) : child;
-    }
-
-    public static List<TExpr> treesToThrift(List<? extends Expr> exprs) {
-        List<TExpr> result = Lists.newArrayList();
-        for (Expr expr : exprs) {
-            result.add(expr.treeToThrift());
-        }
-        return result;
     }
 
     public static String debugString(List<? extends Expr> exprs) {
@@ -216,87 +192,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
     }
 
-    public String toSql() {
-        if (disableTableName) {
-            return toSqlWithoutTbl();
-        }
-        return toSqlImpl();
-    }
-
-    public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType, TableIf table) {
-        return toSqlImpl(disableTableName, needExternalSql, tableType, table);
-    }
-
-    public void disableTableName() {
-        disableTableName = true;
-        for (Expr child : children) {
-            child.disableTableName();
-        }
-    }
-
-    public String toSqlWithoutTbl() {
-        return toSql(true, false, null, null);
-    }
-
     /**
-     * Returns a SQL string representing this expr. Subclasses should override this method
-     * instead of toSql() to ensure that parenthesis are properly added around the toSql().
+     * Accept a visitor and dispatch to the appropriate typed {@code visitXxx} method.
+     * Each concrete subclass must override this to call the correct visitor method.
      */
-    protected abstract String toSqlImpl();
-
-    protected abstract String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table);
-
-    public String toExternalSql(TableType tableType, TableIf table) {
-        return toSql(false, true, tableType, table);
-    }
-
-    /**
-     * Return a column label for the expression
-     */
-    public String toColumnLabel() {
-        return toSql();
-    }
-
-    // Convert this expr, including all children, to its Thrift representation.
-    public TExpr treeToThrift() {
-        TExpr result = new TExpr();
-        treeToThriftHelper(result);
-        return result;
-    }
-
-    protected void treeToThriftHelper(TExpr container) {
-        treeToThriftHelper(container, ((expr, exprNode) -> expr.toThrift(exprNode)));
-    }
-
-    // Append a flattened version of this expr, including all children, to 'container'.
-    protected void treeToThriftHelper(TExpr container, ExprVisitor visitor) {
-        TExprNode msg = new TExprNode();
-        msg.type = type.toThrift();
-        msg.num_children = children.size();
-        if (fn != null) {
-            msg.setFn(fn.toThrift(type, collectChildReturnTypes(), collectChildReturnNullables()));
-            if (fn.hasVarArgs()) {
-                msg.setVarargStartIdx(fn.getNumArgs() - 1);
-            }
-        }
-        // useless parameter, just give a number
-        msg.output_scale = -1;
-        msg.setIsNullable(nullable);
-        visitor.visit(this, msg);
-        container.addToNodes(msg);
-        for (Expr child : children) {
-            child.treeToThriftHelper(container, visitor);
-        }
-    }
-
-    public interface ExprVisitor {
-        void visit(Expr expr, TExprNode exprNode);
-    }
-
-    // Convert this expr into msg (excluding children), which requires setting
-    // msg.op as well as the expr-specific field.
-    protected abstract void toThrift(TExprNode msg);
+    public abstract <R, C> R accept(ExprVisitor<R, C> visitor, C context);
 
     public String debugString() {
         return debugString(children);
@@ -343,7 +243,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     @Override
     public int hashCode() {
-        int result = 31 * Objects.hashCode(type) + Objects.hashCode(opcode);
+        int result = 31 * Objects.hashCode(type) + getClass().hashCode();
         for (Expr child : children) {
             result = 31 * result + Objects.hashCode(child);
         }
@@ -521,16 +421,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return getStringValueForQuery(options);
     }
 
-    public final TExpr normalize(Normalizer normalizer) {
-        TExpr result = new TExpr();
-        treeToThriftHelper(result, (expr, texprNode) -> expr.normalize(texprNode, normalizer));
-        return result;
-    }
-
-    protected void normalize(TExprNode msg, Normalizer normalizer) {
-        this.toThrift(msg);
-    }
-
     /**
      * For excute expr the result is nullable
      */
@@ -572,4 +462,3 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return slots;
     }
 }
-

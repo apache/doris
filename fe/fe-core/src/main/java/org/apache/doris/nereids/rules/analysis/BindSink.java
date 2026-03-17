@@ -18,7 +18,9 @@
 package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.analysis.ColumnDef.DefaultValue;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -31,12 +33,15 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalDatabase;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalDatabase;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalDatabase;
+import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -46,6 +51,7 @@ import org.apache.doris.nereids.analyzer.UnboundDictionarySink;
 import org.apache.doris.nereids.analyzer.UnboundHiveTableSink;
 import org.apache.doris.nereids.analyzer.UnboundIcebergTableSink;
 import org.apache.doris.nereids.analyzer.UnboundJdbcTableSink;
+import org.apache.doris.nereids.analyzer.UnboundMaxComputeTableSink;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.analyzer.UnboundTVFTableSink;
 import org.apache.doris.nereids.analyzer.UnboundTableSink;
@@ -78,6 +84,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcTableSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
@@ -157,6 +164,8 @@ public class BindSink implements AnalysisRuleFactory {
                 RuleType.BINDING_INSERT_HIVE_TABLE.build(unboundHiveTableSink().thenApply(this::bindHiveTableSink)),
                 RuleType.BINDING_INSERT_ICEBERG_TABLE.build(
                     unboundIcebergTableSink().thenApply(this::bindIcebergTableSink)),
+                RuleType.BINDING_INSERT_MAX_COMPUTE_TABLE.build(
+                    unboundMaxComputeTableSink().thenApply(this::bindMaxComputeTableSink)),
                 RuleType.BINDING_INSERT_JDBC_TABLE.build(unboundJdbcTableSink().thenApply(this::bindJdbcTableSink)),
                 RuleType.BINDING_INSERT_DICTIONARY_TABLE
                         .build(unboundDictionarySink().thenApply(this::bindDictionarySink)),
@@ -167,8 +176,8 @@ public class BindSink implements AnalysisRuleFactory {
 
     private Plan bindOlapTableSink(MatchingContext<UnboundTableSink<Plan>> ctx) {
         UnboundTableSink<?> sink = ctx.root;
-        Pair<Database, OlapTable> pair = bind(ctx.cascadesContext, sink);
-        Database database = pair.first;
+        Pair<DatabaseIf, OlapTable> pair = bind(ctx.cascadesContext, sink);
+        DatabaseIf database = pair.first;
         OlapTable table = pair.second;
         boolean isPartialUpdate = sink.isPartialUpdate() && table.getKeysType() == KeysType.UNIQUE_KEYS;
         TPartialUpdateNewRowPolicy partialUpdateNewKeyPolicy = sink.getPartialUpdateNewRowPolicy();
@@ -483,7 +492,8 @@ public class BindSink implements AnalysisRuleFactory {
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
                 GeneratedColumnInfo info = column.getGeneratedColumnInfo();
-                Expression parsedExpression = new NereidsParser().parseExpression(info.getExpr().toSqlWithoutTbl());
+                Expression parsedExpression = new NereidsParser().parseExpression(
+                        info.getExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 Expression boundExpression = new CustomExpressionAnalyzer(boundSink, ctx.cascadesContext,
                         columnToReplaced)
                         .analyze(parsedExpression);
@@ -512,7 +522,7 @@ public class BindSink implements AnalysisRuleFactory {
             try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ctx.connectContext,
                     column.getSessionVariables())) {
                 Expression parsedExpression = expressionParser.parseExpression(
-                        column.getDefineExpr().toSqlWithoutTbl());
+                        column.getDefineExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 // the boundSlotExpression is an expression whose slots are bound but function
                 // may not be bound, we have to bind it again.
                 // for example: to_bitmap.
@@ -529,7 +539,8 @@ public class BindSink implements AnalysisRuleFactory {
                 }
                 boundExpression = TypeCoercionUtils.castIfNotSameType(boundExpression,
                         DataType.fromCatalogType(column.getType()));
-                Alias output = new Alias(boundExpression, column.getDefineExpr().toSqlWithoutTbl());
+                Alias output = new Alias(boundExpression, column.getDefineExpr().accept(
+                        ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                 columnToOutput.put(column.getName(), output);
                 columnToReplaced.put(column.getName(), output.toSlot());
                 replaceMap.put(output.toSlot(), output.child());
@@ -816,6 +827,53 @@ public class BindSink implements AnalysisRuleFactory {
         }
     }
 
+    private Plan bindMaxComputeTableSink(MatchingContext<UnboundMaxComputeTableSink<Plan>> ctx) {
+        UnboundMaxComputeTableSink<?> sink = ctx.root;
+        Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> pair = bind(ctx.cascadesContext, sink);
+        MaxComputeExternalDatabase database = pair.first;
+        MaxComputeExternalTable table = pair.second;
+        LogicalPlan child = ((LogicalPlan) sink.child());
+
+        Map<String, Expression> staticPartitions = sink.getStaticPartitionKeyValues();
+        Set<String> staticPartitionColNames = staticPartitions != null
+                ? staticPartitions.keySet()
+                : Sets.newHashSet();
+
+        List<Column> bindColumns;
+        if (sink.getColNames().isEmpty()) {
+            bindColumns = table.getBaseSchema(true).stream()
+                    .filter(col -> !staticPartitionColNames.contains(col.getName()))
+                    .collect(ImmutableList.toImmutableList());
+        } else {
+            bindColumns = sink.getColNames().stream().map(cn -> {
+                Column column = table.getColumn(cn);
+                if (column == null) {
+                    throw new AnalysisException(String.format("column %s is not found in table %s",
+                            cn, table.getName()));
+                }
+                return column;
+            }).collect(ImmutableList.toImmutableList());
+        }
+        LogicalMaxComputeTableSink<?> boundSink = new LogicalMaxComputeTableSink<>(
+                database,
+                table,
+                bindColumns,
+                child.getOutput().stream()
+                        .map(NamedExpression.class::cast)
+                        .collect(ImmutableList.toImmutableList()),
+                sink.getDMLCommandType(),
+                Optional.empty(),
+                Optional.empty(),
+                child);
+        if (boundSink.getCols().size() != child.getOutput().size()) {
+            throw new AnalysisException("insert into cols should be corresponding to the query output");
+        }
+        Map<String, NamedExpression> columnToOutput = getColumnToOutput(ctx, table, false,
+                boundSink, child);
+        LogicalProject<?> fullOutputProject = getOutputProjectByCoercion(table.getFullSchema(), child, columnToOutput);
+        return boundSink.withChildAndUpdateOutput(fullOutputProject);
+    }
+
     private Plan bindJdbcTableSink(MatchingContext<UnboundJdbcTableSink<Plan>> ctx) {
         UnboundJdbcTableSink<?> sink = ctx.root;
         Pair<JdbcExternalDatabase, JdbcExternalTable> pair = bind(ctx.cascadesContext, sink);
@@ -940,15 +998,16 @@ public class BindSink implements AnalysisRuleFactory {
         return columnToOutput;
     }
 
-    private Pair<Database, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
+    private Pair<DatabaseIf, OlapTable> bind(CascadesContext cascadesContext, UnboundTableSink<? extends Plan> sink) {
         List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
                 sink.getNameParts());
         Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
                 cascadesContext.getConnectContext().getEnv(), Optional.empty());
-        if (!(pair.second instanceof OlapTable)) {
+        if (!(pair.second instanceof OlapTable) && !(pair.second instanceof RemoteDorisExternalTable)) {
             throw new AnalysisException("the target table of insert into is not an OLAP table");
         }
-        return Pair.of(((Database) pair.first), (OlapTable) pair.second);
+        return Pair.of(pair.first, pair.second instanceof RemoteDorisExternalTable
+                ? ((RemoteDorisExternalTable) pair.second).getOlapTable() : (OlapTable) pair.second);
     }
 
     private Pair<HMSExternalDatabase, HMSExternalTable> bind(CascadesContext cascadesContext,
@@ -976,6 +1035,18 @@ public class BindSink implements AnalysisRuleFactory {
             return Pair.of(((IcebergExternalDatabase) pair.first), (IcebergExternalTable) pair.second);
         }
         throw new AnalysisException("the target table of insert into is not an iceberg table");
+    }
+
+    private Pair<MaxComputeExternalDatabase, MaxComputeExternalTable> bind(CascadesContext cascadesContext,
+            UnboundMaxComputeTableSink<? extends Plan> sink) {
+        List<String> tableQualifier = RelationUtil.getQualifierName(cascadesContext.getConnectContext(),
+                sink.getNameParts());
+        Pair<DatabaseIf<?>, TableIf> pair = RelationUtil.getDbAndTable(tableQualifier,
+                cascadesContext.getConnectContext().getEnv(), Optional.empty());
+        if (pair.second instanceof MaxComputeExternalTable) {
+            return Pair.of(((MaxComputeExternalDatabase) pair.first), (MaxComputeExternalTable) pair.second);
+        }
+        throw new AnalysisException("the target table of insert into is not a MaxCompute table");
     }
 
     private Pair<JdbcExternalDatabase, JdbcExternalTable> bind(CascadesContext cascadesContext,
@@ -1096,7 +1167,8 @@ public class BindSink implements AnalysisRuleFactory {
 
         public List<Expression> createPartitionExprList() {
             return olapTable.getPartitionInfo().getPartitionExprs().stream()
-                    .map(expr -> analyze(expr.toSql())).collect(Collectors.toList());
+                    .map(expr -> analyze(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)))
+                    .collect(Collectors.toList());
         }
 
         public Map<Long, Expression> createSyncMvWhereClause() {
@@ -1108,7 +1180,8 @@ public class BindSink implements AnalysisRuleFactory {
                     if (entry.getKey() == baseIndexId || entry.getValue().getWhereClause() == null) {
                         continue;
                     }
-                    Expression predicate = analyze(entry.getValue().getWhereClause().toSqlWithoutTbl());
+                    Expression predicate = analyze(entry.getValue().getWhereClause().accept(
+                            ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
                     predicate = predicate.accept(new AddSessionVarGuardRewriter(
                             entry.getValue().getSessionVariables()), Boolean.FALSE);
                     mvWhereClauses.put(entry.getKey(), predicate);

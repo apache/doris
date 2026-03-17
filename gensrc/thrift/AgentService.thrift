@@ -162,6 +162,7 @@ struct TCleanTrashReq {}
 
 struct TCleanUDFCacheReq {
     1: optional string function_signature //function_name(arg_type)
+    2: optional i64 function_id // function id for cleaning cached library files
 }
 
 enum TCompressionType {
@@ -228,6 +229,7 @@ struct TCreateTabletReq {
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
+    31: optional i32 vertical_compaction_num_columns_per_group = 5
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -542,6 +544,7 @@ struct TTabletMetaInfo {
     16: optional bool disable_auto_compaction
     17: optional i64 time_series_compaction_empty_rowsets_threshold
     18: optional i64 time_series_compaction_level_threshold
+    19: optional i32 vertical_compaction_num_columns_per_group
 }
 
 struct TUpdateTabletMetaInfoReq {

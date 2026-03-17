@@ -17,10 +17,11 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -58,6 +59,8 @@ import java.util.Set;
 public class Column implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
+    // all shadow indexes should have this prefix in name
+    public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
@@ -359,7 +362,7 @@ public class Column implements GsonPostProcessable {
             ArrayList<VariantField> fields = ((VariantType) type).getPredefinedFields();
             for (VariantField field : fields) {
                 // set column name as pattern
-                Column c = new Column(field.pattern, field.getType());
+                Column c = new Column(field.getPattern(), field.getType());
                 c.setIsAllowNull(true);
                 c.setFieldPatternType(field.getPatternType());
                 column.addChildrenColumn(c);
@@ -411,7 +414,8 @@ public class Column implements GsonPostProcessable {
         if (defineExpr == null) {
             return name;
         } else {
-            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
+            return MaterializedIndexMeta.normalizeName(
+                    defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
         }
     }
 
@@ -659,6 +663,7 @@ public class Column implements GsonPostProcessable {
         tColumn.setVariantEnableDocMode(this.getVariantEnableDocMode());
         tColumn.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
         tColumn.setVariantDocHashShardCount(this.getVariantDocShardCount());
+        tColumn.setVariantEnableNestedGroup(this.getVariantEnableNestedGroup());
         // ATTN:
         // Currently, this `toThrift()` method is only used from CreateReplicaTask.
         // And CreateReplicaTask does not need `defineExpr` field.
@@ -812,8 +817,8 @@ public class Column implements GsonPostProcessable {
 
         // when doing schema change, some modified column has a prefix in name.
         // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-        builder.setName(name.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)
-                ? name.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()) : name);
+        builder.setName(name.startsWith(SHADOW_NAME_PREFIX)
+                ? name.substring(SHADOW_NAME_PREFIX.length()) : name);
 
         builder.setUniqueId(uniqueId);
         builder.setType(this.getDataType().toThrift().name());
@@ -886,6 +891,7 @@ public class Column implements GsonPostProcessable {
             builder.setVariantEnableDocMode(this.getVariantEnableDocMode());
             builder.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
             builder.setVariantDocHashShardCount(this.getVariantDocShardCount());
+            builder.setVariantEnableNestedGroup(this.getVariantEnableNestedGroup());
             // variant may contain predefined structured fields
             addChildren(builder);
         }
@@ -971,11 +977,11 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableDocMode() != other.getVariantEnableDocMode()) {
                 throw new DdlException("Can not change variant enable doc snapshot mode");
             }
-            if (this.getvariantDocMaterializationMinRows() != other.getvariantDocMaterializationMinRows()) {
-                throw new DdlException("Can not change variant doc snapshot min rows");
-            }
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
+            }
+            if (this.getVariantEnableNestedGroup() != other.getVariantEnableNestedGroup()) {
+                throw new DdlException("Can not change variant enable nested group");
             }
             if (CollectionUtils.isNotEmpty(this.getChildren()) || CollectionUtils.isNotEmpty(other.getChildren())) {
                 throw new DdlException("Can not change variant schema templates");
@@ -1000,8 +1006,8 @@ public class Column implements GsonPostProcessable {
     }
 
     public static String removeNamePrefix(String colName) {
-        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+        if (colName.startsWith(SHADOW_NAME_PREFIX)) {
+            return colName.substring(SHADOW_NAME_PREFIX.length());
         }
         return colName;
     }
@@ -1010,11 +1016,11 @@ public class Column implements GsonPostProcessable {
         if (isShadowColumn(colName)) {
             return colName;
         }
-        return SchemaChangeHandler.SHADOW_NAME_PREFIX + colName;
+        return SHADOW_NAME_PREFIX + colName;
     }
 
     public static boolean isShadowColumn(String colName) {
-        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX);
+        return colName.startsWith(SHADOW_NAME_PREFIX);
     }
 
     public Expr getDefineExpr() {
@@ -1071,7 +1077,8 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExpr().toSql()).append(")");
+            sb.append(" AS (").append(generatedColumnInfo.getExpr()
+                    .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");
@@ -1334,6 +1341,10 @@ public class Column implements GsonPostProcessable {
 
     public int getVariantDocShardCount() {
         return type.isVariantType() ? ((ScalarType) type).getVariantDocShardCount() : 128;
+    }
+
+    public boolean getVariantEnableNestedGroup() {
+        return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
     }
 
     public void setFieldPatternType(TPatternType type) {

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Generate;
@@ -124,30 +125,29 @@ public class PhysicalGenerate<CHILD_TYPE extends Plan> extends PhysicalUnary<CHI
     @Override
     public PhysicalGenerate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalGenerate<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
-                groupExpression, getLogicalProperties(), PhysicalProperties.ANY, null, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
+                groupExpression, getLogicalProperties(), PhysicalProperties.ANY, null, child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
-                groupExpression, logicalProperties.get(), PhysicalProperties.ANY, null, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
+                groupExpression, logicalProperties.get(), PhysicalProperties.ANY, null, children.get(0)));
     }
 
     @Override
     public PhysicalGenerate<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
-                Optional.empty(), getLogicalProperties(), physicalProperties,
-                statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalGenerate<>(generators, generatorOutput, conjuncts,
+                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

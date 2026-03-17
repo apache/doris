@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
@@ -70,8 +70,10 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     @Getter
     @Setter
-    @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION", "dlf.region"},
+    @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION", "dlf.region",
+        "iceberg.rest.signing-region"},
             required = false,
+            isRegionField = true,
             description = "The region of OSS.")
     protected String region;
 
@@ -161,6 +163,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     private static List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
             "iceberg.catalog.type", "paimon.catalog.type");
 
+    static final String JINDO_OSS_FILE_SYSTEM_IMPL = "com.aliyun.jindodata.oss.JindoOssFileSystem";
+    static final String JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL = "com.aliyun.jindodata.oss.JindoOSS";
+
     private static final String DLS_URI_KEYWORDS = "oss-dls.aliyuncs";
 
     protected OSSProperties(Map<String, String> origProps) {
@@ -177,7 +182,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     protected static boolean guessIsMe(Map<String, String> origProps) {
         String value = Stream.of("oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
-                        "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint")
+                        "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "fs.oss.accessKeyId")
                 .map(origProps::get)
                 .filter(Objects::nonNull)
                 .findFirst()
@@ -309,10 +314,12 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
-        hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
+        hadoopStorageConfig.set("fs.oss.impl", JINDO_OSS_FILE_SYSTEM_IMPL);
+        hadoopStorageConfig.set("fs.AbstractFileSystem.oss.impl", JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL);
         hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
         hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
         hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.oss.region", region);
     }
 
     /**

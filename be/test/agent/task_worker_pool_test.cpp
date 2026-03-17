@@ -25,9 +25,9 @@
 #include <chrono>
 #include <thread>
 
-#include "olap/options.h"
-#include "olap/storage_engine.h"
 #include "runtime/cluster_info.h"
+#include "storage/options.h"
+#include "storage/storage_engine.h"
 
 namespace doris {
 

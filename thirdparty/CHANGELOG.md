@@ -2,6 +2,10 @@
 
 This file contains version of the third-party dependency libraries in the build-env image. The docker build-env image is apache/doris, and the tag is `build-env-${version}`
 
+## 20260206
+
+- Modified: jindofs 6.8.2 -> 6.10.4
+
 ## 20260202
 
 - Modified: snappy 1.1.8 -> 1.1.10

@@ -23,18 +23,18 @@
 #include <arrow/type.h>
 #include <gen_cpp/internal_service.pb.h>
 
+#include "core/block/block.h"
+#include "format/arrow/arrow_block_convertor.h"
+#include "format/arrow/arrow_row_batch.h"
+#include "format/arrow/arrow_utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/result_buffer_mgr.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
-#include "util/arrow/block_convertor.h"
-#include "util/arrow/row_batch.h"
-#include "util/arrow/utils.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
-#include "util/runtime_profile.h"
-#include "vec/core/block.h"
 
 namespace doris::flight {
 
@@ -76,7 +76,7 @@ ArrowFlightBatchLocalReader::ArrowFlightBatchLocalReader(
 arrow::Result<std::shared_ptr<ArrowFlightBatchLocalReader>> ArrowFlightBatchLocalReader::Create(
         const std::shared_ptr<QueryStatement>& statement) {
     DCHECK(statement->result_addr.hostname == BackendOptions::get_localhost());
-    std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+    std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
     RETURN_ARROW_STATUS_IF_ERROR(
             ExecEnv::GetInstance()->result_mgr()->find_buffer(statement->query_id, arrow_buffer));
     // Make sure that FE send the fragment to BE and creates the BufferControlBlock before returning ticket
@@ -95,10 +95,10 @@ arrow::Status ArrowFlightBatchLocalReader::ReadNextImpl(std::shared_ptr<arrow::R
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
     TUniqueId tid = UniqueId(_statement->query_id).to_thrift();
-    std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+    std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
     RETURN_ARROW_STATUS_IF_ERROR(
             ExecEnv::GetInstance()->result_mgr()->find_buffer(tid, arrow_buffer));
-    std::shared_ptr<vectorized::Block> result;
+    std::shared_ptr<Block> result;
     auto st = arrow_buffer->get_arrow_batch(&result);
     st.prepend("ArrowFlightBatchLocalReader fetch arrow data failed");
     ARROW_RETURN_NOT_OK(to_arrow_status(st));
@@ -267,7 +267,7 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
 
         {
             SCOPED_ATOMIC_TIMER(&_deserialize_block_timer);
-            _block = vectorized::Block::create_shared();
+            _block = Block::create_shared();
             [[maybe_unused]] size_t uncompressed_size = 0;
             [[maybe_unused]] int64_t uncompressed_time = 0;
             st = _block->deserialize(callback->response_->block(), &uncompressed_size,

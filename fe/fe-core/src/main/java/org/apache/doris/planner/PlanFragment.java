@@ -21,10 +21,13 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.nereids.trees.plans.distribute.NereidsSpecifyInstances;
@@ -235,8 +238,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
      * Assign ParallelExecNum by default value for Asynchronous request
      */
     public void setParallelExecNumIfExists() {
-        if (ConnectContext.get() != null) {
-            parallelExecNum = ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context != null) {
+            String clusterName = context.getSessionVariable().resolveCloudClusterName(context);
+            parallelExecNum = context.getSessionVariable().getParallelExecInstanceNum(clusterName);
         }
     }
 
@@ -332,7 +337,7 @@ public class PlanFragment extends TreeNode<PlanFragment> {
             result.setPlan(planRoot.treeToThrift());
         }
         if (outputExprs != null) {
-            result.setOutputExprs(Expr.treesToThrift(outputExprs));
+            result.setOutputExprs(ExprToThriftVisitor.treesToThrift(outputExprs));
         }
         if (sink != null) {
             result.setOutputSink(sink.toThrift());
@@ -354,7 +359,9 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         Preconditions.checkState(dataPartition != null);
         if (CollectionUtils.isNotEmpty(outputExprs)) {
             str.append("  OUTPUT EXPRS:\n    ");
-            str.append(outputExprs.stream().map(Expr::toSql).collect(Collectors.joining("\n    ")));
+            str.append(outputExprs.stream()
+                    .map(e -> e.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE))
+                    .collect(Collectors.joining("\n    ")));
         }
         str.append("\n");
         str.append("  PARTITION: " + dataPartition.getExplainString(explainLevel) + "\n");

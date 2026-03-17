@@ -36,18 +36,19 @@
 #include "cpp/sync_point.h"
 #endif
 
+#include <gen_cpp/cloud.pb.h>
+
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
 #include "common/config.h"
-#include "gen_cpp/cloud.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
 #include "io/fs/packed_file_trailer.h"
-#include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
+#include "storage/storage_engine.h"
 #include "util/coding.h"
 #include "util/slice.h"
 #include "util/uid_util.h"
@@ -371,7 +372,9 @@ Status PackedFileManager::append_small_file(const std::string& path, const Slice
     // Async write data to file cache using small file path as cache key.
     // This ensures cache key matches the cleanup key in Rowset::clear_cache(),
     // allowing proper cache cleanup when stale rowsets are removed.
-    write_small_file_to_cache_async(path, data, info.tablet_id, info.expiration_time);
+    if (info.write_file_cache) {
+        write_small_file_to_cache_async(path, data, info.tablet_id, info.expiration_time);
+    }
 
     // Update index
     PackedSliceLocation location;

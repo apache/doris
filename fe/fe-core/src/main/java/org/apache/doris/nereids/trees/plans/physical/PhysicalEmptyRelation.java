@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -79,15 +80,15 @@ public class PhysicalEmptyRelation extends PhysicalRelation
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalEmptyRelation(relationId, projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalEmptyRelation(relationId, projects, groupExpression,
+                logicalPropertiesSupplier.get(), physicalProperties, statistics));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalEmptyRelation(relationId, projects, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalEmptyRelation(relationId, projects, groupExpression,
+                logicalProperties.get(), physicalProperties, statistics));
     }
 
     @Override
@@ -112,8 +113,8 @@ public class PhysicalEmptyRelation extends PhysicalRelation
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalEmptyRelation(relationId, projects, Optional.empty(),
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalEmptyRelation(relationId, projects, Optional.empty(),
+                logicalPropertiesSupplier.get(), physicalProperties, statistics));
     }
 
     @Override

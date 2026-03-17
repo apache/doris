@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <common/multi_version.h>
 #include <gen_cpp/olap_file.pb.h>
 
 #include <atomic>
@@ -29,16 +28,17 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/multi_version.h"
 #include "common/status.h"
-#include "exec/schema_scanner/schema_routine_load_job_scanner.h"
+#include "exec/pipeline/pipeline_tracing.h"
+#include "information_schema/schema_routine_load_job_scanner.h"
 #include "io/cache/fs_file_cache_storage.h"
-#include "olap/memtable_memory_limiter.h"
-#include "olap/options.h"
-#include "olap/rowset/segment_v2/inverted_index_writer.h"
-#include "olap/tablet_fwd.h"
-#include "pipeline/pipeline_tracing.h"
+#include "load/memtable/memtable_memory_limiter.h"
 #include "runtime/cluster_info.h"
 #include "runtime/frontend_info.h" // TODO(zhiqiang): find a way to remove this include header
+#include "storage/index/inverted/inverted_index_writer.h"
+#include "storage/options.h"
+#include "storage/tablet/tablet_fwd.h"
 #include "util/threadpool.h"
 
 namespace orc {
@@ -49,18 +49,15 @@ class MemoryPool;
 }
 
 namespace doris {
-namespace vectorized {
 class VDataStreamMgr;
 class SpillStreamManager;
 class DeltaWriterV2Pool;
 class DictionaryFactory;
-} // namespace vectorized
-namespace pipeline {
 class TaskScheduler;
 struct RuntimeFilterTimerQueue;
-} // namespace pipeline
 class WorkloadGroupMgr;
 struct WriteCooldownMetaExecutors;
+class S3RateLimiterHolder;
 namespace io {
 class FileCacheFactory;
 class HdfsMgr;
@@ -193,7 +190,7 @@ public:
     static void set_is_upgrading() { _s_upgrading = true; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
-    vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
+    VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
     ResultBufferMgr* result_mgr() { return _result_mgr; }
     ResultQueueMgr* result_queue_mgr() { return _result_queue_mgr; }
     ClientCache<BackendServiceClient>* client_cache() { return _backend_client_cache; }
@@ -288,7 +285,7 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr.get(); }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr.get(); }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    doris::vectorized::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
+    doris::SpillStreamManager* spill_stream_mgr() { return _spill_stream_mgr; }
     GroupCommitMgr* group_commit_mgr() { return _group_commit_mgr; }
     CdcClientMgr* cdc_client_mgr() { return _cdc_client_mgr; }
 
@@ -309,6 +306,7 @@ public:
     io::HdfsMgr* hdfs_mgr() { return _hdfs_mgr; }
     io::PackedFileManager* packed_file_manager() { return _packed_file_manager; }
     IndexPolicyMgr* index_policy_mgr() { return _index_policy_mgr; }
+    S3RateLimiterHolder* warmup_download_rate_limiter() { return _warmup_download_rate_limiter; }
 
 #ifdef BE_TEST
     void set_tmp_file_dir(std::unique_ptr<segment_v2::TmpFileDirs> tmp_file_dirs) {
@@ -328,6 +326,10 @@ public:
     void set_storage_engine(std::unique_ptr<BaseStorageEngine>&& engine);
     void set_inverted_index_searcher_cache(
             segment_v2::InvertedIndexSearcherCache* inverted_index_searcher_cache);
+    void set_inverted_index_query_cache(
+            segment_v2::InvertedIndexQueryCache* inverted_index_query_cache) {
+        _inverted_index_query_cache = inverted_index_query_cache;
+    }
     void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
     void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
@@ -361,7 +363,7 @@ public:
 #endif
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
-    vectorized::DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
+    DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
 
     void wait_for_all_tasks_done();
 
@@ -392,15 +394,11 @@ public:
     }
     QueryCache* get_query_cache() { return _query_cache; }
 
-    pipeline::RuntimeFilterTimerQueue* runtime_filter_timer_queue() {
-        return _runtime_filter_timer_queue;
-    }
+    RuntimeFilterTimerQueue* runtime_filter_timer_queue() { return _runtime_filter_timer_queue; }
 
-    vectorized::DictionaryFactory* dict_factory() { return _dict_factory; }
+    DictionaryFactory* dict_factory() { return _dict_factory; }
 
-    pipeline::PipelineTracerContext* pipeline_tracer_context() {
-        return _pipeline_tracer_ctx.get();
-    }
+    PipelineTracerContext* pipeline_tracer_context() { return _pipeline_tracer_ctx.get(); }
 
     segment_v2::TmpFileDirs* get_tmp_file_dirs() { return _tmp_file_dirs.get(); }
     io::FDCache* file_cache_open_fd_cache() const { return _file_cache_open_fd_cache.get(); }
@@ -409,7 +407,7 @@ public:
     arrow::MemoryPool* arrow_memory_pool() { return _arrow_memory_pool; }
 
     bool check_auth_token(const std::string& auth_token);
-    void set_stream_mgr(vectorized::VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
+    void set_stream_mgr(VDataStreamMgr* vstream_mgr) { _vstream_mgr = vstream_mgr; }
     void clear_stream_mgr();
 
     DeleteBitmapAggCache* delete_bitmap_agg_cache() { return _delete_bitmap_agg_cache; }
@@ -438,7 +436,7 @@ private:
     UserFunctionCache* _user_function_cache = nullptr;
     // Leave protected so that subclasses can override
     ExternalScanContextMgr* _external_scan_context_mgr = nullptr;
-    vectorized::VDataStreamMgr* _vstream_mgr = nullptr;
+    VDataStreamMgr* _vstream_mgr = nullptr;
     ResultBufferMgr* _result_mgr = nullptr;
     ResultQueueMgr* _result_queue_mgr = nullptr;
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
@@ -516,7 +514,7 @@ private:
     FileMetaCache* _file_meta_cache = nullptr;
     std::unique_ptr<MemTableMemoryLimiter> _memtable_memory_limiter;
     std::unique_ptr<LoadStreamMapPool> _load_stream_map_pool;
-    std::unique_ptr<vectorized::DeltaWriterV2Pool> _delta_writer_v2_pool;
+    std::unique_ptr<DeltaWriterV2Pool> _delta_writer_v2_pool;
     std::unique_ptr<WalManager> _wal_manager;
     DNSCache* _dns_cache = nullptr;
     std::unique_ptr<WriteCooldownMetaExecutors> _write_cooldown_meta_executors;
@@ -551,17 +549,17 @@ private:
     std::unique_ptr<io::FDCache> _file_cache_open_fd_cache;
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
 
-    pipeline::RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
-    vectorized::DictionaryFactory* _dict_factory = nullptr;
+    RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+    DictionaryFactory* _dict_factory = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;
     IndexPolicyMgr* _index_policy_mgr = nullptr;
 
     RuntimeQueryStatisticsMgr* _runtime_query_statistics_mgr = nullptr;
 
-    std::unique_ptr<pipeline::PipelineTracerContext> _pipeline_tracer_ctx;
+    std::unique_ptr<PipelineTracerContext> _pipeline_tracer_ctx;
     std::unique_ptr<segment_v2::TmpFileDirs> _tmp_file_dirs;
-    doris::vectorized::SpillStreamManager* _spill_stream_mgr = nullptr;
+    doris::SpillStreamManager* _spill_stream_mgr = nullptr;
 
     orc::MemoryPool* _orc_memory_pool = nullptr;
     arrow::MemoryPool* _arrow_memory_pool = nullptr;
@@ -569,6 +567,7 @@ private:
     kerberos::KerberosTicketMgr* _kerberos_ticket_mgr = nullptr;
     io::HdfsMgr* _hdfs_mgr = nullptr;
     io::PackedFileManager* _packed_file_manager = nullptr;
+    S3RateLimiterHolder* _warmup_download_rate_limiter = nullptr;
 };
 
 template <>

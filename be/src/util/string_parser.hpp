@@ -38,19 +38,17 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/status.h"
-#include "runtime/large_int_value.h"
-#include "runtime/primitive_type.h"
-#include "vec/common/int_exp.h"
-#include "vec/common/string_utils/string_utils.h"
-#include "vec/core/extended_types.h"
-#include "vec/data_types/number_traits.h"
+#include "core/data_type/number_traits.h"
+#include "core/data_type/primitive_type.h"
+#include "core/extended_types.h"
+#include "core/value/large_int_value.h"
+#include "exec/common/int_exp.h"
+#include "exec/common/string_utils/string_utils.h"
 
 namespace doris {
 #include "common/compile_check_avoid_begin.h"
-namespace vectorized {
 template <DecimalNativeTypeConcept T>
 struct Decimal;
-} // namespace vectorized
 
 // they rely on the template parameter `IS_STRICT`. in strict mode, it will set error code and otherwise it will not.
 #ifndef SET_PARAMS_RET_FALSE_IFN
@@ -503,7 +501,7 @@ T StringParser::string_to_int_internal(const char* __restrict s, int len, ParseR
     }
 
     // This is the fast path where the string cannot overflow.
-    if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<T>())) {
+    if (LIKELY(len - i < NumberTraits::max_ascii_len<T>())) {
         val = string_to_int_no_overflow<UnsignedT, enable_strict_mode>(s + i, len - i, result);
         return static_cast<T>(negative ? -val : val);
     }
@@ -565,7 +563,7 @@ T StringParser::string_to_unsigned_int_internal(const char* __restrict s, int le
 
     using signedT = MakeSignedT<T>;
     // This is the fast path where the string cannot overflow.
-    if (LIKELY(len - i < vectorized::NumberTraits::max_ascii_len<signedT>())) {
+    if (LIKELY(len - i < NumberTraits::max_ascii_len<signedT>())) {
         val = string_to_int_no_overflow<T>(s + i, len - i, result);
         return val;
     }

@@ -20,7 +20,7 @@ package org.apache.doris.catalog;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -68,8 +68,8 @@ public class AzureResource extends Resource {
 
         // the endpoint for ping need add uri scheme.
         String pingEndpoint = this.properties.get(S3Properties.ENDPOINT);
-        if (!pingEndpoint.startsWith("http://")) {
-            pingEndpoint = "http://" + this.properties.get(S3Properties.ENDPOINT);
+        if (!pingEndpoint.contains("://")) {
+            pingEndpoint = "https://" + pingEndpoint;
             this.properties.put(S3Properties.ENDPOINT, pingEndpoint);
             this.properties.put(S3Properties.Env.ENDPOINT, pingEndpoint);
         }
@@ -99,14 +99,14 @@ public class AzureResource extends Resource {
         Status status = azureObjStorage.putObject(testObj, new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
-                    "ping azure failed(put), status: " + status + ", properties: " + new PrintableMap<>(
+                    "ping azure failed(put), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
 
         status = azureObjStorage.headObject(testObj);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
-                    "ping azure failed(head), status: " + status + ", properties: " + new PrintableMap<>(
+                    "ping azure failed(head), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
 
@@ -117,7 +117,7 @@ public class AzureResource extends Resource {
         status = azureObjStorage.deleteObject(testObj);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
-                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
 
@@ -125,14 +125,15 @@ public class AzureResource extends Resource {
                 new ByteArrayInputStream(contentData), contentData.length);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
-                    "ping azure failed(multiPartPut), status: " + status + ", properties: " + new PrintableMap<>(
+                    "ping azure failed(multiPartPut), status: " + status
+                            + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
 
         status = azureObjStorage.deleteObject(testObj);
         if (!Status.OK.equals(status)) {
             throw new DdlException(
-                    "ping azure failed(delete), status: " + status + ", properties: " + new PrintableMap<>(
+                    "ping azure failed(delete), status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false));
         }
         LOG.info("Success to ping azure blob storage.");
@@ -203,7 +204,7 @@ public class AzureResource extends Resource {
         readLock();
         result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : this.properties.entrySet()) {
-            if (PrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
+            if (DatasourcePrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
                 continue;
             }
             // it's dangerous to show password in show odbc resource,
