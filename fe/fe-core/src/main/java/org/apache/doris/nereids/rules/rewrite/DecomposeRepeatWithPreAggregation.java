@@ -546,7 +546,7 @@ public class DecomposeRepeatWithPreAggregation extends DefaultPlanRewriter<Disti
         }
         for (Expression candidate : candidates) {
             ColumnStatistic columnStatistic = inputStats.findColumnStatistics(candidate);
-            if (columnStatistic == null || columnStatistic.isUnKnown()) {
+            if (columnStatistic == null || columnStatistic.isUnKnown() || columnStatistic.hotValues == null) {
                 continue;
             }
             if (StatisticsUtil.isBalanced(columnStatistic, totalInstanceNum,
