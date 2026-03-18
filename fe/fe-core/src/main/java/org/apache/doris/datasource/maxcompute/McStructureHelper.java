@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.maxcompute;
 
 
+import org.apache.doris.common.DdlException;
+
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.OdpsException;
 import com.aliyun.odps.Partition;
@@ -64,6 +66,10 @@ public interface McStructureHelper {
     Tables.TableCreator createTableCreator(Odps mcClient, String dbName, String tableName, TableSchema schema);
 
     void dropTable(Odps mcClient, String dbName, String tableName, boolean ifExists) throws OdpsException;
+
+    void createDb(Odps mcClient, String dbName, boolean ifNotExists) throws DdlException;
+
+    void dropDb(Odps mcClient, String dbName, boolean ifExists) throws DdlException;
 
     /**
      * `mc.enable.namespace.schema` = true.
@@ -148,6 +154,30 @@ public interface McStructureHelper {
                 throws OdpsException {
             // dbName is the schema name, defaultProjectName is the project
             mcClient.tables().delete(defaultProjectName, dbName, tableName, ifExists);
+        }
+
+        @Override
+        public void createDb(Odps mcClient, String dbName, boolean ifNotExists) throws DdlException {
+            try {
+                if (ifNotExists && mcClient.schemas().exists(dbName)) {
+                    return;
+                }
+                mcClient.schemas().create(defaultProjectName, dbName);
+            } catch (OdpsException e) {
+                throw new DdlException("Failed to create schema '" + dbName + "': " + e.getMessage(), e);
+            }
+        }
+
+        @Override
+        public void dropDb(Odps mcClient, String dbName, boolean ifExists) throws DdlException {
+            try {
+                if (ifExists && !mcClient.schemas().exists(dbName)) {
+                    return;
+                }
+                mcClient.schemas().delete(defaultProjectName, dbName);
+            } catch (OdpsException e) {
+                throw new DdlException("Failed to drop schema '" + dbName + "': " + e.getMessage(), e);
+            }
         }
     }
 
@@ -245,6 +275,18 @@ public interface McStructureHelper {
                 throws OdpsException {
             // dbName is the project name
             mcClient.tables().delete(dbName, tableName, ifExists);
+        }
+
+        @Override
+        public void createDb(Odps mcClient, String dbName, boolean ifNotExists) throws DdlException {
+            throw new DdlException(
+                    "Create database is not supported when mc.enable.namespace.schema is false.");
+        }
+
+        @Override
+        public void dropDb(Odps mcClient, String dbName, boolean ifExists) throws DdlException {
+            throw new DdlException(
+                    "Drop database is not supported when mc.enable.namespace.schema is false.");
         }
     }
 
