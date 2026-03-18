@@ -21,9 +21,9 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelation;
-import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.qe.ConnectContext;
 
@@ -42,16 +42,10 @@ import java.util.Set;
 public class IVMRefreshManager {
     private static final Logger LOG = LogManager.getLogger(IVMRefreshManager.class);
     private final IVMCapabilityChecker capabilityChecker;
-    private final IVMPlanAnalyzer planAnalyzer;
-    private final IVMDeltaPlannerDispatcher deltaPlannerDispatcher;
     private final IVMDeltaExecutor deltaExecutor;
 
-    public IVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMPlanAnalyzer planAnalyzer,
-            IVMDeltaPlannerDispatcher deltaPlannerDispatcher, IVMDeltaExecutor deltaExecutor) {
+    public IVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMDeltaExecutor deltaExecutor) {
         this.capabilityChecker = Objects.requireNonNull(capabilityChecker, "capabilityChecker can not be null");
-        this.planAnalyzer = Objects.requireNonNull(planAnalyzer, "planAnalyzer can not be null");
-        this.deltaPlannerDispatcher = Objects.requireNonNull(deltaPlannerDispatcher,
-                "deltaPlannerDispatcher can not be null");
         this.deltaExecutor = Objects.requireNonNull(deltaExecutor, "deltaExecutor can not be null");
     }
 
@@ -92,19 +86,34 @@ public class IVMRefreshManager {
         return new IVMRefreshContext(mtmv, connectContext, mtmvRefreshContext);
     }
 
+    @VisibleForTesting
+    List<DeltaPlanBundle> analyzeDeltaBundles(IVMRefreshContext context) throws Exception {
+        return MTMVPlanUtil.analyzeQueryWithSql(context.getMtmv(), context.getConnectContext())
+                .getIvmDeltaBundles();
+    }
+
     private IVMRefreshResult doRefreshInternal(IVMRefreshContext context) {
         Objects.requireNonNull(context, "context can not be null");
 
-        IVMPlanAnalysis analysis = planAnalyzer.analyze(context);
-        Objects.requireNonNull(analysis, "analysis can not be null");
-        if (analysis.isInvalid()) {
+        // Run Nereids with IVM rewrite enabled — per-pattern delta rules write bundles to CascadesContext
+        List<DeltaPlanBundle> bundles;
+        try {
+            bundles = analyzeDeltaBundles(context);
+        } catch (Exception e) {
             IVMRefreshResult result = IVMRefreshResult.fallback(
-                    FallbackReason.PLAN_PATTERN_UNSUPPORTED, analysis.getUnsupportedReason());
-            LOG.warn("IVM plan unsupported for mv={}, result={}", context.getMtmv().getName(), result);
+                    FallbackReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage());
+            LOG.warn("IVM plan analysis failed for mv={}, result={}", context.getMtmv().getName(), result);
             return result;
         }
 
-        IVMCapabilityResult capabilityResult = capabilityChecker.check(context, analysis);
+        if (bundles == null || bundles.isEmpty()) {
+            IVMRefreshResult result = IVMRefreshResult.fallback(
+                    FallbackReason.PLAN_PATTERN_UNSUPPORTED, "No IVM delta rule matched the MV define plan");
+            LOG.warn("IVM no delta bundles for mv={}, result={}", context.getMtmv().getName(), result);
+            return result;
+        }
+
+        IVMCapabilityResult capabilityResult = capabilityChecker.check(context, bundles);
         Objects.requireNonNull(capabilityResult, "capabilityResult can not be null");
         if (!capabilityResult.isIncremental()) {
             IVMRefreshResult result = IVMRefreshResult.fallback(
@@ -114,7 +123,6 @@ public class IVMRefreshManager {
         }
 
         try {
-            List<DeltaPlanBundle> bundles = deltaPlannerDispatcher.plan(context, analysis);
             deltaExecutor.execute(context, bundles);
             return IVMRefreshResult.success();
         } catch (Exception e) {

@@ -477,7 +477,11 @@ public class MTMVPlanUtil {
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            return new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
+            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
+            if (enableIvmRewrite) {
+                queryInfo.setIvmDeltaBundles(planner.getCascadesContext().getIvmDeltaBundles());
+            }
+            return queryInfo;
         }
     }
 

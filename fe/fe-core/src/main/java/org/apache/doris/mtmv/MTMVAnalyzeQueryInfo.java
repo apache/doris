@@ -17,14 +17,18 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.mtmv.ivm.DeltaPlanBundle;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
+import java.util.Collections;
 import java.util.List;
 
 public class MTMVAnalyzeQueryInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private List<ColumnDefinition> columnDefinitions;
+    // populated only when IVM rewrite is enabled during refresh
+    private List<DeltaPlanBundle> ivmDeltaBundles = Collections.emptyList();
 
     public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
             MTMVRelation relation) {
@@ -43,5 +47,13 @@ public class MTMVAnalyzeQueryInfo {
 
     public MTMVRelation getRelation() {
         return relation;
+    }
+
+    public List<DeltaPlanBundle> getIvmDeltaBundles() {
+        return ivmDeltaBundles;
+    }
+
+    public void setIvmDeltaBundles(List<DeltaPlanBundle> ivmDeltaBundles) {
+        this.ivmDeltaBundles = ivmDeltaBundles != null ? ivmDeltaBundles : Collections.emptyList();
     }
 }

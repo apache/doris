@@ -31,8 +31,8 @@ import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import mockit.Mocked;
-import org.junit.Assert;
-import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
 public class IvmRewriteMtmvPlanTest {
 
@@ -44,8 +44,8 @@ public class IvmRewriteMtmvPlanTest {
 
         Plan rewritten = rewriter.rewriteRoot(scan, newJobContext(false, scan));
 
-        Assert.assertSame(scan, rewritten);
-        Assert.assertSame(scan, rewriter.basePlan);
+        Assertions.assertSame(scan, rewritten);
+        Assertions.assertSame(scan, rewriter.basePlan);
     }
 
     @Test
@@ -55,7 +55,7 @@ public class IvmRewriteMtmvPlanTest {
 
         Plan rewritten = new IvmRewriteMtmvPlan().rewriteRoot(scan, newJobContext(true, scan));
 
-        Assert.assertSame(scan, rewritten);
+        Assertions.assertSame(scan, rewritten);
     }
 
     private JobContext newJobContext(boolean enableIvmRewrite, Plan rootPlan) {
