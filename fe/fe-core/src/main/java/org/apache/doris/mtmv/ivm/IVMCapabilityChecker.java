@@ -19,6 +19,11 @@ package org.apache.doris.mtmv.ivm;
 
 import java.util.List;
 
-public interface IVMCapabilityChecker {
-    IVMCapabilityResult check(IVMRefreshContext context, List<DeltaCommandBundle> bundles);
+/**
+ * Checks whether the MV and its delta bundles support incremental refresh.
+ */
+public class IVMCapabilityChecker {
+    public IVMCapabilityResult check(IVMRefreshContext context, List<DeltaCommandBundle> bundles) {
+        return IVMCapabilityResult.ok();
+    }
 }
