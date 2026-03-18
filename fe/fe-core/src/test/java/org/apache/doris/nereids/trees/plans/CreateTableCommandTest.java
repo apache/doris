@@ -1166,7 +1166,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + " AS\n"
                 + " SELECT * FROM mtmv_scan_base;");
 
-        Assertions.assertEquals("mv_" + IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
+        Assertions.assertEquals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
         Assertions.assertFalse(createMTMVInfo.getColumns().get(0).isVisible());
         Assertions.assertEquals("mv_id", createMTMVInfo.getColumns().get(1).getName());
         Assertions.assertEquals("mv_score", createMTMVInfo.getColumns().get(2).getName());
@@ -1189,7 +1189,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + " AS\n"
                 + " SELECT id + 1, score FROM mtmv_project_scan_base;");
 
-        Assertions.assertEquals("mv_" + IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
+        Assertions.assertEquals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
         Assertions.assertFalse(createMTMVInfo.getColumns().get(0).isVisible());
         Assertions.assertEquals("mv_inc_id", createMTMVInfo.getColumns().get(1).getName());
         Assertions.assertEquals("mv_score", createMTMVInfo.getColumns().get(2).getName());
@@ -1211,7 +1211,7 @@ public class CreateTableCommandTest extends TestWithFeService {
                 + " AS\n"
                 + " SELECT id, score FROM mtmv_no_cols_base;");
 
-        Assertions.assertEquals("mv_" + IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
+        Assertions.assertEquals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
         Assertions.assertFalse(createMTMVInfo.getColumns().get(0).isVisible());
         Assertions.assertEquals("id", createMTMVInfo.getColumns().get(1).getName());
         Assertions.assertEquals("score", createMTMVInfo.getColumns().get(2).getName());
