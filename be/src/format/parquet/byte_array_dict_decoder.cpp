@@ -23,6 +23,7 @@
 #include "core/column/column.h"
 #include "core/column/column_dictionary.h"
 #include "core/column/column_string.h"
+#include "core/custom_allocator.h"
 #include "core/data_type/data_type_nullable.h"
 #include "util/coding.h"
 #include "util/rle_encoding.h"
@@ -89,7 +90,8 @@ Result<MutableColumnPtr> ByteArrayDictDecoder::convert_dict_column_to_string_col
         }
         return res;
     }
-    std::vector<StringRef> dict_values(dict_column->size());
+    DorisVector<StringRef> dict_values(dict_column->size());
+
     const auto& data = dict_column->get_data();
     for (size_t i = 0; i < dict_column->size(); ++i) {
         dict_values[i] = _dict_items[data[i]];
@@ -134,7 +136,7 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
     while (size_t run_length = select_vector.get_next_run<has_filter>(&read_type)) {
         switch (read_type) {
         case ColumnSelectVector::CONTENT: {
-            std::vector<StringRef> string_values;
+            DorisVector<StringRef> string_values;
             string_values.reserve(run_length);
             for (size_t i = 0; i < run_length; ++i) {
                 string_values.emplace_back(_dict_items[_indexes[dict_index++]]);

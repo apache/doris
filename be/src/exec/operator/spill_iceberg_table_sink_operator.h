@@ -43,7 +43,7 @@ public:
 
     bool is_blockable() const override;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    Status revoke_memory(RuntimeState* state);
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
 private:
@@ -70,8 +70,7 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
