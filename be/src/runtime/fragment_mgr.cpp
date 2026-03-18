@@ -1506,15 +1506,15 @@ Status FragmentMgr::transmit_rec_cte_block(
 Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& guard,
                                    const TUniqueId& query_id, int fragment_id,
                                    PRerunFragmentParams_Opcode stage) {
-    if (stage == PRerunFragmentParams::wait_for_destroy ||
-        stage == PRerunFragmentParams::final_close) {
+    if (stage == PRerunFragmentParams::WAIT_FOR_DESTROY ||
+        stage == PRerunFragmentParams::FINAL_CLOSE) {
         auto fragment_ctx = _pipeline_map.find({query_id, fragment_id});
         if (!fragment_ctx) {
             return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
                                     print_id(query_id), fragment_id);
         }
 
-        if (stage == PRerunFragmentParams::wait_for_destroy) {
+        if (stage == PRerunFragmentParams::WAIT_FOR_DESTROY) {
             std::unique_lock<std::mutex> lk(_rerunnable_params_lock);
             auto it = _rerunnable_params_map.find({query_id, fragment_id});
             if (it == _rerunnable_params_map.end()) {
@@ -1538,10 +1538,10 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
         auto* query_ctx = fragment_ctx->get_query_ctx();
         SCOPED_ATTACH_TASK(query_ctx);
         RETURN_IF_ERROR(
-                fragment_ctx->listen_wait_close(guard, stage == PRerunFragmentParams::final_close));
+                fragment_ctx->listen_wait_close(guard, stage == PRerunFragmentParams::FINAL_CLOSE));
         fragment_ctx->notify_close();
         return Status::OK();
-    } else if (stage == PRerunFragmentParams::rebuild) {
+    } else if (stage == PRerunFragmentParams::REBUILD) {
         auto q_ctx = get_query_ctx(query_id);
         if (!q_ctx) {
             return Status::NotFound(
@@ -1589,7 +1589,7 @@ Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& gu
         q_ctx->set_pipeline_context(info.params.fragment_id, context);
         return Status::OK();
 
-    } else if (stage == PRerunFragmentParams::submit) {
+    } else if (stage == PRerunFragmentParams::SUBMIT) {
         auto fragment_ctx = _pipeline_map.find({query_id, fragment_id});
         if (!fragment_ctx) {
             return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",

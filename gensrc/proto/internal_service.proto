@@ -75,10 +75,10 @@ message PTransmitRecCTEBlockResult {
 
 message PRerunFragmentParams {
     enum Opcode {
-    wait_for_destroy = 1;     // deregister RF, destroy old PFC, async wait for tasks to close via brpc closure
-    rebuild = 2;              // rebuild next round pipeline tasks
-    submit = 3;               // submit tasks to execute
-    final_close = 4;          // async wait for tasks to close, send report, and clean up (last round)
+    WAIT_FOR_DESTROY = 1;     // deregister RF, destroy old PFC, async wait for tasks to close via brpc closure
+    REBUILD = 2;              // rebuild next round pipeline tasks
+    SUBMIT = 3;               // submit tasks to execute
+    FINAL_CLOSE = 4;          // async wait for tasks to close, send report, and clean up (last round)
     }
     optional PUniqueId query_id = 1;
     optional int32 fragment_id = 2;
