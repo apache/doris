@@ -2478,10 +2478,10 @@ public class Coordinator implements CoordInterface {
                 updateStatus(status);
             }
         }
-        if (params.isSetDeltaUrls()) {
+        if (params.isSetDeltaUrls() && deltaUrls != null) {
             updateDeltas(params.getDeltaUrls());
         }
-        if (params.isSetLoadCounters()) {
+        if (params.isSetLoadCounters() && loadCounters != null) {
             updateLoadCounters(params.getLoadCounters());
         }
         if (params.isSetTrackingUrl()) {
