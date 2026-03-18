@@ -101,6 +101,23 @@ class AuthenticatorManagerTest {
     }
 
     @Test
+    void testChooseAuthenticatorReadsVolatileOnce() throws Exception {
+        Authenticator first = Mockito.mock(Authenticator.class);
+        Authenticator second = Mockito.mock(Authenticator.class);
+        Mockito.when(first.canDeal(USER_NAME)).thenAnswer(invocation -> {
+            setStaticField("authTypeAuthenticator", second);
+            return true;
+        });
+
+        AuthenticatorManager manager = new AuthenticatorManager(AuthenticateType.DEFAULT.name());
+        setStaticField("authTypeAuthenticator", first);
+        setStaticField("defaultAuthenticator", Mockito.mock(Authenticator.class));
+
+        Authenticator authenticator = manager.chooseAuthenticator(USER_NAME, REMOTE_IP);
+        Assertions.assertSame(first, authenticator);
+    }
+
+    @Test
     void testAuthenticateFallsBackToAuthenticationChainWhenConfigured() throws Exception {
         Config.authentication_chain = "corp_ldap";
 

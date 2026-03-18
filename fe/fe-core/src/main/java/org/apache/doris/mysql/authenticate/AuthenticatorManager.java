@@ -181,7 +181,8 @@ public class AuthenticatorManager {
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
-        return authTypeAuthenticator.canDeal(userName) ? authTypeAuthenticator : defaultAuthenticator;
+        Authenticator primaryAuthenticator = authTypeAuthenticator;
+        return primaryAuthenticator.canDeal(userName) ? primaryAuthenticator : defaultAuthenticator;
     }
 
     Authenticator getAuthenticationChainAuthenticator() {

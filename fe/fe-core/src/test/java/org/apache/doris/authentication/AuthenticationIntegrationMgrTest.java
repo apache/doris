@@ -34,11 +34,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
+import java.lang.reflect.Field;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 class AuthenticationIntegrationMgrTest {
     private static final String CREATE_USER = "creator";
@@ -146,6 +148,79 @@ class AuthenticationIntegrationMgrTest {
     }
 
     @Test
+    void testCreatePreparesOutsideWriteLockAndActivatesInsideWriteLock() throws Exception {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        ReentrantReadWriteLock lock = getLock(mgr);
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(lock.isWriteLockedByCurrentThread());
+            return prepared;
+        }).when(runtime).prepareAuthenticationIntegration(Mockito.any());
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertTrue(lock.isWriteLockedByCurrentThread());
+            return null;
+        }).when(runtime).activatePreparedAuthenticationIntegration(prepared);
+
+        mgr.createAuthenticationIntegration("corp_ldap", false,
+                map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER);
+    }
+
+    @Test
+    void testAlterPreparesOutsideWriteLockAndActivatesInsideWriteLock() throws Exception {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        mgr.replayCreateAuthenticationIntegration(AuthenticationIntegrationMeta.fromCreateSql(
+                "corp_ldap", map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER));
+        ReentrantReadWriteLock lock = getLock(mgr);
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertFalse(lock.isWriteLockedByCurrentThread());
+            return prepared;
+        }).when(runtime).prepareAuthenticationIntegration(Mockito.any());
+        Mockito.doAnswer(invocation -> {
+            Assertions.assertTrue(lock.isWriteLockedByCurrentThread());
+            return null;
+        }).when(runtime).activatePreparedAuthenticationIntegration(prepared);
+
+        mgr.alterAuthenticationIntegrationProperties("corp_ldap",
+                map("ldap.server", "ldap://127.0.0.1:1389"), ALTER_USER);
+    }
+
+    @Test
+    void testCreateDiscardPreparedAndRollbackMetadataWhenActivateFails() throws Exception {
+        Mockito.when(runtime.prepareAuthenticationIntegration(Mockito.any())).thenReturn(prepared);
+        Mockito.doThrow(new RuntimeException("activate failed"))
+                .when(runtime).activatePreparedAuthenticationIntegration(prepared);
+
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> mgr.createAuthenticationIntegration("corp_ldap", false,
+                        map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER));
+
+        Assertions.assertEquals("activate failed", exception.getMessage());
+        Assertions.assertTrue(mgr.getAuthenticationIntegrations().isEmpty());
+        Mockito.verify(runtime).discardPreparedAuthenticationIntegration(prepared);
+    }
+
+    @Test
+    void testAlterDiscardPreparedAndRestoreMetadataWhenActivateFails() throws Exception {
+        Mockito.when(runtime.prepareAuthenticationIntegration(Mockito.any())).thenReturn(prepared);
+        Mockito.doThrow(new RuntimeException("activate failed"))
+                .when(runtime).activatePreparedAuthenticationIntegration(prepared);
+
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        mgr.replayCreateAuthenticationIntegration(AuthenticationIntegrationMeta.fromCreateSql(
+                "corp_ldap", map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER));
+
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> mgr.alterAuthenticationIntegrationProperties("corp_ldap",
+                        map("ldap.server", "ldap://127.0.0.1:1389"), ALTER_USER));
+
+        Assertions.assertEquals("activate failed", exception.getMessage());
+        Assertions.assertEquals("ldap://127.0.0.1:389",
+                mgr.getAuthenticationIntegrations().get("corp_ldap").getProperties().get("ldap.server"));
+        Mockito.verify(runtime).discardPreparedAuthenticationIntegration(prepared);
+    }
+
+    @Test
     void testAlterNotExistThrows() {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         Assertions.assertThrows(DdlException.class,
@@ -219,5 +294,11 @@ class AuthenticationIntegrationMgrTest {
         Set<String> result = new LinkedHashSet<>();
         Collections.addAll(result, keys);
         return result;
+    }
+
+    private static ReentrantReadWriteLock getLock(AuthenticationIntegrationMgr mgr) throws Exception {
+        Field field = AuthenticationIntegrationMgr.class.getDeclaredField("lock");
+        field.setAccessible(true);
+        return (ReentrantReadWriteLock) field.get(mgr);
     }
 }
