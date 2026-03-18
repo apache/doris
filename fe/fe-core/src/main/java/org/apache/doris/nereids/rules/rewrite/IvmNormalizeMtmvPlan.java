@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.rewrite;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
+import org.apache.doris.qe.ConnectContext;
 
 /**
  * Normalizes the MV define plan for IVM at both CREATE MV and REFRESH MV time.
@@ -32,6 +33,10 @@ public class IvmNormalizeMtmvPlan implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
+        ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
+        if (connectContext == null || !connectContext.getSessionVariable().isEnableIvmNormalRewrite()) {
+            return plan;
+        }
         // TODO: implement MV define plan normalization (row-id injection, avg rewrite)
         return plan;
     }

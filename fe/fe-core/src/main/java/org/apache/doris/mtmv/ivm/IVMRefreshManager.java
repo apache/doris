@@ -88,7 +88,7 @@ public class IVMRefreshManager {
 
     @VisibleForTesting
     List<DeltaPlanBundle> analyzeDeltaBundles(IVMRefreshContext context) throws Exception {
-        return MTMVPlanUtil.analyzeQueryWithSql(context.getMtmv(), context.getConnectContext())
+        return MTMVPlanUtil.analyzeQueryWithSql(context.getMtmv(), context.getConnectContext(), IvmAnalyzeMode.FULL)
                 .getIvmDeltaBundles();
     }
 

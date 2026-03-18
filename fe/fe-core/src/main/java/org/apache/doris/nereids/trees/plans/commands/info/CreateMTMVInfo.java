@@ -44,6 +44,7 @@ import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IvmAnalyzeMode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
@@ -214,9 +215,11 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * analyzeQuery
      */
     public void analyzeQuery(ConnectContext ctx) throws UserException {
+        IvmAnalyzeMode ivmAnalyzeMode = this.refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL
+                ? IvmAnalyzeMode.NORMALIZE_ONLY : IvmAnalyzeMode.NONE;
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
-                this.logicalQuery, this.refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL);
+                this.logicalQuery, ivmAnalyzeMode);
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.relation = mtmvAnalyzeQueryInfo.getRelation();

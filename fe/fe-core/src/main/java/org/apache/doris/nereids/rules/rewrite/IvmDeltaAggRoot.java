@@ -33,7 +33,7 @@ public class IvmDeltaAggRoot implements CustomRewriter {
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
         ConnectContext connectContext = jobContext.getCascadesContext().getConnectContext();
-        if (connectContext == null || !connectContext.getSessionVariable().isEnableIvmRewriteInNereids()) {
+        if (connectContext == null || !connectContext.getSessionVariable().isEnableIvmDeltaRewrite()) {
             return plan;
         }
         // TODO: implement AGG_ROOT delta plan generation
