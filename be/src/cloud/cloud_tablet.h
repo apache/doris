@@ -53,6 +53,11 @@ struct SyncRowsetStats {
     int64_t get_remote_tablet_meta_rpc_ns {0};
     int64_t tablet_meta_cache_hit {0};
     int64_t tablet_meta_cache_miss {0};
+
+    int64_t bthread_schedule_delay_ns {0};
+    int64_t meta_lock_wait_ns {0}; // _meta_lock (std::shared_mutex) wait across all acquisitions
+    int64_t sync_meta_lock_wait_ns {
+            0}; // _sync_meta_lock (bthread::Mutex) wait across all acquisitions
 };
 
 struct SyncOptions {
