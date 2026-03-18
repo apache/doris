@@ -1390,6 +1390,6 @@ public class StatisticsUtil {
             double rowCount) {
         double ndv = columnStatistic.ndv;
         return ndv > instanceNum * AggregateUtils.NDV_INSTANCE_BALANCE_MULTIPLIER
-                && hasSignificantHotValues(columnStatistic, minRatio, rowCount);
+                && !hasSignificantHotValues(columnStatistic, minRatio, rowCount);
     }
 }

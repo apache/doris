@@ -417,8 +417,11 @@ public class ColumnStatistic {
     }
 
     public String getStringHotValues() {
-        if (hotValues == null || hotValues.isEmpty()) {
+        if (hotValues == null) {
             return null;
+        }
+        if (hotValues.isEmpty()) {
+            return "''";
         }
         StringBuilder sb = new StringBuilder();
         hotValues.forEach((k, v) -> {
