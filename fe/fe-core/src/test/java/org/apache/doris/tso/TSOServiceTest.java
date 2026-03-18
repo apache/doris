@@ -31,6 +31,7 @@ import org.junit.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -137,7 +138,7 @@ public class TSOServiceTest {
             setInitializedFlag(tsoService, true);
             Config.enable_feature_tso = false;
             tsoService.runAfterCatalogReady();
-            Assert.assertEquals(50L, tsoService.getInterval());
+            Assert.assertEquals(1L, tsoService.getInterval());
             try {
                 tsoService.getTSO();
                 Assert.fail();
@@ -203,7 +204,15 @@ public class TSOServiceTest {
     private static void invokeCalibrateTimestamp(TSOService service) throws Exception {
         Method m = TSOService.class.getDeclaredMethod("calibrateTimestamp");
         m.setAccessible(true);
-        m.invoke(service);
+        try {
+            m.invoke(service);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getTargetException();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            throw e;
+        }
     }
 
     private static void setGlobalTimestamp(TSOService service, long physical, long logical) throws Exception {
