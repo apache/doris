@@ -7,7 +7,7 @@
 恢复的信息来源是MS中FDB存储的`TxnInfoPB`。其中`status == TXN_STATUS_COMMITTED`且`two_phase_commit == true`的事务即为需要恢复的历史committed事务。`TxnInfoPB`中包含了publish所需的全部信息：
 - `committed_partition_ids` / `committed_versions`：每个partition的commit version
 - `involved_tablets`：tablet和所在BE的映射
-- `load_info`：导入参数（部分列更新模式等）
+- `load_schema_param`：导入参数（TOlapTableSchemaParam的Thrift序列化bytes，包含部分列更新模式等）
 
 关键特性：**partition commit version本身存储在FDB中，不依赖FE内存**。因此新导入的commit在恢复完成前可以正常进行（MS直接从FDB读取partition commit version并递增），只是publish需要等恢复完成后由`CloudPublishDaemon`处理。
 
