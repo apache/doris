@@ -639,11 +639,10 @@ void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key
                              auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
-                                                                            creator_for_null_key);
-                                 ++reinterpret_cast<UInt64&>(*mapped_ptr);
-                             }
+                             lazy_emplace_batch(agg_method, state, num_rows, creator,
+                                                creator_for_null_key, [&](uint32_t, auto& mapped) {
+                                                    ++reinterpret_cast<UInt64&>(mapped);
+                                                });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
@@ -680,11 +679,11 @@ void AggSinkLocalState::_merge_into_hash_table_inline_count(ColumnRawPtrs& key_c
                              auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
-                                                                            creator_for_null_key);
-                                 reinterpret_cast<UInt64&>(*mapped_ptr) += col_data[i].count;
-                             }
+                             lazy_emplace_batch(
+                                     agg_method, state, num_rows, creator, creator_for_null_key,
+                                     [&](uint32_t i, auto& mapped) {
+                                         reinterpret_cast<UInt64&>(mapped) += col_data[i].count;
+                                     });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
