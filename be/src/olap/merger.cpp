@@ -167,7 +167,8 @@ Status Merger::vmerge_rowsets(BaseTabletSPtr tablet, ReaderType reader_type,
 // unique_key should consider sequence&delete column
 void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
                                     std::vector<std::vector<uint32_t>>* column_groups,
-                                    std::vector<uint32_t>* key_group_cluster_key_idxes) {
+                                    std::vector<uint32_t>* key_group_cluster_key_idxes,
+                                    int32_t num_columns_per_group) {
     size_t num_key_cols = tablet_schema.num_key_columns();
     size_t total_cols = tablet_schema.num_columns();
     std::vector<uint32_t> key_columns;
@@ -227,8 +228,7 @@ void Merger::vertical_split_columns(const TabletSchema& tablet_schema,
             continue;
         }
 
-        if (!value_columns.empty() &&
-            value_columns.size() % config::vertical_compaction_num_columns_per_group == 0) {
+        if (!value_columns.empty() && value_columns.size() % num_columns_per_group == 0) {
             column_groups->push_back(value_columns);
             value_columns.clear();
         }
@@ -479,7 +479,33 @@ Status Merger::vertical_merge_rowsets(BaseTabletSPtr tablet, ReaderType reader_t
     LOG(INFO) << "Start to do vertical compaction, tablet_id: " << tablet->tablet_id();
     std::vector<std::vector<uint32_t>> column_groups;
     std::vector<uint32_t> key_group_cluster_key_idxes;
-    vertical_split_columns(tablet_schema, &column_groups, &key_group_cluster_key_idxes);
+    // If BE config vertical_compaction_num_columns_per_group has been modified from
+    // its default value (5), use the BE config; otherwise use the tablet meta value.
+    constexpr int32_t default_num_columns_per_group = 5;
+    int32_t num_columns_per_group =
+            config::vertical_compaction_num_columns_per_group != default_num_columns_per_group
+                    ? config::vertical_compaction_num_columns_per_group
+                    : tablet->tablet_meta()->vertical_compaction_num_columns_per_group();
+
+    DBUG_EXECUTE_IF("Merger.vertical_merge_rowsets.check_num_columns_per_group", {
+        auto expected_value = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                "Merger.vertical_merge_rowsets.check_num_columns_per_group", "expected_value", -1);
+        auto expected_tablet_id = DebugPoints::instance()->get_debug_param_or_default<int64_t>(
+                "Merger.vertical_merge_rowsets.check_num_columns_per_group", "tablet_id", -1);
+        if (expected_tablet_id != -1 && expected_tablet_id == tablet->tablet_id()) {
+            if (expected_value != -1 && expected_value != num_columns_per_group) {
+                LOG(FATAL) << "DEBUG_POINT CHECK FAILED: expected num_columns_per_group="
+                           << expected_value << " but got " << num_columns_per_group
+                           << " for tablet_id=" << tablet->tablet_id();
+            } else {
+                LOG(INFO) << "DEBUG_POINT CHECK PASSED: num_columns_per_group="
+                          << num_columns_per_group << ", tablet_id=" << tablet->tablet_id();
+            }
+        }
+    });
+
+    vertical_split_columns(tablet_schema, &column_groups, &key_group_cluster_key_idxes,
+                           num_columns_per_group);
 
     // Calculate total rows for density calculation after compaction
     int64_t total_rows = 0;

@@ -973,9 +973,6 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableDocMode() != other.getVariantEnableDocMode()) {
                 throw new DdlException("Can not change variant enable doc snapshot mode");
             }
-            if (this.getvariantDocMaterializationMinRows() != other.getvariantDocMaterializationMinRows()) {
-                throw new DdlException("Can not change variant doc snapshot min rows");
-            }
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
             }

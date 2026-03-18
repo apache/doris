@@ -960,6 +960,11 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
                     tablet_meta_info.time_series_compaction_level_threshold);
             need_to_save = true;
         }
+        if (tablet_meta_info.__isset.vertical_compaction_num_columns_per_group) {
+            tablet->tablet_meta()->set_vertical_compaction_num_columns_per_group(
+                    tablet_meta_info.vertical_compaction_num_columns_per_group);
+            need_to_save = true;
+        }
         if (tablet_meta_info.__isset.replica_id) {
             tablet->tablet_meta()->set_replica_id(tablet_meta_info.replica_id);
         }
