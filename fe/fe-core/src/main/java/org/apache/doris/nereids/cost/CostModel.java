@@ -453,7 +453,8 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
             );
         }
         double probeShortcutFactor = 1.0;
-        if (ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
+        if (rightRowCount < 10 * leftRowCount
+                && ConnectContext.get() != null && ConnectContext.get().getStatementContext() != null
                 && !ConnectContext.get().getStatementContext().isHasUnknownColStats()
                 && physicalHashJoin.getJoinType().isLeftSemiOrAntiJoin()
                 && physicalHashJoin.getOtherJoinConjuncts().isEmpty()
