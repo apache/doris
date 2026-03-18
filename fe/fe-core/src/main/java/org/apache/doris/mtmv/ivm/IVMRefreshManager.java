@@ -87,18 +87,18 @@ public class IVMRefreshManager {
     }
 
     @VisibleForTesting
-    List<DeltaPlanBundle> analyzeDeltaBundles(IVMRefreshContext context) throws Exception {
+    List<DeltaCommandBundle> analyzeDeltaCommandBundles(IVMRefreshContext context) throws Exception {
         return MTMVPlanUtil.analyzeQueryWithSql(context.getMtmv(), context.getConnectContext(), IvmAnalyzeMode.FULL)
-                .getIvmDeltaBundles();
+                .getIvmDeltaCommandBundles();
     }
 
     private IVMRefreshResult doRefreshInternal(IVMRefreshContext context) {
         Objects.requireNonNull(context, "context can not be null");
 
         // Run Nereids with IVM rewrite enabled — per-pattern delta rules write bundles to CascadesContext
-        List<DeltaPlanBundle> bundles;
+        List<DeltaCommandBundle> bundles;
         try {
-            bundles = analyzeDeltaBundles(context);
+            bundles = analyzeDeltaCommandBundles(context);
         } catch (Exception e) {
             IVMRefreshResult result = IVMRefreshResult.fallback(
                     FallbackReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage());
@@ -109,7 +109,7 @@ public class IVMRefreshManager {
         if (bundles == null || bundles.isEmpty()) {
             IVMRefreshResult result = IVMRefreshResult.fallback(
                     FallbackReason.PLAN_PATTERN_UNSUPPORTED, "No IVM delta rule matched the MV define plan");
-            LOG.warn("IVM no delta bundles for mv={}, result={}", context.getMtmv().getName(), result);
+            LOG.warn("IVM no delta command bundles for mv={}, result={}", context.getMtmv().getName(), result);
             return result;
         }
 

@@ -18,38 +18,38 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.mtmv.BaseTableInfo;
-import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 
 import java.util.Objects;
 
 /**
- * One delta write plan for a single changed base table.
+ * One delta write command for a single changed base table.
  * Produced by a per-pattern IVM Nereids rule and consumed by IVMDeltaExecutor.
  */
-public class DeltaPlanBundle {
+public class DeltaCommandBundle {
     // the base table whose changes this bundle handles
     private final BaseTableInfo baseTableInfo;
-    // the logical delta write plan (INSERT / DELETE / MERGE INTO)
-    private final LogicalPlan deltaWritePlan;
+    // the logical delta write command (INSERT / DELETE / MERGE INTO)
+    private final Command command;
 
-    public DeltaPlanBundle(BaseTableInfo baseTableInfo, LogicalPlan deltaWritePlan) {
+    public DeltaCommandBundle(BaseTableInfo baseTableInfo, Command command) {
         this.baseTableInfo = Objects.requireNonNull(baseTableInfo, "baseTableInfo can not be null");
-        this.deltaWritePlan = Objects.requireNonNull(deltaWritePlan, "deltaWritePlan can not be null");
+        this.command = Objects.requireNonNull(command, "command can not be null");
     }
 
     public BaseTableInfo getBaseTableInfo() {
         return baseTableInfo;
     }
 
-    public LogicalPlan getDeltaWritePlan() {
-        return deltaWritePlan;
+    public Command getCommand() {
+        return command;
     }
 
     @Override
     public String toString() {
-        return "DeltaPlanBundle{"
+        return "DeltaCommandBundle{"
                 + "baseTableInfo=" + baseTableInfo
-                + ", deltaWritePlan=" + deltaWritePlan.getClass().getSimpleName()
+                + ", command=" + command.getClass().getSimpleName()
                 + '}';
     }
 }

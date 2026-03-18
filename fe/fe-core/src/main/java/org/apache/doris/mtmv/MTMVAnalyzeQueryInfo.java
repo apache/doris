@@ -17,7 +17,7 @@
 
 package org.apache.doris.mtmv;
 
-import org.apache.doris.mtmv.ivm.DeltaPlanBundle;
+import org.apache.doris.mtmv.ivm.DeltaCommandBundle;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
 import java.util.Collections;
@@ -28,7 +28,7 @@ public class MTMVAnalyzeQueryInfo {
     private MTMVPartitionInfo mvPartitionInfo;
     private List<ColumnDefinition> columnDefinitions;
     // populated only when IVM rewrite is enabled during refresh
-    private List<DeltaPlanBundle> ivmDeltaBundles = Collections.emptyList();
+    private List<DeltaCommandBundle> ivmDeltaCommandBundles = Collections.emptyList();
 
     public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
             MTMVRelation relation) {
@@ -49,11 +49,12 @@ public class MTMVAnalyzeQueryInfo {
         return relation;
     }
 
-    public List<DeltaPlanBundle> getIvmDeltaBundles() {
-        return ivmDeltaBundles;
+    public List<DeltaCommandBundle> getIvmDeltaCommandBundles() {
+        return ivmDeltaCommandBundles;
     }
 
-    public void setIvmDeltaBundles(List<DeltaPlanBundle> ivmDeltaBundles) {
-        this.ivmDeltaBundles = ivmDeltaBundles != null ? ivmDeltaBundles : Collections.emptyList();
+    public void setIvmDeltaCommandBundles(List<DeltaCommandBundle> ivmDeltaCommandBundles) {
+        this.ivmDeltaCommandBundles =
+                ivmDeltaCommandBundles != null ? ivmDeltaCommandBundles : Collections.emptyList();
     }
 }
