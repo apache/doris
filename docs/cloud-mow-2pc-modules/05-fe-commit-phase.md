@@ -47,7 +47,7 @@ FE表级commit锁（`Table.commitLock`，一个 ReentrantLock）在 `beforeCommi
 | 步骤 | 新方案归属 | 说明 |
 |------|-----------|------|
 | 获取FE commit锁 | **Commit阶段**（保留） | 与其他并发导入互斥，但持锁时间极短 |
-| 获取MS分布式表锁 | **移除** | 两阶段提交不再需要MS分布式锁 |
+| 获取MS分布式表锁 | **移除** | 异步发布不再需要MS分布式锁 |
 | 获取partition version | **Publish阶段** | 在后台线程中执行 |
 | delete bitmap计算 | **Publish阶段** | 在后台线程中异步下发 |
 | 提交到MS | **Commit阶段**（仅轻量commit） | 仅更新 partition commit version+1 和 TxnInfoPB |
@@ -154,7 +154,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * 管理所有已commit但尚未publish的两阶段提交事务。
+ * 管理所有已commit但尚未publish的异步发布事务。
  * 线程安全：使用 ConcurrentHashMap 存储，支持多线程并发访问。
  *
  * 存放位置：作为 CloudGlobalTransactionMgr 的成员变量。
@@ -266,7 +266,7 @@ public class CommittedTxnManager {
 
 ### 3.1 流程概述
 
-新的 `commitAndPublishTransaction()` 方法在启用两阶段提交的表上，执行以下步骤：
+新的 `commitAndPublishTransaction()` 方法在启用异步发布的表上，执行以下步骤：
 
 ```java
 // 伪代码
@@ -277,7 +277,7 @@ public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList,
     OlapTable table = (OlapTable) tableList.get(0);  // 假设单表
 
     if (table.isEnableTwoPhaseCommit()) {
-        // ===== 新的两阶段提交流程 =====
+        // ===== 新的异步发布流程 =====
         return commitAndPublishTwoPhase(db, tableList, transactionId,
                 tabletCommitInfos, timeoutMillis, txnCommitAttachment);
     } else {
@@ -382,9 +382,9 @@ private boolean commitAndPublishTwoPhase(DatabaseIf db, List<Table> tableList,
 ```java
 // fe.conf 新增配置
 @ConfField(mutable = true, description = {
-    "两阶段提交模式下，导入等待publish完成的默认超时时间，单位秒。"
+    "异步发布模式下，导入等待publish完成的默认超时时间，单位秒。"
     + "超时后commit仍然有效，publish会在后台继续进行。默认 300s"})
-public static int two_phase_commit_publish_timeout_seconds = 300;
+public static int mow_async_publish_publish_timeout_seconds = 300;
 ```
 
 ---
@@ -395,7 +395,7 @@ public static int two_phase_commit_publish_timeout_seconds = 300;
 
 | 属性名 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
-| `enable_two_phase_commit` | boolean | false | 是否启用两阶段提交。仅对Cloud模式下的MOW表有效 |
+| `enable_mow_async_publish` | boolean | false | 是否启用异步发布。仅对Cloud模式下的MOW表有效 |
 
 ### 4.2 PropertyAnalyzer中的定义
 
@@ -404,7 +404,7 @@ public static int two_phase_commit_publish_timeout_seconds = 300;
 ```java
 // 文件: fe/fe-core/src/main/java/org/apache/doris/common/util/PropertyAnalyzer.java
 
-public static final String PROPERTIES_ENABLE_TWO_PHASE_COMMIT = "enable_two_phase_commit";
+public static final String PROPERTIES_ENABLE_TWO_PHASE_COMMIT = "enable_mow_async_publish";
 
 public static boolean analyzeEnableTwoPhaseCommit(Map<String, String> properties)
         throws AnalysisException {
@@ -459,7 +459,7 @@ public boolean getEnableTwoPhaseCommit() {
 // 文件: fe/fe-core/src/main/java/org/apache/doris/catalog/OlapTable.java
 
 /**
- * 判断该表是否启用了两阶段提交。
+ * 判断该表是否启用了异步发布。
  * 前置条件：必须是 Cloud 模式 + MOW 表。
  */
 public boolean isEnableTwoPhaseCommit() {
@@ -479,7 +479,7 @@ public boolean isEnableTwoPhaseCommit() {
 ### 4.5 建表时设置
 
 ```sql
--- 创建启用两阶段提交的MOW表
+-- 创建启用异步发布的MOW表
 CREATE TABLE example_table (
     k1 INT,
     v1 VARCHAR(100)
@@ -488,12 +488,12 @@ UNIQUE KEY(k1)
 DISTRIBUTED BY HASH(k1) BUCKETS 8
 PROPERTIES (
     "enable_unique_key_merge_on_write" = "true",
-    "enable_two_phase_commit" = "true"
+    "enable_mow_async_publish" = "true"
 );
 ```
 
 **校验规则**（在 `InternalCatalog.createTable()` 或相关校验逻辑中添加）：
-- 仅在 Cloud 模式下允许设置 `enable_two_phase_commit = true`
+- 仅在 Cloud 模式下允许设置 `enable_mow_async_publish = true`
 - 仅在 MOW 表（`enable_unique_key_merge_on_write = true`）上允许设置
 - 非 Cloud 模式或非 MOW 表设置该属性时抛出 `AnalysisException`
 
@@ -511,14 +511,14 @@ public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList,
         long transactionId, List<TabletCommitInfo> tabletCommitInfos,
         long timeoutMillis, TxnCommitAttachment txnCommitAttachment) throws UserException {
 
-    // 判断是否有表启用了两阶段提交
+    // 判断是否有表启用了异步发布
     boolean hasTwoPhaseTable = tableList.stream()
             .filter(t -> t instanceof OlapTable)
             .map(t -> (OlapTable) t)
             .anyMatch(OlapTable::isEnableTwoPhaseCommit);
 
     if (hasTwoPhaseTable) {
-        // 新的两阶段提交流程
+        // 新的异步发布流程
         return commitAndPublishTwoPhase(db, tableList, transactionId,
                 tabletCommitInfos, timeoutMillis, txnCommitAttachment);
     } else {
@@ -533,7 +533,7 @@ public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList,
 
 | 场景 | 行为 |
 |------|------|
-| 未启用两阶段提交的MOW表 | 走原有的一阶段提交流程，完全不受影响 |
+| 未启用异步发布的MOW表 | 走原有的一阶段提交流程，完全不受影响 |
 | 非MOW表（DUP/AGG等） | 走原有流程，不受影响 |
 | 非Cloud模式 | `isEnableTwoPhaseCommit()` 始终返回false，走原有流程 |
 | 混合场景（同一事务涉及两阶段和非两阶段表） | 初期不支持。校验时如果发现事务涉及的表属性不一致，抛出异常 |
@@ -542,12 +542,12 @@ public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList,
 
 | 机制 | 影响 |
 |------|------|
-| **Lazy commit** (`enable_cloud_txn_lazy_commit`) | 启用两阶段提交的表不再使用lazy commit。两个属性互斥 |
-| **2PC协议** (`commitTransaction2PC`) | 两阶段提交表不支持外部2PC协议（已有的Stream Load 2PC），两者互斥 |
-| **SubTransaction** | 初期不支持两阶段提交表的sub transaction |
+| **Lazy commit** (`enable_cloud_txn_lazy_commit`) | 启用异步发布的表不再使用lazy commit。两个属性互斥 |
+| **2PC协议** (`commitTransaction2PC`) | 异步发布表不支持外部2PC协议（已有的Stream Load 2PC），两者互斥 |
+| **SubTransaction** | 初期不支持异步发布表的sub transaction |
 | **重试机制** | `mow_calculate_delete_bitmap_retry_times` 相关重试逻辑保留在一阶段路径中，两阶段路径的重试在publish后台线程中处理 |
-| **Commit lock** | 两阶段提交仍然使用FE表级commit锁，但持锁时间极短 |
-| **commitTransactionWithoutLock** | 此方法是 BE 直接调用 FE 的 thrift 接口提交事务时使用。对于两阶段提交表，需要相应改造 |
+| **Commit lock** | 异步发布仍然使用FE表级commit锁，但持锁时间极短 |
+| **commitTransactionWithoutLock** | 此方法是 BE 直接调用 FE 的 thrift 接口提交事务时使用。对于异步发布表，需要相应改造 |
 
 ---
 
@@ -568,15 +568,15 @@ public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList,
 | `fe/fe-core/src/main/java/org/apache/doris/common/util/PropertyAnalyzer.java` | 新增 `PROPERTIES_ENABLE_TWO_PHASE_COMMIT` 常量和 `analyzeEnableTwoPhaseCommit()` 方法 |
 | `fe/fe-core/src/main/java/org/apache/doris/catalog/TableProperty.java` | 新增 `enableTwoPhaseCommit` 字段、getter/setter，在 `buildProperty()` 中恢复该字段 |
 | `fe/fe-core/src/main/java/org/apache/doris/catalog/OlapTable.java` | 新增 `isEnableTwoPhaseCommit()` 方法 |
-| `fe/fe-core/src/main/java/org/apache/doris/datasource/InternalCatalog.java` | 建表时校验 `enable_two_phase_commit` 的合法性（必须是Cloud + MOW） |
-| `fe/fe-common/src/main/java/org/apache/doris/common/Config.java` | 新增 `two_phase_commit_publish_timeout_seconds` 配置项 |
+| `fe/fe-core/src/main/java/org/apache/doris/datasource/InternalCatalog.java` | 建表时校验 `enable_mow_async_publish` 的合法性（必须是Cloud + MOW） |
+| `fe/fe-common/src/main/java/org/apache/doris/common/Config.java` | 新增 `mow_async_publish_publish_timeout_seconds` 配置项 |
 
 ### 6.3 涉及但不修改的文件（需理解）
 
 | 文件 | 说明 |
 |------|------|
 | `fe/fe-core/src/main/java/org/apache/doris/transaction/TabletCommitInfo.java` | 数据结构：`tabletId` + `backendId`，CommittedTxnEntry 中直接持有 |
-| `fe/fe-core/src/main/java/org/apache/doris/common/util/MetaLockUtils.java` | commit锁工具类，两阶段提交仍然使用 |
+| `fe/fe-core/src/main/java/org/apache/doris/common/util/MetaLockUtils.java` | commit锁工具类，异步发布仍然使用 |
 | `fe/fe-core/src/main/java/org/apache/doris/cloud/transaction/DeleteBitmapUpdateLockContext.java` | 仅在一阶段提交路径中使用，两阶段路径不使用 |
 | `gensrc/thrift/Types.thrift` | `TTabletCommitInfo` 定义：`tabletId` (i64) + `backendId` (i64) |
 
@@ -607,9 +607,9 @@ public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList,
 
 | 测试用例 | 验证点 |
 |---------|--------|
-| `testNonTwoPhaseTableUsesOriginalPath` | 未启用两阶段提交的表，commit流程走原有路径，不创建 CommittedTxnEntry |
-| `testTwoPhaseTableUsesNewPath` | 启用两阶段提交的表，commit后 CommittedTxnManager 中存在对应 entry |
-| `testTwoPhaseCommitLockHoldTime` | 验证两阶段提交持锁时间极短（不包含delete bitmap计算） |
+| `testNonTwoPhaseTableUsesOriginalPath` | 未启用异步发布的表，commit流程走原有路径，不创建 CommittedTxnEntry |
+| `testTwoPhaseTableUsesNewPath` | 启用异步发布的表，commit后 CommittedTxnManager 中存在对应 entry |
+| `testTwoPhaseCommitLockHoldTime` | 验证异步发布持锁时间极短（不包含delete bitmap计算） |
 | `testTwoPhaseCommitThenAwaitPublish` | commit成功后，导入线程进入等待状态，publish线程 markPublishSucceeded 后导入线程被唤醒 |
 | `testTwoPhaseCommitPublishTimeout` | publish超时后导入返回 false，但 CommittedTxnManager 中 entry 仍然存在（等待后台继续publish） |
 | `testCommitFailedNoEntryAdded` | 如果MS两阶段commit RPC失败，不应向 CommittedTxnManager 添加 entry |
@@ -618,16 +618,16 @@ public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList,
 
 | 测试用例 | 验证点 |
 |---------|--------|
-| `testCreateTableWithTwoPhaseCommit` | Cloud模式MOW表可以成功设置 `enable_two_phase_commit = true` |
-| `testCreateTableNonCloudReject` | 非Cloud模式设置 `enable_two_phase_commit = true` 抛出 `AnalysisException` |
-| `testCreateTableNonMowReject` | 非MOW表设置 `enable_two_phase_commit = true` 抛出 `AnalysisException` |
+| `testCreateTableWithTwoPhaseCommit` | Cloud模式MOW表可以成功设置 `enable_mow_async_publish = true` |
+| `testCreateTableNonCloudReject` | 非Cloud模式设置 `enable_mow_async_publish = true` 抛出 `AnalysisException` |
+| `testCreateTableNonMowReject` | 非MOW表设置 `enable_mow_async_publish = true` 抛出 `AnalysisException` |
 | `testIsEnableTwoPhaseCommit` | `OlapTable.isEnableTwoPhaseCommit()` 在各种条件组合下返回正确结果 |
-| `testTwoPhaseAndLazyCommitMutualExclusion` | 同时设置 `enable_two_phase_commit` 和 `enable_cloud_txn_lazy_commit` 时报错 |
+| `testTwoPhaseAndLazyCommitMutualExclusion` | 同时设置 `enable_mow_async_publish` 和 `enable_cloud_txn_lazy_commit` 时报错 |
 
 ### 7.5 兼容性测试
 
 | 测试用例 | 验证点 |
 |---------|--------|
 | `testMixedTablesReject` | 同一事务中同时包含两阶段和非两阶段表时，抛出异常 |
-| `testOriginalPathUnchanged` | 启用两阶段提交功能后，未设置该属性的表的导入行为与原来完全一致 |
-| `testCommitTransactionWithoutLockTwoPhase` | BE 直接调用 `commitTransactionWithoutLock` 时，对两阶段提交表的正确处理 |
+| `testOriginalPathUnchanged` | 启用异步发布功能后，未设置该属性的表的导入行为与原来完全一致 |
+| `testCommitTransactionWithoutLockTwoPhase` | BE 直接调用 `commitTransactionWithoutLock` 时，对异步发布表的正确处理 |

@@ -2,9 +2,9 @@
 
 ## 概述
 
-在Cloud MOW两阶段提交方案中，FE Master在内存中维护一个committed txns set（`CommittedTxnManager`，参见Module 4），用于跟踪所有已commit但尚未publish的事务。当FE重启或发生切主（Leader切换）时，该内存数据丢失，需要从MS（Meta Service）中恢复。
+在Cloud MOW异步发布方案中，FE Master在内存中维护一个committed txns set（`CommittedTxnManager`，参见Module 4），用于跟踪所有已commit但尚未publish的事务。当FE重启或发生切主（Leader切换）时，该内存数据丢失，需要从MS（Meta Service）中恢复。
 
-恢复的信息来源是MS中FDB存储的`TxnInfoPB`。其中`status == TXN_STATUS_COMMITTED`且`two_phase_commit == true`的事务即为需要恢复的历史committed事务。`TxnInfoPB`中包含了publish所需的全部信息：
+恢复的信息来源是MS中FDB存储的`TxnInfoPB`。其中`status == TXN_STATUS_COMMITTED`且`mow_async_publish == true`的事务即为需要恢复的历史committed事务。`TxnInfoPB`中包含了publish所需的全部信息：
 - `committed_partition_ids` / `committed_versions`：每个partition的commit version
 - `involved_tablets`：tablet和所在BE的映射
 - `load_schema_param`：导入参数（TOlapTableSchemaParam的Thrift序列化bytes，包含部分列更新模式等）
@@ -27,7 +27,7 @@
 |------|------|------|
 | `txnId` | `TxnInfoPB.txn_id` | 事务ID |
 | `dbId` | `TxnInfoPB.db_id` | 数据库ID |
-| `tableId` | `TxnInfoPB.table_ids[0]` | 表ID（两阶段提交限定单表事务） |
+| `tableId` | `TxnInfoPB.table_ids[0]` | 表ID（异步发布限定单表事务） |
 | `partitionCommitVersions` | `TxnInfoPB.committed_partition_ids` + `committed_versions` | 每个partition的commit version，Map<partitionId, commitVersion> |
 | `tabletCommitInfos` | `TxnInfoPB.involved_tablets` | 每个tablet的ID和所在BE信息，用于publish阶段下发CalcDeleteBitmapTask |
 | `txnCommitAttachment` | `TxnInfoPB.commit_attachment` | 导入附件信息（routine load进度等） |
@@ -44,7 +44,7 @@ Value: TxnInfoPB (protobuf序列化)
 
 筛选条件：
 - `TxnInfoPB.status == TXN_STATUS_COMMITTED`
-- `TxnInfoPB.two_phase_commit == true`
+- `TxnInfoPB.mow_async_publish == true`
 
 不满足这两个条件的COMMITTED事务属于lazy commit等其他机制，不由本模块恢复。
 
@@ -108,7 +108,7 @@ CloudPublishDaemon 启动
   │     │     ├── 按 db 分批扫描 COMMITTED 事务
   │     │     │     ├── DB-1: scanCommittedTxns(dbId=1, startTxnId=0, limit=1000)
   │     │     │     │        -> 返回 TxnInfoPB 列表
-  │     │     │     │        -> 筛选 two_phase_commit == true
+  │     │     │     │        -> 筛选 mow_async_publish == true
   │     │     │     │        -> 构建 CommittedTxnEntry 加入 CommittedTxnManager
   │     │     │     │        -> 如果返回 limit 条，继续扫描
   │     │     │     ├── DB-2: 同上
@@ -156,7 +156,7 @@ private void recoverCommittedTxns() {
             }
 
             for (TxnInfoPB txnInfo : response.getTxnInfosList()) {
-                // 只恢复两阶段提交的事务
+                // 只恢复异步发布的事务
                 if (!txnInfo.hasTwoPhaseCommit() || !txnInfo.getTwoPhaseCommit()) {
                     continue;
                 }
@@ -759,7 +759,7 @@ fe/.../common/Config.java
 | 测试用例 | 验证点 |
 |---------|--------|
 | `testRecoveryBasic` | Mock MS返回若干COMMITTED事务，验证恢复后CommittedTxnManager中包含这些事务 |
-| `testRecoveryOnlyTwoPhaseCommit` | Mock MS返回普通COMMITTED和two_phase_commit=true的事务，验证只恢复后者 |
+| `testRecoveryOnlyTwoPhaseCommit` | Mock MS返回普通COMMITTED和mow_async_publish=true的事务，验证只恢复后者 |
 | `testRecoveryWithPagination` | Mock MS返回大量事务（超过单批limit），验证分批扫描直到所有事务恢复完毕 |
 | `testRecoveryMultipleDbs` | Mock多个db各有COMMITTED事务，验证所有db的事务都被恢复 |
 | `testRecoveryEmptyResult` | Mock MS返回空结果（无COMMITTED事务），验证恢复正常完成，recoveryCompleted=true |

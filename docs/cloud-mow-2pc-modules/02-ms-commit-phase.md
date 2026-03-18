@@ -31,7 +31,7 @@ commit_txn()
 | S4 | 获取tablet index（`get_tablet_indexes`）：从 `meta_tablet_idx_key` 批量读取每个tablet的 table_id/index_id/partition_id | 1621-1644 | **Publish阶段移除**：commit阶段不需要tablet index，因为FE会在request中直接提供partition列表 |
 | S5 | 构建 partition_indexes 映射（partition_id → {db_id, table_id}） | 1646-1652 | **Commit阶段**（保留，但数据来源改变） |
 | S6 | 读取每个partition的当前version（`get_partition_versions`），检查pending_txn_ids | 1654-1692 | **Commit阶段**（保留，但读取的是partition_commit_version而非visible_version） |
-| S7 | 若存在 pending txn，提交lazy commit任务等待其完成，然后重试 | 1675-1692 | **不再需要**：两阶段提交不使用lazy commit |
+| S7 | 若存在 pending txn，提交lazy commit任务等待其完成，然后重试 | 1675-1692 | **不再需要**：异步发布不使用lazy commit |
 | S8 | 为每个tmp rowset分配version（partition_version + 1），设置 start_version/end_version | 1709-1746 | **Publish阶段**（per-tablet转正时分配） |
 | S9 | `process_mow_when_commit_txn()`：检查delete bitmap update lock，移除lock和pending delete bitmap key | 1753-1757 | **Publish阶段**（per-tablet转正时处理） |
 | S10 | 写入formal rowset meta（`meta_rowset_key`），从tmp转为正式 | 1759-1791 | **Publish阶段**（per-tablet转正RPC） |
@@ -58,7 +58,7 @@ commit_txn()
 - 仍然处理MOW锁（S9），但可以选择deferred模式
 - FDB事务commit后，提交一个lazy commit task异步完成剩余工作
 
-这与新的两阶段提交方案有相似之处，但新方案更加彻底：commit阶段连MOW锁检查都不做，也不需要scan tmp rowset。
+这与新的异步发布方案有相似之处，但新方案更加彻底：commit阶段连MOW锁检查都不做，也不需要scan tmp rowset。
 
 ### 1.4 `precommit_txn()` 参考
 
@@ -102,7 +102,7 @@ commit_txn()
 
 ### 2.1 API方案：复用现有 `commit_txn` RPC
 
-**不新增RPC**，而是通过 `CommitTxnRequest` 中新增字段来区分两阶段提交模式。原因：
+**不新增RPC**，而是通过 `CommitTxnRequest` 中新增字段来区分异步发布模式。原因：
 
 1. 减少proto变更和RPC注册工作量
 2. 复用现有的认证、限流、错误处理框架
@@ -117,9 +117,9 @@ message CommitTxnRequest {
     optional bool is_2pc = 4;
     // ... 现有字段 ...
 
-    // ==== 新增字段：两阶段提交 ====
-    // 是否启用两阶段提交模式
-    optional bool is_cloud_mow_2pc = 20;
+    // ==== 新增字段：异步发布(async publish) ====
+    // 是否启用异步发布模式
+    optional bool is_mow_async_publish = 20;
     // 涉及的partition信息：partition_id -> {db_id, table_id}
     // FE已有此信息，直接传递给MS，避免MS再去读tablet index
     repeated PartitionInfo involved_partitions = 21;
@@ -140,15 +140,15 @@ message CommitTxnResponse {
 }
 ```
 
-对 `TxnInfoPB` 的扩展（记录两阶段提交所需的持久化信息）：
+对 `TxnInfoPB` 的扩展（记录异步发布所需的持久化信息）：
 
 ```protobuf
 message TxnInfoPB {
     // ... 现有字段 ...
 
-    // ==== 新增字段：两阶段提交 ====
-    // 标识此事务使用两阶段提交模式
-    optional bool is_cloud_mow_2pc = 30;
+    // ==== 新增字段：异步发布(async publish) ====
+    // 标识此事务使用异步发布模式
+    optional bool is_mow_async_publish = 30;
     // 每个partition的committed version（commit阶段分配的版本号）
     // Map<partition_id, committed_version>
     map<int64, int64> partition_committed_versions = 31;
@@ -186,7 +186,7 @@ using PartitionCommitVersionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::str
 
 ### 2.4 Commit阶段的具体步骤
 
-新增函数 `commit_txn_2pc()`，在 `commit_txn()` 入口处根据 `request->is_cloud_mow_2pc()` 标志分流。
+新增函数 `commit_txn_2pc()`，在 `commit_txn()` 入口处根据 `request->is_mow_async_publish()` 标志分流。
 
 ```cpp
 void MetaServiceImpl::commit_txn_2pc(
@@ -228,7 +228,7 @@ commit_txn_2pc()
 ├── Step 8. 更新TxnInfoPB
 │     ├── status = TXN_STATUS_COMMITTED
 │     ├── commit_time = now
-│     ├── is_cloud_mow_2pc = true
+│     ├── is_mow_async_publish = true
 │     ├── partition_committed_versions = {partition_id: new_commit_version, ...}
 │     ├── involved_tablet_ids = request中的tablet信息
 │     ├── load_schema_param = request中的TOlapTableSchemaParam序列化bytes
@@ -261,7 +261,7 @@ commit_txn_2pc()
 | **读取tablet index** | FE在request中直接提供partition信息（involved_partitions），不需要从tablet_id反查 |
 | **为rowset分配version** | rowset的version在publish阶段per-tablet转正时分配（基于commit version） |
 | **写formal rowset meta** | 在publish阶段per-tablet转正RPC中完成 |
-| **处理MOW delete bitmap lock** | 两阶段提交不再使用MS分布式表锁，delete bitmap计算改为tablet级别在publish阶段进行 |
+| **处理MOW delete bitmap lock** | 异步发布不再使用MS分布式表锁，delete bitmap计算改为tablet级别在publish阶段进行 |
 | **删除pending delete bitmap key** | 与上同理 |
 | **更新partition visible version** | 在publish阶段轻量级MS commit中完成 |
 | **更新table version** | 在publish阶段轻量级MS commit中完成 |
@@ -275,7 +275,7 @@ commit_txn_2pc()
 
 ### 3.1 概念区分
 
-引入两阶段提交后，每个partition存在两个version：
+引入异步发布后，每个partition存在两个version：
 
 | 概念 | KV Key | 语义 | 更新时机 |
 |------|--------|------|---------|
@@ -301,7 +301,7 @@ if (err == TxnErrorCode::TXN_OK) {
     version_pb.ParseFromString(commit_ver_val);
     current_commit_version = version_pb.version();
 } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-    // 首次使用两阶段提交，fallback到visible version
+    // 首次使用异步发布，fallback到visible version
     std::string vis_ver_key = partition_version_key(
         {instance_id, db_id, table_id, partition_id});
     std::string vis_ver_val;
@@ -378,7 +378,7 @@ FDB事务提供了乐观并发控制。具体来说：
 **前置条件：**
 - 当前状态必须是 `TXN_STATUS_PREPARED` 或 `TXN_STATUS_PRECOMMITTED`（支持2PC场景）
 - 事务未超时：`prepare_time + timeout_ms > current_time`
-- request中包含 `is_cloud_mow_2pc = true`
+- request中包含 `is_mow_async_publish = true`
 
 **原子性保证：**
 
@@ -401,20 +401,20 @@ FDB事务提供了乐观并发控制。具体来说：
 - COMMITTED表示"partition version已带上pending_txn_ids，但rowset尚未转正、version尚未推进"
 - lazy commit task异步完成剩余工作后，状态变为VISIBLE
 
-新方案中，对于启用两阶段提交的表：
+新方案中，对于启用异步发布的表：
 - COMMITTED表示"partition commit version已推进，TxnInfoPB已记录committed versions和involved tablets，但rowset尚未转正、visible version尚未推进"
 - publish阶段完成后，状态变为VISIBLE
 
-**区分方式：** 通过 `TxnInfoPB.is_cloud_mow_2pc` 字段区分。
+**区分方式：** 通过 `TxnInfoPB.is_mow_async_publish` 字段区分。
 
-- `is_cloud_mow_2pc = true` + `status = COMMITTED`：两阶段提交的commit完成状态
-- `is_cloud_mow_2pc` 未设置 + `status = COMMITTED`：lazy commit的中间状态
+- `is_mow_async_publish = true` + `status = COMMITTED`：异步发布的commit完成状态
+- `is_mow_async_publish` 未设置 + `status = COMMITTED`：lazy commit的中间状态
 
 这两种COMMITTED状态的后续处理完全不同：
 - lazy commit的COMMITTED由 `TxnLazyCommitTask` 推进到VISIBLE
-- 两阶段提交的COMMITTED由FE publish daemon推进到VISIBLE
+- 异步发布的COMMITTED由FE publish daemon推进到VISIBLE
 
-**重要约束**：启用两阶段提交的表不再使用lazy commit机制。FE在构建CommitTxnRequest时，对于两阶段提交的表，不设置 `enable_txn_lazy_commit`，且设置 `is_cloud_mow_2pc = true`。
+**重要约束**：启用异步发布的表不再使用lazy commit机制。FE在构建CommitTxnRequest时，对于异步发布的表，不设置 `enable_txn_lazy_commit`，且设置 `is_mow_async_publish = true`。
 
 ---
 
@@ -476,7 +476,7 @@ Commit成功后事务处于COMMITTED状态。如果此时FE crash：
 
 | 文件 | 修改内容 |
 |------|---------|
-| `gensrc/proto/cloud.proto` | 1. `CommitTxnRequest` 新增 `is_cloud_mow_2pc`、`involved_partitions` 字段<br>2. 新增 `PartitionInfo` message<br>3. `TxnInfoPB` 新增 `is_cloud_mow_2pc`、`partition_committed_versions`、`involved_tablet_ids` 字段 |
+| `gensrc/proto/cloud.proto` | 1. `CommitTxnRequest` 新增 `is_mow_async_publish`、`involved_partitions` 字段<br>2. 新增 `PartitionInfo` message<br>3. `TxnInfoPB` 新增 `is_mow_async_publish`、`partition_committed_versions`、`involved_tablet_ids` 字段 |
 
 ### 6.2 MS侧C++文件
 
@@ -485,7 +485,7 @@ Commit成功后事务处于COMMITTED状态。如果此时FE crash：
 | `cloud/src/meta-store/keys.h` | 新增 `PartitionCommitVersionKeyInfo` 类型定义 |
 | `cloud/src/meta-store/keys.cpp` | 新增 `partition_commit_version_key()` 编解码函数 |
 | `cloud/src/meta-service/meta_service.h` | 在 `MetaServiceImpl` 类中声明 `commit_txn_2pc()` 私有方法 |
-| `cloud/src/meta-service/meta_service_txn.cpp` | 1. `commit_txn()` 入口新增分支：当 `is_cloud_mow_2pc = true` 时调用 `commit_txn_2pc()`<br>2. 实现 `commit_txn_2pc()` 函数 |
+| `cloud/src/meta-service/meta_service_txn.cpp` | 1. `commit_txn()` 入口新增分支：当 `is_mow_async_publish = true` 时调用 `commit_txn_2pc()`<br>2. 实现 `commit_txn_2pc()` 函数 |
 
 ### 6.3 具体代码修改点
 
@@ -501,7 +501,7 @@ void MetaServiceImpl::commit_txn(...) {
     }
 
     // ==== 新增分支 ====
-    if (request->has_is_cloud_mow_2pc() && request->is_cloud_mow_2pc()) {
+    if (request->has_is_mow_async_publish() && request->is_mow_async_publish()) {
         commit_txn_2pc(request, response, code, msg, instance_id, db_id, stats);
         return;
     }
@@ -592,7 +592,7 @@ void MetaServiceImpl::commit_txn_2pc(
         // Step 8: 更新TxnInfoPB
         txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
         txn_info.set_commit_time(now);
-        txn_info.set_is_cloud_mow_2pc(true);
+        txn_info.set_is_mow_async_publish(true);
         // ... 设置partition_committed_versions, involved_tablet_ids ...
         txn->put(info_key, txn_info.SerializeAsString());
 
@@ -653,7 +653,7 @@ static inline std::string partition_commit_version_key(const PartitionCommitVers
 
 | 测试用例 | 验证内容 |
 |---------|---------|
-| `CommitTxn2PC_Basic` | 创建事务 → begin_txn → prepare_rowset → commit_txn(is_cloud_mow_2pc=true) → 验证返回的partition versions正确、TxnInfoPB状态为COMMITTED |
+| `CommitTxn2PC_Basic` | 创建事务 → begin_txn → prepare_rowset → commit_txn(is_mow_async_publish=true) → 验证返回的partition versions正确、TxnInfoPB状态为COMMITTED |
 | `CommitTxn2PC_MultiPartition` | 事务涉及多个partition，验证每个partition的commit version独立+1 |
 | `CommitTxn2PC_Idempotent` | 同一事务两次调用commit_txn_2pc，第二次应返回OK并返回相同的committed versions |
 
@@ -677,7 +677,7 @@ static inline std::string partition_commit_version_key(const PartitionCommitVers
 
 | 测试用例 | 验证内容 |
 |---------|---------|
-| `CommitTxn2PC_FirstCommit` | partition首次使用两阶段提交（无commit_version key），验证fallback到visible version |
+| `CommitTxn2PC_FirstCommit` | partition首次使用异步发布（无commit_version key），验证fallback到visible version |
 | `CommitTxn2PC_SequentialCommits` | 同一partition连续3次commit（不同事务），验证commit version依次递增：v+1, v+2, v+3 |
 | `CommitTxn2PC_CommitVersionIndependent` | 验证commit version和visible version互相独立：commit使commit_version推进，但visible_version不变 |
 

@@ -420,7 +420,7 @@ private long getRetryDelayMs(int retryCount) {
 
 ### E.3 BE 不可达的处理
 
-**核心优势**：在两阶段提交中，delete bitmap 计算不依赖特定 BE（区别于存算一体，数据存储在共享存储上）。因此：
+**核心优势**：在异步发布中，delete bitmap 计算不依赖特定 BE（区别于存算一体，数据存储在共享存储上）。因此：
 
 ```java
 private long selectBeForCalcBitmap(TxnPublishContext context, long tabletId) {

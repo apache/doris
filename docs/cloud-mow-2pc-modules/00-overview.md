@@ -1,4 +1,4 @@
-# Cloud MOW 两阶段提交 - 模块总览
+# Cloud MOW 异步发布(Async Publish) - 模块总览
 
 ## 背景
 
@@ -10,7 +10,7 @@
 
 ## 方案概述
 
-改为两阶段提交：
+改为异步发布：
 - **Commit阶段**（快速，持FE表锁）：仅在MS更新partition commit version+1 + TxnInfoPB
 - **Publish阶段**（异步，不持FE表锁）：后台线程下发delete bitmap计算任务，每个tablet独立完成：计算delete bitmap → MS写delete bitmap → MS转正rowset meta → BE本地应用rowset。所有tablet完成后，轻量级MS commit（仅visible version+1）
 
@@ -22,8 +22,8 @@
 4. **导入参数持久化到TxnInfoPB**：使用TOlapTableSchemaParam的Thrift序列化bytes存储，整个导入只需持久化一次
 5. **Delete bitmap更新用现有RPC**，rowset转正用新RPC
 6. **MS新增tablet级别锁**：替代现有表级别锁，用于导入和compaction在同一tablet上互斥（大多数情况BE内存锁已够用，MS tablet锁主要处理跨BE场景）
-7. **启用两阶段提交的表不再需要lazy commit和大事务机制**
-8. **TXN_STATUS_COMMITTED语义变更**：在启用两阶段提交的表上，COMMITTED表示两阶段commit完成（而非lazy commit的含义）
+7. **启用异步发布的表不再需要lazy commit和大事务机制**
+8. **TXN_STATUS_COMMITTED语义变更**：在启用异步发布的表上，COMMITTED表示两阶段commit完成（而非lazy commit的含义）
 9. **仅限新表**，通过表属性控制是否启用。**所有老代码完整保留**，通过条件分支分叉
 10. **Commit可由FE或BE发起**（coordinator），导入参数传递方式统一通过TOlapTableSchemaParam
 11. **Per-BE批量下发**：FE按BE分组发任务，每个请求包含该BE上所有涉及的tablet，BE内部独立完成全流程

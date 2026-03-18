@@ -2,14 +2,14 @@
 
 ## 概述
 
-在Cloud MOW两阶段提交方案中，锁机制发生如下变更（仅对启用两阶段提交的表，**所有老代码完整保留**）：
+在Cloud MOW异步发布方案中，锁机制发生如下变更（仅对启用异步发布的表，**所有老代码完整保留**）：
 
 1. **新增MS tablet级分布式锁**：在publish阶段BE的convert_tmp_rowset前获取，和compaction互斥。大多数情况BE内存锁（rowset_update_lock）已够用，MS tablet锁主要处理跨BE场景。
-2. **移除MS表级分布式锁**（`get_delete_bitmap_update_lock`）：对启用两阶段提交的表不再使用。未启用的表继续使用。
+2. **移除MS表级分布式锁**（`get_delete_bitmap_update_lock`）：对启用异步发布的表不再使用。未启用的表继续使用。
 3. **移除Pending delete bitmap KV**：commit后事务必然成功，不需要残留清理机制。
 4. **移除大事务/lazy commit机制**：最终MS publish变为O(1)操作，不需要分批提交。
 
-本模块的清理工作需在其他所有模块完成后进行，且仅对启用两阶段提交的表生效，不影响未启用的表。
+本模块的清理工作需在其他所有模块完成后进行，且仅对启用异步发布的表生效，不影响未启用的表。
 
 ---
 
@@ -71,18 +71,18 @@ Value: DeleteBitmapUpdateLockPB (包含 lock_id, expiration, initiators)
 
 ### B.1 设计原则
 
-对启用两阶段提交的表，整个`getDeleteBitmapUpdateLock` -> `calcDeleteBitmap` -> `commitTxn(remove lock)`的流程发生根本变化：
+对启用异步发布的表，整个`getDeleteBitmapUpdateLock` -> `calcDeleteBitmap` -> `commitTxn(remove lock)`的流程发生根本变化：
 
 - **Commit阶段**不再涉及delete bitmap计算，无需获取锁
 - **Publish阶段**的delete bitmap计算通过BE内存锁（tablet级`rowset_update_lock`）保证tablet内互斥
 
-因此，对启用两阶段提交的表，应跳过整个MS表级锁的获取和释放。
+因此，对启用异步发布的表，应跳过整个MS表级锁的获取和释放。
 
 ### B.2 FE侧修改
 
 **文件：`fe/fe-core/src/main/java/org/apache/doris/cloud/transaction/CloudGlobalTransactionMgr.java`**
 
-1. `commitTransactionWithoutLock()`（第427行附近）：在检测到MOW表启用两阶段提交时，跳过`getDeleteBitmapUpdateLock()`和`getCalcDeleteBitmapInfo()`调用，直接走新的commit路径。
+1. `commitTransactionWithoutLock()`（第427行附近）：在检测到MOW表启用异步发布时，跳过`getDeleteBitmapUpdateLock()`和`getCalcDeleteBitmapInfo()`调用，直接走新的commit路径。
 
 ```java
 // 修改前
@@ -104,23 +104,23 @@ if (!legacyMowTables.isEmpty()) {
 // twoPCMowTables 走新的两阶段commit路径（不需要获取锁）
 ```
 
-2. catch块中的`removeDeleteBitmapUpdateLock()`同样只对未启用两阶段提交的表执行。
+2. catch块中的`removeDeleteBitmapUpdateLock()`同样只对未启用异步发布的表执行。
 
 3. `commitTransactionWithSubTxns()`（第1555行附近）中的相同逻辑也需要修改。
 
 ### B.3 MS侧修改
 
-MS侧的`get_delete_bitmap_update_lock`和`remove_delete_bitmap_update_lock` RPC本身不需要修改。它们仍然为未启用两阶段提交的表服务。调用端（FE/BE）通过判断表属性决定是否调用。
+MS侧的`get_delete_bitmap_update_lock`和`remove_delete_bitmap_update_lock` RPC本身不需要修改。它们仍然为未启用异步发布的表服务。调用端（FE/BE）通过判断表属性决定是否调用。
 
 MS侧`commit_txn`中的`process_mow_when_commit_txn()`也需按条件判断：
-- 启用两阶段提交的表：跳过锁验证和pending delete bitmap清理（因为本来就没有锁和pending KV）
+- 启用异步发布的表：跳过锁验证和pending delete bitmap清理（因为本来就没有锁和pending KV）
 - 未启用的表：走原有路径
 
 ### B.4 BE侧修改
 
 **Compaction（`cloud_full_compaction.cpp`）：**
 
-对启用两阶段提交的表，compaction中不再调用`get_delete_bitmap_update_lock()`（第363行），因为compaction与导入的delete bitmap计算已通过BE内存锁`rowset_update_lock`互斥。
+对启用异步发布的表，compaction中不再调用`get_delete_bitmap_update_lock()`（第363行），因为compaction与导入的delete bitmap计算已通过BE内存锁`rowset_update_lock`互斥。
 
 **Schema Change（`cloud_schema_change_job.cpp`）：**
 
@@ -166,7 +166,7 @@ mutable std::mutex _rowset_update_lock;
 
 ### C.2 新增MS Tablet级别锁
 
-对启用两阶段提交的表，新增**tablet粒度**的MS分布式锁，替代现有的表级别锁。
+对启用异步发布的表，新增**tablet粒度**的MS分布式锁，替代现有的表级别锁。
 
 **KV Key格式**：
 ```
@@ -180,9 +180,9 @@ Value: DeleteBitmapUpdateLockPB (复用现有value，包含 lock_id, expiration,
 |------|------|------|
 | Key infix | `"delete_bitmap_lock"` | `"delete_bitmap_tablet_lock"` |
 | 粒度 | table_id + partition_id(-1) | table_id + tablet_id |
-| 使用场景 | 导入commit阶段（一阶段提交） | publish阶段BE的convert_tmp_rowset（两阶段提交） |
+| 使用场景 | 导入commit阶段（一阶段提交） | publish阶段BE的convert_tmp_rowset（异步发布） |
 | 互斥对象 | 同一表所有导入和compaction | 同一tablet的导入publish和compaction |
-| 适用表 | 未启用两阶段提交的表 | 启用两阶段提交的表 |
+| 适用表 | 未启用异步发布的表 | 启用异步发布的表 |
 
 **RPC**：复用现有`GetDeleteBitmapUpdateLockRequest`/`RemoveDeleteBitmapUpdateLockRequest`，新增字段：
 - `tablet_level_lock = 20`（bool）：设为true表示请求tablet级别锁
@@ -195,7 +195,7 @@ Value: DeleteBitmapUpdateLockPB (复用现有value，包含 lock_id, expiration,
 
 ### C.3 双层互斥机制
 
-在新的两阶段提交方案中：
+在新的异步发布方案中：
 
 **同一BE上的互斥：**
 - 导入A的tablet T的delete bitmap计算持有`T.rowset_update_lock`
@@ -216,7 +216,7 @@ Cloud模式下的compaction（`CloudFullCompaction`）当前在`_cloud_full_comp
 2. 获取MS表级锁后sync rowsets，补算新增rowset的delete bitmap
 3. 调用`update_delete_bitmap`更新到MS
 
-在两阶段提交下，步骤2中的MS表级锁被移除。compaction需要改为：
+在异步发布下，步骤2中的MS表级锁被移除。compaction需要改为：
 1. 先不持锁计算大部分delete bitmap
 2. 获取tablet本地`rowset_update_lock`，sync rowsets，补算新增rowset的delete bitmap
 3. 持有`rowset_update_lock`的情况下，调用`update_delete_bitmap`更新到MS
@@ -289,9 +289,9 @@ static bool remove_pending_delete_bitmap(...) {
 
 当配置了`txn_lazy_commit_defer_deleting_pending_delete_bitmaps`时，pending delete bitmap的清理延迟到lazy commit的`convert_tmp_rowsets`阶段。在`make_committed_txn_visible()`中也会处理锁的释放。
 
-### D.2 为什么两阶段提交不需要Pending Delete Bitmap
+### D.2 为什么异步发布不需要Pending Delete Bitmap
 
-在新的两阶段提交方案中：
+在新的异步发布方案中：
 
 1. **Commit阶段不写delete bitmap**：commit仅更新partition version和TxnInfoPB，不涉及delete bitmap的任何操作
 2. **Publish阶段事务必然成功**：一旦commit成功，所有tablet的publish（含delete bitmap计算和写入）必然会最终完成。即使中间失败也会重试直到成功
@@ -302,7 +302,7 @@ static bool remove_pending_delete_bitmap(...) {
 
 **MS侧 `update_delete_bitmap`（`meta_service.cpp`）：**
 
-对启用两阶段提交的表（可通过请求参数中的标志判断），跳过：
+对启用异步发布的表（可通过请求参数中的标志判断），跳过：
 - `remove_pending_delete_bitmap()`调用（第4009行）
 - `PendingDeleteBitmapPB`的构造和写入（第4068-4105行）
 
@@ -324,15 +324,15 @@ if (!is_2pc_enabled && (request->lock_id() > 0 || request->lock_id() == -2)) {
 
 **MS侧 `commit_txn` / `process_mow_when_commit_txn()`（`meta_service_txn.cpp`）：**
 
-对启用两阶段提交的表：
+对启用异步发布的表：
 - 跳过锁验证（因为没有获取锁）
 - 跳过pending delete bitmap删除（因为没有写入pending KV）
 
-新方案的commit_txn中对两阶段提交的表，不调用`process_mow_when_commit_txn()`和`process_mow_when_commit_txn_deferred()`。
+新方案的commit_txn中对异步发布的表，不调用`process_mow_when_commit_txn()`和`process_mow_when_commit_txn_deferred()`。
 
 **MS侧 `txn_lazy_committer.cpp`：**
 
-对启用两阶段提交的表，`convert_tmp_rowsets()`中不再执行pending delete bitmap清理（第486-493行），`make_committed_txn_visible()`中不再执行锁释放（第564行起）。但实际上，启用两阶段提交的表根本不会走lazy commit路径（见E节），因此这里自然不需要修改。
+对启用异步发布的表，`convert_tmp_rowsets()`中不再执行pending delete bitmap清理（第486-493行），`make_committed_txn_visible()`中不再执行锁释放（第564行起）。但实际上，启用异步发布的表根本不会走lazy commit路径（见E节），因此这里自然不需要修改。
 
 **BE侧：**
 
@@ -340,8 +340,8 @@ BE侧不直接操作pending delete bitmap KV（这些操作都在MS RPC中完成
 
 ### D.4 兼容性保障
 
-必须确保只对启用两阶段提交的表移除pending逻辑。判断方式：
-- 在`update_delete_bitmap`请求中增加一个标志字段（如`is_two_phase_commit`），由BE在调用时设置
+必须确保只对启用异步发布的表移除pending逻辑。判断方式：
+- 在`update_delete_bitmap`请求中增加一个标志字段（如`is_mow_async_publish`），由BE在调用时设置
 - 或者通过MS侧查询tablet/table的属性判断（但会引入额外KV读取，不推荐）
 
 推荐在请求中传递标志，MS根据标志走不同代码路径。
@@ -386,7 +386,7 @@ commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rows
 - 维护`running_tasks_`映射表
 - 通过`submit()`提交任务，`wait()`等待完成
 
-### E.2 为什么两阶段提交不需要Lazy Commit
+### E.2 为什么异步发布不需要Lazy Commit
 
 新方案中：
 - **Commit阶段**仅更新partition version和TxnInfoPB，KV操作量为O(partition数)，远远不会超过FDB事务限制
@@ -399,17 +399,17 @@ commit_txn_eventually(request, response, code, msg, instance_id, db_id, tmp_rows
 
 **MS侧 `commit_txn`（`meta_service_txn.cpp`）：**
 
-在`commit_txn`的主函数中，对启用两阶段提交的表走新的commit路径，直接跳过`enable_txn_lazy_commit_feature`的检查和`commit_txn_eventually()`调用。
+在`commit_txn`的主函数中，对启用异步发布的表走新的commit路径，直接跳过`enable_txn_lazy_commit_feature`的检查和`commit_txn_eventually()`调用。
 
 **FE侧：**
 
-FE在构造`CommitTxnRequest`时，对启用两阶段提交的表：
+FE在构造`CommitTxnRequest`时，对启用异步发布的表：
 - 不设置`enable_txn_lazy_commit`标志
 - 或者MS侧在新的commit路径中根本不检查此标志
 
 **`TxnLazyCommitter`：**
 
-`TxnLazyCommitter`本身不需要修改，它仍然为未启用两阶段提交的表服务。只是启用两阶段提交的表的事务不会再被submit到`TxnLazyCommitter`。
+`TxnLazyCommitter`本身不需要修改，它仍然为未启用异步发布的表服务。只是启用异步发布的表的事务不会再被submit到`TxnLazyCommitter`。
 
 ---
 
@@ -418,25 +418,25 @@ FE在构造`CommitTxnRequest`时，对启用两阶段提交的表：
 ### F.1 混合表场景
 
 同一集群中可能同时存在：
-- 启用两阶段提交的MOW表（新表）
-- 未启用两阶段提交的MOW表（旧表）
+- 启用异步发布的MOW表（新表）
+- 未启用异步发布的MOW表（旧表）
 - 非MOW表
 
-所有清理工作仅针对启用两阶段提交的表，不影响其他表。
+所有清理工作仅针对启用异步发布的表，不影响其他表。
 
 ### F.2 判断依据
 
-推荐通过以下机制判断是否启用两阶段提交：
+推荐通过以下机制判断是否启用异步发布：
 
-1. **表属性**：建表时通过`PROPERTIES`设置`enable_two_phase_commit = true`，持久化在`TabletMetaCloudPB`或`OlapTableProperty`中
-2. **事务属性**：在`TxnInfoPB`中记录该事务涉及的表是否启用两阶段提交
+1. **表属性**：建表时通过`PROPERTIES`设置`enable_mow_async_publish = true`，持久化在`TabletMetaCloudPB`或`OlapTableProperty`中
+2. **事务属性**：在`TxnInfoPB`中记录该事务涉及的表是否启用异步发布
 3. **请求标志**：FE/BE在构造MS RPC请求时，根据表属性设置请求中的标志位
 
 ### F.3 路径分叉示意
 
 ```
 FE commitTransaction:
-  ├── 表A (两阶段提交): 新路径
+  ├── 表A (异步发布): 新路径
   │   ├── 不获取 delete bitmap update lock
   │   ├── 不下发 calc delete bitmap task
   │   ├── 调用 MS commit_txn (新路径: 仅更新 partition version + TxnInfoPB)
@@ -452,8 +452,8 @@ FE commitTransaction:
 ### F.4 升级兼容
 
 - 升级期间，新代码需要能正确处理旧表的原有流程
-- 不存在强制迁移：旧表继续使用原有机制，新建表才可选择启用两阶段提交
-- 如果需要将存量表迁移到两阶段提交，需要额外的migration模块（不在本模块范围内）
+- 不存在强制迁移：旧表继续使用原有机制，新建表才可选择启用异步发布
+- 如果需要将存量表迁移到异步发布，需要额外的migration模块（不在本模块范围内）
 
 ---
 
@@ -463,25 +463,25 @@ FE commitTransaction:
 
 | 文件 | 修改内容 |
 |------|----------|
-| `fe/fe-core/src/main/java/org/apache/doris/cloud/transaction/CloudGlobalTransactionMgr.java` | `commitTransactionWithoutLock()`：对启用两阶段提交的表跳过`getDeleteBitmapUpdateLock()`、`getCalcDeleteBitmapInfo()`和`removeDeleteBitmapUpdateLock()` |
+| `fe/fe-core/src/main/java/org/apache/doris/cloud/transaction/CloudGlobalTransactionMgr.java` | `commitTransactionWithoutLock()`：对启用异步发布的表跳过`getDeleteBitmapUpdateLock()`、`getCalcDeleteBitmapInfo()`和`removeDeleteBitmapUpdateLock()` |
 | 同上 | `commitTransactionWithSubTxns()`：同样的分叉逻辑 |
 
 ### G.2 MS侧
 
 | 文件 | 修改内容 |
 |------|----------|
-| `cloud/src/meta-service/meta_service_txn.cpp` | `commit_txn`主函数：对启用两阶段提交的表走新路径，不进入`commit_txn_eventually()`，不调用`process_mow_when_commit_txn()` |
-| 同上 | `process_mow_when_commit_txn()`/`process_mow_when_commit_txn_deferred()`：对启用两阶段提交的表跳过锁验证和pending删除 |
-| `cloud/src/meta-service/meta_service.cpp` | `update_delete_bitmap()`：对启用两阶段提交的表跳过`remove_pending_delete_bitmap()`和pending KV写入 |
-| `cloud/src/meta-service/meta_service.cpp` | `get_delete_bitmap_update_lock()` / `remove_delete_bitmap_update_lock()`：无需修改，未启用两阶段提交的表仍使用 |
-| `cloud/src/meta-service/meta_service_job.cpp` | compaction job的`finish_tablet_job()`和`abort_tablet_job()`中锁释放逻辑：对启用两阶段提交的表跳过 |
-| `cloud/src/meta-service/txn_lazy_committer.cpp` | 无需修改。启用两阶段提交的事务不会进入lazy commit路径 |
+| `cloud/src/meta-service/meta_service_txn.cpp` | `commit_txn`主函数：对启用异步发布的表走新路径，不进入`commit_txn_eventually()`，不调用`process_mow_when_commit_txn()` |
+| 同上 | `process_mow_when_commit_txn()`/`process_mow_when_commit_txn_deferred()`：对启用异步发布的表跳过锁验证和pending删除 |
+| `cloud/src/meta-service/meta_service.cpp` | `update_delete_bitmap()`：对启用异步发布的表跳过`remove_pending_delete_bitmap()`和pending KV写入 |
+| `cloud/src/meta-service/meta_service.cpp` | `get_delete_bitmap_update_lock()` / `remove_delete_bitmap_update_lock()`：无需修改，未启用异步发布的表仍使用 |
+| `cloud/src/meta-service/meta_service_job.cpp` | compaction job的`finish_tablet_job()`和`abort_tablet_job()`中锁释放逻辑：对启用异步发布的表跳过 |
+| `cloud/src/meta-service/txn_lazy_committer.cpp` | 无需修改。启用异步发布的事务不会进入lazy commit路径 |
 
 ### G.3 BE侧
 
 | 文件 | 修改内容 |
 |------|----------|
-| `be/src/cloud/cloud_full_compaction.cpp` | `_cloud_full_compaction_update_delete_bitmap()`：对启用两阶段提交的表，不调用`get_delete_bitmap_update_lock()`，改为使用`rowset_update_lock` |
+| `be/src/cloud/cloud_full_compaction.cpp` | `_cloud_full_compaction_update_delete_bitmap()`：对启用异步发布的表，不调用`get_delete_bitmap_update_lock()`，改为使用`rowset_update_lock` |
 | `be/src/cloud/cloud_meta_mgr.cpp` | `get_delete_bitmap_update_lock()`和`remove_delete_bitmap_update_lock()`：无需修改，由调用方决定是否调用 |
 | `be/src/cloud/cloud_engine_calc_delete_bitmap_task.cpp` | 已使用`rowset_update_lock`，无需修改 |
 | `be/src/storage/task/engine_publish_version_task.cpp` | 已使用`rowset_update_lock`，无需修改 |
@@ -491,7 +491,7 @@ FE commitTransaction:
 
 | 文件 | 修改内容 |
 |------|----------|
-| `gensrc/proto/cloud.proto` | 如需在RPC请求中传递两阶段提交标志（如`UpdateDeleteBitmapRequest`增加`is_two_phase_commit`字段），在此文件修改 |
+| `gensrc/proto/cloud.proto` | 如需在RPC请求中传递异步发布标志（如`UpdateDeleteBitmapRequest`增加`is_mow_async_publish`字段），在此文件修改 |
 
 ---
 
@@ -499,25 +499,25 @@ FE commitTransaction:
 
 ### H.1 MS表级锁移除
 
-1. **启用两阶段提交的表不获取锁**：
-   - 模拟启用两阶段提交的表提交事务，验证不调用`get_delete_bitmap_update_lock` RPC
+1. **启用异步发布的表不获取锁**：
+   - 模拟启用异步发布的表提交事务，验证不调用`get_delete_bitmap_update_lock` RPC
    - 验证commit_txn中不执行`process_mow_when_commit_txn()`的锁验证逻辑
 
-2. **未启用两阶段提交的表正常获取锁**：
+2. **未启用异步发布的表正常获取锁**：
    - 验证传统MOW表的lock获取/释放流程不受影响
    - 验证导入-compaction互斥仍然正常工作
 
 3. **混合场景**：
-   - 同一集群中同时提交启用和未启用两阶段提交的表的事务
+   - 同一集群中同时提交启用和未启用异步发布的表的事务
    - 验证各自走正确的代码路径
 
 ### H.2 Pending Delete Bitmap移除
 
-1. **启用两阶段提交的表不写入pending KV**：
-   - 调用`update_delete_bitmap`时传入两阶段提交标志
+1. **启用异步发布的表不写入pending KV**：
+   - 调用`update_delete_bitmap`时传入异步发布标志
    - 验证FDB中不存在该tablet的pending delete bitmap KV
 
-2. **启用两阶段提交的表commit不清理pending**：
+2. **启用异步发布的表commit不清理pending**：
    - 验证commit_txn中不执行pending KV删除
 
 3. **未启用的表pending逻辑正常**：
@@ -525,7 +525,7 @@ FE commitTransaction:
 
 ### H.3 Lazy Commit移除
 
-1. **启用两阶段提交的表不走lazy commit**：
+1. **启用异步发布的表不走lazy commit**：
    - 构造大事务（大量tablet），验证不进入`commit_txn_eventually()`
    - 验证TxnLazyCommitter不接收这些事务
 

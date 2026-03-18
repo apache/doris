@@ -2,7 +2,7 @@
 
 ## 1. 概述
 
-在两阶段提交方案中，当所有tablet的per-tablet工作（delete bitmap计算 + rowset转正 + tablet stats更新）全部完成后，FE需要执行最终的"轻量级publish"来使事务对查询可见。这个操作在MS侧执行，本质上只需要：
+在异步发布方案中，当所有tablet的per-tablet工作（delete bitmap计算 + rowset转正 + tablet stats更新）全部完成后，FE需要执行最终的"轻量级publish"来使事务对查询可见。这个操作在MS侧执行，本质上只需要：
 
 - 更新每个涉及partition的visible version（+1）
 - 将TxnInfoPB的状态从 `TXN_STATUS_COMMITTED` 更新为 `TXN_STATUS_VISIBLE`
@@ -139,7 +139,7 @@ txn->put(recycle_key, recycle_val);
 
 ### 3.1 API选择：复用commit_txn RPC
 
-**建议**：复用现有的 `commit_txn` RPC，通过 `CommitTxnRequest` 中新增的标志字段来区分是常规commit还是两阶段提交的轻量级publish。
+**建议**：复用现有的 `commit_txn` RPC，通过 `CommitTxnRequest` 中新增的标志字段来区分是常规commit还是异步发布的轻量级publish。
 
 **理由**：
 - 避免新增RPC带来的proto和service注册开销
@@ -159,7 +159,7 @@ message CommitTxnRequest {
     optional bool enable_txn_lazy_commit = 11;
     optional string request_ip = 12;
 
-    // 新增：两阶段提交轻量级publish标志
+    // 新增：异步发布轻量级publish标志
     optional bool is_2pc_lightweight_publish = 13;
     // 新增：每个partition期望的commit_version（由FE在commit阶段记录）
     map<int64, int64> partition_commit_versions = 14;
@@ -167,7 +167,7 @@ message CommitTxnRequest {
 ```
 
 **说明**：
-- `is_2pc_lightweight_publish`：标识本次请求是两阶段提交的轻量级publish，而非常规commit
+- `is_2pc_lightweight_publish`：标识本次请求是异步发布的轻量级publish，而非常规commit
 - `partition_commit_versions`：FE在commit阶段记录的每个partition的commit_version，在此处传入用于校验一致性。key=partition_id, value=commit_version
 
 ### 3.3 入口路由
@@ -183,7 +183,7 @@ void MetaServiceImpl::commit_txn(...) {
         return;
     }
 
-    // 新增：两阶段提交轻量级publish路径
+    // 新增：异步发布轻量级publish路径
     if (request->has_is_2pc_lightweight_publish() && request->is_2pc_lightweight_publish()) {
         commit_txn_2pc_lightweight_publish(request, response, code, msg,
                                             instance_id, db_id, stats);
@@ -394,7 +394,7 @@ void MetaServiceImpl::commit_txn_2pc_lightweight_publish(
 
 ### 4.2 新方案下的区别
 
-启用两阶段提交的表 **不再需要** lazy commit机制，原因：
+启用异步发布的表 **不再需要** lazy commit机制，原因：
 
 1. **per-tablet工作由FE Publish Daemon调度**：不再由MS的TxnLazyCommitter在后台推进，而是由FE主动调度每个tablet的工作
 2. **`TXN_STATUS_COMMITTED` 语义变更**：在新方案中，COMMITTED表示两阶段commit阶段已完成（partition commit_version已分配），而非lazy commit中"已标记但rowset未转正"的含义
@@ -407,13 +407,13 @@ void MetaServiceImpl::commit_txn_2pc_lightweight_publish(
 
 ```cpp
 if (request->has_is_2pc_lightweight_publish() && request->is_2pc_lightweight_publish()) {
-    // 新路径：两阶段提交的轻量级publish
+    // 新路径：异步发布的轻量级publish
     commit_txn_2pc_lightweight_publish(...);
     return;
 }
 ```
 
-此外，表级别可以通过表属性 `enable_2pc_commit`（或类似名称）来控制是否启用两阶段提交。FE在发起请求时根据表属性设置相应的request标志。
+此外，表级别可以通过表属性 `enable_2pc_commit`（或类似名称）来控制是否启用异步发布。FE在发起请求时根据表属性设置相应的request标志。
 
 ## 5. Response设计
 
@@ -543,7 +543,7 @@ message CommitTxnRequest {
 class MetaServiceImpl {
     // ...现有成员函数...
 
-    // 新增：两阶段提交轻量级publish
+    // 新增：异步发布轻量级publish
     void commit_txn_2pc_lightweight_publish(
             const CommitTxnRequest* request, CommitTxnResponse* response,
             MetaServiceCode& code, std::string& msg,
@@ -556,7 +556,7 @@ class MetaServiceImpl {
 在 `commit_txn()` 入口增加路由（约第3285行之后）：
 
 ```cpp
-// 两阶段提交轻量级publish
+// 异步发布轻量级publish
 if (request->has_is_2pc_lightweight_publish() && request->is_2pc_lightweight_publish()) {
     commit_txn_2pc_lightweight_publish(request, response, code, msg,
                                         instance_id, db_id, stats);
