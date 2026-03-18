@@ -165,7 +165,8 @@ public class AuthenticationIntegrationRuntime {
             try {
                 resolved = resolvePluginForAuthentication(meta);
             } catch (AuthenticationException e) {
-                AuthenticationIntegration currentIntegration = toIntegration(resolveCurrentAuthenticationIntegration(meta));
+                AuthenticationIntegration currentIntegration =
+                        toIntegration(resolveCurrentAuthenticationIntegration(meta));
                 markBroken(currentIntegration.getName(), e);
                 AuthenticationResult result = AuthenticationResult.failure(e);
                 AuthenticationOutcome outcome = AuthenticationOutcome.of(currentIntegration, result);
