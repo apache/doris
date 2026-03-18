@@ -5098,7 +5098,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return new TStatus(TStatusCode.INVALID_ARGUMENT);
             }
             CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
-            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
+            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse, null);
         } catch (InvalidProtocolBufferException e) {
             // Handle the exception, log it, or take appropriate action
             e.printStackTrace();
