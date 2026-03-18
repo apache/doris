@@ -954,8 +954,7 @@ int DorisSnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
             if (pb.has_create_at() && pb.has_timeout_seconds() &&
                 now > pb.create_at() + pb.timeout_seconds()) {
                 LOG(INFO) << "recycle_snapshots: marking PREPARE-timeout snapshot as ABORTED"
-                          << ", instance_id=" << instance_id
-                          << ", snapshot_id=" << vs.to_string();
+                          << ", instance_id=" << instance_id << ", snapshot_id=" << vs.to_string();
                 pb.set_status(SnapshotStatus::SNAPSHOT_ABORTED);
                 pb.set_reason("PREPARE timeout");
                 // Write back updated status
@@ -972,8 +971,7 @@ int DorisSnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
             if (pb.has_ttl_seconds() && pb.ttl_seconds() > 0 && pb.has_create_at() &&
                 now > pb.create_at() + pb.ttl_seconds()) {
                 LOG(INFO) << "recycle_snapshots: TTL expired, marking RECYCLED"
-                          << ", instance_id=" << instance_id
-                          << ", snapshot_id=" << vs.to_string();
+                          << ", instance_id=" << instance_id << ", snapshot_id=" << vs.to_string();
                 pb.set_status(SnapshotStatus::SNAPSHOT_RECYCLED);
                 pb.set_reason("TTL expired");
                 std::unique_ptr<Transaction> txn;
@@ -1048,18 +1046,18 @@ int DorisSnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
         }
     }
 
-    LOG(INFO) << "recycle_snapshots done, instance_id=" << instance_id
-              << " recycled=" << recycled << " errors=" << errors;
+    LOG(INFO) << "recycle_snapshots done, instance_id=" << instance_id << " recycled=" << recycled
+              << " errors=" << errors;
     return errors > 0 ? -1 : 0;
 }
 
 // --- recycle_snapshot_meta_and_data ---
 
 int DorisSnapshotManager::recycle_snapshot_meta_and_data(std::string_view instance_id,
-                                                          std::string_view resource_id,
-                                                          StorageVaultAccessor* accessor,
-                                                          Versionstamp snapshot_version,
-                                                          const SnapshotPB& snapshot_pb) {
+                                                         std::string_view resource_id,
+                                                         StorageVaultAccessor* accessor,
+                                                         Versionstamp snapshot_version,
+                                                         const SnapshotPB& snapshot_pb) {
     // 1. Delete object storage files (image directory)
     if (accessor != nullptr && snapshot_pb.has_image_url() && !snapshot_pb.image_url().empty()) {
         int ret = accessor->delete_directory(snapshot_pb.image_url());
@@ -1171,14 +1169,12 @@ int DorisSnapshotManager::check_snapshots(InstanceChecker* checker) {
         int ret = accessor->exists(pb.image_url());
         if (ret == 1) {
             LOG(WARNING) << "check_snapshots: snapshot file LOST"
-                         << ", instance_id=" << instance_id
-                         << ", snapshot_id=" << vs.to_string()
+                         << ", instance_id=" << instance_id << ", snapshot_id=" << vs.to_string()
                          << ", image_url=" << pb.image_url();
             result = 1;
         } else if (ret < 0) {
             LOG(WARNING) << "check_snapshots: error checking existence"
-                         << ", instance_id=" << instance_id
-                         << ", snapshot_id=" << vs.to_string();
+                         << ", instance_id=" << instance_id << ", snapshot_id=" << vs.to_string();
             return -1;
         }
         checked++;
@@ -1189,8 +1185,8 @@ int DorisSnapshotManager::check_snapshots(InstanceChecker* checker) {
         return -1;
     }
 
-    LOG(INFO) << "check_snapshots done, instance_id=" << instance_id
-              << ", checked=" << checked << ", result=" << result;
+    LOG(INFO) << "check_snapshots done, instance_id=" << instance_id << ", checked=" << checked
+              << ", result=" << result;
     return result;
 }
 
@@ -1246,8 +1242,7 @@ int DorisSnapshotManager::inverted_check_snapshots(InstanceChecker* checker) {
 
             if (known_urls.find(file_meta->path) == known_urls.end()) {
                 LOG(WARNING) << "inverted_check_snapshots: file LEAKED"
-                             << ", instance_id=" << instance_id
-                             << ", path=" << file_meta->path;
+                             << ", instance_id=" << instance_id << ", path=" << file_meta->path;
                 result = 1;
             }
         }
@@ -1324,8 +1319,7 @@ int DorisSnapshotManager::check_mvcc_meta_key(InstanceChecker* checker) {
     }
 
     LOG(INFO) << "check_mvcc_meta_key done, instance_id=" << instance_id
-              << ", snapshots=" << checked << ", refs=" << ref_count
-              << ", result=" << result;
+              << ", snapshots=" << checked << ", refs=" << ref_count << ", result=" << result;
     return result;
 }
 
@@ -1383,8 +1377,8 @@ int DorisSnapshotManager::inverted_check_mvcc_meta_key(InstanceChecker* checker)
     }
 
     LOG(INFO) << "inverted_check_mvcc_meta_key done, instance_id=" << instance_id
-              << ", valid_snapshots=" << valid_snapshots.size()
-              << ", refs=" << ref_count << ", result=" << result;
+              << ", valid_snapshots=" << valid_snapshots.size() << ", refs=" << ref_count
+              << ", result=" << result;
     return result;
 }
 
@@ -1498,8 +1492,8 @@ int DorisSnapshotManager::migrate_to_versioned_keys(InstanceDataMigrator* migrat
             int64_t table_id = 0, index_id = 0, partition_id = 0, tablet_id = 0;
             if (decode_meta_tablet_key(&key_view, &table_id, &index_id, &partition_id,
                                        &tablet_id)) {
-                std::string vkey = versioned::meta_tablet_key(
-                        {std::string(instance_id), tablet_id});
+                std::string vkey =
+                        versioned::meta_tablet_key({std::string(instance_id), tablet_id});
                 txn->versioned_put(vkey, std::string(value));
                 batch_count++;
                 total_migrated++;
@@ -1550,8 +1544,8 @@ int DorisSnapshotManager::migrate_to_versioned_keys(InstanceDataMigrator* migrat
             std::string_view key_view(key);
             int64_t tablet_id = 0, version = 0;
             if (decode_meta_rowset_key(&key_view, &tablet_id, &version)) {
-                std::string vkey = versioned::meta_rowset_key(
-                        {std::string(instance_id), tablet_id, version});
+                std::string vkey =
+                        versioned::meta_rowset_key({std::string(instance_id), tablet_id, version});
                 txn->versioned_put(vkey, std::string(value));
                 batch_count++;
                 total_migrated++;
@@ -1603,8 +1597,7 @@ int DorisSnapshotManager::compact_snapshot_chains(InstanceChainCompactor* compac
     }
 
     LOG(INFO) << "compact_snapshot_chains: processing chain"
-              << ", instance_id=" << instance_id
-              << ", source_instance=" << source_instance_id
+              << ", instance_id=" << instance_id << ", source_instance=" << source_instance_id
               << ", source_snapshot=" << source_snapshot_id;
 
     // Verify the source snapshot still exists
@@ -1637,8 +1630,8 @@ int DorisSnapshotManager::compact_snapshot_chains(InstanceChainCompactor* compac
     }
 
     // Verify the reference key for this clone exists
-    versioned::SnapshotReferenceKeyInfo ref_info {
-            source_instance_id, snapshot_vs, std::string(instance_id)};
+    versioned::SnapshotReferenceKeyInfo ref_info {source_instance_id, snapshot_vs,
+                                                  std::string(instance_id)};
     std::string ref_key = versioned::snapshot_reference_key(ref_info);
 
     std::string ref_value;

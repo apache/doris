@@ -770,18 +770,18 @@ TEST(DorisSnapshotManagerTest, SetMultiVersionStatusForwardTransition) {
     DorisSnapshotManager mgr(txn_kv);
 
     // DISABLED → WRITE_ONLY (forward)
-    auto [code1, msg1] = mgr.set_multi_version_status(
-            "mvs_test_instance", MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    auto [code1, msg1] = mgr.set_multi_version_status("mvs_test_instance",
+                                                      MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
     ASSERT_EQ(code1, MetaServiceCode::OK);
 
     // WRITE_ONLY → READ_WRITE (forward)
-    auto [code2, msg2] = mgr.set_multi_version_status(
-            "mvs_test_instance", MultiVersionStatus::MULTI_VERSION_READ_WRITE);
+    auto [code2, msg2] = mgr.set_multi_version_status("mvs_test_instance",
+                                                      MultiVersionStatus::MULTI_VERSION_READ_WRITE);
     ASSERT_EQ(code2, MetaServiceCode::OK);
 
     // READ_WRITE → ENABLED (forward)
-    auto [code3, msg3] = mgr.set_multi_version_status(
-            "mvs_test_instance", MultiVersionStatus::MULTI_VERSION_ENABLED);
+    auto [code3, msg3] = mgr.set_multi_version_status("mvs_test_instance",
+                                                      MultiVersionStatus::MULTI_VERSION_ENABLED);
     ASSERT_EQ(code3, MetaServiceCode::OK);
 }
 
@@ -796,8 +796,8 @@ TEST(DorisSnapshotManagerTest, SetMultiVersionStatusNoChange) {
     write_test_instance(txn_kv.get(), instance);
 
     DorisSnapshotManager mgr(txn_kv);
-    auto [code, msg] = mgr.set_multi_version_status(
-            "mvs_noop_instance", MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    auto [code, msg] = mgr.set_multi_version_status("mvs_noop_instance",
+                                                    MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
     ASSERT_EQ(code, MetaServiceCode::OK);
     ASSERT_EQ(msg, "no change");
 }
@@ -813,8 +813,8 @@ TEST(DorisSnapshotManagerTest, SetMultiVersionStatusBackwardRejected) {
     write_test_instance(txn_kv.get(), instance);
 
     DorisSnapshotManager mgr(txn_kv);
-    auto [code, msg] = mgr.set_multi_version_status(
-            "mvs_backward_instance", MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    auto [code, msg] = mgr.set_multi_version_status("mvs_backward_instance",
+                                                    MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
     ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT);
 }
 
@@ -1147,8 +1147,7 @@ TEST(DorisSnapshotManagerTest, CompactSnapshotChainsValidChain) {
     {
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
-        versioned::SnapshotReferenceKeyInfo ref_info {
-                source_instance, snapshot_vs, clone_instance};
+        versioned::SnapshotReferenceKeyInfo ref_info {source_instance, snapshot_vs, clone_instance};
         std::string ref_key = versioned::snapshot_reference_key(ref_info);
         txn->put(ref_key, "ref_value");
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);

@@ -38,11 +38,11 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/keys.h"
-#include "snapshot/doris_snapshot_manager.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
 #include "resource-manager/resource_manager.h"
+#include "snapshot/doris_snapshot_manager.h"
 
 namespace doris::cloud {
 
