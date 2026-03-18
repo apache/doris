@@ -24,18 +24,17 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.mtmv.BaseTableInfo;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Sets;
 import mockit.Expectations;
 import mockit.Mock;
-import mockit.Mocked;
 import mockit.MockUp;
-import org.junit.Assert;
-import org.junit.Test;
+import mockit.Mocked;
+import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Test;
 
-import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -47,11 +46,11 @@ public class IVMRefreshManagerTest {
         ConnectContext connectContext = new ConnectContext();
         org.apache.doris.mtmv.MTMVRefreshContext mtmvRefreshContext = new org.apache.doris.mtmv.MTMVRefreshContext(mtmv);
 
-        Assert.assertThrows(NullPointerException.class,
+        Assertions.assertThrows(NullPointerException.class,
                 () -> new IVMRefreshContext(null, connectContext, mtmvRefreshContext));
-        Assert.assertThrows(NullPointerException.class,
+        Assertions.assertThrows(NullPointerException.class,
                 () -> new IVMRefreshContext(mtmv, null, mtmvRefreshContext));
-        Assert.assertThrows(NullPointerException.class,
+        Assertions.assertThrows(NullPointerException.class,
                 () -> new IVMRefreshContext(mtmv, connectContext, null));
     }
 
@@ -61,177 +60,100 @@ public class IVMRefreshManagerTest {
         IVMCapabilityResult unsupported = IVMCapabilityResult.unsupported(FallbackReason.STREAM_UNSUPPORTED,
                 "stream is unsupported");
 
-        Assert.assertTrue(ok.isIncremental());
-        Assert.assertNull(ok.getFallbackReason());
-        Assert.assertFalse(unsupported.isIncremental());
-        Assert.assertEquals(FallbackReason.STREAM_UNSUPPORTED, unsupported.getFallbackReason());
-        Assert.assertEquals("stream is unsupported", unsupported.getDetailMessage());
-        Assert.assertTrue(unsupported.toString().contains("STREAM_UNSUPPORTED"));
-    }
-
-    @Test
-    public void testPlanAnalysisFactories() {
-        IVMPlanAnalysis valid = IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY);
-        IVMPlanAnalysis invalid = IVMPlanAnalysis.unsupported("unsupported");
-
-        Assert.assertTrue(valid.isValid());
-        Assert.assertFalse(valid.isInvalid());
-        Assert.assertEquals(IVMPlanPattern.SCAN_ONLY, valid.getPattern());
-        Assert.assertThrows(IllegalArgumentException.class, valid::getUnsupportedReason);
-
-        Assert.assertFalse(invalid.isValid());
-        Assert.assertTrue(invalid.isInvalid());
-        Assert.assertEquals("unsupported", invalid.getUnsupportedReason());
-        Assert.assertThrows(IllegalArgumentException.class, invalid::getPattern);
+        Assertions.assertTrue(ok.isIncremental());
+        Assertions.assertNull(ok.getFallbackReason());
+        Assertions.assertFalse(unsupported.isIncremental());
+        Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, unsupported.getFallbackReason());
+        Assertions.assertEquals("stream is unsupported", unsupported.getDetailMessage());
+        Assertions.assertTrue(unsupported.toString().contains("STREAM_UNSUPPORTED"));
     }
 
     @Test
     public void testManagerRejectsNulls() {
-        IVMPlanAnalyzer analyzer = context -> IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY);
-        IVMCapabilityChecker checker = (context, analysis) -> IVMCapabilityResult.ok();
-        IVMDeltaPlannerDispatcher planner = (context, analysis) ->
-                Collections.singletonList(new DeltaPlanBundle("delta"));
+        IVMCapabilityChecker checker = (context, bundles) -> IVMCapabilityResult.ok();
         IVMDeltaExecutor executor = (context, bundles) -> { };
 
-        Assert.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(null, analyzer, planner, executor));
-        Assert.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(checker, null, planner, executor));
-        Assert.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(checker, analyzer, null, executor));
-        Assert.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(checker, analyzer, planner, null));
+        Assertions.assertThrows(NullPointerException.class,
+                () -> new IVMRefreshManager(null, executor));
+        Assertions.assertThrows(NullPointerException.class,
+                () -> new IVMRefreshManager(checker, null));
     }
 
     @Test
-    public void testManagerReturnsPlanPatternUnsupported(@Mocked MTMV mtmv) {
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.unsupported("unsupported"));
+    public void testManagerReturnsNoBundlesFallback(@Mocked MTMV mtmv) {
         TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
-                newContext(mtmv));
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+                newContext(mtmv), Collections.emptyList());
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertFalse(result.isSuccess());
-        Assert.assertEquals(FallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(1, manager.buildContextCallCount);
-        Assert.assertSame(mtmv, manager.lastMtmv);
-        Assert.assertEquals(1, analyzer.callCount);
-        Assert.assertEquals(0, checker.callCount);
-        Assert.assertEquals(0, planner.callCount);
-        Assert.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(FallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertEquals(0, checker.callCount);
+        Assertions.assertEquals(0, executor.callCount);
     }
 
     @Test
-    public void testManagerReturnsCapabilityFallback(@Mocked MTMV mtmv) {
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
+    public void testManagerReturnsCapabilityFallback(@Mocked MTMV mtmv, @Mocked LogicalPlan deltaWritePlan) {
         TestCapabilityChecker checker = new TestCapabilityChecker(
                 IVMCapabilityResult.unsupported(FallbackReason.STREAM_UNSUPPORTED, "unsupported"));
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
-                newContext(mtmv));
+        List<DeltaPlanBundle> bundles = makeBundles(deltaWritePlan, mtmv);
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, newContext(mtmv), bundles);
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertFalse(result.isSuccess());
-        Assert.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(1, analyzer.callCount);
-        Assert.assertEquals(1, checker.callCount);
-        Assert.assertEquals(0, planner.callCount);
-        Assert.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertEquals(1, checker.callCount);
+        Assertions.assertEquals(0, executor.callCount);
     }
 
     @Test
-    public void testManagerExecutesPlannedBundles(@Mocked MTMV mtmv) {
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.INNER_JOIN));
+    public void testManagerExecutesBundles(@Mocked MTMV mtmv, @Mocked LogicalPlan deltaWritePlan) {
         TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        List<DeltaPlanBundle> bundles = Arrays.asList(new DeltaPlanBundle("delta-1"),
-                new DeltaPlanBundle("delta-2"));
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(bundles);
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        IVMRefreshContext context = newContext(mtmv);
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor, context);
+        List<DeltaPlanBundle> bundles = makeBundles(deltaWritePlan, mtmv);
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, newContext(mtmv), bundles);
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertTrue(result.isSuccess());
-        Assert.assertNull(result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(1, analyzer.callCount);
-        Assert.assertEquals(1, checker.callCount);
-        Assert.assertEquals(1, planner.callCount);
-        Assert.assertEquals(1, executor.callCount);
-        Assert.assertEquals(context, planner.lastContext);
-        Assert.assertEquals(IVMPlanPattern.INNER_JOIN, planner.lastAnalysis.getPattern());
-        Assert.assertEquals(bundles, executor.lastBundles);
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals(1, checker.callCount);
+        Assertions.assertEquals(1, executor.callCount);
+        Assertions.assertEquals(bundles, executor.lastBundles);
     }
 
     @Test
-    public void testManagerReturnsExecutionFallbackOnPlannerFailure(@Mocked MTMV mtmv) {
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
+    public void testManagerReturnsExecutionFallbackOnExecutorFailure(@Mocked MTMV mtmv,
+            @Mocked LogicalPlan deltaWritePlan) {
         TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
-        planner.throwOnPlan = true;
-        TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
-                newContext(mtmv));
-
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
-
-        Assert.assertFalse(result.isSuccess());
-        Assert.assertEquals(FallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(1, planner.callCount);
-        Assert.assertEquals(0, executor.callCount);
-    }
-
-    @Test
-    public void testManagerReturnsExecutionFallbackOnExecutorFailure(@Mocked MTMV mtmv) {
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.UNION_ALL_ROOT));
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
-                newContext(mtmv));
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+                newContext(mtmv), makeBundles(deltaWritePlan, mtmv));
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertFalse(result.isSuccess());
-        Assert.assertEquals(FallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(1, planner.callCount);
-        Assert.assertEquals(1, executor.callCount);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(FallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
+        Assertions.assertEquals(1, executor.callCount);
     }
 
     @Test
     public void testManagerReturnsSnapshotFallbackWhenBuildContextFails(@Mocked MTMV mtmv) {
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
         TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor, null);
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, null, Collections.emptyList());
         manager.throwOnBuild = true;
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertFalse(result.isSuccess());
-        Assert.assertEquals(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(0, analyzer.callCount);
-        Assert.assertEquals(0, checker.callCount);
-        Assert.assertEquals(0, planner.callCount);
-        Assert.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertEquals(0, checker.callCount);
+        Assertions.assertEquals(0, executor.callCount);
     }
 
     @Test
@@ -245,25 +167,18 @@ public class IVMRefreshManagerTest {
             }
         };
 
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
         TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
-                newContext(mtmv));
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+                newContext(mtmv), Collections.emptyList());
         manager.useSuperPrecheck = true;
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertFalse(result.isSuccess());
-        Assert.assertEquals(FallbackReason.BINLOG_BROKEN, result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(0, manager.buildContextCallCount);
-        Assert.assertEquals(0, analyzer.callCount);
-        Assert.assertEquals(0, checker.callCount);
-        Assert.assertEquals(0, planner.callCount);
-        Assert.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(FallbackReason.BINLOG_BROKEN, result.getFallbackReason());
+        Assertions.assertEquals(0, checker.callCount);
+        Assertions.assertEquals(0, executor.callCount);
     }
 
     @Test
@@ -278,45 +193,33 @@ public class IVMRefreshManagerTest {
                 result = "t1";
                 olapTable.getDBName();
                 result = "db1";
-            }
-        };
-        BaseTableInfo baseTableInfo = new BaseTableInfo(olapTable, 2L);
-        new Expectations() {
-            {
                 mtmv.getIvmInfo();
                 result = ivmInfo;
                 minTimes = 1;
                 mtmv.getRelation();
                 result = relation;
                 relation.getBaseTablesOneLevelAndFromView();
-                result = Sets.newHashSet(baseTableInfo);
+                result = Sets.newHashSet(new BaseTableInfo(olapTable, 2L));
             }
         };
 
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
         TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
-                newContext(mtmv));
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+                newContext(mtmv), Collections.emptyList());
         manager.useSuperPrecheck = true;
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertFalse(result.isSuccess());
-        Assert.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(0, manager.buildContextCallCount);
-        Assert.assertEquals(0, analyzer.callCount);
-        Assert.assertEquals(0, checker.callCount);
-        Assert.assertEquals(0, planner.callCount);
-        Assert.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(result.isSuccess());
+        Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
+        Assertions.assertEquals(0, checker.callCount);
+        Assertions.assertEquals(0, executor.callCount);
     }
 
     @Test
-    public void testManagerPassesHealthyIvmBinlogPrecheck(@Mocked MTMV mtmv,
-            @Mocked MTMVRelation relation, @Mocked OlapTable olapTable) {
+    public void testManagerPassesHealthyPrecheckAndExecutes(@Mocked MTMV mtmv,
+            @Mocked MTMVRelation relation, @Mocked OlapTable olapTable, @Mocked LogicalPlan deltaWritePlan) {
         IVMInfo ivmInfo = new IVMInfo();
         new Expectations() {
             {
@@ -349,44 +252,25 @@ public class IVMRefreshManagerTest {
             }
         };
 
-        TestPlanAnalyzer analyzer = new TestPlanAnalyzer(IVMPlanAnalysis.of(IVMPlanPattern.SCAN_ONLY));
         TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
-        TestDeltaPlannerDispatcher planner = new TestDeltaPlannerDispatcher(
-                Collections.singletonList(new DeltaPlanBundle("delta")));
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, analyzer, planner, executor,
-                newContext(mtmv));
+        List<DeltaPlanBundle> bundles = makeBundles(deltaWritePlan, mtmv);
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, newContext(mtmv), bundles);
         manager.useSuperPrecheck = true;
 
-        IVMRefreshResult result = manager.ivmRefresh(mtmv);
+        IVMRefreshResult result = manager.doRefresh(mtmv);
 
-        Assert.assertTrue(result.isSuccess());
-        Assert.assertNull(result.getFallbackReason());
-        Assert.assertEquals(1, manager.precheckCallCount);
-        Assert.assertEquals(1, manager.buildContextCallCount);
-        Assert.assertEquals(1, analyzer.callCount);
-        Assert.assertEquals(1, checker.callCount);
-        Assert.assertEquals(1, planner.callCount);
-        Assert.assertEquals(1, executor.callCount);
+        Assertions.assertTrue(result.isSuccess());
+        Assertions.assertEquals(1, checker.callCount);
+        Assertions.assertEquals(1, executor.callCount);
     }
 
     private static IVMRefreshContext newContext(MTMV mtmv) {
         return new IVMRefreshContext(mtmv, new ConnectContext(), new org.apache.doris.mtmv.MTMVRefreshContext(mtmv));
     }
 
-    private static class TestPlanAnalyzer implements IVMPlanAnalyzer {
-        private final IVMPlanAnalysis result;
-        private int callCount;
-
-        private TestPlanAnalyzer(IVMPlanAnalysis result) {
-            this.result = result;
-        }
-
-        @Override
-        public IVMPlanAnalysis analyze(IVMRefreshContext context) {
-            callCount++;
-            return result;
-        }
+    private static List<DeltaPlanBundle> makeBundles(LogicalPlan deltaWritePlan, MTMV mtmv) {
+        return Collections.singletonList(new DeltaPlanBundle(new BaseTableInfo(mtmv, 0L), deltaWritePlan));
     }
 
     private static class TestCapabilityChecker implements IVMCapabilityChecker {
@@ -398,32 +282,8 @@ public class IVMRefreshManagerTest {
         }
 
         @Override
-        public IVMCapabilityResult check(IVMRefreshContext context, IVMPlanAnalysis analysis) {
+        public IVMCapabilityResult check(IVMRefreshContext context, List<DeltaPlanBundle> bundles) {
             callCount++;
-            return result;
-        }
-    }
-
-    private static class TestDeltaPlannerDispatcher implements IVMDeltaPlannerDispatcher {
-        private final List<DeltaPlanBundle> result;
-        private int callCount;
-        private boolean throwOnPlan;
-        private IVMRefreshContext lastContext;
-        private IVMPlanAnalysis lastAnalysis;
-
-        private TestDeltaPlannerDispatcher(List<DeltaPlanBundle> result) {
-            this.result = new ArrayList<>(result);
-        }
-
-        @Override
-        public List<DeltaPlanBundle> plan(IVMRefreshContext context, IVMPlanAnalysis analysis)
-                throws AnalysisException {
-            callCount++;
-            lastContext = context;
-            lastAnalysis = analysis;
-            if (throwOnPlan) {
-                throw new AnalysisException("planner failed");
-            }
             return result;
         }
     }
@@ -445,22 +305,19 @@ public class IVMRefreshManagerTest {
 
     private static class TestIVMRefreshManager extends IVMRefreshManager {
         private final IVMRefreshContext context;
-        private int buildContextCallCount;
-        private int precheckCallCount;
+        private final List<DeltaPlanBundle> bundles;
         private boolean throwOnBuild;
         private boolean useSuperPrecheck;
-        private MTMV lastMtmv;
 
-        private TestIVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMPlanAnalyzer planAnalyzer,
-                IVMDeltaPlannerDispatcher deltaPlannerDispatcher, IVMDeltaExecutor deltaExecutor,
-                IVMRefreshContext context) {
-            super(capabilityChecker, planAnalyzer, deltaPlannerDispatcher, deltaExecutor);
+        private TestIVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMDeltaExecutor deltaExecutor,
+                IVMRefreshContext context, List<DeltaPlanBundle> bundles) {
+            super(capabilityChecker, deltaExecutor);
             this.context = context;
+            this.bundles = bundles;
         }
 
         @Override
         IVMRefreshResult precheck(MTMV mtmv) {
-            precheckCallCount++;
             if (useSuperPrecheck) {
                 return super.precheck(mtmv);
             }
@@ -469,12 +326,15 @@ public class IVMRefreshManagerTest {
 
         @Override
         IVMRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
-            buildContextCallCount++;
-            lastMtmv = mtmv;
             if (throwOnBuild) {
                 throw new AnalysisException("build context failed");
             }
             return context;
+        }
+
+        @Override
+        List<DeltaPlanBundle> analyzeDeltaBundles(IVMRefreshContext ctx) {
+            return bundles;
         }
     }
 }
