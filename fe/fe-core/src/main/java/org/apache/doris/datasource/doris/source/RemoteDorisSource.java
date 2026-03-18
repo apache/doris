@@ -19,27 +19,23 @@ package org.apache.doris.datasource.doris.source;
 
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.arrowflight.FlightSqlClientLoadBalancer;
 import org.apache.doris.datasource.doris.RemoteDorisExternalCatalog;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 
-import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.ThreadLocalRandom;
 
 public class RemoteDorisSource {
     private final TupleDescriptor desc;
     private final RemoteDorisExternalCatalog remoteDorisExternalCatalog;
     private final RemoteDorisExternalTable remoteDorisExtTable;
-    private final List<Pair<String, Integer>> hostsAndArrowPort;
-    private int currentHostIndex;
-    private Pair<String, Integer> currentHostAndArrowPort;
+    private final FlightSqlClientLoadBalancer flightSqlClientLoadBalancer;
 
     public RemoteDorisSource(TupleDescriptor desc) {
         this.desc = desc;
         this.remoteDorisExtTable = (RemoteDorisExternalTable) desc.getTable();
         this.remoteDorisExternalCatalog = (RemoteDorisExternalCatalog) remoteDorisExtTable.getCatalog();
-        this.hostsAndArrowPort = parseArrowNodes(remoteDorisExternalCatalog.getFeArrowNodes());
-        this.currentHostIndex = ThreadLocalRandom.current().nextInt(hostsAndArrowPort.size());
+        this.flightSqlClientLoadBalancer = remoteDorisExternalCatalog.getSqlClientLoadBalancer();
     }
 
     public TupleDescriptor getDesc() {
@@ -54,35 +50,17 @@ public class RemoteDorisSource {
         return remoteDorisExternalCatalog;
     }
 
-    public Pair<String, Integer> nextHostAndArrowPort() {
-        return nextHostAndPort();
-    }
-
+    @Deprecated
     public Pair<String, Integer> getHostAndArrowPort() {
-        return currentHostAndArrowPort;
+        List<String> feArrowNodes = remoteDorisExternalCatalog.getFeArrowNodes();
+        String[] arrowFlightHost = feArrowNodes.get(0).trim().split(":");
+        if (arrowFlightHost.length != 2) {
+            throw new IllegalArgumentException("Invalid arrow flight host: " + feArrowNodes.get(0));
+        }
+        return Pair.of(arrowFlightHost[0].trim(), Integer.parseInt(arrowFlightHost[1].trim()));
     }
 
-    private List<Pair<String, Integer>> parseArrowNodes(List<String> feArrowNodes) {
-        if (feArrowNodes == null || feArrowNodes.isEmpty()) {
-            throw new RuntimeException("fe arrow nodes not set");
-        }
-
-        List<Pair<String, Integer>> hostsAndArrowPort = new ArrayList<>();
-        for (String feArrowNode : feArrowNodes) {
-            String[] split = feArrowNode.split(":");
-            if (split.length != 2) {
-                throw new RuntimeException("fe arrow nodes format error, must ip:arrow_port,ip:arrow_port..");
-            }
-            hostsAndArrowPort.add(Pair.of(split[0].trim(), Integer.parseInt(split[1].trim())));
-        }
-
-        return hostsAndArrowPort;
-    }
-
-    private Pair<String, Integer> nextHostAndPort() {
-        currentHostAndArrowPort = this.hostsAndArrowPort.get(currentHostIndex);
-        currentHostIndex++;
-        currentHostIndex = currentHostIndex % hostsAndArrowPort.size();
-        return currentHostAndArrowPort;
+    public FlightSqlClientLoadBalancer getSqlClientLoadBalancer() {
+        return flightSqlClientLoadBalancer;
     }
 }
