@@ -173,16 +173,26 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
 // Returns true if all tasks have already closed (i.e., the PFC can be safely destroyed).
 bool PipelineFragmentContext::notify_close() {
     bool all_closed = false;
-    std::lock_guard<std::mutex> l(_task_mutex);
-    if (_closed_tasks >= _total_tasks) {
-        if (_need_notify_close) {
-            // if fragment cancelled and waiting for notify to close, need to remove from fragment mgr
-            _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+    bool need_remove = false;
+    {
+        std::lock_guard<std::mutex> l(_task_mutex);
+        if (_closed_tasks >= _total_tasks) {
+            if (_need_notify_close) {
+                // Fragment was cancelled and waiting for notify to close.
+                // Record that we need to remove from fragment mgr, but do it
+                // after releasing _task_mutex to avoid ABBA deadlock with
+                // dump_pipeline_tasks() (which acquires _pipeline_map lock
+                // first, then _task_mutex via debug_string()).
+                need_remove = true;
+            }
+            all_closed = true;
         }
-        all_closed = true;
+        // make fragment release by self after cancel
+        _need_notify_close = false;
     }
-    // make fragment release by self after cancel
-    _need_notify_close = false;
+    if (need_remove) {
+        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+    }
     return all_closed;
 }
 
@@ -1783,9 +1793,16 @@ Status PipelineFragmentContext::submit() {
         }
     }
     if (!st.ok()) {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks >= _total_tasks) {
-            _close_fragment_instance();
+        bool need_remove = false;
+        {
+            std::lock_guard<std::mutex> l(_task_mutex);
+            if (_closed_tasks >= _total_tasks) {
+                need_remove = _close_fragment_instance();
+            }
+        }
+        // Call remove_pipeline_context() outside _task_mutex to avoid ABBA deadlock.
+        if (need_remove) {
+            _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
@@ -1813,9 +1830,15 @@ void PipelineFragmentContext::print_profile(const std::string& extra_info) {
 }
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
-void PipelineFragmentContext::_close_fragment_instance() {
+// Returns true if the caller should call remove_pipeline_context() **after** releasing
+// _task_mutex. We must not call remove_pipeline_context() here because it acquires
+// _pipeline_map's shard lock, and this function is called while _task_mutex is held.
+// Acquiring _pipeline_map while holding _task_mutex creates an ABBA deadlock with
+// dump_pipeline_tasks(), which acquires _pipeline_map first and then _task_mutex
+// (via debug_string()).
+bool PipelineFragmentContext::_close_fragment_instance() {
     if (_is_fragment_instance_closed) {
-        return;
+        return false;
     }
     Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
@@ -1858,10 +1881,9 @@ void PipelineFragmentContext::_close_fragment_instance() {
                                          collect_realtime_load_channel_profile());
     }
 
-    if (!_need_notify_close) {
-        // all submitted tasks done
-        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
-    }
+    // Return whether the caller needs to remove from the pipeline map.
+    // The caller must do this after releasing _task_mutex.
+    return !_need_notify_close;
 }
 
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
@@ -1874,10 +1896,17 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
             }
         }
     }
-    std::lock_guard<std::mutex> l(_task_mutex);
-    ++_closed_tasks;
-    if (_closed_tasks >= _total_tasks) {
-        _close_fragment_instance();
+    bool need_remove = false;
+    {
+        std::lock_guard<std::mutex> l(_task_mutex);
+        ++_closed_tasks;
+        if (_closed_tasks >= _total_tasks) {
+            need_remove = _close_fragment_instance();
+        }
+    }
+    // Call remove_pipeline_context() outside _task_mutex to avoid ABBA deadlock.
+    if (need_remove) {
+        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
     }
 }
 

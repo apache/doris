@@ -207,7 +207,11 @@ private:
     Status _build_pipeline_tasks_for_instance(
             int instance_idx,
             const std::vector<std::shared_ptr<RuntimeProfile>>& pipeline_id_to_profile);
-    void _close_fragment_instance();
+    // Close the fragment instance and return true if the caller should call
+    // remove_pipeline_context() **after** releasing _task_mutex. This avoids
+    // holding _task_mutex while acquiring _pipeline_map's shard lock, which
+    // would create an ABBA deadlock with dump_pipeline_tasks().
+    bool _close_fragment_instance();
     void _init_next_report_time();
 
     // Id of this query
