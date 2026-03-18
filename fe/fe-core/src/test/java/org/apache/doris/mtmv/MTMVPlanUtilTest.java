@@ -566,12 +566,64 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertTrue(exception.getMessage().contains("changed"));
     }
 
+    @Test
+    public void testIncrementalMvIsUniqueKeyWithMow() throws Exception {
+        createMvByNereids("create materialized view mv_ivm_unique_key "
+                + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_ivm_unique_key");
+
+        Assertions.assertEquals(org.apache.doris.catalog.KeysType.UNIQUE_KEYS, mtmv.getKeysType());
+        Assertions.assertTrue(mtmv.getEnableUniqueKeyMergeOnWrite());
+    }
+
+    @Test
+    public void testNonIncrementalMvIsDuplicateKey() throws Exception {
+        createMvByNereids("create materialized view mv_non_ivm_dup_key "
+                + "BUILD DEFERRED REFRESH COMPLETE ON MANUAL\n"
+                + "        DISTRIBUTED BY RANDOM BUCKETS 1\n"
+                + "        PROPERTIES ('replication_num' = '1') \n"
+                + "        as select * from test.T4;");
+
+        Database db = Env.getCurrentEnv().getInternalCatalog().getDbOrAnalysisException("test");
+        MTMV mtmv = (MTMV) db.getTableOrAnalysisException("mv_non_ivm_dup_key");
+
+        Assertions.assertEquals(org.apache.doris.catalog.KeysType.DUP_KEYS, mtmv.getKeysType());
+    }
+
+    @Test
+    public void testIncrementalMvWithUserSpecifiedUniqueKeyFails() {
+        Assertions.assertThrows(Exception.class, () ->
+                createMvByNereids("create materialized view mv_ivm_user_unique_key "
+                        + "UNIQUE KEY(id) "
+                        + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "        PROPERTIES ('replication_num' = '1') \n"
+                        + "        as select * from test.T4;"));
+    }
+
+    @Test
+    public void testIncrementalMvWithUserSpecifiedDupKeyFails() {
+        Assertions.assertThrows(Exception.class, () ->
+                createMvByNereids("create materialized view mv_ivm_user_dup_key "
+                        + "DUPLICATE KEY(id) "
+                        + "BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + "        DISTRIBUTED BY HASH(id) BUCKETS 1\n"
+                        + "        PROPERTIES ('replication_num' = '1') \n"
+                        + "        as select * from test.T4;"));
+    }
+
     private static class CountingSessionVariable extends SessionVariable {
         private int enableIvmRewriteSetCount;
 
         @Override
         public boolean setVarOnce(String varName, String value) {
-            if (ENABLE_IVM_NORMAL_REWRITE.equals(varName) || ENABLE_IVM_DELTA_REWRITE.equals(varName)) {
+            if ((ENABLE_IVM_NORMAL_REWRITE.equals(varName) || ENABLE_IVM_DELTA_REWRITE.equals(varName))
+                    && "true".equals(value)) {
                 enableIvmRewriteSetCount++;
             }
             return super.setVarOnce(varName, value);
