@@ -4527,6 +4527,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // compaction notify update tablet stats
                 CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
             }
+            CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
+            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse, null, tabletIds);
         } catch (InvalidProtocolBufferException e) {
             // Handle the exception, log it, or take appropriate action
             e.printStackTrace();

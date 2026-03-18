@@ -249,6 +249,8 @@ DEFINE_Int32(num_query_ctx_map_partitions, "128");
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 DEFINE_Int32(release_snapshot_worker_count, "5");
+// the count of thread to make committed rowsets visible in cloud mode
+DEFINE_Int32(cloud_make_committed_rs_visible_worker_count, "16");
 // report random wait a little time to avoid FE receiving multiple be reports at the same time.
 // do not set it to false for production environment
 DEFINE_mBool(report_random_wait, "true");
@@ -1721,6 +1723,10 @@ DEFINE_mBool(enable_concurrency_stats_dump, "false");
 DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
+
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
 
 // clang-format off
 #ifdef BE_TEST

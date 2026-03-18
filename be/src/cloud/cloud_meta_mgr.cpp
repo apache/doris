@@ -565,6 +565,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
+    DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.inject_error", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        auto target_table_id = dp->param<int64_t>("table_id", -1);
+        if (target_tablet_id == tablet->tablet_id() || target_table_id == tablet->table_id()) {
+            return Status::InternalError(
+                    "[sync_tablet_rowsets_unlocked] injected error for testing");
+        }
+    });
 
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
@@ -800,7 +808,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     }
 }
 
-bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
+bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet,
                                                       std::ranges::range auto&& rs_metas,
                                                       DeleteBitmap* delete_bitmap) {
     std::set<int64_t> txn_processed;
@@ -958,7 +966,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     }
 
     if (!full_sync && config::enable_sync_tablet_delete_bitmap_by_cache &&
-        sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+        sync_tablet_delete_bitmap_by_cache(tablet, rs_metas, delete_bitmap)) {
         if (sync_stats) {
             sync_stats->get_local_delete_bitmap_rowsets_num += rs_metas.size();
         }
@@ -1363,6 +1371,17 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
     manager.warm_up_rowset(rs_meta, timeout_ms);
     return st;
+}
+
+void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
+    // For load-generated rowsets (job_id is empty), add to pending rowset manager
+    // so FE can notify BE to promote them later
+
+    // TODO(bobhan1): copy rs_meta?
+    int64_t txn_id = rs_meta->txn_id();
+    int64_t tablet_id = rs_meta->tablet_id();
+    ExecEnv::GetInstance()->storage_engine().to_cloud().committed_rs_mgr().add_committed_rowset(
+            txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 
 Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
