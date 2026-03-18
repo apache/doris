@@ -504,7 +504,7 @@ public class MTMVPlanUtil {
             MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
             if (ivmAnalyzeMode == IvmAnalyzeMode.FULL) {
                 planner.getCascadesContext().getIvmContext().ifPresent(
-                        ivm -> queryInfo.setIvmDeltaBundles(ivm.getDeltaBundles()));
+                        ivm -> queryInfo.setIvmDeltaCommandBundles(ivm.getDeltaCommandBundles()));
             }
             return queryInfo;
         }
