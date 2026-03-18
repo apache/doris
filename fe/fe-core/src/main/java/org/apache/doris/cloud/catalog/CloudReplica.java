@@ -628,6 +628,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         return result;
     }
 
+    @Override
     public long getSegmentCount() {
         return segmentCount;
     }
