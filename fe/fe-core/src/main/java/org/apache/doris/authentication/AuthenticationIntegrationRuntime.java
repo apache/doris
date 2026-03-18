@@ -20,6 +20,7 @@ package org.apache.doris.authentication;
 import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 
 import com.google.common.base.Strings;
@@ -34,6 +35,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -41,6 +43,16 @@ import java.util.concurrent.ConcurrentHashMap;
  */
 public class AuthenticationIntegrationRuntime {
     private static final Logger LOG = LogManager.getLogger(AuthenticationIntegrationRuntime.class);
+
+    private static final class ResolvedAuthenticationPlugin {
+        private final AuthenticationIntegration integration;
+        private final AuthenticationPlugin plugin;
+
+        private ResolvedAuthenticationPlugin(AuthenticationIntegration integration, AuthenticationPlugin plugin) {
+            this.integration = integration;
+            this.plugin = plugin;
+        }
+    }
 
     public enum RuntimeState {
         AVAILABLE,
@@ -73,6 +85,7 @@ public class AuthenticationIntegrationRuntime {
     private final AuthenticationPluginManager pluginManager;
     private final Map<String, RuntimeState> runtimeStates = new ConcurrentHashMap<>();
     private final Map<String, String> brokenReasons = new ConcurrentHashMap<>();
+    private final Set<String> dirtyIntegrations = ConcurrentHashMap.newKeySet();
 
     public AuthenticationIntegrationRuntime() {
         this(new AuthenticationPluginManager());
@@ -94,6 +107,7 @@ public class AuthenticationIntegrationRuntime {
         pluginManager.installPlugin(prepared.getIntegration(), prepared.getPlugin());
         runtimeStates.put(prepared.getIntegration().getName(), RuntimeState.AVAILABLE);
         brokenReasons.remove(prepared.getIntegration().getName());
+        dirtyIntegrations.remove(prepared.getIntegration().getName());
     }
 
     public void discardPreparedAuthenticationIntegration(PreparedAuthenticationIntegration prepared) {
@@ -111,30 +125,27 @@ public class AuthenticationIntegrationRuntime {
         pluginManager.removePlugin(integrationName);
         runtimeStates.remove(integrationName);
         brokenReasons.remove(integrationName);
+        dirtyIntegrations.remove(integrationName);
+    }
+
+    public void markAuthenticationIntegrationDirty(String integrationName) {
+        dirtyIntegrations.add(integrationName);
+        runtimeStates.remove(integrationName);
+        brokenReasons.remove(integrationName);
     }
 
     public void replayUpsertAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
         pluginManager.removePlugin(meta.getName());
-        PreparedAuthenticationIntegration prepared = null;
-        try {
-            prepared = prepareAuthenticationIntegration(meta);
-            activatePreparedAuthenticationIntegration(prepared);
-        } catch (AuthenticationException e) {
-            markBroken(meta.getName(), e);
-        } finally {
-            if (prepared != null && runtimeStates.get(meta.getName()) != RuntimeState.AVAILABLE) {
-                discardPreparedAuthenticationIntegration(prepared);
-            }
-        }
+        runtimeStates.remove(meta.getName());
+        brokenReasons.remove(meta.getName());
+        dirtyIntegrations.remove(meta.getName());
     }
 
     public void rebuildAuthenticationIntegrations(Map<String, AuthenticationIntegrationMeta> snapshot) {
         pluginManager.clearCache();
         runtimeStates.clear();
         brokenReasons.clear();
-        for (AuthenticationIntegrationMeta meta : snapshot.values()) {
-            replayUpsertAuthenticationIntegration(meta);
-        }
+        dirtyIntegrations.clear();
     }
 
     public AuthenticationOutcome authenticate(List<AuthenticationIntegrationMeta> chain, AuthenticationRequest request)
@@ -150,20 +161,22 @@ public class AuthenticationIntegrationRuntime {
         AuthenticationOutcome lastFailure = null;
         boolean anySupported = false;
         for (AuthenticationIntegrationMeta meta : chain) {
-            AuthenticationIntegration integration = toIntegration(meta);
-            ensurePluginFactoryLoaded(integration.getType());
-            AuthenticationPlugin plugin;
+            ResolvedAuthenticationPlugin resolved;
             try {
-                plugin = pluginManager.getPlugin(integration);
+                resolved = resolvePluginForAuthentication(meta);
             } catch (AuthenticationException e) {
+                AuthenticationIntegration currentIntegration = toIntegration(resolveCurrentAuthenticationIntegration(meta));
+                markBroken(currentIntegration.getName(), e);
                 AuthenticationResult result = AuthenticationResult.failure(e);
-                AuthenticationOutcome outcome = AuthenticationOutcome.of(integration, result);
+                AuthenticationOutcome outcome = AuthenticationOutcome.of(currentIntegration, result);
                 lastFailure = outcome;
                 if (!shouldContinueInChain(result)) {
                     return outcome;
                 }
                 continue;
             }
+            AuthenticationIntegration integration = resolved.integration;
+            AuthenticationPlugin plugin = resolved.plugin;
             if (!plugin.supports(request)) {
                 continue;
             }
@@ -205,6 +218,35 @@ public class AuthenticationIntegrationRuntime {
 
     public String getBrokenReason(String integrationName) {
         return brokenReasons.get(integrationName);
+    }
+
+    private ResolvedAuthenticationPlugin resolvePluginForAuthentication(AuthenticationIntegrationMeta requestedMeta)
+            throws AuthenticationException {
+        AuthenticationIntegrationMeta currentMeta = resolveCurrentAuthenticationIntegration(requestedMeta);
+        String integrationName = currentMeta.getName();
+        if (dirtyIntegrations.contains(integrationName)) {
+            currentMeta = resolveCurrentAuthenticationIntegration(requestedMeta);
+            AuthenticationIntegration refreshedIntegration = toIntegration(currentMeta);
+            ensurePluginFactoryLoaded(refreshedIntegration.getType());
+            pluginManager.reloadPlugin(refreshedIntegration);
+            dirtyIntegrations.remove(integrationName);
+        }
+        AuthenticationIntegration integration = toIntegration(currentMeta);
+        ensurePluginFactoryLoaded(integration.getType());
+        AuthenticationPlugin plugin = pluginManager.getPlugin(integration);
+        runtimeStates.put(integrationName, RuntimeState.AVAILABLE);
+        brokenReasons.remove(integrationName);
+        return new ResolvedAuthenticationPlugin(integration, plugin);
+    }
+
+    private AuthenticationIntegrationMeta resolveCurrentAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
+        Env env = Env.getCurrentEnv();
+        if (env == null || env.getAuthenticationIntegrationMgr() == null) {
+            return meta;
+        }
+        AuthenticationIntegrationMeta current = env.getAuthenticationIntegrationMgr().getAuthenticationIntegration(
+                meta.getName());
+        return current != null ? current : meta;
     }
 
     private void ensurePluginFactoryLoaded(String pluginType) throws AuthenticationException {

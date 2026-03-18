@@ -21,17 +21,38 @@ import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.authentication.spi.AuthenticationPluginFactory;
+import org.apache.doris.catalog.Env;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 class AuthenticationIntegrationRuntimeTest {
     private static final String CREATE_USER = "creator";
+    private MockedStatic<Env> envMockedStatic;
+
+    @BeforeEach
+    void setUp() {
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(null);
+    }
+
+    @AfterEach
+    void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
+    }
 
     @Test
     void testAuthenticateContinuesOnUserNotFound() throws Exception {
@@ -94,17 +115,54 @@ class AuthenticationIntegrationRuntimeTest {
     }
 
     @Test
-    void testRebuildMarksBrokenWhenFactoryMissing() throws Exception {
-        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(new AuthenticationPluginManager());
-        AuthenticationIntegrationMeta broken = meta("broken", "missing_type", map("result", "SUCCESS"));
+    void testRebuildKeepsPluginInstancesLazy() throws Exception {
+        List<String> initializedMarkers = new ArrayList<>();
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new RecordingPluginFactory(initializedMarkers));
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+        AuthenticationIntegrationMeta meta = meta("broken", "recording", map("marker", "rebuild"));
 
         Map<String, AuthenticationIntegrationMeta> snapshot = new LinkedHashMap<>();
-        snapshot.put(broken.getName(), broken);
+        snapshot.put(meta.getName(), meta);
         runtime.rebuildAuthenticationIntegrations(snapshot);
 
-        Assertions.assertEquals(AuthenticationIntegrationRuntime.RuntimeState.BROKEN,
-                runtime.getRuntimeState("broken"));
-        Assertions.assertTrue(runtime.getBrokenReason("broken").contains("missing_type"));
+        Assertions.assertTrue(initializedMarkers.isEmpty());
+        Assertions.assertNull(runtime.getRuntimeState("broken"));
+        Assertions.assertNull(runtime.getBrokenReason("broken"));
+    }
+
+    @Test
+    void testAuthenticateRefreshesDirtyIntegrationUsingLatestMetadata() throws Exception {
+        List<String> initializedMarkers = new ArrayList<>();
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new RecordingPluginFactory(initializedMarkers));
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        AuthenticationIntegrationMeta oldMeta = meta("corp", "recording", map("marker", "old"));
+        AuthenticationIntegrationMeta newMeta = meta("corp", "recording", map("marker", "new"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(oldMeta));
+        runtime.markAuthenticationIntegrationDirty("corp");
+
+        Env env = Mockito.mock(Env.class);
+        AuthenticationIntegrationMgr mgr = Mockito.mock(AuthenticationIntegrationMgr.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+        Mockito.when(env.getAuthenticationIntegrationMgr()).thenReturn(mgr);
+        Mockito.when(mgr.getAuthenticationIntegration("corp")).thenReturn(newMeta);
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("secret".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+
+        AuthenticationOutcome outcome = runtime.authenticate(Arrays.asList(oldMeta), request);
+
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertEquals(Arrays.asList("old", "new"), initializedMarkers);
+        Assertions.assertEquals(AuthenticationIntegrationRuntime.RuntimeState.AVAILABLE,
+                runtime.getRuntimeState("corp"));
     }
 
     private static AuthenticationIntegrationMeta meta(String name, String type, Map<String, String> properties)
@@ -163,6 +221,58 @@ class AuthenticationIntegrationRuntimeTest {
                             .authenticator(integration.getName())
                             .build());
             }
+        }
+    }
+
+    private static class RecordingPluginFactory implements AuthenticationPluginFactory {
+        private final List<String> initializedMarkers;
+
+        private RecordingPluginFactory(List<String> initializedMarkers) {
+            this.initializedMarkers = initializedMarkers;
+        }
+
+        @Override
+        public String name() {
+            return "recording";
+        }
+
+        @Override
+        public AuthenticationPlugin create() {
+            return new RecordingPlugin(initializedMarkers);
+        }
+    }
+
+    private static class RecordingPlugin implements AuthenticationPlugin {
+        private final List<String> initializedMarkers;
+        private String marker;
+
+        private RecordingPlugin(List<String> initializedMarkers) {
+            this.initializedMarkers = initializedMarkers;
+        }
+
+        @Override
+        public void initialize(AuthenticationIntegration integration) {
+            marker = integration.getProperty("marker", "missing");
+            initializedMarkers.add(marker);
+        }
+
+        @Override
+        public String name() {
+            return "recording";
+        }
+
+        @Override
+        public boolean supports(AuthenticationRequest request) {
+            return true;
+        }
+
+        @Override
+        public AuthenticationResult authenticate(AuthenticationRequest request, AuthenticationIntegration integration)
+                throws AuthenticationException {
+            return AuthenticationResult.success(BasicPrincipal.builder()
+                    .name(request.getUsername())
+                    .authenticator(marker)
+                    .build());
         }
     }
 }

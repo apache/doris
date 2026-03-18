@@ -74,8 +74,6 @@ class AuthenticationIntegrationMgrTest {
 
     @Test
     void testCreateAlterDropFlow() throws Exception {
-        Mockito.when(runtime.prepareAuthenticationIntegration(Mockito.any())).thenReturn(prepared);
-
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         Map<String, String> createProperties = new LinkedHashMap<>();
         createProperties.put("type", "ldap");
@@ -107,7 +105,7 @@ class AuthenticationIntegrationMgrTest {
         mgr.dropAuthenticationIntegration("corp_ldap", false);
         Assertions.assertTrue(mgr.getAuthenticationIntegrations().isEmpty());
 
-        Mockito.verify(runtime, Mockito.times(3)).activatePreparedAuthenticationIntegration(prepared);
+        Mockito.verify(runtime, Mockito.times(2)).markAuthenticationIntegrationDirty("corp_ldap");
         Mockito.verify(runtime).removeAuthenticationIntegration("corp_ldap");
         Mockito.verifyNoInteractions(editLog);
     }
@@ -120,7 +118,8 @@ class AuthenticationIntegrationMgrTest {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
 
         DdlException exception = Assertions.assertThrows(DdlException.class, () ->
-                mgr.createAuthenticationIntegration("corp_ldap", false, map("type", "ldap"), null, CREATE_USER));
+                mgr.createAuthenticationIntegration("corp_ldap", false,
+                        map("type", "ldap", "plugin.initialize_immediately", "true"), null, CREATE_USER));
 
         Assertions.assertEquals("prepare failed", exception.getDetailMessage());
         Assertions.assertTrue(mgr.getAuthenticationIntegrations().isEmpty());
@@ -161,7 +160,8 @@ class AuthenticationIntegrationMgrTest {
         }).when(runtime).activatePreparedAuthenticationIntegration(prepared);
 
         mgr.createAuthenticationIntegration("corp_ldap", false,
-                map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER);
+                map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389",
+                        "plugin.initialize_immediately", "true"), null, CREATE_USER);
     }
 
     @Test
@@ -180,7 +180,8 @@ class AuthenticationIntegrationMgrTest {
         }).when(runtime).activatePreparedAuthenticationIntegration(prepared);
 
         mgr.alterAuthenticationIntegrationProperties("corp_ldap",
-                map("ldap.server", "ldap://127.0.0.1:1389"), ALTER_USER);
+                map("ldap.server", "ldap://127.0.0.1:1389",
+                        "plugin.initialize_immediately", "true"), ALTER_USER);
     }
 
     @Test
@@ -193,7 +194,8 @@ class AuthenticationIntegrationMgrTest {
 
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
                 () -> mgr.createAuthenticationIntegration("corp_ldap", false,
-                        map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER));
+                        map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389",
+                                "plugin.initialize_immediately", "true"), null, CREATE_USER));
 
         Assertions.assertEquals("activate failed", exception.getMessage());
         Assertions.assertTrue(mgr.getAuthenticationIntegrations().isEmpty());
@@ -212,12 +214,93 @@ class AuthenticationIntegrationMgrTest {
 
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
                 () -> mgr.alterAuthenticationIntegrationProperties("corp_ldap",
-                        map("ldap.server", "ldap://127.0.0.1:1389"), ALTER_USER));
+                        map("ldap.server", "ldap://127.0.0.1:1389",
+                                "plugin.initialize_immediately", "true"), ALTER_USER));
 
         Assertions.assertEquals("activate failed", exception.getMessage());
         Assertions.assertEquals("ldap://127.0.0.1:389",
                 mgr.getAuthenticationIntegrations().get("corp_ldap").getProperties().get("ldap.server"));
         Mockito.verify(runtime).discardPreparedAuthenticationIntegration(prepared);
+    }
+
+    @Test
+    void testCreateWithoutImmediateInitDoesNotPrepareAndDoesNotPersistTransientProperty() throws Exception {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+
+        mgr.createAuthenticationIntegration("corp_ldap", false, map(
+                "type", "ldap",
+                "ldap.server", "ldap://127.0.0.1:389",
+                "plugin.initialize_immediately", "false"), null, CREATE_USER);
+
+        AuthenticationIntegrationMeta created = mgr.getAuthenticationIntegrations().get("corp_ldap");
+        Assertions.assertNotNull(created);
+        Assertions.assertEquals("ldap://127.0.0.1:389", created.getProperties().get("ldap.server"));
+        Assertions.assertFalse(created.getProperties().containsKey("plugin.initialize_immediately"));
+        Mockito.verify(runtime, Mockito.never()).prepareAuthenticationIntegration(Mockito.any());
+        Mockito.verify(runtime, Mockito.never()).activatePreparedAuthenticationIntegration(Mockito.any());
+    }
+
+    @Test
+    void testAlterWithoutImmediateInitMarksDirtyAndDoesNotPrepare() throws Exception {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        mgr.replayCreateAuthenticationIntegration(AuthenticationIntegrationMeta.fromCreateSql(
+                "corp_ldap", map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER));
+
+        mgr.alterAuthenticationIntegrationProperties("corp_ldap", map(
+                "ldap.server", "ldap://127.0.0.1:1389",
+                "plugin.initialize_immediately", "false"), ALTER_USER);
+
+        AuthenticationIntegrationMeta altered = mgr.getAuthenticationIntegrations().get("corp_ldap");
+        Assertions.assertEquals("ldap://127.0.0.1:1389", altered.getProperties().get("ldap.server"));
+        Assertions.assertFalse(altered.getProperties().containsKey("plugin.initialize_immediately"));
+        Mockito.verify(runtime).markAuthenticationIntegrationDirty("corp_ldap");
+        Mockito.verify(runtime, Mockito.never()).prepareAuthenticationIntegration(Mockito.any());
+        Mockito.verify(runtime, Mockito.never()).activatePreparedAuthenticationIntegration(Mockito.any());
+    }
+
+    @Test
+    void testAlterWithImmediateInitOnlyUsesCurrentMetadata() throws Exception {
+        Mockito.when(runtime.prepareAuthenticationIntegration(Mockito.any())).thenReturn(prepared);
+
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        mgr.replayCreateAuthenticationIntegration(AuthenticationIntegrationMeta.fromCreateSql(
+                "corp_ldap", map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER));
+
+        mgr.alterAuthenticationIntegrationProperties("corp_ldap",
+                map("plugin.initialize_immediately", "true"), ALTER_USER);
+
+        AuthenticationIntegrationMeta current = mgr.getAuthenticationIntegrations().get("corp_ldap");
+        Assertions.assertEquals(CREATE_USER, current.getAlterUser());
+        Assertions.assertEquals("ldap://127.0.0.1:389", current.getProperties().get("ldap.server"));
+        Mockito.verify(runtime).prepareAuthenticationIntegration(Mockito.any());
+        Mockito.verify(runtime).activatePreparedAuthenticationIntegration(prepared);
+        Mockito.verify(runtime, Mockito.never()).markAuthenticationIntegrationDirty("corp_ldap");
+    }
+
+    @Test
+    void testCreateRejectsInvalidImmediateInitValue() {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> mgr.createAuthenticationIntegration("corp_ldap", false, map(
+                        "type", "ldap",
+                        "plugin.initialize_immediately", "abc"), null, CREATE_USER));
+
+        Assertions.assertTrue(exception.getDetailMessage().contains("plugin.initialize_immediately"));
+    }
+
+    @Test
+    void testAlterRejectsInvalidImmediateInitValue() throws Exception {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        mgr.replayCreateAuthenticationIntegration(AuthenticationIntegrationMeta.fromCreateSql(
+                "corp_ldap", map("type", "ldap", "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER));
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> mgr.alterAuthenticationIntegrationProperties("corp_ldap", map(
+                        "ldap.server", "ldap://127.0.0.1:1389",
+                        "plugin.initialize_immediately", "abc"), ALTER_USER));
+
+        Assertions.assertTrue(exception.getDetailMessage().contains("plugin.initialize_immediately"));
     }
 
     @Test
