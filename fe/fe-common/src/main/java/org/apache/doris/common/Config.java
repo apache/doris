@@ -3276,7 +3276,6 @@ public class Config extends ConfigBase {
                             + "to other BEs in cloud mode."})
     public static int rehash_tablet_after_be_dead_seconds = 3600;
 
-
     @ConfField(mutable = true, description = {
             "Whether to enable the automatic start-stop feature in cloud model, default is true."})
     public static boolean enable_auto_start_for_cloud_cluster = true;
@@ -3285,6 +3284,14 @@ public class Config extends ConfigBase {
             "The automatic start-stop wait time for cluster wake-up backoff retry count in the cloud "
                     + "model is set to 300 times, which is approximately 5 minutes by default."})
     public static int auto_start_wait_to_resume_times = 300;
+
+    @ConfField(description = {
+            "Maximal concurrent num of master FE sync tablet stats task to observers and followers in cloud mode."})
+    public static int cloud_sync_tablet_stats_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"Version of getting tablet stats in cloud mode. "
+            + "Version 1: get all tablets; Version 2: get active and interval expired tablets"})
+    public static int cloud_get_tablet_stats_version = 2;
 
     @ConfField(description = {"Maximum concurrent number of get tablet stat jobs."})
     public static int max_get_tablet_stat_task_threads_num = 4;
