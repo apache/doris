@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.qe.ConnectContext;
@@ -95,23 +96,39 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, IvmContext ivmContext) {
         Plan newChild = project.child().accept(this, ivmContext);
-        // find the row-id slot from the child's output (always at index 0 after normalization)
-        Slot childRowId = newChild.getOutput().stream()
+        if (hasRowIdInOutputs(project.getProjects())) {
+            return newChild == project.child() ? project : project.withChildren(ImmutableList.of(newChild));
+        }
+        List<NamedExpression> newOutputs = prependRowId(newChild, project.getProjects());
+        return new LogicalProject<>(newOutputs, newChild);
+    }
+
+    // whitelisted: result sink — recurse into child, then prepend row-id to output exprs
+    @Override
+    public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, IvmContext ivmContext) {
+        Plan newChild = sink.child().accept(this, ivmContext);
+        if (hasRowIdInOutputs(sink.getOutputExprs())) {
+            return newChild == sink.child() ? sink : sink.withChildren(ImmutableList.of(newChild));
+        }
+        List<NamedExpression> newOutputs = prependRowId(newChild, sink.getOutputExprs());
+        return sink.withOutputExprs(newOutputs).withChildren(ImmutableList.of(newChild));
+    }
+
+    private boolean hasRowIdInOutputs(List<NamedExpression> outputs) {
+        return outputs.stream()
+                .anyMatch(e -> e instanceof Slot && IVM_ROW_ID_COL.equals(((Slot) e).getName()));
+    }
+
+    private List<NamedExpression> prependRowId(Plan normalizedChild, List<NamedExpression> outputs) {
+        Slot rowId = normalizedChild.getOutput().stream()
                 .filter(s -> IVM_ROW_ID_COL.equals(s.getName()))
                 .findFirst()
                 .orElseThrow(() -> new AnalysisException(
                         "IVM normalization error: child plan has no row-id slot after normalization"));
-        boolean hasRowId = project.getProjects().stream()
-                .anyMatch(e -> e instanceof Slot && IVM_ROW_ID_COL.equals(((Slot) e).getName()));
-        if (hasRowId) {
-            return newChild == project.child() ? project : project.withChildren(ImmutableList.of(newChild));
-        }
-        // prepend child's row-id slot to this project's outputs
-        List<NamedExpression> newOutputs = ImmutableList.<NamedExpression>builder()
-                .add(childRowId)
-                .addAll(project.getProjects())
+        return ImmutableList.<NamedExpression>builder()
+                .add(rowId)
+                .addAll(outputs)
                 .build();
-        return new LogicalProject<>(newOutputs, newChild);
     }
 
     /**
