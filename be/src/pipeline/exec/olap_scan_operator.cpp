@@ -172,6 +172,12 @@ Status OlapScanLocalState::_init_profile() {
                                   TUnit::BYTES, sync_rowset_timer_name);
         _sync_rowset_get_remote_delete_bitmap_rpc_timer = ADD_CHILD_TIMER(
                 _scanner_profile, "SyncRowsetGetRemoteDeleteBitmapRpcTime", sync_rowset_timer_name);
+        _sync_rowset_bthread_schedule_wait_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetBthreadScheduleWaitTime", sync_rowset_timer_name);
+        _sync_rowset_meta_lock_wait_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetMetaLockWaitTime", sync_rowset_timer_name);
+        _sync_rowset_sync_meta_lock_wait_timer = ADD_CHILD_TIMER(
+                _scanner_profile, "SyncRowsetSyncMetaLockWaitTime", sync_rowset_timer_name);
     }
     _block_init_timer = ADD_TIMER(_segment_profile, "BlockInitTime");
     _block_init_seek_timer = ADD_TIMER(_segment_profile, "BlockInitSeekTime");
@@ -614,7 +620,16 @@ Status OlapScanLocalState::_sync_cloud_tablets(RuntimeState* state) {
                                 _scan_ranges[i]->version.data() + _scan_ranges[i]->version.size(),
                                 version);
                 auto task_ctx = state->get_task_execution_context();
-                tasks.emplace_back([this, sync_stats, version, i, task_ctx]() {
+                auto task_create_time = std::chrono::steady_clock::now();
+                tasks.emplace_back([this, sync_stats, version, i, task_ctx, task_create_time]() {
+                    // Record bthread scheduling delay
+                    auto task_start_time = std::chrono::steady_clock::now();
+                    if (sync_stats) {
+                        sync_stats->bthread_schedule_delay_ns +=
+                                std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                        task_start_time - task_create_time)
+                                        .count();
+                    }
                     auto task_lock = task_ctx.lock();
                     if (task_lock == nullptr) {
                         return Status::OK();
@@ -688,6 +703,11 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
                            sync_stats.get_remote_delete_bitmap_bytes);
             COUNTER_UPDATE(_sync_rowset_get_remote_delete_bitmap_rpc_timer,
                            sync_stats.get_remote_delete_bitmap_rpc_ns);
+            COUNTER_UPDATE(_sync_rowset_bthread_schedule_wait_timer,
+                           sync_stats.bthread_schedule_delay_ns);
+            COUNTER_UPDATE(_sync_rowset_meta_lock_wait_timer, sync_stats.meta_lock_wait_ns);
+            COUNTER_UPDATE(_sync_rowset_sync_meta_lock_wait_timer,
+                           sync_stats.sync_meta_lock_wait_ns);
         }
         auto time_ms = _sync_cloud_tablets_watcher.elapsed_time_microseconds();
         if (time_ms >= config::sync_rowsets_slow_threshold_ms) {
