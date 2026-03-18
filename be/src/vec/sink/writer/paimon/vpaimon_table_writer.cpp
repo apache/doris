@@ -157,9 +157,8 @@ Status VPaimonTableWriter::write(RuntimeState* state, vectorized::Block& block) 
                 }
                 const std::string& col_name =
                         paimon_sink.columns[_partition_columns_input_index[j]].name;
-                partition_name +=
-                        VHiveUtils::escape_path_name(col_name) + "=" +
-                        VHiveUtils::escape_path_name(partition_values[j]);
+                partition_name += VHiveUtils::escape_path_name(col_name) + "=" +
+                                  VHiveUtils::escape_path_name(partition_values[j]);
             }
 
             auto create_and_open_writer =
@@ -201,8 +200,7 @@ Status VPaimonTableWriter::write(RuntimeState* state, vectorized::Block& block) 
                     }
                     writer_positions.erase(writer_it->second);
                     _partitions_to_writers.erase(writer_it);
-                    RETURN_IF_ERROR(
-                            create_and_open_writer(i, &file_name, file_name_index + 1, w));
+                    RETURN_IF_ERROR(create_and_open_writer(i, &file_name, file_name_index + 1, w));
                 } else {
                     w = writer_it->second;
                     auto pos_it = writer_positions.find(w);
@@ -299,16 +297,15 @@ std::shared_ptr<VPaimonPartitionWriter> VPaimonTableWriter::_create_partition_wr
         }
     }
 
-    std::string write_path = partition_path.empty()
-                                     ? paimon_sink.output_path
-                                     : fmt::format("{}/{}", paimon_sink.output_path, partition_path);
+    std::string write_path =
+            partition_path.empty() ? paimon_sink.output_path
+                                   : fmt::format("{}/{}", paimon_sink.output_path, partition_path);
     std::string original_write_path = write_path;
 
-    VPaimonPartitionWriter::WriteInfo write_info = {
-            .write_path = write_path,
-            .original_write_path = original_write_path,
-            .file_type = paimon_sink.file_type,
-            .broker_addresses = {}};
+    VPaimonPartitionWriter::WriteInfo write_info = {.write_path = write_path,
+                                                    .original_write_path = original_write_path,
+                                                    .file_type = paimon_sink.file_type,
+                                                    .broker_addresses = {}};
     if (paimon_sink.__isset.broker_addresses) {
         write_info.broker_addresses.assign(paimon_sink.broker_addresses.begin(),
                                            paimon_sink.broker_addresses.end());
@@ -323,10 +320,9 @@ std::shared_ptr<VPaimonPartitionWriter> VPaimonTableWriter::_create_partition_wr
 
     _write_file_count++;
     return std::make_shared<VPaimonPartitionWriter>(
-            partition_values, _write_output_vexpr_ctxs, column_names,
-            std::move(write_info), file_name ? *file_name : _compute_file_name(),
-            file_name_index, paimon_sink.file_format, paimon_sink.compression_type,
-            paimon_sink.hadoop_config);
+            partition_values, _write_output_vexpr_ctxs, column_names, std::move(write_info),
+            file_name ? *file_name : _compute_file_name(), file_name_index, paimon_sink.file_format,
+            paimon_sink.compression_type, paimon_sink.hadoop_config);
 }
 
 std::vector<std::string> VPaimonTableWriter::_create_partition_values(vectorized::Block& block,
@@ -334,8 +330,8 @@ std::vector<std::string> VPaimonTableWriter::_create_partition_values(vectorized
     std::vector<std::string> partition_values;
     for (int idx : _partition_columns_input_index) {
         vectorized::ColumnWithTypeAndName col = block.get_by_position(idx);
-        std::string value = _to_partition_value(
-                _vec_output_expr_ctxs[idx]->root()->data_type(), col, position);
+        std::string value =
+                _to_partition_value(_vec_output_expr_ctxs[idx]->root()->data_type(), col, position);
         partition_values.emplace_back(value);
     }
     return partition_values;

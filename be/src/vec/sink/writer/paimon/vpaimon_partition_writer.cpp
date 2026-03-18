@@ -26,8 +26,7 @@ namespace doris {
 namespace vectorized {
 
 VPaimonPartitionWriter::VPaimonPartitionWriter(
-        std::vector<std::string> partition_values,
-        const VExprContextSPtrs& write_output_expr_ctxs,
+        std::vector<std::string> partition_values, const VExprContextSPtrs& write_output_expr_ctxs,
         std::vector<std::string> write_column_names, WriteInfo write_info, std::string file_name,
         int file_name_index, TFileFormatType::type file_format_type,
         TFileCompressType::type compress_type,
@@ -51,8 +50,8 @@ Status VPaimonPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile
         fs_properties.broker_addresses = &(_write_info.broker_addresses);
     }
     // Files go into bucket-0 subdirectory
-    std::string target_file = fmt::format("{}/bucket-0/{}", _write_info.write_path,
-                                          _get_target_file_name());
+    std::string target_file =
+            fmt::format("{}/bucket-0/{}", _write_info.write_path, _get_target_file_name());
     io::FileDescription file_description = {.path = target_file, .fs_name {}};
     _fs = DORIS_TRY(FileFactory::create_fs(fs_properties, file_description));
     io::FileWriterOptions file_writer_options = {.used_by_s3_committer = false};
@@ -91,7 +90,8 @@ Status VPaimonPartitionWriter::open(RuntimeState* state, RuntimeProfile* profile
         return _file_format_transformer->open();
     }
     default:
-        return Status::InternalError("Unsupported file format type {}", to_string(_file_format_type));
+        return Status::InternalError("Unsupported file format type {}",
+                                     to_string(_file_format_type));
     }
 }
 
@@ -111,9 +111,10 @@ Status VPaimonPartitionWriter::close(const Status& status) {
         }
     }
     bool status_ok = result_status.ok() && status.ok();
-    LOG(INFO) << fmt::format("VPaimonPartitionWriter::close - result_status.ok()={}, status.ok()={}, status_ok={}, row_count={}, file={}",
-                             result_status.ok(), status.ok(), status_ok, _row_count,
-                             _get_target_file_name());
+    LOG(INFO) << fmt::format(
+            "VPaimonPartitionWriter::close - result_status.ok()={}, status.ok()={}, "
+            "status_ok={}, row_count={}, file={}",
+            result_status.ok(), status.ok(), status_ok, _row_count, _get_target_file_name());
     if (!status_ok && _fs != nullptr) {
         auto path = fmt::format("{}/bucket-0/{}", _write_info.write_path, _get_target_file_name());
         Status st = _fs->delete_file(path);
@@ -125,8 +126,9 @@ Status VPaimonPartitionWriter::close(const Status& status) {
         TPaimonCommitData commit_data;
         _build_paimon_commit_data(&commit_data);
         _state->add_paimon_commit_datas(commit_data);
-        LOG(INFO) << fmt::format("Added paimon commit data: file_path={}, row_count={}, file_size={}",
-                                 commit_data.file_path, commit_data.row_count, commit_data.file_size);
+        LOG(INFO) << fmt::format(
+                "Added paimon commit data: file_path={}, row_count={}, file_size={}",
+                commit_data.file_path, commit_data.row_count, commit_data.file_size);
     } else {
         LOG(WARNING) << fmt::format("Did NOT add paimon commit data due to status_ok=false");
     }

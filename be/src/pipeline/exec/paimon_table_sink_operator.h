@@ -46,7 +46,7 @@ class PaimonTableSinkOperatorX final : public DataSinkOperatorX<PaimonTableSinkL
 public:
     using Base = DataSinkOperatorX<PaimonTableSinkLocalState>;
     PaimonTableSinkOperatorX(ObjectPool* pool, int operator_id, const RowDescriptor& row_desc,
-                              const std::vector<TExpr>& t_output_expr)
+                             const std::vector<TExpr>& t_output_expr)
             : Base(operator_id, 0, 0),
               _row_desc(row_desc),
               _t_output_expr(t_output_expr),
