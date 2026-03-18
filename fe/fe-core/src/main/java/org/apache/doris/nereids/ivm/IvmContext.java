@@ -17,7 +17,7 @@
 
 package org.apache.doris.nereids.ivm;
 
-import org.apache.doris.mtmv.ivm.DeltaPlanBundle;
+import org.apache.doris.mtmv.ivm.DeltaCommandBundle;
 import org.apache.doris.nereids.trees.expressions.Slot;
 
 import java.util.ArrayList;
@@ -33,12 +33,12 @@ import java.util.Map;
  *   - deterministic (true):  MOW table — row-id = hash(unique keys), stable across refreshes
  *   - non-deterministic (false): DUP_KEYS table — row-id = random 128-bit per insert
  *
- * deltaBundles: populated by IvmDeltaXxx rules during the delta rewrite phase.
+ * deltaCommandBundles: populated by IvmDeltaXxx rules during the delta rewrite phase.
  */
 public class IvmContext {
     // insertion-ordered so row-ids appear in scan order
     private final Map<Slot, Boolean> rowIdDeterminism = new LinkedHashMap<>();
-    private final List<DeltaPlanBundle> deltaBundles = new ArrayList<>();
+    private final List<DeltaCommandBundle> deltaCommandBundles = new ArrayList<>();
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -48,16 +48,16 @@ public class IvmContext {
         return rowIdDeterminism;
     }
 
-    public void addDeltaBundle(DeltaPlanBundle bundle) {
-        deltaBundles.add(bundle);
+    public void addDeltaCommandBundle(DeltaCommandBundle bundle) {
+        deltaCommandBundles.add(bundle);
     }
 
-    public void setDeltaBundles(List<DeltaPlanBundle> bundles) {
-        deltaBundles.clear();
-        deltaBundles.addAll(bundles);
+    public void setDeltaCommandBundles(List<DeltaCommandBundle> bundles) {
+        deltaCommandBundles.clear();
+        deltaCommandBundles.addAll(bundles);
     }
 
-    public List<DeltaPlanBundle> getDeltaBundles() {
-        return deltaBundles;
+    public List<DeltaCommandBundle> getDeltaCommandBundles() {
+        return deltaCommandBundles;
     }
 }

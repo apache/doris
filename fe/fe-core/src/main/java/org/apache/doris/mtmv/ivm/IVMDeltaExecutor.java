@@ -22,5 +22,5 @@ import org.apache.doris.common.AnalysisException;
 import java.util.List;
 
 public interface IVMDeltaExecutor {
-    void execute(IVMRefreshContext context, List<DeltaPlanBundle> bundles) throws AnalysisException;
+    void execute(IVMRefreshContext context, List<DeltaCommandBundle> bundles) throws AnalysisException;
 }

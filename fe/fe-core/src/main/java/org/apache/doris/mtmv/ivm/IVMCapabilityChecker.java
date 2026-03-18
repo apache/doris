@@ -20,5 +20,5 @@ package org.apache.doris.mtmv.ivm;
 import java.util.List;
 
 public interface IVMCapabilityChecker {
-    IVMCapabilityResult check(IVMRefreshContext context, List<DeltaPlanBundle> bundles);
+    IVMCapabilityResult check(IVMRefreshContext context, List<DeltaCommandBundle> bundles);
 }
