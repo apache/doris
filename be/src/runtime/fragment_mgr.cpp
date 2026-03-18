@@ -566,6 +566,27 @@ void FragmentMgr::coordinator_callback(const ReportStatusRequest& req) {
         }
     }
 
+    LOG(INFO) << "coordinator_callback paimon: done=" << req.done
+              << ", fragment_state_pcd_size=" << req.runtime_state->paimon_commit_datas().size()
+              << ", runtime_states_count=" << req.runtime_states.size();
+    if (auto pcd = req.runtime_state->paimon_commit_datas(); !pcd.empty()) {
+        params.__isset.paimon_commit_datas = true;
+        params.paimon_commit_datas.insert(params.paimon_commit_datas.end(), pcd.begin(),
+                                          pcd.end());
+    } else if (!req.runtime_states.empty()) {
+        for (auto* rs : req.runtime_states) {
+            auto rs_pcd = rs->paimon_commit_datas();
+            LOG(INFO) << "coordinator_callback paimon task_state: pcd_size=" << rs_pcd.size();
+            if (!rs_pcd.empty()) {
+                params.__isset.paimon_commit_datas = true;
+                params.paimon_commit_datas.insert(params.paimon_commit_datas.end(),
+                                                  rs_pcd.begin(), rs_pcd.end());
+            }
+        }
+    }
+    LOG(INFO) << "coordinator_callback paimon result: isset=" << params.__isset.paimon_commit_datas
+              << ", count=" << params.paimon_commit_datas.size();
+
     // Send new errors to coordinator
     req.runtime_state->get_unreported_errors(&(params.error_log));
     params.__isset.error_log = (!params.error_log.empty());

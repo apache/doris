@@ -176,6 +176,7 @@ public abstract class AbstractInsertExecutor {
         coordinator.setLoadZeroTolerance(ctx.getSessionVariable().getEnableInsertStrict());
         coordinator.setQueryType(TQueryType.LOAD);
         coordinator.setIsProfileSafeStmt(executor.isProfileSafeStmt());
+        coordinator.setTxnId(txnId);
         executor.getProfile().addExecutionProfile(coordinator.getExecutionProfile());
         QueryInfo queryInfo = new QueryInfo(ConnectContext.get(), executor.getOriginStmtInString(), coordinator);
         QeProcessorImpl.INSTANCE.registerQuery(ctx.queryId(), queryInfo);

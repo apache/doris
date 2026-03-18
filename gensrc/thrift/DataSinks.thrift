@@ -44,6 +44,7 @@ enum TDataSinkType {
     BLACKHOLE_SINK = 16,
     TVF_TABLE_SINK = 17,
     MAXCOMPUTE_TABLE_SINK = 18,
+    PAIMON_TABLE_SINK = 19,
 }
 
 enum TResultSinkType {
@@ -516,6 +517,28 @@ struct TMaxComputeTableSink {
     16: optional map<string, string> properties // contains authentication properties
 }
 
+struct TPaimonCommitData {
+    1: optional string file_path
+    2: optional i64 row_count
+    3: optional i64 file_size
+    4: optional list<string> partition_values
+}
+
+struct TPaimonTableSink {
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional PlanNodes.TFileFormatType file_format
+    4: optional string output_path
+    5: optional map<string, string> hadoop_config
+    6: optional bool overwrite
+    7: optional Types.TFileType file_type
+    8: optional PlanNodes.TFileCompressType compression_type
+    9: optional list<Types.TNetworkAddress> broker_addresses;
+    10: optional list<string> partition_columns
+    11: optional string paimon_table_serialized  // serialized Paimon Table object for JNI writer
+    12: optional list<THiveColumn> columns  // column descriptors (PARTITION_KEY vs REGULAR)
+}
+
 struct TDataSink {
   1: required TDataSinkType type
   2: optional TDataStreamSink stream_sink
@@ -534,4 +557,5 @@ struct TDataSink {
   16: optional TBlackholeSink blackhole_sink
   17: optional TTVFTableSink tvf_table_sink
   18: optional TMaxComputeTableSink max_compute_table_sink
+  19: optional TPaimonTableSink paimon_table_sink
 }

@@ -24,6 +24,7 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.AbstractJobProcessor;
 import org.apache.doris.qe.CoordinatorContext;
@@ -233,6 +234,10 @@ public class LoadProcessor extends AbstractJobProcessor {
         if (params.isSetMcCommitDatas()) {
             ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                     .updateMCCommitData(params.getMcCommitDatas());
+        }
+        if (params.isSetPaimonCommitDatas()) {
+            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                    .updatePaimonCommitData(params.getPaimonCommitDatas());
         }
 
         if (fragmentTask.isDone()) {

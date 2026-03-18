@@ -63,6 +63,7 @@
 #include "pipeline/exec/hashjoin_probe_operator.h"
 #include "pipeline/exec/hive_table_sink_operator.h"
 #include "pipeline/exec/iceberg_table_sink_operator.h"
+#include "pipeline/exec/paimon_table_sink_operator.h"
 #include "pipeline/exec/jdbc_scan_operator.h"
 #include "pipeline/exec/jdbc_table_sink_operator.h"
 #include "pipeline/exec/local_merge_sort_source_operator.h"
@@ -1092,6 +1093,14 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             _sink = std::make_shared<IcebergTableSinkOperatorX>(pool, next_sink_operator_id(),
                                                                 row_desc, output_exprs);
         }
+        break;
+    }
+    case TDataSinkType::PAIMON_TABLE_SINK: {
+        if (!thrift_sink.__isset.paimon_table_sink) {
+            return Status::InternalError("Missing paimon table sink.");
+        }
+        _sink = std::make_shared<PaimonTableSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+                                                           output_exprs);
         break;
     }
     case TDataSinkType::MAXCOMPUTE_TABLE_SINK: {

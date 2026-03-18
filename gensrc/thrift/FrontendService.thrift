@@ -318,6 +318,8 @@ struct TReportExecStatusParams {
   32: optional list<DataSinks.TMCCommitData> mc_commit_datas
 
   33: optional string first_error_msg
+
+  34: optional list<DataSinks.TPaimonCommitData> paimon_commit_datas
 }
 
 struct TFeResult {

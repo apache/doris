@@ -36,6 +36,7 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
+import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -73,6 +74,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPaimonTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -491,6 +493,21 @@ public class InsertIntoTableCommand extends Command implements NeedAuditEncrypti
                         physicalSink,
                         () -> new IcebergInsertExecutor(ctx, icebergExternalTable, label, planner,
                                 Optional.of(icebergInsertCtx),
+                                emptyInsert, jobId
+                        )
+                );
+            } else if (physicalSink instanceof PhysicalPaimonTableSink) {
+                boolean emptyInsert = childIsEmptyRelation(physicalSink);
+                PaimonExternalTable paimonExternalTable = (PaimonExternalTable) targetTableIf;
+                PaimonInsertCommandContext paimonInsertCtx = insertCtx
+                        .map(insertCommandContext -> (PaimonInsertCommandContext) insertCommandContext)
+                        .orElseGet(PaimonInsertCommandContext::new);
+                return ExecutorFactory.from(
+                        planner,
+                        dataSink,
+                        physicalSink,
+                        () -> new PaimonInsertExecutor(ctx, paimonExternalTable, label, planner,
+                                Optional.of(paimonInsertCtx),
                                 emptyInsert, jobId
                         )
                 );

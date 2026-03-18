@@ -521,6 +521,16 @@ public:
         _mc_commit_datas.emplace_back(mc_commit_data);
     }
 
+    std::vector<TPaimonCommitData> paimon_commit_datas() const {
+        std::lock_guard<std::mutex> lock(_paimon_commit_datas_mutex);
+        return _paimon_commit_datas;
+    }
+
+    void add_paimon_commit_datas(const TPaimonCommitData& paimon_commit_data) {
+        std::lock_guard<std::mutex> lock(_paimon_commit_datas_mutex);
+        _paimon_commit_datas.emplace_back(paimon_commit_data);
+    }
+
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -880,6 +890,9 @@ private:
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
+
+    mutable std::mutex _paimon_commit_datas_mutex;
+    std::vector<TPaimonCommitData> _paimon_commit_datas;
 
     std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
 

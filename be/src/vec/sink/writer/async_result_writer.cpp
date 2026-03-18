@@ -204,7 +204,11 @@ void AsyncResultWriter::process_block(RuntimeState* state, RuntimeProfile* opera
     Status st = Status::OK();
     { st = _writer_status.status(); }
 
+    LOG(INFO) << "AsyncResultWriter::process_block - before close: st.ok()=" << st.ok()
+              << ", st=" << st.to_string();
     Status close_st = close(st);
+    LOG(INFO) << "AsyncResultWriter::process_block - after close: close_st.ok()=" << close_st.ok()
+              << ", close_st=" << close_st.to_string();
     {
         // If it is already failed before, then not update the write status so that we could get
         // the real reason.

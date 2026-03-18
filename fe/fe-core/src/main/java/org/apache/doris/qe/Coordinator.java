@@ -40,6 +40,7 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
 import org.apache.doris.datasource.maxcompute.MCTransaction;
+import org.apache.doris.datasource.paimon.PaimonTransaction;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlCommand;
@@ -2448,6 +2449,8 @@ public class Coordinator implements CoordInterface {
             }
         }
 
+        LOG.info("updateFragmentExecStatus: fragmentId={}, done={}, isSetPaimonCommitDatas={}, txnId={}",
+                params.getFragmentId(), params.isDone(), params.isSetPaimonCommitDatas(), txnId);
         PipelineExecContext ctx = pipelineExecContexts.get(Pair.of(params.getFragmentId(), params.getBackendId()));
         if (ctx == null || !ctx.updatePipelineStatus(params)) {
             LOG.debug("Fragment {} is not done, ignore report status: {}",
@@ -2516,6 +2519,14 @@ public class Coordinator implements CoordInterface {
         if (params.isSetMcCommitDatas()) {
             ((MCTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
                 .updateMCCommitData(params.getMcCommitDatas());
+        }
+        if (params.isSetPaimonCommitDatas()) {
+            LOG.info("updateFragmentExecStatus: updating paimon commit data, txnId={}, count={}",
+                    txnId, params.getPaimonCommitDatas().size());
+            ((PaimonTransaction) Env.getCurrentEnv().getGlobalExternalTransactionInfoMgr().getTxnById(txnId))
+                .updatePaimonCommitData(params.getPaimonCommitDatas());
+        } else {
+            LOG.info("updateFragmentExecStatus: paimon commit data NOT set in params");
         }
 
         if (ctx.done) {
