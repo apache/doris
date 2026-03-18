@@ -27,7 +27,6 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
-import org.apache.doris.mtmv.ivm.IvmAnalyzeMode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -307,7 +306,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
                 });
         Assertions.assertTrue(exception.getMessage().contains("nonDeterministic"));
     }
@@ -325,7 +324,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
                 });
         Assertions.assertTrue(exception.getMessage().contains("invalid expression"));
     }
@@ -357,7 +356,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
                 });
         Assertions.assertTrue(exception.getMessage().contains("temporary"));
     }
@@ -376,7 +375,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
                 });
         Assertions.assertTrue(exception.getMessage().contains("suitable"));
     }
@@ -393,7 +392,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(),
                 mtmvPartitionDefinition,
-                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
+                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
         Assertions.assertTrue(mtmvAnalyzeQueryInfo.getRelation().getBaseTables().size() == 1);
         Assertions.assertTrue(mtmvAnalyzeQueryInfo.getMvPartitionInfo().getRelatedCol().equals("id"));
         Assertions.assertTrue(mtmvAnalyzeQueryInfo.getColumnDefinitions().size() == 2);
@@ -423,29 +422,21 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
 
-        // NONE: no IVM session variables set
-        CountingSessionVariable noneVar = new CountingSessionVariable();
-        connectContext.setSessionVariable(noneVar);
+        // enableIvmNormalize=false: no IVM session variables set
+        CountingSessionVariable disabledVar = new CountingSessionVariable();
+        connectContext.setSessionVariable(disabledVar);
         MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
                 distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
-                IvmAnalyzeMode.NONE);
-        Assertions.assertEquals(0, noneVar.getEnableIvmRewriteSetCount());
+                false);
+        Assertions.assertEquals(0, disabledVar.getEnableIvmRewriteSetCount());
 
-        // NORMALIZE_ONLY: only ENABLE_IVM_NORMAL_REWRITE set
-        CountingSessionVariable normalizeVar = new CountingSessionVariable();
-        connectContext.setSessionVariable(normalizeVar);
+        // enableIvmNormalize=true: ENABLE_IVM_NORMAL_REWRITE set
+        CountingSessionVariable enabledVar = new CountingSessionVariable();
+        connectContext.setSessionVariable(enabledVar);
         MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
                 distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
-                IvmAnalyzeMode.NORMALIZE_ONLY);
-        Assertions.assertEquals(1, normalizeVar.getEnableIvmRewriteSetCount());
-
-        // FULL: both ENABLE_IVM_NORMAL_REWRITE and ENABLE_IVM_DELTA_REWRITE set
-        CountingSessionVariable fullVar = new CountingSessionVariable();
-        connectContext.setSessionVariable(fullVar);
-        MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
-                IvmAnalyzeMode.FULL);
-        Assertions.assertEquals(2, fullVar.getEnableIvmRewriteSetCount());
+                true);
+        Assertions.assertEquals(1, enabledVar.getEnableIvmRewriteSetCount());
     }
 
     @Test
@@ -622,8 +613,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
 
         @Override
         public boolean setVarOnce(String varName, String value) {
-            if ((ENABLE_IVM_NORMAL_REWRITE.equals(varName) || ENABLE_IVM_DELTA_REWRITE.equals(varName))
-                    && "true".equals(value)) {
+            if (ENABLE_IVM_NORMAL_REWRITE.equals(varName) && "true".equals(value)) {
                 enableIvmRewriteSetCount++;
             }
             return super.setVarOnce(varName, value);
