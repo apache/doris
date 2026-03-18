@@ -191,6 +191,11 @@ under the License.
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <!-- Explicitly set config_loc so that checkstyle.xml can reference sibling
+                             files via ${config_loc}/suppressions.xml etc.
+                             maven-checkstyle-plugin 3.0+ sets this automatically, but older
+                             versions do not, causing "Property ${config_loc} has not been set". -->
+                        <propertyExpansion>config_loc=${project.parent.basedir}/check/checkstyle</propertyExpansion>
                         <excludes>
                             **/apache/doris/thrift/**/*,
                             **/apache/parquet/**/*
