@@ -716,6 +716,15 @@ public:
 
         _write_counters.init(Base::custom_profile());
 
+        // SpillFileWriter looks up these counters via get_counter() in its
+        // constructor. They must be registered on the CustomCounters profile
+        // before any SpillFileWriter is created, otherwise the lookups return
+        // nullptr and COUNTER_UPDATE will SEGV.
+        _spill_write_file_total_size = ADD_COUNTER_WITH_LEVEL(
+                Base::custom_profile(), profile::SPILL_WRITE_FILE_BYTES, TUnit::BYTES, 1);
+        _spill_file_total_count = ADD_COUNTER_WITH_LEVEL(
+                Base::custom_profile(), profile::SPILL_WRITE_FILE_TOTAL_COUNT, TUnit::UNIT, 1);
+
         _spill_max_rows_of_partition = ADD_COUNTER_WITH_LEVEL(
                 Base::custom_profile(), profile::SPILL_MAX_ROWS_OF_PARTITION, TUnit::UNIT, 1);
         _spill_min_rows_of_partition = ADD_COUNTER_WITH_LEVEL(
@@ -765,6 +774,10 @@ public:
     // Sink-only counters
     // Spilled file total size
     RuntimeProfile::Counter* _spill_file_total_size = nullptr;
+    // Total bytes written to spill files (required by SpillFileWriter)
+    RuntimeProfile::Counter* _spill_write_file_total_size = nullptr;
+    // Total number of spill files created (required by SpillFileWriter)
+    RuntimeProfile::Counter* _spill_file_total_count = nullptr;
     RuntimeProfile::Counter* _spill_max_rows_of_partition = nullptr;
     RuntimeProfile::Counter* _spill_min_rows_of_partition = nullptr;
 };
