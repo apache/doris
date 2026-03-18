@@ -457,8 +457,12 @@ public class MTMVPlanUtil {
                 // after operate, roll back the disable rules
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
-                ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "false");
-                ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_DELTA_REWRITE, "false");
+                if (ivmAnalyzeMode != IvmAnalyzeMode.NONE) {
+                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "false");
+                }
+                if (ivmAnalyzeMode == IvmAnalyzeMode.FULL) {
+                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_DELTA_REWRITE, "false");
+                }
             }
             Plan analyzedPlan = planner.getAnalyzedPlan();
             // can not contain Random function
@@ -490,9 +494,9 @@ public class MTMVPlanUtil {
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
-            analyzeKeys(keys, properties, columns);
+            keys = analyzeKeys(keys, properties, columns, ivmAnalyzeMode != IvmAnalyzeMode.NONE);
             // analyze column
-            final boolean finalEnableMergeOnWrite = false;
+            final boolean finalEnableMergeOnWrite = ivmAnalyzeMode != IvmAnalyzeMode.NONE;
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
@@ -522,7 +526,20 @@ public class MTMVPlanUtil {
         }
     }
 
-    private static void analyzeKeys(List<String> keys, Map<String, String> properties, List<ColumnDefinition> columns) {
+    private static List<String> analyzeKeys(List<String> keys, Map<String, String> properties,
+            List<ColumnDefinition> columns, boolean isIvm) {
+        if (isIvm) {
+            // for IVM, the hidden row-id column is the sole unique key
+            String ivmRowIdColName = "mv_" + IvmNormalizeMtmvPlan.IVM_ROW_ID_COL;
+            for (ColumnDefinition col : columns) {
+                if (ivmRowIdColName.equals(col.getName())) {
+                    col.setIsKey(true);
+                    return Lists.newArrayList(col.getName());
+                }
+            }
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "IVM row-id column not found in generated columns; IVM normalization may have failed.");
+        }
         boolean enableDuplicateWithoutKeysByDefault = false;
         try {
             if (properties != null) {
@@ -560,6 +577,7 @@ public class MTMVPlanUtil {
                 }
             }
         }
+        return keys;
     }
 
     private static void analyzeExpressions(Plan plan, Map<String, String> mvProperties) {
