@@ -56,6 +56,7 @@ suite("test_ngram_bloomfilter_index_change") {
 
     // Test settings
     sql "set enable_function_pushdown=true"
+    sql "set enable_condition_cache=false"
     sql "set enable_profile=true"
     sql "set profile_level=2"
 

@@ -387,6 +387,8 @@ public:
                     common_expr_to_slotref_map,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
 
+    uint64_t get_digest(uint64_t seed) const;
+
 private:
     // Close method is called in vexpr context dector, not need call expicility
     void close();
