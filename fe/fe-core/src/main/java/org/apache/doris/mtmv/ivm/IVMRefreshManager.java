@@ -47,7 +47,12 @@ public class IVMRefreshManager {
     private final IVMCapabilityChecker capabilityChecker;
     private final IVMDeltaExecutor deltaExecutor;
 
-    public IVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMDeltaExecutor deltaExecutor) {
+    public IVMRefreshManager() {
+        this(new IVMCapabilityChecker(), new IVMDeltaExecutor());
+    }
+
+    @VisibleForTesting
+    IVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMDeltaExecutor deltaExecutor) {
         this.capabilityChecker = Objects.requireNonNull(capabilityChecker, "capabilityChecker can not be null");
         this.deltaExecutor = Objects.requireNonNull(deltaExecutor, "deltaExecutor can not be null");
     }

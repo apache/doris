@@ -18,9 +18,48 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.mtmv.MTMVPlanUtil;
+import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.Command;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.StmtExecutor;
 
 import java.util.List;
 
-public interface IVMDeltaExecutor {
-    void execute(IVMRefreshContext context, List<DeltaCommandBundle> bundles) throws AnalysisException;
+/**
+ * Executes IVM delta command bundles against the MV target table.
+ */
+public class IVMDeltaExecutor {
+
+    public void execute(IVMRefreshContext context, List<DeltaCommandBundle> bundles)
+            throws AnalysisException {
+        for (DeltaCommandBundle bundle : bundles) {
+            executeBundle(context, bundle);
+        }
+    }
+
+    private void executeBundle(IVMRefreshContext context, DeltaCommandBundle bundle)
+            throws AnalysisException {
+        Command command = bundle.getCommand();
+        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(
+                context.getMtmv(), MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        StatementContext stmtCtx = new StatementContext();
+        ctx.setStatementContext(stmtCtx);
+        ctx.getState().setNereids(true);
+        StmtExecutor executor = new StmtExecutor(ctx,
+                new LogicalPlanAdapter(command, stmtCtx));
+        ctx.setExecutor(executor);
+        try {
+            command.run(ctx, executor);
+        } catch (Exception e) {
+            throw new AnalysisException("IVM delta execution failed for "
+                    + bundle.getBaseTableInfo() + ": " + e.getMessage(), e);
+        }
+        if (ctx.getState().getStateType() != MysqlStateType.OK) {
+            throw new AnalysisException("IVM delta execution failed for "
+                    + bundle.getBaseTableInfo() + ": " + ctx.getState().getErrorMessage());
+        }
+    }
 }
