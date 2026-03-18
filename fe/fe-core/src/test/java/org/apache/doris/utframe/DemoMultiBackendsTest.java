@@ -212,14 +212,14 @@ public class DemoMultiBackendsTest {
         ImmutableList<String> backendsTitleNames = BackendsTableValuedFunction.getBackendsTitleNames();
         Assert.assertEquals(backendsTitleNames.size(), result.getColumnNames().size());
         Assert.assertEquals("{\"location\" : \"default\"}",
-                result.getRows().get(0).get(backendsTitleNames.size() - 10));
+                result.getRows().get(0).get(backendsTitleNames.size() - 11));
         Assert.assertEquals(
                 "{\"lastSuccessReportTabletsTime\":\"N/A\",\"lastStreamLoadTime\":-1,\"isQueryDisabled\":false,"
                         + "\"isLoadDisabled\":false,\"isActive\":true,\"isShutdown\":false,\"currentFragmentNum\":0,"
                         + "\"lastFragmentUpdateTime\":0}",
-                result.getRows().get(0).get(backendsTitleNames.size() - 7));
-        Assert.assertEquals("0", result.getRows().get(0).get(backendsTitleNames.size() - 6));
-        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 5));
+                result.getRows().get(0).get(backendsTitleNames.size() - 8));
+        Assert.assertEquals("0", result.getRows().get(0).get(backendsTitleNames.size() - 7));
+        Assert.assertEquals(Tag.VALUE_MIX, result.getRows().get(0).get(backendsTitleNames.size() - 6));
     }
 
     protected void alterTable(String sql, ConnectContext connectContext) throws Exception {

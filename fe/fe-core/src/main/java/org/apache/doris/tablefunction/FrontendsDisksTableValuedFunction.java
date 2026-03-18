@@ -53,7 +53,9 @@ public class FrontendsDisksTableValuedFunction extends MetadataTableValuedFuncti
             new Column("Used", ScalarType.createStringType()),
             new Column("Available", ScalarType.createStringType()),
             new Column("UseRate", ScalarType.createStringType()),
-            new Column("MountOn", ScalarType.createStringType()));
+            new Column("MountOn", ScalarType.createStringType()),
+            new Column("Ip", ScalarType.createStringType())
+    );
 
     private static final ImmutableMap<String, Integer> COLUMN_TO_INDEX;
     private static final ImmutableList<String> TITLE_NAMES;

@@ -19,7 +19,7 @@
 suite("test_backends_tvf", "p0,external") {
     List<List<Object>> table =  sql """ select * from backends(); """
     assertTrue(table.size() > 0)
-    assertEquals(29, table[0].size())
+    assertEquals(30, table[0].size())
 
     List<List<Object>> titleNames = sql """ describe function backends(); """
     assertTrue(titleNames[0][0] =="BackendId")
@@ -51,6 +51,7 @@ suite("test_backends_tvf", "p0,external") {
     assertTrue(titleNames[26][0] =="LiveSince")
     assertTrue(titleNames[27][0] =="RunningTasks")
     assertTrue(titleNames[28][0] =="NodeRole")
+    assertTrue(titleNames[29][0] =="Ip")
 
     // filter columns
     table = sql """ select BackendId, Host, Alive, TotalCapacity, Version, NodeRole from backends();"""
@@ -87,7 +88,7 @@ suite("test_backends_tvf", "p0,external") {
             SystemDecommissioned, tabletnum
             DataUsedCapacity, AvailCapacity, TotalCapacity, UsedPct
             MaxDiskUsedPct, RemoteUsedCapacity, Tag, ErrMsg, Version, Status
-            HeartbeatFailureCounter, CpuCores, Memory, LiveSince, RunningTasks, NodeRole from backends();
+            HeartbeatFailureCounter, CpuCores, Memory, LiveSince, RunningTasks, NodeRole, Ip from backends();
     """
 
 

@@ -24,6 +24,7 @@ import org.apache.doris.common.profile.RuntimeProfile;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.nereids.util.HostUtils;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.tablefunction.BackendsTableValuedFunction;
@@ -166,7 +167,8 @@ public class BackendsProcDir implements ProcDirInterface {
 
             // runningFragments
             backendInfo.add(String.valueOf(backend.getRunningTasks()));
-
+            // ip
+            backendInfo.add(HostUtils.resolveHostToIp(backend.getHost()));
             comparableBackendInfos.add(backendInfo);
         }
 

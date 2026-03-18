@@ -19,7 +19,7 @@
 suite("test_frontends_disks_tvf", "p0,external") {
     List<List<Object>> table =  sql """ select * from `frontends_disks`(); """
     assertTrue(table.size() > 0)
-    assertTrue(table[0].size() == 10)
+    assertTrue(table[0].size() == 11)
 
     List<List<Object>> titleNames =  sql """ describe function frontends_disks(); """
 
@@ -33,6 +33,7 @@ suite("test_frontends_disks_tvf", "p0,external") {
     assertTrue(titleNames[7][0] == "Available")
     assertTrue(titleNames[8][0] == "UseRate")
     assertTrue(titleNames[9][0] == "MountOn")
+    assertTrue(titleNames[10][0] == "Ip")
 
     // filter columns
     table = sql """ select Name from `frontends_disks`();"""
@@ -57,7 +58,7 @@ suite("test_frontends_disks_tvf", "p0,external") {
 
     sql """ select Name, Host,
             DirType, Dir, Filesystem, Capacity, Used
-            Available, UseRate, MountOn from frontends_disks();
+            Available, UseRate, MountOn, Ip from frontends_disks();
     """
 
     // test exception
