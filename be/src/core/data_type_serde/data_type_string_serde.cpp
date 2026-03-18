@@ -436,6 +436,8 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
     }
 }
 
+// Serializes a STRING/VARCHAR/CHAR value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string(). Returns the raw string content directly.
 template <typename ColumnType>
 std::string DataTypeStringSerDeBase<ColumnType>::to_olap_string(const Field& field) const {
     return field.get<TYPE_STRING>();
@@ -459,6 +461,16 @@ Status DataTypeStringSerDeBase<ColumnType>::from_string(StringRef& str, IColumn&
     return deserialize_one_cell_from_json(column, slice, options);
 }
 
+// Deserializes a STRING/VARCHAR/CHAR value from its OLAP string representation
+// (e.g. from ZoneMap protobuf). This is the inverse of to_olap_string().
+//
+// For CHAR type: if the string is shorter than the declared column length (_len),
+// pads with '\0' bytes to reach _len. This preserves CHAR's fixed-length semantics.
+// For STRING/VARCHAR: stores the string as-is.
+//
+// Examples:
+//   CHAR(10), str="hello"  => field = "hello\0\0\0\0\0" (10 bytes)
+//   VARCHAR,  str="hello"  => field = "hello" (5 bytes)
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::from_olap_string(const std::string& str, Field& field,
                                                              const FormatOptions& options) const {
