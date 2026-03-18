@@ -19,6 +19,7 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
+import org.apache.doris.mtmv.ivm.DeltaPlanBundle;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.hint.Hint;
 import org.apache.doris.nereids.jobs.Job;
@@ -93,6 +94,8 @@ public class CascadesContext implements ScheduleContext {
     private Plan plan;
     // the initial rewrite root for the current cascades context
     private final Plan rewriteRootPlan;
+    // written by IVM delta rules during rewrite; empty if IVM rewrite did not run or no pattern matched
+    private List<DeltaPlanBundle> ivmDeltaBundles;
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
@@ -370,6 +373,14 @@ public class CascadesContext implements ScheduleContext {
 
     public Plan getRewriteRootPlan() {
         return rewriteRootPlan;
+    }
+
+    public List<DeltaPlanBundle> getIvmDeltaBundles() {
+        return ivmDeltaBundles;
+    }
+
+    public void setIvmDeltaBundles(List<DeltaPlanBundle> ivmDeltaBundles) {
+        this.ivmDeltaBundles = ivmDeltaBundles;
     }
 
     public void setRewritePlan(Plan plan) {
