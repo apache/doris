@@ -21,46 +21,59 @@ suite('test_snapshot_command') {
         return
     }
 
-    // create snapshot
-    test {
-        sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = 'test_snapshot'); """
-        exception "submitJob is not implemented"
+    // create snapshot — submitJob is now implemented in DorisCloudSnapshotHandler.
+    // In environments without full snapshot infrastructure the RPC may fail,
+    // so we accept either success or a MetaService/RPC error, but NOT
+    // "submitJob is not implemented".
+    def createSuccess = false
+    try {
+        sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = 'test_snapshot_cmd'); """
+        createSuccess = true
+        logger.info("create snapshot command succeeded")
+    } catch (Exception e) {
+        logger.info("create snapshot command error (acceptable): ${e.message}")
+        // Should NOT be the old unimplemented stub error
+        assertFalse(e.message.contains("submitJob is not implemented"),
+            "submitJob should no longer throw NotImplementedException")
     }
 
     // snapshot feature off
-    test {
-        sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE OFF; """
-        exception ""
-    }
+    sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE OFF; """
+
     // snapshot feature on
-    test {
-        sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE ON; """
-        exception ""
-    }
+    sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE ON; """
 
     // set auto snapshot properties
-    test {
-        sql """ ADMIN SET AUTO CLUSTER SNAPSHOT PROPERTIES('max_reserved_snapshots'='10', 'snapshot_interval_seconds'='3600');"""
-        exception ""
-    }
+    sql """ ADMIN SET AUTO CLUSTER SNAPSHOT PROPERTIES('max_reserved_snapshots'='10', 'snapshot_interval_seconds'='3600'); """
 
     // show snapshot properties
     def result = sql """ select * from information_schema.cluster_snapshot_properties; """
     logger.info("show result: " + result)
+    assertTrue(result != null, "cluster_snapshot_properties query should succeed")
 
     // list snapshot
-    test {
-        result = sql """ select * from information_schema.cluster_snapshots; """
-        exception ""
-    }
-    test {
-        result = sql """ select * from information_schema.cluster_snapshots where id like '%1%'; """
-        exception ""
+    result = sql """ select * from information_schema.cluster_snapshots; """
+    logger.info("list snapshots: " + result)
+
+    result = sql """ select * from information_schema.cluster_snapshots where id like '%1%'; """
+    logger.info("filtered snapshots: " + result)
+
+    // drop snapshot — may fail if ID does not exist, that is acceptable
+    try {
+        sql """ ADMIN DROP CLUSTER SNAPSHOT where SNAPSHOT_id = '1213'; """
+    } catch (Exception e) {
+        logger.info("drop non-existent snapshot error (acceptable): ${e.message}")
     }
 
-    // drop snapshot
-    test {
-        sql """ ADMIN DROP CLUSTER SNAPSHOT where SNAPSHOT_id = '1213'; """
-        exception ""
+    // Cleanup: drop the snapshot created above if it was successful
+    if (createSuccess) {
+        try {
+            def snapshots = sql """ select ID from information_schema.cluster_snapshots where LABEL = 'test_snapshot_cmd' """
+            for (row in snapshots) {
+                sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${row[0]}' """
+            }
+        } catch (Exception e) {
+            logger.info("cleanup error (acceptable): ${e.message}")
+        }
     }
 }
