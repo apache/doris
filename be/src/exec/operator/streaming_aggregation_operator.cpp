@@ -156,7 +156,7 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     // The serialization format of count is UInt64 itself, so it can be inlined into the hash table mapped slot.
     if (_aggregate_evaluators.size() == 1 &&
         _aggregate_evaluators[0]->function()->is_simple_count()) {
-        _use_simple_count = _agg_data->is_fixed_key;
+        _use_simple_count = true;
 #ifndef NDEBUG
         // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.
         _use_simple_count = rand() % 2 == 0;

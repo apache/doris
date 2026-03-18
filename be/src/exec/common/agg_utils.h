@@ -99,7 +99,6 @@ struct AggDataVariantsBase : public DataVariants<MethodVariants, MethodSingleNul
                                                  MethodOneNumber, DataWithNullKey> {
     void init_agg_data(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
         bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
-
         switch (type) {
         case HashKeyType::without_key:
             break;
@@ -177,11 +176,7 @@ struct AggregatedDataVariants
                                      AggregatedDataWithNullableShortStringKey> {
     AggregatedDataWithoutKey without_key = nullptr;
 
-    bool is_fixed_key = true;
-
     void init(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
-        is_fixed_key = !(type == HashKeyType::without_key || type == HashKeyType::EMPTY ||
-                         type == HashKeyType::serialized || type == HashKeyType::string_key);
         this->init_agg_data(data_types, type);
     }
 };
