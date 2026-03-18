@@ -135,7 +135,6 @@ public class ExprIdRewriter extends ExpressionRewrite {
         private final Map<ExprId, ExprId> replaceMap;
         private DefaultExpressionRewriter<Map<ExprId, ExprId>> replacer;
 
-
         /**
          * constructor
          */
