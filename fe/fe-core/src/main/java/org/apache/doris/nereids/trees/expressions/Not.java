@@ -29,7 +29,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
-import java.util.Objects;
 
 /**
  * Not expression: not a.
@@ -38,27 +37,16 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
 
     public static final List<DataType> EXPECTS_INPUT_TYPES = ImmutableList.of(BooleanType.INSTANCE);
 
-    private final boolean isGeneratedIsNotNull;
-
     public Not(Expression child) {
+        this(ImmutableList.of(child));
+    }
+
+    private Not(List<Expression> child) {
         this(child, false);
     }
 
-    public Not(List<Expression> child, boolean isGeneratedIsNotNull, boolean inferred) {
+    private Not(List<Expression> child, boolean inferred) {
         super(child, inferred);
-        this.isGeneratedIsNotNull = isGeneratedIsNotNull;
-    }
-
-    public Not(Expression child, boolean isGeneratedIsNotNull) {
-        this(ImmutableList.of(child), isGeneratedIsNotNull);
-    }
-
-    private Not(List<Expression> child, boolean isGeneratedIsNotNull) {
-        this(child, isGeneratedIsNotNull, false);
-    }
-
-    public boolean isGeneratedIsNotNull() {
-        return isGeneratedIsNotNull;
     }
 
     @Override
@@ -74,24 +62,6 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitNot(this, context);
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) {
-            return true;
-        }
-        if (o == null || getClass() != o.getClass()) {
-            return false;
-        }
-        Not other = (Not) o;
-        return Objects.equals(child(), other.child())
-                && isGeneratedIsNotNull == other.isGeneratedIsNotNull;
-    }
-
-    @Override
-    public int computeHashCode() {
-        return Objects.hash(child().hashCode(), isGeneratedIsNotNull);
     }
 
     @Override
@@ -114,11 +84,7 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
     @Override
     public Not withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new Not(children, isGeneratedIsNotNull);
-    }
-
-    public Not withGeneratedIsNotNull(boolean isGeneratedIsNotNull) {
-        return new Not(children, isGeneratedIsNotNull);
+        return new Not(children);
     }
 
     @Override
@@ -128,6 +94,6 @@ public class Not extends Expression implements UnaryExpression, ExpectsInputType
 
     @Override
     public Expression withInferred(boolean inferred) {
-        return new Not(this.children, false, inferred);
+        return new Not(this.children, inferred);
     }
 }

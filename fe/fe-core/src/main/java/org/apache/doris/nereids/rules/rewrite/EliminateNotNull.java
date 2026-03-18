@@ -54,7 +54,7 @@ public class EliminateNotNull implements RewriteRuleFactory {
                         .when(EliminateNotNull::containsNot)
                         .thenApply(ctx -> {
                             LogicalFilter<Plan> filter = ctx.root;
-                            List<Expression> predicates = removeGeneratedNotNull(filter.getConjuncts(),
+                            List<Expression> predicates = removeNotNull(filter.getConjuncts(),
                                     ctx.cascadesContext);
                             if (predicates.size() == filter.getConjuncts().size()) {
                                 return null;
@@ -65,7 +65,7 @@ public class EliminateNotNull implements RewriteRuleFactory {
                         .when(EliminateNotNull::containsNot)
                         .thenApply(ctx -> {
                             LogicalJoin<Plan, Plan> join = ctx.root;
-                            List<Expression> newOtherJoinConjuncts = removeGeneratedNotNull(
+                            List<Expression> newOtherJoinConjuncts = removeNotNull(
                                     join.getOtherJoinConjuncts(), ctx.cascadesContext);
                             if (newOtherJoinConjuncts.size() == join.getOtherJoinConjuncts().size()) {
                                 return null;
@@ -77,7 +77,7 @@ public class EliminateNotNull implements RewriteRuleFactory {
         );
     }
 
-    private List<Expression> removeGeneratedNotNull(Collection<Expression> exprs, CascadesContext ctx) {
+    private List<Expression> removeNotNull(Collection<Expression> exprs, CascadesContext ctx) {
         // Example: `id > 0 and id is not null and name is not null(generated)`
         // predicatesNotContainIsNotNull: `id > 0`
         // predicatesNotContainIsNotNull infer nonNullable slots: `id`
@@ -87,14 +87,11 @@ public class EliminateNotNull implements RewriteRuleFactory {
         List<Slot> slotsFromIsNotNull = Lists.newArrayList();
 
         for (Expression expr : exprs) {
-            // remove generated `is not null`
-            if (!(expr instanceof Not) || !((Not) expr).isGeneratedIsNotNull()) {
-                Optional<Slot> notNullSlot = TypeUtils.isNotNull(expr);
-                if (notNullSlot.isPresent()) {
-                    slotsFromIsNotNull.add(notNullSlot.get());
-                } else {
-                    predicatesNotContainIsNotNull.add(expr);
-                }
+            Optional<Slot> notNullSlot = TypeUtils.isNotNull(expr);
+            if (notNullSlot.isPresent()) {
+                slotsFromIsNotNull.add(notNullSlot.get());
+            } else {
+                predicatesNotContainIsNotNull.add(expr);
             }
         }
 
