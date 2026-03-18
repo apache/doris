@@ -59,8 +59,8 @@ public:
 
 protected:
     // For dictionary encoding
-    std::vector<StringRef> _dict_items;
-    std::vector<uint8_t> _dict_data;
+    DorisVector<StringRef> _dict_items;
+    DorisVector<uint8_t> _dict_data;
     size_t _max_value_length;
 };
 #include "common/compile_check_end.h"
