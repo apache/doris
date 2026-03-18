@@ -28,6 +28,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.cloud.common.util.CloudPropertyAnalyzer;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CleanCopyJobScheduler;
@@ -81,6 +82,11 @@ public class CloudEnvFactory extends EnvFactory {
     @Override
     public SystemInfoService createSystemInfoService() {
         return new CloudSystemInfoService();
+    }
+
+    @Override
+    public TabletInvertedIndex createTabletInvertedIndex() {
+        return new CloudTabletInvertedIndex();
     }
 
     @Override

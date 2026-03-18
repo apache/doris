@@ -21,6 +21,7 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.DropBackendClause;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
@@ -118,7 +119,7 @@ public class SystemInfoServiceTest {
                 minTimes = 0;
                 result = systemInfoService;
 
-                invertedIndex = new TabletInvertedIndex();
+                invertedIndex = new LocalTabletInvertedIndex();
                 Env.getCurrentInvertedIndex();
                 minTimes = 0;
                 result = invertedIndex;

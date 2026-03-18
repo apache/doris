@@ -136,7 +136,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                     path,
                     metaUrl,
                     compactionUrl,
-                    String.valueOf(tablet.getCooldownConf().first),
+                    String.valueOf(tablet.getCooldownReplicaId()),
                     cooldownMetaId,
                     String.valueOf(queryHits));
             if (Config.isCloudMode()) {
