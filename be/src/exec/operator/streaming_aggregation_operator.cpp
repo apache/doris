@@ -155,7 +155,7 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     // StreamingAgg only operates in update + serialize mode: input is raw data, output is serialized intermediate state.
     // The serialization format of count is UInt64 itself, so it can be inlined into the hash table mapped slot.
     if (_aggregate_evaluators.size() == 1 &&
-        _aggregate_evaluators[0]->function()->is_simple_count()) {
+        _aggregate_evaluators[0]->function()->is_simple_count() && limit == -1) {
         _use_simple_count = true;
 #ifndef NDEBUG
         // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.
@@ -944,11 +944,10 @@ void StreamingAggLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs
                              auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
-                                                                            creator_for_null_key);
-                                 ++reinterpret_cast<UInt64&>(*mapped_ptr);
-                             }
+                             lazy_emplace_batch(agg_method, state, num_rows, creator,
+                                                creator_for_null_key, [&](uint32_t, auto& mapped) {
+                                                    ++reinterpret_cast<UInt64&>(mapped);
+                                                });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
