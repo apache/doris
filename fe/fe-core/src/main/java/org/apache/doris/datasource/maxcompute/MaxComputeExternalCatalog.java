@@ -26,7 +26,6 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
-import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.aliyun.odps.Odps;
