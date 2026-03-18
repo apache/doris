@@ -151,7 +151,6 @@ public class ExprIdRewriter extends ExpressionRewrite {
             this(replaceMap, false);
         }
 
-
         @Override
         public List<ExpressionPatternMatcher<? extends Expression>> buildRules() {
             return ImmutableList.of(
