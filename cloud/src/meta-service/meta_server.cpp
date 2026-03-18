@@ -38,6 +38,7 @@
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
 #include "meta-store/keys.h"
+#include "snapshot/doris_snapshot_manager.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
 #include "rate-limiter/rate_limiter.h"
@@ -78,7 +79,7 @@ int MetaServer::start(brpc::Server* server) {
     }
 
     auto rate_limiter = std::make_shared<RateLimiter>();
-    auto snapshot_mgr = std::make_shared<SnapshotManager>(txn_kv_);
+    auto snapshot_mgr = std::make_shared<DorisSnapshotManager>(txn_kv_);
 
     // Add service
     auto meta_service = std::make_unique<MetaServiceImpl>(txn_kv_, rc_mgr, rate_limiter,
