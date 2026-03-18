@@ -306,7 +306,7 @@ public class FrontendServiceImplTest {
         } finally {
             Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
         }
-	}
+    }
 
     public void testRestoreSnapshotParameterValidationStorageMedium() throws TException {
         FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
