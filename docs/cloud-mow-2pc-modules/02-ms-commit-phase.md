@@ -154,6 +154,11 @@ message TxnInfoPB {
     map<int64, int64> partition_committed_versions = 31;
     // 涉及的tablet列表（来自FE的tablet commit info）
     repeated int64 involved_tablet_ids = 32;
+    // 导入参数：TOlapTableSchemaParam的Thrift序列化bytes
+    // coordinator（FE或BE）在commit时将TOlapTableSchemaParam序列化后写入
+    // publish阶段BE计算delete bitmap时从此字段反序列化恢复导入上下文（如部分列更新模式等）
+    // 整个导入只需存储一份，不需要per-tablet存储
+    optional bytes load_schema_param = 33;
 }
 ```
 
@@ -226,6 +231,7 @@ commit_txn_2pc()
 │     ├── is_cloud_mow_2pc = true
 │     ├── partition_committed_versions = {partition_id: new_commit_version, ...}
 │     ├── involved_tablet_ids = request中的tablet信息
+│     ├── load_schema_param = request中的TOlapTableSchemaParam序列化bytes
 │     └── commit_attachment（如果有）
 │     └── put(txn_info_key, updated TxnInfoPB)
 │

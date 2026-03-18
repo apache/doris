@@ -2,7 +2,28 @@
 
 ## 概述
 
-本模块设计BE侧`CalcDeleteBitmapTask`的改造方案，使其在两阶段提交模式下，除了原有的delete bitmap计算和写入MS之外，还要额外完成：调用MS `convert_tmp_rowset` RPC转正该tablet的rowset meta，以及将rowset应用到BE本地tablet元数据（更新`max_version`），最后上报成功给FE。
+本模块设计BE侧`CalcDeleteBitmapTask`的改造方案。在两阶段提交模式下，FE按BE分组下发任务（每个BE一个请求，包含该BE上所有涉及的tablet），BE收到后对每个tablet**独立完成完整流水线**：
+
+```
+Per-tablet完整流水线（BE独立完成）:
+  Step 1: 拿BE内存tablet写锁（rowset_update_lock）
+  Step 2: 检查版本连续性 + sync_rowsets（如需要）
+  Step 3: 计算增量rowset的delete bitmap
+  Step 4: 调用MS update_delete_bitmap（现有RPC）
+  Step 5: 拿MS tablet级别锁（和compaction互斥）
+  Step 6: 调用MS convert_tmp_rowset（新RPC）
+  Step 7: 将rowset和delete bitmap放入BE内存CloudTablet（max_version提升）
+  Step 8: 释放MS tablet级别锁
+  Step 9: 返回该tablet的结果给FE
+```
+
+关键设计决策：
+- **MS转正成功后才更新BE本地元数据**（避免compaction和转正的冲突）
+- **Step 4在MS tablet锁外执行**（delete bitmap写入是幂等的）
+- **Step 5-7在MS tablet锁内执行**（确保convert + apply的原子性）
+- **导入参数使用TOlapTableSchemaParam**（Thrift序列化bytes存储在TxnInfoPB中），cache miss时从MS获取并反序列化
+- **Commit可由FE或BE发起**（coordinator），导入参数传递方式统一
+- **所有老代码保留**，通过`enable_two_phase_commit`标志分叉
 
 本模块依赖：
 - Module 0（Proto/KV Schema）：`TxnInfoPB`扩展、`ConvertTmpRowsetRequest/Response`定义

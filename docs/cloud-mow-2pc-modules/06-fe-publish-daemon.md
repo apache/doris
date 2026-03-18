@@ -2,7 +2,15 @@
 
 ## 概述
 
-本模块设计FE侧的Publish后台线程（`CloudPublishDaemon`），负责将Commit阶段完成后加入`committed txns set`的事务异步推进到VISIBLE状态。核心流程为：遍历committed事务 -> 为每个tablet下发delete bitmap计算任务到BE -> BE计算完后写MS -> MS转正rowset -> BE本地apply -> 所有tablet完成后轻量级publish。
+本模块设计FE侧的Publish后台线程（`CloudPublishDaemon`），负责将Commit阶段完成后加入`committed txns set`的事务异步推进到VISIBLE状态。
+
+**核心流程**：遍历committed事务 → 按BE分组下发CalcDeleteBitmapTask（每个BE一个请求包含所有涉及的tablet） → BE独立完成每个tablet的全流程（calc bitmap → update bitmap to MS → 拿MS tablet锁 → convert rowset → local apply） → BE返回per-tablet结果 → 所有tablet成功后FE调用轻量级publish。
+
+**关键设计**：
+- **Per-BE批量下发**：类似当前`sendCalcDeleteBitmaptask()`的模式，按BE分组
+- **BE独立完成全流程**：FE不需要调用MS convert_tmp_rowset或通知BE apply
+- **简化的FE端状态**：FE只跟踪per-BE任务状态（PENDING/SENT/DONE/FAILED），不需要per-tablet的复杂状态机
+- **版本连续性检查在BE侧**：BE检查`max_version+1 == commit_version`，不满足返回`DELETE_BITMAP_LOCK_ERROR`，FE下轮重试
 
 本模块依赖：
 - Module 0（Proto/KV Schema）

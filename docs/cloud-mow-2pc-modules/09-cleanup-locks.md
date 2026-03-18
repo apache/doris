@@ -1,12 +1,13 @@
-# Module 8: 清理 - 移除MS表锁和Pending Delete Bitmap
+# Module 8: 锁机制变更 - 新增MS Tablet锁、移除表锁和Pending Delete Bitmap
 
 ## 概述
 
-在Cloud MOW两阶段提交方案中，以下现有机制对于启用两阶段提交的表不再需要：
+在Cloud MOW两阶段提交方案中，锁机制发生如下变更（仅对启用两阶段提交的表，**所有老代码完整保留**）：
 
-1. **MS表级分布式锁**（`get_delete_bitmap_update_lock` / `remove_delete_bitmap_update_lock`）：当前导入和compaction通过这把表级锁互斥。新方案中delete bitmap计算和compaction通过BE内存锁（tablet级`rowset_update_lock`）互斥，辅以MS侧`convert_tmp_rowset`的FDB事务冲突检测。
-2. **Pending delete bitmap KV**：当前用于记录并清理失败事务残留的delete bitmap。新方案中commit后事务必然成功（所有tablet publish完才最终visible），不需要此清理机制。
-3. **大事务/lazy commit机制**：当前对于KV操作量过大的事务，通过`commit_txn_eventually`分批提交。新方案中最终MS publish变为O(1)操作（仅更新visible version），不需要分批提交。
+1. **新增MS tablet级分布式锁**：在publish阶段BE的convert_tmp_rowset前获取，和compaction互斥。大多数情况BE内存锁（rowset_update_lock）已够用，MS tablet锁主要处理跨BE场景。
+2. **移除MS表级分布式锁**（`get_delete_bitmap_update_lock`）：对启用两阶段提交的表不再使用。未启用的表继续使用。
+3. **移除Pending delete bitmap KV**：commit后事务必然成功，不需要残留清理机制。
+4. **移除大事务/lazy commit机制**：最终MS publish变为O(1)操作，不需要分批提交。
 
 本模块的清理工作需在其他所有模块完成后进行，且仅对启用两阶段提交的表生效，不影响未启用的表。
 
@@ -163,14 +164,43 @@ mutable std::mutex _rowset_update_lock;
    std::lock_guard rowset_update_lock(tablet()->get_rowset_update_lock());
    ```
 
-### C.2 两阶段提交下的互斥保证
+### C.2 新增MS Tablet级别锁
+
+对启用两阶段提交的表，新增**tablet粒度**的MS分布式锁，替代现有的表级别锁。
+
+**KV Key格式**：
+```
+Key:   0x01 "meta" ${instance_id} "delete_bitmap_tablet_lock" ${table_id} ${tablet_id}
+Value: DeleteBitmapUpdateLockPB (复用现有value，包含 lock_id, expiration, initiators)
+```
+
+**与现有表级别锁对比**：
+
+| 属性 | 表级别锁 (delete_bitmap_lock) | Tablet级别锁 (delete_bitmap_tablet_lock) |
+|------|------|------|
+| Key infix | `"delete_bitmap_lock"` | `"delete_bitmap_tablet_lock"` |
+| 粒度 | table_id + partition_id(-1) | table_id + tablet_id |
+| 使用场景 | 导入commit阶段（一阶段提交） | publish阶段BE的convert_tmp_rowset（两阶段提交） |
+| 互斥对象 | 同一表所有导入和compaction | 同一tablet的导入publish和compaction |
+| 适用表 | 未启用两阶段提交的表 | 启用两阶段提交的表 |
+
+**RPC**：复用现有`GetDeleteBitmapUpdateLockRequest`/`RemoveDeleteBitmapUpdateLockRequest`，新增字段：
+- `tablet_level_lock = 20`（bool）：设为true表示请求tablet级别锁
+- `lock_tablet_ids = 21`（repeated int64）：要加锁的tablet ID列表
+
+**使用场景**：
+1. Publish阶段：BE在convert_tmp_rowset前获取tablet锁，convert + local apply完成后释放
+2. Compaction：compaction更新delete bitmap前获取tablet锁，完成后释放
+3. 大多数情况下同一BE上的rowset_update_lock已够互斥，MS tablet锁主要处理**跨BE**的竞争（如tablet迁移后原BE上的compaction和新BE上的publish并发）
+
+### C.3 双层互斥机制
 
 在新的两阶段提交方案中：
 
 **同一BE上的互斥：**
 - 导入A的tablet T的delete bitmap计算持有`T.rowset_update_lock`
 - 同一tablet T的compaction也需要持有`T.rowset_update_lock`
-- 两者自然互斥，无需MS表级锁
+- 两者自然互斥，无需MS级别的锁
 
 **不同BE上的互斥：**
 - 通常情况下，同一tablet的导入和compaction在同一BE上执行（cloud模式下tablet有primary BE归属），通过上述内存锁互斥。
