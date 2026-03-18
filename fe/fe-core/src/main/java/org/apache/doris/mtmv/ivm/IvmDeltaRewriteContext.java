@@ -18,21 +18,27 @@
 package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.catalog.MTMV;
+import org.apache.doris.qe.ConnectContext;
 
 import java.util.Objects;
 
 /**
- * Context passed to {@link IvmDeltaRewriter} during per-node delta plan rewriting.
- * Minimal skeleton — will be extended with driving-table info in future PRs.
+ * Context passed to {@link IvmDeltaRewriter} during delta command construction.
  */
 public class IvmDeltaRewriteContext {
     private final MTMV mtmv;
+    private final ConnectContext connectContext;
 
-    public IvmDeltaRewriteContext(MTMV mtmv) {
+    public IvmDeltaRewriteContext(MTMV mtmv, ConnectContext connectContext) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
+        this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
     }
 
     public MTMV getMtmv() {
         return mtmv;
+    }
+
+    public ConnectContext getConnectContext() {
+        return connectContext;
     }
 }

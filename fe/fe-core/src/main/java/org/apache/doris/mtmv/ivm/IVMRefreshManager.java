@@ -97,8 +97,9 @@ public class IVMRefreshManager {
         if (normalizedPlan == null) {
             return Collections.emptyList();
         }
-        // TODO: for each base table, call IvmDeltaRewriter.rewrite(normalizedPlan, ctx)
-        return Collections.emptyList();
+        IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(
+                context.getMtmv(), context.getConnectContext());
+        return new IvmDeltaRewriter().rewrite(normalizedPlan, rewriteCtx);
     }
 
     private IVMRefreshResult doRefreshInternal(IVMRefreshContext context) {
