@@ -117,13 +117,6 @@ under the License.
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-checkstyle-plugin</artifactId>
-                <!-- fe is an aggregator pom with no Java sources; skip checkstyle for it.
-                     inherited=false ensures child modules are not affected and still
-                     use the pluginManagement configuration. -->
-                <configuration>
-                    <skip>true</skip>
-                </configuration>
-                <inherited>false</inherited>
             </plugin>
             <plugin>
                 <groupId>org.codehaus.mojo</groupId>
