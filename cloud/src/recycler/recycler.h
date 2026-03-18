@@ -88,6 +88,8 @@ public:
 
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
+    RecyclerThreadPoolGroup& thread_pool_group() { return _thread_pool_group; }
+
 private:
     void recycle_callback();
 
