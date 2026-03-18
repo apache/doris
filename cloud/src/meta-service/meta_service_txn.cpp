@@ -3254,6 +3254,279 @@ static bool force_txn_lazy_commit() {
     return dist(rng) <= config::cloud_txn_lazy_commit_fuzzy_possibility;
 }
 
+void MetaServiceImpl::commit_txn_async_publish(const CommitTxnRequest* request,
+                                               CommitTxnResponse* response, MetaServiceCode& code,
+                                               std::string& msg, const std::string& instance_id,
+                                               int64_t db_id, KVStats& stats) {
+    std::stringstream ss;
+    int64_t txn_id = request->txn_id();
+
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        };
+
+        // Step 1: Read TxnInfoPB
+        std::string info_val;
+        const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        err = txn->get(info_key, &info_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                ss << "transaction [" << txn_id << "] not found, db_id=" << db_id;
+            } else {
+                ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id
+                   << " err=" << err;
+            }
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        TxnInfoPB txn_info;
+        if (!txn_info.ParseFromString(info_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        // Step 2: Validate transaction status
+        DCHECK(txn_info.txn_id() == txn_id);
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
+            code = MetaServiceCode::TXN_ALREADY_ABORTED;
+            ss << "transaction [" << txn_id << "] is already aborted, db_id=" << db_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
+            code = MetaServiceCode::OK;
+            ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(INFO) << msg;
+            response->mutable_txn_info()->CopyFrom(txn_info);
+            return;
+        }
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_COMMITTED) {
+            // Idempotent: already committed, return the committed versions
+            code = MetaServiceCode::OK;
+            ss << "transaction is already committed (async publish): db_id=" << db_id
+               << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(INFO) << msg;
+            for (int i = 0; i < txn_info.committed_partition_ids_size(); ++i) {
+                response->add_partition_ids(txn_info.committed_partition_ids(i));
+                response->add_commit_versions(txn_info.committed_versions(i));
+            }
+            response->mutable_txn_info()->CopyFrom(txn_info);
+            return;
+        }
+        if (txn_info.status() != TxnStatusPB::TXN_STATUS_PREPARED &&
+            txn_info.status() != TxnStatusPB::TXN_STATUS_PRECOMMITTED) {
+            code = MetaServiceCode::TXN_INVALID_STATUS;
+            ss << "invalid txn status for async publish commit: db_id=" << db_id
+               << " txn_id=" << txn_id << " status=" << txn_info.status();
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        LOG(INFO) << "commit_txn_async_publish txn_id=" << txn_id
+                  << " txn_info=" << txn_info.ShortDebugString();
+
+        // Step 3: Timeout check
+        auto now = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        if ((txn_info.prepare_time() + txn_info.timeout_ms()) < now) {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            msg = fmt::format("txn is expired, not allow to commit txn_id={}", txn_id);
+            LOG(INFO) << msg << " prepare_time=" << txn_info.prepare_time()
+                      << " timeout_ms=" << txn_info.timeout_ms() << " now=" << now;
+            return;
+        }
+
+        // Step 4: Extract unique partition info from involved_tablets
+        // partition_id -> {db_id, table_id}
+        std::unordered_map<int64_t, std::pair<int64_t, int64_t>> partition_indexes;
+        for (const auto& tablet_info : request->involved_tablets()) {
+            int64_t partition_id = tablet_info.partition_id();
+            int64_t table_id = tablet_info.table_id();
+            partition_indexes.emplace(partition_id, std::make_pair(db_id, table_id));
+        }
+
+        if (partition_indexes.empty()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("no partitions in async publish commit request, txn_id={}", txn_id);
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        // Step 5-6: Read current commit version for each partition, then increment
+        // partition_id -> new_commit_version
+        std::unordered_map<int64_t, int64_t> new_commit_versions;
+        for (auto& [partition_id, db_table] : partition_indexes) {
+            auto [p_db_id, table_id] = db_table;
+            std::string commit_ver_key =
+                    partition_commit_version_key({instance_id, p_db_id, table_id, partition_id});
+            std::string commit_ver_val;
+            err = txn->get(commit_ver_key, &commit_ver_val);
+
+            int64_t current_commit_version = 0;
+            if (err == TxnErrorCode::TXN_OK) {
+                VersionPB version_pb;
+                if (!version_pb.ParseFromString(commit_ver_val)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    ss << "failed to parse partition commit version, txn_id=" << txn_id
+                       << " partition_id=" << partition_id;
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+                current_commit_version = version_pb.version();
+            } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                // Key does not exist yet, initialize with version 1
+                // (async publish only supports new tables, initial value matches visible version)
+                current_commit_version = 1;
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get partition commit version, txn_id=" << txn_id
+                   << " partition_id=" << partition_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+
+            int64_t new_commit_version = current_commit_version + 1;
+            new_commit_versions[partition_id] = new_commit_version;
+        }
+
+        // Step 7: Write new partition commit versions
+        int64_t version_update_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        for (auto& [partition_id, new_version] : new_commit_versions) {
+            auto [p_db_id, table_id] = partition_indexes[partition_id];
+            std::string commit_ver_key =
+                    partition_commit_version_key({instance_id, p_db_id, table_id, partition_id});
+            VersionPB version_pb;
+            version_pb.set_version(new_version);
+            version_pb.set_update_time_ms(version_update_time_ms);
+            std::string ver_val;
+            if (!version_pb.SerializeToString(&ver_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize partition commit version, txn_id=" << txn_id
+                   << " partition_id=" << partition_id;
+                msg = ss.str();
+                return;
+            }
+            txn->put(commit_ver_key, ver_val);
+            LOG(INFO) << "put partition_commit_version_key=" << hex(commit_ver_key)
+                      << " version=" << new_version << " txn_id=" << txn_id
+                      << " partition_id=" << partition_id;
+        }
+
+        // Step 8: Update TxnInfoPB
+        txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+        txn_info.set_commit_time(now);
+        txn_info.set_mow_async_publish(true);
+        if (request->has_commit_attachment()) {
+            txn_info.mutable_commit_attachment()->CopyFrom(request->commit_attachment());
+        }
+        // Record committed partition IDs and versions
+        for (auto& [partition_id, new_version] : new_commit_versions) {
+            txn_info.add_committed_partition_ids(partition_id);
+            txn_info.add_committed_versions(new_version);
+        }
+        // Record involved tablets
+        for (const auto& tablet_info : request->involved_tablets()) {
+            txn_info.add_involved_tablets()->CopyFrom(tablet_info);
+        }
+        // Record load schema param (TOlapTableSchemaParam Thrift serialized bytes)
+        if (request->has_load_schema_param()) {
+            txn_info.set_load_schema_param(request->load_schema_param());
+        }
+
+        info_val.clear();
+        if (!txn_info.SerializeToString(&info_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize txn_info, txn_id=" << txn_id;
+            msg = ss.str();
+            return;
+        }
+        txn->put(info_key, info_val);
+        LOG(INFO) << "put txn_info_key=" << hex(info_key) << " txn_id=" << txn_id
+                  << " status=COMMITTED mow_async_publish=true";
+
+        // Step 9: Delete txn_running_key
+        const std::string running_key = txn_running_key({instance_id, db_id, txn_id});
+        txn->remove(running_key);
+        LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
+
+        // Step 10: Handle routine load / streaming job progress
+        if (txn_info.load_job_source_type() ==
+            LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_ROUTINE_LOAD_TASK) {
+            put_routine_load_progress(code, msg, instance_id, request, txn.get(), db_id);
+        }
+        if (txn_info.load_job_source_type() ==
+            LoadJobSourceTypePB::LOAD_JOB_SRC_TYPE_STREAMING_JOB) {
+            update_streaming_job_meta(code, msg, instance_id, request, txn.get(), db_id);
+            if (code != MetaServiceCode::OK) {
+                LOG(WARNING) << "update_streaming_job_meta failed, txn_id=" << txn_id
+                             << " code=" << code << " msg=" << msg;
+                return;
+            }
+        }
+
+        LOG(INFO) << "commit_txn_async_publish put_size=" << txn->put_bytes()
+                  << " del_size=" << txn->delete_bytes() << " num_put_keys=" << txn->num_put_keys()
+                  << " num_del_keys=" << txn->num_del_keys()
+                  << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
+
+        // Step 11: FDB transaction commit
+        err = txn->commit();
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            LOG(INFO) << "commit_txn_async_publish conflict, retrying, txn_id=" << txn_id;
+            ss.str("");
+            continue;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            return;
+        }
+
+        // Step 12: Build response
+        for (auto& [partition_id, new_version] : new_commit_versions) {
+            auto [p_db_id, table_id] = partition_indexes[partition_id];
+            response->add_table_ids(table_id);
+            response->add_partition_ids(partition_id);
+            response->add_commit_versions(new_version);
+        }
+        response->mutable_txn_info()->CopyFrom(txn_info);
+
+        LOG(INFO) << "commit_txn_async_publish success, txn_id=" << txn_id
+                  << " partitions=" << new_commit_versions.size();
+        break;
+    } while (true);
+}
+
 void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
@@ -3284,6 +3557,12 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
 
     if (request->has_is_txn_load() && request->is_txn_load()) {
         commit_txn_with_sub_txn(request, response, code, msg, instance_id, db_id, stats);
+        return;
+    }
+
+    // Async publish commit phase: fast commit without rowset conversion
+    if (request->has_enable_mow_async_publish() && request->enable_mow_async_publish()) {
+        commit_txn_async_publish(request, response, code, msg, instance_id, db_id, stats);
         return;
     }
 
