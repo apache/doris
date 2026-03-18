@@ -63,6 +63,7 @@ public:
 
     Status execute(bool* done) override { return _task->do_revoke_memory(_spill_context); }
 
+    // Use blockable to make sure the task will be submiited to the blockable task queue and can be revoked when necessary.
     bool is_blockable() const override { return true; }
 
 private:

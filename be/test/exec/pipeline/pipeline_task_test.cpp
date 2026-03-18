@@ -20,11 +20,13 @@
 
 #include "common/status.h"
 #include "exec/operator/operator.h"
+#include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/dummy_task_queue.h"
 #include "exec/pipeline/pipeline.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/thrift_builder.h"
+#include "exec/spill/spill_file.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "testutil/mock/mock_runtime_state.h"
@@ -851,9 +853,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
     }
     {
         task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
         task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
     }
     {
         // Reserve failed and but not enable spill disk, so that the query will continue to run.
@@ -1028,9 +1030,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL_SPILLABLE) {
     }
     {
         task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
         task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
-                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
     }
     {
         // Reserve failed and enable spill disk, so that the query be paused.
@@ -1152,6 +1154,383 @@ TEST_F(PipelineTaskTest, TEST_INJECT_SHARED_STATE) {
         auto shared_state = BasicSharedState::create_shared();
         shared_state->related_op_ids.insert(1);
         EXPECT_FALSE(task->inject_shared_state(shared_state));
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_SHOULD_TRIGGER_REVOKING) {
+    {
+        _query_options = TQueryOptionsBuilder()
+                                 .set_enable_local_exchange(true)
+                                 .set_enable_local_shuffle(true)
+                                 .set_runtime_filter_max_in_num(15)
+                                 .set_enable_reserve_memory(true)
+                                 .set_enable_spill(true)
+                                 .build();
+        auto fe_address = TNetworkAddress();
+        fe_address.hostname = LOCALHOST;
+        fe_address.port = DUMMY_PORT;
+        _query_ctx =
+                QueryContext::create(_query_id, ExecEnv::GetInstance(), _query_options, fe_address,
+                                     true, fe_address, QuerySource::INTERNAL_FRONTEND);
+        _task_scheduler = std::make_unique<MockTaskScheduler>();
+        _query_ctx->_task_scheduler = _task_scheduler.get();
+        _build_fragment_context();
+    }
+    TWorkloadGroupInfo twg_info;
+    twg_info.__set_id(0);
+    twg_info.__set_name("test_wg");
+    twg_info.__set_version(0);
+    auto wg = std::make_shared<WorkloadGroup>(WorkloadGroupInfo::parse_topic_info(twg_info));
+    const int64_t wg_mem_limit = 1000LL * 1024 * 1024; // 1 GB
+    wg->_memory_limit = wg_mem_limit;
+    wg->_memory_low_watermark = 50;  // 50%
+    wg->_memory_high_watermark = 80; // 80%
+    wg->_total_mem_used = 0;
+    _query_ctx->_resource_ctx->set_workload_group(wg);
+
+    auto query_mem_tracker = _query_ctx->query_mem_tracker();
+    query_mem_tracker->set_limit(wg_mem_limit);
+
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(1, 2, 3));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+
+    // reserve_size that passes the (reserve * parallelism > query_limit / 5) gate
+    const size_t reserve_size = wg_mem_limit / 4; // 250MB > threshold of 200MB
+
+    // Case 1: spill disabled -> false
+    {
+        ((MockRuntimeState*)_runtime_state.get())->set_enable_spill(false);
+        EXPECT_FALSE(task->_should_trigger_revoking(reserve_size));
+        ((MockRuntimeState*)_runtime_state.get())->set_enable_spill(true);
+    }
+    // Case 2: no workload group -> false
+    {
+        _query_ctx->_resource_ctx->set_workload_group(nullptr);
+        EXPECT_FALSE(task->_should_trigger_revoking(reserve_size));
+        _query_ctx->_resource_ctx->set_workload_group(wg);
+    }
+    // Case 3: effective query_limit = 0 (both tracker limit <= 0 and wg limit = 0) -> false
+    {
+        wg->_memory_limit = 0;
+        query_mem_tracker->set_limit(-1);
+        EXPECT_FALSE(task->_should_trigger_revoking(reserve_size));
+        wg->_memory_limit = wg_mem_limit;
+        query_mem_tracker->set_limit(wg_mem_limit);
+    }
+    // Case 4: reserve_size too small (reserve * parallelism <= query_limit / 5) -> false
+    { EXPECT_FALSE(task->_should_trigger_revoking(wg_mem_limit / 5)); }
+    // Case 5: no memory pressure (neither query tracker nor wg watermark) -> false
+    {
+        // consumption + reserve = 100MB + 250MB = 350MB < 90% of 1GB (900MB); wg not at watermark
+        query_mem_tracker->consume(100LL * 1024 * 1024);
+        EXPECT_FALSE(task->_should_trigger_revoking(reserve_size));
+        query_mem_tracker->release(100LL * 1024 * 1024);
+    }
+    // Case 6: high memory pressure via query tracker, no revocable memory -> false
+    {
+        // consumption + reserve >= 90% of query_limit
+        const int64_t consumption = int64_t(0.9 * wg_mem_limit) - int64_t(reserve_size) + 1;
+        query_mem_tracker->consume(consumption);
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+        EXPECT_FALSE(task->_should_trigger_revoking(reserve_size));
+        query_mem_tracker->release(consumption);
+    }
+    // Case 7: high pressure via query tracker, sufficient revocable -> true
+    {
+        const int64_t consumption = int64_t(0.9 * wg_mem_limit) - int64_t(reserve_size) + 1;
+        query_mem_tracker->consume(consumption);
+        // total revocable >= 20% of query_limit = 200MB (100MB each from op and sink)
+        const size_t revocable = int64_t(0.2 * wg_mem_limit) / 2;
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = revocable;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = revocable;
+        EXPECT_TRUE(task->_should_trigger_revoking(reserve_size));
+        query_mem_tracker->release(consumption);
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+    }
+    // Case 8: high pressure via wg low watermark, sufficient revocable -> true
+    {
+        // wg total_mem_used > 50% of wg_limit -> low watermark triggered
+        wg->_total_mem_used = int64_t(0.51 * wg_mem_limit);
+        const size_t revocable = int64_t(0.2 * wg_mem_limit) / 2;
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = revocable;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = revocable;
+        EXPECT_TRUE(task->_should_trigger_revoking(reserve_size));
+        wg->_total_mem_used = 0;
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+    }
+    // Case 9: high pressure via wg high watermark, sufficient revocable -> true
+    {
+        // wg total_mem_used > 80% of wg_limit -> high watermark triggered
+        wg->_total_mem_used = int64_t(0.81 * wg_mem_limit);
+        const size_t revocable = int64_t(0.2 * wg_mem_limit) / 2;
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = revocable;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = revocable;
+        EXPECT_TRUE(task->_should_trigger_revoking(reserve_size));
+        wg->_total_mem_used = 0;
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+    }
+    // Case 10: query_limit capped to wg limit when tracker limit > wg limit -> no extra pressure
+    {
+        // effective limit = wg_mem_limit; reserve = wg_mem_limit/4 > threshold (wg_mem_limit/5)
+        // but no consumption added, so no pressure -> false
+        query_mem_tracker->set_limit(wg_mem_limit * 2);
+        wg->_memory_limit = wg_mem_limit;
+        EXPECT_FALSE(task->_should_trigger_revoking(reserve_size));
+        query_mem_tracker->set_limit(wg_mem_limit);
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_DO_REVOKE_MEMORY) {
+    auto num_instances = 1;
+    auto pip_id = 0;
+    auto task_id = 0;
+    auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+    {
+        OperatorPtr source_op;
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(1, 2, 3));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+    }
+    auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+    std::map<int,
+             std::pair<std::shared_ptr<BasicSharedState>, std::vector<std::shared_ptr<Dependency>>>>
+            shared_state_map;
+    _runtime_state->resize_op_id_to_local_state(-1);
+    auto task = std::make_shared<PipelineTask>(pip, task_id, _runtime_state.get(), _context,
+                                               profile.get(), shared_state_map, task_id);
+    {
+        std::vector<TScanRangeParams> scan_range;
+        int sender_id = 0;
+        TDataSink tsink;
+        EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+        _query_ctx->get_execution_dependency()->set_ready();
+    }
+    // Case 1: fragment context expired -> InternalError
+    {
+        task->_fragment_context = std::weak_ptr<PipelineFragmentContext>();
+        EXPECT_FALSE(task->do_revoke_memory(nullptr).ok());
+        // Restore the fragment context
+        task->_fragment_context = _context;
+    }
+    // Case 2: operators below MIN threshold, null spill_context -> no revoke_memory called
+    {
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+        EXPECT_TRUE(task->do_revoke_memory(nullptr).ok());
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._revoke_called);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._revoke_called);
+    }
+    // Case 3: operator has sufficient revocable memory -> operator revoke_memory called
+    {
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
+        task->_operators.front()->cast<DummyOperator>()._revoke_called = false;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revoke_called = false;
+        EXPECT_TRUE(task->do_revoke_memory(nullptr).ok());
+        EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._revoke_called);
+        EXPECT_FALSE(task->_sink->cast<DummySinkOperatorX>()._revoke_called);
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_operators.front()->cast<DummyOperator>()._revoke_called = false;
+    }
+    // Case 4: sink has sufficient revocable memory -> sink revoke_memory called
+    {
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_operators.front()->cast<DummyOperator>()._revoke_called = false;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
+        task->_sink->cast<DummySinkOperatorX>()._revoke_called = false;
+        EXPECT_TRUE(task->do_revoke_memory(nullptr).ok());
+        EXPECT_FALSE(task->_operators.front()->cast<DummyOperator>()._revoke_called);
+        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._revoke_called);
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revoke_called = false;
+    }
+    // Case 5: non-null spill_context -> on_task_finished called, callback fires
+    {
+        bool callback_fired = false;
+        auto spill_ctx = std::make_shared<SpillContext>(
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
+        EXPECT_TRUE(task->do_revoke_memory(spill_ctx).ok());
+        EXPECT_TRUE(callback_fired);
+        EXPECT_EQ(spill_ctx->running_tasks_count.load(), 0);
+    }
+    // Case 6: wake_up_early -> operators terminated, eos set, callback fires
+    {
+        task->_wake_up_early = true;
+        task->_eos = false;
+        task->_operators.front()->cast<DummyOperator>()._terminated = false;
+        task->_sink->cast<DummySinkOperatorX>()._terminated = false;
+        bool callback_fired = false;
+        auto spill_ctx = std::make_shared<SpillContext>(
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
+        EXPECT_TRUE(task->do_revoke_memory(spill_ctx).ok());
+        EXPECT_TRUE(task->_eos);
+        EXPECT_TRUE(task->_operators.front()->cast<DummyOperator>()._terminated);
+        EXPECT_TRUE(task->_sink->cast<DummySinkOperatorX>()._terminated);
+        EXPECT_TRUE(callback_fired);
+        task->_wake_up_early = false;
+    }
+}
+
+TEST_F(PipelineTaskTest, TEST_REVOKE_MEMORY) {
+    // Case 1: task is finalized -> on_task_finished called immediately
+    {
+        auto num_instances = 1;
+        auto pip_id = 0;
+        auto task_id = 0;
+        auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+        OperatorPtr source_op;
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(1, 2, 3));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+        auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+        std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                std::vector<std::shared_ptr<Dependency>>>>
+                shared_state_map;
+        auto rs = std::make_unique<MockRuntimeState>(_query_id, 0, _query_options,
+                                                     _query_ctx->query_globals,
+                                                     ExecEnv::GetInstance(), _query_ctx.get());
+        rs->set_task_execution_context(std::static_pointer_cast<TaskExecutionContext>(_context));
+        rs->resize_op_id_to_local_state(-1);
+        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context, profile.get(),
+                                                   shared_state_map, task_id);
+        {
+            std::vector<TScanRangeParams> scan_range;
+            int sender_id = 0;
+            TDataSink tsink;
+            EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+            _query_ctx->get_execution_dependency()->set_ready();
+        }
+        task->_exec_state = PipelineTask::State::FINALIZED;
+        EXPECT_TRUE(task->is_finalized());
+        bool callback_fired = false;
+        auto spill_ctx = std::make_shared<SpillContext>(
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
+        EXPECT_TRUE(task->revoke_memory(spill_ctx).ok());
+        EXPECT_TRUE(callback_fired);
+        EXPECT_EQ(spill_ctx->running_tasks_count.load(), 0);
+    }
+    // Case 2: _opened=true, revocable < MIN -> on_task_finished called immediately
+    {
+        auto num_instances = 1;
+        auto pip_id = 0;
+        auto task_id = 0;
+        auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+        OperatorPtr source_op;
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(1, 2, 3));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+        auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+        std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                std::vector<std::shared_ptr<Dependency>>>>
+                shared_state_map;
+        auto rs = std::make_unique<MockRuntimeState>(_query_id, 0, _query_options,
+                                                     _query_ctx->query_globals,
+                                                     ExecEnv::GetInstance(), _query_ctx.get());
+        rs->set_task_execution_context(std::static_pointer_cast<TaskExecutionContext>(_context));
+        rs->resize_op_id_to_local_state(-1);
+        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context, profile.get(),
+                                                   shared_state_map, task_id);
+        {
+            std::vector<TScanRangeParams> scan_range;
+            int sender_id = 0;
+            TDataSink tsink;
+            EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+            _query_ctx->get_execution_dependency()->set_ready();
+        }
+        task->_opened = true;
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size = 0;
+        task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size = 0;
+        bool callback_fired = false;
+        auto spill_ctx = std::make_shared<SpillContext>(
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
+        EXPECT_TRUE(task->revoke_memory(spill_ctx).ok());
+        EXPECT_TRUE(callback_fired);
+        EXPECT_EQ(spill_ctx->running_tasks_count.load(), 0);
+    }
+    // Case 3: _opened=true, sufficient revocable -> RevokableTask submitted; run it to fire callback
+    {
+        auto num_instances = 1;
+        auto pip_id = 0;
+        auto task_id = 0;
+        auto pip = std::make_shared<Pipeline>(pip_id, num_instances, num_instances);
+        OperatorPtr source_op;
+        source_op.reset(new DummyOperator());
+        EXPECT_TRUE(pip->add_operator(source_op, num_instances).ok());
+        DataSinkOperatorPtr sink_op;
+        sink_op.reset(new DummySinkOperatorX(1, 2, 3));
+        EXPECT_TRUE(pip->set_sink(sink_op).ok());
+
+        auto profile = std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_id));
+        std::map<int, std::pair<std::shared_ptr<BasicSharedState>,
+                                std::vector<std::shared_ptr<Dependency>>>>
+                shared_state_map;
+        auto rs = std::make_unique<MockRuntimeState>(_query_id, 0, _query_options,
+                                                     _query_ctx->query_globals,
+                                                     ExecEnv::GetInstance(), _query_ctx.get());
+        rs->set_task_execution_context(std::static_pointer_cast<TaskExecutionContext>(_context));
+        rs->resize_op_id_to_local_state(-1);
+        auto task = std::make_shared<PipelineTask>(pip, task_id, rs.get(), _context, profile.get(),
+                                                   shared_state_map, task_id);
+        {
+            std::vector<TScanRangeParams> scan_range;
+            int sender_id = 0;
+            TDataSink tsink;
+            EXPECT_TRUE(task->prepare(scan_range, sender_id, tsink).ok());
+            _query_ctx->get_execution_dependency()->set_ready();
+        }
+        task->_opened = true;
+        task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
+                SpillFile::MIN_SPILL_WRITE_BATCH_MEM + 1;
+        bool callback_fired = false;
+        auto spill_ctx = std::make_shared<SpillContext>(
+                1, _query_id, [&callback_fired](SpillContext*) { callback_fired = true; });
+        EXPECT_TRUE(task->revoke_memory(spill_ctx).ok());
+        // RevokableTask submitted but not yet executed, callback not fired
+        EXPECT_FALSE(callback_fired);
+        EXPECT_EQ(spill_ctx->running_tasks_count.load(), 1);
+
+        // Take the submitted RevokableTask from the scheduler queue and run it
+        auto revokable_task =
+                ((MockTaskScheduler*)_query_ctx->_task_scheduler)->_task_queue->take(0);
+        EXPECT_NE(revokable_task, nullptr);
+        bool done = false;
+        EXPECT_TRUE(revokable_task->execute(&done).ok());
+        // After execution, spill_context->on_task_finished() was called inside do_revoke_memory
+        EXPECT_TRUE(callback_fired);
+        EXPECT_EQ(spill_ctx->running_tasks_count.load(), 0);
     }
 }
 

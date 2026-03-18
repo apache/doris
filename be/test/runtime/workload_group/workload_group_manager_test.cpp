@@ -30,7 +30,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/pipeline/pipeline_tracing.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_query_statistics_mgr.h"
@@ -63,9 +63,8 @@ protected:
         }
 
         ExecEnv::GetInstance()->_runtime_query_statistics_mgr = new RuntimeQueryStatisticsMgr();
-        ExecEnv::GetInstance()->_spill_stream_mgr =
-                new SpillStreamManager(std::move(spill_store_map));
-        auto st = ExecEnv::GetInstance()->_spill_stream_mgr->init();
+        ExecEnv::GetInstance()->_spill_file_mgr = new SpillFileManager(std::move(spill_store_map));
+        auto st = ExecEnv::GetInstance()->_spill_file_mgr->init();
         EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
         ExecEnv::GetInstance()->_pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>();
 

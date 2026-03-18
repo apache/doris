@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 
 #include <fmt/format.h>
 #include <glog/logging.h>
@@ -23,34 +23,30 @@
 #include <algorithm>
 #include <filesystem>
 #include <memory>
-#include <numeric>
-#include <random>
 #include <string>
 
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
-#include "exec/spill/spill_stream.h"
+#include "exec/spill/spill_file.h"
 #include "io/fs/file_system.h"
 #include "io/fs/local_file_system.h"
-#include "runtime/runtime_profile.h"
-#include "runtime/runtime_state.h"
 #include "storage/olap_define.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/time.h"
-#include "util/uid_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
-SpillStreamManager::~SpillStreamManager() {
+SpillFileManager::~SpillFileManager() {
     DorisMetrics::instance()->metric_registry()->deregister_entity(_entity);
 }
-SpillStreamManager::SpillStreamManager(
+
+SpillFileManager::SpillFileManager(
         std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map)
         : _spill_store_map(std::move(spill_store_map)), _stop_background_threads_latch(1) {}
 
-Status SpillStreamManager::init() {
+Status SpillFileManager::init() {
     LOG(INFO) << "init spill stream manager";
     RETURN_IF_ERROR(_init_spill_store_map());
 
@@ -87,7 +83,7 @@ Status SpillStreamManager::init() {
     return Status::OK();
 }
 
-void SpillStreamManager::_init_metrics() {
+void SpillFileManager::_init_metrics() {
     _entity = DorisMetrics::instance()->metric_registry()->register_entity("spill",
                                                                            {{"name", "spill"}});
 
@@ -103,7 +99,7 @@ void SpillStreamManager::_init_metrics() {
 }
 
 // clean up stale spilled files
-void SpillStreamManager::_spill_gc_thread_callback() {
+void SpillFileManager::_spill_gc_thread_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(config::spill_gc_interval_ms))) {
         gc(config::spill_gc_work_time_ms);
@@ -113,7 +109,7 @@ void SpillStreamManager::_spill_gc_thread_callback() {
     }
 }
 
-Status SpillStreamManager::_init_spill_store_map() {
+Status SpillFileManager::_init_spill_store_map() {
     for (const auto& store : _spill_store_map) {
         RETURN_IF_ERROR(store.second->init());
     }
@@ -121,7 +117,7 @@ Status SpillStreamManager::_init_spill_store_map() {
     return Status::OK();
 }
 
-std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
+std::vector<SpillDataDir*> SpillFileManager::_get_stores_for_spill(
         TStorageMedium::type storage_medium) {
     std::vector<std::pair<SpillDataDir*, double>> stores_with_usage;
     for (auto& [_, store] : _spill_store_map) {
@@ -133,8 +129,7 @@ std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
         return {};
     }
 
-    std::sort(stores_with_usage.begin(), stores_with_usage.end(),
-              [](auto&& a, auto&& b) { return a.second < b.second; });
+    std::ranges::sort(stores_with_usage, [](auto&& a, auto&& b) { return a.second < b.second; });
 
     std::vector<SpillDataDir*> stores;
     for (const auto& [store, _] : stores_with_usage) {
@@ -143,11 +138,8 @@ std::vector<SpillDataDir*> SpillStreamManager::_get_stores_for_spill(
     return stores;
 }
 
-Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
-                                                 const std::string& query_id,
-                                                 const std::string& operator_name, int32_t node_id,
-                                                 int32_t batch_rows, size_t batch_bytes,
-                                                 RuntimeProfile* operator_profile) {
+Status SpillFileManager::create_spill_file(const std::string& relative_path,
+                                           SpillFileSPtr& spill_file) {
     auto data_dirs = _get_stores_for_spill(TStorageMedium::type::SSD);
     if (data_dirs.empty()) {
         data_dirs = _get_stores_for_spill(TStorageMedium::type::HDD);
@@ -157,37 +149,21 @@ Status SpillStreamManager::register_spill_stream(RuntimeState* state, SpillStrea
                 "no available disk can be used for spill.");
     }
 
-    uint64_t id = id_++;
-    std::string spill_dir;
-    SpillDataDir* data_dir = nullptr;
-    for (auto& dir : data_dirs) {
-        std::string spill_root_dir = dir->get_spill_data_path();
-        // storage_root/spill/query_id/partitioned_hash_join-node_id-task_id-stream_id
-        spill_dir = fmt::format("{}/{}/{}-{}-{}-{}", spill_root_dir, query_id, operator_name,
-                                node_id, state->task_id(), id);
-        auto st = io::global_local_filesystem()->create_directory(spill_dir);
-        if (!st.ok()) {
-            std::cerr << "create spill dir failed: " << st.to_string();
-            continue;
-        }
-        data_dir = dir;
-        break;
-    }
-    if (!data_dir) {
-        return Status::Error<ErrorCode::CE_CMD_PARAMS_ERROR>(
-                "there is no available disk that can be used to spill.");
-    }
-    spill_stream = std::make_shared<SpillStream>(state, id, data_dir, spill_dir, batch_rows,
-                                                 batch_bytes, operator_profile);
-    RETURN_IF_ERROR(spill_stream->prepare());
+    // Select the first available data dir (sorted by usage ascending)
+    SpillDataDir* data_dir = data_dirs.front();
+    spill_file = std::make_shared<SpillFile>(data_dir, relative_path);
     return Status::OK();
 }
 
-void SpillStreamManager::delete_spill_stream(SpillStreamSPtr stream) {
-    stream->gc();
+void SpillFileManager::delete_spill_file(SpillFileSPtr spill_file) {
+    if (!spill_file) {
+        LOG(WARNING) << "[spill][delete] null spill_file";
+        return;
+    }
+    spill_file->gc();
 }
 
-void SpillStreamManager::gc(int32_t max_work_time_ms) {
+void SpillFileManager::gc(int32_t max_work_time_ms) {
     bool exists = true;
     bool has_work = false;
     int64_t max_work_time_ns = max_work_time_ms * 1000L * 1000L;
@@ -343,9 +319,7 @@ Status SpillDataDir::update_capacity() {
         _spill_data_limit_bytes = (int64_t)(_spill_data_limit_bytes *
                                             config::storage_flood_stage_usage_percent / 100);
     }
-    if (_spill_data_limit_bytes > disk_use_max_bytes) {
-        _spill_data_limit_bytes = disk_use_max_bytes;
-    }
+    _spill_data_limit_bytes = std::min(_spill_data_limit_bytes, disk_use_max_bytes);
     spill_disk_limit->set_value(_spill_data_limit_bytes);
 
     std::string spill_root_dir = get_spill_data_path();
@@ -374,7 +348,8 @@ bool SpillDataDir::reach_capacity_limit(int64_t incoming_data_size) {
     }
     if (_spill_data_bytes + incoming_data_size > _spill_data_limit_bytes) {
         LOG_EVERY_T(WARNING, 1) << fmt::format(
-                "spill data reach limit, path: {}, capacity: {}, limit: {}, used: {}, available: "
+                "spill data reach limit, path: {}, capacity: {}, limit: {}, used: {}, "
+                "available: "
                 "{}, "
                 "incoming "
                 "bytes: {}",
