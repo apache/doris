@@ -55,9 +55,8 @@ DorisSnapshotManager::DorisSnapshotManager(std::shared_ptr<TxnKv> txn_kv)
 // Internal helpers
 // ============================================================================
 
-TxnErrorCode DorisSnapshotManager::read_snapshot_pb(Transaction* txn,
-                                                     std::string_view instance_id,
-                                                     const Versionstamp& vs, SnapshotPB* pb) {
+TxnErrorCode DorisSnapshotManager::read_snapshot_pb(Transaction* txn, std::string_view instance_id,
+                                                    const Versionstamp& vs, SnapshotPB* pb) {
     std::string key_prefix = versioned::snapshot_full_key({std::string(instance_id)});
     std::string full_key = encode_versioned_key(key_prefix, vs);
 
@@ -76,7 +75,7 @@ TxnErrorCode DorisSnapshotManager::read_snapshot_pb(Transaction* txn,
 }
 
 void DorisSnapshotManager::write_snapshot_pb(Transaction* txn, std::string_view instance_id,
-                                              const Versionstamp& vs, const SnapshotPB& pb) {
+                                             const Versionstamp& vs, const SnapshotPB& pb) {
     std::string key_prefix = versioned::snapshot_full_key({std::string(instance_id)});
     std::string full_key = encode_versioned_key(key_prefix, vs);
     std::string value = pb.SerializeAsString();
@@ -84,8 +83,8 @@ void DorisSnapshotManager::write_snapshot_pb(Transaction* txn, std::string_view 
 }
 
 TxnErrorCode DorisSnapshotManager::read_instance_info(Transaction* txn,
-                                                       std::string_view instance_id,
-                                                       InstanceInfoPB* info) {
+                                                      std::string_view instance_id,
+                                                      InstanceInfoPB* info) {
     std::string key = instance_key({std::string(instance_id)});
     std::string value;
     TxnErrorCode err = txn->get(key, &value);
@@ -109,7 +108,7 @@ bool DorisSnapshotManager::validate_ip_address(const std::string& ip) {
 }
 
 std::string DorisSnapshotManager::build_image_url(const InstanceInfoPB& instance,
-                                                   const std::string& snapshot_id) {
+                                                  const std::string& snapshot_id) {
     // Use the first obj_info's prefix as the storage root.
     std::string prefix;
     if (instance.obj_info_size() > 0 && !instance.obj_info(0).prefix().empty()) {
@@ -122,7 +121,7 @@ std::string DorisSnapshotManager::build_image_url(const InstanceInfoPB& instance
 }
 
 void DorisSnapshotManager::snapshot_pb_to_info(const SnapshotPB& pb, const Versionstamp& vs,
-                                                SnapshotInfoPB* info) {
+                                               SnapshotInfoPB* info) {
     info->set_snapshot_id(serialize_snapshot_id(vs));
     if (pb.has_snapshot_ancestor()) {
         info->set_ancestor_id(pb.snapshot_ancestor());
@@ -158,8 +157,8 @@ void DorisSnapshotManager::snapshot_pb_to_info(const SnapshotPB& pb, const Versi
 // ============================================================================
 
 void DorisSnapshotManager::begin_snapshot(std::string_view instance_id,
-                                           const BeginSnapshotRequest& request,
-                                           BeginSnapshotResponse* response) {
+                                          const BeginSnapshotRequest& request,
+                                          BeginSnapshotResponse* response) {
     // 1. Parameter validation
     if (!request.has_timeout_seconds() || request.timeout_seconds() <= 0) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
@@ -281,8 +280,8 @@ void DorisSnapshotManager::begin_snapshot(std::string_view instance_id,
 // ============================================================================
 
 void DorisSnapshotManager::update_snapshot(std::string_view instance_id,
-                                            const UpdateSnapshotRequest& request,
-                                            UpdateSnapshotResponse* response) {
+                                           const UpdateSnapshotRequest& request,
+                                           UpdateSnapshotResponse* response) {
     if (!request.has_snapshot_id() || request.snapshot_id().empty()) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
         response->mutable_status()->set_msg("snapshot_id must not be empty");
@@ -319,9 +318,8 @@ void DorisSnapshotManager::update_snapshot(std::string_view instance_id,
 
     if (snapshot_pb.status() != SnapshotStatus::SNAPSHOT_PREPARE) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
-        response->mutable_status()->set_msg(
-                "snapshot is not in PREPARE state, current status=" +
-                std::to_string(static_cast<int>(snapshot_pb.status())));
+        response->mutable_status()->set_msg("snapshot is not in PREPARE state, current status=" +
+                                            std::to_string(static_cast<int>(snapshot_pb.status())));
         return;
     }
 
@@ -351,8 +349,8 @@ void DorisSnapshotManager::update_snapshot(std::string_view instance_id,
 // ============================================================================
 
 void DorisSnapshotManager::commit_snapshot(std::string_view instance_id,
-                                            const CommitSnapshotRequest& request,
-                                            CommitSnapshotResponse* response) {
+                                           const CommitSnapshotRequest& request,
+                                           CommitSnapshotResponse* response) {
     if (!request.has_snapshot_id() || request.snapshot_id().empty()) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
         response->mutable_status()->set_msg("snapshot_id must not be empty");
@@ -389,9 +387,8 @@ void DorisSnapshotManager::commit_snapshot(std::string_view instance_id,
 
     if (snapshot_pb.status() != SnapshotStatus::SNAPSHOT_PREPARE) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
-        response->mutable_status()->set_msg(
-                "snapshot is not in PREPARE state, current status=" +
-                std::to_string(static_cast<int>(snapshot_pb.status())));
+        response->mutable_status()->set_msg("snapshot is not in PREPARE state, current status=" +
+                                            std::to_string(static_cast<int>(snapshot_pb.status())));
         return;
     }
 
@@ -438,8 +435,8 @@ void DorisSnapshotManager::commit_snapshot(std::string_view instance_id,
 // ============================================================================
 
 void DorisSnapshotManager::abort_snapshot(std::string_view instance_id,
-                                           const AbortSnapshotRequest& request,
-                                           AbortSnapshotResponse* response) {
+                                          const AbortSnapshotRequest& request,
+                                          AbortSnapshotResponse* response) {
     if (!request.has_snapshot_id() || request.snapshot_id().empty()) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
         response->mutable_status()->set_msg("snapshot_id must not be empty");
@@ -505,8 +502,8 @@ void DorisSnapshotManager::abort_snapshot(std::string_view instance_id,
 // ============================================================================
 
 void DorisSnapshotManager::drop_snapshot(std::string_view instance_id,
-                                          const DropSnapshotRequest& request,
-                                          DropSnapshotResponse* response) {
+                                         const DropSnapshotRequest& request,
+                                         DropSnapshotResponse* response) {
     if (!request.has_snapshot_id() || request.snapshot_id().empty()) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
         response->mutable_status()->set_msg("snapshot_id must not be empty");
@@ -578,8 +575,8 @@ void DorisSnapshotManager::drop_snapshot(std::string_view instance_id,
 // ============================================================================
 
 void DorisSnapshotManager::list_snapshot(std::string_view instance_id,
-                                          const ListSnapshotRequest& request,
-                                          ListSnapshotResponse* response) {
+                                         const ListSnapshotRequest& request,
+                                         ListSnapshotResponse* response) {
     // If a specific snapshot is requested
     if (request.has_required_snapshot_id() && !request.required_snapshot_id().empty()) {
         Versionstamp vs;
@@ -601,7 +598,8 @@ void DorisSnapshotManager::list_snapshot(std::string_view instance_id,
         err = read_snapshot_pb(txn.get(), instance_id, vs, &pb);
         if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
             response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
-            response->mutable_status()->set_msg("snapshot not found: " + request.required_snapshot_id());
+            response->mutable_status()->set_msg("snapshot not found: " +
+                                                request.required_snapshot_id());
             return;
         }
         if (err != TxnErrorCode::TXN_OK) {
@@ -645,12 +643,14 @@ void DorisSnapshotManager::list_snapshot(std::string_view instance_id,
 
         SnapshotPB snapshot_pb;
         if (!snapshot_pb.ParseFromArray(snapshot_value.data(), snapshot_value.size())) {
-            LOG(WARNING) << "list_snapshot: failed to parse SnapshotPB, instance_id=" << instance_id;
+            LOG(WARNING) << "list_snapshot: failed to parse SnapshotPB, instance_id="
+                         << instance_id;
             continue;
         }
 
         // Filter ABORTED snapshots unless explicitly requested
-        if (!request.include_aborted() && snapshot_pb.status() == SnapshotStatus::SNAPSHOT_ABORTED) {
+        if (!request.include_aborted() &&
+            snapshot_pb.status() == SnapshotStatus::SNAPSHOT_ABORTED) {
             continue;
         }
         // Skip RECYCLED snapshots
@@ -676,7 +676,7 @@ void DorisSnapshotManager::list_snapshot(std::string_view instance_id,
 // ============================================================================
 
 void DorisSnapshotManager::clone_instance(const CloneInstanceRequest& request,
-                                           CloneInstanceResponse* response) {
+                                          CloneInstanceResponse* response) {
     // Validate required fields
     if (!request.has_from_snapshot_id() || request.from_snapshot_id().empty()) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
@@ -693,10 +693,10 @@ void DorisSnapshotManager::clone_instance(const CloneInstanceRequest& request,
         response->mutable_status()->set_msg("new_instance_id must not be empty");
         return;
     }
-    if (!request.has_clone_type() ||
-        request.clone_type() == CloneInstanceRequest::UNKNOWN) {
+    if (!request.has_clone_type() || request.clone_type() == CloneInstanceRequest::UNKNOWN) {
         response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
-        response->mutable_status()->set_msg("clone_type must be specified (READ_ONLY, WRITABLE, or ROLLBACK)");
+        response->mutable_status()->set_msg(
+                "clone_type must be specified (READ_ONLY, WRITABLE, or ROLLBACK)");
         return;
     }
 
@@ -877,9 +877,8 @@ std::pair<MetaServiceCode, std::string> DorisSnapshotManager::set_multi_version_
     }
 
     // Validate state transition
-    auto current = instance.has_multi_version_status()
-                           ? instance.multi_version_status()
-                           : MultiVersionStatus::MULTI_VERSION_DISABLED;
+    auto current = instance.has_multi_version_status() ? instance.multi_version_status()
+                                                       : MultiVersionStatus::MULTI_VERSION_DISABLED;
     if (multi_version_status == current) {
         return {MetaServiceCode::OK, "no change"};
     }

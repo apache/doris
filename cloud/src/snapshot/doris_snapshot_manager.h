@@ -90,7 +90,8 @@ private:
     static bool validate_ip_address(const std::string& ip);
 
     /// Build the object-storage image URL prefix for a snapshot.
-    static std::string build_image_url(const InstanceInfoPB& instance, const std::string& snapshot_id);
+    static std::string build_image_url(const InstanceInfoPB& instance,
+                                       const std::string& snapshot_id);
 
     /// Convert SnapshotPB to SnapshotInfoPB for list responses.
     static void snapshot_pb_to_info(const SnapshotPB& pb, const Versionstamp& vs,
