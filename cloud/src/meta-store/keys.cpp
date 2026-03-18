@@ -44,6 +44,7 @@ static const char* TXN_KEY_INFIX_INDEX                  = "txn_index";
 static const char* TXN_KEY_INFIX_RUNNING                = "txn_running";
 
 static const char* PARTITION_VERSION_KEY_INFIX          = "partition";
+static const char* PARTITION_COMMIT_VERSION_KEY_INFIX   = "partition_commit";
 static const char* TABLE_VERSION_KEY_INFIX              = "table";
 
 static const char* META_KEY_INFIX_ROWSET                = "rowset";
@@ -53,6 +54,7 @@ static const char* META_KEY_INFIX_TABLET_IDX            = "tablet_index";
 static const char* META_KEY_INFIX_SCHEMA                = "schema";
 static const char* META_KEY_INFIX_DELETE_BITMAP         = "delete_bitmap";
 static const char* META_KEY_INFIX_DELETE_BITMAP_LOCK    = "delete_bitmap_lock";
+static const char* META_KEY_INFIX_DELETE_BITMAP_TABLET_LOCK = "delete_bitmap_tablet_lock";
 static const char* META_KEY_INFIX_DELETE_BITMAP_PENDING = "delete_bitmap_pending";
 static const char* META_KEY_INFIX_MOW_TABLET_JOB        = "mow_tablet_job";
 static const char* META_KEY_INFIX_SCHEMA_DICTIONARY     = "tablet_schema_pb_dict";
@@ -146,7 +148,8 @@ static void encode_prefix(const T& t, std::string* key) {
         InstanceKeyInfo,
         TxnLabelKeyInfo, TxnInfoKeyInfo, TxnIndexKeyInfo, TxnRunningKeyInfo,
         MetaRowsetKeyInfo, MetaRowsetTmpKeyInfo, MetaTabletKeyInfo, MetaTabletIdxKeyInfo, MetaSchemaKeyInfo,
-        MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo,
+        MetaDeleteBitmapInfo, MetaDeleteBitmapUpdateLockInfo, MetaDeleteBitmapTabletLockInfo,
+        MetaPendingDeleteBitmapInfo, PartitionVersionKeyInfo, PartitionCommitVersionKeyInfo,
         RecycleIndexKeyInfo, RecyclePartKeyInfo, RecycleRowsetKeyInfo, RecycleTxnKeyInfo, RecycleStageKeyInfo,
         StatsTabletKeyInfo, TableVersionKeyInfo, JobRestoreTabletKeyInfo, JobRestoreRowsetKeyInfo,
         JobTabletKeyInfo, JobRecycleKeyInfo, JobSnapshotDataMigratorKeyInfo, JobSnapshotChainCompactorKeyInfo,
@@ -171,11 +174,13 @@ static void encode_prefix(const T& t, std::string* key) {
                       || std::is_same_v<T, MetaSchemaPBDictionaryInfo>
                       || std::is_same_v<T, MetaDeleteBitmapInfo>
                       || std::is_same_v<T, MetaDeleteBitmapUpdateLockInfo>
+                      || std::is_same_v<T, MetaDeleteBitmapTabletLockInfo>
                       || std::is_same_v<T, MetaPendingDeleteBitmapInfo>
                       || std::is_same_v<T, MowTabletJobInfo>
                       || std::is_same_v<T, PackedFileKeyInfo>) {
         encode_bytes(META_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, PartitionVersionKeyInfo>
+                      || std::is_same_v<T, PartitionCommitVersionKeyInfo>
                       || std::is_same_v<T, TableVersionKeyInfo>) {
         encode_bytes(VERSION_KEY_PREFIX, key);
     } else if constexpr (std::is_same_v<T, RecycleIndexKeyInfo>
@@ -281,6 +286,14 @@ void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out) 
     encode_int64(std::get<3>(in), out);             // partition_id
 }
 
+void partition_commit_version_key(const PartitionCommitVersionKeyInfo& in, std::string* out) {
+    encode_prefix(in, out);                                // 0x01 "version" ${instance_id}
+    encode_bytes(PARTITION_COMMIT_VERSION_KEY_INFIX, out); // "partition_commit"
+    encode_int64(std::get<1>(in), out);                    // db_id
+    encode_int64(std::get<2>(in), out);                    // tbl_id
+    encode_int64(std::get<3>(in), out);                    // partition_id
+}
+
 //==============================================================================
 // Meta keys
 //==============================================================================
@@ -342,6 +355,14 @@ void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in
     encode_bytes(META_KEY_INFIX_DELETE_BITMAP_LOCK, out); // "delete_bitmap_lock"
     encode_int64(std::get<1>(in), out);                   // table_id
     encode_int64(std::get<2>(in), out);                   // partition_id
+}
+
+void meta_delete_bitmap_tablet_lock_key(const MetaDeleteBitmapTabletLockInfo& in,
+                                         std::string* out) {
+    encode_prefix(in, out);                                      // 0x01 "meta" ${instance_id}
+    encode_bytes(META_KEY_INFIX_DELETE_BITMAP_TABLET_LOCK, out); // "delete_bitmap_tablet_lock"
+    encode_int64(std::get<1>(in), out);                          // table_id
+    encode_int64(std::get<2>(in), out);                          // tablet_id
 }
 
 void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out) {
@@ -1323,6 +1344,36 @@ bool decode_partition_version_key(std::string_view* in, int64_t* db_id, int64_t*
     try {
         if (std::get<std::string>(std::get<0>(out[0])) != VERSION_KEY_PREFIX ||
             std::get<std::string>(std::get<0>(out[2])) != PARTITION_VERSION_KEY_INFIX) {
+            return false;
+        }
+        *db_id = std::get<int64_t>(std::get<0>(out[3]));
+        *tbl_id = std::get<int64_t>(std::get<0>(out[4]));
+        *partition_id = std::get<int64_t>(std::get<0>(out[5]));
+    } catch (const std::bad_variant_access& e) {
+        return false;
+    }
+
+    return true;
+}
+
+// Decode partition commit version key to extract db_id, tbl_id and partition_id
+// 0x01 "version" ${instance_id} "partition_commit" ${db_id} ${tbl_id} ${partition_id}
+bool decode_partition_commit_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id,
+                                          int64_t* partition_id) {
+    if (in->empty() || static_cast<uint8_t>((*in)[0]) != CLOUD_USER_KEY_SPACE01) {
+        return false;
+    }
+
+    in->remove_prefix(1);
+
+    std::vector<std::tuple<std::variant<int64_t, std::string>, int, int>> out;
+    if (decode_key(in, &out) != 0 || out.size() != 6) {
+        return false;
+    }
+
+    try {
+        if (std::get<std::string>(std::get<0>(out[0])) != VERSION_KEY_PREFIX ||
+            std::get<std::string>(std::get<0>(out[2])) != PARTITION_COMMIT_VERSION_KEY_INFIX) {
             return false;
         }
         *db_id = std::get<int64_t>(std::get<0>(out[3]));
