@@ -430,7 +430,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _whole_buffer_size(whole_buffer_size),
               _reader(reader),
               _io_ctx(io_ctx),
-              _buf(new char[buffer_size]),
+              _buf(nullptr),
               _sync_profile(std::move(sync_profile)) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
