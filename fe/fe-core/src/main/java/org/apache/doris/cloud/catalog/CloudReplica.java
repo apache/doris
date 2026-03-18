@@ -37,6 +37,8 @@ import com.google.common.collect.Lists;
 import com.google.common.hash.HashCode;
 import com.google.common.hash.Hashing;
 import com.google.gson.annotations.SerializedName;
+import lombok.Getter;
+import lombok.Setter;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -69,6 +71,20 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     private long indexId = -1;
     @SerializedName(value = "idx")
     private long idx = -1;
+    // last time to get tablet stats
+    @Getter
+    @Setter
+    long lastGetTabletStatsTime = 0;
+    /**
+     * The index of {@link org.apache.doris.catalog.CloudTabletStatMgr#DEFAULT_INTERVAL_LADDER_MS} array.
+     * Used to control the interval of getting tablet stats.
+     * When get tablet stats:
+     * if the stats is unchanged, will update this index to next value to get stats less frequently;
+     * if the stats is changed, will update this index to 0 to get stats more frequently.
+     */
+    @Getter
+    @Setter
+    int statsIntervalIndex = 0;
 
     private static final Random rand = new Random();
 
