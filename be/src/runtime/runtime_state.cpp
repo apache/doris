@@ -507,10 +507,14 @@ Status RuntimeState::register_consumer_runtime_filter(
     // from old rounds are detected and discarded.
     // PFC must still be alive: this runs inside a pipeline task, so the execution context
     // cannot have expired yet.
-    auto pfc =
-            std::static_pointer_cast<PipelineFragmentContext>(get_task_execution_context().lock());
-    DORIS_CHECK(pfc);
-    (*consumer_filter)->set_stage(pfc->rec_cte_stage());
+    // In unit-test scenarios the task execution context is never set (no PipelineFragmentContext
+    // exists), so skip the stage stamping — the default stage (0) is correct.
+    if (task_execution_context_inited()) {
+        auto pfc = std::static_pointer_cast<PipelineFragmentContext>(
+                get_task_execution_context().lock());
+        DORIS_CHECK(pfc);
+        (*consumer_filter)->set_stage(pfc->rec_cte_stage());
+    }
     return Status::OK();
 }
 

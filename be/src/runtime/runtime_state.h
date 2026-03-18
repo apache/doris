@@ -644,6 +644,8 @@ public:
         _task_execution_context = context;
     }
 
+    bool task_execution_context_inited() const { return _task_execution_context_inited; }
+
     std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
         CHECK(_task_execution_context_inited)
                 << "_task_execution_context_inited == false, the ctx is not inited";

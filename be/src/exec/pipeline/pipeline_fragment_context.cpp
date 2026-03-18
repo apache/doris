@@ -2036,8 +2036,8 @@ std::string PipelineFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "PipelineFragmentContext Info: _closed_tasks={}, _total_tasks={}, "
-                   "need_notify_close={}, fragment_id={}\n",
-                   _closed_tasks, _total_tasks, _need_notify_close, _fragment_id);
+                   "need_notify_close={}, fragment_id={}, _rec_cte_stage={}\n",
+                   _closed_tasks, _total_tasks, _need_notify_close, _fragment_id, _rec_cte_stage);
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
