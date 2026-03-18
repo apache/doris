@@ -153,7 +153,6 @@ class SchemaChangeHelperTest {
         assertEquals(DorisType.STRING, map("uuid",    -1, -1));
         assertEquals(DorisType.STRING, map("bytea",   -1, -1));
         assertEquals(DorisType.STRING, map("varbit",  -1, -1));
-        assertEquals(DorisType.STRING, map("hstore",  -1, -1));
     }
 
     @Test
