@@ -505,6 +505,18 @@ public class Config extends ConfigBase {
             "If the number of publishing transactions of a table exceeds this value, new transactions will "
                     + "be rejected. Set to -1 to disable this limit."})
     public static long max_publishing_txn_num_per_table = 500;
+    @ConfField(masterOnly = true, mutable = true, description = {"Publish 阶段获取表写锁的超时时间，单位是毫秒。",
+            "Timeout for acquiring table write lock during publish phase, in milliseconds"})
+    public static long publish_table_write_lock_timeout_ms = 10000;
+
+    @ConfField(masterOnly = true, mutable = true, description = {
+            "是否在 Publish 阶段使用带超时的 tryLock 获取表写锁。"
+                    + "设置为 true 时使用 tryWriteLockTablesIfExist（带超时），"
+                    + "设置为 false 时使用 writeLockTablesIfExist（阻塞等待）。",
+            "Whether to use tryLock with timeout to acquire table write lock during publish phase. "
+                    + "If true, use tryWriteLockTablesIfExist (with timeout). "
+                    + "If false, use writeLockTablesIfExist (blocking wait)."})
+    public static boolean enable_publish_write_lock_with_timeout = false;
 
     @ConfField(description = {"The maximum number of worker threads of the Thrift server"})
     public static int thrift_server_max_worker_threads = 4096;

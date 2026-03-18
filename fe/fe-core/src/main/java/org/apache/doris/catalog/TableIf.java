@@ -68,6 +68,10 @@ public interface TableIf {
         return true;
     }
 
+    default boolean tryWriteLock(long timeout, TimeUnit unit, boolean mustLock) {
+        return true;
+    }
+
     default void writeUnlock() {
     }
 
