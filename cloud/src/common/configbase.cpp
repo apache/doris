@@ -462,4 +462,53 @@ std::pair<bool, std::string> set_config(std::unordered_map<std::string, std::str
 std::shared_mutex* get_mutable_string_config_lock() {
     return &mutable_string_config_lock;
 }
+
+std::string show_config(const std::string& conf_name) {
+    if (full_conf_map == nullptr) {
+        return "";
+    }
+
+    std::ostringstream oss;
+    oss << "[";
+    bool first = true;
+    for (auto& [name, field] : *Register::_s_field_map) {
+        if (!conf_name.empty() && name != conf_name) {
+            continue;
+        }
+        auto it = full_conf_map->find(name);
+        std::string value = (it != full_conf_map->end()) ? it->second : "";
+
+        if (!first) oss << ",";
+        first = false;
+        oss << "[\"" << name << "\",\"" << field.type << "\",\"" << value << "\","
+            << (field.valmutable ? "true" : "false") << "]";
+    }
+    oss << "]";
+    return oss.str();
+}
+
+std::pair<bool, std::string> update_config(const std::string& configs, bool persist,
+                                           const std::string& custom_conf_path) {
+    if (configs.empty()) {
+        return {false, "query param `configs` should not be empty"};
+    }
+
+    std::unordered_map<std::string, std::string> conf_map;
+    std::istringstream ss(configs);
+    std::string conf;
+    while (std::getline(ss, conf, ',')) {
+        auto pos = conf.find('=');
+        if (pos == std::string::npos) {
+            return {false, fmt::format("config {} is invalid", conf)};
+        }
+        std::string key = conf.substr(0, pos);
+        std::string val = conf.substr(pos + 1);
+        trim(key);
+        trim(val);
+        conf_map.emplace(std::move(key), std::move(val));
+    }
+
+    return set_config(std::move(conf_map), persist, custom_conf_path);
+}
+
 } // namespace doris::cloud::config
