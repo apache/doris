@@ -115,8 +115,6 @@ public:
     Slice min_encoded_key();
     Slice max_encoded_key();
 
-    void clear();
-
     Status close_inverted_index(int64_t* inverted_index_file_size) {
         // no inverted index
         if (_index_file_writer == nullptr) {
@@ -133,11 +131,6 @@ private:
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
     uint64_t _estimated_remaining_size();
-    Status _write_ordinal_index();
-    Status _write_zone_map();
-    Status _write_inverted_index();
-    Status _write_ann_index();
-    Status _write_bloom_filter_index();
     Status _write_short_key_index();
     Status _write_primary_key_index();
     Status _write_footer();

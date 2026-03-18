@@ -459,6 +459,17 @@ Status VerticalSegmentWriter::_finalize_column_writer_and_update_meta(size_t cid
     column_meta->set_uncompressed_data_bytes(
             _column_writers[cid]->get_total_uncompressed_data_pages_bytes());
     column_meta->set_raw_data_bytes(_column_writers[cid]->get_raw_data_bytes());
+
+    // Write all index types immediately after data is finalized, then release the column
+    // writer to reduce peak memory. This is especially beneficial for inverted index columns
+    // (Lucene RAM buffer) and bloom filters (large bit arrays).
+    RETURN_IF_ERROR(_column_writers[cid]->write_ordinal_index());
+    RETURN_IF_ERROR(_column_writers[cid]->write_zone_map());
+    RETURN_IF_ERROR(_column_writers[cid]->write_inverted_index());
+    RETURN_IF_ERROR(_column_writers[cid]->write_ann_index());
+    RETURN_IF_ERROR(_column_writers[cid]->write_bloom_filter_index());
+    _column_writers[cid].reset();
+
     return Status::OK();
 }
 
@@ -1265,11 +1276,23 @@ uint64_t VerticalSegmentWriter::_estimated_remaining_size() {
 
 Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
     uint64_t index_start = _file_writer->bytes_appended();
-    RETURN_IF_ERROR(_write_ordinal_index());
-    RETURN_IF_ERROR(_write_zone_map());
-    RETURN_IF_ERROR(_write_inverted_index());
-    RETURN_IF_ERROR(_write_ann_index());
-    RETURN_IF_ERROR(_write_bloom_filter_index());
+
+    // Column indices are written and writers released eagerly in
+    // _finalize_column_writer_and_update_meta. The loop below is a defensive fallback for
+    // any writers that were not processed through that path.
+    for (auto& column_writer : _column_writers) {
+        if (!column_writer) {
+            continue;
+        }
+        RETURN_IF_ERROR(column_writer->write_ordinal_index());
+        RETURN_IF_ERROR(column_writer->write_zone_map());
+        RETURN_IF_ERROR(column_writer->write_inverted_index());
+        RETURN_IF_ERROR(column_writer->write_ann_index());
+        RETURN_IF_ERROR(column_writer->write_bloom_filter_index());
+        column_writer.reset();
+    }
+    _column_writers.clear();
+    _olap_data_convertor.reset();
 
     *index_size = _file_writer->bytes_appended() - index_start;
     if (_is_mow_with_cluster_key()) {
@@ -1286,9 +1309,6 @@ Status VerticalSegmentWriter::finalize_columns_index(uint64_t* index_size) {
         RETURN_IF_ERROR(_write_short_key_index());
         *index_size = _file_writer->bytes_appended() - index_start;
     }
-
-    // reset all column writers and data_conveter
-    clear();
 
     return Status::OK();
 }
@@ -1327,49 +1347,6 @@ Status VerticalSegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* in
     return Status::OK();
 }
 
-void VerticalSegmentWriter::clear() {
-    for (auto& column_writer : _column_writers) {
-        column_writer.reset();
-    }
-    _column_writers.clear();
-    _olap_data_convertor.reset();
-}
-
-// write ordinal index after data has been written
-Status VerticalSegmentWriter::_write_ordinal_index() {
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_ordinal_index());
-    }
-    return Status::OK();
-}
-
-Status VerticalSegmentWriter::_write_zone_map() {
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_zone_map());
-    }
-    return Status::OK();
-}
-
-Status VerticalSegmentWriter::_write_inverted_index() {
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_inverted_index());
-    }
-    return Status::OK();
-}
-
-Status VerticalSegmentWriter::_write_ann_index() {
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_ann_index());
-    }
-    return Status::OK();
-}
-
-Status VerticalSegmentWriter::_write_bloom_filter_index() {
-    for (auto& column_writer : _column_writers) {
-        RETURN_IF_ERROR(column_writer->write_bloom_filter_index());
-    }
-    return Status::OK();
-}
 
 Status VerticalSegmentWriter::_write_short_key_index() {
     std::vector<Slice> body;
