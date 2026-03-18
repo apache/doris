@@ -167,6 +167,10 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
     return _fragment_watcher.elapsed_time_seconds(now) > _timeout;
 }
 
+// notify_close() transitions the PFC from "waiting for external close notification" to
+// "self-managed close". For recursive CTE fragments, the old PFC is kept alive until
+// the rerun_fragment(wait_for_destroy) RPC calls this to trigger shutdown.
+// Returns true if all tasks have already closed (i.e., the PFC can be safely destroyed).
 bool PipelineFragmentContext::notify_close() {
     bool all_closed = false;
     std::lock_guard<std::mutex> l(_task_mutex);
@@ -2079,6 +2083,13 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     return load_channel_profile;
 }
 
+// Collect runtime filter IDs registered by all tasks in this PFC.
+// Used during recursive CTE stage transitions to know which filters to deregister
+// before creating the new PFC for the next recursion round.
+// Called from rerun_fragment(wait_for_destroy) while tasks are still closing.
+// Thread safety: safe because _tasks is structurally immutable after prepare() —
+// the vector sizes do not change, and individual RuntimeState filter sets are
+// written only during open() which has completed by the time we reach rerun.
 std::set<int> PipelineFragmentContext::get_deregister_runtime_filter() const {
     std::set<int> result;
     for (const auto& _task : _tasks) {

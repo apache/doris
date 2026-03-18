@@ -937,6 +937,8 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     }
 
     // Save params for recursive CTE child fragments so we can recreate the PFC later.
+    // For recursive CTE, the child fragment needs to be destroyed and rebuilt between rounds,
+    // so we save the original params here and use them in rerun_fragment(rebuild).
     if (params.__isset.need_notify_close && params.need_notify_close) {
         std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
         _rerunnable_params_map[{params.query_id, params.fragment_id}] = {
@@ -1491,6 +1493,16 @@ Status FragmentMgr::transmit_rec_cte_block(
     }
 }
 
+// Orchestrates the recursive CTE fragment lifecycle through 4 phases:
+//
+// wait_for_destroy: collect deregister RF IDs, store brpc closure, trigger old PFC close
+// rebuild: increment stage, deregister old RFs, create+prepare new PFC from saved params
+// submit: submit the new PFC's pipeline tasks for execution
+// final_close: async wait for close, send final report, clean up (last round only)
+//
+// The brpc ClosureGuard is stored in the PFC so the RPC response is deferred until
+// the PFC is fully destroyed. This gives the caller (RecCTESourceOperatorX) a
+// synchronization point to know when the old PFC has finished all its tasks.
 Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& guard,
                                    const TUniqueId& query_id, int fragment_id,
                                    PRerunFragmentParams_Opcode stage) {
@@ -1599,7 +1611,6 @@ Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
                 "reset_fragment: Query context (query-id: {}) not found, maybe finished",
                 print_id(query_id));
     }
-    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

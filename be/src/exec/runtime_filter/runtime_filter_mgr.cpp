@@ -237,7 +237,10 @@ Status RuntimeFilterMergeControllerEntity::send_filter_size(std::shared_ptr<Quer
     }
     auto& cnt_val = iter->second;
     std::unique_lock<std::mutex> l(iter->second.mtx);
-    // discard low stage rf
+    // Discard stale-stage runtime filter size requests from old recursive CTE rounds.
+    // Each round increments the stage counter; only messages matching the current stage
+    // should be processed. This prevents old PFC's runtime filters from corrupting
+    // the merge state of the new round's filters.
     if (request->stage() != iter->second.stage) {
         return Status::OK();
     }
@@ -338,7 +341,7 @@ Status RuntimeFilterMergeControllerEntity::merge(std::shared_ptr<QueryContext> q
     bool is_ready = false;
     {
         std::lock_guard<std::mutex> l(iter->second.mtx);
-        // discard low stage rf
+        // Discard stale-stage merge requests from old recursive CTE rounds.
         if (request->stage() != iter->second.stage) {
             return Status::OK();
         }
@@ -462,8 +465,13 @@ Status RuntimeFilterMergeControllerEntity::_send_rf_to_target(GlobalMergeContext
     return st;
 }
 
+// Reset merge context for the next recursive CTE round.
+// Recreates the merger to clear accumulated state, preserving expected producer count.
+// Increments the stage counter so stale merge/size RPCs from old rounds are discarded.
 Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     std::unique_lock<std::mutex> lock(mtx);
+    // Merger must exist: reset() is only called on fully initialized merge contexts.
+    DORIS_CHECK(merger);
     int producer_size = merger->get_expected_producer_num();
     RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, &runtime_filter_desc, &merger));
     merger->set_expected_producer_num(producer_size);

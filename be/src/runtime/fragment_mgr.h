@@ -236,12 +236,19 @@ private:
 
     // Saved params and callback for rerunnable (recursive CTE) fragments.
     // Only populated when need_notify_close == true during exec_plan_fragment.
+    // Lifecycle: created in exec_plan_fragment(), used in rerun_fragment(rebuild)
+    // to recreate PFC with fresh state, cleaned up in remove_query_context().
     struct RerunableFragmentInfo {
+        // Runtime filter IDs registered by the old PFC, collected during wait_for_destroy.
+        // These are deregistered from the RuntimeFilterMgr before the new PFC is created.
         std::set<int> deregister_runtime_filter_ids;
+        // Original params from FE, used to recreate the PFC each round.
         TPipelineFragmentParams params;
         TPipelineFragmentParamsList parent;
         FinishCallback finish_callback;
-        std::shared_ptr<QueryContext> query_ctx; // avoid query_ctx release
+        // Hold query_ctx to prevent it from being destroyed while rerunnable fragments exist.
+        std::shared_ptr<QueryContext> query_ctx;
+        // Monotonically increasing stage counter, stamps runtime filter RPCs.
         uint32_t stage = 0;
     };
     std::mutex _rerunnable_params_lock;

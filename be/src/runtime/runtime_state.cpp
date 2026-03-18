@@ -483,8 +483,13 @@ Status RuntimeState::register_producer_runtime_filter(
     // When RF is published, consumers in both global and local RF mgr will be found.
     RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(_query_ctx, desc,
                                                                          producer_filter));
+    // Stamp the producer with the current recursive CTE stage so that outgoing merge RPCs
+    // carry the correct round number and stale messages from old rounds are discarded.
+    // PFC must still be alive: this runs inside a pipeline task, so the execution context
+    // cannot have expired yet.
     auto pfc =
             std::static_pointer_cast<PipelineFragmentContext>(get_task_execution_context().lock());
+    DORIS_CHECK(pfc);
     (*producer_filter)->set_stage(pfc->rec_cte_stage());
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
             _query_ctx, desc, *producer_filter));
@@ -498,8 +503,13 @@ Status RuntimeState::register_consumer_runtime_filter(
     bool need_merge = desc.has_remote_targets || need_local_merge;
     RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
     RETURN_IF_ERROR(mgr->register_consumer_filter(this, desc, node_id, consumer_filter));
+    // Stamp the consumer with the current recursive CTE stage so that incoming publish RPCs
+    // from old rounds are detected and discarded.
+    // PFC must still be alive: this runs inside a pipeline task, so the execution context
+    // cannot have expired yet.
     auto pfc =
             std::static_pointer_cast<PipelineFragmentContext>(get_task_execution_context().lock());
+    DORIS_CHECK(pfc);
     (*consumer_filter)->set_stage(pfc->rec_cte_stage());
     return Status::OK();
 }

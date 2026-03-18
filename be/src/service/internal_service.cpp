@@ -1699,6 +1699,10 @@ void PInternalService::rerun_fragment(google::protobuf::RpcController* controlle
                                       PRerunFragmentResult* response,
                                       google::protobuf::Closure* done) {
     bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        // Use shared_ptr<ClosureGuard> so we can transfer ownership to the PFC.
+        // For wait_for_destroy/final_close, the guard is stored in the PFC and the RPC
+        // response is deferred until the PFC is fully destroyed. For rebuild/submit,
+        // the guard fires immediately when this lambda returns.
         std::shared_ptr<brpc::ClosureGuard> closure_guard =
                 std::make_shared<brpc::ClosureGuard>(done);
         auto st = _exec_env->fragment_mgr()->rerun_fragment(

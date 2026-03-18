@@ -97,6 +97,9 @@ public:
 
     [[nodiscard]] int get_fragment_id() const { return _fragment_id; }
 
+    uint32_t rec_cte_stage() const { return _rec_cte_stage; }
+    void set_rec_cte_stage(uint32_t stage) { _rec_cte_stage = stage; }
+
     void decrement_running_task(PipelineId pipeline_id);
 
     Status send_report(bool);
@@ -132,6 +135,14 @@ public:
 
     std::set<int> get_deregister_runtime_filter() const;
 
+    // Store the brpc ClosureGuard so the RPC response is deferred until this PFC is destroyed.
+    // When need_send_report_on_destruction is true (final_close), send the report immediately
+    // and do not store the guard (let it fire on return to complete the RPC).
+    //
+    // Thread safety: This method is NOT thread-safe. It reads/writes _wait_close_guard without
+    // synchronization. Currently it is only called from rerun_fragment() which is invoked
+    // sequentially by RecCTESourceOperatorX (a serial operator) — one opcode at a time per
+    // fragment. Do NOT call this concurrently from multiple threads.
     Status listen_wait_close(const std::shared_ptr<brpc::ClosureGuard>& guard,
                              bool need_send_report_on_destruction) {
         if (_wait_close_guard) {
@@ -353,15 +364,15 @@ private:
     int32_t _parallel_instances = 0;
 
     std::atomic<bool> _need_notify_close = false;
+    // Holds the brpc ClosureGuard for async wait-close during recursive CTE rerun.
+    // When the PFC finishes closing and is destroyed, the shared_ptr destructor fires
+    // the ClosureGuard, which completes the brpc response to the RecCTESourceOperatorX.
+    // Only written by listen_wait_close() from a single rerun_fragment RPC thread.
     std::shared_ptr<brpc::ClosureGuard> _wait_close_guard = nullptr;
 
     // The recursion round number for recursive CTE fragments.
     // Incremented each time the fragment is rebuilt via rerun_fragment(rebuild).
     // Used to stamp runtime filter RPCs so stale messages from old rounds are discarded.
     uint32_t _rec_cte_stage = 0;
-
-public:
-    uint32_t rec_cte_stage() const { return _rec_cte_stage; }
-    void set_rec_cte_stage(uint32_t stage) { _rec_cte_stage = stage; }
 };
 } // namespace doris
