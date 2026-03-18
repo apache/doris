@@ -47,6 +47,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmAnalyzeMode;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -383,7 +384,8 @@ public class MTMVPlanUtil {
         return dataType;
     }
 
-    public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx) throws UserException {
+    public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx,
+            IvmAnalyzeMode ivmAnalyzeMode) throws UserException {
         String querySql = mtmv.getQuerySql();
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
@@ -411,14 +413,13 @@ public class MTMVPlanUtil {
                 DistributionInfoType.HASH), defaultDistributionInfo.getAutoBucket(),
                 defaultDistributionInfo.getBucketNum(), Lists.newArrayList(mtmv.getDistributionColumnNames()));
         return analyzeQuery(ctx, mtmv.getMvProperties(), mtmvPartitionDefinition, distribution, null,
-                mtmv.getTableProperty().getProperties(), keys, logicalPlan,
-                mtmv.getRefreshInfo().getRefreshMethod() ==  RefreshMethod.INCREMENTAL);
+                mtmv.getTableProperty().getProperties(), keys, logicalPlan, ivmAnalyzeMode);
     }
 
     public static MTMVAnalyzeQueryInfo analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties,
             MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
             List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
-            LogicalPlan logicalQuery, boolean enableIvmRewrite) throws UserException {
+            LogicalPlan logicalQuery, IvmAnalyzeMode ivmAnalyzeMode) throws UserException {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
@@ -432,8 +433,11 @@ public class MTMVPlanUtil {
             try {
                 // must disable constant folding by be, because be constant folding may return wrong type
                 ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
-                if (enableIvmRewrite) {
-                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_REWRITE_IN_NEREIDS, "true");
+                if (ivmAnalyzeMode != IvmAnalyzeMode.NONE) {
+                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "true");
+                }
+                if (ivmAnalyzeMode == IvmAnalyzeMode.FULL) {
+                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_DELTA_REWRITE, "true");
                 }
                 plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
             } finally {
@@ -478,7 +482,7 @@ public class MTMVPlanUtil {
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
             MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
-            if (enableIvmRewrite) {
+            if (ivmAnalyzeMode == IvmAnalyzeMode.FULL) {
                 queryInfo.setIvmDeltaBundles(planner.getCascadesContext().getIvmDeltaBundles());
             }
             return queryInfo;
@@ -561,7 +565,9 @@ public class MTMVPlanUtil {
     public static void ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
         MTMVAnalyzeQueryInfo mtmvAnalyzedQueryInfo;
         try {
-            mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx);
+            IvmAnalyzeMode mode = mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL
+                    ? IvmAnalyzeMode.NORMALIZE_ONLY : IvmAnalyzeMode.NONE;
+            mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, mode);
         } catch (Exception e) {
             throw new JobException(e.getMessage(), e);
         }
