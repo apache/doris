@@ -70,13 +70,10 @@ public class IVMRefreshManagerTest {
 
     @Test
     public void testManagerRejectsNulls() {
-        IVMCapabilityChecker checker = (context, bundles) -> IVMCapabilityResult.ok();
-        IVMDeltaExecutor executor = (context, bundles) -> { };
-
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(null, executor));
+                () -> new IVMRefreshManager(null, new IVMDeltaExecutor()));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(checker, null));
+                () -> new IVMRefreshManager(new IVMCapabilityChecker(), null));
     }
 
     @Test
@@ -91,7 +88,7 @@ public class IVMRefreshManagerTest {
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
         Assertions.assertEquals(0, checker.callCount);
-        Assertions.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(executor.executeCalled);
     }
 
     @Test
@@ -107,7 +104,7 @@ public class IVMRefreshManagerTest {
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
         Assertions.assertEquals(1, checker.callCount);
-        Assertions.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(executor.executeCalled);
     }
 
     @Test
@@ -121,7 +118,7 @@ public class IVMRefreshManagerTest {
 
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertEquals(1, checker.callCount);
-        Assertions.assertEquals(1, executor.callCount);
+        Assertions.assertTrue(executor.executeCalled);
         Assertions.assertEquals(bundles, executor.lastBundles);
     }
 
@@ -138,7 +135,7 @@ public class IVMRefreshManagerTest {
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
-        Assertions.assertEquals(1, executor.callCount);
+        Assertions.assertTrue(executor.executeCalled);
     }
 
     @Test
@@ -153,7 +150,7 @@ public class IVMRefreshManagerTest {
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFallbackReason());
         Assertions.assertEquals(0, checker.callCount);
-        Assertions.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(executor.executeCalled);
     }
 
     @Test
@@ -178,7 +175,7 @@ public class IVMRefreshManagerTest {
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.BINLOG_BROKEN, result.getFallbackReason());
         Assertions.assertEquals(0, checker.callCount);
-        Assertions.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(executor.executeCalled);
     }
 
     @Test
@@ -209,7 +206,7 @@ public class IVMRefreshManagerTest {
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
         Assertions.assertEquals(0, checker.callCount);
-        Assertions.assertEquals(0, executor.callCount);
+        Assertions.assertFalse(executor.executeCalled);
     }
 
     @Test
@@ -257,7 +254,7 @@ public class IVMRefreshManagerTest {
 
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertEquals(1, checker.callCount);
-        Assertions.assertEquals(1, executor.callCount);
+        Assertions.assertTrue(executor.executeCalled);
     }
 
     private static IVMRefreshContext newContext(MTMV mtmv) {
@@ -268,7 +265,7 @@ public class IVMRefreshManagerTest {
         return Collections.singletonList(new DeltaCommandBundle(new BaseTableInfo(mtmv, 0L), deltaWriteCommand));
     }
 
-    private static class TestCapabilityChecker implements IVMCapabilityChecker {
+    private static class TestCapabilityChecker extends IVMCapabilityChecker {
         private final IVMCapabilityResult result;
         private int callCount;
 
@@ -283,14 +280,14 @@ public class IVMRefreshManagerTest {
         }
     }
 
-    private static class TestDeltaExecutor implements IVMDeltaExecutor {
-        private int callCount;
+    private static class TestDeltaExecutor extends IVMDeltaExecutor {
+        private boolean executeCalled;
         private boolean throwOnExecute;
         private List<DeltaCommandBundle> lastBundles;
 
         @Override
         public void execute(IVMRefreshContext context, List<DeltaCommandBundle> bundles) throws AnalysisException {
-            callCount++;
+            executeCalled = true;
             lastBundles = bundles;
             if (throwOnExecute) {
                 throw new AnalysisException("executor failed");
