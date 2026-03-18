@@ -530,9 +530,8 @@ public class MTMVPlanUtil {
             List<ColumnDefinition> columns, boolean isIvm) {
         if (isIvm) {
             // for IVM, the hidden row-id column is the sole unique key
-            String ivmRowIdColName = "mv_" + IvmNormalizeMtmvPlan.IVM_ROW_ID_COL;
             for (ColumnDefinition col : columns) {
-                if (ivmRowIdColName.equals(col.getName())) {
+                if (IvmNormalizeMtmvPlan.IVM_ROW_ID_COL.equals(col.getName())) {
                     col.setIsKey(true);
                     return Lists.newArrayList(col.getName());
                 }
