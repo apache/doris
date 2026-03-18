@@ -2903,7 +2903,7 @@ public class SessionVariable implements Serializable, Writable {
             "Whether to enable bucketed hash aggregation optimization. This optimization fuses two-phase "
                     + "aggregation into a single operator on single-BE deployments, eliminating exchange overhead "
                     + "and serialization/deserialization costs. Disabled by default."})
-    public boolean enableBucketedHashAgg = false;
+    public boolean enableBucketedHashAgg = true;
 
     @VariableMgr.VarAttr(name = BUCKETED_AGG_MIN_INPUT_ROWS, needForward = true, description = {
             "bucketed hash aggregation 要求的最小输入行数。当估算输入行数小于此阈值时，"
@@ -2917,12 +2917,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BUCKETED_AGG_MAX_GROUP_KEYS, needForward = true, description = {
             "bucketed hash aggregation 允许的最大估算分组数（key 数量）。当估算分组数超过此阈值时，"
                     + "merge 阶段需要合并大量 key，开销会超过 bucketed agg 带来的收益。"
-                    + "类似于 ClickHouse 的 group_by_two_level_threshold。设为 0 表示不限制。默认 100000。",
+                    + "类似于 ClickHouse 的 group_by_two_level_threshold。设为 0 表示不限制。默认 10000000。",
             "Maximum estimated number of group keys for bucketed hash aggregation. When the estimated "
                     + "number of groups exceeds this threshold, the merge phase cost of combining large numbers "
                     + "of keys outweighs the benefit. Similar to ClickHouse's group_by_two_level_threshold. "
-                    + "Set to 0 to disable this check. Default 100000."})
-    public long bucketedAggMaxGroupKeys = 100000;
+                    + "Set to 0 to disable this check. Default 10000000."})
+    public long bucketedAggMaxGroupKeys = 10000000;
 
     @VariableMgr.VarAttr(name = MERGE_IO_READ_SLICE_SIZE_BYTES, description = {
             "调整 READ_SLICE_SIZE 大小，降低 Merge IO 读放大影响",
