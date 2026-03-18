@@ -1,44 +1,52 @@
 set sql_dialect='presto';
 set enable_fallback_to_original_planner=false;
 set debug_skip_fold_constant=false;
--- SELECT typeof(CAST(1 AS BIGINT)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(1 AS INTEGER)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(1 AS VARCHAR)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(1 AS DOUBLE)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(123); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof('cat'); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(NULL); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS VARCHAR(10))); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS DECIMAL(5,1))); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS DECIMAL(1))); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS DECIMAL)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS ARRAY(INTEGER))); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT typeof(CAST(NULL AS ARRAY(INTEGER)));	                                ^	Encountered: (	Expected	
--- SELECT typeof(CAST(NULL AS ARRAY(DECIMAL(5,1)))); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT typeof(CAST(NULL AS ARRAY(DECIMAL(5,1))));	                                ^	Encountered: (	Expected	
--- SELECT typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(INTEGER))))); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(INTEGER)))));	                                ^	Encountered: (	Expected	
--- SELECT typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(DECIMAL(5,1)))))); # error: errCode = 2, detailMessage = Syntax error in line 1:	... typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(DECIMAL(5,1))))));	                             ^	Encountered: (	Expected	
--- SELECT typeof(CONCAT('ala','ma','kota')); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CONCAT(CONCAT('ala','ma','kota'), 'baz')); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(ARRAY [CAST(1 AS INTEGER),CAST(2 AS INTEGER),CAST(3 AS INTEGER)]); # error: errCode = 2, detailMessage = Syntax error in line 1:	...(ARRAY [CAST(1 AS INTEGER),CAST(2 AS INTEGER),CAST(3 A...	                             ^	Encountered: COMMA	Expected: ||	
--- SELECT typeof(sin(2)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(2+sin(2)+2.3); # error: errCode = 2, detailMessage = Can not found function 'typeof'
+SELECT typeof(CAST(1 AS BIGINT));
+SELECT typeof(CAST(1 AS INTEGER));
+SELECT typeof(CAST(1 AS VARCHAR));
+SELECT typeof(CAST(1 AS DOUBLE));
+SELECT typeof(123);
+SELECT typeof('cat');
+SELECT typeof(NULL);
+SELECT typeof(CAST(NULL AS VARCHAR(10)));
+SELECT typeof(TRY_CAST(NULL AS VARCHAR(10)));
+SELECT typeof(CAST(NULL AS DECIMAL(5,1)));
+SELECT typeof(CAST(NULL AS DECIMAL(1)));
+SELECT typeof(CAST(NULL AS DECIMAL));
+SELECT typeof(TRY_CAST(NULL AS DECIMAL));
+SELECT typeof(CAST(NULL AS ARRAY<INT>));
+SELECT typeof(CAST(NULL AS ARRAY<DECIMAL(5,1)>));
+SELECT typeof(CAST(NULL AS ARRAY<ARRAY<ARRAY<INT>>>));
+SELECT typeof(CAST(NULL AS ARRAY<ARRAY<ARRAY<DECIMAL(5,1)>>>));
+SELECT typeof(CONCAT('ala','ma','kota'));
+SELECT typeof(CONCAT(CONCAT('ala','ma','kota'), 'baz'));
+SELECT typeof(array(CAST(1 AS INTEGER), CAST(2 AS INTEGER), CAST(3 AS INTEGER)));
+SELECT typeof(CAST(NULL AS MAP<INT,INT>));
+SELECT typeof(CAST(NULL AS STRUCT<s_id:INT>));
+SELECT typeof(sin(2));
+SELECT typeof(2+sin(2)+2.3);
 set debug_skip_fold_constant=true;
--- SELECT typeof(CAST(1 AS BIGINT)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(1 AS INTEGER)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(1 AS VARCHAR)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(1 AS DOUBLE)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(123); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof('cat'); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(NULL); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS VARCHAR(10))); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS DECIMAL(5,1))); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS DECIMAL(1))); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS DECIMAL)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CAST(NULL AS ARRAY(INTEGER))); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT typeof(CAST(NULL AS ARRAY(INTEGER)));	                                ^	Encountered: (	Expected	
--- SELECT typeof(CAST(NULL AS ARRAY(DECIMAL(5,1)))); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT typeof(CAST(NULL AS ARRAY(DECIMAL(5,1))));	                                ^	Encountered: (	Expected	
--- SELECT typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(INTEGER))))); # error: errCode = 2, detailMessage = Syntax error in line 1:	SELECT typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(INTEGER)))));	                                ^	Encountered: (	Expected	
--- SELECT typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(DECIMAL(5,1)))))); # error: errCode = 2, detailMessage = Syntax error in line 1:	... typeof(CAST(NULL AS ARRAY(ARRAY(ARRAY(DECIMAL(5,1))))));	                             ^	Encountered: (	Expected	
--- SELECT typeof(CONCAT('ala','ma','kota')); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(CONCAT(CONCAT('ala','ma','kota'), 'baz')); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(ARRAY [CAST(1 AS INTEGER),CAST(2 AS INTEGER),CAST(3 AS INTEGER)]); # error: errCode = 2, detailMessage = Syntax error in line 1:	...(ARRAY [CAST(1 AS INTEGER),CAST(2 AS INTEGER),CAST(3 A...	                             ^	Encountered: COMMA	Expected: ||	
--- SELECT typeof(sin(2)); # error: errCode = 2, detailMessage = Can not found function 'typeof'
--- SELECT typeof(2+sin(2)+2.3) # error: errCode = 2, detailMessage = Can not found function 'typeof'
+SELECT typeof(CAST(1 AS BIGINT));
+SELECT typeof(CAST(1 AS INTEGER));
+SELECT typeof(CAST(1 AS VARCHAR));
+SELECT typeof(CAST(1 AS DOUBLE));
+SELECT typeof(123);
+SELECT typeof('cat');
+SELECT typeof(NULL);
+SELECT typeof(CAST(NULL AS VARCHAR(10)));
+SELECT typeof(TRY_CAST(NULL AS VARCHAR(10)));
+SELECT typeof(CAST(NULL AS DECIMAL(5,1)));
+SELECT typeof(CAST(NULL AS DECIMAL(1)));
+SELECT typeof(CAST(NULL AS DECIMAL));
+SELECT typeof(TRY_CAST(NULL AS DECIMAL));
+SELECT typeof(CAST(NULL AS ARRAY<INT>));
+SELECT typeof(CAST(NULL AS ARRAY<DECIMAL(5,1)>));
+SELECT typeof(CAST(NULL AS ARRAY<ARRAY<ARRAY<INT>>>));
+SELECT typeof(CAST(NULL AS ARRAY<ARRAY<ARRAY<DECIMAL(5,1)>>>));
+SELECT typeof(CONCAT('ala','ma','kota'));
+SELECT typeof(CONCAT(CONCAT('ala','ma','kota'), 'baz'));
+SELECT typeof(array(CAST(1 AS INTEGER), CAST(2 AS INTEGER), CAST(3 AS INTEGER)));
+SELECT typeof(CAST(NULL AS MAP<INT,INT>));
+SELECT typeof(CAST(NULL AS STRUCT<s_id:INT>));
+SELECT typeof(sin(2));
+SELECT typeof(2+sin(2)+2.3);
