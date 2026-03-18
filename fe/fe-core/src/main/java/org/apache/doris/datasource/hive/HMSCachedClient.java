@@ -37,7 +37,8 @@ import java.util.Map;
 import java.util.function.Function;
 
 /**
- * A hive metastore client pool for a specific catalog with hive configuration.
+ * A Hive metastore client pool for a specific catalog with Hive configuration.
+ * This is a pool of metastore clients, not a thread pool.
  * Currently, we support obtain hive metadata from thrift protocol and JDBC protocol.
  */
 public interface HMSCachedClient {

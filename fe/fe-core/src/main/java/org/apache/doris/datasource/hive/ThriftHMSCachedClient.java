@@ -28,6 +28,7 @@ import org.apache.doris.info.TableNameInfo;
 
 import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
 import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -80,7 +81,8 @@ import java.util.stream.Collectors;
 
 /**
  * This class uses the thrift protocol to directly access the HiveMetaStore service
- * to obtain Hive metadata information
+ * to obtain Hive metadata information. It maintains a pool of metastore clients,
+ * not a thread pool. A pool size of 0 disables client reuse.
  */
 public class ThriftHMSCachedClient implements HMSCachedClient {
     private static final Logger LOG = LogManager.getLogger(ThriftHMSCachedClient.class);
@@ -89,14 +91,14 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     // -1 means no limit on the partitions returned.
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
 
-    private Queue<ThriftHMSClient> clientPool = new LinkedList<>();
+    private final Queue<ThriftHMSClient> clientPool = new LinkedList<>();
     private boolean isClosed = false;
     private final int poolSize;
     private final HiveConf hiveConf;
     private ExecutionAuthenticator executionAuthenticator;
 
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
-        Preconditions.checkArgument(poolSize > 0, poolSize);
+        Preconditions.checkArgument(poolSize >= 0, poolSize);
         this.hiveConf = hiveConf;
         this.poolSize = poolSize;
         this.isClosed = false;
@@ -641,17 +643,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         private volatile Throwable throwable;
 
         private ThriftHMSClient(HiveConf hiveConf) throws MetaException {
-            String type = hiveConf.get(HMSBaseProperties.HIVE_METASTORE_TYPE);
-            if (HMSBaseProperties.DLF_TYPE.equalsIgnoreCase(type)) {
-                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        ProxyMetaStoreClient.class.getName());
-            } else if (HMSBaseProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
-                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        AWSCatalogMetastoreClient.class.getName());
-            } else {
-                client = RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                        HiveMetaStoreClient.class.getName());
-            }
+            client = createClient(hiveConf);
         }
 
         public void setThrowable(Throwable throwable) {
@@ -661,7 +653,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         @Override
         public void close() throws Exception {
             synchronized (clientPool) {
-                if (isClosed || throwable != null || clientPool.size() > poolSize) {
+                // A pool size of 0 means no pooling: always close the underlying client.
+                if (isClosed || throwable != null || poolSize == 0 || clientPool.size() >= poolSize) {
                     client.close();
                 } else {
                     clientPool.offer(this);
@@ -683,6 +676,27 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             }
         } finally {
             Thread.currentThread().setContextClassLoader(classLoader);
+        }
+    }
+
+    protected IMetaStoreClient createClient(HiveConf hiveConf) throws MetaException {
+        String type = hiveConf.get(HMSBaseProperties.HIVE_METASTORE_TYPE);
+        if (HMSBaseProperties.DLF_TYPE.equalsIgnoreCase(type)) {
+            return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                    ProxyMetaStoreClient.class.getName());
+        } else if (HMSBaseProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
+            return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                    AWSCatalogMetastoreClient.class.getName());
+        } else {
+            return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                    HiveMetaStoreClient.class.getName());
+        }
+    }
+
+    @VisibleForTesting
+    int getClientPoolSize() {
+        synchronized (clientPool) {
+            return clientPool.size();
         }
     }
 
