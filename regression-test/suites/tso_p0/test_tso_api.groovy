@@ -92,16 +92,16 @@ suite("test_tso_api") {
         def logicalCounter = result1.data.current_tso_logical_counter
 
         // Validate that the TSO is composed correctly from physical time and logical counter
-        // TSO format: 46 bits physical time + 6 bits reserved + 12 bits logical counter
-        def expectedTSO = (physicalTime << 18) | (logicalCounter & 0xFFF)
+        // TSO format: 46 bits physical time + 18 bits logical counter
+        def expectedTSO = (physicalTime << 18) | (logicalCounter & 0x3FFFFL)
         // Note: We're not checking exact equality because of the reserved bits in the middle
 
         // At least verify that the physical time part matches
         def extractedPhysicalTime = (tsoValue >> 18) & 0x3FFFFFFFFFFL // 46 bits mask
         assertEquals(physicalTime, extractedPhysicalTime)
 
-        // And that the logical counter part matches (lowest 12 bits)
-        def extractedLogicalCounter = tsoValue & 0xFFFL // 12 bits mask
+        // And that the logical counter part matches (lowest 18 bits)
+        def extractedLogicalCounter = tsoValue & 0x3FFFFL // 18 bits mask
         assertEquals(logicalCounter, extractedLogicalCounter)
     } finally {
         sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_feature_tso' = '${ret[0][1]}')"

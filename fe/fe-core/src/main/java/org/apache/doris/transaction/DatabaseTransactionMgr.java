@@ -1578,7 +1578,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
                                                 Map<Long, Set<Long>> tableToPartition, Set<Long> totalInvolvedBackends,
-                                                Database db) {
+                                                Database db) throws TransactionCommitFailedException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1618,7 +1618,7 @@ public class DatabaseTransactionMgr {
 
     protected void unprotectedCommitTransaction(TransactionState transactionState, Set<Long> errorReplicaIds,
             Map<Long, Set<Long>> subTxnToPartition, Set<Long> totalInvolvedBackends,
-            List<SubTransactionState> subTransactionStates, Database db) {
+            List<SubTransactionState> subTransactionStates, Database db) throws TransactionCommitFailedException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PREPARE) {
             return;
@@ -1691,7 +1691,8 @@ public class DatabaseTransactionMgr {
         transactionState.setInvolvedBackends(totalInvolvedBackends);
     }
 
-    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db) {
+    protected void unprotectedCommitTransaction2PC(TransactionState transactionState, Database db)
+            throws TransactionCommitFailedException {
         // transaction state is modified during check if the transaction could committed
         if (transactionState.getTransactionStatus() != TransactionStatus.PRECOMMITTED) {
             LOG.warn("Unknown exception. state of transaction [{}] changed, failed to commit transaction",
@@ -3075,7 +3076,8 @@ public class DatabaseTransactionMgr {
         }
     }
 
-    private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds) {
+    private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds)
+            throws TransactionCommitFailedException {
         long tso = -1L;
         if (!Config.enable_feature_tso) {
             return tso;
@@ -3094,12 +3096,17 @@ public class DatabaseTransactionMgr {
         if (!anyEnableTso) {
             return tso;
         }
-        long fetched = Env.getCurrentEnv().getTSOService().getTSO();
-        if (fetched <= 0) {
-            LOG.warn("failed to get TSO for txn {}, fallback to -1",
-                    transactionState.getTransactionId());
-            return tso;
+        try {
+            long fetched = Env.getCurrentEnv().getTSOService().getTSO();
+            if (fetched <= 0) {
+                throw new TransactionCommitFailedException("failed to get TSO for txn "
+                        + transactionState.getTransactionId() + ", fetched=" + fetched);
+            }
+            return fetched;
+        } catch (RuntimeException e) {
+            LOG.warn("failed to get TSO for txn {}, abort commit", transactionState.getTransactionId(), e);
+            throw new TransactionCommitFailedException("failed to get TSO for txn "
+                    + transactionState.getTransactionId(), e);
         }
-        return fetched;
     }
 }

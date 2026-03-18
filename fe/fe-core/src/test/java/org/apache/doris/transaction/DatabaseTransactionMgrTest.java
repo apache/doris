@@ -673,7 +673,7 @@ public class DatabaseTransactionMgrTest {
     }
 
     @Test
-    public void testCommitTransactionFallbackMinusOneWhenGetTSOInvalid() throws Exception {
+    public void testCommitTransactionFailsWhenGetTSOInvalid() throws Exception {
         boolean originalEnableTsoFeature = Config.enable_feature_tso;
         try {
             Config.enable_feature_tso = true;
@@ -695,15 +695,13 @@ public class DatabaseTransactionMgrTest {
                     Config.stream_load_default_timeout_second);
             List<TabletCommitInfo> transTablets = GlobalTransactionMgrTest.generateTabletCommitInfos(
                     CatalogTestUtil.testTabletId1, allBackends);
-            masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
-                    txnId, transTablets, null);
-
-            TransactionState transactionState = fakeEditLog.getTransaction(txnId);
-            Assert.assertNotNull(transactionState);
-            Assert.assertEquals(-1L, transactionState.getCommitTSO());
-            TableCommitInfo tableCommitInfo = transactionState.getIdToTableCommitInfos().get(CatalogTestUtil.testTableId1);
-            Assert.assertNotNull(tableCommitInfo);
-            Assert.assertEquals(-1L, tableCommitInfo.getCommitTSO());
+            try {
+                masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(table),
+                        txnId, transTablets, null);
+                Assert.fail();
+            } catch (UserException e) {
+                Assert.assertTrue(e.getMessage().contains("failed to get TSO"));
+            }
         } finally {
             Config.enable_feature_tso = originalEnableTsoFeature;
         }

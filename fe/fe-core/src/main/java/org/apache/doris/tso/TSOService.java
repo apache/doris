@@ -28,6 +28,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.ReentrantLock;
 
 
@@ -41,6 +42,15 @@ public class TSOService extends MasterDaemon {
     // Guard value for time window updates (in milliseconds)
     private static final long UPDATE_TIME_WINDOW_GUARD = 1;
 
+    private final AtomicBoolean isInitialized = new AtomicBoolean(false);
+    private final AtomicBoolean fatalClockBackwardReported = new AtomicBoolean(false);
+
+    private static final class TSOClockBackwardException extends RuntimeException {
+        private TSOClockBackwardException(String message) {
+            super(message);
+        }
+    }
+
     /**
      * Constructor initializes the TSO service with update interval
      */
@@ -49,30 +59,11 @@ public class TSOService extends MasterDaemon {
     }
 
     /**
-     * Start the TSO service and calibrate timestamp if needed
+     * Start the TSO service.
      */
     @Override
     public synchronized void start() {
         super.start();
-
-        for (int i = 0; i < Config.max_update_tso_retry_count; i++) {
-            lock.lock();
-            boolean isInitialized = false;
-            try {
-                isInitialized = (globalTimestamp.getPhysicalTimestamp() != 0);
-            } finally {
-                lock.unlock();
-            }
-
-            if (!isInitialized) {
-                LOG.info("TSO service timestamp is not calibrated, start calibrate timestamp");
-                try {
-                    calibrateTimestamp();
-                } catch (Exception e) {
-                    LOG.warn("TSO service calibrate timestamp failed", e);
-                }
-            }
-        }
     }
 
     /**
@@ -82,34 +73,50 @@ public class TSOService extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         if (!Config.enable_feature_tso) {
+            isInitialized.set(false);
+            fatalClockBackwardReported.set(false);
             return;
         }
         boolean updated = false;
         Throwable lastFailure = null;
-        for (int i = 0; i < Config.max_update_tso_retry_count; i++) {
-            lock.lock();
-            boolean isInitialized = false;
-            try {
-                isInitialized = (globalTimestamp.getPhysicalTimestamp() != 0);
-            } finally {
-                lock.unlock();
-            }
-
-            if (!isInitialized) {
+        if (!isInitialized.get()) {
+            for (int i = 0; i < Config.max_update_tso_retry_count; i++) {
+                if (isInitialized.get()) {
+                    break;
+                }
                 LOG.info("TSO service timestamp is not calibrated, start calibrate timestamp");
                 try {
                     calibrateTimestamp();
+                } catch (TSOClockBackwardException e) {
+                    lastFailure = e;
+                    if (fatalClockBackwardReported.compareAndSet(false, true)) {
+                        LOG.error("TSO service calibrate timestamp failed due to clock backward beyond threshold", e);
+                        throw e;
+                    }
                     return;
                 } catch (Exception e) {
                     lastFailure = e;
                     LOG.warn("TSO service calibrate timestamp failed", e);
                 }
+                if (!isInitialized.get()) {
+                    try {
+                        sleep(Config.tso_service_update_interval_ms);
+                    } catch (InterruptedException ie) {
+                        LOG.warn("TSO service sleep interrupted", ie);
+                        Thread.currentThread().interrupt();
+                    }
+                }
             }
+            if (!isInitialized.get()) {
+                return;
+            }
+        }
 
+        for (int i = 0; i < Config.max_update_tso_retry_count; i++) {
             try {
                 updateTimestamp();
                 updated = true;
-                break; // Update successful, exit the loop
+                break;
             } catch (Exception e) {
                 lastFailure = e;
                 LOG.warn("TSO service update timestamp failed, retry: {}", i, e);
@@ -142,12 +149,17 @@ public class TSOService extends MasterDaemon {
      * @throws RuntimeException if TSO is not calibrated or other errors occur
      */
     public Long getTSO() {
+        if (!isInitialized.get()) {
+            throw new RuntimeException("TSO timestamp is not calibrated, please check");
+        }
         int maxGetTSORetryCount = Math.max(1, Config.max_get_tso_retry_count);
+        RuntimeException lastFailure = null;
         for (int i = 0; i < maxGetTSORetryCount; i++) {
             // Wait for environment to be ready and ensure we're running on master FE
             Env env = Env.getCurrentEnv();
             if (env == null || !env.isReady()) {
                 LOG.warn("TSO service wait for catalog ready");
+                lastFailure = new RuntimeException("Env is null or not ready");
                 try {
                     sleep(200);
                 } catch (InterruptedException ie) {
@@ -157,6 +169,7 @@ public class TSOService extends MasterDaemon {
                 continue;
             } else if (!env.isMaster()) {
                 LOG.warn("TSO service only run on master FE");
+                lastFailure = new RuntimeException("Current FE is not master");
                 try {
                     sleep(200);
                 } catch (InterruptedException ie) {
@@ -177,6 +190,7 @@ public class TSOService extends MasterDaemon {
             // Check for logical counter overflow
             if (logical >= TSOTimestamp.MAX_LOGICAL_COUNTER) {
                 LOG.warn("TSO timestamp logical counter overflow, please check");
+                lastFailure = new RuntimeException("TSO timestamp logical counter overflow");
                 try {
                     sleep(Config.tso_service_update_interval_ms);
                 } catch (InterruptedException ie) {
@@ -190,7 +204,7 @@ public class TSOService extends MasterDaemon {
             }
             return TSOTimestamp.composeTimestamp(physical, logical);
         }
-        return -1L;
+        throw new RuntimeException("Failed to get TSO after " + maxGetTSORetryCount + " retries", lastFailure);
     }
 
     /**
@@ -216,6 +230,9 @@ public class TSOService extends MasterDaemon {
      * - Otherwise Tnext = Tnow
      */
     private void calibrateTimestamp() {
+        if (isInitialized.get()) {
+            return;
+        }
         // Check if Env is ready before calibration
         Env env = Env.getCurrentEnv();
         if (env == null || !env.isReady() || !env.isMaster()) {
@@ -225,6 +242,12 @@ public class TSOService extends MasterDaemon {
 
         long timeLast = env.getWindowEndTSO(); // Last timestamp from EditLog replay
         long timeNow = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
+        long backwardMs = timeLast - timeNow;
+        if (backwardMs > Config.tso_clock_backward_startup_threshold_ms) {
+            throw new TSOClockBackwardException("TSO clock backward too much during calibration, backwardMs="
+                    + backwardMs + ", thresholdMs=" + Config.tso_clock_backward_startup_threshold_ms
+                    + ", lastWindowEndTSO=" + timeLast + ", currentMillis=" + timeNow);
+        }
 
         // Calculate next physical time to ensure monotonicity
         long nextPhysicalTime;
@@ -241,6 +264,7 @@ public class TSOService extends MasterDaemon {
         long timeWindowEnd = nextPhysicalTime + Config.tso_service_window_duration_ms;
         env.setWindowEndTSO(timeWindowEnd);
         writeTimestampToBDBJE(timeWindowEnd);
+        isInitialized.set(true);
 
         LOG.info("TSO timestamp calibrated: lastTimestamp={}, currentMillis={}, nextPhysicalTime={}, timeWindowEnd={}",
                 timeLast, timeNow, nextPhysicalTime, timeWindowEnd);

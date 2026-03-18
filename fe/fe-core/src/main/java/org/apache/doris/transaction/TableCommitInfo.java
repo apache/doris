@@ -99,8 +99,10 @@ public class TableCommitInfo {
                         LOG.debug("try to publish version info partitionid [{}], version [{}]",
                                 commitInfo.getPartitionId(), commitInfo.getVersion());
                     }
-                    return new TPartitionVersionInfo(commitInfo.getPartitionId(),
-                            commitInfo.getVersion(), 0, commitTSO);
+                    TPartitionVersionInfo info = new TPartitionVersionInfo(commitInfo.getPartitionId(),
+                            commitInfo.getVersion(), 0L);
+                    info.setCommitTso(commitTSO);
+                    return info;
                 }).collect(Collectors.toList());
     }
 

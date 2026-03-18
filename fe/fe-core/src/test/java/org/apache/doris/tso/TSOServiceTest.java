@@ -45,6 +45,7 @@ public class TSOServiceTest {
     private int originalMaxGetTSORetryCount;
     private int originalUpdateIntervalMs;
     private boolean originalEnableTsoPersistJournal;
+    private long originalClockBackwardThresholdMs;
 
     @Before
     public void setUp() {
@@ -53,10 +54,12 @@ public class TSOServiceTest {
         originalMaxGetTSORetryCount = Config.max_get_tso_retry_count;
         originalUpdateIntervalMs = Config.tso_service_update_interval_ms;
         originalEnableTsoPersistJournal = Config.enable_tso_persist_journal;
+        originalClockBackwardThresholdMs = Config.tso_clock_backward_startup_threshold_ms;
 
         Config.max_get_tso_retry_count = 1;
         Config.tso_service_update_interval_ms = 1;
         Config.enable_tso_persist_journal = false;
+        Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
         env = Mockito.mock(Env.class);
         EnvMockUp.CURRENT_ENV.set(env);
@@ -70,6 +73,7 @@ public class TSOServiceTest {
         Config.max_get_tso_retry_count = originalMaxGetTSORetryCount;
         Config.tso_service_update_interval_ms = originalUpdateIntervalMs;
         Config.enable_tso_persist_journal = originalEnableTsoPersistJournal;
+        Config.tso_clock_backward_startup_threshold_ms = originalClockBackwardThresholdMs;
     }
 
     @Test
@@ -87,16 +91,21 @@ public class TSOServiceTest {
     }
 
     @Test
-    public void testGetTSOReturnsMinusOneWhenEnvNotReady() {
+    public void testGetTSOThrowsWhenEnvNotReady() {
+        setInitializedFlag(tsoService, true);
         Mockito.when(env.isReady()).thenReturn(false);
-        Assert.assertEquals(-1L, tsoService.getTSO().longValue());
+        try {
+            tsoService.getTSO();
+            Assert.fail();
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
+        }
     }
 
     @Test
     public void testGetTSOThrowsWhenNotCalibrated() throws Exception {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
-        setGlobalTimestamp(tsoService, 0L, 0L);
         try {
             tsoService.getTSO();
             Assert.fail();
@@ -106,11 +115,38 @@ public class TSOServiceTest {
     }
 
     @Test
-    public void testGetTSOReturnsMinusOneOnLogicalOverflow() throws Exception {
+    public void testGetTSOThrowsOnLogicalOverflow() throws Exception {
+        setInitializedFlag(tsoService, true);
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER);
-        Assert.assertEquals(-1L, tsoService.getTSO().longValue());
+        try {
+            tsoService.getTSO();
+            Assert.fail();
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
+            Assert.assertNotNull(e.getCause());
+            Assert.assertTrue(e.getCause().getMessage().contains("logical counter overflow"));
+        }
+    }
+
+    @Test
+    public void testRunAfterCatalogReadySetsIntervalTo50WhenDisabled() {
+        boolean originalEnableTsoFeature = Config.enable_feature_tso;
+        try {
+            setInitializedFlag(tsoService, true);
+            Config.enable_feature_tso = false;
+            tsoService.runAfterCatalogReady();
+            Assert.assertEquals(50L, tsoService.getInterval());
+            try {
+                tsoService.getTSO();
+                Assert.fail();
+            } catch (RuntimeException e) {
+                Assert.assertTrue(e.getMessage().contains("not calibrated"));
+            }
+        } finally {
+            Config.enable_feature_tso = originalEnableTsoFeature;
+        }
     }
 
     @Test
@@ -144,10 +180,30 @@ public class TSOServiceTest {
         Mockito.verify(editLog).logTSOTimestampWindowEnd(Mockito.any(TSOTimestamp.class));
     }
 
+    @Test
+    public void testCalibrateTimestampThrowsWhenClockBackwardExceedsThreshold() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        long now = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
+        Mockito.when(env.getWindowEndTSO()).thenReturn(now + Config.tso_clock_backward_startup_threshold_ms + 60_000);
+        try {
+            invokeCalibrateTimestamp(tsoService);
+            Assert.fail();
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("clock backward too much"));
+        }
+    }
+
     private static void invokeWriteTimestampToBdbJe(TSOService service, long timestamp) throws Exception {
         Method m = TSOService.class.getDeclaredMethod("writeTimestampToBDBJE", long.class);
         m.setAccessible(true);
         m.invoke(service, timestamp);
+    }
+
+    private static void invokeCalibrateTimestamp(TSOService service) throws Exception {
+        Method m = TSOService.class.getDeclaredMethod("calibrateTimestamp");
+        m.setAccessible(true);
+        m.invoke(service);
     }
 
     private static void setGlobalTimestamp(TSOService service, long physical, long logical) throws Exception {
@@ -156,6 +212,16 @@ public class TSOServiceTest {
         TSOTimestamp timestamp = (TSOTimestamp) f.get(service);
         timestamp.setPhysicalTimestamp(physical);
         timestamp.setLogicalCounter(logical);
+    }
+
+    private static void setInitializedFlag(TSOService service, boolean initialized) {
+        try {
+            Field f = TSOService.class.getDeclaredField("isInitialized");
+            f.setAccessible(true);
+            ((java.util.concurrent.atomic.AtomicBoolean) f.get(service)).set(initialized);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private static final class EnvMockUp extends MockUp<Env> {

@@ -3780,6 +3780,12 @@ public class Config extends ConfigBase {
                     + "will apply for a TSO time window of 5000ms from BDBJE once."})
     public static int tso_service_window_duration_ms = 5000;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "TSO 校准阶段允许的最大时钟回拨阈值，单位毫秒。超过该阈值将导致 TSO 启用失败。默认 30min。",
+            "Max tolerated clock backward threshold during TSO calibration in milliseconds. "
+                    + "Exceeding this threshold will fail enabling TSO. Default is 30 minutes."})
+    public static long tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
+
     @ConfField(mutable = true, description = {"TSO服务时间偏移，仅用于测试，单位为毫秒。默认值为0，表示TSO服务时间戳偏移为0ms。",
             "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service"
                     + "timestamp offset is 0 milliseconds."})
@@ -4002,7 +4008,4 @@ public class Config extends ConfigBase {
                     + "by default"
     })
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
-
-
-
 }
