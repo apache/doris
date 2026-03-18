@@ -640,7 +640,7 @@ struct UnnestTest : public ::testing::Test {
     std::shared_ptr<TableFunctionOperatorX> create_test_operators(
             DescriptorTbl* desc_tbl, const TPlanNode& tplan_node_table_function_node) {
         runtime_state->set_desc_tbl(desc_tbl);
-        RowDescriptor mock_row_desc(runtime_state->desc_tbl(), {tuple0.id}, {});
+        RowDescriptor mock_row_desc(runtime_state->desc_tbl(), {tuple0.id}, {true});
         LocalStateInfo local_state_info {.parent_profile = runtime_profile.get(),
                                          .scan_ranges = {},
                                          .shared_state = nullptr,
