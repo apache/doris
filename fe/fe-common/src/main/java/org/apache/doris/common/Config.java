@@ -2783,7 +2783,7 @@ public class Config extends ConfigBase {
                     + "names are comma-separated"})
     public static String authentication_chain = "";
 
-    @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
+    @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/plugins/connectors";
 

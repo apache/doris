@@ -40,6 +40,14 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * Runtime manager for AUTHENTICATION INTEGRATION.
+ *
+ * <p>Runtime state is intentionally lazier than metadata state:
+ * <ul>
+ *   <li>CREATE/ALTER may choose eager init via {@code plugin.initialize_immediately=true}.</li>
+ *   <li>Without that flag, metadata can move ahead of runtime and the integration is marked dirty.</li>
+ *   <li>The next authentication request reloads the plugin from the latest metadata before authenticating.</li>
+ *   <li>Replay/restart only clear caches and states; plugin instances are recreated on first real use.</li>
+ * </ul>
  */
 public class AuthenticationIntegrationRuntime {
     private static final Logger LOG = LogManager.getLogger(AuthenticationIntegrationRuntime.class);
@@ -226,6 +234,8 @@ public class AuthenticationIntegrationRuntime {
         AuthenticationIntegrationMeta currentMeta = resolveCurrentAuthenticationIntegration(requestedMeta);
         String integrationName = currentMeta.getName();
         if (dirtyIntegrations.contains(integrationName)) {
+            // DDL updated metadata without eager init. Refresh the cached plugin from the latest metadata before
+            // serving the first request after that ALTER.
             currentMeta = resolveCurrentAuthenticationIntegration(requestedMeta);
             AuthenticationIntegration refreshedIntegration = toIntegration(currentMeta);
             ensurePluginFactoryLoaded(refreshedIntegration.getType());

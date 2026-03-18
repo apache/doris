@@ -37,8 +37,25 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 /**
  * Manager for AUTHENTICATION INTEGRATION metadata.
+ *
+ * <p>DDL keeps metadata persistence separate from plugin instance lifecycle:
+ * <ul>
+ *   <li>CREATE/ALTER without {@code plugin.initialize_immediately=true} only updates metadata.</li>
+ *   <li>CREATE/ALTER with {@code plugin.initialize_immediately=true} eagerly prepares and activates the plugin.</li>
+ *   <li>The immediate-init flag is transient DDL input and is never persisted into metadata.</li>
+ *   <li>Replay/restart remain lazy: plugin instances are rebuilt only when first used again.</li>
+ * </ul>
  */
 public class AuthenticationIntegrationMgr implements Writable {
+    /**
+     * Transient DDL-only property used by CREATE/ALTER ... SET PROPERTIES.
+     *
+     * <p>When true, the DDL eagerly validates and initializes the plugin instance and fails fast on missing factory
+     * or init errors. When absent or false, only metadata is updated and runtime initialization stays lazy.
+     *
+     * <p>This property is stripped before metadata is persisted, so SHOW/INFORMATION_SCHEMA never expose it and
+     * replay/restart do not inherit an eager-init mode.
+     */
     private static final String INITIALIZE_IMMEDIATELY_PROPERTY = "plugin.initialize_immediately";
 
     @FunctionalInterface
@@ -91,6 +108,7 @@ public class AuthenticationIntegrationMgr implements Writable {
             }
             throw new DdlException("Authentication integration " + integrationName + " already exists");
         }
+        // Default CREATE is metadata-only so environments without a deployed plugin can still define integrations.
         if (!ddlProperties.initializeImmediately) {
             writeLock();
             try {
@@ -266,6 +284,8 @@ public class AuthenticationIntegrationMgr implements Writable {
                         continue;
                     }
                     nameToIntegration.put(integrationName, updated);
+                    // ALTER without immediate init keeps runtime lazy, but the next authentication must rebuild the
+                    // cached plugin from the latest metadata instead of reusing an old instance.
                     getRuntime().markAuthenticationIntegrationDirty(integrationName);
                     return;
                 } finally {
