@@ -54,12 +54,12 @@ bool SpillIcebergTableSinkLocalState::is_blockable() const {
 }
 
 size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state, bool eos) {
-    if (!_writer || !_writer->_current_writer) {
+    if (!_writer || !_writer->current_writer()) {
         return 0;
     }
 
     auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->_current_writer.get());
+            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -68,12 +68,12 @@ size_t SpillIcebergTableSinkLocalState::get_reserve_mem_size(RuntimeState* state
 }
 
 size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* state) const {
-    if (!_writer || !_writer->_current_writer) {
+    if (!_writer || !_writer->current_writer()) {
         return 0;
     }
 
     auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->_current_writer.get());
+            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
     if (!sort_writer || !sort_writer->sorter()) {
         return 0;
     }
@@ -83,7 +83,7 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
 
 Status SpillIcebergTableSinkLocalState::revoke_memory(
         RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
-    if (!_writer || !_writer->_current_writer) {
+    if (!_writer || !_writer->current_writer()) {
         if (spill_context) {
             spill_context->on_task_finished();
         }
@@ -91,7 +91,7 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(
     }
 
     auto* sort_writer =
-            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->_current_writer.get());
+            dynamic_cast<vectorized::VIcebergSortWriter*>(_writer->current_writer().get());
 
     if (!sort_writer || !sort_writer->sorter()) {
         if (spill_context) {
@@ -182,7 +182,7 @@ void SpillIcebergTableSinkLocalState::_init_spill_counters() {
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadTaskCount", TUnit::UNIT, 1);
     ADD_TIMER_WITH_LEVEL(profile, "SpillReadTaskWaitInQueueTime", 1);
     ADD_TIMER_WITH_LEVEL(profile, "SpillReadFileTime", 1);
-    ADD_TIMER_WITH_LEVEL(profile, "SpillReadDerializeBlockTime", 1);
+    ADD_TIMER_WITH_LEVEL(profile, "SpillReadDeserializeBlockTime", 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadBlockCount", TUnit::UNIT, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadBlockBytes", TUnit::BYTES, 1);
     ADD_COUNTER_WITH_LEVEL(profile, "SpillReadFileBytes", TUnit::BYTES, 1);

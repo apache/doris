@@ -56,8 +56,8 @@ public:
             ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteFileBytes", TUnit::BYTES, 1);
             ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillWriteRows", TUnit::UNIT, 1);
             ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileTime", TUnit::UNIT, 1);
-            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadDerializeBlockTime", TUnit::UNIT,
-                                   1);
+            ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadDeserializeBlockTime",
+                                   TUnit::UNIT, 1);
             ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockCount", TUnit::UNIT, 1);
             ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadBlockBytes", TUnit::UNIT, 1);
             ADD_COUNTER_WITH_LEVEL(custom_profile.get(), "SpillReadFileBytes", TUnit::UNIT, 1);
@@ -100,7 +100,8 @@ public:
             ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadTaskWaitInQueueTime",
                                  1);
             ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadFileTime", 1);
-            ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadDerializeBlockTime", 1);
+            ADD_TIMER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadDeserializeBlockTime",
+                                 1);
             ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadBlockCount",
                                    TUnit::UNIT, 1);
             ADD_COUNTER_WITH_LEVEL(source_custom_profiles[i].get(), "SpillReadBlockBytes",
