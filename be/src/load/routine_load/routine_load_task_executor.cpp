@@ -169,7 +169,6 @@ Status RoutineLoadTaskExecutor::get_kinesis_shard_meta(const PKinesisMetaProxyRe
                                                        std::vector<std::string>* shard_ids) {
     CHECK(request.has_kinesis_info());
 
-    // This context is meaningless, just for unifying the interface
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 

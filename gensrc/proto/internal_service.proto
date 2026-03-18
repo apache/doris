@@ -496,8 +496,15 @@ message PKinesisMetaProxyRequest {
     optional PKinesisLoadInfo kinesis_info = 1;
 };
 
+message PShardInfo {
+    required string shard_id = 1;
+    optional string parent_shard_id = 2;
+    optional string adjacent_parent_shard_id = 3;
+};
+
 message PKinesisMetaProxyResult {
-    repeated string shard_ids = 1;
+    repeated string shard_ids = 1;  // Deprecated, use shard_infos instead
+    repeated PShardInfo shard_infos = 2;
 };
 
 message PProxyRequest {

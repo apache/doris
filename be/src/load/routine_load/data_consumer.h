@@ -202,7 +202,7 @@ public:
     Status group_consume(BlockingQueue<std::shared_ptr<Aws::Kinesis::Model::Record>>* queue,
                          int64_t max_running_time_ms);
 
-    // Get list of shard IDs for the stream
+    // Get list of shard IDs
     Status get_shard_list(std::vector<std::string>* shard_ids);
 
 private:

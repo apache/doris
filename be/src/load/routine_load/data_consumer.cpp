@@ -1043,23 +1043,29 @@ bool KinesisDataConsumer::match(std::shared_ptr<StreamLoadContext> ctx) {
 Status KinesisDataConsumer::get_shard_list(std::vector<std::string>* shard_ids) {
     DORIS_CHECK(_kinesis_client);
 
-    // If user specified explicit shards, return those instead of discovering
+    // If user specified explicit shards, return those
     if (!_explicit_shards.empty()) {
         *shard_ids = _explicit_shards;
         LOG(INFO) << "Using " << shard_ids->size() << " explicit shards for stream: " << _stream;
         return Status::OK();
     }
 
-    // Otherwise, discover all shards in the stream
+    // Discover all shards
     Aws::Kinesis::Model::ListShardsRequest request;
 
-    // Apply all configurations through KinesisConf
     DCHECK(_kinesis_conf != nullptr);
     Status st = _kinesis_conf->apply_to_list_shards_request(request, _stream);
     if (!st.ok()) {
         return Status::InternalError("Failed to apply Kinesis config to ListShardsRequest: {}",
                                      st.to_string());
     }
+
+    // Include CLOSED shards to ensure we don't miss data during split/merge
+    // By default, ListShards only returns OPEN shards
+    // Use FROM_TRIM_HORIZON to get both OPEN and CLOSED shards
+    Aws::Kinesis::Model::ShardFilter filter;
+    filter.SetType(Aws::Kinesis::Model::ShardFilterType::FROM_TRIM_HORIZON);
+    request.SetShardFilter(filter);
 
     auto outcome = _kinesis_client->ListShards(request);
     if (!outcome.IsSuccess()) {

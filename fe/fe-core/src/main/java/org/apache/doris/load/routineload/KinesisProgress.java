@@ -279,22 +279,27 @@ public class KinesisProgress extends RoutineLoadProgress {
     public void update(RLTaskTxnCommitAttachment attachment) {
         KinesisProgress newProgress = (KinesisProgress) attachment.getProgress();
 
-        // Update sequence numbers for each shard
-        // The sequence number in newProgress is the last successfully consumed sequence number
-        // We store it directly (unlike Kafka where we add 1 to get the next offset)
         lock.lock();
         try {
+            // Update sequence numbers for each shard
             newProgress.shardIdToSequenceNumber.forEach((shardId, newSeqNum) -> {
                 this.shardIdToSequenceNumber.put(shardId, newSeqNum);
             });
 
+            // Update MillisBehindLatest
+            if (newProgress.getShardIdToMillsBehindLatest() != null) {
+                this.shardIdToMillsBehindLatest.putAll(newProgress.getShardIdToMillsBehindLatest());
+            }
+
             // Remove closed shards from tracking
-            if (newProgress.getClosedShardIds() != null) {
+            if (newProgress.getClosedShardIds() != null && !newProgress.getClosedShardIds().isEmpty()) {
                 for (String closedShardId : newProgress.getClosedShardIds()) {
                     this.shardIdToSequenceNumber.remove(closedShardId);
                     this.shardIdToMillsBehindLatest.remove(closedShardId);
                     LOG.info("Removed closed shard from progress: {}", closedShardId);
                 }
+                // Store closed shard IDs for Job to clean up consumingClosedShards
+                this.closedShardIds.addAll(newProgress.getClosedShardIds());
             }
         } finally {
             lock.unlock();

@@ -51,7 +51,7 @@ public class KinesisUtil {
      * @param stream   Kinesis stream name
      * @param endpoint optional custom endpoint (e.g. LocalStack), empty string for default
      * @param convertedCustomProperties AWS credentials and other properties
-     * @return list of shard IDs (e.g. ["shardId-000000000000", "shardId-000000000001"])
+     * @return list of shard IDs
      */
     public static List<String> getAllKinesisShards(String region, String stream, String endpoint,
             Map<String, String> convertedCustomProperties) throws LoadException {

@@ -70,6 +70,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -100,9 +101,13 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     @SerializedName("csks")
     private List<String> customKinesisShards = Lists.newArrayList();
 
-    // current shards being consumed.
-    // updated periodically because shards may split or merge.
-    private List<String> currentKinesisShards = Lists.newArrayList();
+    // OPEN shards - actively receiving new data
+    @SerializedName("opks")
+    private List<String> openKinesisShards = Lists.newArrayList();
+
+    // CLOSED shards with unconsumed data - no longer receiving new data but still have data to consume
+    @SerializedName("clks")
+    private List<String> closedKinesisShards = Lists.newArrayList();
 
     // Default starting position for new shards.
     // Values: TRIM_HORIZON, LATEST, or a timestamp string.
@@ -203,11 +208,16 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         writeLock();
         try {
             if (state == JobState.NEED_SCHEDULE) {
+                // Combine open and closed shards for task assignment
+                List<String> allShards = Lists.newArrayList();
+                allShards.addAll(openKinesisShards);
+                allShards.addAll(closedKinesisShards);
+
                 // Divide shards into tasks
                 for (int i = 0; i < currentConcurrentTaskNum; i++) {
                     Map<String, String> taskKinesisProgress = Maps.newHashMap();
-                    for (int j = i; j < currentKinesisShards.size(); j = j + currentConcurrentTaskNum) {
-                        String shardId = currentKinesisShards.get(j);
+                    for (int j = i; j < allShards.size(); j = j + currentConcurrentTaskNum) {
+                        String shardId = allShards.get(j);
                         taskKinesisProgress.put(shardId,
                                 ((KinesisProgress) progress).getSequenceNumberByShard(shardId));
                     }
@@ -234,7 +244,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public int calculateCurrentConcurrentTaskNum() {
-        int shardNum = currentKinesisShards.size();
+        int shardNum = openKinesisShards.size() + closedKinesisShards.size();
         if (desireTaskConcurrentNum == 0) {
             desireTaskConcurrentNum = Config.max_routine_load_task_concurrent_num;
         }
@@ -270,13 +280,27 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     private void updateProgressAndOffsetsCache(RLTaskTxnCommitAttachment attachment) {
         KinesisProgress taskProgress = (KinesisProgress) attachment.getProgress();
 
-        // Update cachedShardWithMillsBehindLatest from the MillisBehindLatest values
-        // reported by BE's GetRecords response. Keep the maximum value across concurrent tasks
-        // to avoid a stale (lower) value from one task overwriting a fresher value from another.
+        // Update cachedShardWithMillsBehindLatest
         taskProgress.getShardIdToMillsBehindLatest().forEach((shardId, millis) ->
                 cachedShardWithMillsBehindLatest.merge(shardId, millis, Math::max));
 
+        // Handle closed shards: move from open to closed list
+        if (taskProgress.getClosedShardIds() != null && !taskProgress.getClosedShardIds().isEmpty()) {
+            for (String closedShardId : taskProgress.getClosedShardIds()) {
+                if (openKinesisShards.remove(closedShardId)) {
+                    if (!closedKinesisShards.contains(closedShardId)) {
+                        closedKinesisShards.add(closedShardId);
+                        LOG.info("Moved shard from open to closed: {}, job: {}", closedShardId, id);
+                    }
+                }
+            }
+        }
+
+        // Update progress (this will remove fully consumed shards from progress)
         this.progress.update(attachment);
+
+        // Remove fully consumed shards from closed list
+        closedKinesisShards.removeIf(shardId -> !((KinesisProgress) progress).containsShard(shardId));
     }
 
     @Override
@@ -353,40 +377,46 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     private boolean isKinesisShardsChanged() throws UserException {
         if (CollectionUtils.isNotEmpty(customKinesisShards)) {
-            currentKinesisShards = customKinesisShards;
+            if (Config.isCloudMode() && (openKinesisShards.isEmpty() && closedKinesisShards.isEmpty())) {
+                updateCloudProgress();
+            }
+            openKinesisShards = customKinesisShards;
+            closedKinesisShards.clear();
             return false;
         }
 
         Preconditions.checkNotNull(this.newCurrentKinesisShards);
-        if (new HashSet<>(currentKinesisShards).containsAll(this.newCurrentKinesisShards)) {
-            if (currentKinesisShards.size() > this.newCurrentKinesisShards.size()) {
-                currentKinesisShards = this.newCurrentKinesisShards;
-                if (LOG.isDebugEnabled()) {
-                    LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                            .add("current_kinesis_shards", Joiner.on(",").join(currentKinesisShards))
-                            .add("msg", "current kinesis shards has been changed")
-                            .build());
-                }
-                return true;
-            } else {
-                // Check if progress is consistent
-                for (String shardId : currentKinesisShards) {
-                    if (!((KinesisProgress) progress).containsShard(shardId)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        } else {
-            currentKinesisShards = this.newCurrentKinesisShards;
+
+        Set<String> newShards = new HashSet<>(this.newCurrentKinesisShards);
+        Set<String> currentShards = new HashSet<>(openKinesisShards);
+        currentShards.addAll(closedKinesisShards);
+
+        // Detect new shards
+        if (!newShards.equals(currentShards)) {
+            // Update open shards with newly discovered shards
+            Set<String> addedShards = new HashSet<>(newShards);
+            addedShards.removeAll(currentShards);
+
+            openKinesisShards = new ArrayList<>(newShards);
+            openKinesisShards.removeAll(closedKinesisShards);
+
             if (LOG.isDebugEnabled()) {
                 LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                        .add("current_kinesis_shards", Joiner.on(",").join(currentKinesisShards))
-                        .add("msg", "current kinesis shards has been changed")
+                        .add("open_kinesis_shards", Joiner.on(",").join(openKinesisShards))
+                        .add("closed_kinesis_shards", Joiner.on(",").join(closedKinesisShards))
+                        .add("msg", "kinesis shards changed")
                         .build());
             }
             return true;
         }
+
+        // Check if progress is consistent
+        for (String shardId : currentShards) {
+            if (!((KinesisProgress) progress).containsShard(shardId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -410,7 +440,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     /**
-     * Get all shard IDs from the Kinesis stream.
+     * Get all shards from the Kinesis stream.
      * Delegates to a BE node via gRPC, which calls AWS ListShards API using the SDK.
      */
     private List<String> getAllKinesisShards() throws UserException {
@@ -465,28 +495,37 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     }
 
     private void updateNewShardProgress() throws UserException {
-        try {
-            for (String shardId : currentKinesisShards) {
-                if (!((KinesisProgress) progress).containsShard(shardId)) {
-                    List<String> newShards = Lists.newArrayList();
-                    newShards.add(shardId);
-                    List<Pair<String, String>> newShardPositions = getNewShardPositionsFromDefault(newShards);
-                    Preconditions.checkState(newShardPositions.size() == 1);
-                    for (Pair<String, String> shardPosition : newShardPositions) {
-                        ((KinesisProgress) progress).addShardPosition(shardPosition);
-                        if (LOG.isDebugEnabled()) {
-                            LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
-                                    .add("kinesis_shard_id", shardPosition.first)
-                                    .add("begin_position", shardPosition.second)
-                                    .add("msg", "The new shard has been added in job"));
-                        }
-                    }
+        // Check if this is initial setup (no shards in progress yet)
+        boolean isInitialSetup = !((KinesisProgress) progress).hasShards();
+
+        // Combine open and closed shards
+        List<String> allShards = Lists.newArrayList();
+        allShards.addAll(openKinesisShards);
+        allShards.addAll(closedKinesisShards);
+
+        for (String shardId : allShards) {
+            if (!((KinesisProgress) progress).containsShard(shardId)) {
+                String startPosition;
+
+                if (isInitialSetup) {
+                    // Initial shards: use user-configured default position
+                    startPosition = convertedDefaultPosition();
+                } else {
+                    // New shards discovered later: always use TRIM_HORIZON to avoid data loss
+                    startPosition = KinesisProgress.TRIM_HORIZON_VAL;
+                    LOG.info("New shard detected: {}, starting from TRIM_HORIZON to avoid data loss",
+                             shardId);
+                }
+
+                ((KinesisProgress) progress).addShardPosition(Pair.of(shardId, startPosition));
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(new LogBuilder(LogKey.ROUTINE_LOAD_JOB, id)
+                            .add("kinesis_shard_id", shardId)
+                            .add("begin_position", startPosition)
+                            .add("is_initial_setup", isInitialSetup)
+                            .add("msg", "The new shard has been added in job"));
                 }
             }
-        } catch (UserException e) {
-            unprotectUpdateState(JobState.PAUSED,
-                    new ErrorReason(InternalErrorCode.PARTITIONS_ERR, e.getMessage()), false);
-            throw e;
         }
     }
 
@@ -541,9 +580,14 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         if (endpoint != null) {
             dataSourceProperties.put("endpoint", endpoint);
         }
-        List<String> sortedShards = Lists.newArrayList(currentKinesisShards);
-        Collections.sort(sortedShards);
-        dataSourceProperties.put("currentKinesisShards", Joiner.on(",").join(sortedShards));
+        List<String> sortedOpenShards = Lists.newArrayList(openKinesisShards);
+        Collections.sort(sortedOpenShards);
+        dataSourceProperties.put("openKinesisShards", Joiner.on(",").join(sortedOpenShards));
+
+        List<String> sortedClosedShards = Lists.newArrayList(closedKinesisShards);
+        Collections.sort(sortedClosedShards);
+        dataSourceProperties.put("closedKinesisShards", Joiner.on(",").join(sortedClosedShards));
+
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(dataSourceProperties);
     }
