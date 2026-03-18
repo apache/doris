@@ -301,16 +301,34 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
     RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (options.query_version > 0) {
+        auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
     // serially execute sync to reduce unnecessary network overhead
+    auto sync_lock_start = std::chrono::steady_clock::now();
     std::unique_lock lock(_sync_meta_lock);
+    if (stats) {
+        stats->sync_meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                 std::chrono::steady_clock::now() - sync_lock_start)
+                                                 .count();
+    }
     if (options.query_version > 0) {
+        auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         if (_max_version >= options.query_version) {
             return Status::OK();
         }
@@ -333,10 +351,22 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     }
 
     // Serially execute sync to reduce unnecessary network overhead
+    auto sync_lock_start = std::chrono::steady_clock::now();
     std::unique_lock lock(_sync_meta_lock);
+    if (stats) {
+        stats->sync_meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                 std::chrono::steady_clock::now() - sync_lock_start)
+                                                 .count();
+    }
 
     {
+        auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         if (tablet_state() == TABLET_RUNNING) {
             return Status::OK();
         }
@@ -358,7 +388,13 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
 
     TimestampedVersionTracker empty_tracker;
     {
+        auto lock_start = std::chrono::steady_clock::now();
         std::lock_guard wlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         RETURN_IF_ERROR(set_tablet_state(TABLET_RUNNING));
         _rs_version_map.clear();
         _stale_rs_version_map.clear();
