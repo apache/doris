@@ -57,6 +57,8 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.mtmv.ivm.IVMRefreshManager;
+import org.apache.doris.mtmv.ivm.IVMRefreshResult;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
@@ -243,6 +245,20 @@ public class MTMVTask extends AbstractTask {
             this.refreshMode = generateRefreshMode(needRefreshPartitions);
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
+            }
+            // Attempt IVM refresh for INCREMENTAL MVs
+            if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
+                IVMRefreshManager ivmRefreshManager = new IVMRefreshManager();
+                IVMRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
+                if (ivmResult.isSuccess()) {
+                    LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
+                            mtmv.getName(), getTaskId());
+                    return;
+                }
+                LOG.warn("IVM refresh fell back for mv={}, reason={}, detail={}, taskId={}. "
+                        + "Continuing with partition-based refresh.",
+                        mtmv.getName(), ivmResult.getFallbackReason(),
+                        ivmResult.getDetailMessage(), getTaskId());
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
