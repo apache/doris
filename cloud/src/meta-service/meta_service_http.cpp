@@ -460,6 +460,38 @@ static HttpResponse process_query_rate_limit(MetaServiceImpl* service, brpc::Con
     return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
 }
 
+static HttpResponse process_show_config(MetaServiceImpl*, brpc::Controller* cntl) {
+    auto& uri = cntl->http_request().uri();
+    std::string_view conf_name = http_query(uri, "conf_key");
+
+    if (config::full_conf_map == nullptr) {
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "config map not initialized");
+    }
+
+    rapidjson::Document d;
+    d.SetArray();
+
+    for (auto& [name, field] : *config::Register::_s_field_map) {
+        if (!conf_name.empty() && name != conf_name) {
+            continue;
+        }
+        auto it = config::full_conf_map->find(name);
+        std::string value = (it != config::full_conf_map->end()) ? it->second : "";
+
+        rapidjson::Value entry(rapidjson::kArrayType);
+        entry.PushBack(rapidjson::Value(name.c_str(), d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(field.type, d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(value.c_str(), d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(field.valmutable), d.GetAllocator());
+        d.PushBack(entry, d.GetAllocator());
+    }
+
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+    d.Accept(writer);
+    return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
+}
+
 static HttpResponse process_update_config(MetaServiceImpl* service, brpc::Controller* cntl) {
     const auto& uri = cntl->http_request().uri();
     bool persist = (http_query(uri, "persist") == "true");
@@ -948,6 +980,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"adjust_rate_limit", process_adjust_rate_limit},
             {"list_rate_limit", process_query_rate_limit},
             {"update_config", process_update_config},
+            {"show_config", process_show_config},
             {"v1/abort_txn", process_abort_txn},
             {"v1/abort_tablet_job", process_abort_tablet_job},
             {"v1/alter_ram_user", process_alter_ram_user},
@@ -955,6 +988,7 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/adjust_rate_limit", process_adjust_rate_limit},
             {"v1/list_rate_limit", process_query_rate_limit},
             {"v1/update_config", process_update_config},
+            {"v1/show_config", process_show_config},
     };
 
     auto* cntl = static_cast<brpc::Controller*>(controller);
