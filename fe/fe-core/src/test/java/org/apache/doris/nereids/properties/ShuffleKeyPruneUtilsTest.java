@@ -34,6 +34,7 @@ import org.apache.doris.nereids.trees.plans.AggPhase;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -331,7 +332,7 @@ class ShuffleKeyPruneUtilsTest extends TestWithFeService {
         new Group(GroupId.createGenerator().getNextId(), joinGroupExpr, null);
 
         Optional<Pair<List<ExprId>, List<ExprId>>> result = ShuffleKeyPruneUtils.tryFindOptimalShuffleKeyForBothAggChildren(
-                hashJoin, planContext);
+                (PhysicalHashJoin<? extends Plan, ? extends Plan>) joinGroupExpr.getPlan(), planContext);
 
         Assertions.assertTrue(result.isPresent());
         Assertions.assertFalse(result.get().first.isEmpty());

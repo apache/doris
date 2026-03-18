@@ -165,7 +165,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
         if (aggStatistics == null || inputStatistics == null) {
             return false;
         }
-        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics)) {
+        if (AggregateUtils.hasUnknownStatistics(agg.getGroupByExpressions(), inputStatistics, true)) {
             return false;
         }
         // There are two cases of skew:
