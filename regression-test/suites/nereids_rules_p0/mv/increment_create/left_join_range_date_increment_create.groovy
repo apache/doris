@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("left_join_range_date_increment_create") {
+suite("left_join_range_date_increment_create", "increment_create") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
@@ -40,7 +40,7 @@ suite("left_join_range_date_increment_create") {
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -70,7 +70,7 @@ suite("left_join_range_date_increment_create") {
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -271,12 +271,12 @@ suite("left_join_range_date_increment_create") {
                 sql cur_sql
 
                 def job_name = getJobName(db, mv_name)
-                waitingMTMVTaskFinished(job_name)
+                waitingMTMVTaskFinishedWithoutAnalyze(job_name)
                 compare_res(all_list[i] + " order by 1,2,3,4")
 
                 date_change()
                 refresh_mv()
-                waitingMTMVTaskFinished(job_name)
+                waitingMTMVTaskFinishedWithoutAnalyze(job_name)
                 compare_res(all_list[i] + " order by 1,2,3,4")
 
                 if (all_list[i] in increment_list) {
