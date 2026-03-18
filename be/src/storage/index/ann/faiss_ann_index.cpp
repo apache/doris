@@ -366,7 +366,97 @@ struct CachedRandomAccessReader : faiss::RandomAccessReader {
         }
     }
 
+    /**
+     * ReadRef backed by a PageCacheHandle — pins the cache entry so the
+     * data pointer stays valid for the lifetime of this object.
+     */
+    struct CachedReadRef : faiss::ReadRef {
+        CachedReadRef(PageCacheHandle handle, const uint8_t* ptr, size_t len)
+                : handle_(std::move(handle)) {
+            data_ = ptr;
+            size_ = len;
+        }
+    private:
+        PageCacheHandle handle_;
+    };
+
+    /**
+     * Borrow a region from the cache without copying when possible.
+     *
+     * Single-block range → pin the cache entry, return direct pointer.
+     * Cross-block range  → allocate a contiguous buffer and copy block by
+     *                      block (same cost as read_at, wrapped in ReadRef).
+     */
+    std::unique_ptr<faiss::ReadRef> borrow(
+            size_t offset, size_t nbytes) const override {
+        if (nbytes == 0) {
+            return nullptr;
+        }
+
+        // Fast path: entire range within one cache block → zero-copy
+        const size_t block_start = (offset / _block_size) * _block_size;
+        const size_t offset_in_block = offset - block_start;
+
+        if (offset_in_block + nbytes <= _block_size) {
+            PageCacheHandle handle;
+            if (_ensure_block_cached(block_start, &handle)) {
+                Slice data = handle.data();
+                return std::make_unique<CachedReadRef>(
+                        std::move(handle),
+                        reinterpret_cast<const uint8_t*>(data.data) + offset_in_block,
+                        nbytes);
+            }
+        }
+
+        // Slow path: cross-block — allocate + copy via read_at()
+        return RandomAccessReader::borrow(offset, nbytes);
+    }
+
 private:
+    /// Ensure the cache block starting at @p block_start is populated.
+    /// Returns true on success (handle is populated and pinned).
+    bool _ensure_block_cached(size_t block_start, PageCacheHandle* handle) const {
+        auto* cache = AnnIndexDataPageCache::instance();
+        if (!cache) {
+            return false;
+        }
+
+        AnnIndexDataPageCache::CacheKey cache_key(
+                _cache_key_prefix, _file_size,
+                static_cast<int64_t>(block_start));
+
+        if (cache->lookup(cache_key, handle)) {
+            ++g_ivf_on_disk_cache_stats.hit_cnt;
+            return true;
+        }
+
+        // Cache miss — fetch block from disk and insert.
+        const size_t actual_block_size =
+                std::min(_block_size, _file_size > block_start ? _file_size - block_start
+                                                               : static_cast<size_t>(0));
+        if (actual_block_size == 0) {
+            return false;
+        }
+
+        auto page = std::make_unique<DataPage>(actual_block_size, cache->mem_tracker());
+
+        const int64_t fetch_start_ns = MonotonicNanos();
+        {
+            std::lock_guard<std::mutex> lock(_io_mutex);
+            _read_from_input(block_start, page->data(), actual_block_size);
+        }
+        const int64_t fetch_costs_ns = MonotonicNanos() - fetch_start_ns;
+
+        cache->insert(cache_key, page.get(), handle);
+        page.release();
+
+        ++g_ivf_on_disk_cache_stats.miss_cnt;
+        DorisMetrics::instance()->ann_ivf_on_disk_fetch_page_cnt->increment(1);
+        double fetch_costs_ms = static_cast<double>(fetch_costs_ns) / 1000.0;
+        DorisMetrics::instance()->ann_ivf_on_disk_fetch_page_costs_ms->increment(
+                static_cast<int64_t>(fetch_costs_ms));
+        return true;
+    }
     void _read_from_input(size_t offset, char* buf, size_t nbytes) const {
         _input->seek(static_cast<int64_t>(offset));
         const size_t kMaxChunk = static_cast<size_t>(std::numeric_limits<Int32>::max());
