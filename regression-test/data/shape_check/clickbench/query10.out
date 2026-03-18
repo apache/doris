@@ -5,9 +5,9 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalTopN[LOCAL_SORT]
 --------hashAgg[DISTINCT_GLOBAL]
-----------PhysicalDistribute[DistributionSpecHash]
-------------hashAgg[DISTINCT_LOCAL]
---------------hashAgg[GLOBAL]
+----------hashAgg[GLOBAL]
+------------PhysicalDistribute[DistributionSpecHash]
+--------------hashAgg[LOCAL]
 ----------------PhysicalProject
 ------------------PhysicalOlapScan[hits]
 
