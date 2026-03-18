@@ -21,16 +21,19 @@ import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVAnalyzeQueryInfo;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVRefreshContext;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.annotations.VisibleForTesting;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -88,8 +91,14 @@ public class IVMRefreshManager {
 
     @VisibleForTesting
     List<DeltaCommandBundle> analyzeDeltaCommandBundles(IVMRefreshContext context) throws Exception {
-        return MTMVPlanUtil.analyzeQueryWithSql(context.getMtmv(), context.getConnectContext(), IvmAnalyzeMode.FULL)
-                .getIvmDeltaCommandBundles();
+        MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQueryWithSql(
+                context.getMtmv(), context.getConnectContext(), true);
+        Plan normalizedPlan = queryInfo.getIvmNormalizedPlan();
+        if (normalizedPlan == null) {
+            return Collections.emptyList();
+        }
+        // TODO: for each base table, call IvmDeltaRewriter.rewrite(normalizedPlan, ctx)
+        return Collections.emptyList();
     }
 
     private IVMRefreshResult doRefreshInternal(IVMRefreshContext context) {
