@@ -100,7 +100,9 @@ import org.apache.doris.nereids.rules.rewrite.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.InferSetOperatorDistinct;
 import org.apache.doris.nereids.rules.rewrite.InitJoinOrder;
 import org.apache.doris.nereids.rules.rewrite.InlineLogicalView;
-import org.apache.doris.nereids.rules.rewrite.IvmRewriteMtmvPlan;
+import org.apache.doris.nereids.rules.rewrite.IvmDeltaAggRoot;
+import org.apache.doris.nereids.rules.rewrite.IvmDeltaScanOnly;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan;
 import org.apache.doris.nereids.rules.rewrite.JoinExtractOrFromCaseWhen;
 import org.apache.doris.nereids.rules.rewrite.LimitAggToTopNAgg;
 import org.apache.doris.nereids.rules.rewrite.LimitSortToTopN;
@@ -903,8 +905,12 @@ public class Rewriter extends AbstractBatchJobExecutor {
                             topic("process limit session variables",
                                     custom(RuleType.ADD_DEFAULT_LIMIT, AddDefaultLimit::new)
                             ),
-                            topic("rewrite mtmv define plan for ivm",
-                                    custom(RuleType.IVM_REWRITE_MTMV_PLAN, IvmRewriteMtmvPlan::new)
+                            topic("ivm normalize mtmv define plan",
+                                    custom(RuleType.IVM_NORMALIZE_MTMV_PLAN, IvmNormalizeMtmvPlan::new)
+                            ),
+                            topic("ivm delta rules",
+                                    custom(RuleType.IVM_DELTA_SCAN_ONLY, IvmDeltaScanOnly::new),
+                                    custom(RuleType.IVM_DELTA_AGG_ROOT, IvmDeltaAggRoot::new)
                             ),
                             topic("record query tmp plan for mv pre rewrite",
                                     custom(RuleType.RECORD_PLAN_FOR_MV_PRE_REWRITE, RecordPlanForMvPreRewrite::new)

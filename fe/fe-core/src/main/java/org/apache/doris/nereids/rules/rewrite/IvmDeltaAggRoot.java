@@ -18,16 +18,17 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.qe.ConnectContext;
 
-import java.util.Objects;
-
 /**
- * Placeholder hook for future IVM define-plan rewrite.
+ * IVM delta rule for AGG_ON_SCAN and AGG_ON_INNER_JOIN patterns (aggregate at root).
+ * Matches a root aggregate MV define plan and produces a delta bundle per changed base table.
+ * Implementation deferred — currently a no-op placeholder.
  */
-public class IvmRewriteMtmvPlan implements CustomRewriter {
+public class IvmDeltaAggRoot implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -35,8 +36,11 @@ public class IvmRewriteMtmvPlan implements CustomRewriter {
         if (connectContext == null || !connectContext.getSessionVariable().isEnableIvmRewriteInNereids()) {
             return plan;
         }
-        Plan basePlan = jobContext.getCascadesContext().getRewriteRootPlan();
-        Objects.requireNonNull(basePlan, "basePlan can not be null");
+        // TODO: implement AGG_ROOT delta plan generation
         return plan;
+    }
+
+    public RuleType getRuleType() {
+        return RuleType.IVM_DELTA_AGG_ROOT;
     }
 }
