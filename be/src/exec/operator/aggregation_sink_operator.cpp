@@ -652,42 +652,42 @@ void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key
 void AggSinkLocalState::_merge_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
                                                             const IColumn* merge_column,
                                                             uint32_t num_rows) {
-    std::visit(Overload {[&](std::monostate& arg) -> void {
-                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                    "uninited hash table");
-                         },
-                         [&](auto& agg_method) -> void {
-                             SCOPED_TIMER(_hash_table_compute_timer);
-                             using HashMethodType = std::decay_t<decltype(agg_method)>;
-                             using AggState = typename HashMethodType::State;
-                             AggState state(key_columns);
-                             agg_method.init_serialized_keys(key_columns, num_rows);
+    std::visit(
+            Overload {[&](std::monostate& arg) -> void {
+                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
+                      },
+                      [&](auto& agg_method) -> void {
+                          SCOPED_TIMER(_hash_table_compute_timer);
+                          using HashMethodType = std::decay_t<decltype(agg_method)>;
+                          using AggState = typename HashMethodType::State;
+                          AggState state(key_columns);
+                          agg_method.init_serialized_keys(key_columns, num_rows);
 
-                             const auto& col =
-                                     assert_cast<const ColumnFixedLengthObject&>(*merge_column);
-                             const auto* col_data =
-                                     reinterpret_cast<const AggregateFunctionCountData*>(
-                                             col.get_data().data());
+                          const auto& col =
+                                  assert_cast<const ColumnFixedLengthObject&>(*merge_column);
+                          const auto* col_data =
+                                  reinterpret_cast<const AggregateFunctionCountData*>(
+                                          col.get_data().data());
 
-                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                                 HashMethodType::try_presis_key_and_origin(
-                                         key, origin, Base::_shared_state->agg_arena_pool);
-                                 AggregateDataPtr mapped = nullptr;
-                                 ctor(key, mapped);
-                             };
+                          auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                              HashMethodType::try_presis_key_and_origin(
+                                      key, origin, Base::_shared_state->agg_arena_pool);
+                              AggregateDataPtr mapped = nullptr;
+                              ctor(key, mapped);
+                          };
 
-                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+                          auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
-                             SCOPED_TIMER(_hash_table_emplace_timer);
-                             lazy_emplace_batch(
-                                     agg_method, state, num_rows, creator, creator_for_null_key,
-                                     [&](uint32_t i, auto& mapped) {
-                                         reinterpret_cast<UInt64&>(mapped) += col_data[i].count;
-                                     });
+                          SCOPED_TIMER(_hash_table_emplace_timer);
+                          lazy_emplace_batch(agg_method, state, num_rows, creator,
+                                             creator_for_null_key, [&](uint32_t i, auto& mapped) {
+                                                 reinterpret_cast<UInt64&>(mapped) +=
+                                                         col_data[i].count;
+                                             });
 
-                             COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                         }},
-               _agg_data->method_variant);
+                          COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+                      }},
+            _agg_data->method_variant);
 }
 
 bool AggSinkLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
