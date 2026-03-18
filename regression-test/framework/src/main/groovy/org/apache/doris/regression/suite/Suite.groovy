@@ -2635,7 +2635,6 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        sql "analyze table ${db}.${mv_name} with sync;"
         // force meta sync to avoid stale meta data on follower fe
         sql """sync;"""
     }
@@ -2653,7 +2652,6 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        sql "analyze table ${db}.${mv_name} with sync;"
         // force meta sync to avoid stale meta data on follower fe
         sql """sync;"""
     }
@@ -2926,8 +2924,6 @@ class Suite implements GroovyInterceptable {
         """
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        // force meta sync to avoid stale meta data on follower fe
-        sql """sync;"""
         mv_rewrite_success(query_sql, mv_name, true, expected_pre_rewrite_strategys)
     }
 
@@ -2947,8 +2943,6 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        // force meta sync to avoid stale meta data on follower fe
-        sql """sync;"""
         mv_rewrite_success_without_check_chosen(query_sql, mv_name, expected_pre_rewrite_strategys)
     }
 
@@ -2968,8 +2962,6 @@ class Suite implements GroovyInterceptable {
 
         def job_name = getJobName(db, mv_name);
         waitingMTMVTaskFinished(job_name)
-        // force meta sync to avoid stale meta data on follower fe
-        sql """sync;"""
         mv_rewrite_fail(query_sql, mv_name, expected_pre_rewrite_strategys)
     }
 
