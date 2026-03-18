@@ -17,7 +17,7 @@
 
 #include <vector>
 
-#include "vec/core/wide_integer.h"
+#include "core/extended_types.h"
 
 namespace doris {
 template <typename T>

@@ -20,7 +20,7 @@
 #include <string>
 #include <vector>
 
-#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
+#include "format/file_reader/new_plain_text_line_reader.h"
 
 namespace doris {
 

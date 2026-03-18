@@ -24,10 +24,10 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_string.hpp"
 #include "binary_cast_benchmark.hpp"
-#include "vec/columns/column_string.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
+#include "core/block/block.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_string.h"
 
 namespace doris { // change if need
 

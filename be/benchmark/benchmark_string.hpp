@@ -20,8 +20,8 @@
 #include <random>
 #include <vector>
 
-#include "vec/functions/function_string.cpp"
-#include "vec/functions/string_hex_util.h"
+#include "exprs/function/function_string.cpp"
+#include "exprs/function/string_hex_util.h"
 
 namespace doris {
 
