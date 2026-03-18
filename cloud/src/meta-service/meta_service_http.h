@@ -77,4 +77,16 @@ inline static HttpResponse http_text_reply(const MetaServiceResponseStatus& stat
     return http_text_reply(status.code(), status.msg(), body);
 }
 
+// Forward declarations
+class MetaServiceImpl;
+class RecyclerServiceImpl;
+
+// Role-based HTTP handler
+enum class HttpRole { META_SERVICE = 1, RECYCLER = 2, BOTH = 3 };
+
+struct HttpHandlerInfo {
+    std::function<HttpResponse(void*, brpc::Controller*)> handler;
+    HttpRole role;
+};
+
 } // namespace doris::cloud

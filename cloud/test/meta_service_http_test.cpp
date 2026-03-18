@@ -610,6 +610,75 @@ TEST(MetaServiceHttpTest, InstanceTestWithVersion) {
     }
 }
 
+TEST(MetaServiceHttpTest, AlterClusterTestWithVersion) {
+    config::enable_cluster_name_check = true;
+
+    HttpContext ctx;
+    {
+        CreateInstanceRequest req;
+        req.set_instance_id(mock_instance);
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+
+        auto [status_code, resp] =
+                ctx.forward<MetaServiceResponseStatus>("v1/create_instance", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_name(mock_cluster_name);
+        req.mutable_cluster()->set_type(ClusterPB::COMPUTE);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("v1/add_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        GetClusterRequest req;
+        req.set_cloud_unique_id("1:" + mock_instance + ":xxxx");
+        req.set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward_with_result<ClusterPB>("v1/get_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.status.code(), MetaServiceCode::OK);
+        ASSERT_TRUE(resp.result.has_value());
+        ASSERT_EQ(resp.result->cluster_name(), mock_cluster_name);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        req.mutable_cluster()->set_cluster_name("rename_cluster_name");
+        auto [status_code, resp] =
+                ctx.forward<MetaServiceResponseStatus>("v1/rename_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+
+    {
+        AlterClusterRequest req;
+        req.set_instance_id(mock_instance);
+        req.mutable_cluster()->set_cluster_id(mock_cluster_id);
+        auto [status_code, resp] = ctx.forward<MetaServiceResponseStatus>("v1/drop_cluster", req);
+        ASSERT_EQ(status_code, 200);
+        ASSERT_EQ(resp.code(), MetaServiceCode::OK);
+    }
+}
+
 TEST(MetaServiceHttpTest, AlterClusterTest) {
     config::enable_cluster_name_check = true;
 
