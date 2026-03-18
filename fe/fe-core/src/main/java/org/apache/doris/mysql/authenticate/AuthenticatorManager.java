@@ -153,31 +153,25 @@ public class AuthenticatorManager {
                                 MysqlHandshakePacket handshakePacket) throws IOException {
         String remoteIp = context.getMysqlChannel().getRemoteIp();
         Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
-        Optional<Password> password = primaryAuthenticator.getPasswordResolver()
-                .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
-        if (!password.isPresent()) {
+        Optional<Password> primaryPassword = resolvePassword(primaryAuthenticator, context, channel, serializer,
+                authPacket, handshakePacket);
+        if (!primaryPassword.isPresent()) {
             return false;
         }
-        AuthenticateResponse primaryResponse =
-                primaryAuthenticator.authenticate(new AuthenticateRequest(userName, password.get(), remoteIp));
+
+        Password password = primaryPassword.get();
+        AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, userName, password, remoteIp);
         if (primaryResponse.isSuccess()) {
-            applyAuthenticateResponse(context, remoteIp, primaryResponse);
-            return true;
+            return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);
         }
 
         AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
-                channel, serializer, authPacket, handshakePacket, password.get());
+                channel, serializer, authPacket, handshakePacket, password);
         if (chainResponse != null && chainResponse.isSuccess()) {
-            context.getState().setOk();
-            applyAuthenticateResponse(context, remoteIp, chainResponse);
-            return true;
+            return finishSuccessfulAuthentication(context, remoteIp, chainResponse, true);
         }
 
-        ensureAuthenticationErrorReported(context, userName, remoteIp, password.get());
-        if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
-            MysqlProto.sendResponsePacket(context);
-        }
-        return false;
+        return reportAuthenticationFailure(context, userName, remoteIp, password);
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
@@ -193,6 +187,30 @@ public class AuthenticatorManager {
         context.setCurrentUserIdentity(response.getUserIdentity());
         context.setRemoteIP(remoteIp);
         context.setIsTempUser(response.isTemp());
+    }
+
+    private Optional<Password> resolvePassword(Authenticator authenticator,
+            ConnectContext context,
+            MysqlChannel channel,
+            MysqlSerializer serializer,
+            MysqlAuthPacket authPacket,
+            MysqlHandshakePacket handshakePacket) throws IOException {
+        return authenticator.getPasswordResolver().resolvePassword(context, channel, serializer, authPacket,
+                handshakePacket);
+    }
+
+    private AuthenticateResponse authenticateWith(Authenticator authenticator, String userName,
+            Password password, String remoteIp) throws IOException {
+        return authenticator.authenticate(new AuthenticateRequest(userName, password, remoteIp));
+    }
+
+    private boolean finishSuccessfulAuthentication(ConnectContext context, String remoteIp,
+            AuthenticateResponse response, boolean setOkState) {
+        if (setOkState) {
+            context.getState().setOk();
+        }
+        applyAuthenticateResponse(context, remoteIp, response);
+        return true;
     }
 
     private AuthenticateResponse tryAuthenticationChainFallback(ConnectContext context,
@@ -220,8 +238,8 @@ public class AuthenticatorManager {
 
         Password chainPassword = primaryPassword;
         if (!(chainPassword instanceof ClearPassword)) {
-            Optional<Password> fallbackPassword = chainAuthenticator.getPasswordResolver()
-                    .resolvePassword(context, channel, serializer, authPacket, handshakePacket);
+            Optional<Password> fallbackPassword = resolvePassword(chainAuthenticator, context, channel, serializer,
+                    authPacket, handshakePacket);
             if (!fallbackPassword.isPresent()) {
                 return null;
             }
@@ -229,11 +247,20 @@ public class AuthenticatorManager {
         }
 
         LOG.info("Try authentication_chain fallback for user '{}'", userName);
-        return chainAuthenticator.authenticate(new AuthenticateRequest(userName, chainPassword, remoteIp));
+        return authenticateWith(chainAuthenticator, userName, chainPassword, remoteIp);
     }
 
     private boolean hasAuthenticationChain() {
         return !AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty();
+    }
+
+    private boolean reportAuthenticationFailure(ConnectContext context, String userName, String remoteIp,
+            Password password) {
+        ensureAuthenticationErrorReported(context, userName, remoteIp, password);
+        if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            MysqlProto.sendResponsePacket(context);
+        }
+        return false;
     }
 
     private void ensureAuthenticationErrorReported(ConnectContext context, String userName, String remoteIp,
