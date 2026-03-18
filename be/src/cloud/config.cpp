@@ -128,7 +128,7 @@ DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 
 DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
 
-DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
+DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "500");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 

@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <mutex>
 #include <vector>
 
 #include "io/cache/block_file_cache.h"
@@ -107,6 +108,44 @@ TEST(NeedUpdateLRUBlocksTest, ClearIsIdempotent) {
 
     std::vector<FileBlockSPtr> drained;
     EXPECT_EQ(0u, pending.drain(4, &drained));
+}
+
+TEST(NeedUpdateLRUBlocksTest, UpdateBlockLRUIgnoresNullAndCorruptedCellPointer) {
+    io::FileCacheSettings settings;
+    settings.capacity = 1024 * 1024;
+    settings.query_queue_size = 1024 * 1024;
+    settings.query_queue_elements = 10;
+    settings.max_file_block_size = 1024;
+    settings.max_query_cache_size = 1024 * 1024;
+    settings.storage = "memory";
+
+    io::BlockFileCache mgr("memory", settings);
+
+    {
+        std::lock_guard<std::mutex> cache_lock(mgr._mutex);
+        FileBlockSPtr null_block;
+        mgr.update_block_lru(null_block, cache_lock);
+    }
+
+    FileCacheKey key;
+    key.hash = io::BlockFileCache::hash("update_block_lru_corrupted_cell");
+    key.offset = 0;
+    key.meta.expiration_time = 0;
+    key.meta.type = FileCacheType::NORMAL;
+    key.meta.tablet_id = 0;
+
+    auto block =
+            std::make_shared<FileBlock>(key, /*size*/ 1, /*mgr*/ &mgr, FileBlock::State::EMPTY);
+    EXPECT_EQ(nullptr, block->cell);
+
+    // Simulate a corrupted/stale cell pointer. Previously update_block_lru()
+    // dereferenced block->cell directly and could crash.
+    block->cell = reinterpret_cast<FileBlockCell*>(0x1);
+
+    {
+        std::lock_guard<std::mutex> cache_lock(mgr._mutex);
+        mgr.update_block_lru(block, cache_lock);
+    }
 }
 
 } // namespace doris::io

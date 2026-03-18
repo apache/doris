@@ -17,6 +17,8 @@
 
 #include "storage/index/inverted/similarity/bm25_similarity.h"
 
+#include <cmath>
+
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
@@ -81,6 +83,13 @@ void BM25Similarity::for_terms(const IndexQueryContextPtr& context, const std::w
 float BM25Similarity::score(float freq, int64_t encoded_norm) {
     float norm_inverse = _cache[((uint8_t)encoded_norm) & 0xFF];
     return _weight - _weight / (1.0F + freq * norm_inverse);
+}
+
+float BM25Similarity::max_score() {
+    // 2013265944 = byte4_to_int(int_to_byte4(MAX_INT32)) from Lucene's SmallFloat encoding,
+    // representing the maximum possible term frequency. Combined with norm=255 (shortest
+    // document length), this yields the theoretical upper-bound BM25 score for this term.
+    return score(static_cast<float>(2013265944), 255);
 }
 
 int32_t BM25Similarity::number_of_leading_zeros(uint64_t value) {

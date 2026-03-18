@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <glog/logging.h>
+
 #include <utility>
 
 #include "core/block/block.h"

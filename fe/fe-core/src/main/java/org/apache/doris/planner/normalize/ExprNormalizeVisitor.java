@@ -23,11 +23,14 @@ import org.apache.doris.analysis.ExprVisitor;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.LambdaFunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSlotRef;
+
+import com.google.common.collect.ImmutableSet;
+
+import java.util.Set;
 
 /**
  * Visitor that produces a normalized {@link TExprNode} for query cache support.
@@ -78,9 +81,8 @@ public class ExprNormalizeVisitor extends ExprVisitor<Void, TExprNode> {
     @Override
     public Void visitFunctionCallExpr(FunctionCallExpr expr, TExprNode msg) {
         String functionName = expr.getFnName().getFunction().toUpperCase();
-        if (FunctionSet.nonDeterministicFunctions.contains(functionName)
-                || "NOW".equals(functionName)
-                || (FunctionSet.nonDeterministicTimeFunctions.contains(functionName)
+        if (nonDeterministicFunctions.contains(functionName)
+                || (nonDeterministicTimeFunctions.contains(functionName)
                         && expr.getChildren().isEmpty())) {
             throw new IllegalStateException("Can not normalize non deterministic functions");
         }
@@ -96,4 +98,30 @@ public class ExprNormalizeVisitor extends ExprVisitor<Void, TExprNode> {
 
     // All other visitXxx methods inherit from ExprVisitor and call visit(),
     // which delegates to ExprToThriftVisitor.INSTANCE.
+
+    private static final Set<String> nonDeterministicFunctions =
+            ImmutableSet.<String>builder()
+                    .add("RAND")
+                    .add("RANDOM")
+                    .add("RANDOM_BYTES")
+                    .add("CONNECTION_ID")
+                    .add("DATABASE")
+                    .add("USER")
+                    .add("UUID")
+                    .add("CURRENT_USER")
+                    .add("UUID_NUMERIC")
+                    .build();
+
+    private static final Set<String> nonDeterministicTimeFunctions =
+            ImmutableSet.<String>builder()
+                    .add("NOW")
+                    .add("CURDATE")
+                    .add("CURRENT_DATE")
+                    .add("UTC_TIMESTAMP")
+                    .add("CURTIME")
+                    .add("CURRENT_TIMESTAMP")
+                    .add("CURRENT_TIME")
+                    .add("UNIX_TIMESTAMP")
+                    .add()
+                    .build();
 }

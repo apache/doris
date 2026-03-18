@@ -52,7 +52,6 @@ std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_share
 Status MultiCastDataStreamSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _shared_state->multi_cast_data_streamer->set_sink_profile(operator_profile());
-    _shared_state->setup_shared_profile(custom_profile());
     _shared_state->multi_cast_data_streamer->set_write_dependency(_dependency);
     return Status::OK();
 }

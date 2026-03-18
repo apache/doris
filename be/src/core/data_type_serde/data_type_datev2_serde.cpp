@@ -228,6 +228,14 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
     return Status::OK();
 }
 
+// Deserializes a DateV2 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses strptime("%Y-%m-%d") to parse, then bit-packs into DateV2 internal format:
+//   uint32_t value = (year << 9) | (month << 5) | day
+//
+// Expected input format: "YYYY-MM-DD", e.g. "2023-10-15"
+// On parse failure, falls back to MIN_DATE_V2.
 Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& field,
                                              const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -441,6 +449,11 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
     return Status::OK();
 }
 
+// Serializes a DateV2 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Delegates to CastToString::from_datev2() which calls DateV2Value::to_string(buf).
+// Output format: "YYYY-MM-DD", e.g. "2023-10-15"
 std::string DataTypeDateV2SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_datev2(field.get<TYPE_DATEV2>());
 }
