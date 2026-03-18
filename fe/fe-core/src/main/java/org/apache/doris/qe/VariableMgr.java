@@ -41,6 +41,7 @@ import org.apache.doris.statistics.util.StatisticsUtil;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSortedMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -64,6 +65,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -1089,5 +1091,10 @@ public class VariableMgr {
                     GlobalVariable.VARIABLE_VERSION,
                     String.valueOf(GlobalVariable.CURRENT_VARIABLE_VERSION));
         }
+    }
+
+    public static Set<String> getAllSessionVarNames() {
+        ImmutableMap<String, VarContext> displaySessionVars = getDisplaySessionVars();
+        return ImmutableSet.copyOf(displaySessionVars.keySet());
     }
 }
