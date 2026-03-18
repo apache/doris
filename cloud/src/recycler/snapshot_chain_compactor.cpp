@@ -27,6 +27,7 @@
 #include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
 #include "recycler/util.h"
+#include "snapshot/doris_snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -384,7 +385,7 @@ int InstanceChainCompactor::do_compact() {
                 .tag("cost(sec)", stop_watch.elapsed_seconds());
     };
 
-    SnapshotManager snapshot_mgr(txn_kv_);
+    DorisSnapshotManager snapshot_mgr(txn_kv_);
     int res = snapshot_mgr.compact_snapshot_chains(this);
     if (res != 0) {
         LOG_WARNING("failed to compact snapshot chains").tag("instance_id", instance_id_);

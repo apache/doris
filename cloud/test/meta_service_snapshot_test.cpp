@@ -30,6 +30,16 @@
 #include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-store/keys.h"
+#include "meta-store/mem_txn_kv.h"
+#include "meta-store/txn_kv.h"
+#include "meta-store/txn_kv_error.h"
+#include "meta-store/versioned_value.h"
+#include "mock_accessor.h"
+#include "recycler/checker.h"
+#include "recycler/snapshot_chain_compactor.h"
+#include "recycler/snapshot_data_migrator.h"
+#include "snapshot/doris_snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -707,6 +717,489 @@ TEST(MetaServiceSnapshotTest, ListSpecificSnapshotTest) {
         // Should return INVALID_ARGUMENT since snapshot not found
         ASSERT_NE(res.status().code(), MetaServiceCode::OK);
     }
+}
+
+// ============================================================================
+// Phase 2 Tests: DorisSnapshotManager Operational Methods
+// ============================================================================
+
+// Helper: write a snapshot KV entry directly into TxnKv
+static void write_test_snapshot(TxnKv* txn_kv, const std::string& instance_id,
+                                const Versionstamp& vs, const SnapshotPB& pb) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key_prefix = versioned::snapshot_full_key({instance_id});
+    std::string full_key = encode_versioned_key(key_prefix, vs);
+    txn->put(full_key, pb.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+// Helper: write instance info into TxnKv
+static void write_test_instance(TxnKv* txn_kv, const InstanceInfoPB& instance) {
+    std::unique_ptr<Transaction> txn;
+    ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = instance_key({instance.instance_id()});
+    txn->put(key, instance.SerializeAsString());
+    ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+}
+
+// Helper: check if a snapshot key exists in TxnKv
+static bool snapshot_key_exists(TxnKv* txn_kv, const std::string& instance_id,
+                                const Versionstamp& vs) {
+    std::unique_ptr<Transaction> txn;
+    if (txn_kv->create_txn(&txn) != TxnErrorCode::TXN_OK) return false;
+    std::string key_prefix = versioned::snapshot_full_key({instance_id});
+    std::string full_key = encode_versioned_key(key_prefix, vs);
+    std::string value;
+    return txn->get(full_key, &value) == TxnErrorCode::TXN_OK;
+}
+
+// --- set_multi_version_status ---
+
+TEST(DorisSnapshotManagerTest, SetMultiVersionStatusForwardTransition) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    // Write instance with DISABLED status
+    InstanceInfoPB instance;
+    instance.set_instance_id("mvs_test_instance");
+    instance.set_user_id("test_user");
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_DISABLED);
+    write_test_instance(txn_kv.get(), instance);
+
+    DorisSnapshotManager mgr(txn_kv);
+
+    // DISABLED → WRITE_ONLY (forward)
+    auto [code1, msg1] = mgr.set_multi_version_status(
+            "mvs_test_instance", MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    ASSERT_EQ(code1, MetaServiceCode::OK);
+
+    // WRITE_ONLY → READ_WRITE (forward)
+    auto [code2, msg2] = mgr.set_multi_version_status(
+            "mvs_test_instance", MultiVersionStatus::MULTI_VERSION_READ_WRITE);
+    ASSERT_EQ(code2, MetaServiceCode::OK);
+
+    // READ_WRITE → ENABLED (forward)
+    auto [code3, msg3] = mgr.set_multi_version_status(
+            "mvs_test_instance", MultiVersionStatus::MULTI_VERSION_ENABLED);
+    ASSERT_EQ(code3, MetaServiceCode::OK);
+}
+
+TEST(DorisSnapshotManagerTest, SetMultiVersionStatusNoChange) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id("mvs_noop_instance");
+    instance.set_user_id("test_user");
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    write_test_instance(txn_kv.get(), instance);
+
+    DorisSnapshotManager mgr(txn_kv);
+    auto [code, msg] = mgr.set_multi_version_status(
+            "mvs_noop_instance", MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    ASSERT_EQ(code, MetaServiceCode::OK);
+    ASSERT_EQ(msg, "no change");
+}
+
+TEST(DorisSnapshotManagerTest, SetMultiVersionStatusBackwardRejected) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id("mvs_backward_instance");
+    instance.set_user_id("test_user");
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_ENABLED);
+    write_test_instance(txn_kv.get(), instance);
+
+    DorisSnapshotManager mgr(txn_kv);
+    auto [code, msg] = mgr.set_multi_version_status(
+            "mvs_backward_instance", MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+    ASSERT_EQ(code, MetaServiceCode::INVALID_ARGUMENT);
+}
+
+// --- recycle_snapshot_meta_and_data ---
+
+TEST(DorisSnapshotManagerTest, RecycleSnapshotMetaAndData) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "recycle_meta_data_instance";
+    Versionstamp vs(100, 0);
+
+    // Write a snapshot KV
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_RECYCLED);
+    pb.set_image_url("snapshot/recycle_meta_data_instance/snap001/image/");
+    pb.set_upload_file("data/part1.dat");
+    pb.set_upload_id("upload-abc");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+    ASSERT_TRUE(snapshot_key_exists(txn_kv.get(), inst_id, vs));
+
+    // Create a mock accessor
+    auto accessor = std::make_shared<MockAccessor>();
+    accessor->put_file(pb.image_url() + "file1.img", "");
+
+    DorisSnapshotManager mgr(txn_kv);
+    int ret = mgr.recycle_snapshot_meta_and_data(inst_id, "res1", accessor.get(), vs, pb);
+    ASSERT_EQ(ret, 0);
+
+    // Verify snapshot key is deleted
+    ASSERT_FALSE(snapshot_key_exists(txn_kv.get(), inst_id, vs));
+}
+
+TEST(DorisSnapshotManagerTest, RecycleSnapshotMetaAndDataNullAccessor) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "recycle_null_accessor";
+    Versionstamp vs(200, 0);
+
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_ABORTED);
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    DorisSnapshotManager mgr(txn_kv);
+    // null accessor should still succeed (skip object storage ops)
+    int ret = mgr.recycle_snapshot_meta_and_data(inst_id, "", nullptr, vs, pb);
+    ASSERT_EQ(ret, 0);
+    ASSERT_FALSE(snapshot_key_exists(txn_kv.get(), inst_id, vs));
+}
+
+// --- check_snapshots ---
+
+TEST(DorisSnapshotManagerTest, CheckSnapshotsEmpty) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, "check_empty_instance");
+    auto mock_acc = std::make_shared<MockAccessor>();
+    checker.TEST_add_accessor("res1", mock_acc);
+
+    // No snapshots → return 0
+    ASSERT_EQ(mgr.check_snapshots(&checker), 0);
+}
+
+TEST(DorisSnapshotManagerTest, CheckSnapshotsAllPresent) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "check_present_instance";
+    Versionstamp vs1(300, 0);
+    Versionstamp vs2(301, 0);
+
+    // Write two NORMAL snapshots with image URLs
+    SnapshotPB pb1;
+    pb1.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    pb1.set_image_url("snapshot/check_present_instance/snap1/image/");
+    pb1.set_resource_id("res1");
+    write_test_snapshot(txn_kv.get(), inst_id, vs1, pb1);
+
+    SnapshotPB pb2;
+    pb2.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    pb2.set_image_url("snapshot/check_present_instance/snap2/image/");
+    pb2.set_resource_id("res1");
+    write_test_snapshot(txn_kv.get(), inst_id, vs2, pb2);
+
+    // Mock accessor with both files present
+    auto mock_acc = std::make_shared<MockAccessor>();
+    mock_acc->put_file(pb1.image_url(), "");
+    mock_acc->put_file(pb2.image_url(), "");
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, inst_id);
+    checker.TEST_add_accessor("res1", mock_acc);
+
+    ASSERT_EQ(mgr.check_snapshots(&checker), 0);
+}
+
+TEST(DorisSnapshotManagerTest, CheckSnapshotsMissingFile) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "check_missing_instance";
+    Versionstamp vs(400, 0);
+
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    pb.set_image_url("snapshot/check_missing_instance/snap1/image/");
+    pb.set_resource_id("res1");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    // Mock accessor WITHOUT the file
+    auto mock_acc = std::make_shared<MockAccessor>();
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, inst_id);
+    checker.TEST_add_accessor("res1", mock_acc);
+
+    // File missing → return 1 (data loss)
+    ASSERT_EQ(mgr.check_snapshots(&checker), 1);
+}
+
+TEST(DorisSnapshotManagerTest, CheckSnapshotsSkipNonNormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "check_skip_nonnormal";
+    Versionstamp vs(500, 0);
+
+    // ABORTED snapshot should be skipped
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_ABORTED);
+    pb.set_image_url("snapshot/check_skip_nonnormal/snap1/image/");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    auto mock_acc = std::make_shared<MockAccessor>();
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, inst_id);
+    checker.TEST_add_accessor("res1", mock_acc);
+
+    // Non-NORMAL snapshots are skipped → return 0
+    ASSERT_EQ(mgr.check_snapshots(&checker), 0);
+}
+
+// --- inverted_check_snapshots ---
+
+TEST(DorisSnapshotManagerTest, InvertedCheckSnapshotsNoOrphan) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "inv_check_clean";
+    Versionstamp vs(600, 0);
+
+    // Known snapshot
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    pb.set_image_url("snapshot/inv_check_clean/snap1/image/");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    // Mock accessor lists exactly the known file
+    auto mock_acc = std::make_shared<MockAccessor>();
+    mock_acc->put_file("snapshot/inv_check_clean/snap1/image/", "");
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, inst_id);
+    checker.TEST_add_accessor("res1", mock_acc);
+
+    ASSERT_EQ(mgr.inverted_check_snapshots(&checker), 0);
+}
+
+TEST(DorisSnapshotManagerTest, InvertedCheckSnapshotsOrphanDetected) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "inv_check_orphan";
+
+    // No snapshots in KV → any file in storage is orphan
+    auto mock_acc = std::make_shared<MockAccessor>();
+    mock_acc->put_file("snapshot/inv_check_orphan/leaked_file.img", "");
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, inst_id);
+    checker.TEST_add_accessor("res1", mock_acc);
+
+    ASSERT_EQ(mgr.inverted_check_snapshots(&checker), 1);
+}
+
+// --- check_mvcc_meta_key ---
+
+TEST(DorisSnapshotManagerTest, CheckMvccMetaKeyValid) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "mvcc_valid_instance";
+    Versionstamp vs(700, 0);
+
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    pb.set_image_url("test/image");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, inst_id);
+
+    ASSERT_EQ(mgr.check_mvcc_meta_key(&checker), 0);
+}
+
+TEST(DorisSnapshotManagerTest, CheckMvccMetaKeyEmpty) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, "mvcc_empty_instance");
+
+    // No keys → return 0 (no issues)
+    ASSERT_EQ(mgr.check_mvcc_meta_key(&checker), 0);
+}
+
+// --- inverted_check_mvcc_meta_key ---
+
+TEST(DorisSnapshotManagerTest, InvertedCheckMvccMetaKeyValid) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "inv_mvcc_valid";
+    Versionstamp vs(800, 0);
+
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    DorisSnapshotManager mgr(txn_kv);
+    InstanceChecker checker(txn_kv, inst_id);
+
+    ASSERT_EQ(mgr.inverted_check_mvcc_meta_key(&checker), 0);
+}
+
+// --- migrate_to_versioned_keys ---
+
+TEST(DorisSnapshotManagerTest, MigrateToVersionedKeysDisabledSkip) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id("migrate_disabled_instance");
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_DISABLED);
+
+    InstanceDataMigrator migrator(txn_kv, instance);
+    DorisSnapshotManager mgr(txn_kv);
+
+    // DISABLED → skip migration, return 0
+    ASSERT_EQ(mgr.migrate_to_versioned_keys(&migrator), 0);
+}
+
+TEST(DorisSnapshotManagerTest, MigrateToVersionedKeysWithData) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "migrate_data_instance";
+
+    // Write non-versioned tablet keys
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int i = 1; i <= 5; i++) {
+            std::string key = meta_tablet_key({inst_id, /*table_id=*/100,
+                                               /*index_id=*/200, /*partition_id=*/300,
+                                               /*tablet_id=*/static_cast<int64_t>(1000 + i)});
+            txn->put(key, "tablet_data_" + std::to_string(i));
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Write non-versioned rowset keys
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        for (int i = 1; i <= 3; i++) {
+            std::string key = meta_rowset_key({inst_id, /*tablet_id=*/1001,
+                                               /*version=*/static_cast<int64_t>(i)});
+            txn->put(key, "rowset_data_" + std::to_string(i));
+        }
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(inst_id);
+    instance.set_multi_version_status(MultiVersionStatus::MULTI_VERSION_WRITE_ONLY);
+
+    InstanceDataMigrator migrator(txn_kv, instance);
+    DorisSnapshotManager mgr(txn_kv);
+
+    ASSERT_EQ(mgr.migrate_to_versioned_keys(&migrator), 0);
+}
+
+// --- compact_snapshot_chains ---
+
+TEST(DorisSnapshotManagerTest, CompactSnapshotChainsNotCloned) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    // Instance without source_instance_id (not a clone)
+    InstanceInfoPB instance;
+    instance.set_instance_id("compact_not_cloned");
+
+    InstanceChainCompactor compactor(txn_kv, instance);
+    DorisSnapshotManager mgr(txn_kv);
+
+    // Not cloned → skip, return 0
+    ASSERT_EQ(mgr.compact_snapshot_chains(&compactor), 0);
+}
+
+TEST(DorisSnapshotManagerTest, CompactSnapshotChainsValidChain) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string source_instance = "compact_source_instance";
+    std::string clone_instance = "compact_clone_instance";
+    Versionstamp snapshot_vs(900, 0);
+    std::string snapshot_id = SnapshotManager::serialize_snapshot_id(snapshot_vs);
+
+    // Write source snapshot (NORMAL)
+    SnapshotPB source_pb;
+    source_pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    source_pb.set_image_url("snapshot/source/snap1/image/");
+    write_test_snapshot(txn_kv.get(), source_instance, snapshot_vs, source_pb);
+
+    // Write reference key for the clone
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        versioned::SnapshotReferenceKeyInfo ref_info {
+                source_instance, snapshot_vs, clone_instance};
+        std::string ref_key = versioned::snapshot_reference_key(ref_info);
+        txn->put(ref_key, "ref_value");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Setup clone instance info
+    InstanceInfoPB clone_info;
+    clone_info.set_instance_id(clone_instance);
+    clone_info.set_source_instance_id(source_instance);
+    clone_info.set_source_snapshot_id(snapshot_id);
+
+    InstanceChainCompactor compactor(txn_kv, clone_info);
+    DorisSnapshotManager mgr(txn_kv);
+
+    ASSERT_EQ(mgr.compact_snapshot_chains(&compactor), 0);
+}
+
+TEST(DorisSnapshotManagerTest, CompactSnapshotChainsInvalidSnapshotId) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    InstanceInfoPB clone_info;
+    clone_info.set_instance_id("compact_bad_id");
+    clone_info.set_source_instance_id("some_source");
+    clone_info.set_source_snapshot_id("invalid_hex"); // not a valid 20-char hex
+
+    InstanceChainCompactor compactor(txn_kv, clone_info);
+    DorisSnapshotManager mgr(txn_kv);
+
+    // Invalid snapshot_id → return -1
+    ASSERT_EQ(mgr.compact_snapshot_chains(&compactor), -1);
+}
+
+TEST(DorisSnapshotManagerTest, CompactSnapshotChainsSourceNotFound) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    Versionstamp snapshot_vs(950, 0);
+    std::string snapshot_id = SnapshotManager::serialize_snapshot_id(snapshot_vs);
+
+    // Clone instance pointing to non-existent source snapshot
+    InstanceInfoPB clone_info;
+    clone_info.set_instance_id("compact_no_source");
+    clone_info.set_source_instance_id("nonexistent_source");
+    clone_info.set_source_snapshot_id(snapshot_id);
+
+    InstanceChainCompactor compactor(txn_kv, clone_info);
+    DorisSnapshotManager mgr(txn_kv);
+
+    // Source snapshot not found → return -1
+    ASSERT_EQ(mgr.compact_snapshot_chains(&compactor), -1);
 }
 
 } // namespace doris::cloud
