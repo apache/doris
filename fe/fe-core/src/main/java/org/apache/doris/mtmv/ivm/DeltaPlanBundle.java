@@ -17,24 +17,39 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+
 import java.util.Objects;
 
-/** Placeholder bundle for a planned incremental refresh action. */
+/**
+ * One delta write plan for a single changed base table.
+ * Produced by a per-pattern IVM Nereids rule and consumed by IVMDeltaExecutor.
+ */
 public class DeltaPlanBundle {
-    private final String description;
+    // the base table whose changes this bundle handles
+    private final BaseTableInfo baseTableInfo;
+    // the logical delta write plan (INSERT / DELETE / MERGE INTO)
+    private final LogicalPlan deltaWritePlan;
 
-    public DeltaPlanBundle(String description) {
-        this.description = Objects.requireNonNull(description, "description can not be null");
+    public DeltaPlanBundle(BaseTableInfo baseTableInfo, LogicalPlan deltaWritePlan) {
+        this.baseTableInfo = Objects.requireNonNull(baseTableInfo, "baseTableInfo can not be null");
+        this.deltaWritePlan = Objects.requireNonNull(deltaWritePlan, "deltaWritePlan can not be null");
     }
 
-    public String getDescription() {
-        return description;
+    public BaseTableInfo getBaseTableInfo() {
+        return baseTableInfo;
+    }
+
+    public LogicalPlan getDeltaWritePlan() {
+        return deltaWritePlan;
     }
 
     @Override
     public String toString() {
         return "DeltaPlanBundle{"
-                + "description='" + description + '\''
+                + "baseTableInfo=" + baseTableInfo
+                + ", deltaWritePlan=" + deltaWritePlan.getClass().getSimpleName()
                 + '}';
     }
 }
