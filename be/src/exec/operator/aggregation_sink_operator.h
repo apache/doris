@@ -38,6 +38,7 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     bool is_blockable() const override;
+    size_t get_hash_table_size() const;
 
 protected:
     friend class AggSinkOperatorX;
@@ -81,6 +82,7 @@ protected:
     Status _merge_with_serialized_key(Block* block);
     void _update_memusage_with_serialized_key();
     template <bool limit>
+
     Status _execute_with_serialized_key_helper(Block* block);
     void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                              uint32_t num_rows);
@@ -89,7 +91,6 @@ protected:
     bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
                                         const std::vector<int>& key_locs,
                                         ColumnRawPtrs& key_columns, uint32_t num_rows);
-    size_t _get_hash_table_size() const;
 
     template <bool limit, bool for_spill = false>
     Status _merge_with_serialized_key_helper(Block* block);
@@ -119,7 +120,7 @@ protected:
     PODArray<AggregateDataPtr> _places;
     std::vector<char> _deserialize_buffer;
 
-    Block _preagg_block = Block();
+    Block _preagg_block;
 
     AggregatedDataVariants* _agg_data = nullptr;
 
@@ -177,6 +178,8 @@ public:
     Status reset_hash_table(RuntimeState* state);
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
+
+    size_t get_hash_table_size(RuntimeState* state) const;
 
     using DataSinkOperatorX<AggSinkLocalState>::node_id;
     using DataSinkOperatorX<AggSinkLocalState>::operator_id;

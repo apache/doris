@@ -1434,9 +1434,10 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");    // 20%
-DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
-DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
+DEFINE_String(spill_storage_limit, "20%");               // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
+DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
+DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");

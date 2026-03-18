@@ -199,6 +199,7 @@ private:
     // Operator `op` try to reserve memory before executing. Return false if reserve failed
     // otherwise return true.
     bool _try_to_reserve_memory(const size_t reserve_size, OperatorBase* op);
+    bool _should_trigger_revoking(const size_t reserve_size) const;
 
     const TUniqueId _query_id;
     const uint32_t _index;

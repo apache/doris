@@ -202,7 +202,7 @@ Status AggSinkLocalState::_merge_with_serialized_key(Block* block) {
 }
 
 size_t AggSinkLocalState::_memory_usage() const {
-    if (0 == _get_hash_table_size()) {
+    if (0 == get_hash_table_size()) {
         return 0;
     }
     size_t usage = 0;
@@ -380,7 +380,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
         }
 
         if (!limit && _should_limit_output) {
-            const size_t hash_table_size = _get_hash_table_size();
+            const size_t hash_table_size = get_hash_table_size();
             _shared_state->reach_limit =
                     hash_table_size >= Base::_parent->template cast<AggSinkOperatorX>()._limit;
             if (_shared_state->do_sort_limit && _shared_state->reach_limit) {
@@ -499,7 +499,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(Block* block) {
             RETURN_IF_ERROR(do_aggregate_evaluators());
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
-                const size_t hash_table_size = _get_hash_table_size();
+                const size_t hash_table_size = get_hash_table_size();
 
                 _shared_state->reach_limit =
                         hash_table_size >=
@@ -516,7 +516,7 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(Block* block) {
     return Status::OK();
 }
 
-size_t AggSinkLocalState::_get_hash_table_size() const {
+size_t AggSinkLocalState::get_hash_table_size() const {
     return std::visit(Overload {[&](std::monostate& arg) -> size_t { return 0; },
                                 [&](auto& agg_method) { return agg_method.hash_table->size(); }},
                       _agg_data->method_variant);
@@ -872,7 +872,7 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool 
         RETURN_IF_ERROR(local_state._executor->execute(&local_state, in_block));
         local_state._executor->update_memusage(&local_state);
         COUNTER_SET(local_state._hash_table_size_counter,
-                    (int64_t)local_state._get_hash_table_size());
+                    (int64_t)local_state.get_hash_table_size());
     }
     if (eos) {
         local_state._dependency->set_ready_to_read();
@@ -897,6 +897,11 @@ Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
 size_t AggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
     return local_state.get_reserve_mem_size(state, eos);
+}
+
+size_t AggSinkOperatorX::get_hash_table_size(RuntimeState* state) const {
+    auto& local_state = get_local_state(state);
+    return local_state.get_hash_table_size();
 }
 
 Status AggSinkLocalState::close(RuntimeState* state, Status exec_status) {

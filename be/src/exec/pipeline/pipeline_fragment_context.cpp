@@ -108,7 +108,7 @@
 #include "exec/pipeline/task_scheduler.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/sort/topn_sorter.h"
-#include "exec/spill/spill_stream.h"
+#include "exec/spill/spill_file.h"
 #include "io/fs/stream_load_pipe.h"
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/exec_env.h"
@@ -602,9 +602,9 @@ void PipelineFragmentContext::trigger_report_if_necessary() {
     }
     int32_t interval_s = config::pipeline_status_report_interval;
     if (interval_s <= 0) {
-        LOG(WARNING)
-                << "config::status_report_interval is equal to or less than zero, do not trigger "
-                   "report.";
+        LOG(WARNING) << "config::status_report_interval is equal to or less than zero, do not "
+                        "trigger "
+                        "report.";
     }
     uint64_t next_report_time = _previous_report_time.load(std::memory_order_acquire) +
                                 (uint64_t)(interval_s)*NANOS_PER_SEC;
@@ -731,7 +731,8 @@ Status PipelineFragmentContext::_create_tree_helper(
         // this means we have been given a bad tree and must fail
         if (*node_idx >= tnodes.size()) {
             return Status::InternalError(
-                    "Failed to reconstruct plan tree from thrift. Node id: {}, number of nodes: {}",
+                    "Failed to reconstruct plan tree from thrift. Node id: {}, number of "
+                    "nodes: {}",
                     *node_idx, tnodes.size());
         }
     }
@@ -1345,8 +1346,9 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         const bool is_streaming_agg = tnode.agg_node.__isset.use_streaming_preaggregation &&
                                       tnode.agg_node.use_streaming_preaggregation &&
                                       !tnode.agg_node.grouping_exprs.empty();
+        // TODO: distinct streaming agg does not support spill.
         const bool can_use_distinct_streaming_agg =
-                tnode.agg_node.aggregate_functions.empty() &&
+                (!enable_spill || is_streaming_agg) && tnode.agg_node.aggregate_functions.empty() &&
                 !tnode.agg_node.__isset.agg_sort_info_by_group_key &&
                 _params.query_options.__isset.enable_distinct_streaming_aggregation &&
                 _params.query_options.enable_distinct_streaming_aggregation;
@@ -1428,7 +1430,6 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
         if (enable_spill && !is_broadcast_join) {
             auto tnode_ = tnode;
             tnode_.runtime_filters.clear();
-            uint32_t partition_count = _runtime_state->spill_hash_join_partition_count();
             auto inner_probe_operator =
                     std::make_shared<HashJoinProbeOperatorX>(pool, tnode_, 0, descs);
 
@@ -1441,7 +1442,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             RETURN_IF_ERROR(probe_side_inner_sink_operator->init(tnode_, _runtime_state.get()));
 
             auto probe_operator = std::make_shared<PartitionedHashJoinProbeOperatorX>(
-                    pool, tnode_, next_operator_id(), descs, partition_count);
+                    pool, tnode_, next_operator_id(), descs);
             probe_operator->set_inner_operators(probe_side_inner_sink_operator,
                                                 inner_probe_operator);
             op = std::move(probe_operator);
@@ -1457,8 +1458,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             auto inner_sink_operator =
                     std::make_shared<HashJoinBuildSinkOperatorX>(pool, 0, 0, tnode, descs);
             auto sink_operator = std::make_shared<PartitionedHashJoinSinkOperatorX>(
-                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs,
-                    partition_count);
+                    pool, next_sink_operator_id(), op->operator_id(), tnode_, descs);
             RETURN_IF_ERROR(inner_sink_operator->init(tnode, _runtime_state.get()));
 
             sink_operator->set_inner_operators(inner_sink_operator, inner_probe_operator);
@@ -1921,7 +1921,7 @@ size_t PipelineFragmentContext::get_revocable_size(bool* has_running_task) const
             }
 
             size_t revocable_size = task.first->get_revocable_size();
-            if (revocable_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+            if (revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
                 res += revocable_size;
             }
         }
@@ -1934,7 +1934,8 @@ std::vector<PipelineTask*> PipelineFragmentContext::get_revocable_tasks() const 
     for (const auto& task_instances : _tasks) {
         for (const auto& task : task_instances) {
             size_t revocable_size_ = task.first->get_revocable_size();
-            if (revocable_size_ >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+
+            if (revocable_size_ >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
                 revocable_tasks.emplace_back(task.first.get());
             }
         }

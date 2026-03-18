@@ -24,9 +24,10 @@
 #include <vector>
 
 #include "common/metrics/metrics.h"
-#include "exec/spill/spill_stream.h"
+#include "exec/spill/spill_file.h"
 #include "storage/options.h"
 #include "util/threadpool.h"
+
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeProfile;
@@ -39,7 +40,7 @@ using UIntGauge = AtomicGauge<uint64_t>;
 class MetricEntity;
 struct MetricPrototype;
 
-class SpillStreamManager;
+class SpillFileManager;
 class SpillDataDir {
 public:
     SpillDataDir(std::string path, int64_t capacity_bytes,
@@ -88,7 +89,7 @@ private:
                                  (double)_disk_capacity_bytes;
     }
 
-    friend class SpillStreamManager;
+    friend class SpillFileManager;
     std::string _path;
 
     // protect _disk_capacity_bytes, _available_bytes, _spill_data_limit_bytes, _spill_data_bytes
@@ -110,10 +111,10 @@ private:
     IntGauge* spill_disk_has_spill_data = nullptr;
     IntGauge* spill_disk_has_spill_gc_data = nullptr;
 };
-class SpillStreamManager {
+class SpillFileManager {
 public:
-    ~SpillStreamManager();
-    SpillStreamManager(
+    ~SpillFileManager();
+    SpillFileManager(
             std::unordered_map<std::string, std::unique_ptr<SpillDataDir>>&& spill_store_map);
 
     Status init();
@@ -125,14 +126,16 @@ public:
         }
     }
 
-    // 创建SpillStream并登记
-    Status register_spill_stream(RuntimeState* state, SpillStreamSPtr& spill_stream,
-                                 const std::string& query_id, const std::string& operator_name,
-                                 int32_t node_id, int32_t batch_rows, size_t batch_bytes,
-                                 RuntimeProfile* operator_profile);
+    // Create SpillFile and register it
+    // @param relative_path  Operator-formatted path under the spill root,
+    //                       e.g. "query_id/sort-node_id-task_id-unique_id"
+    Status create_spill_file(const std::string& relative_path, SpillFileSPtr& spill_file);
 
-    // 标记SpillStream需要被删除，在GC线程中异步删除落盘文件
-    void delete_spill_stream(SpillStreamSPtr spill_stream);
+    /// Get a unique ID for constructing spill file paths.
+    uint64_t next_id() { return id_++; }
+
+    // Mark SpillFile for deletion; asynchronously delete spill files in the GC thread
+    void delete_spill_file(SpillFileSPtr spill_file);
 
     void gc(int32_t max_work_time_ms);
 

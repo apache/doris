@@ -1538,6 +1538,8 @@ DECLARE_String(spill_storage_root_path);
 DECLARE_String(spill_storage_limit);
 DECLARE_mInt32(spill_gc_interval_ms);
 DECLARE_mInt32(spill_gc_work_time_ms);
+// Maximum size of each spill part file before rotation (bytes). Default 1GB.
+DECLARE_mInt64(spill_file_part_size_bytes);
 DECLARE_Int64(spill_in_paused_queue_timeout_ms);
 DECLARE_Int64(wait_cancel_release_memory_ms);
 
