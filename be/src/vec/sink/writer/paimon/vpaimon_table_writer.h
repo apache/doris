@@ -60,8 +60,8 @@ private:
 
     std::vector<std::string> _create_partition_values(vectorized::Block& block, int position);
 
-    std::string _to_partition_value(const DataTypePtr& type,
-                                    const ColumnWithTypeAndName& col, int position);
+    std::string _to_partition_value(const DataTypePtr& type, const ColumnWithTypeAndName& col,
+                                    int position);
 
     std::string _compute_file_name();
 
