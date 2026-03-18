@@ -122,6 +122,19 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Deserializes a DateTimeV2 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f") to parse.
+// DateTimeV2 supports microsecond precision (scale 0-6) via a 20-bit microsecond_ field.
+//
+// Expected input format: "YYYY-MM-DD HH:MM:SS[.ffffff]"
+// Examples:
+//   "2023-10-15 14:30:00"         => scale 0, microsecond = 0
+//   "2023-10-15 14:30:00.123000"  => scale 6, microsecond = 123000
+//   "2023-10-15 14:30:00.123"     => scale 3, microsecond = 123000
+//
+// On parse failure, falls back to MIN_DATETIME_V2.
 Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
                                                  const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};

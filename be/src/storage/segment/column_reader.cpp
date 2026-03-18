@@ -2012,8 +2012,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             const auto serde = DataTypeFactory::instance()
                                        .create_data_type(t, _precision, _scale, _len)
                                        ->get_serde();
-            DataTypeSerDe::FormatOptions opt;
-            RETURN_IF_ERROR(serde->from_olap_string(_default_value, _default_value_field, opt));
+            RETURN_IF_ERROR(serde->from_fe_string(_default_value, _default_value_field));
         }
     } else if (_is_nullable) {
         _default_value_field = Field::create_field<TYPE_NULL>(Null {});

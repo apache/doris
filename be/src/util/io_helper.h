@@ -165,11 +165,19 @@ StringParser::ParseResult read_decimal_text_impl(T& x, const StringRef& buf, UIn
                                                  UInt32 scale) {
     static_assert(IsDecimalNumber<T>);
     if constexpr (!std::is_same_v<DecimalV2Value, T>) {
+        // DecimalV3: uses the caller-supplied precision and scale.
+        // When called from from_olap_string with ignore_scale=true, scale=0 means the
+        // string is treated as an unscaled integer (e.g. "12345" → internal int 12345).
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         x.value = StringParser::string_to_decimal<P>(buf.data, (int)buf.size, precision, scale,
                                                      &result);
         return result;
     } else {
+        // DecimalV2: IGNORES the caller-supplied precision/scale and hardcodes
+        // DecimalV2Value::PRECISION (27) and DecimalV2Value::SCALE (9).
+        // This means from_olap_string's ignore_scale flag has no actual effect on DecimalV2
+        // parsing today — the string "123.456000000" is always parsed with scale=9.
+        // Callers should still set ignore_scale=false for DecimalV2 for semantic correctness.
         StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
         x = DecimalV2Value(StringParser::string_to_decimal<TYPE_DECIMALV2>(
                 buf.data, (int)buf.size, DecimalV2Value::PRECISION, DecimalV2Value::SCALE,
