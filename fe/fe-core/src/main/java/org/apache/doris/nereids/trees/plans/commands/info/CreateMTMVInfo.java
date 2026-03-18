@@ -148,6 +148,12 @@ public class CreateMTMVInfo extends CreateTableInfo {
             throw new AnalysisException(message);
         }
         analyzeProperties();
+        // IVM MVs must not have user-specified keys — the unique key is the hidden row-id
+        if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL && !keys.isEmpty()) {
+            throw new AnalysisException(
+                    "Incremental materialized view does not allow specifying key columns. "
+                    + "The unique key is the hidden row-id column managed by IVM.");
+        }
         analyzeQuery(ctx);
         this.partitionDesc = generatePartitionDesc(ctx);
         if (distribution == null) {
@@ -299,7 +305,15 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setTableName(tableNameInfo.getTbl());
         this.setCtasColumns(ctasColumns.isEmpty() ? null : ctasColumns);
         this.setEngineName(CreateTableInfo.ENGINE_OLAP);
-        this.setKeysType(KeysType.DUP_KEYS);
+        if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL) {
+            this.setKeysType(KeysType.UNIQUE_KEYS);
+            if (properties == null) {
+                properties = Maps.newHashMap();
+            }
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        } else {
+            this.setKeysType(KeysType.DUP_KEYS);
+        }
         this.setPartitionTableInfo(partitionDesc == null
                 ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo());
         this.setRollups(Lists.newArrayList());
