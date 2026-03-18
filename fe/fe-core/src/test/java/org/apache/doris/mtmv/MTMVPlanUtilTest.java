@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.ivm.IvmAnalyzeMode;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -51,7 +52,6 @@ import org.apache.doris.qe.SessionVariable;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -138,10 +138,10 @@ public class MTMVPlanUtilTest extends SqlTestBase {
     }
 
     private void checkRes(List<ColumnDefinition> expect, List<ColumnDefinition> actual) {
-        Assert.assertEquals(expect.size(), actual.size());
+        Assertions.assertEquals(expect.size(), actual.size());
         for (int i = 0; i < expect.size(); i++) {
-            Assert.assertEquals(expect.get(i).getName(), actual.get(i).getName());
-            Assert.assertEquals(expect.get(i).getType(), actual.get(i).getType());
+            Assertions.assertEquals(expect.get(i).getName(), actual.get(i).getName());
+            Assertions.assertEquals(expect.get(i).getType(), actual.get(i).getType());
         }
     }
 
@@ -155,25 +155,25 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Mockito.when(slot.getName()).thenReturn("slot_name");
         // test i=0
         DataType dataType = MTMVPlanUtil.getDataType(slot, 0, connectContext, "pcol", Sets.newHashSet("dcol"));
-        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+        Assertions.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
 
         // test isColumnFromTable and is not managed table
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("dcol"));
-        Assert.assertEquals(StringType.INSTANCE, dataType);
+        Assertions.assertEquals(StringType.INSTANCE, dataType);
 
         // test is partitionCol
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "slot_name", Sets.newHashSet("dcol"));
-        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+        Assertions.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
 
         // test is partitdistribution Col
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
-        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+        Assertions.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
         // test managed table
         Mockito.when(slot.getOriginalTable()).thenReturn(Optional.of(slotTable));
         Mockito.when(slotTable.isManagedTable()).thenReturn(true);
 
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
-        Assert.assertEquals(StringType.INSTANCE, dataType);
+        Assertions.assertEquals(StringType.INSTANCE, dataType);
 
         // test is not column table
         boolean originalUseMaxLengthOfVarcharInCtas = connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas;
@@ -181,25 +181,25 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Mockito.when(slot.isColumnFromTable()).thenReturn(false);
         connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = true;
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
-        Assert.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
+        Assertions.assertEquals(VarcharType.MAX_VARCHAR_TYPE, dataType);
 
         connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = false;
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
-        Assert.assertEquals(new VarcharType(10), dataType);
+        Assertions.assertEquals(new VarcharType(10), dataType);
 
         connectContext.getSessionVariable().useMaxLengthOfVarcharInCtas = originalUseMaxLengthOfVarcharInCtas;
 
         // test null type
         Mockito.when(slot.getDataType()).thenReturn(NullType.INSTANCE);
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
-        Assert.assertEquals(TinyIntType.INSTANCE, dataType);
+        Assertions.assertEquals(TinyIntType.INSTANCE, dataType);
 
         // test decimal type
         Mockito.when(slot.getDataType()).thenReturn(DecimalV2Type.createDecimalV2Type(1, 1));
         boolean originalEnableDecimalConversion = Config.enable_decimal_conversion;
         Config.enable_decimal_conversion = false;
         dataType = MTMVPlanUtil.getDataType(slot, 1, connectContext, "pcol", Sets.newHashSet("slot_name"));
-        Assert.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, dataType);
+        Assertions.assertEquals(DecimalV2Type.SYSTEM_DEFAULT, dataType);
 
         Config.enable_decimal_conversion = originalEnableDecimalConversion;
     }
@@ -249,7 +249,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
                 });
         Assertions.assertTrue(exception.getMessage().contains("nonDeterministic"));
     }
@@ -267,7 +267,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
                 });
         Assertions.assertTrue(exception.getMessage().contains("invalid expression"));
     }
@@ -299,7 +299,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
                 });
         Assertions.assertTrue(exception.getMessage().contains("temporary"));
     }
@@ -318,7 +318,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         AnalysisException exception = Assertions.assertThrows(
                 org.apache.doris.nereids.exceptions.AnalysisException.class, () -> {
                     MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
-                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
+                            distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
                 });
         Assertions.assertTrue(exception.getMessage().contains("suitable"));
     }
@@ -335,7 +335,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
         MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(),
                 mtmvPartitionDefinition,
-                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, false);
+                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan, IvmAnalyzeMode.NONE);
         Assertions.assertTrue(mtmvAnalyzeQueryInfo.getRelation().getBaseTables().size() == 1);
         Assertions.assertTrue(mtmvAnalyzeQueryInfo.getMvPartitionInfo().getRelatedCol().equals("id"));
         Assertions.assertTrue(mtmvAnalyzeQueryInfo.getColumnDefinitions().size() == 2);
@@ -352,6 +352,42 @@ public class MTMVPlanUtilTest extends SqlTestBase {
         Assertions.assertDoesNotThrow(
                 () -> MTMVPlanUtil.ensureMTMVQueryUsable(mtmv,
                         MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_GENERATE_MTMV_CACHE)));
+    }
+
+    @Test
+    public void testAnalyzeQueryIvmAnalyzeModeSetSessionVariables() throws Exception {
+        String querySql = "select * from test.T4";
+        MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
+        mtmvPartitionDefinition.setPartitionType(MTMVPartitionType.FOLLOW_BASE_TABLE);
+        mtmvPartitionDefinition.setPartitionCol("id");
+        DistributionDescriptor distributionDescriptor = new DistributionDescriptor(false, true, 10,
+                Lists.newArrayList("id"));
+        StatementBase parsedStmt = new NereidsParser().parseSQL(querySql).get(0);
+        LogicalPlan logicalPlan = ((LogicalPlanAdapter) parsedStmt).getLogicalPlan();
+
+        // NONE: no IVM session variables set
+        CountingSessionVariable noneVar = new CountingSessionVariable();
+        connectContext.setSessionVariable(noneVar);
+        MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
+                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
+                IvmAnalyzeMode.NONE);
+        Assertions.assertEquals(0, noneVar.getEnableIvmRewriteSetCount());
+
+        // NORMALIZE_ONLY: only ENABLE_IVM_NORMAL_REWRITE set
+        CountingSessionVariable normalizeVar = new CountingSessionVariable();
+        connectContext.setSessionVariable(normalizeVar);
+        MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
+                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
+                IvmAnalyzeMode.NORMALIZE_ONLY);
+        Assertions.assertEquals(1, normalizeVar.getEnableIvmRewriteSetCount());
+
+        // FULL: both ENABLE_IVM_NORMAL_REWRITE and ENABLE_IVM_DELTA_REWRITE set
+        CountingSessionVariable fullVar = new CountingSessionVariable();
+        connectContext.setSessionVariable(fullVar);
+        MTMVPlanUtil.analyzeQuery(connectContext, Maps.newHashMap(), mtmvPartitionDefinition,
+                distributionDescriptor, null, Maps.newHashMap(), Lists.newArrayList(), logicalPlan,
+                IvmAnalyzeMode.FULL);
+        Assertions.assertEquals(2, fullVar.getEnableIvmRewriteSetCount());
     }
 
     @Test
@@ -477,7 +513,7 @@ public class MTMVPlanUtilTest extends SqlTestBase {
 
         @Override
         public boolean setVarOnce(String varName, String value) {
-            if (ENABLE_IVM_REWRITE_IN_NEREIDS.equals(varName)) {
+            if (ENABLE_IVM_NORMAL_REWRITE.equals(varName) || ENABLE_IVM_DELTA_REWRITE.equals(varName)) {
                 enableIvmRewriteSetCount++;
             }
             return super.setVarOnce(varName, value);
