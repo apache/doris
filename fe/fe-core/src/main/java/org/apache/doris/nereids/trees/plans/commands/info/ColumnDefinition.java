@@ -27,6 +27,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BitmapType;
@@ -622,9 +623,9 @@ public class ColumnDefinition {
      * add hidden column
      */
     public static ColumnDefinition newIvmRowIdColumnDefinition(DataType type, boolean isNullable) {
-        String colName = "mv_" + org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan.IVM_ROW_ID_COL;
         ColumnDefinition columnDefinition = new ColumnDefinition(
-                colName, type, false, null, isNullable, Optional.empty(), "ivm row id hidden column", false);
+                IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, type, false, null, isNullable, Optional.empty(),
+                "ivm row id hidden column", false);
         columnDefinition.setEnableAddHiddenColumn(true);
 
         return columnDefinition;
