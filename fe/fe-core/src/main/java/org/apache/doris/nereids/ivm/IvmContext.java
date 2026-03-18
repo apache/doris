@@ -17,12 +17,10 @@
 
 package org.apache.doris.nereids.ivm;
 
-import org.apache.doris.mtmv.ivm.DeltaCommandBundle;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.Plan;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 
 /**
@@ -33,12 +31,13 @@ import java.util.Map;
  *   - deterministic (true):  MOW table — row-id = hash(unique keys), stable across refreshes
  *   - non-deterministic (false): DUP_KEYS table — row-id = random 128-bit per insert
  *
- * deltaCommandBundles: populated by IvmDeltaXxx rules during the delta rewrite phase.
+ * normalizedPlan: the plan tree after IvmNormalizeMtmvPlan has injected row-id columns.
+ *   Stored here so that IVMRefreshManager can retrieve it for external delta rewriting.
  */
 public class IvmContext {
     // insertion-ordered so row-ids appear in scan order
     private final Map<Slot, Boolean> rowIdDeterminism = new LinkedHashMap<>();
-    private final List<DeltaCommandBundle> deltaCommandBundles = new ArrayList<>();
+    private Plan normalizedPlan;
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -48,16 +47,11 @@ public class IvmContext {
         return rowIdDeterminism;
     }
 
-    public void addDeltaCommandBundle(DeltaCommandBundle bundle) {
-        deltaCommandBundles.add(bundle);
+    public Plan getNormalizedPlan() {
+        return normalizedPlan;
     }
 
-    public void setDeltaCommandBundles(List<DeltaCommandBundle> bundles) {
-        deltaCommandBundles.clear();
-        deltaCommandBundles.addAll(bundles);
-    }
-
-    public List<DeltaCommandBundle> getDeltaCommandBundles() {
-        return deltaCommandBundles;
+    public void setNormalizedPlan(Plan normalizedPlan) {
+        this.normalizedPlan = normalizedPlan;
     }
 }

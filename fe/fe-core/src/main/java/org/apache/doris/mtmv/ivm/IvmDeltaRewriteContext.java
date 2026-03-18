@@ -17,14 +17,22 @@
 
 package org.apache.doris.mtmv.ivm;
 
+import org.apache.doris.catalog.MTMV;
+
+import java.util.Objects;
+
 /**
- * Controls which IVM-specific Nereids rewrites are enabled during MV plan analysis.
+ * Context passed to {@link IvmDeltaRewriter} during per-node delta plan rewriting.
+ * Minimal skeleton — will be extended with driving-table info in future PRs.
  */
-public enum IvmAnalyzeMode {
-    /** Non-IVM MV: no IVM rewrites. */
-    NONE,
-    /** Create IVM MV: normalize plan only (row-id injection, avg rewrite). No delta plan generation. */
-    NORMALIZE_ONLY,
-    /** IVM refresh: normalize + delta plan generation. */
-    FULL
+public class IvmDeltaRewriteContext {
+    private final MTMV mtmv;
+
+    public IvmDeltaRewriteContext(MTMV mtmv) {
+        this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
+    }
+
+    public MTMV getMtmv() {
+        return mtmv;
+    }
 }
