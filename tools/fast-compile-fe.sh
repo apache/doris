@@ -61,6 +61,28 @@ check_env() {
     fi
 }
 
+# ─── Find a jar in local .m2 repository (for 'provided' scope deps absent from target/lib) ──
+# Usage: find_m2_jar <groupId_path> <artifactId> [version_property_name]
+# Example: find_m2_jar org/projectlombok lombok lombok.version
+find_m2_jar() {
+    local group_path="$1" artifact="$2" version_prop="${3:-}"
+    local m2_dir="$HOME/.m2/repository/$group_path/$artifact"
+    [[ -d "$m2_dir" ]] || return 0
+
+    if [[ -n "$version_prop" ]]; then
+        local version
+        version=$(grep "<${version_prop}>" "$DORIS_HOME/fe/pom.xml" 2>/dev/null \
+            | sed 's/.*>\(.*\)<.*/\1/' | head -1)
+        if [[ -n "$version" ]]; then
+            local jar="$m2_dir/${version}/${artifact}-${version}.jar"
+            [[ -f "$jar" ]] && echo "$jar" && return
+        fi
+    fi
+    # Fallback: pick the latest version found in .m2
+    find "$m2_dir" -name "${artifact}-*.jar" ! -name "*sources*" ! -name "*tests*" \
+        2>/dev/null | sort -V | tail -1
+}
+
 # ─── Get classpath (with cache) ────────────────────────────────────────────────
 get_classpath() {
     # If pom.xml is newer than the cache, regenerate classpath
@@ -71,8 +93,23 @@ get_classpath() {
         info "Classpath cache saved to $CP_CACHE"
     fi
 
-    # classpath = dependency jars + target/classes (internal project dependencies)
-    echo "$(cat "$CP_CACHE"):$TARGET_CLASSES"
+    # 'provided' scope jars are absent from target/lib; locate them from .m2 and append explicitly.
+    # lombok: annotation processor for @Getter/@Setter/@Data etc., used widely across the codebase
+    local lombok_jar
+    lombok_jar="$(find_m2_jar org/projectlombok lombok lombok.version)"
+    [[ -z "$lombok_jar" ]] && warn "lombok jar not found; files with Lombok annotations may fail to compile"
+
+    # lakesoul-io-java: directly imported by LakeSoul catalog source files
+    local lakesoul_jar
+    lakesoul_jar="$(find_m2_jar com/dmetasoul lakesoul-io-java)"
+
+    local provided_cp=""
+    for jar in "$lombok_jar" "$lakesoul_jar"; do
+        [[ -n "$jar" ]] && provided_cp="$provided_cp:$jar"
+    done
+
+    # classpath = dependency jars + provided jars + target/classes (internal project dependencies)
+    echo "$(cat "$CP_CACHE")${provided_cp}:$TARGET_CLASSES"
 }
 
 # ─── Find stale java files ─────────────────────────────────────────────────────
@@ -114,7 +151,7 @@ compile_files() {
         echo "  → ${f#$DORIS_HOME/}"
     done
 
-    # javac 编译
+    # Compile with javac
     javac \
         -source 8 -target 8 \
         -encoding UTF-8 \
@@ -172,13 +209,13 @@ update_jar() {
     # Update target/doris-fe.jar
     if [[ -f "$TARGET_JAR" ]]; then
         xargs jar uf "$TARGET_JAR" < "$tmpfile"
-        info "已更新 $TARGET_JAR"
+        info "Updated $TARGET_JAR"
     fi
 
     # Update output/fe/lib/doris-fe.jar
     if [[ -f "$OUTPUT_JAR" ]]; then
         xargs jar uf "$OUTPUT_JAR" < "$tmpfile"
-        info "已更新 $OUTPUT_JAR"
+        info "Updated $OUTPUT_JAR"
     fi
 
     popd > /dev/null
@@ -230,11 +267,9 @@ main() {
     local start_time
     start_time=$(date +%s)
 
-    # 获取 classpath
     local classpath
     classpath="$(get_classpath)"
 
-    # 编译
     compile_files "$classpath" "${java_files[@]}"
 
     # Collect class files (including inner classes)
