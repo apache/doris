@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -174,8 +175,21 @@ public class CreateMTMVInfo extends CreateTableInfo {
     }
 
     private void rewriteQuerySql(ConnectContext ctx) {
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
-        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+        TreeMap<Pair<Integer, Integer>, String> rewriteMap = ctx.getStatementContext().getIndexInSqlToString();
+        TreeMap<Pair<Integer, Integer>, String> snapshot = new TreeMap<>(rewriteMap);
+        rewriteMap.clear();
+        try {
+            analyzeAndFillRewriteSqlMap(querySql, ctx);
+            querySql = BaseViewInfo.rewriteSql(rewriteMap, querySql);
+            if (!simpleColumnDefinitions.isEmpty()) {
+                querySql = BaseViewInfo.rewriteProjectsToUserDefineAlias(querySql, simpleColumnDefinitions.stream()
+                        .map(SimpleColumnDefinition::getName)
+                        .collect(Collectors.toList()));
+            }
+        } finally {
+            rewriteMap.clear();
+            rewriteMap.putAll(snapshot);
+        }
     }
 
     private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {

@@ -58,6 +58,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -291,14 +292,22 @@ public class MTMVPlanUtil {
         if (slots.isEmpty()) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("table should contain at least one column");
         }
-        if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != slots.size()) {
+        Slot ivmRowIdSlot = isIvmRowIdSlot(slots.get(0)) ? slots.get(0) : null;
+        int userSlotOffset = ivmRowIdSlot == null ? 0 : 1;
+        int userSlotSize = slots.size() - userSlotOffset;
+        if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != userSlotSize) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "simpleColumnDefinitions size is not equal to the query's");
         }
+        if (ivmRowIdSlot != null) {
+            columns.add(ColumnDefinition.newIvmRowIdColumnDefinition(
+                    ivmRowIdSlot.getDataType().conversion(), ivmRowIdSlot.nullable()));
+        }
         Set<String> colNames = Sets.newHashSet();
-        for (int i = 0; i < slots.size(); i++) {
+        for (int i = userSlotOffset; i < slots.size(); i++) {
+            int userColumnIndex = i - userSlotOffset;
             String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? slots.get(i).getName()
-                    : simpleColumnDefinitions.get(i).getName();
+                    : simpleColumnDefinitions.get(userColumnIndex).getName();
             try {
                 FeNameFormat.checkColumnName(colName);
             } catch (org.apache.doris.common.AnalysisException e) {
@@ -309,7 +318,7 @@ public class MTMVPlanUtil {
             } else {
                 colNames.add(colName);
             }
-            DataType dataType = getDataType(slots.get(i), i, ctx, partitionCol, distributionColumnNames);
+            DataType dataType = getDataType(slots.get(i), userColumnIndex, ctx, partitionCol, distributionColumnNames);
             // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
             columns.add(new ColumnDefinition(
                     colName,
@@ -319,7 +328,7 @@ public class MTMVPlanUtil {
                     slots.get(i).nullable(),
                     Optional.empty(),
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
-                            : simpleColumnDefinitions.get(i).getComment()));
+                            : simpleColumnDefinitions.get(userColumnIndex).getComment()));
         }
         // add a hidden column as row store
         if (properties != null) {
@@ -334,6 +343,10 @@ public class MTMVPlanUtil {
             }
         }
         return columns;
+    }
+
+    private static boolean isIvmRowIdSlot(Slot slot) {
+        return IvmNormalizeMtmvPlan.IVM_ROW_ID_COL.equals(slot.getName());
     }
 
     /**
@@ -444,6 +457,8 @@ public class MTMVPlanUtil {
                 // after operate, roll back the disable rules
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+                ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "false");
+                ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_DELTA_REWRITE, "false");
             }
             Plan analyzedPlan = planner.getAnalyzedPlan();
             // can not contain Random function
