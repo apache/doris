@@ -31,6 +31,7 @@ import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
+import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
@@ -1517,5 +1518,10 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM t1 UNION SELECT * FROM t2"));
         Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT id, COUNT(*) FROM test_table GROUP BY id"));
         Assertions.assertThrows(ParseException.class, () -> nereidsParser.parseSingle("WARM UP SELECT * FROM test_table ORDER BY id"));
+    }
+
+    public void testUnnest() {
+        String sql = "SELECT t.* FROM LATERAL unnest([1,2], ['hi','hello']) WITH ORDINALITY AS t(c1,c2);";
+        parsePlan(sql).matches(logicalGenerate().when(plan -> plan.getGenerators().get(0) instanceof Unnest));
     }
 }
