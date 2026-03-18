@@ -368,6 +368,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
             setExecuteSql(alterJobCommand.getSql());
             initLogicalPlan(true);
+            // refresh cached TVF props so fetchMeta and createStreamingInsertTask
+            // pick up the new credentials (e.g. aksk) from the updated SQL
+            this.originTvfProps = getCurrentTvf().getProperties().getMap();
             String encryptedSql = generateEncryptedSql();
             logParts.add("sql: " + encryptedSql);
         }
