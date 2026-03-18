@@ -151,6 +151,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConcatWs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Conv;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTimezone;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTo;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConvertTz;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
@@ -222,6 +223,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsLarge
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncodeAsSmallInt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EndsWith;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.EqualNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.EsQuery;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Even;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
@@ -406,7 +408,10 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.NotNullOrEmpt
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.NullOrEmpty;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nullifzero;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl2;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ObjectConstruct;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Overlay;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseDataSize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ParseUrl;
@@ -549,6 +554,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToMonday;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToQuantileState;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ToSeconds;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToVarcharFn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Tokenize;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TopLevelDomain;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
@@ -596,6 +602,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Zeroifnull;
 import org.apache.doris.nereids.trees.expressions.functions.udf.AliasUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.JavaUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
@@ -1104,6 +1111,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(convertTz, context);
     }
 
+    default R visitConvertTimezone(ConvertTimezone convertTimezone, C context) {
+        return visitScalarFunction(convertTimezone, context);
+    }
+
     default R visitCos(Cos cos, C context) {
         return visitScalarFunction(cos, context);
     }
@@ -1446,6 +1457,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitEndsWith(EndsWith endsWith, C context) {
         return visitScalarFunction(endsWith, context);
+    }
+
+    default R visitEqualNull(EqualNull equalNull, C context) {
+        return visitScalarFunction(equalNull, context);
     }
 
     default R visitEncryptKeyRef(EncryptKeyRef encryptKeyRef, C context) {
@@ -1800,6 +1815,10 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(toJson, context);
     }
 
+    default R visitToVarcharFn(ToVarcharFn toVarcharFn, C context) {
+        return visitScalarFunction(toVarcharFn, context);
+    }
+
     default R visitJsonbParse(JsonbParse jsonbParse, C context) {
         return visitScalarFunction(jsonbParse, context);
     }
@@ -2040,12 +2059,24 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(nullIf, context);
     }
 
+    default R visitNullifzero(Nullifzero nullifzero, C context) {
+        return visitScalarFunction(nullifzero, context);
+    }
+
     default R visitNullOrEmpty(NullOrEmpty nullOrEmpty, C context) {
         return visitScalarFunction(nullOrEmpty, context);
     }
 
     default R visitNvl(Nvl nvl, C context) {
         return visitScalarFunction(nvl, context);
+    }
+
+    default R visitNvl2(Nvl2 nvl2, C context) {
+        return visitScalarFunction(nvl2, context);
+    }
+
+    default R visitObjectConstruct(ObjectConstruct objectConstruct, C context) {
+        return visitScalarFunction(objectConstruct, context);
     }
 
     default R visitOverlay(Overlay overlay, C context) {
@@ -2939,5 +2970,9 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitUnicodeNormalize(UnicodeNormalize func, C context) {
         return visitScalarFunction(func, context);
+    }
+
+    default R visitZeroifnull(Zeroifnull zeroifnull, C context) {
+        return visitScalarFunction(zeroifnull, context);
     }
 }
