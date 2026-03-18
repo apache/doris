@@ -45,8 +45,10 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletMeta;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -2302,6 +2304,19 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return addr == null ? "unknown" : addr.hostname;
     }
 
+    private List<Backend> getAllCloudPrimaryBackends(CloudReplica cloudReplica) {
+        CloudSystemInfoService cloudSystemInfoService = (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        List<Backend> backends = Lists.newArrayList();
+        Set<Long> backendIds = new HashSet<>();
+        for (String cloudClusterId : cloudSystemInfoService.getCloudClusterIds()) {
+            Backend primaryBackend = cloudReplica.getPrimaryBackend(cloudClusterId, true);
+            if (primaryBackend != null && backendIds.add(primaryBackend.getId())) {
+                backends.add(primaryBackend);
+            }
+        }
+        return backends;
+    }
+
     @Override
     public TWaitingTxnStatusResult waitingTxnStatus(TWaitingTxnStatusRequest request) throws TException {
         TWaitingTxnStatusResult result = new TWaitingTxnStatusResult();
@@ -2668,15 +2683,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("replica {} not normal", replica.getId());
                     continue;
                 }
-                Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
-                if (backend != null) {
-                    TReplicaInfo replicaInfo = new TReplicaInfo();
-                    replicaInfo.setHost(backend.getHost());
-                    replicaInfo.setBePort(backend.getBePort());
-                    replicaInfo.setHttpPort(backend.getHttpPort());
-                    replicaInfo.setBrpcPort(backend.getBrpcPort());
-                    replicaInfo.setReplicaId(replica.getId());
-                    replicaInfos.add(replicaInfo);
+                List<Backend> backends;
+                if (Config.isCloudMode()) {
+                    CloudReplica cloudReplica = (CloudReplica) replica;
+                    backends = getAllCloudPrimaryBackends(cloudReplica);
+                } else {
+                    Backend backend = Env.getCurrentEnv().getCurrentSystemInfo().getBackend(replica.getBackendId());
+                    backends = Lists.newArrayList(backend);
+                }
+                for (Backend backend : backends) {
+                    if (backend != null) {
+                        TReplicaInfo replicaInfo = new TReplicaInfo();
+                        replicaInfo.setHost(backend.getHost());
+                        replicaInfo.setBePort(backend.getBePort());
+                        replicaInfo.setHttpPort(backend.getHttpPort());
+                        replicaInfo.setBrpcPort(backend.getBrpcPort());
+                        replicaInfo.setReplicaId(replica.getId());
+                        replicaInfos.add(replicaInfo);
+                    }
                 }
             }
             tabletReplicaInfos.put(tabletId, replicaInfos);
