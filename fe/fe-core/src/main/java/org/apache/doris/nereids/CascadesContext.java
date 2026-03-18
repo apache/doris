@@ -19,9 +19,9 @@ package org.apache.doris.nereids;
 
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.mtmv.ivm.DeltaPlanBundle;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.hint.Hint;
+import org.apache.doris.nereids.ivm.IvmContext;
 import org.apache.doris.nereids.jobs.Job;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.executor.Analyzer;
@@ -92,8 +92,8 @@ public class CascadesContext implements ScheduleContext {
 
     // in analyze/rewrite stage, the plan will storage in this field
     private Plan plan;
-    // written by IVM delta rules during rewrite; empty if IVM rewrite did not run or no pattern matched
-    private List<DeltaPlanBundle> ivmDeltaBundles;
+    // present when IVM rewrite is active; absent otherwise
+    private Optional<IvmContext> ivmContext = Optional.empty();
     private Optional<RootRewriteJobContext> currentRootRewriteJobContext;
     // in optimize stage, the plan will storage in the memo
     private Memo memo;
@@ -368,12 +368,12 @@ public class CascadesContext implements ScheduleContext {
         return plan;
     }
 
-    public List<DeltaPlanBundle> getIvmDeltaBundles() {
-        return ivmDeltaBundles;
+    public Optional<IvmContext> getIvmContext() {
+        return ivmContext;
     }
 
-    public void setIvmDeltaBundles(List<DeltaPlanBundle> ivmDeltaBundles) {
-        this.ivmDeltaBundles = ivmDeltaBundles;
+    public void setIvmContext(IvmContext ivmContext) {
+        this.ivmContext = Optional.ofNullable(ivmContext);
     }
 
     public void setRewritePlan(Plan plan) {
