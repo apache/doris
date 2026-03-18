@@ -68,7 +68,9 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
         }
         IvmContext ivmContext = new IvmContext();
         jobContext.getCascadesContext().setIvmContext(ivmContext);
-        return plan.accept(this, ivmContext);
+        Plan result = plan.accept(this, ivmContext);
+        ivmContext.setNormalizedPlan(result);
+        return result;
     }
 
     // unsupported: any plan node not explicitly whitelisted below

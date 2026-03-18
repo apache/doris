@@ -153,6 +153,16 @@ class IvmNormalizeMtmvPlanTest {
                 () -> new IvmNormalizeMtmvPlan().rewriteRoot(project, newJobContext(true)));
     }
 
+    @Test
+    void testNormalizedPlanStoredInIvmContext() {
+        JobContext jobContext = newJobContext(true);
+        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(scan, jobContext);
+
+        IvmContext ivmContext = jobContext.getCascadesContext().getIvmContext().get();
+        Assertions.assertNotNull(ivmContext.getNormalizedPlan());
+        Assertions.assertSame(result, ivmContext.getNormalizedPlan());
+    }
+
     private JobContext newJobContext(boolean enableIvmNormalRewrite) {
         return newJobContextForScan(scan, enableIvmNormalRewrite);
     }
