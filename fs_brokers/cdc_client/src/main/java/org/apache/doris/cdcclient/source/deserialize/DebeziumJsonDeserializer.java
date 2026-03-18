@@ -181,10 +181,11 @@ public class DebeziumJsonDeserializer
                 case BOOLEAN:
                     return Boolean.parseBoolean(dbzObj.toString());
                 case STRING:
-                case ARRAY:
                 case MAP:
                 case STRUCT:
                     return dbzObj.toString();
+                case ARRAY:
+                    return convertToArray(fieldSchema, dbzObj);
                 case BYTES:
                     return convertToBinary(dbzObj, fieldSchema);
                 default:
@@ -323,6 +324,18 @@ public class DebeziumJsonDeserializer
             }
         }
         return bigDecimal;
+    }
+
+    private Object convertToArray(Schema fieldSchema, Object dbzObj) {
+        if (dbzObj instanceof List) {
+            Schema elementSchema = fieldSchema.valueSchema();
+            List<Object> result = new ArrayList<>();
+            for (Object element : (List<?>) dbzObj) {
+                result.add(element == null ? null : convert(elementSchema, element));
+            }
+            return result;
+        }
+        return dbzObj.toString();
     }
 
     protected Object convertToTime(Object dbzObj, Schema schema) {

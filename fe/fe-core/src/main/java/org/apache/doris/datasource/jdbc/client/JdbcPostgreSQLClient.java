@@ -42,8 +42,10 @@ public class JdbcPostgreSQLClient extends JdbcClient {
 
     private static final String[] supportedInnerType = new String[] {
             "int2", "int4", "int8", "smallserial", "serial",
-            "bigserial", "float4", "float8", "timestamp", "timestamptz",
-            "date", "bool", "bpchar", "varchar", "text"
+            "bigserial", "float4", "float8", "numeric",
+            "timestamp", "timestamptz", "date", "bool",
+            "bpchar", "varchar", "text",
+            "json", "jsonb", "uuid"
     };
 
     protected JdbcPostgreSQLClient(JdbcClientConfig jdbcClientConfig) {
@@ -176,6 +178,7 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "varbit":
             case "uuid":
             case "xml":
+            case "hstore":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();

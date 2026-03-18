@@ -208,6 +208,11 @@ public class SchemaChangeHelper {
     /** Map a PostgreSQL native type name to a Doris type string. */
     static String pgTypeNameToDorisType(String pgTypeName, int length, int scale) {
         Preconditions.checkNotNull(pgTypeName);
+        // Debezium uses underscore prefix for PostgreSQL array types (_int4, _text, etc.)
+        if (pgTypeName.startsWith("_")) {
+            String innerDorisType = pgTypeNameToDorisType(pgTypeName.substring(1), length, scale);
+            return String.format("%s<%s>", DorisType.ARRAY, innerDorisType);
+        }
         switch (pgTypeName.toLowerCase()) {
             case "bool":
                 return DorisType.BOOLEAN;
@@ -273,6 +278,7 @@ public class SchemaChangeHelper {
             case "uuid":
             case "bytea":
             case "xml":
+            case "hstore":
                 return DorisType.STRING;
             case "json":
             case "jsonb":
