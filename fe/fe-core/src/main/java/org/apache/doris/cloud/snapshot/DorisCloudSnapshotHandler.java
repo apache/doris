@@ -26,6 +26,8 @@ import org.apache.doris.cloud.storage.RemoteBase;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.master.Checkpoint;
+import org.apache.doris.common.CheckpointException;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -228,7 +230,17 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
      * Create a fresh FE image by saving the current serving Env state.
      * Returns the image file and the replayed journal ID.
      */
-    private Pair<File, Long> createFEImage() throws IOException {
+    private Pair<File, Long> createFEImage() throws Exception {
+        Checkpoint checkpoint = Env.getCurrentEnv().getCheckpoint();
+        if (checkpoint == null) {
+            throw new DdlException("Checkpoint service is not initialized");
+        }
+        try {
+            checkpoint.doCheckpoint();
+        } catch (CheckpointException e) {
+            throw new DdlException("Failed to run FE checkpoint before snapshot", e);
+        }
+
         String imageDir = Config.meta_dir + "/image";
         Storage storage = new Storage(imageDir);
         long latestSeq = storage.getLatestImageSeq();

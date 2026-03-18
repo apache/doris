@@ -22,6 +22,7 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.master.Checkpoint;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.gson.JsonObject;
@@ -51,6 +52,9 @@ public class DorisCloudSnapshotHandlerTest {
 
     @Mocked
     private MetaServiceProxy metaServiceProxy;
+
+    @Mocked
+    private Checkpoint checkpoint;
 
     @TempDir
     Path tempDir;
@@ -84,6 +88,20 @@ public class DorisCloudSnapshotHandlerTest {
                 return "127.0.0.1";
             }
         };
+
+        new Expectations() {{
+            Env.getCurrentEnv();
+            result = env;
+            minTimes = 0;
+
+            env.getCheckpoint();
+            result = checkpoint;
+            minTimes = 0;
+
+            checkpoint.doCheckpoint();
+            result = null;
+            minTimes = 0;
+        }};
     }
 
     @AfterEach
