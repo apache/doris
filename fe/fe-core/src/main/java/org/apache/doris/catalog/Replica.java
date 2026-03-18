@@ -181,7 +181,7 @@ public class Replica {
     private long preWatermarkTxnId = -1;
     private long postWatermarkTxnId = -1;
     private long segmentCount = 0L;
-    private long rowsetCount = 0L;
+    private long rowsetCount = 1L; // [0-1] rowset
 
     private long userDropTime = -1;
 

@@ -230,7 +230,7 @@ public class GlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     @Override
-    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse, List<Long> tabletIds) {
     }
 
     /**
