@@ -32,7 +32,8 @@ class PaimonCppReaderTest : public testing::Test {
 protected:
     void SetUp() override {
         _query_options.__set_batch_size(3);
-        _runtime_state = std::make_unique<RuntimeState>(_query_options, _query_globals);
+        _runtime_state = std::make_unique<RuntimeState>(_query_globals);
+        _runtime_state->set_query_options(_query_options);
     }
 
     TFileRangeDesc _build_range_with_table_level_row_count(int64_t row_count) {
