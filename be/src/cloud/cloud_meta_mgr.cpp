@@ -1419,15 +1419,18 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
 static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
-                                   const std::string& label, CommitTxnResponse& res) {
+                                   const std::string& label, CommitTxnResponse& res,
+                                   const std::vector<int64_t>& tablet_ids) {
     std::string protobufBytes;
-    res.SerializeToString(&protobufBytes);
+    if (txn_id != -1) {
+        res.SerializeToString(&protobufBytes);
+    }
     auto st = ExecEnv::GetInstance()->send_table_stats_thread_pool()->submit_func(
-            [db_id, txn_id, label, protobufBytes]() -> Status {
+            [db_id, txn_id, label, protobufBytes, tablet_ids]() -> Status {
                 TReportCommitTxnResultRequest request;
                 TStatus result;
 
-                if (protobufBytes.length() <= 0) {
+                if (txn_id != -1 && protobufBytes.length() <= 0) {
                     LOG(WARNING) << "protobufBytes: " << protobufBytes.length();
                     return Status::OK(); // nobody cares the return status
                 }
@@ -1436,6 +1439,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 request.__set_txnId(txn_id);
                 request.__set_label(label);
                 request.__set_payload(protobufBytes);
+                request.__set_tabletIds(tablet_ids);
 
                 Status status;
                 int64_t duration_ns = 0;
@@ -1489,7 +1493,11 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
-        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
+        std::vector<int64_t> tablet_ids;
+        for (auto& commit_info : ctx.commit_infos) {
+            tablet_ids.emplace_back(commit_info.tabletId);
+        }
+        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res, tablet_ids);
     }
 
     return st;
@@ -1648,6 +1656,13 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when commit tablet job {}", job.ShortDebugString());
     }
+
+    if (st.ok() && !job.compaction().empty() && job.has_idx()) {
+        CommitTxnResponse commit_txn_resp;
+        std::vector<int64_t> tablet_ids = {job.idx().tablet_id()};
+        send_stats_to_fe_async(-1, -1, "", commit_txn_resp, tablet_ids);
+    }
+
     return st;
 }
 
