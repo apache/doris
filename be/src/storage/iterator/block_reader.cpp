@@ -30,6 +30,7 @@
 // IWYU pragma: no_include <opentelemetry/common/threadlocal.h>
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_nullable.h"
@@ -386,6 +387,16 @@ Status BlockReader::_replace_key_next_block(Block* block, bool* eof) {
                 break;
             }
         }
+        // Byte-budget check: after the inner loop _next_row is either EOF or the next different
+        // key, so it is safe to stop accumulating here without repeating any row.
+        if (config::enable_adaptive_batch_size && _reader_context.preferred_block_size_bytes > 0 &&
+            Block::columns_byte_size(target_columns) >=
+                    _reader_context.preferred_block_size_bytes) {
+            if (UNLIKELY(_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
+            break;
+        }
     }
     _merged_rows += merged_row;
     return Status::OK();
@@ -480,6 +491,14 @@ Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
             if (target_block_row == _reader_context.batch_size) {
                 break;
             }
+            // Byte-budget check at group boundary: _next_row is the first row of the new group
+            // and is still pending (not yet inserted), so stopping here is safe.
+            if (config::enable_adaptive_batch_size &&
+                _reader_context.preferred_block_size_bytes > 0 &&
+                Block::columns_byte_size(target_columns) >=
+                        _reader_context.preferred_block_size_bytes) {
+                break;
+            }
             _agg_data_counters.push_back(_last_agg_data_counter);
             _last_agg_data_counter = 0;
 
@@ -538,6 +557,15 @@ Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
         if (UNLIKELY(!res.ok())) {
             LOG(WARNING) << "next failed: " << res;
             return res;
+        }
+        // Byte-budget check: _next_row is already saved so stopping here is safe.
+        if (config::enable_adaptive_batch_size && _reader_context.preferred_block_size_bytes > 0 &&
+            Block::columns_byte_size(target_columns) >=
+                    _reader_context.preferred_block_size_bytes) {
+            if (UNLIKELY(_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
+            }
+            break;
         }
     } while (target_block_row < _reader_context.batch_size);
 

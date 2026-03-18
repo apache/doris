@@ -24,6 +24,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/column/column.h"
@@ -52,6 +53,11 @@ public:
 
     void update_profile(RuntimeProfile* profile) override {
         return _vcollect_iter.update_profile(profile);
+    }
+
+    // Returns the configured preferred output block byte budget; 0 when adaptive is disabled.
+    size_t preferred_block_size_bytes() const override {
+        return config::enable_adaptive_batch_size ? _reader_context.preferred_block_size_bytes : 0;
     }
 
 private:

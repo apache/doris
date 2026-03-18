@@ -352,6 +352,15 @@ public:
     void clear_column_mem_not_keep(const std::vector<bool>& column_keep_flags,
                                    bool need_keep_first);
 
+    // Helper: sum byte_size() of all mutable columns.
+    static inline size_t columns_byte_size(const MutableColumns& cols) {
+        size_t total = 0;
+        for (const auto& col : cols) {
+            total += col->byte_size();
+        }
+        return total;
+    }
+
 private:
     void erase_impl(size_t position);
 };

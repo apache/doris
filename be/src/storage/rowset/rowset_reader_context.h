@@ -73,6 +73,13 @@ struct RowsetReaderContext {
     bool use_page_cache = false;
     int sequence_id_idx = -1;
     int batch_size = 1024;
+    // Adaptive batch size: target output block byte budget. 0 = disabled.
+    size_t preferred_block_size_bytes = 0;
+    // Per-column byte limit for the adaptive predictor. 0 = no column limit.
+    size_t preferred_max_col_bytes = 1048576;
+    // Points to the "true" output column list (before non-direct-mode expansion).
+    // Used by AdaptiveBlockSizePredictor. Null if not set.
+    const std::vector<ColumnId>* origin_return_columns = nullptr;
     bool is_unique = false;
     //record row num merged in generic iterator
     uint64_t* merged_rows = nullptr;

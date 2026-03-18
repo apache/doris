@@ -472,6 +472,12 @@ struct TQueryOptions {
   // session variable `spill_repartition_max_depth` in FE. Default is 8.
   209: optional i32 spill_repartition_max_depth = 8
 
+  // Adaptive batch size: target output block size in bytes. 0 means disabled (fixed row count only).
+  // Default 8MB. Sent by FE session variable preferred_block_size_bytes.
+  210: optional i64 preferred_block_size_bytes = 8388608
+
+  // Per-column byte limit for adaptive batch size. 0 means no per-column limit. Default 1MB.
+  211: optional i64 preferred_max_column_in_block_size_bytes = 1048576
 
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
