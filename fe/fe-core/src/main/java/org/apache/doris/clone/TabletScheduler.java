@@ -596,13 +596,47 @@ public class TabletScheduler extends MasterDaemon {
                 }
 
                 try {
+                    long partitionId = tabletCtx.getPartitionId();
+                    // Check PRECOMMITTED transactions at partition level
+                    // Use DebugPoint to simulate PRECOMMITTED transaction for testing
+                    if (DebugPointUtil.isEnable("TabletScheduler.checkPreCommittedTransaction.return_true")) {
+                        throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                            "There exists PRECOMMITTED transaction related to partition "
+                                + partitionId);
+                    }
                     for (TransactionState transactionState :
                             Env.getCurrentGlobalTransactionMgr().getPreCommittedTxnList(db.getId())) {
                         if (transactionState.getTableIdList().contains(tbl.getId())) {
-                            // If table releate to transaction with precommitted status, do not allow to do balance.
-                            throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
-                                    "There exists PRECOMMITTED transaction related to table");
+                            // Check if this transaction affects the specific partition
+                            org.apache.doris.transaction.TableCommitInfo tableCommitInfo =
+                                    transactionState.getTableCommitInfo(tbl.getId());
+                            if (tableCommitInfo != null
+                                    && tableCommitInfo.getPartitionCommitInfo(partitionId) != null) {
+                                // If partition has PRECOMMITTED transaction, do not allow to do balance.
+                                throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                                    "There exists PRECOMMITTED transaction related to partition "
+                                        + partitionId);
+                            }
                         }
+                    }
+
+                    // Check COMMITTED but not VISIBLE transactions at partition level (especially for broker load)
+                    // This is critical because broker load may have committed transactions that are not yet visible.
+                    // If we allow balance during this period, the clone task may miss data that is committed
+                    // but not yet visible, leading to data inconsistency.
+                    // We check at partition level instead of table level to be more precise and avoid
+                    // unnecessarily blocking balance for other partitions.
+                    // Use DebugPoint to simulate COMMITTED transaction for testing
+                    boolean hasCommittedTxns = DebugPointUtil.isEnable(
+                            "GlobalTransactionMgr.existCommittedTxns.return_true")
+                            || Env.getCurrentGlobalTransactionMgr().existCommittedTxns(
+                            db.getId(), tbl.getId(), partitionId);
+                    if (hasCommittedTxns) {
+                        // If partition has COMMITTED but not VISIBLE transaction, do not allow to do balance.
+                        // This prevents data inconsistency during broker load.
+                        throw new SchedException(Status.UNRECOVERABLE, SubCode.DIAGNOSE_IGNORE,
+                            "There exists COMMITTED but not VISIBLE transaction related to partition "
+                                + partitionId + ", waiting for transaction to become visible before balance");
                     }
                 } catch (AnalysisException e) {
                     // CHECKSTYLE IGNORE THIS LINE
