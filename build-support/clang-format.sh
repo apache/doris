@@ -40,7 +40,9 @@ if [[ "$(uname -s)" == 'Darwin' ]]; then
         echo "Error: Please install llvm@16 firt due to we use it to format code."
         exit 1
     fi
-    export PATH=$(brew --prefix llvm@16)/bin:$PATH
+    local llvm_path
+    llvm_path=$(brew --prefix llvm@16)/bin
+    export PATH="${llvm_path}:${PATH}"
 fi
 
 if [[ -z $(command -v clang-format) ]]; then

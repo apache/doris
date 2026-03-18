@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
 import org.apache.doris.nereids.trees.expressions.functions.RewriteWhenAnalyze;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ToJson;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.JsonType;
@@ -98,7 +99,23 @@ public class ObjectConstruct extends ScalarFunction
     @Override
     public Expression rewriteWhenAnalyze() {
         // V1: Delegate to json_object (does NOT skip NULL-valued keys)
-        // JsonObject.rewriteWhenAnalyze() will automatically wrap non-JSON values in ToJson
-        return new JsonObject(children().toArray(new Expression[0]));
+        // Must inline ToJson wrapping here because ExpressionAnalyzer only checks
+        // RewriteWhenAnalyze once - the returned JsonObject's rewriteWhenAnalyze()
+        // will NOT be called, causing runtime failure for non-JSON values.
+        List<Expression> wrappedChildren = new ArrayList<>();
+        for (int i = 0; i < children().size(); i++) {
+            Expression child = child(i);
+            if (i % 2 == 0) {
+                // Key - keep as is
+                wrappedChildren.add(child);
+            } else if (child.getDataType() instanceof JsonType) {
+                // Already JSON type - keep as is
+                wrappedChildren.add(child);
+            } else {
+                // Non-JSON value - wrap in ToJson
+                wrappedChildren.add(new ToJson(child));
+            }
+        }
+        return new JsonObject(wrappedChildren.toArray(new Expression[0]));
     }
 }

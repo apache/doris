@@ -241,6 +241,7 @@ else
             shift
             ;;
         --spark-dpp)
+            # Keep this option for backward compatibility, may be removed in future
             BUILD_SPARK_DPP=1
             shift
             ;;
@@ -539,14 +540,40 @@ echo "Get params:
 "
 
 FEAT=()
-FEAT+=($([[ -n "${WITH_TDE_DIR}" ]] && echo "+TDE" || echo "-TDE"))
-FEAT+=($([[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]] && echo "+HDFS_STORAGE_VAULT" || echo "-HDFS_STORAGE_VAULT"))
-FEAT+=($([[ ${BUILD_UI} -eq 1 ]] && echo "+UI" || echo "-UI"))
-FEAT+=($([[ "${BUILD_AZURE}" == "ON" ]] && echo "+AZURE_BLOB,+AZURE_STORAGE_VAULT" || echo "-AZURE_BLOB,-AZURE_STORAGE_VAULT"))
-FEAT+=($([[ ${BUILD_HIVE_UDF} -eq 1 ]] && echo "+HIVE_UDF" || echo "-HIVE_UDF"))
-FEAT+=($([[ ${BUILD_BE_JAVA_EXTENSIONS} -eq 1 ]] && echo "+BE_JAVA_EXTENSIONS" || echo "-BE_JAVA_EXTENSIONS"))
+if [[ -n "${WITH_TDE_DIR}" ]]; then
+    FEAT+=("+TDE")
+else
+    FEAT+=("-TDE")
+fi
+if [[ "${ENABLE_HDFS_STORAGE_VAULT:-OFF}" == "ON" ]]; then
+    FEAT+=("+HDFS_STORAGE_VAULT")
+else
+    FEAT+=("-HDFS_STORAGE_VAULT")
+fi
+if [[ ${BUILD_UI} -eq 1 ]]; then
+    FEAT+=("+UI")
+else
+    FEAT+=("-UI")
+fi
+if [[ "${BUILD_AZURE}" == "ON" ]]; then
+    FEAT+=("+AZURE_BLOB,+AZURE_STORAGE_VAULT")
+else
+    FEAT+=("-AZURE_BLOB,-AZURE_STORAGE_VAULT")
+fi
+if [[ ${BUILD_HIVE_UDF} -eq 1 ]]; then
+    FEAT+=("+HIVE_UDF")
+else
+    FEAT+=("-HIVE_UDF")
+fi
+if [[ ${BUILD_BE_JAVA_EXTENSIONS} -eq 1 ]]; then
+    FEAT+=("+BE_JAVA_EXTENSIONS")
+else
+    FEAT+=("-BE_JAVA_EXTENSIONS")
+fi
 
-export DORIS_FEATURE_LIST=$(IFS=','; echo "${FEAT[*]}")
+local doris_feature
+doris_feature=$(IFS=','; echo "${FEAT[*]}")
+export DORIS_FEATURE_LIST="${doris_feature}"
 echo "Feature List: ${DORIS_FEATURE_LIST}"
 
 # Clean and build generated code
@@ -700,7 +727,7 @@ if [[ "${BUILD_CLOUD}" -eq 1 ]]; then
         -DMAKE_TEST=OFF \
         "${CMAKE_USE_CCACHE}" \
         -DUSE_LIBCPP="${USE_LIBCPP}" \
-        -DENABLE_HDFS_STORAGE_VAULT=${ENABLE_HDFS_STORAGE_VAULT:-ON} \
+        -DENABLE_HDFS_STORAGE_VAULT="${ENABLE_HDFS_STORAGE_VAULT:-ON}" \
         -DSTRIP_DEBUG_INFO="${STRIP_DEBUG_INFO}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
@@ -766,15 +793,15 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
         # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} "${DEPENDENCIES_MVN_OPTS}"  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} "${DEPENDENCIES_MVN_OPTS}"  -T 1C
         fi
     else
         if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} "${DEPENDENCIES_MVN_OPTS}"  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
         else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
+            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} "${DEPENDENCIES_MVN_OPTS}"  -T 1C
         fi
     fi
     cd "${DORIS_HOME}"
