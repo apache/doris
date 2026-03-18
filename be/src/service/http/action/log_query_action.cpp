@@ -57,18 +57,14 @@ const std::string HEADER_JSON = "application/json";
 const std::regex FE_PATTERN(R"(^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}(,\d{3})?.*)");
 const std::regex BE_PATTERN(R"(^[IWEF]\d{8} \d{2}:\d{2}:\d{2}\.\d{6}.*)");
 const std::regex GC_PATTERN(R"(^\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}[+-]\d{4})\].*)");
-const std::regex UUID_PATTERN(R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
+const std::regex UUID_PATTERN(
+        R"(([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}))");
 const std::regex HOST_PORT_PATTERN(R"(((\d{1,3}\.){3}\d{1,3}:\d+))");
 const std::regex IP_PATTERN(R"(((\d{1,3}\.){3}\d{1,3}))");
 const std::regex HEX_PATTERN(R"((0x[0-9a-fA-F]+))");
 const std::regex LARGE_NUMBER_PATTERN(R"((\b\d{4,}\b))");
 
-enum class LogType {
-    BE_INFO,
-    BE_WARNING,
-    BE_GC,
-    BE_JNI
-};
+enum class LogType { BE_INFO, BE_WARNING, BE_GC, BE_JNI };
 
 struct QueryRequest {
     std::vector<std::string> log_types;
@@ -85,7 +81,9 @@ struct Event {
     std::string first_line;
     std::string message;
 
-    int64_t sort_time() const { return time_ms.has_value() ? *time_ms : std::numeric_limits<int64_t>::min(); }
+    int64_t sort_time() const {
+        return time_ms.has_value() ? *time_ms : std::numeric_limits<int64_t>::min();
+    }
 };
 
 struct Group {
@@ -135,8 +133,8 @@ bool parse_request(const std::string& body, QueryRequest* request, std::string* 
     if (document.HasMember("endTimeMs") && document["endTimeMs"].IsInt64()) {
         request->end_time_ms = document["endTimeMs"].GetInt64();
     }
-    if (request->start_time_ms >= 0 && request->end_time_ms >= 0
-            && request->start_time_ms > request->end_time_ms) {
+    if (request->start_time_ms >= 0 && request->end_time_ms >= 0 &&
+        request->start_time_ms > request->end_time_ms) {
         *err = "startTimeMs must be <= endTimeMs";
         return false;
     }
@@ -145,7 +143,8 @@ bool parse_request(const std::string& body, QueryRequest* request, std::string* 
     }
     if (document.HasMember("reductionMode") && document["reductionMode"].IsString()) {
         request->reduction_mode = document["reductionMode"].GetString();
-        std::transform(request->reduction_mode.begin(), request->reduction_mode.end(), request->reduction_mode.begin(),
+        std::transform(request->reduction_mode.begin(), request->reduction_mode.end(),
+                       request->reduction_mode.begin(),
                        [](unsigned char ch) { return std::tolower(ch); });
     }
     if (request->reduction_mode != "grouped" && request->reduction_mode != "raw") {
@@ -156,8 +155,8 @@ bool parse_request(const std::string& body, QueryRequest* request, std::string* 
         request->max_entries = std::clamp(document["maxEntries"].GetInt(), 1, MAX_MAX_ENTRIES);
     }
     if (document.HasMember("maxBytesPerNode") && document["maxBytesPerNode"].IsInt()) {
-        request->max_bytes_per_node = std::clamp(document["maxBytesPerNode"].GetInt(), 8 * 1024,
-                                                 MAX_MAX_BYTES_PER_NODE);
+        request->max_bytes_per_node =
+                std::clamp(document["maxBytesPerNode"].GetInt(), 8 * 1024, MAX_MAX_BYTES_PER_NODE);
     }
     return true;
 }
@@ -214,7 +213,8 @@ bool matches_file(LogType log_type, const std::string& file_name) {
     return false;
 }
 
-std::vector<std::filesystem::path> list_candidate_files(const std::string& log_dir, LogType log_type) {
+std::vector<std::filesystem::path> list_candidate_files(const std::string& log_dir,
+                                                        LogType log_type) {
     std::vector<std::filesystem::path> files;
     std::error_code ec;
     if (!std::filesystem::is_directory(log_dir, ec)) {
@@ -259,8 +259,8 @@ std::string read_tail(const std::filesystem::path& path, int bytes) {
     return content;
 }
 
-std::string read_recent_text(const std::vector<std::filesystem::path>& files, std::vector<std::string>* scanned_files,
-                             int max_bytes) {
+std::string read_recent_text(const std::vector<std::filesystem::path>& files,
+                             std::vector<std::string>* scanned_files, int max_bytes) {
     std::vector<std::string> chunks;
     int remaining = max_bytes;
     for (const auto& path : files) {
@@ -308,7 +308,8 @@ bool is_event_start(const std::string& line, LogType log_type) {
     return false;
 }
 
-std::optional<int64_t> to_epoch_ms(std::tm* tm_value, int millis, int offset_minutes = 0, bool utc = false) {
+std::optional<int64_t> to_epoch_ms(std::tm* tm_value, int millis, int offset_minutes = 0,
+                                   bool utc = false) {
     time_t seconds = utc ? timegm(tm_value) : mktime(tm_value);
     if (seconds < 0) {
         return std::nullopt;
@@ -331,8 +332,7 @@ std::optional<int64_t> parse_time_ms(const std::string& line, LogType log_type) 
         int second = 0;
         int micros = 0;
         if (std::sscanf(line.c_str() + 1, "%4d%2d%2d %2d:%2d:%2d.%6d", &year, &month, &day, &hour,
-                        &minute, &second, &micros)
-                != 7) {
+                        &minute, &second, &micros) != 7) {
             return std::nullopt;
         }
         tm_value.tm_year = year - 1900;
@@ -351,9 +351,8 @@ std::optional<int64_t> parse_time_ms(const std::string& line, LogType log_type) 
         int minute = 0;
         int second = 0;
         int millis = 0;
-        if (std::sscanf(line.c_str(), "%4d-%2d-%2d %2d:%2d:%2d,%3d", &year, &month, &day, &hour, &minute,
-                        &second, &millis)
-                >= 6) {
+        if (std::sscanf(line.c_str(), "%4d-%2d-%2d %2d:%2d:%2d,%3d", &year, &month, &day, &hour,
+                        &minute, &second, &millis) >= 6) {
             tm_value.tm_year = year - 1900;
             tm_value.tm_mon = month - 1;
             tm_value.tm_mday = day;
@@ -377,9 +376,8 @@ std::optional<int64_t> parse_time_ms(const std::string& line, LogType log_type) 
         int second = 0;
         int millis = 0;
         int offset = 0;
-        if (std::sscanf(match[1].str().c_str(), "%4d-%2d-%2dT%2d:%2d:%2d.%3d%d", &year, &month, &day, &hour,
-                        &minute, &second, &millis, &offset)
-                != 8) {
+        if (std::sscanf(match[1].str().c_str(), "%4d-%2d-%2dT%2d:%2d:%2d.%3d%d", &year, &month,
+                        &day, &hour, &minute, &second, &millis, &offset) != 8) {
             return std::nullopt;
         }
         tm_value.tm_year = year - 1900;
@@ -431,13 +429,16 @@ std::vector<Event> filter_events(const std::vector<Event>& events, const QueryRe
     std::vector<Event> filtered;
     std::string lowered_keyword = to_lower_copy(request.keyword);
     for (const auto& event : events) {
-        if (request.start_time_ms >= 0 && event.time_ms.has_value() && *event.time_ms < request.start_time_ms) {
+        if (request.start_time_ms >= 0 && event.time_ms.has_value() &&
+            *event.time_ms < request.start_time_ms) {
             continue;
         }
-        if (request.end_time_ms >= 0 && event.time_ms.has_value() && *event.time_ms >= request.end_time_ms) {
+        if (request.end_time_ms >= 0 && event.time_ms.has_value() &&
+            *event.time_ms >= request.end_time_ms) {
             continue;
         }
-        if (!lowered_keyword.empty() && to_lower_copy(event.message).find(lowered_keyword) == std::string::npos) {
+        if (!lowered_keyword.empty() &&
+            to_lower_copy(event.message).find(lowered_keyword) == std::string::npos) {
             continue;
         }
         filtered.push_back(event);
@@ -461,7 +462,8 @@ std::string normalize_pattern(std::string line) {
     return line;
 }
 
-std::vector<Group> build_groups(const std::vector<Event>& events, int max_entries, bool* truncated) {
+std::vector<Group> build_groups(const std::vector<Event>& events, int max_entries,
+                                bool* truncated) {
     std::unordered_map<std::string, Group> group_map;
     for (const auto& event : events) {
         std::string pattern = normalize_pattern(event.first_line);
@@ -494,8 +496,8 @@ std::vector<Group> build_groups(const std::vector<Event>& events, int max_entrie
         if (lhs.count != rhs.count) {
             return lhs.count > rhs.count;
         }
-        return lhs.last_time_ms.value_or(std::numeric_limits<int64_t>::min())
-                > rhs.last_time_ms.value_or(std::numeric_limits<int64_t>::min());
+        return lhs.last_time_ms.value_or(std::numeric_limits<int64_t>::min()) >
+               rhs.last_time_ms.value_or(std::numeric_limits<int64_t>::min());
     });
     *truncated = static_cast<int>(groups.size()) > max_entries;
     if (*truncated) {
@@ -504,8 +506,8 @@ std::vector<Group> build_groups(const std::vector<Event>& events, int max_entrie
     return groups;
 }
 
-QueryResult query_single_type(const QueryRequest& request, const std::string& log_dir, const std::string& type_name,
-                              LogType log_type, int bytes_per_type) {
+QueryResult query_single_type(const QueryRequest& request, const std::string& log_dir,
+                              const std::string& type_name, LogType log_type, int bytes_per_type) {
     QueryResult result;
     result.log_type = type_name;
     result.reduction_mode = request.reduction_mode;
@@ -522,8 +524,9 @@ QueryResult query_single_type(const QueryRequest& request, const std::string& lo
     result.matched_event_count = static_cast<int>(filtered_events.size());
 
     if (request.reduction_mode == "raw") {
-        std::sort(filtered_events.begin(), filtered_events.end(),
-                  [](const auto& lhs, const auto& rhs) { return lhs.sort_time() > rhs.sort_time(); });
+        std::sort(
+                filtered_events.begin(), filtered_events.end(),
+                [](const auto& lhs, const auto& rhs) { return lhs.sort_time() > rhs.sort_time(); });
         result.truncated = static_cast<int>(filtered_events.size()) > request.max_entries;
         if (result.truncated) {
             filtered_events.resize(request.max_entries);
@@ -600,7 +603,7 @@ EasyJson build_error_response(const std::string& message) {
     return response;
 }
 
-}
+} // namespace
 
 LogQueryAction::LogQueryAction(ExecEnv* exec_env)
         : HttpHandlerWithAuth(exec_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ADMIN) {}
@@ -619,14 +622,16 @@ void LogQueryAction::handle(HttpRequest* req) {
     for (const auto& log_type_name : request.log_types) {
         auto log_type = parse_log_type(log_type_name);
         if (!log_type.has_value()) {
-            HttpChannel::send_reply(req, HttpStatus::OK,
-                                    build_error_response("Unsupported log type: " + log_type_name).ToString());
+            HttpChannel::send_reply(
+                    req, HttpStatus::OK,
+                    build_error_response("Unsupported log type: " + log_type_name).ToString());
             return;
         }
         log_types.emplace_back(log_type_name, *log_type);
     }
 
-    int bytes_per_type = std::max(8 * 1024, request.max_bytes_per_node / static_cast<int>(log_types.size()));
+    int bytes_per_type =
+            std::max(8 * 1024, request.max_bytes_per_node / static_cast<int>(log_types.size()));
     std::vector<QueryResult> results;
     std::string log_dir = get_log_dir();
     for (const auto& [type_name, log_type] : log_types) {
@@ -636,4 +641,4 @@ void LogQueryAction::handle(HttpRequest* req) {
     HttpChannel::send_reply(req, HttpStatus::OK, build_response(results).ToString());
 }
 
-}
+} // namespace doris

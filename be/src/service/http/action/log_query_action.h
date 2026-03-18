@@ -33,4 +33,4 @@ public:
     void handle(HttpRequest* req) override;
 };
 
-}
+} // namespace doris
