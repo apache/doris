@@ -483,7 +483,8 @@ public class MTMVPlanUtil {
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
             MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
             if (ivmAnalyzeMode == IvmAnalyzeMode.FULL) {
-                queryInfo.setIvmDeltaBundles(planner.getCascadesContext().getIvmDeltaBundles());
+                planner.getCascadesContext().getIvmContext().ifPresent(
+                        ivm -> queryInfo.setIvmDeltaBundles(ivm.getDeltaBundles()));
             }
             return queryInfo;
         }
