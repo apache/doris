@@ -176,9 +176,11 @@ message TxnInfoPB {
     // 用于 publish 阶段 FE 向 BE 下发 delete bitmap 计算任务
     repeated TxnTabletInfoPB involved_tablets = 33;
 
-    // 导入参数，持久化到 TxnInfoPB 中，整个导入只需一份
-    // 用于 publish 阶段 BE 计算 delete bitmap 时获取导入参数
-    optional TxnLoadInfoPB load_info = 34;
+    // 导入参数：TOlapTableSchemaParam 的 Thrift 序列化 bytes
+    // coordinator（FE或BE）在 commit 时将 TOlapTableSchemaParam 序列化后写入
+    // publish 阶段 BE 计算 delete bitmap 时从此字段反序列化恢复导入上下文
+    // 整个导入只需存储一份，不需要 per-tablet 存储
+    optional bytes load_schema_param = 34;
 
     // Publish 阶段每个 tablet 的完成状态追踪
     // 记录哪些 tablet 已完成转正（用于断点续做）
@@ -206,54 +208,75 @@ message TxnTabletInfoPB {
 }
 ```
 
-#### 3.3.2 TxnLoadInfoPB
+#### 3.3.2 导入参数存储方案（load_schema_param）
 
-```protobuf
-// 导入参数，整个事务共享一份
-// 在 Commit 阶段由 FE/BE 传入，持久化到 TxnInfoPB 中
-// Publish 阶段 BE 通过 MS 获取 TxnInfoPB 来读取这些参数
-message TxnLoadInfoPB {
-    // 部分列更新模式
-    optional UniqueKeyUpdateModePB partial_update_mode = 1;
-    // 部分列更新的输入列列表
-    repeated string partial_update_input_columns = 2;
-    // 是否可以在部分列更新中插入新行
-    optional bool can_insert_new_rows_in_partial_update = 3 [default = false];
-    // 是否是严格模式
-    optional bool is_strict_mode = 4 [default = false];
-    // 时间戳
-    optional int64 timestamp_ms = 5 [default = 0];
-    // 时区
-    optional string timezone = 6;
-    // 自增列相关
-    optional bool is_input_columns_contains_auto_inc_column = 7 [default = false];
-    optional bool is_schema_contains_auto_inc_column = 8 [default = false];
-    // 纳秒精度
-    optional int32 nano_seconds = 9 [default = 0];
-    // 新 key 策略
-    optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 10 [default = APPEND];
-    // 缺失列的默认值
-    repeated string default_values = 11;
-    // 缺失列的 column unique id
-    repeated uint32 missing_cids = 12;
-    // 更新列的 column unique id
-    repeated uint32 update_cids = 13;
-    // 序列列的值来源（用于灵活列更新场景）
-    optional int32 sequence_col_idx = 14 [default = -1];
+导入参数直接复用现有的 Thrift 类型 `TOlapTableSchemaParam`（定义在 `gensrc/thrift/Descriptors.thrift`）：
+
+```thrift
+struct TOlapTableSchemaParam {
+    1: required i64 db_id
+    2: required i64 table_id
+    3: required i64 version
+    4: required list<TSlotDescriptor> slot_descs
+    5: required TTupleDescriptor tuple_desc
+    6: required list<TOlapTableIndexSchema> indexes
+    7: optional bool is_dynamic_schema // deprecated
+    8: optional bool is_partial_update // deprecated, use unique_key_update_mode
+    9: optional list<string> partial_update_input_columns
+    10: optional bool is_strict_mode = false
+    11: optional string auto_increment_column
+    12: optional i32 auto_increment_column_unique_id = -1
+    13: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format
+    14: optional Types.TUniqueKeyUpdateMode unique_key_update_mode
+    15: optional i32 sequence_map_col_unique_id = -1
+    16: optional TPartialUpdateNewRowPolicy partial_update_new_key_policy
 }
 ```
 
-设计说明：
-- `TxnLoadInfoPB` 的字段设计参考了现有的 `PartialUpdateInfoPB`（olap_file.proto 中定义），但仅保留两阶段提交场景中 MS/BE 需要的字段
-- 将导入参数从 per-tablet 提升为 per-txn 级别，避免在每个 tablet 的 rowset meta 中重复持久化
-- `UniqueKeyUpdateModePB` 和 `PartialUpdateNewRowPolicyPB` 复用已有 enum 定义（来自 olap_file.proto）
+**复用理由**：
+- 已包含完整的表 schema 信息和部分列更新参数
+- coordinator（FE或BE）在构建导入计划时已经生成了 `TOlapTableSchemaParam`，直接序列化传递
+- 避免自定义 proto message 导致的信息遗漏和重复定义
+
+**跨类型序列化**：TxnInfoPB 是 Protobuf，TOlapTableSchemaParam 是 Thrift，不能直接嵌套。在 TxnInfoPB 中使用 `bytes load_schema_param` 字段存储 Thrift 序列化的二进制数据。
+
+**序列化（Commit 阶段）**：
+
+```java
+// Java (FE) 示例
+TOlapTableSchemaParam schemaParam = buildSchemaParam(table, ...);
+TSerializer serializer = new TSerializer(new TCompactProtocol.Factory());
+byte[] bytes = serializer.serialize(schemaParam);
+commitTxnRequest.setLoadSchemaParam(ByteString.copyFrom(bytes));
+```
+
+```cpp
+// C++ (BE) 示例
+TOlapTableSchemaParam schema_param = ...;
+ThriftSerializer ser(false, 4096);
+uint8_t* buf = nullptr; uint32_t len = 0;
+ser.serialize(&schema_param, &buf, &len);
+request.set_load_schema_param(buf, len);
+```
+
+**反序列化（Publish 阶段，BE cache miss 时）**：
+
+```cpp
+// 从 TxnInfoPB 获取 bytes 并反序列化
+const std::string& param_bytes = txn_info.load_schema_param();
+TOlapTableSchemaParam schema_param;
+ThriftDeserializer deser;
+Status st = deser.deserialize(&schema_param,
+    (const uint8_t*)param_bytes.data(), param_bytes.size());
+```
 
 ### 3.4 兼容性考虑
 
 - 所有新增字段均使用 `optional`/`repeated`，老版本代码解析时自动忽略
 - 新增字段编号从 30 开始，与现有字段（1-22）无冲突
 - 未启用两阶段提交的事务不设置这些字段，行为完全不变
-- `TxnTabletInfoPB` 和 `TxnLoadInfoPB` 是新增独立 message，不影响任何现有 message
+- `TxnTabletInfoPB` 是新增独立 message，不影响任何现有 message
+- `load_schema_param` 使用 `bytes` 类型，对 Protobuf 层面完全透明，不引入 Thrift 依赖
 
 ### 3.5 单元测试要点
 
@@ -261,7 +284,9 @@ message TxnLoadInfoPB {
 - 测试 `committed_partition_ids` 和 `committed_versions` 的一一对应关系
 - 测试 `involved_tablets` 的增删操作
 - 测试 `published_tablet_ids` 的幂等追加（用于断点续做验证）
-- 测试 `load_info` 中各个参数的正确持久化和读取
+- 测试 `load_schema_param` 中 TOlapTableSchemaParam 的 Thrift 序列化/反序列化正确性
+- 测试 `load_schema_param` 为空时的兼容处理（非部分列更新场景）
+- 测试较大的 TOlapTableSchemaParam（大量列定义）的序列化 bytes 能正确存储和读取
 
 ---
 
@@ -386,9 +411,9 @@ message CommitTxnRequest {
     // MS 会将其持久化到 TxnInfoPB.involved_tablets
     repeated TxnTabletInfoPB involved_tablets = 21;
 
-    // 导入参数（Commit 阶段传入）
-    // MS 会将其持久化到 TxnInfoPB.load_info
-    optional TxnLoadInfoPB load_info = 22;
+    // 导入参数（Commit 阶段传入）：TOlapTableSchemaParam 的 Thrift 序列化 bytes
+    // MS 会将其持久化到 TxnInfoPB.load_schema_param
+    optional bytes load_schema_param = 22;
 
     // 标记这是一个轻量级 publish 请求
     // true: Publish 阶段，只更新 visible version + TxnInfoPB 状态
@@ -431,7 +456,7 @@ CommitTxnRequest {
         { tablet_id: 1001, table_id: 100, partition_id: 10, be_cloud_unique_id: "be1", be_endpoint: "10.0.0.1:8040" },
         { tablet_id: 1002, table_id: 100, partition_id: 10, be_cloud_unique_id: "be2", be_endpoint: "10.0.0.2:8040" },
     ]
-    load_info = { partial_update_mode: UPSERT, ... }
+    load_schema_param = <TOlapTableSchemaParam 的 Thrift 序列化 bytes>
     mow_table_ids = [100]
 }
 ```
@@ -439,7 +464,7 @@ CommitTxnRequest {
 MS 处理逻辑：
 1. 为每个涉及的 partition 读取 `partition_commit_version_key`，version + 1
 2. 写入更新后的 `partition_commit_version_key`
-3. 更新 TxnInfoPB：设置 `two_phase_commit = true`，`committed_partition_ids/committed_versions`，`involved_tablets`，`load_info`，`status = TXN_STATUS_COMMITTED`
+3. 更新 TxnInfoPB：设置 `two_phase_commit = true`，`committed_partition_ids/committed_versions`，`involved_tablets`，`load_schema_param`，`status = TXN_STATUS_COMMITTED`
 4. 返回各 partition 的 commit version
 
 Commit 阶段响应：
@@ -610,7 +635,88 @@ if (txn_info.status() == TXN_STATUS_COMMITTED) {
 
 ---
 
-## 8. 完整 Proto 变更汇总
+## 8. MS Tablet 级别锁
+
+### 8.1 背景
+
+当前系统使用**表级别**的 delete bitmap update lock（`meta_delete_bitmap_update_lock_key`），用于导入和 compaction 之间的互斥。两阶段提交方案中，publish 阶段 BE 需要 per-tablet 地计算 delete bitmap 并转正 rowset，需要与该 tablet 上的 compaction 互斥。表级别锁粒度太粗，因此引入 **tablet 级别锁**。
+
+> **注意**：现有表级别锁的所有代码（`meta_delete_bitmap_update_lock_key`、`GetDeleteBitmapUpdateLockRequest/Response`、`RemoveDeleteBitmapUpdateLockRequest/Response`）**全部保留不动**，未启用两阶段提交的表继续使用表级别锁。
+
+### 8.2 Tablet 级别锁 KV 定义
+
+```
+// 新增 tablet 级别 delete bitmap update lock:
+Key:  0x01 "meta" ${instance_id} "delete_bitmap_tablet_lock" ${table_id} ${tablet_id}
+Value: DeleteBitmapUpdateLockPB (复用现有，包含 lock_id, expiration, initiators)
+```
+
+```cpp
+// keys.h
+using MetaDeleteBitmapTabletLockInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
+void meta_delete_bitmap_tablet_lock_key(const MetaDeleteBitmapTabletLockInfo& in, std::string* out);
+
+// keys.cpp
+static const char* META_KEY_INFIX_DELETE_BITMAP_TABLET_LOCK = "delete_bitmap_tablet_lock";
+void meta_delete_bitmap_tablet_lock_key(const MetaDeleteBitmapTabletLockInfo& in, std::string* out) {
+    encode_prefix(in, out);
+    encode_bytes(META_KEY_INFIX_DELETE_BITMAP_TABLET_LOCK, out);
+    encode_int64(std::get<1>(in), out);  // table_id
+    encode_int64(std::get<2>(in), out);  // tablet_id
+}
+```
+
+### 8.3 RPC 扩展
+
+复用现有 RPC，通过新增字段区分表级别锁和 tablet 级别锁：
+
+```protobuf
+message GetDeleteBitmapUpdateLockRequest {
+    // ... 现有字段 1-10 保持不变 ...
+
+    // Tablet 级别锁新增字段
+    optional bool tablet_level_lock = 20;
+    repeated int64 lock_tablet_ids = 21;
+}
+
+message RemoveDeleteBitmapUpdateLockRequest {
+    // ... 现有字段 1-6 保持不变 ...
+
+    // Tablet 级别锁新增字段
+    optional bool tablet_level_lock = 20;
+    repeated int64 unlock_tablet_ids = 21;
+}
+```
+
+### 8.4 使用场景
+
+- **Publish 阶段**：BE 在 convert_tmp_rowset 前获取 tablet 锁，convert + local apply 完成后释放
+- **Compaction**：对启用两阶段提交的表，compaction 获取 tablet 锁（替代表级别锁）
+- 大多数情况下同一 BE 上的 `rowset_update_lock` 已提供互斥，MS tablet 锁主要处理跨 BE 场景
+
+### 8.5 单元测试要点
+
+- 测试 `meta_delete_bitmap_tablet_lock_key` 的编码/解码正确性
+- 测试同一 tablet 的 publish 和 compaction 互斥
+- 测试不同 tablet 的操作可以并发
+- 测试锁过期和幂等获取
+- 测试 `tablet_level_lock=false` 时行为与现有表级别锁完全一致
+
+---
+
+## 9. 老代码保留原则
+
+> **本功能通过表属性 `enable_two_phase_commit` 控制开启，只在新建的表上启用。所有现有代码完整保留，两条路径互不干扰。**
+
+### 保留清单
+
+- **Proto 字段**：TxnInfoPB (1-22)、CommitTxnRequest (1-12)、CommitTxnResponse (1-7)、GetDeleteBitmapUpdateLockRequest (1-10)、RemoveDeleteBitmapUpdateLockRequest (1-6)、TxnStatusPB 枚举值——全部保留不动
+- **KV Schema**：partition_version_key、meta_delete_bitmap_update_lock_key、所有其他现有 KV——格式和语义不变
+- **RPC**：commit_txn、get/remove_delete_bitmap_update_lock——通过新增字段区分场景，现有字段语义不变
+
+---
+
+## 10. 完整 Proto 变更汇总
 
 以下是所有需要在 `cloud.proto` 中进行的变更：
 
@@ -627,24 +733,6 @@ message TxnTabletInfoPB {
     optional int64 partition_id = 4;
     optional string be_cloud_unique_id = 5;
     optional string be_endpoint = 6;
-}
-
-// 导入参数（整个事务共享一份）
-message TxnLoadInfoPB {
-    optional UniqueKeyUpdateModePB partial_update_mode = 1;
-    repeated string partial_update_input_columns = 2;
-    optional bool can_insert_new_rows_in_partial_update = 3 [default = false];
-    optional bool is_strict_mode = 4 [default = false];
-    optional int64 timestamp_ms = 5 [default = 0];
-    optional string timezone = 6;
-    optional bool is_input_columns_contains_auto_inc_column = 7 [default = false];
-    optional bool is_schema_contains_auto_inc_column = 8 [default = false];
-    optional int32 nano_seconds = 9 [default = 0];
-    optional PartialUpdateNewRowPolicyPB partial_update_new_key_policy = 10 [default = APPEND];
-    repeated string default_values = 11;
-    repeated uint32 missing_cids = 12;
-    repeated uint32 update_cids = 13;
-    optional int32 sequence_col_idx = 14 [default = -1];
 }
 
 // Per-tablet tmp rowset 转正请求
@@ -681,7 +769,7 @@ message TxnInfoPB {
     repeated int64 committed_partition_ids = 31;
     repeated int64 committed_versions = 32;
     repeated TxnTabletInfoPB involved_tablets = 33;
-    optional TxnLoadInfoPB load_info = 34;
+    optional bytes load_schema_param = 34;  // TOlapTableSchemaParam Thrift 序列化 bytes
     repeated int64 published_tablet_ids = 35;
 }
 
@@ -692,7 +780,7 @@ message CommitTxnRequest {
     // 新增字段 (20-29)
     optional bool enable_two_phase_commit = 20;
     repeated TxnTabletInfoPB involved_tablets = 21;
-    optional TxnLoadInfoPB load_info = 22;
+    optional bytes load_schema_param = 22;  // TOlapTableSchemaParam Thrift 序列化 bytes
     optional bool is_lightweight_publish = 23;
 }
 
@@ -722,13 +810,14 @@ service MetaService {
 - `VersionPB`：直接复用，不修改
 - `RowsetMetaCloudPB`：不修改
 - `UpdateDeleteBitmapRequest/Response`：不修改（直接复用现有 RPC）
-- `GetDeleteBitmapUpdateLockRequest/Response`：不修改
+- `GetDeleteBitmapUpdateLockRequest/Response`：扩展以支持 tablet 级别锁（新增字段 20-21）
+- `RemoveDeleteBitmapUpdateLockRequest/Response`：扩展以支持 tablet 级别锁（新增字段 20-21）
 
 ---
 
-## 9. 完整 KV Schema 变更汇总
+## 11. 完整 KV Schema 变更汇总
 
-### 9.1 新增 KV
+### 11.1 新增 KV
 
 ```
 // 新增 partition commit version
@@ -741,9 +830,22 @@ using PartitionCommitVersionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::str
 
 // Key function (keys.cpp):
 void partition_commit_version_key(const PartitionCommitVersionKeyInfo& in, std::string* out);
+
+// -------
+
+// 新增 tablet 级别 delete bitmap update lock
+// Key 格式:
+0x01 "meta" ${instance_id} "delete_bitmap_tablet_lock" ${table_id} ${tablet_id}
+// Value: DeleteBitmapUpdateLockPB (复用)
+
+// Key encoding (keys.h):
+using MetaDeleteBitmapTabletLockInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
+
+// Key function (keys.cpp):
+void meta_delete_bitmap_tablet_lock_key(const MetaDeleteBitmapTabletLockInfo& in, std::string* out);
 ```
 
-### 9.2 现有 KV 不修改
+### 11.2 现有 KV 不修改
 
 以下 KV 的 key 格式和 value 结构均不变化：
 
@@ -759,17 +861,17 @@ void partition_commit_version_key(const PartitionCommitVersionKeyInfo& in, std::
 
 ---
 
-## 10. 文件变更清单
+## 12. 文件变更清单
 
 | 文件 | 变更类型 | 变更内容 |
 |------|---------|---------|
-| `gensrc/proto/cloud.proto` | 修改 | 新增 `TxnTabletInfoPB`、`TxnLoadInfoPB`、`ConvertTmpRowsetRequest`、`ConvertTmpRowsetResponse`；扩展 `TxnInfoPB`、`CommitTxnRequest`、`CommitTxnResponse`；在 `MetaService` 中注册 `convert_tmp_rowset` RPC |
-| `cloud/src/meta-store/keys.h` | 修改 | 新增 `PartitionCommitVersionKeyInfo` 类型定义和 `partition_commit_version_key` 函数声明 |
-| `cloud/src/meta-store/keys.cpp` | 修改 | 新增 `PARTITION_COMMIT_VERSION_KEY_INFIX` 常量和 `partition_commit_version_key` 编解码实现 |
+| `gensrc/proto/cloud.proto` | 修改 | 新增 `TxnTabletInfoPB`、`ConvertTmpRowsetRequest`、`ConvertTmpRowsetResponse`；扩展 `TxnInfoPB`（新增 `load_schema_param` bytes 字段等）、`CommitTxnRequest`、`CommitTxnResponse`、`GetDeleteBitmapUpdateLockRequest`、`RemoveDeleteBitmapUpdateLockRequest`；在 `MetaService` 中注册 `convert_tmp_rowset` RPC |
+| `cloud/src/meta-store/keys.h` | 修改 | 新增 `PartitionCommitVersionKeyInfo`、`MetaDeleteBitmapTabletLockInfo` 类型定义和对应函数声明 |
+| `cloud/src/meta-store/keys.cpp` | 修改 | 新增 `PARTITION_COMMIT_VERSION_KEY_INFIX` 和 `META_KEY_INFIX_DELETE_BITMAP_TABLET_LOCK` 常量和编解码实现 |
 
 ---
 
-## 11. 与其他模块的接口约定
+## 13. 与其他模块的接口约定
 
 | 下游模块 | 依赖本模块的内容 |
 |---------|----------------|
@@ -779,5 +881,5 @@ void partition_commit_version_key(const PartitionCommitVersionKeyInfo& in, std::
 | Module 4 (FE Commit 阶段) | `CommitTxnRequest/Response` 新增字段、表属性定义 |
 | Module 5 (FE Publish Daemon) | `TxnInfoPB.involved_tablets`、`TxnInfoPB.published_tablet_ids` |
 | Module 6 (FE Recovery) | `TxnInfoPB.two_phase_commit`、`TxnInfoPB.committed_versions`、`TxnStatusPB` 语义 |
-| Module 7 (BE CalcBitmap) | `TxnInfoPB.load_info`、`ConvertTmpRowsetRequest/Response` |
-| Module 8 (Cleanup) | `TxnInfoPB.two_phase_commit`（决定是否跳过 lazy commit / pending delete bitmap 逻辑） |
+| Module 7 (BE CalcBitmap) | `TxnInfoPB.load_schema_param`（反序列化为 `TOlapTableSchemaParam`）、`ConvertTmpRowsetRequest/Response`、tablet 级别锁 RPC |
+| Module 8 (Cleanup) | `TxnInfoPB.two_phase_commit`（决定是否跳过 lazy commit / pending delete bitmap 逻辑）、tablet 级别锁 KV/RPC |
