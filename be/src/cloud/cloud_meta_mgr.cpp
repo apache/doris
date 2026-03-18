@@ -1333,7 +1333,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
         const double speed_mbps = 100.0; // 100MB/s
         const double safety_factor = 2.0;
         timeout_ms = std::min(
-                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.data_disk_size()) /
+                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.total_disk_size()) /
                                               (speed_mbps * 1024 * 1024) * safety_factor * 1000),
                          config::warm_up_rowset_sync_wait_min_timeout_ms),
                 config::warm_up_rowset_sync_wait_max_timeout_ms);
