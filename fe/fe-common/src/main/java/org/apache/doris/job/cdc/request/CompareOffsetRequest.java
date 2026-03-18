@@ -35,9 +35,10 @@ public class CompareOffsetRequest extends JobBaseConfig {
     public CompareOffsetRequest(Long jobId,
             String sourceType,
             Map<String, String> sourceProperties,
+            String frontendAddress,
             Map<String, String> offsetFirst,
             Map<String, String> offsetSecond) {
-        super(jobId, sourceType, sourceProperties);
+        super(jobId, sourceType, sourceProperties, frontendAddress);
         this.offsetFirst = offsetFirst;
         this.offsetSecond = offsetSecond;
     }
