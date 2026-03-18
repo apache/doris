@@ -22,7 +22,6 @@ import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
 
 import com.google.gson.JsonObject;
@@ -38,7 +37,6 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.io.File;
 import java.io.FileWriter;
-import java.io.IOException;
 import java.nio.file.Path;
 
 /**
