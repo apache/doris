@@ -109,6 +109,7 @@ jobs:
 
       - name: Run automated code review
         id: review
+        timeout-minutes: 55
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -139,16 +140,18 @@ jobs:
           fi
 
       - name: Comment PR on review failure
-        if: ${{ steps.review.outcome == 'failure' }}
+        if: ${{ always() && steps.review.outcome != 'success' }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
+          error_msg="${FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
           gh pr comment "${{ github.event.issue.number }}" --body "$(cat <<EOF
           OpenCode automated review failed and did not complete.
 
-          Error: ${FAILURE_REASON}
+          Error: ${error_msg}
           Workflow run: ${RUN_URL}
 
           Please inspect the workflow logs and rerun the review after the underlying issue is resolved.
@@ -156,9 +159,11 @@ jobs:
           )"
 
       - name: Fail workflow if review failed
-        if: ${{ steps.review.outcome == 'failure' }}
+        if: ${{ always() && steps.review.outcome != 'success' }}
         env:
           FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
         run: |
-          echo "OpenCode automated review failed: ${FAILURE_REASON}"
+          error_msg="${FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          echo "OpenCode automated review failed: ${error_msg}"
           exit 1
