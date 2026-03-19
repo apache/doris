@@ -1309,15 +1309,22 @@ Status VariantColumnWriterImpl::finalize() {
     RETURN_IF_ERROR(_process_root_column(ptr, olap_data_convertor.get(), num_rows, column_id));
 
     if (!has_extracted_columns) {
-        if (!_tablet_column->variant_enable_doc_mode()) {
-            // process and append each subcolumns to sub columns writers buffer
+        if (_tablet_column->variant_enable_doc_mode() && ptr->is_doc_mode()) {
+            // Doc mode: write doc-value buckets via VariantDocWriter
+            RETURN_IF_ERROR(
+                    _process_binary_column(ptr, olap_data_convertor.get(), num_rows, column_id));
+        } else if (_tablet_column->variant_enable_doc_mode() && !ptr->is_doc_mode()) {
+            // Doc mode downgraded to subcolumn (path count < threshold):
+            // only write subcolumns, skip binary column entirely.
             RETURN_IF_ERROR(
                     _process_subcolumns(ptr, olap_data_convertor.get(), num_rows, column_id));
+        } else {
+            // Normal subcolumn mode: write subcolumns + sparse
+            RETURN_IF_ERROR(
+                    _process_subcolumns(ptr, olap_data_convertor.get(), num_rows, column_id));
+            RETURN_IF_ERROR(
+                    _process_binary_column(ptr, olap_data_convertor.get(), num_rows, column_id));
         }
-
-        // process sparse column and append to sparse writer buffer
-        RETURN_IF_ERROR(
-                _process_binary_column(ptr, olap_data_convertor.get(), num_rows, column_id));
     }
 
     // NestedGroup write behavior is determined by the injected provider implementation.

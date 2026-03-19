@@ -21,6 +21,7 @@ suite("variant_predefine_index_doc_value", "p0"){
     sql """ set enable_common_expr_pushdown = true """
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
     sql """ set default_variant_doc_materialization_min_rows = 0 """
 
     def tableName = "test_variant_predefine_index_type"
@@ -31,7 +32,7 @@ suite("variant_predefine_index_doc_value", "p0"){
             MATCH_NAME 'path.int' : int,
             MATCH_NAME 'path.decimal' : double,
             MATCH_NAME 'path.string' : string,
-            properties("variant_max_subcolumns_count" = "10")
+            properties("variant_max_subcolumns_count" = "0")
         > NULL,
         INDEX idx_a_b (var) USING INVERTED PROPERTIES("field_pattern"="path.int") COMMENT '',
         INDEX idx_a_c (var) USING INVERTED PROPERTIES("field_pattern"="path.decimal") COMMENT '',
@@ -74,7 +75,7 @@ suite("variant_predefine_index_doc_value", "p0"){
           `overflow_properties` variant<
             MATCH_NAME 'color' : text,
             MATCH_NAME 'tags' : array<string>,
-            properties("variant_max_subcolumns_count" = "10")
+            properties("variant_max_subcolumns_count" = "0")
           > NULL,
           INDEX idx1 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "color", "support_phrase" = "true", "parser" = "english", "lower_case" = "true"),
           INDEX idx2 (`overflow_properties`) USING INVERTED PROPERTIES( "field_pattern" = "tags")

@@ -52,6 +52,9 @@ suite("regression_test_variant_var_index", "p0, nonConcurrent"){
     trigger_and_wait_compaction(table_name, "full", 1800)
     qt_sql "select * from var_index order by k limit 15"
 
+    // Ensure V1 format restriction is active before testing
+    sql "ADMIN SET FRONTEND CONFIG ('enable_inverted_index_v1_for_variant' = 'false')"
+
     sql "DROP TABLE IF EXISTS var_index"
     boolean findException = false
     try {

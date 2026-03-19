@@ -17,6 +17,7 @@
 
 suite("regression_test_variant_doc_mode", "p0"){
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
 
   
     def table_min0 = "doc_mode_min0"

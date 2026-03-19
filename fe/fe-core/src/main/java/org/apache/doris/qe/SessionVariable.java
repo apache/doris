@@ -971,6 +971,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String DEFAULT_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
             "default_variant_doc_materialization_min_rows";
 
+
     public static final String DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT = "default_variant_doc_hash_shard_count";
 
     public static final String DEFAULT_VARIANT_ENABLE_NESTED_GROUP = "default_variant_enable_nested_group";
@@ -3538,6 +3539,7 @@ public class SessionVariable implements Serializable, Writable {
     )
     public long defaultVariantDocMaterializationMinRows = 0L;
 
+
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_DOC_HASH_SHARD_COUNT,
             needForward = true,
@@ -3611,11 +3613,13 @@ public class SessionVariable implements Serializable, Writable {
         this.defaultVariantDocHashShardCount = random.nextInt(5);
         boolean zeroOrOne = random.nextBoolean();
         this.defaultVariantDocMaterializationMinRows = zeroOrOne ? 0 : random.nextInt(20);
+        this.defaultVariantDocHashShardCount = random.nextInt(5);
         if (this.defaultVariantEnableDocMode) {
-            this.defaultVariantMaxSubcolumnsCount = 0;
+            this.defaultVariantMaxSubcolumnsCount = random.nextInt(5);
             this.defaultEnableTypedPathsToSparse = false;
         } else {
             this.defaultVariantDocMaterializationMinRows = 0L;
+            this.defaultVariantDocHashShardCount = 0;
             this.defaultVariantDocHashShardCount = 0;
         }
         int randomInt = random.nextInt(4);
@@ -6344,6 +6348,7 @@ public class SessionVariable implements Serializable, Writable {
     public long getDefaultVariantDocMaterializationMinRows() {
         return defaultVariantDocMaterializationMinRows;
     }
+
 
     public int getDefaultVariantDocHashShardCount() {
         return defaultVariantDocHashShardCount;

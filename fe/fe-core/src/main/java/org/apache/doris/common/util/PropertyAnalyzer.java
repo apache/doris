@@ -291,6 +291,7 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_VARIANT_DOC_MATERIALIZATION_MIN_ROWS =
             "variant_doc_materialization_min_rows";
 
+
     // number of buckets when using doc snapshot serialization
     public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
 
@@ -2201,6 +2202,7 @@ public class PropertyAnalyzer {
         return minRows;
     }
 
+
     public static int analyzeVariantDocHashShardCount(Map<String, String> properties, int defaultValue)
             throws AnalysisException {
         int shardCount = defaultValue;
@@ -2222,10 +2224,6 @@ public class PropertyAnalyzer {
 
     public static void validateVariantProperties(Map<String, String> properties) throws AnalysisException {
         if (properties != null && properties.containsKey(PROPERTIES_VARIANT_ENABLE_DOC_MODE)) {
-            if (properties.containsKey(PROPERTIES_VARIANT_MAX_SUBCOLUMNS_COUNT)) {
-                throw new AnalysisException("variant_max_subcolumns_count and variant_enable_doc_mode "
-                        + "cannot be set together");
-            }
             if (properties.containsKey(PROPERTIES_VARIANT_ENABLE_TYPED_PATHS_TO_SPARSE)) {
                 throw new AnalysisException("variant_enable_typed_paths_to_sparse and variant_enable_doc_mode "
                         + "cannot be set together");

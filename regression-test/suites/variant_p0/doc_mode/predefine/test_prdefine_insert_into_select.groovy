@@ -19,6 +19,7 @@ suite("predefine_insert_into_select_doc_mode", "p0"){
 
     sql """ set default_variant_enable_typed_paths_to_sparse = false """
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
     boolean minrowszero = new Random().nextBoolean();
     if (minrowszero) {
         sql """ set default_variant_doc_materialization_min_rows = 0 """

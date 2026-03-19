@@ -17,6 +17,7 @@
 
 suite("variant_predefine_with_mow_doc_value", "p0") {
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
     sql "DROP TABLE IF EXISTS var_mow"
     sql """
         CREATE TABLE `var_mow` (
