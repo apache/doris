@@ -85,84 +85,82 @@ Status SchemaColumnDataSizesScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
-    auto process_rowsets = [&](const std::vector<RowsetSharedPtr>& rowsets, int64_t table_id,
-                               int64_t index_id, int64_t partition_id, int64_t tablet_id) {
-        for (const auto& rowset : rowsets) {
-            auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
-            if (!beta_rowset) {
-                continue;
-            }
+void SchemaColumnDataSizesScanner::_collect_column_data_sizes_from_rowsets(
+        const std::vector<RowsetSharedPtr>& rowsets, int64_t table_id, int64_t index_id,
+        int64_t partition_id, int64_t tablet_id) {
+    for (const auto& rowset : rowsets) {
+        auto beta_rowset = std::dynamic_pointer_cast<BetaRowset>(rowset);
+        if (!beta_rowset) {
+            continue;
+        }
 
-            if (beta_rowset->num_segments() == 0) {
-                continue;
-            }
+        if (beta_rowset->num_segments() == 0) {
+            continue;
+        }
 
-            auto rowset_meta = rowset->rowset_meta();
-            const auto& schema = rowset_meta->tablet_schema();
-            auto rowset_id = rowset_meta->rowset_id().to_string();
+        auto rowset_meta = rowset->rowset_meta();
+        const auto& schema = rowset_meta->tablet_schema();
+        auto rowset_id = rowset_meta->rowset_id().to_string();
 
-            std::map<int32_t /* column_unique_id */, ColumnDataSizeInfo> aggregated_stats;
+        std::map<int32_t /* column_unique_id */, ColumnDataSizeInfo> aggregated_stats;
 
-            // Load all segments at once
-            std::vector<segment_v2::SegmentSharedPtr> segments;
-            auto st = beta_rowset->load_segments(&segments);
-            if (!st.ok()) {
-                LOG(WARNING) << "Failed to load segments for rowset "
-                             << beta_rowset->rowset_id().to_string()
-                             << ", error: " << st.to_string();
-                continue;
-            }
+        // Load all segments at once
+        std::vector<segment_v2::SegmentSharedPtr> segments;
+        auto st = beta_rowset->load_segments(&segments);
+        if (!st.ok()) {
+            LOG(WARNING) << "Failed to load segments for rowset "
+                         << beta_rowset->rowset_id().to_string() << ", error: " << st.to_string();
+            continue;
+        }
 
-            // Get column data page stats from each segment footer and aggregate by column_unique_id
-            for (const auto& segment : segments) {
-                auto collector = [&](const segment_v2::ColumnMetaPB& column_meta) {
-                    if (column_meta.has_compressed_data_bytes() &&
-                        column_meta.has_uncompressed_data_bytes()) {
-                        auto cid = schema->field_index(column_meta.unique_id());
-                        if (cid == -1) {
-                            return;
-                        }
-                        // Aggregate stats by column_unique_id
-                        if (aggregated_stats.contains(column_meta.unique_id())) {
-                            auto& existing_stats = aggregated_stats[column_meta.unique_id()];
-                            existing_stats.compressed_data_bytes +=
-                                    column_meta.compressed_data_bytes();
-                            existing_stats.uncompressed_data_bytes +=
-                                    column_meta.uncompressed_data_bytes();
-                            existing_stats.raw_data_bytes += column_meta.raw_data_bytes();
-                        } else {
-                            aggregated_stats[column_meta.unique_id()] = ColumnDataSizeInfo {
-                                    .backend_id = backend_id_,
-                                    .table_id = table_id,
-                                    .index_id = index_id,
-                                    .partition_id = partition_id,
-                                    .tablet_id = tablet_id,
-                                    .rowset_id = rowset_id,
-                                    .column_unique_id = column_meta.unique_id(),
-                                    .column_name = schema->column(cid).name(),
-                                    .column_type = TabletColumn::get_string_by_field_type(
-                                            static_cast<FieldType>(column_meta.type())),
-                                    .compressed_data_bytes = column_meta.compressed_data_bytes(),
-                                    .uncompressed_data_bytes =
-                                            column_meta.uncompressed_data_bytes(),
-                                    .raw_data_bytes = column_meta.raw_data_bytes(),
-                            };
-                        }
+        // Get column data page stats from each segment footer and aggregate by column_unique_id
+        for (const auto& segment : segments) {
+            auto collector = [&](const segment_v2::ColumnMetaPB& column_meta) {
+                if (column_meta.has_compressed_data_bytes() &&
+                    column_meta.has_uncompressed_data_bytes()) {
+                    auto cid = schema->field_index(column_meta.unique_id());
+                    if (cid == -1) {
+                        return;
                     }
-                };
-                st = segment->traverse_column_meta_pbs(collector);
-                if (!st.ok()) {
-                    continue;
+                    // Aggregate stats by column_unique_id
+                    if (aggregated_stats.contains(column_meta.unique_id())) {
+                        auto& existing_stats = aggregated_stats[column_meta.unique_id()];
+                        existing_stats.compressed_data_bytes += column_meta.compressed_data_bytes();
+                        existing_stats.uncompressed_data_bytes +=
+                                column_meta.uncompressed_data_bytes();
+                        existing_stats.raw_data_bytes += column_meta.raw_data_bytes();
+                    } else {
+                        aggregated_stats[column_meta.unique_id()] = ColumnDataSizeInfo {
+                                .backend_id = backend_id_,
+                                .table_id = table_id,
+                                .index_id = index_id,
+                                .partition_id = partition_id,
+                                .tablet_id = tablet_id,
+                                .rowset_id = rowset_id,
+                                .column_unique_id = column_meta.unique_id(),
+                                .column_name = schema->column(cid).name(),
+                                .column_type = TabletColumn::get_string_by_field_type(
+                                        static_cast<FieldType>(column_meta.type())),
+                                .compressed_data_bytes = column_meta.compressed_data_bytes(),
+                                .uncompressed_data_bytes = column_meta.uncompressed_data_bytes(),
+                                .raw_data_bytes = column_meta.raw_data_bytes(),
+                        };
+                    }
                 }
-            }
-            // Append aggregated stats for this rowset to the result vector
-            for (const auto& [_, stats] : aggregated_stats) {
-                _column_data_sizes.push_back(stats);
+            };
+            st = segment->traverse_column_meta_pbs(collector);
+            if (!st.ok()) {
+                continue;
             }
         }
-    };
+        // Append aggregated stats for this rowset to the result vector
+        for (const auto& [_, stats] : aggregated_stats) {
+            _column_data_sizes.push_back(stats);
+        }
+    }
+}
 
+Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
     if (config::is_cloud_mode()) {
         // only query cloud tablets in lru cache instead of all tablets
         std::vector<std::weak_ptr<CloudTablet>> tablets =
@@ -177,8 +175,8 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
                         rowsets.emplace_back(it.second);
                     }
                 }
-                process_rowsets(rowsets, t->table_id(), t->index_id(), t->partition_id(),
-                                t->tablet_id());
+                _collect_column_data_sizes_from_rowsets(rowsets, t->table_id(), t->index_id(),
+                                                        t->partition_id(), t->tablet_id());
             }
         }
     } else {
@@ -197,8 +195,8 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
             for (const auto& version_and_rowset : all_rowsets) {
                 rowsets.emplace_back(version_and_rowset.second);
             }
-            process_rowsets(rowsets, tablet->table_id(), tablet->index_id(), tablet->partition_id(),
-                            tablet->tablet_id());
+            _collect_column_data_sizes_from_rowsets(rowsets, tablet->table_id(), tablet->index_id(),
+                                                    tablet->partition_id(), tablet->tablet_id());
         }
     }
     return Status::OK();
