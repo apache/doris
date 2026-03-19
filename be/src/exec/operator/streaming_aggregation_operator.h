@@ -68,6 +68,7 @@ private:
     Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   const uint32_t num_rows);
+    void _mock_emplace_into_hash_table(ColumnRawPtrs& key_columns, uint32_t num_rows);
     bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
                                         ColumnRawPtrs& key_columns, uint32_t num_rows);
     Status _create_agg_status(AggregateDataPtr data);
@@ -89,6 +90,18 @@ private:
     RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
+
+    // Mock benchmark timers
+    RuntimeProfile::Counter* _mock_hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _mock_hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _mock_hash_table_input_counter = nullptr;
+    RuntimeProfile::Counter* _mock_hash_table_iterate_timer = nullptr;
+    RuntimeProfile::Counter* _mock_container_iterate_timer = nullptr;
+    bool _mock_iterated = false;
+
+    // Mock hash table: emplace without AggregateDataContainer
+    AggregatedDataVariantsUPtr _mock_agg_data = nullptr;
+    Arena _mock_arena;
 
     bool _should_expand_hash_table = true;
     int64_t _cur_num_rows_returned = 0;

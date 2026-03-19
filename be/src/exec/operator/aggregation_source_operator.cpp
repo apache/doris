@@ -37,14 +37,19 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     _get_results_timer = ADD_TIMER(custom_profile(), "GetResultsTime");
-    _hash_table_iterate_timer = ADD_TIMER(custom_profile(), "HashTableIterateTime");
-    _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
-    _insert_values_to_column_timer = ADD_TIMER(custom_profile(), "InsertValuesToColumnTime");
+    _hash_table_iterate_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "HashTableIterateTime", 1);
+    _insert_keys_to_column_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "InsertKeysToColumnTime", 1);
+    _insert_values_to_column_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "InsertValuesToColumnTime", 1);
 
     _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
     _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+    _hash_table_compute_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "HashTableComputeTime", 1);
+    _hash_table_emplace_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "HashTableEmplaceTime", 1);
     _hash_table_input_counter =
             ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT, 1);
     _hash_table_memory_usage =
@@ -54,6 +59,11 @@ Status AggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
     _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
     _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
+
+    _mock_hash_table_iterate_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "MockHashTableIterateTime", 1);
+    _mock_container_iterate_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "MockContainerIterateTime", 1);
 
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._without_key) {
@@ -137,6 +147,47 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
 
                         uint32_t num_rows = 0;
                         shared_state.aggregate_data_container->init_once();
+
+                        // One-time mock benchmark: compare hash table iterate vs container iterate
+                        if (!_mock_iterated) {
+                            _mock_iterated = true;
+                            // (a) Iterate mock hash table (without AggregateDataContainer)
+                            if (shared_state.mock_agg_data) {
+                                std::visit(
+                                        Overload {
+                                                [&](std::monostate&) -> void {},
+                                                [&](auto& mock_method) -> void {
+                                                    SCOPED_TIMER(
+                                                            _mock_hash_table_iterate_timer);
+                                                    auto& mock_ht = *mock_method.hash_table;
+                                                    for (auto it = mock_ht.begin();
+                                                         it != mock_ht.end(); ++it) {
+                                                        [[maybe_unused]] auto k =
+                                                                it->get_first();
+                                                        [[maybe_unused]] auto* v =
+                                                                it->get_second();
+                                                        asm volatile("" ::: "memory");
+                                                    }
+                                                }},
+                                        shared_state.mock_agg_data->method_variant);
+                            }
+                            // (b) Iterate AggregateDataContainer (full traverse)
+                            {
+                                SCOPED_TIMER(_mock_container_iterate_timer);
+                                auto mock_iter =
+                                        shared_state.aggregate_data_container->begin();
+                                while (mock_iter !=
+                                       shared_state.aggregate_data_container->end()) {
+                                    [[maybe_unused]] auto k =
+                                            mock_iter.template get_key<KeyType>();
+                                    [[maybe_unused]] auto* v =
+                                            mock_iter.get_aggregate_data();
+                                    asm volatile("" ::: "memory");
+                                    ++mock_iter;
+                                }
+                            }
+                        }
+
                         auto& iter = shared_state.aggregate_data_container->iterator;
 
                         {
@@ -261,6 +312,47 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
 
                         uint32_t num_rows = 0;
                         shared_state.aggregate_data_container->init_once();
+
+                        // One-time mock benchmark: compare hash table iterate vs container iterate
+                        if (!_mock_iterated) {
+                            _mock_iterated = true;
+                            // (a) Iterate mock hash table (without AggregateDataContainer)
+                            if (shared_state.mock_agg_data) {
+                                std::visit(
+                                        Overload {
+                                                [&](std::monostate&) -> void {},
+                                                [&](auto& mock_method) -> void {
+                                                    SCOPED_TIMER(
+                                                            _mock_hash_table_iterate_timer);
+                                                    auto& mock_ht = *mock_method.hash_table;
+                                                    for (auto it = mock_ht.begin();
+                                                         it != mock_ht.end(); ++it) {
+                                                        [[maybe_unused]] auto k =
+                                                                it->get_first();
+                                                        [[maybe_unused]] auto* v =
+                                                                it->get_second();
+                                                        asm volatile("" ::: "memory");
+                                                    }
+                                                }},
+                                        shared_state.mock_agg_data->method_variant);
+                            }
+                            // (b) Iterate AggregateDataContainer (full traverse)
+                            {
+                                SCOPED_TIMER(_mock_container_iterate_timer);
+                                auto mock_iter =
+                                        shared_state.aggregate_data_container->begin();
+                                while (mock_iter !=
+                                       shared_state.aggregate_data_container->end()) {
+                                    [[maybe_unused]] auto k =
+                                            mock_iter.template get_key<KeyType>();
+                                    [[maybe_unused]] auto* v =
+                                            mock_iter.get_aggregate_data();
+                                    asm volatile("" ::: "memory");
+                                    ++mock_iter;
+                                }
+                            }
+                        }
+
                         auto& iter = shared_state.aggregate_data_container->iterator;
 
                         {

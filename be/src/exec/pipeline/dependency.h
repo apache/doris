@@ -305,6 +305,12 @@ public:
     AggregatedDataVariantsUPtr agg_data = nullptr;
     std::unique_ptr<AggregateDataContainer> aggregate_data_container;
     std::vector<AggFnEvaluator*> aggregate_evaluators;
+
+    // Mock hash table for benchmark: independent from real computation,
+    // only used to compare emplace/iterate performance with vs without AggregateDataContainer
+    AggregatedDataVariantsUPtr mock_agg_data = nullptr;
+    Arena mock_arena;
+
     // group by k1,k2
     VExprContextSPtrs probe_expr_ctxs;
     size_t input_num_rows = 0;
