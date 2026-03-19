@@ -77,30 +77,24 @@ suite("test_recycle_bin_retention") {
 
         // ===== Phase 3: Physical deletion =====
         // Drop again and wait for total expiry (FE + BE), table should be permanently gone
-        // Note: This test verifies that after total expiry, RECOVER fails.
-        // The actual total expire time = catalog_trash_expire_second + BE trash_file_expire_time_sec
-        // For this test, if BE trash_file_expire_time_sec=0 (default), total expire = FE expire only.
+        // The minEraseLatency in CatalogRecycleBin is 10 minutes (hardcoded).
+        // The recycle bin daemon runs every 30 seconds.
+        // So we need to wait > 10 minutes + daemon interval for physical deletion to happen.
 
         sql """ DROP TABLE test_retention_phase1 """
 
-        // Get the min BE trash expire time from backends
-        def backends = sql_return_maparray """ SHOW BACKENDS """
-        def beAlive = backends.findAll { it.Alive == 'true' }
-        assertTrue(beAlive.size() > 0, "At least one BE should be alive")
-
-        // Wait for total expiry time. With catalog_trash_ignore_min_erase_latency=false (default),
-        // the minimum erase latency is 10 minutes, so the cleanup won't happen quickly.
-        // Here we just verify Phase 1 and Phase 2 behavior which are independent of that.
-
-        // We still verify that after FE expire, the table is hidden from SHOW
-        sleep(35000)
+        // Wait for minEraseLatency (10 min) + daemon interval (30s) + buffer
+        // Total: 11 minutes = 660 seconds
+        sleep(660000)
 
         def recycleBinPhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_retention_phase1' """
-        assertTrue(recycleBinPhase3.size() == 0, "Phase 3: Table should not be visible after FE expire time")
+        assertTrue(recycleBinPhase3.size() == 0, "Phase 3: Table should not be visible after physical deletion")
 
-        // Verify RECOVER still works during hidden retention period
-        sql """ RECOVER TABLE test_retention_phase1 """
-        order_qt_phase3_recover """ SELECT * FROM test_retention_phase1 """
+        // After physical deletion, RECOVER should fail
+        test {
+            sql """ RECOVER TABLE test_retention_phase1 """
+            exception "Unknown table"
+        }
 
         // ===== Test: DROP with partition =====
         // Verify the retention feature also works with partition drops
@@ -146,6 +140,23 @@ suite("test_recycle_bin_retention") {
         // But still recoverable
         sql """ RECOVER PARTITION p2 FROM test_retention_partition """
         order_qt_partition_recover_phase2 """ SELECT * FROM test_retention_partition """
+
+        // ===== Partition Phase 3: Physical deletion =====
+        // Drop partition again and wait for total expiry (minEraseLatency 10min + daemon 30s + buffer)
+        sql """ ALTER TABLE test_retention_partition DROP PARTITION p2 """
+        sleep(660000)
+
+        def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'p2' """
+        assertTrue(partRecyclePhase3.size() == 0, "Partition Phase 3: p2 should not be visible after physical deletion")
+
+        // After physical deletion, RECOVER should fail
+        test {
+            sql """ RECOVER PARTITION p2 FROM test_retention_partition """
+            exception "No partition named"
+        }
+
+        // Verify table still has p1 and p3 data, but p2 is gone
+        order_qt_partition_phase3 """ SELECT * FROM test_retention_partition """
 
     } finally {
         // Restore original FE config
