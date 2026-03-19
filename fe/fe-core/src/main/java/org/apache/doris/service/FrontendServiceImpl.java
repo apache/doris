@@ -4405,7 +4405,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return result;
         } else if (partitionNum > autoPartitionLimit * 0.8) {
             LOG.warn("Table {}.{} auto partition count {} is approaching limit {} (>80%)."
-                    + " Consider increasing max_auto_partition_num.",
+                        + " Consider increasing max_auto_partition_num.",
                     db.getFullName(), olapTable.getName(), partitionNum, autoPartitionLimit);
             if (MetricRepo.isInit) {
                 MetricRepo.COUNTER_AUTO_PARTITION_NEAR_LIMIT.increase(1L);
