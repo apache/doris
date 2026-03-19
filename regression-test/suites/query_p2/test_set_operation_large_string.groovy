@@ -57,7 +57,7 @@ suite("test_set_operation_large_string") {
     sql " set enable_profile = true;"
     sql " set batch_size = 128;"
     sql " set runtime_filter_mode = off;"
-    sql """ set disable_nereids_rules = "INFER_SET_OPERATOR_DISTINCT,PUSH_PROJECT_THROUGH_UNION,PUSH_PROJECT_INTO_UNION";"""
+    sql """ set disable_nereids_rules = "INFER_SET_OPERATOR_DISTINCT";"""
     // Test EXCEPT: all rows from test_set_op_large_string except a small subset should return most rows
     qt_except_subset """
         SELECT substring(large_val, 1, 100) FROM (
