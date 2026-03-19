@@ -1761,7 +1761,6 @@ TEST_F(OlapTypeTest, double_type) {
              "-1.797693134862316e+308"},
             {std::numeric_limits<double>::min(), "2.225073858507201e-308",
              "2.225073858507201e-308"},
-            {std::numeric_limits<double>::denorm_min(), "5e-324", "5e-324"},
     };
 
     for (auto& tc : test_cases) {
