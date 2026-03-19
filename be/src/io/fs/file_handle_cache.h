@@ -53,7 +53,7 @@ public:
     std::string bee_user;
     std::string bee_source;
 };
-}
+} // namespace doris::io
 namespace std {
 template <>
 struct hash<doris::io::FileHandleCacheKey> {
@@ -67,7 +67,7 @@ struct hash<doris::io::FileHandleCacheKey> {
         return seed;
     }
 };
-}
+} // namespace std
 
 namespace doris::io {
 
@@ -215,8 +215,7 @@ public:
     Status get_file_handle(std::shared_ptr<HdfsHandler> fs_handler, const std::string& user,
                            const std::string& fname, const std::string& bee_user,
                            const std::string& bee_source, int64_t mtime, int64_t file_size,
-                           bool require_new_handle, Accessor* accessor,
-                           bool* cache_hit,
+                           bool require_new_handle, Accessor* accessor, bool* cache_hit,
                            const hdfsAuditContext* audit_context) WARN_UNUSED_RESULT;
 
 private:

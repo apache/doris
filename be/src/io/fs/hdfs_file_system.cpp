@@ -59,7 +59,7 @@ std::string get_hdfs_conf_value(const THdfsParams& hdfs_params, const char* key)
     return "";
 }
 
-}
+} // namespace
 
 #ifndef CHECK_HDFS_HANDLER
 #define CHECK_HDFS_HANDLER(handler)                        \
@@ -195,9 +195,8 @@ Status HdfsFileSystem::delete_internal(const Path& path, int is_recursive) {
 Status HdfsFileSystem::exists_impl(const Path& path, bool* res) const {
     CHECK_HDFS_HANDLER(_fs_handler);
     Path real_path = convert_path(path, _fs_name);
-    int is_exists =
-            hdfsExistsWithAuditContext(_fs_handler->hdfs_fs, real_path.string().c_str(),
-                                       &_audit_context);
+    int is_exists = hdfsExistsWithAuditContext(_fs_handler->hdfs_fs, real_path.string().c_str(),
+                                               &_audit_context);
 #ifdef USE_HADOOP_HDFS
     // when calling hdfsExists() and return non-zero code,
     // if errno is ENOENT, which means the file does not exist.

@@ -47,8 +47,7 @@ public:
                                          const std::string& user, const std::string& bee_user,
                                          const std::string& bee_source,
                                          const hdfsAuditContext* audit_context,
-                                         const std::string& fs_name,
-                                         const FileReaderOptions& opts,
+                                         const std::string& fs_name, const FileReaderOptions& opts,
                                          RuntimeProfile* profile);
 
     HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,

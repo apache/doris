@@ -53,8 +53,7 @@ Status HdfsFileHandle::init(int64_t file_size, const hdfsAuditContext* audit_con
         return Status::IOError("HdfsFileHandle: hdfs fs handler is null");
     }
 
-    _hdfs_file = hdfsOpenFileWithAuditContext(fs, _fname.c_str(), O_RDONLY, 0, 0, 0,
-                                              audit_context);
+    _hdfs_file = hdfsOpenFileWithAuditContext(fs, _fname.c_str(), O_RDONLY, 0, 0, 0, audit_context);
     if (_hdfs_file == nullptr) {
         std::string _err_msg = hdfs_error();
         // invoker maybe just skip Status.NotFound and continue
@@ -79,8 +78,7 @@ Status HdfsFileHandle::init(int64_t file_size, const hdfsAuditContext* audit_con
 }
 
 CachedHdfsFileHandle::CachedHdfsFileHandle(std::shared_ptr<HdfsHandler> fs_handler,
-                                           const std::string& fname,
-                                           int64_t mtime)
+                                           const std::string& fname, int64_t mtime)
         : HdfsFileHandle(std::move(fs_handler), fname, mtime) {}
 
 CachedHdfsFileHandle::~CachedHdfsFileHandle() {}
@@ -161,9 +159,8 @@ Status FileHandleCache::init() {
 
 Status FileHandleCache::get_file_handle(std::shared_ptr<HdfsHandler> fs_handler,
                                         const std::string& user, const std::string& fname,
-                                        const std::string& bee_user,
-                                        const std::string& bee_source, int64_t mtime,
-                                        int64_t file_size, bool require_new_handle,
+                                        const std::string& bee_user, const std::string& bee_source,
+                                        int64_t mtime, int64_t file_size, bool require_new_handle,
                                         FileHandleCache::Accessor* accessor, bool* cache_hit,
                                         const hdfsAuditContext* audit_context) {
     DCHECK_GE(mtime, 0);

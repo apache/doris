@@ -246,8 +246,7 @@ Status create_hdfs_builder(const THdfsParams& hdfsParams, const std::string& fs_
     }
     hdfsBuilderConfSetStr(builder->get(), FALLBACK_TO_SIMPLE_AUTH_ALLOWED.c_str(),
                           TRUE_VALUE.c_str());
-    hdfsBuilderConfSetStr(builder->get(), BEE_COMPUTER.c_str(),
-                          ENGINE_VALUE.c_str());
+    hdfsBuilderConfSetStr(builder->get(), BEE_COMPUTER.c_str(), ENGINE_VALUE.c_str());
     return Status::OK();
 }
 

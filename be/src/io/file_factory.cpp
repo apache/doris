@@ -94,7 +94,7 @@ struct HdfsAuditContextHolder {
     }
 };
 
-}
+} // namespace
 
 io::FileReaderOptions FileFactory::get_reader_options(RuntimeState* state,
                                                       const io::FileDescription& fd) {
@@ -286,9 +286,8 @@ Result<io::FileReaderSPtr> FileFactory::create_file_reader(
         }
         HdfsAuditContextHolder audit_context(system_properties.hdfs_params);
         return io::HdfsFileReader::create(file_description.path, handler,
-                                          system_properties.hdfs_params.user, bee_user,
-                                          bee_source, &audit_context.context, *fs_name,
-                                          reader_options, profile)
+                                          system_properties.hdfs_params.user, bee_user, bee_source,
+                                          &audit_context.context, *fs_name, reader_options, profile)
                 .and_then([&](auto&& reader) {
                     return io::create_cached_file_reader(std::move(reader), reader_options);
                 });

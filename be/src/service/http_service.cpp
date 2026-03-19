@@ -50,11 +50,11 @@
 #include "http/action/download_binlog_action.h"
 #include "http/action/file_cache_action.h"
 #include "http/action/health_action.h"
-#include "http/action/log_query_action.h"
 #include "http/action/http_stream.h"
 #include "http/action/jeprofile_actions.h"
 #include "http/action/load_channel_action.h"
 #include "http/action/load_stream_action.h"
+#include "http/action/log_query_action.h"
 #include "http/action/meta_action.h"
 #include "http/action/metrics_action.h"
 #include "http/action/pad_rowset_action.h"
@@ -173,7 +173,8 @@ Status HttpService::start() {
     _ev_http_server->register_handler(HttpMethod::GET, "/api/health", health_action);
 
     LogQueryAction* log_query_action = _pool.add(new LogQueryAction(_env));
-    _ev_http_server->register_handler(HttpMethod::POST, "/api/diagnostics/logs/query", log_query_action);
+    _ev_http_server->register_handler(HttpMethod::POST, "/api/diagnostics/logs/query",
+                                      log_query_action);
 
     // Clear cache action
     ClearCacheAction* clear_cache_action = _pool.add(new ClearCacheAction(_env));

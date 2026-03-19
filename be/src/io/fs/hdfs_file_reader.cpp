@@ -48,41 +48,34 @@ bvar::PerSecond<bvar::Adder<uint64_t>> hdfs_read_througthput("hdfs_file_reader",
 namespace {
 
 Result<FileHandleCache::Accessor> get_file(std::shared_ptr<HdfsHandler> fs_handler,
-                                           const std::string& user,
-                                           const std::string& bee_user,
+                                           const std::string& user, const std::string& bee_user,
                                            const std::string& bee_source,
-                                           const hdfsAuditContext* audit_context,
-                                           const Path& file, int64_t mtime,
-                                           int64_t file_size) {
+                                           const hdfsAuditContext* audit_context, const Path& file,
+                                           int64_t mtime, int64_t file_size) {
     static FileHandleCache cache(config::max_hdfs_file_handle_cache_num, 16,
                                  config::max_hdfs_file_handle_cache_time_sec);
     bool cache_hit;
     FileHandleCache::Accessor accessor;
     RETURN_IF_ERROR_RESULT(cache.get_file_handle(std::move(fs_handler), user, file.native(),
-                                                  bee_user, bee_source, mtime, file_size, false,
-                                                  &accessor, &cache_hit, audit_context));
+                                                 bee_user, bee_source, mtime, file_size, false,
+                                                 &accessor, &cache_hit, audit_context));
     return accessor;
 }
 
 } // namespace
 
-Result<FileReaderSPtr> HdfsFileReader::create(Path full_path,
-                                              std::shared_ptr<HdfsHandler> fs_handler,
-                                              const std::string& user,
-                                              const std::string& bee_user,
-                                              const std::string& bee_source,
-                                              const hdfsAuditContext* audit_context,
-                                              const std::string& fs_name,
-                                              const FileReaderOptions& opts,
-                                              RuntimeProfile* profile) {
+Result<FileReaderSPtr> HdfsFileReader::create(
+        Path full_path, std::shared_ptr<HdfsHandler> fs_handler, const std::string& user,
+        const std::string& bee_user, const std::string& bee_source,
+        const hdfsAuditContext* audit_context, const std::string& fs_name,
+        const FileReaderOptions& opts, RuntimeProfile* profile) {
     auto path = convert_path(full_path, fs_name);
-    return get_file(std::move(fs_handler), user, bee_user, bee_source, audit_context,
-                    path, opts.mtime,
-                    opts.file_size)
+    return get_file(std::move(fs_handler), user, bee_user, bee_source, audit_context, path,
+                    opts.mtime, opts.file_size)
             .transform([&](auto&& accessor) {
-        return std::make_shared<HdfsFileReader>(std::move(path), std::move(fs_name),
-                                                  std::move(accessor), profile);
-    });
+                return std::make_shared<HdfsFileReader>(std::move(path), std::move(fs_name),
+                                                        std::move(accessor), profile);
+            });
 }
 
 HdfsFileReader::HdfsFileReader(Path path, std::string fs_name, FileHandleCache::Accessor accessor,
@@ -263,8 +256,7 @@ Status HdfsFileReader::do_read_at_impl(size_t offset, Slice result, size_t* byte
 }
 #endif
 
-void HdfsFileReader::_collect_profile_before_close() {
-}
+void HdfsFileReader::_collect_profile_before_close() {}
 #include "common/compile_check_end.h"
 
 } // namespace doris::io
