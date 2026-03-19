@@ -54,6 +54,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return _inner_reader->mtime(); }
+
     // for test only
     const Statistics& statistics() const { return _statistics; }
 

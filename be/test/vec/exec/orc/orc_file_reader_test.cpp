@@ -41,6 +41,8 @@ public:
 
     bool closed() const override { return _closed; }
 
+    int64_t mtime() const override { return 0; }
+
     void set_data(const std::string& data) { _data = data; }
 
 protected:
