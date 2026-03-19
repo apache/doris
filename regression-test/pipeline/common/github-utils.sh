@@ -301,23 +301,21 @@ file_changed_cloud_p0() {
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'cloud'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'conf'* ]] ||
             [[ "${af}" == 'contrib'* ]] ||
+            [[ "${af}" == 'docker/thirdparties'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
-            [[ "${af}" == 'docker'* ]] ||
             [[ "${af}" == 'ui'* ]] ||
             [[ "${af}" == 'webroot'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
             [[ "${af}" == 'env.sh' ]] ||
-            [[ "${af}" == 'run-regression-test.sh' ]] ||
-            [[ "${af}" == 'cloud/CMakeLists.txt' ]] ||
-            [[ "${af}" == 'cloud/src/'* ]] ||
-            [[ "${af}" == 'cloud/cmake/'* ]] ||
-            [[ "${af}" == 'cloud/test/'* ]]; then
+            [[ "${af}" == 'run-regression-test.sh' ]]; then
             echo "cloud-p0 related file changed, return need" && return 0
         fi
     done
@@ -336,14 +334,15 @@ file_changed_regression_p0() {
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'conf'* ]] ||
             [[ "${af}" == 'contrib'* ]] ||
+            [[ "${af}" == 'docker/thirdparties'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
-            [[ "${af}" == 'docker'* ]] ||
             [[ "${af}" == 'ui'* ]] ||
             [[ "${af}" == 'webroot'* ]] ||
             [[ "${af}" == 'build.sh' ]] ||
@@ -367,6 +366,7 @@ file_changed_performance() {
     for af in ${all_files}; do
         if [[ "${af}" == 'be'* ]] ||
             [[ "${af}" == 'bin'* ]] ||
+            [[ "${af}" == 'common/cpp'* ]] ||
             [[ "${af}" == 'conf'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||

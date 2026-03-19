@@ -30,7 +30,7 @@ suite("variant_delete_and_update_doc_value", "p0"){
         )
         UNIQUE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 3
-        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "variant_enable_flatten_nested" = "false");
+        properties("replication_num" = "1", "enable_unique_key_merge_on_write" = "false", "deprecated_variant_enable_flatten_nested" = "false");
     """
     // test mor table
 

@@ -36,7 +36,7 @@
 //                     )
 //                     DUPLICATE KEY(`k`)
 //                     DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-//                     properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true");
+//                     properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "true");
 //                 """
 //             exception "If you want to enable variant flatten nested, please set session variable"
 //         }
@@ -51,7 +51,7 @@
 //                     )
 //                     DUPLICATE KEY(`k`)
 //                     DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-//                     properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true");
+//                     properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "true");
 //                 """
 //         sql """ insert into ${table_name} values (1, '{"nested": [{"a": 1, "c": 1.1}, {"b": "1"}]}'); """ 
 //         
@@ -108,7 +108,7 @@
 //                 )
 //                 DUPLICATE KEY(`k`)
 //                 DISTRIBUTED BY HASH(k) BUCKETS 1 -- 1 bucket make really compaction in conflict case
-//                 properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true");
+//                 properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "true");
 //             """
 //         // insert a array of object for a, b, c first then insert structure conflict in one row
 //         // insert structure conflict in one row
@@ -153,7 +153,7 @@
 // 
 //         // drop table
 //         sql """ drop table ${table_name_1} """
-//         sql """ create table ${table_name_1} (k bigint, v variant) duplicate key(k) distributed by hash(k) buckets 1 properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "true") """
+//         sql """ create table ${table_name_1} (k bigint, v variant) duplicate key(k) distributed by hash(k) buckets 1 properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "true") """
 //         // insert scalar data first then insert structure conflict in one row
 //         sql """
 //             insert into ${table_name_1} values (1, '{"nested": {"a": 2.5, "b": "123.1"}}');

@@ -303,7 +303,7 @@ public:
         auto column_string = assert_cast<ColumnString*>(column.get());
         auto res = fill_string_column_with_test_data(column_string, size, inserted_jsonstr);
         ParseConfig config;
-        config.enable_flatten_nested = false;
+        config.deprecated_enable_flatten_nested = false;
         variant_util::parse_json_to_variant(*column_object, *column_string, config);
         return res;
     }
@@ -356,7 +356,7 @@ public:
         assert(column_string->size() == size);
         ParseConfig config;
         // do not treat array with jsonb field
-        config.enable_flatten_nested = has_nested;
+        config.deprecated_enable_flatten_nested = has_nested;
         variant_util::parse_json_to_variant(*variant_column, *column_string, config);
     }
 
@@ -367,7 +367,7 @@ public:
         auto column_string = assert_cast<ColumnString*>(column.get());
         auto res = fill_string_column_with_nested_test_data(column_string, size, inserted_jsonstr);
         ParseConfig config;
-        config.enable_flatten_nested = false;
+        config.deprecated_enable_flatten_nested = false;
         variant_util::parse_json_to_variant(*column_object, *column_string, config);
         return res;
     }

@@ -1543,9 +1543,8 @@ Status SchemaChangeJob::_init_column_mapping(ColumnMapping* column_mapping,
     }
 
     if (!column_schema.is_nullable() || value.length() != 0) {
-        DataTypeSerDe::FormatOptions options;
-        RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_olap_string(
-                value, column_mapping->default_value, options));
+        RETURN_IF_ERROR(column_schema.get_vec_type()->get_serde()->from_fe_string(
+                value, column_mapping->default_value));
     }
 
     return Status::OK();

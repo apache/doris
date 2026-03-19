@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -75,34 +74,6 @@ public class StructLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(getStringValue(v)));
         return "{" + StringUtils.join(list, ", ") + "}";
-    }
-
-    @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        ++options.level;
-        // same with be default field index start with 1
-        for (int i = 0; i < children.size(); i++) {
-            Expr child = children.get(i);
-            list.add(options.getNestedStringWrapper()
-                    + ((StructType) type).getFields().get(i).getName()
-                    + options.getNestedStringWrapper()
-                    + options.getMapKeyDelim()
-                    + child.getStringValueInComplexTypeForQuery(options));
-        }
-        --options.level;
-        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
-    }
-
-    @Override
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        // same with be default field index start with 1
-        for (int i = 0; i < children.size(); i++) {
-            Expr child = children.get(i);
-            list.add(child.getStringValueInComplexTypeForQuery(options));
-        }
-        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override

@@ -99,6 +99,8 @@ public:
         auto rowset = create_rowset(Version {version, version}, visible_timestamp);
         if (warmed_up) {
             tablet->add_warmed_up_rowset(rowset->rowset_id());
+        } else {
+            tablet->add_not_warmed_up_rowset(rowset->rowset_id());
         }
         std::unique_lock wlock {tablet->get_header_lock()};
         tablet->add_rowsets({rowset}, false, wlock, false);
@@ -111,7 +113,44 @@ public:
         auto output_rowset = create_rowset(Version {start_version, end_version}, visible_timestamp);
         if (warmed_up) {
             tablet->add_warmed_up_rowset(output_rowset->rowset_id());
+        } else {
+            tablet->add_not_warmed_up_rowset(output_rowset->rowset_id());
         }
+        std::ranges::copy_if(std::views::values(tablet->rowset_map()),
+                             std::back_inserter(input_rowsets), [=](const RowsetSharedPtr& rowset) {
+                                 return rowset->version().first >= start_version &&
+                                        rowset->version().first <= end_version;
+                             });
+        if (input_rowsets.size() == 1) {
+            tablet->add_rowsets({output_rowset}, true, wrlock);
+        } else {
+            tablet->delete_rowsets(input_rowsets, wrlock);
+            tablet->add_rowsets({output_rowset}, false, wrlock);
+        }
+    }
+
+    // Add a rowset whose warmup state is missing from `_rowset_warm_up_states`.
+    // This simulates the scenario where the upstream BE tried to warm up rowsets on this BE,
+    // but this BE was restarting so the warmup request was lost.
+    void add_new_version_rowset_missing_warmup_state(CloudTabletSPtr tablet, int64_t version,
+                                                     time_point<system_clock> visible_timestamp) {
+        auto rowset = create_rowset(Version {version, version}, visible_timestamp);
+        // Intentionally do NOT add any warmup state entry for this rowset
+        std::unique_lock wlock {tablet->get_header_lock()};
+        tablet->add_rowsets({rowset}, false, wlock, false);
+    }
+
+    // Simulate a compaction output rowset whose warmup state is missing from
+    // `_rowset_warm_up_states`. This can happen when a compaction is produced while the BE
+    // is restarting, and the visible_timestamp of compaction output is set earlier than
+    // startup_timepoint, causing it to bypass the startup_timepoint filter.
+    void do_cumu_compaction_missing_warmup_state(CloudTabletSPtr tablet, int64_t start_version,
+                                                 int64_t end_version,
+                                                 time_point<system_clock> visible_timestamp) {
+        std::unique_lock wrlock {tablet->get_header_lock()};
+        std::vector<RowsetSharedPtr> input_rowsets;
+        auto output_rowset = create_rowset(Version {start_version, end_version}, visible_timestamp);
+        // Intentionally do NOT add any warmup state entry for this rowset
         std::ranges::copy_if(std::views::values(tablet->rowset_map()),
                              std::back_inserter(input_rowsets), [=](const RowsetSharedPtr& rowset) {
                                  return rowset->version().first >= start_version &&
@@ -1071,4 +1110,161 @@ TEST_F(TestFreshnessTolerance, testCaptureMow_3_1) {
     std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 17}, {18, 18}};
     check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
 }
+
+// Tests for the behavior change in is_rowset_warmed_up: when a rowset's warmup state
+// is missing from `_rowset_warm_up_states` (e.g. BE was restarting during warmup),
+// is_rowset_warmed_up returns true (optimistically treat it as warmed up).
+// This prevents the version path from being blocked by missing warmup entries,
+// which could cause persistent fallback to remote storage reads.
+
+TEST_F(TestFreshnessTolerance, testCapture_missing_warmup_state_1) {
+    /*
+     Scenario: Compaction output rowset has visible_timestamp earlier than startup_timepoint
+     but its warmup state is missing from the map (BE restarted during warmup).
+     The rowset should be treated as warmed up so it's included in the version path.
+
+                                        now-10s                    now
+                                           │          10s           │
+                                           ◄────────────────────────┼
+                                           │                        │
+    ┌────────┐  ┌──────────┐              │              ┌────────┐│
+    │in cache│  │ missing  │              │              │        ││
+    │        │  │ warmup   │              │              │        ││
+    │ [2-10] │  │  state   │              │              │[18-18] ││
+    └────────┘  │ [11-17]  │              │              └────────┘│
+                └──────────┘              │                        │
+     now-40s    now-35s                   │               now-3s   │
+                  (before startup)        │                        │
+
+    startup_timepoint: now-30s
+    [11-17]: visible_ts=now-35s, which is BEFORE startup_timepoint
+             → startup_timepoint check passes, treats it as warmed up
+    [18-18]: visible_ts=now-3s, which is AFTER startup_timepoint
+             → not in warmup map → is_rowset_warmed_up returns true (optimistically)
+    return: [2-10],[11-17],[18-18]
+    */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(30));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset_missing_warmup_state(tablet, 18, system_clock::now() - seconds(3));
+    // Compaction output has visible_ts before startup_timepoint, no warmup state entry
+    do_cumu_compaction_missing_warmup_state(tablet, 11, 17, system_clock::now() - seconds(35));
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    // [11-17] passes startup_timepoint check (visible_ts < startup_timepoint → assumed warmed up)
+    // [18-18] is optimistically treated as warmed up (missing from warmup map → returns true)
+    // So the full path is captured, and then fallback check:
+    // - 18 start_version(18) > path_max_version? No, path includes it.
+    // - No fallback needed since path_max_version = 18
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCapture_missing_warmup_state_2) {
+    /*
+     Scenario: Regular rowsets after startup have warmup state missing from the map.
+     When visible_timestamp > startup_timepoint, these rowsets reach is_rowset_warmed_up
+     which returns true for missing entries.
+
+                                   now-10s                     now
+
+                                    │           10s             │
+                                    ◄───────────────────────────┤
+    ┌────────┐  ┌─────────┐  ┌─────────┐│  ┌────────┐   ┌───────┐   │
+    │in cache│  │ in cache│  │in cache ││  │missing │   │missing│   │
+    │        │  │         │  │         ││  │warmup  │   │warmup │   │
+    │ [2-10] │  │ [11-15] │  │ [16-16] ││  │state   │   │state  │   │
+    └────────┘  └─────────┘  └─────────┘│  │[17-17] │   │[18-18]│   │
+                                    │  └────────┘   └───────┘   │
+     now-40s      now-20s      now-15s  │   now-7s        now-3s    │
+                                    │                           │
+     return: [2-10],[11-15],[16-16],[17-17],[18-18]
+     note: rowsets 17 and 18 have no warmup state entry at all (BE was restarting when
+           upstream tried to warm them up). They are optimistically treated as warmed up.
+           Since all rowsets are now in the path, path_max_version=18, no fallback.
+    */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset_missing_warmup_state(tablet, 17, system_clock::now() - seconds(7));
+    add_new_version_rowset_missing_warmup_state(tablet, 18, system_clock::now() - seconds(3));
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    // Missing warmup state → optimistically warmed up → included in path
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCapture_missing_warmup_state_3) {
+    /*
+     Scenario: Compaction output rowset has visible_timestamp AFTER startup_timepoint,
+     and its warmup state is missing from the map. The stale rowsets that form the version
+     path before compaction are all warmed up.
+
+     With the old behavior (missing → false), the compaction output [11-17] would be excluded,
+     and the algorithm would use stale rowsets [11-15], [16-16] instead, but [17-17] (stale,
+     also missing) would also be excluded → path_max_version would be stuck at 16.
+
+     With the new behavior (missing → true), [11-17] is included → path_max_version = 18.
+
+                                        now-10s                    now
+                                           │          10s           │
+                                           ◄────────────────────────┼
+                                           │                        │
+    ┌────────┐                             │┌────────┐    ┌───────┐ │
+    │in cache│                             ││missing │    │       │ │
+    │        │                             ││warmup  │    │       │ │
+    │ [2-10] │                             ││state   │    │[18-18]│ │
+    └────────┘                             ││[11-17] │    └───────┘ │
+                                           │└────────┘              │
+     now-40s                               │ now-1s         now-3s  │
+
+    return: [2-10],[11-17],[18-18]
+    note: [11-17] missing from warmup map → treated as warmed up → included in path
+    */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset(tablet, 17, true, system_clock::now() - seconds(7));
+    add_new_version_rowset(tablet, 18, true, system_clock::now() - seconds(3));
+    // Compaction output missing warmup state (BE restarted after compaction was initiated)
+    do_cumu_compaction_missing_warmup_state(tablet, 11, 17, system_clock::now() - seconds(1));
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    // [11-17] missing → treated as warmed up → algorithm picks it over stale rowsets
+    // The version path includes all versions, path_max_version = 18, no fallback
+    std::vector<Version> expected_versions = {{0, 1}, {2, 10}, {11, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
+TEST_F(TestFreshnessTolerance, testCaptureMow_missing_warmup_state_1) {
+    /*
+     Same as testCapture_missing_warmup_state_2 but for MOW table.
+     Rowsets 17 and 18 have warmup state missing from the map.
+     They should be treated as warmed up.
+
+     return: [2-10],[11-15],[16-16],[17-17],[18-18]
+    */
+    _engine.set_startup_timepoint(system_clock::now() - seconds(200));
+    auto tablet = create_tablet_with_initial_rowsets(15, true);
+    do_cumu_compaction(tablet, 2, 10, true, system_clock::now() - seconds(40));
+    do_cumu_compaction(tablet, 11, 15, true, system_clock::now() - seconds(20));
+    add_new_version_rowset(tablet, 16, true, system_clock::now() - seconds(15));
+    add_new_version_rowset_missing_warmup_state(tablet, 17, system_clock::now() - seconds(7));
+    add_new_version_rowset_missing_warmup_state(tablet, 18, system_clock::now() - seconds(3));
+
+    int64_t query_freshness_tolerance_ms = 10000; // 10s
+    std::vector<Version> expected_versions = {{0, 1},   {2, 10},  {11, 15},
+                                              {16, 16}, {17, 17}, {18, 18}};
+    check_capture_result(tablet, Version {0, 18}, query_freshness_tolerance_ms, expected_versions);
+}
+
 } // namespace doris

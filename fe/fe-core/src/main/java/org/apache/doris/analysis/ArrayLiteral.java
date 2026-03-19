@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -73,17 +72,6 @@ public class ArrayLiteral extends LiteralExpr {
         List<String> list = new ArrayList<>(children.size());
         children.forEach(v -> list.add(v.getStringValue()));
         return "[" + StringUtils.join(list, ", ") + "]";
-    }
-
-    @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        ++options.level;
-        children.forEach(v -> {
-            list.add(v.getStringValueInComplexTypeForQuery(options));
-        });
-        --options.level;
-        return "[" + StringUtils.join(list, options.getCollectionDelim()) + "]";
     }
 
     @Override

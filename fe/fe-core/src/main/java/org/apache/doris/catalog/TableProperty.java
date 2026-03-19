@@ -327,9 +327,20 @@ public class TableProperty implements GsonPostProcessable {
     }
 
     public TableProperty buildVariantEnableFlattenNested() {
+        migrateDeprecatedVariantEnableFlattenNestedProperty();
         variantEnableFlattenNested = Boolean.parseBoolean(
                 properties.getOrDefault(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "false"));
         return this;
+    }
+
+    private void migrateDeprecatedVariantEnableFlattenNestedProperty() {
+        if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)
+                && properties.containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED)) {
+            properties.put(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
+                    properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+            return;
+        }
+        properties.remove(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED);
     }
 
     public boolean variantEnableFlattenNested() {
