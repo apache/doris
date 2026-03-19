@@ -152,7 +152,7 @@ public:
                               Slice(small_long_string1)};
             writer->add_values(&slices, 3);
             if (pass_all) {
-                writer->invalid_page_zone_map();
+                writer->reset_page_zone_map();
             }
             ASSERT_TRUE(writer->flush().ok());
         }
@@ -166,7 +166,7 @@ public:
                               Slice(small_long_string1)};
             writer->add_values(&slices, 3);
             if (pass_all) {
-                writer->invalid_page_zone_map();
+                writer->reset_page_zone_map();
             }
             ASSERT_TRUE(writer->flush().ok());
         }
@@ -263,7 +263,7 @@ public:
         Slice slices[] = {Slice(s_less_than_schema_length1), Slice(s_less_than_schema_length2)};
         writer->add_values(&slices, 2);
         if (pass_all) {
-            writer->invalid_page_zone_map();
+            writer->reset_page_zone_map();
         }
         ASSERT_TRUE(writer->flush().ok());
 
@@ -357,7 +357,7 @@ public:
             decimal12_t values[] = {decimal1, decimal2, decimal3};
             writer->add_values(&values, 3);
             if (pass_all) {
-                writer->invalid_page_zone_map();
+                writer->reset_page_zone_map();
             }
             ASSERT_TRUE(writer->flush().ok());
         }
@@ -444,7 +444,7 @@ public:
         {
             writer->add_values(&values, 3);
             if (pass_all) {
-                writer->invalid_page_zone_map();
+                writer->reset_page_zone_map();
             }
             ASSERT_TRUE(writer->flush().ok());
         }
@@ -527,7 +527,7 @@ public:
         {
             writer->add_values(&values, 3);
             if (pass_all) {
-                writer->invalid_page_zone_map();
+                writer->reset_page_zone_map();
             }
             ASSERT_TRUE(writer->flush().ok());
         }

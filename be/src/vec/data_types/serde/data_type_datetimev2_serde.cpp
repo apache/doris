@@ -513,8 +513,19 @@ void DataTypeDateTimeV2SerDe::write_one_cell_to_binary(const IColumn& src_column
            data_ref.size);
 }
 
-std::string DataTypeDateTimeV2SerDe::to_olap_string(const vectorized::Field& field) const {
-    return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>());
+// Serializes a DateTimeV2 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Always passes scale=6 to CastToString::from_datetimev2 because historically the Field
+// type for DateTimeV2 always stores values with 6-digit (microsecond) precision.
+// With scale=6, the fractional part is ALWAYS written, even when microsecond=0.
+//
+// Output format: "YYYY-MM-DD HH:MM:SS.ffffff"
+// Examples:
+//   value with microsecond=0       => "2023-10-15 14:30:00.000000"
+//   value with microsecond=123000  => "2023-10-15 14:30:00.123000"
+std::string DataTypeDateTimeV2SerDe::to_olap_string(const Field& field) const {
+    return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>(), 6);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)
