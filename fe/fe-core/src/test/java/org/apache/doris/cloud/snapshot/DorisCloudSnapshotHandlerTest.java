@@ -160,16 +160,20 @@ public class DorisCloudSnapshotHandlerTest {
             minTimes = 0;
         }};
 
-        // First submit should succeed (async, returns immediately)
+        // First submit should succeed (sets sentinel via CAS)
         handler.submitJob(3600, "test_label");
 
-        // Give it a moment to start processing
-        Thread.sleep(200);
+        // Second submit immediately — sentinel is already set (synchronous CAS),
+        // so this must be rejected with DdlException.
+        DdlException ex = Assertions.assertThrows(DdlException.class,
+                () -> handler.submitJob(3600, "test_label_2"),
+                "Second submit should be rejected while first is in progress");
+        Assertions.assertTrue(ex.getMessage().contains("already")
+                        || ex.getMessage().contains("progress"),
+                "Rejection message should indicate in-progress snapshot: " + ex.getMessage());
 
-        // If a snapshot is in progress, second submit should be rejected
-        // (Note: the actual rejection depends on timing; the workflow may have
-        // already failed due to mock limitations and cleared currentSnapshot.
-        // This test primarily verifies no exception on first submit.)
+        // Wait for async workflow to finish
+        Thread.sleep(500);
     }
 
     @Test

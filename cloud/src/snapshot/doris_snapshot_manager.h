@@ -25,7 +25,7 @@ namespace doris::cloud {
 /// on top of the SnapshotManager base class.
 ///
 /// Key design decisions:
-///   - Holds its own `txn_kv_` reference because the base class member is private.
+///   - Uses the base class `txn_kv_` (protected).
 ///   - Uses `versioned_put` (FDB atomic versionstamp) to create new snapshot keys.
 ///   - All reads/writes go through single FDB transactions for atomicity.
 class DorisSnapshotManager : public SnapshotManager {
@@ -97,7 +97,8 @@ private:
     static void snapshot_pb_to_info(const SnapshotPB& pb, const Versionstamp& vs,
                                     SnapshotInfoPB* info);
 
-    std::shared_ptr<TxnKv> txn_kv_;
+    /// Abort an orphan PREPARE snapshot left by a failed txn2 in begin_snapshot.
+    void abort_orphan_snapshot(std::string_view instance_id, const Versionstamp& vs);
 };
 
 } // namespace doris::cloud

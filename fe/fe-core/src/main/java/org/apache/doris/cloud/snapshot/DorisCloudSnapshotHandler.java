@@ -115,14 +115,17 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
      */
     @Override
     public void submitJob(long ttl, String label) throws Exception {
-        SnapshotState existing = currentSnapshot.get();
-        if (existing != null) {
-            throw new DdlException("Another snapshot is already in progress: " + existing.getSnapshotId());
+        SnapshotState sentinel = new SnapshotState("pending_" + label, "");
+        if (!currentSnapshot.compareAndSet(null, sentinel)) {
+            SnapshotState existing = currentSnapshot.get();
+            throw new DdlException(
+                    "Another snapshot is already in progress: "
+                            + (existing != null ? existing.getSnapshotId() : "unknown"));
         }
 
         snapshotExecutor.submit(() -> {
             try {
-                executeSnapshotWorkflow(ttl, label);
+                executeWorkflow(ttl, label, false);
             } catch (Exception e) {
                 LOG.error("Snapshot workflow failed for label={}", label, e);
             }
@@ -137,37 +140,45 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
     /**
      * Executes the complete snapshot workflow:
      * <pre>
-     * Step 1: beginSnapshot RPC         → get snapshot_id, image_url, obj_info
-     * Step 2: Create FE image (checkpoint) → get local image file + journal_id
+     * Step 1: beginSnapshot RPC         -> get snapshot_id, image_url, obj_info
+     * Step 2: Create FE image (checkpoint) -> get local image file + journal_id
      * Step 3: Update snapshot with upload info (updateSnapshot RPC)
      * Step 4: Multipart-upload image to object storage
-     * Step 5: commitSnapshot RPC          → finalize
+     * Step 5: commitSnapshot RPC          -> finalize
      * </pre>
      * Any failure triggers an abortSnapshot RPC.
+     *
+     * @param isAuto true for auto-snapshot, false for manual
      */
-    private void executeSnapshotWorkflow(long ttl, String label) {
+    private void executeWorkflow(long ttl, String label, boolean isAuto) {
         String snapshotId = null;
         try {
             // ---- Step 1: Begin Snapshot ----
             Cloud.BeginSnapshotRequest beginReq = Cloud.BeginSnapshotRequest.newBuilder()
                     .setCloudUniqueId(Config.cloud_unique_id)
                     .setSnapshotLabel(label)
-                    .setAutoSnapshot(false)
+                    .setAutoSnapshot(isAuto)
                     .setTimeoutSeconds(Config.cloud_snapshot_timeout_seconds)
                     .setTtlSeconds(ttl)
                     .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                     .build();
-            Cloud.BeginSnapshotResponse beginResp = MetaServiceProxy.getInstance().beginSnapshot(beginReq);
+            Cloud.BeginSnapshotResponse beginResp =
+                    MetaServiceProxy.getInstance().beginSnapshot(beginReq);
             if (beginResp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
                 LOG.warn("beginSnapshot failed: {}", beginResp.getStatus().getMsg());
-                throw new DdlException("beginSnapshot failed: " + beginResp.getStatus().getMsg());
+                if (isAuto) {
+                    return;
+                }
+                throw new DdlException(
+                        "beginSnapshot failed: " + beginResp.getStatus().getMsg());
             }
             snapshotId = beginResp.getSnapshotId();
             String imageUrl = beginResp.getImageUrl();
             Cloud.ObjectStoreInfoPB objInfo = beginResp.getObjInfo();
 
             currentSnapshot.set(new SnapshotState(snapshotId, imageUrl));
-            LOG.info("beginSnapshot ok, snapshot_id={}, image_url={}", snapshotId, imageUrl);
+            LOG.info("{}beginSnapshot ok, snapshot_id={}, image_url={}",
+                    isAuto ? "Auto " : "", snapshotId, imageUrl);
 
             // ---- Step 2: Create FE Image (Checkpoint) ----
             Pair<File, Long> imagePair = createFEImage();
@@ -178,12 +189,10 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
                     imageFile.getAbsolutePath(), journalId, imageSize);
 
             // ---- Step 3: Upload image via multipart upload ----
-            // Build object key: obj_info.prefix + image_url + image file name
             String objectKey = buildObjectKey(objInfo, imageUrl, imageFile.getName());
             RemoteBase.ObjectInfo remoteObjInfo = new RemoteBase.ObjectInfo(objInfo);
             RemoteBase remote = RemoteBase.newInstance(remoteObjInfo);
             try {
-                // The function callback registers the upload_id with MetaService
                 final String snapshotIdFinal = snapshotId;
                 remote.multipartUploadObject(imageFile, objectKey, (uploadId) -> {
                     try {
@@ -207,19 +216,25 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
                     .setLastJournalId(journalId)
                     .setRequestIp(FrontendOptions.getLocalHostAddressCached())
                     .setSnapshotMetaImageSize(imageSize)
-                    .setSnapshotLogicalDataSize(0)  // data size tracked by MetaService
+                    .setSnapshotLogicalDataSize(0)
                     .build();
-            Cloud.CommitSnapshotResponse commitResp = MetaServiceProxy.getInstance().commitSnapshot(commitReq);
+            Cloud.CommitSnapshotResponse commitResp =
+                    MetaServiceProxy.getInstance().commitSnapshot(commitReq);
             if (commitResp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                throw new DdlException("commitSnapshot failed: " + commitResp.getStatus().getMsg());
+                throw new DdlException(
+                        (isAuto ? "Auto " : "")
+                                + "commitSnapshot failed: "
+                                + commitResp.getStatus().getMsg());
             }
 
-            LOG.info("Snapshot committed successfully, snapshot_id={}, label={}, journal_id={}",
-                    snapshotId, label, journalId);
+            LOG.info("{}Snapshot committed, snapshot_id={}, label={}, journal_id={}",
+                    isAuto ? "Auto " : "", snapshotId, label, journalId);
         } catch (Exception e) {
-            LOG.error("Snapshot workflow error, attempting abort. label={}", label, e);
+            LOG.error("{}Snapshot workflow error, attempting abort. label={}",
+                    isAuto ? "Auto " : "", label, e);
             if (snapshotId != null) {
-                abortSnapshot(snapshotId, "Workflow failed: " + e.getMessage());
+                abortSnapshot(snapshotId,
+                        (isAuto ? "Auto w" : "W") + "orkflow failed: " + e.getMessage());
             }
         } finally {
             currentSnapshot.set(null);
@@ -257,11 +272,14 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
      * Build the full object key for uploading image.
      * The key combines the obj_info prefix, the image_url, and the file name.
      */
-    private String buildObjectKey(Cloud.ObjectStoreInfoPB objInfo, String imageUrl, String fileName) {
-        // image_url is already a relative path like "snapshot/<snapshot_id>/image/"
-        // We need to append the actual file name
+    private String buildObjectKey(
+            Cloud.ObjectStoreInfoPB objInfo, String imageUrl, String fileName) {
+        String prefix = objInfo.hasPrefix() ? objInfo.getPrefix() : "";
+        if (!prefix.isEmpty() && !prefix.endsWith("/")) {
+            prefix = prefix + "/";
+        }
         String url = imageUrl.endsWith("/") ? imageUrl : imageUrl + "/";
-        return url + fileName;
+        return prefix + url + fileName;
     }
 
     /**
@@ -382,7 +400,7 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
                 // 7. Recycle old snapshots if exceeding max_reserved
                 long maxReserved = instanceInfo.hasMaxReservedSnapshot()
                         ? instanceInfo.getMaxReservedSnapshot()
-                        : Config.cloud_auto_snapshot_max_reversed_num;
+                        : Config.cloud_auto_snapshot_max_reserved_num;
                 if (maxReserved > 0 && normalSnapshots.size() >= maxReserved) {
                     normalSnapshots.sort(Comparator.comparingLong(Cloud.SnapshotInfoPB::getCreateAt));
                     int toRecycle = (int) (normalSnapshots.size() - maxReserved + 1);
@@ -415,96 +433,22 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
      * Submit an auto-snapshot job. Similar to submitJob but marks auto_snapshot=true.
      */
     private void submitAutoJob(long ttl, String label) throws Exception {
-        SnapshotState existing = currentSnapshot.get();
-        if (existing != null) {
-            LOG.info("Skipping auto-snapshot, another snapshot in progress: {}", existing.getSnapshotId());
+        SnapshotState sentinel = new SnapshotState("pending_auto_" + label, "");
+        if (!currentSnapshot.compareAndSet(null, sentinel)) {
+            LOG.info("Skipping auto-snapshot, another snapshot in progress: {}",
+                    currentSnapshot.get() != null
+                            ? currentSnapshot.get().getSnapshotId() : "unknown");
             return;
         }
 
         snapshotExecutor.submit(() -> {
             try {
-                executeAutoSnapshotWorkflow(ttl, label);
+                executeWorkflow(ttl, label, true);
             } catch (Exception e) {
                 LOG.error("Auto snapshot workflow failed, label={}", label, e);
             }
         });
         LOG.info("Auto snapshot job submitted, label={}, ttl={}s", label, ttl);
-    }
-
-    /**
-     * Executes the auto-snapshot workflow (same as manual but with auto_snapshot=true).
-     */
-    private void executeAutoSnapshotWorkflow(long ttl, String label) {
-        String snapshotId = null;
-        try {
-            // ---- Step 1: Begin Snapshot (auto=true) ----
-            Cloud.BeginSnapshotRequest beginReq = Cloud.BeginSnapshotRequest.newBuilder()
-                    .setCloudUniqueId(Config.cloud_unique_id)
-                    .setSnapshotLabel(label)
-                    .setAutoSnapshot(true)
-                    .setTimeoutSeconds(Config.cloud_snapshot_timeout_seconds)
-                    .setTtlSeconds(ttl)
-                    .setRequestIp(FrontendOptions.getLocalHostAddressCached())
-                    .build();
-            Cloud.BeginSnapshotResponse beginResp = MetaServiceProxy.getInstance().beginSnapshot(beginReq);
-            if (beginResp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                LOG.warn("Auto beginSnapshot failed: {}", beginResp.getStatus().getMsg());
-                return;
-            }
-            snapshotId = beginResp.getSnapshotId();
-            String imageUrl = beginResp.getImageUrl();
-            Cloud.ObjectStoreInfoPB objInfo = beginResp.getObjInfo();
-
-            currentSnapshot.set(new SnapshotState(snapshotId, imageUrl));
-            LOG.info("Auto beginSnapshot ok, snapshot_id={}, image_url={}", snapshotId, imageUrl);
-
-            // ---- Step 2: Get latest FE Image ----
-            Pair<File, Long> imagePair = createFEImage();
-            File imageFile = imagePair.first;
-            long journalId = imagePair.second;
-            long imageSize = imageFile.length();
-
-            // ---- Step 3: Upload image ----
-            String objectKey = buildObjectKey(objInfo, imageUrl, imageFile.getName());
-            RemoteBase.ObjectInfo remoteObjInfo = new RemoteBase.ObjectInfo(objInfo);
-            RemoteBase remote = RemoteBase.newInstance(remoteObjInfo);
-            try {
-                final String sid = snapshotId;
-                remote.multipartUploadObject(imageFile, objectKey, (uploadId) -> {
-                    try {
-                        updateSnapshotUpload(sid, objectKey, uploadId);
-                        return Pair.of(true, "");
-                    } catch (Exception e) {
-                        return Pair.of(false, e.getMessage());
-                    }
-                });
-            } finally {
-                remote.close();
-            }
-
-            // ---- Step 4: Commit ----
-            Cloud.CommitSnapshotRequest commitReq = Cloud.CommitSnapshotRequest.newBuilder()
-                    .setCloudUniqueId(Config.cloud_unique_id)
-                    .setSnapshotId(snapshotId)
-                    .setImageUrl(imageUrl)
-                    .setLastJournalId(journalId)
-                    .setRequestIp(FrontendOptions.getLocalHostAddressCached())
-                    .setSnapshotMetaImageSize(imageSize)
-                    .setSnapshotLogicalDataSize(0)
-                    .build();
-            Cloud.CommitSnapshotResponse commitResp = MetaServiceProxy.getInstance().commitSnapshot(commitReq);
-            if (commitResp.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
-                throw new DdlException("Auto commitSnapshot failed: " + commitResp.getStatus().getMsg());
-            }
-            LOG.info("Auto snapshot committed, snapshot_id={}, label={}", snapshotId, label);
-        } catch (Exception e) {
-            LOG.error("Auto snapshot workflow error, label={}", label, e);
-            if (snapshotId != null) {
-                abortSnapshot(snapshotId, "Auto workflow failed: " + e.getMessage());
-            }
-        } finally {
-            currentSnapshot.set(null);
-        }
     }
 
     // ============================================================================

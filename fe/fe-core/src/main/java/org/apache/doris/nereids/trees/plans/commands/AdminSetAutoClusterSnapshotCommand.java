@@ -117,9 +117,9 @@ public class AdminSetAutoClusterSnapshotCommand extends Command implements Forwa
                 if (entry.getKey().equalsIgnoreCase(PROP_MAX_RESERVED_SNAPSHOTS)) {
                     maxReservedSnapshots = Long.valueOf(entry.getValue());
                     if (maxReservedSnapshots < 0
-                            || maxReservedSnapshots > Config.cloud_auto_snapshot_max_reversed_num) {
+                            || maxReservedSnapshots > Config.cloud_auto_snapshot_max_reserved_num) {
                         throw new AnalysisException("property: " + entry.getKey() + " value should in [0-"
-                                + Config.cloud_auto_snapshot_max_reversed_num + "]");
+                                + Config.cloud_auto_snapshot_max_reserved_num + "]");
                     }
                 } else if (entry.getKey().equalsIgnoreCase(PROP_SNAPSHOT_INTERVAL_SECONDS)) {
                     snapshotIntervalSeconds = Long.valueOf(entry.getValue());

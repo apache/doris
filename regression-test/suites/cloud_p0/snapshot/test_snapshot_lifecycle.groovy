@@ -38,16 +38,21 @@ suite("test_snapshot_lifecycle") {
     def waitForSnapshotState = { String label, String targetState, int maxWaitSec ->
         def deadline = System.currentTimeMillis() + maxWaitSec * 1000L
         while (System.currentTimeMillis() < deadline) {
-            def rows = sql """
-                SELECT * FROM information_schema.cluster_snapshots
+            def stateRows = sql """
+                SELECT STATUS FROM information_schema.cluster_snapshots
                 WHERE LABEL = '${label}'
                 ORDER BY CREATE_AT DESC LIMIT 1
             """
-            if (rows != null && !rows.isEmpty()) {
-                def state = rows[0][6].toString()
+            if (stateRows != null && !stateRows.isEmpty()) {
+                def state = stateRows[0][0].toString()
                 logger.info("Snapshot label=${label} current state=${state}")
                 if (state == targetState) {
-                    return rows[0]
+                    def fullRows = sql """
+                        SELECT * FROM information_schema.cluster_snapshots
+                        WHERE LABEL = '${label}'
+                        ORDER BY CREATE_AT DESC LIMIT 1
+                    """
+                    return fullRows[0]
                 }
             }
             Thread.sleep(5000)
@@ -183,12 +188,16 @@ suite("test_snapshot_lifecycle") {
         def snapshot1 = waitForSnapshotState(label1, "SNAPSHOT_NORMAL", 180)
         if (snapshot1 == null) {
             // Check if it is at least in PREPARE state
-            def rows = sql """
-                SELECT * FROM information_schema.cluster_snapshots WHERE LABEL = '${label1}'
+            def stateRows = sql """
+                SELECT STATUS FROM information_schema.cluster_snapshots WHERE LABEL = '${label1}'
             """
-            if (rows != null && !rows.isEmpty()) {
-                logger.info("Snapshot ${label1} exists in state: ${rows[0][6]}")
-                snapshot1 = rows[0]
+            if (stateRows != null && !stateRows.isEmpty()) {
+                logger.info("Snapshot ${label1} exists in state: ${stateRows[0][0]}")
+                // Re-fetch full row for downstream field access
+                def fullRows = sql """
+                    SELECT * FROM information_schema.cluster_snapshots WHERE LABEL = '${label1}'
+                """
+                snapshot1 = fullRows[0]
             } else {
                 assertTrue(false, "Snapshot ${label1} not found in information_schema after 180s")
             }
@@ -271,12 +280,12 @@ suite("test_snapshot_lifecycle") {
             // Verify the snapshot is gone
             Thread.sleep(5000)
             def afterDrop = sql """
-                SELECT * FROM information_schema.cluster_snapshots WHERE ID = '${dropId}'
+                SELECT STATUS FROM information_schema.cluster_snapshots WHERE ID = '${dropId}'
             """
             logger.info("After drop, query for ID=${dropId}: count=${afterDrop.size()}")
             // The dropped snapshot should not appear or should be in a non-NORMAL state
             if (afterDrop.size() > 0) {
-                def stateAfterDrop = afterDrop[0][6].toString()
+                def stateAfterDrop = afterDrop[0][0].toString()
                 logger.info("Snapshot ${dropId} state after drop: ${stateAfterDrop}")
                 // After drop, it should not be in NORMAL state
                 assertTrue(stateAfterDrop != "SNAPSHOT_NORMAL",
@@ -350,10 +359,17 @@ suite("test_snapshot_lifecycle") {
             """
             logger.info("Auto snapshots before wait: ${beforeAutoCount[0][0]}")
 
-            // In a full CI environment with the daemon running, an auto
-            // snapshot may appear. We don't hard-assert on this because
-            // the interval is typically 30+ minutes.
-            logger.info("Auto snapshot trigger verification completed (passive check)")
+            // Wait briefly, then verify the count has not decreased.
+            // The auto-snapshot daemon runs on a long timer cycle (default
+            // 30 min), so we only assert the count is non-decreasing.
+            Thread.sleep(10000)
+            def afterAutoCount = sql """
+                SELECT COUNT(*) FROM information_schema.cluster_snapshots WHERE AUTO = true
+            """
+            logger.info("Auto snapshots after wait: ${afterAutoCount[0][0]}")
+            assertTrue(afterAutoCount[0][0] as long >= beforeAutoCount[0][0] as long,
+                "Auto snapshot count should not decrease")
+            logger.info("Auto snapshot trigger verification completed")
         } catch (Exception e) {
             logger.info("Auto snapshot trigger test skipped: ${e.message}")
         }

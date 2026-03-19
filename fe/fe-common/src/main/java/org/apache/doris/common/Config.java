@@ -3855,7 +3855,7 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true)
     public static long cloud_snapshot_timeout_seconds = 600;
     @ConfField(mutable = true)
-    public static long cloud_auto_snapshot_max_reversed_num = 35;
+    public static long cloud_auto_snapshot_max_reserved_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 

@@ -47,6 +47,31 @@ namespace doris::cloud {
 
 extern std::unique_ptr<MetaServiceProxy> get_meta_service(bool mock_resource_mgr);
 
+// Helper: create a test instance via RPC with default ObjectStoreInfoPB.
+static void create_test_instance_via_rpc(MetaServiceProxy* meta_service,
+                                         const std::string& instance_id,
+                                         const std::string& name = "test_name") {
+    brpc::Controller cntl;
+    CreateInstanceRequest req;
+    req.set_instance_id(instance_id);
+    req.set_user_id("test_user");
+    req.set_name(name);
+    ObjectStoreInfoPB obj;
+    obj.set_ak("123");
+    obj.set_sk("321");
+    obj.set_bucket("456");
+    obj.set_prefix("654");
+    obj.set_endpoint("789");
+    obj.set_region("987");
+    obj.set_external_endpoint("888");
+    obj.set_provider(ObjectStoreInfoPB::BOS);
+    req.mutable_obj_info()->CopyFrom(obj);
+    CreateInstanceResponse res;
+    meta_service->create_instance(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+}
+
 TEST(MetaServiceSnapshotTest, BeginSnapshotTest) {
     auto meta_service = get_meta_service(true);
     const char* const cloud_unique_id = "test_cloud_unique_id";
@@ -70,28 +95,7 @@ TEST(MetaServiceSnapshotTest, BeginSnapshotTest) {
     };
 
     // Create test instance first
-    {
-        brpc::Controller cntl;
-        CreateInstanceRequest req;
-        req.set_instance_id("test_instance");
-        req.set_user_id("test_user");
-        req.set_name("test_name");
-        ObjectStoreInfoPB obj;
-        obj.set_ak("123");
-        obj.set_sk("321");
-        obj.set_bucket("456");
-        obj.set_prefix("654");
-        obj.set_endpoint("789");
-        obj.set_region("987");
-        obj.set_external_endpoint("888");
-        obj.set_provider(ObjectStoreInfoPB::BOS);
-        req.mutable_obj_info()->CopyFrom(obj);
-
-        CreateInstanceResponse res;
-        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
-                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    }
+    create_test_instance_via_rpc(meta_service.get(), "test_instance");
 
     // test invalid argument - empty cloud_unique_id
     {
@@ -305,27 +309,7 @@ TEST(MetaServiceSnapshotTest, SnapshotLifecycleTest) {
     };
 
     // Create test instance
-    {
-        brpc::Controller cntl;
-        CreateInstanceRequest req;
-        req.set_instance_id("lifecycle_instance");
-        req.set_user_id("test_user");
-        req.set_name("test_name");
-        ObjectStoreInfoPB obj;
-        obj.set_ak("123");
-        obj.set_sk("321");
-        obj.set_bucket("456");
-        obj.set_prefix("654");
-        obj.set_endpoint("789");
-        obj.set_region("987");
-        obj.set_external_endpoint("888");
-        obj.set_provider(ObjectStoreInfoPB::BOS);
-        req.mutable_obj_info()->CopyFrom(obj);
-        CreateInstanceResponse res;
-        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
-                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    }
+    create_test_instance_via_rpc(meta_service.get(), "lifecycle_instance");
 
     std::string snapshot_id;
 
@@ -448,27 +432,7 @@ TEST(MetaServiceSnapshotTest, AbortSnapshotTest) {
     };
 
     // Create test instance
-    {
-        brpc::Controller cntl;
-        CreateInstanceRequest req;
-        req.set_instance_id("abort_instance");
-        req.set_user_id("test_user");
-        req.set_name("test_name");
-        ObjectStoreInfoPB obj;
-        obj.set_ak("123");
-        obj.set_sk("321");
-        obj.set_bucket("456");
-        obj.set_prefix("654");
-        obj.set_endpoint("789");
-        obj.set_region("987");
-        obj.set_external_endpoint("888");
-        obj.set_provider(ObjectStoreInfoPB::BOS);
-        req.mutable_obj_info()->CopyFrom(obj);
-        CreateInstanceResponse res;
-        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
-                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    }
+    create_test_instance_via_rpc(meta_service.get(), "abort_instance");
 
     std::string snapshot_id;
 
