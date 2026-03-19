@@ -34,6 +34,7 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "cpp/sync_point.h"
+#include "meta-service/meta_service_rate_limit_helper.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -311,6 +312,20 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
     [[maybe_unused]] std::string instance_id;                                                 \
     [[maybe_unused]] bool drop_request = false;                                               \
     [[maybe_unused]] KVStats stats;                                                           \
+    [[maybe_unused]] MsStressDecision ms_stress_decision;                                     \
+    if (config::enable_ms_rate_limit || config::enable_ms_rate_limit_injection) {             \
+        ms_stress_decision = get_ms_stress_decision();                                        \
+    }                                                                                         \
+    if ((config::enable_ms_rate_limit || config::enable_ms_rate_limit_injection) &&           \
+        ms_stress_decision.under_greate_stress()) {                                           \
+        drop_request = true;                                                                  \
+        code = MetaServiceCode::MS_RATE_LIMIT;                                                \
+        msg = ms_stress_decision.debug_string();                                              \
+        response->mutable_status()->set_code(code);                                           \
+        response->mutable_status()->set_msg(msg);                                             \
+        finish_rpc(#func_name, ctrl, request, response);                                      \
+        return;                                                                               \
+    }                                                                                         \
     DORIS_CLOUD_DEFER {                                                                       \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \
