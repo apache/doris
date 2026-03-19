@@ -40,6 +40,7 @@
 #include "storage/options.h"
 #include "storage/tablet/tablet_fwd.h"
 #include "util/threadpool.h"
+#include "util/timer.h"
 
 namespace orc {
 class MemoryPool;
@@ -396,6 +397,8 @@ public:
 
     RuntimeFilterTimerQueue* runtime_filter_timer_queue() { return _runtime_filter_timer_queue; }
 
+    Timer* timer() { return &_timer; }
+
     DictionaryFactory* dict_factory() { return _dict_factory; }
 
     PipelineTracerContext* pipeline_tracer_context() { return _pipeline_tracer_ctx.get(); }
@@ -550,6 +553,7 @@ private:
     DeleteBitmapAggCache* _delete_bitmap_agg_cache {nullptr};
 
     RuntimeFilterTimerQueue* _runtime_filter_timer_queue = nullptr;
+    Timer _timer;
     DictionaryFactory* _dict_factory = nullptr;
 
     WorkloadSchedPolicyMgr* _workload_sched_mgr = nullptr;

@@ -36,7 +36,9 @@
 namespace doris {
 
 class MemTrackerLimiter;
+class MemTableMemoryLimiter;
 class RuntimeProfile;
+class SystemMetrics;
 class ThreadPool;
 class ExecEnv;
 class CgroupCpuCtl;

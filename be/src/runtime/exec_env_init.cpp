@@ -315,6 +315,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
     _pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>(); // before query
+    _timer.start();
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();
@@ -827,6 +828,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
     SAFE_STOP(_runtime_filter_timer_queue);
+    _timer.stop();
     // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
     _load_stream_mgr.reset();
     _new_load_stream_mgr.reset();

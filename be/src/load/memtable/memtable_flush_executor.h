@@ -33,7 +33,9 @@ namespace doris {
 
 class DataDir;
 class MemTable;
+class MemTableMemoryLimiter;
 class RowsetWriter;
+class SystemMetrics;
 class WorkloadGroup;
 
 // the statistic of a certain flush handler.
@@ -163,7 +165,14 @@ public:
 
     ThreadPool* flush_pool() { return _flush_pool.get(); }
 
+    ThreadPool* high_prio_flush_pool() { return _high_prio_flush_pool.get(); }
+
     void update_memtable_flush_threads();
+
+    // Returns {min_threads, max_threads} for a flush thread pool.
+    // thread_num_per_store is used as the baseline when adaptive mode is off.
+    static std::pair<int, int> calc_flush_thread_count(int num_cpus, int num_disk,
+                                                       int thread_num_per_store);
 
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
