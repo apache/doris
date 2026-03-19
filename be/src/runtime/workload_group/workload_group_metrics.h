@@ -34,7 +34,7 @@ using IntCounter = AtomicCounter<int64_t>;
 
 template <typename T>
 class AtomicGauge;
-using IntGuage = AtomicGauge<int64_t>;
+using IntGauge = AtomicGauge<int64_t>;
 
 class MetricEntity;
 struct MetricPrototype;
@@ -65,7 +65,7 @@ public:
 
 private:
     IntCounter* workload_group_cpu_time_sec {nullptr};           // used for metric
-    IntGuage* workload_group_mem_used_bytes {nullptr};           // used for metric
+    IntGauge* workload_group_mem_used_bytes {nullptr};           // used for metric
     IntCounter* workload_group_remote_scan_bytes {nullptr};      // used for metric
     IntCounter* workload_group_total_local_scan_bytes {nullptr}; // used for metric
     std::unordered_multimap<std::string, IntCounter*>
