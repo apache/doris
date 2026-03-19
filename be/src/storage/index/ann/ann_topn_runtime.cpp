@@ -191,12 +191,11 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
     return Status::OK();
 }
 
-Status AnnTopNRuntime::evaluate_vector_ann_search(
-        segment_v2::AnnIndexIterator* ann_index_iterator,
-        roaring::Roaring* roaring, size_t rows_of_segment,
-        IColumn::MutablePtr& result_column,
-        std::unique_ptr<std::vector<uint64_t>>& row_ids,
-        segment_v2::AnnIndexStats& ann_index_stats) {
+Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
+                                                  roaring::Roaring* roaring, size_t rows_of_segment,
+                                                  IColumn::MutablePtr& result_column,
+                                                  std::unique_ptr<std::vector<uint64_t>>& row_ids,
+                                                  segment_v2::AnnIndexStats& ann_index_stats) {
     DCHECK(ann_index_iterator != nullptr);
     DCHECK(_order_by_expr_ctx != nullptr);
     DCHECK(_order_by_expr_ctx->root() != nullptr);

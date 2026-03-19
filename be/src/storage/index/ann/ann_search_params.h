@@ -80,7 +80,7 @@ struct AnnIndexStats {
     RuntimeProfile::Counter result_process_costs_ns; // time cost of processing search results
     RuntimeProfile::Counter engine_convert_ns;       // time cost of engine-side conversions
     RuntimeProfile::Counter
-            engine_prepare_ns; // time cost before engine search (allocations, setup)
+            engine_prepare_ns;         // time cost before engine search (allocations, setup)
     int64_t fall_back_brute_force_cnt; // fallback count when ANN range search is bypassed
 };
 
