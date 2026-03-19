@@ -3530,8 +3530,8 @@ public class Config extends ConfigBase {
             + "Default value is true." })
     public static boolean enable_commit_lock_for_all_tables = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认 false"})
-    public static boolean enable_cloud_txn_lazy_commit = false;
+    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认 true"})
+    public static boolean enable_cloud_txn_lazy_commit = true;
 
     @ConfField(mutable = true, masterOnly = true,
             description = {"存算分离模式下，当 tablet 分布的 be 异常，是否立即映射 tablet 到新的 be 上，默认 false"})
