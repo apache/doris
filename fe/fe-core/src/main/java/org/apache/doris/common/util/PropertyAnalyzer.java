@@ -236,6 +236,11 @@ public class PropertyAnalyzer {
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
 
+    public static final String PROPERTIES_GROUP_COMMIT_MODE = "group_commit_mode";
+    public static final String GROUP_COMMIT_MODE_OFF = "off_mode";
+    public static final String GROUP_COMMIT_MODE_ASYNC = "async_mode";
+    public static final String GROUP_COMMIT_MODE_SYNC = "sync_mode";
+
     public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
             "enable_mow_light_delete";
     public static final boolean PROPERTIES_ENABLE_MOW_LIGHT_DELETE_DEFAULT_VALUE
@@ -1723,11 +1728,11 @@ public class PropertyAnalyzer {
      * 1000
      *
      * @param properties
-     * @param defaultValue
      * @return
      * @throws AnalysisException
      */
-    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitIntervalMs(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitIntervalMs = PROPERTIES_GROUP_COMMIT_INTERVAL_MS_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             String groupIntervalCommitMsStr = properties.get(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
@@ -1736,27 +1741,57 @@ public class PropertyAnalyzer {
             } catch (Exception e) {
                 throw new AnalysisException("parse group_commit_interval_ms format error");
             }
+            if (groupCommitIntervalMs <= 0) {
+                throw new AnalysisException("group_commit_interval_ms must be greater than 0");
+            }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
+            }
         }
 
         return groupCommitIntervalMs;
     }
 
-    public static int analyzeGroupCommitDataBytes(Map<String, String> properties) throws AnalysisException {
+    public static int analyzeGroupCommitDataBytes(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
         int groupCommitDataBytes = PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE;
         if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
             String groupIntervalCommitDataBytesStr = properties.get(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
             try {
                 groupCommitDataBytes = Integer.parseInt(groupIntervalCommitDataBytesStr);
             } catch (Exception e) {
-                throw new AnalysisException("parse group_commit_interval_ms format error");
+                throw new AnalysisException("parse group_commit_data_bytes format error");
+            }
+            if (groupCommitDataBytes <= 0) {
+                throw new AnalysisException("group_commit_data_bytes must be greater than 0");
             }
 
-            properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_DATA_BYTES);
+            }
         }
 
         return groupCommitDataBytes;
+    }
+
+    public static String analyzeGroupCommitMode(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
+        String groupCommitMode = GROUP_COMMIT_MODE_OFF;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_MODE)) {
+            groupCommitMode = properties.get(PROPERTIES_GROUP_COMMIT_MODE);
+            if (!groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_OFF)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_ASYNC)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_SYNC)) {
+                throw new AnalysisException("Invalid group_commit_mode: " + groupCommitMode
+                        + ". Valid values: " + GROUP_COMMIT_MODE_OFF + ", " + GROUP_COMMIT_MODE_ASYNC
+                        + ", " + GROUP_COMMIT_MODE_SYNC);
+            }
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_MODE);
+            }
+        }
+        return groupCommitMode.toLowerCase();
     }
 
     /**
