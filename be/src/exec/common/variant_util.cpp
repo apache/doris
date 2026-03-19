@@ -1846,7 +1846,7 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
     size_t old_num_rows = column_variant.rows();
-    if (config.enable_flatten_nested) {
+    if (config.deprecated_enable_flatten_nested) {
         // here we should check the paths in variant and paths in result,
         // if two paths which same prefix have different structure, we should throw an exception
         std::vector<PathInData> check_paths;
@@ -2155,7 +2155,9 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 
     std::vector<ParseConfig> configs(variant_column_pos.size());
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
-        configs[i].enable_flatten_nested = tablet_schema.variant_flatten_nested();
+        // Deprecated legacy flatten-nested switch. Distinct from variant_enable_nested_group.
+        configs[i].deprecated_enable_flatten_nested =
+                tablet_schema.deprecated_variant_flatten_nested();
         const auto& column = tablet_schema.column(variant_schema_pos[i]);
         if (!column.is_variant_type()) {
             return Status::InternalError("column is not variant type, column name: {}",

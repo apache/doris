@@ -143,7 +143,7 @@ static void fill_varaint_column(auto& variant_column, int size, int uid) {
     auto column_string = assert_cast<ColumnString*>(column.get());
     fill_string_column_with_test_data(column_string, size, uid);
     ParseConfig config;
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     variant_util::parse_json_to_variant(*variant_column, *column_string, config);
 }
 

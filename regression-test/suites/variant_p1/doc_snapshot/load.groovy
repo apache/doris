@@ -76,7 +76,7 @@ suite("predefine_type_multi_index_doc_value", "p1"){
         )
         DUPLICATE KEY(`k`)
         DISTRIBUTED BY HASH(k) BUCKETS 4 
-        properties("replication_num" = "1", "disable_auto_compaction" = "true", "variant_enable_flatten_nested" = "false");
+        properties("replication_num" = "1", "disable_auto_compaction" = "true", "deprecated_variant_enable_flatten_nested" = "false");
     """
 
     // 2015
