@@ -88,7 +88,7 @@ public class PushDownContext {
 
     public PushDownContext withTarget(Expression newTarget) {
         return new PushDownContext(runtimeFilterContextV2,
-                sourceNode, sourceExpression, buildNdvOrRowCount, exprOrder, newTarget);
+                sourceNode, sourceExpression, buildNdvOrRowCount, exprOrder, isNullSafe, newTarget);
     }
 
     public long getBuildNdvOrRowCount() {
