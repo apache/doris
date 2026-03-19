@@ -67,8 +67,8 @@ static void create_test_instance_via_rpc(MetaServiceProxy* meta_service,
     obj.set_provider(ObjectStoreInfoPB::BOS);
     req.mutable_obj_info()->CopyFrom(obj);
     CreateInstanceResponse res;
-    meta_service->create_instance(
-            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+    meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                  &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 }
 
@@ -526,27 +526,7 @@ TEST(MetaServiceSnapshotTest, InvalidSnapshotIdTest) {
     };
 
     // Create test instance
-    {
-        brpc::Controller cntl;
-        CreateInstanceRequest req;
-        req.set_instance_id("invalid_id_instance");
-        req.set_user_id("test_user");
-        req.set_name("test_name");
-        ObjectStoreInfoPB obj;
-        obj.set_ak("123");
-        obj.set_sk("321");
-        obj.set_bucket("456");
-        obj.set_prefix("654");
-        obj.set_endpoint("789");
-        obj.set_region("987");
-        obj.set_external_endpoint("888");
-        obj.set_provider(ObjectStoreInfoPB::BOS);
-        req.mutable_obj_info()->CopyFrom(obj);
-        CreateInstanceResponse res;
-        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
-                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    }
+    create_test_instance_via_rpc(meta_service.get(), "invalid_id_instance");
 
     // Update with invalid snapshot_id
     {
@@ -606,27 +586,7 @@ TEST(MetaServiceSnapshotTest, ListSpecificSnapshotTest) {
     };
 
     // Create test instance
-    {
-        brpc::Controller cntl;
-        CreateInstanceRequest req;
-        req.set_instance_id("list_specific_instance");
-        req.set_user_id("test_user");
-        req.set_name("test_name");
-        ObjectStoreInfoPB obj;
-        obj.set_ak("123");
-        obj.set_sk("321");
-        obj.set_bucket("456");
-        obj.set_prefix("654");
-        obj.set_endpoint("789");
-        obj.set_region("987");
-        obj.set_external_endpoint("888");
-        obj.set_provider(ObjectStoreInfoPB::BOS);
-        req.mutable_obj_info()->CopyFrom(obj);
-        CreateInstanceResponse res;
-        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
-                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    }
+    create_test_instance_via_rpc(meta_service.get(), "list_specific_instance");
 
     std::string snapshot_id;
 
@@ -1191,27 +1151,7 @@ TEST(MetaServiceSnapshotTest, CloneInstanceReadOnly) {
     };
 
     // Create source instance
-    {
-        brpc::Controller cntl;
-        CreateInstanceRequest req;
-        req.set_instance_id("clone_ro_source");
-        req.set_user_id("test_user");
-        req.set_name("source_name");
-        ObjectStoreInfoPB obj;
-        obj.set_ak("123");
-        obj.set_sk("321");
-        obj.set_bucket("456");
-        obj.set_prefix("654");
-        obj.set_endpoint("789");
-        obj.set_region("987");
-        obj.set_external_endpoint("888");
-        obj.set_provider(ObjectStoreInfoPB::BOS);
-        req.mutable_obj_info()->CopyFrom(obj);
-        CreateInstanceResponse res;
-        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
-                                      &req, &res, nullptr);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
-    }
+    create_test_instance_via_rpc(meta_service.get(), "clone_ro_source", "source_name");
 
     // Begin + commit a snapshot on source
     std::string snapshot_id;

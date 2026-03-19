@@ -26,10 +26,10 @@
 
 #include "common/config.h"
 #include "common/util.h"
+#include "meta-store/codec.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv.h"
 #include "meta-store/txn_kv_error.h"
-#include "meta-store/codec.h"
 #include "meta-store/versioned_value.h"
 #include "recycler/checker.h"
 #include "recycler/meta_checker.h"
@@ -155,8 +155,8 @@ void DorisSnapshotManager::snapshot_pb_to_info(const SnapshotPB& pb, const Versi
 
 /// Abort an orphan PREPARE snapshot created during begin_snapshot
 /// when the second transaction (image_url update) fails.
-void DorisSnapshotManager::abort_orphan_snapshot(
-        std::string_view instance_id, const Versionstamp& vs) {
+void DorisSnapshotManager::abort_orphan_snapshot(std::string_view instance_id,
+                                                 const Versionstamp& vs) {
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv_->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -180,8 +180,7 @@ void DorisSnapshotManager::abort_orphan_snapshot(
                      << ", instance_id=" << instance_id;
     } else {
         LOG(INFO) << "abort_orphan_snapshot: aborted orphan"
-                  << ", instance_id=" << instance_id
-                  << ", snapshot_id=" << vs.to_string();
+                  << ", instance_id=" << instance_id << ", snapshot_id=" << vs.to_string();
     }
 }
 
@@ -286,27 +285,20 @@ void DorisSnapshotManager::begin_snapshot(std::string_view instance_id,
         if (err != TxnErrorCode::TXN_OK) {
             // Abort the orphan PREPARE snapshot
             abort_orphan_snapshot(instance_id, vs);
-            response->mutable_status()->set_code(
-                    MetaServiceCode::KV_TXN_CREATE_ERR);
-            response->mutable_status()->set_msg(
-                    "failed to create txn for image_url update");
+            response->mutable_status()->set_code(MetaServiceCode::KV_TXN_CREATE_ERR);
+            response->mutable_status()->set_msg("failed to create txn for image_url update");
             return;
         }
         // Conflict detection: re-read and verify still PREPARE
         SnapshotPB existing_pb;
-        err = read_snapshot_pb(txn2.get(), instance_id, vs,
-                               &existing_pb);
+        err = read_snapshot_pb(txn2.get(), instance_id, vs, &existing_pb);
         if (err != TxnErrorCode::TXN_OK ||
-            existing_pb.status() !=
-                    SnapshotStatus::SNAPSHOT_PREPARE) {
-            LOG(WARNING)
-                    << "begin_snapshot: concurrent modification "
-                    << "detected, instance_id=" << instance_id
-                    << " snapshot_id=" << snapshot_id;
-            response->mutable_status()->set_code(
-                    MetaServiceCode::UNDEFINED_ERR);
-            response->mutable_status()->set_msg(
-                    "concurrent modification during begin");
+            existing_pb.status() != SnapshotStatus::SNAPSHOT_PREPARE) {
+            LOG(WARNING) << "begin_snapshot: concurrent modification "
+                         << "detected, instance_id=" << instance_id
+                         << " snapshot_id=" << snapshot_id;
+            response->mutable_status()->set_code(MetaServiceCode::UNDEFINED_ERR);
+            response->mutable_status()->set_msg("concurrent modification during begin");
             return;
         }
         snapshot_pb.set_image_url(image_url);
@@ -315,10 +307,8 @@ void DorisSnapshotManager::begin_snapshot(std::string_view instance_id,
         if (err != TxnErrorCode::TXN_OK) {
             // Abort orphan PREPARE snapshot on commit failure
             abort_orphan_snapshot(instance_id, vs);
-            response->mutable_status()->set_code(
-                    MetaServiceCode::KV_TXN_COMMIT_ERR);
-            response->mutable_status()->set_msg(
-                    "failed to commit image_url update");
+            response->mutable_status()->set_code(MetaServiceCode::KV_TXN_COMMIT_ERR);
+            response->mutable_status()->set_msg("failed to commit image_url update");
             return;
         }
     }
@@ -539,12 +529,9 @@ void DorisSnapshotManager::abort_snapshot(std::string_view instance_id,
 
     // Only PREPARE snapshots can be aborted
     if (snapshot_pb.status() != SnapshotStatus::SNAPSHOT_PREPARE) {
-        response->mutable_status()->set_code(
-                MetaServiceCode::INVALID_ARGUMENT);
-        response->mutable_status()->set_msg(
-                "can only abort PREPARE snapshots, current="
-                + std::to_string(
-                        static_cast<int>(snapshot_pb.status())));
+        response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
+        response->mutable_status()->set_msg("can only abort PREPARE snapshots, current=" +
+                                            std::to_string(static_cast<int>(snapshot_pb.status())));
         return;
     }
 
@@ -618,13 +605,11 @@ void DorisSnapshotManager::drop_snapshot(std::string_view instance_id,
     // Only NORMAL or ABORTED snapshots can be dropped
     if (snapshot_pb.status() != SnapshotStatus::SNAPSHOT_NORMAL &&
         snapshot_pb.status() != SnapshotStatus::SNAPSHOT_ABORTED) {
-        response->mutable_status()->set_code(
-                MetaServiceCode::INVALID_ARGUMENT);
+        response->mutable_status()->set_code(MetaServiceCode::INVALID_ARGUMENT);
         response->mutable_status()->set_msg(
                 "can only drop NORMAL or ABORTED snapshots, "
-                "current status="
-                + std::to_string(
-                        static_cast<int>(snapshot_pb.status())));
+                "current status=" +
+                std::to_string(static_cast<int>(snapshot_pb.status())));
         return;
     }
 
@@ -1039,11 +1024,9 @@ int DorisSnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
                     write_snapshot_pb(txn.get(), instance_id, vs, upd);
                     TxnErrorCode ce = txn->commit();
                     if (ce != TxnErrorCode::TXN_OK) {
-                        LOG(WARNING)
-                                << "recycle_snapshots: failed to commit "
-                                << "ABORTED status, instance_id="
-                                << instance_id
-                                << ", snapshot_id=" << vs.to_string();
+                        LOG(WARNING) << "recycle_snapshots: failed to commit "
+                                     << "ABORTED status, instance_id=" << instance_id
+                                     << ", snapshot_id=" << vs.to_string();
                         continue;
                     }
                     pb = std::move(upd);
@@ -1066,11 +1049,9 @@ int DorisSnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
                     write_snapshot_pb(txn.get(), instance_id, vs, upd);
                     TxnErrorCode ce = txn->commit();
                     if (ce != TxnErrorCode::TXN_OK) {
-                        LOG(WARNING)
-                                << "recycle_snapshots: failed to commit "
-                                << "RECYCLED status, instance_id="
-                                << instance_id
-                                << ", snapshot_id=" << vs.to_string();
+                        LOG(WARNING) << "recycle_snapshots: failed to commit "
+                                     << "RECYCLED status, instance_id=" << instance_id
+                                     << ", snapshot_id=" << vs.to_string();
                         continue;
                     }
                     pb = std::move(upd);
@@ -1114,16 +1095,13 @@ int DorisSnapshotManager::recycle_snapshots(InstanceRecycler* recycler) {
             normal_entries[i].pb.set_reason("max_reserved exceeded");
             std::unique_ptr<Transaction> txn;
             if (txn_kv_->create_txn(&txn) == TxnErrorCode::TXN_OK) {
-                write_snapshot_pb(txn.get(), instance_id,
-                                  normal_entries[i].vs,
+                write_snapshot_pb(txn.get(), instance_id, normal_entries[i].vs,
                                   normal_entries[i].pb);
                 TxnErrorCode ce = txn->commit();
                 if (ce != TxnErrorCode::TXN_OK) {
-                    LOG(WARNING)
-                            << "recycle_snapshots: failed to commit "
-                            << "max_reserved RECYCLED, instance_id="
-                            << instance_id << ", snapshot_id="
-                            << normal_entries[i].vs.to_string();
+                    LOG(WARNING) << "recycle_snapshots: failed to commit "
+                                 << "max_reserved RECYCLED, instance_id=" << instance_id
+                                 << ", snapshot_id=" << normal_entries[i].vs.to_string();
                     continue;
                 }
             }
@@ -1199,8 +1177,7 @@ int DorisSnapshotManager::recycle_snapshot_meta_and_data(std::string_view instan
             versioned::snapshot_reference_key_prefix(instance_id, snapshot_version);
     std::string ref_end = ref_prefix;
     // Safe next-prefix: handle trailing 0xFF carry
-    while (!ref_end.empty() &&
-           static_cast<unsigned char>(ref_end.back()) == 0xFF) {
+    while (!ref_end.empty() && static_cast<unsigned char>(ref_end.back()) == 0xFF) {
         ref_end.pop_back();
     }
     if (!ref_end.empty()) {
@@ -1482,41 +1459,32 @@ int DorisSnapshotManager::inverted_check_mvcc_meta_key(InstanceChecker* checker)
     size_t prefix_len = ref_prefix.size();
 
     int ref_count = 0;
-    for (auto&& kvp = it->next(); kvp.has_value();
-         kvp = it->next()) {
+    for (auto&& kvp = it->next(); kvp.has_value(); kvp = it->next()) {
         auto&& [key, value] = *kvp;
         ref_count++;
 
         // Extract the snapshot versionstamp embedded after the
         // instance-level prefix in the reference key.
         if (key.size() > prefix_len) {
-            std::string_view after_prefix(
-                    key.data() + prefix_len,
-                    key.size() - prefix_len);
+            std::string_view after_prefix(key.data() + prefix_len, key.size() - prefix_len);
             Versionstamp ref_vs;
             if (decode_versionstamp(&after_prefix, &ref_vs) == 0) {
-                if (valid_snapshots.find(ref_vs.to_string()) ==
-                    valid_snapshots.end()) {
-                    LOG(WARNING)
-                            << "inverted_check_mvcc_meta_key: "
-                            << "orphan reference key, instance="
-                            << instance_id
-                            << ", ref_vs=" << ref_vs.to_string();
+                if (valid_snapshots.find(ref_vs.to_string()) == valid_snapshots.end()) {
+                    LOG(WARNING) << "inverted_check_mvcc_meta_key: "
+                                 << "orphan reference key, instance=" << instance_id
+                                 << ", ref_vs=" << ref_vs.to_string();
                     result = 1;
                 }
             }
         }
     }
     if (!it->is_valid()) {
-        LOG(WARNING)
-                << "inverted_check_mvcc_meta_key: reference scan error";
+        LOG(WARNING) << "inverted_check_mvcc_meta_key: reference scan error";
         return -1;
     }
 
-    LOG(INFO) << "inverted_check_mvcc_meta_key done, instance_id="
-              << instance_id
-              << ", valid_snapshots=" << valid_snapshots.size()
-              << ", refs=" << ref_count
+    LOG(INFO) << "inverted_check_mvcc_meta_key done, instance_id=" << instance_id
+              << ", valid_snapshots=" << valid_snapshots.size() << ", refs=" << ref_count
               << ", result=" << result;
     return result;
 }
