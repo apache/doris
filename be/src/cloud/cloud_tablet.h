@@ -352,6 +352,9 @@ public:
     bool is_rowset_warmed_up(const RowsetId& rowset_id) const;
 
     void add_warmed_up_rowset(const RowsetId& rowset_id);
+    // Test helper: add a rowset to the warmup state map with DOING progress,
+    // so that is_rowset_warmed_up() returns false for it.
+    void add_not_warmed_up_rowset(const RowsetId& rowset_id);
 
     std::string rowset_warmup_digest() const {
         std::string res;

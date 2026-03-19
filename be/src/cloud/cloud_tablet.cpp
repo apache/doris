@@ -80,6 +80,7 @@ bvar::Adder<int64_t> g_capture_with_freshness_tolerance_count(
         "capture_with_freshness_tolerance_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_fallback_count(
         "capture_with_freshness_tolerance_fallback_count");
+bvar::Adder<int64_t> g_rowset_warmup_state_missing_count("rowset_warmup_state_missing_count");
 bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_window(
         "capture_prefer_cache_count_window", &g_capture_prefer_cache_count, 30);
 bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_count_window(
@@ -1790,7 +1791,32 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(WarmUpTriggerSource trig
 bool CloudTablet::is_rowset_warmed_up(const RowsetId& rowset_id) const {
     auto it = _rowset_warm_up_states.find(rowset_id);
     if (it == _rowset_warm_up_states.end()) {
-        return false;
+        // The rowset is not in warmup state, which means the rowset has never been warmed up.
+        // This may happen when the upstream BE tried to warm up rowsets on this BE but this BE
+        // was restarting so the warmup failed, and _rowset_warm_up_states has no entry for it.
+        //
+        // Normally the startup_timepoint check in rowset_is_warmed_up_unlocked() would filter out
+        // such rowsets (visible_timestamp < startup_timepoint → assumed warmed up). However,
+        // compaction-produced rowsets have their visible_timestamp set at rowset builder
+        // initialization time rather than the final transaction commit time on meta-service,
+        // so their visible_timestamp can be earlier than startup_timepoint, causing the
+        // startup_timepoint check to NOT filter them out and reaching here with no warmup entry.
+        //
+        // If such a rowset is before the cumulative compaction point and base compaction never
+        // happens, returning false here would cause the version path algorithm to exclude it,
+        // leading to a persistently low path_max_version. With continuous upstream ingestion,
+        // the freshness tolerance fallback check would keep triggering, making every query on
+        // this tablet fall back to reading all data from remote storage.
+        //
+        // Returning true (optimistically treating it as warmed up) allows the version path to
+        // include it. On cache miss the data is transparently read from remote storage per-segment
+        // and cached locally in 1MB blocks, so the problem self-heals through subsequent queries.
+        g_rowset_warmup_state_missing_count << 1;
+        LOG_EVERY_N(WARNING, 100) << fmt::format(
+                "rowset warmup state missing, considering it as warmed up. tablet_id={}, "
+                "rowset_id={}",
+                tablet_id(), rowset_id.to_string());
+        return true;
     }
     return it->second.state.progress == WarmUpProgress::DONE;
 }
@@ -1799,6 +1825,14 @@ void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
     _rowset_warm_up_states[rowset_id] = {
             .state = {.trigger_source = WarmUpTriggerSource::SYNC_ROWSET,
                       .progress = WarmUpProgress::DONE},
+            .num_segments = 1,
+            .start_tp = std::chrono::steady_clock::now()};
+}
+
+void CloudTablet::add_not_warmed_up_rowset(const RowsetId& rowset_id) {
+    _rowset_warm_up_states[rowset_id] = {
+            .state = {.trigger_source = WarmUpTriggerSource::SYNC_ROWSET,
+                      .progress = WarmUpProgress::DOING},
             .num_segments = 1,
             .start_tp = std::chrono::steady_clock::now()};
 }

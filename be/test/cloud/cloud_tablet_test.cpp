@@ -940,4 +940,61 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     sp->disable_processing();
     sp->clear_all_call_backs();
 }
+
+// Test is_rowset_warmed_up returns true for rowset NOT in the warmup state map
+// This is the behavior change: missing warmup state → optimistically warmed up
+TEST_F(CloudTabletWarmUpStateTest, TestIsRowsetWarmedUpMissingFromMap) {
+    auto rowset = create_rowset(Version(22, 22));
+    ASSERT_NE(rowset, nullptr);
+
+    // Rowset is not in the warmup state map at all
+    // Before the fix, this would return false. Now it returns true.
+    EXPECT_TRUE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
+// Test is_rowset_warmed_up returns true for rowset with DONE state
+TEST_F(CloudTabletWarmUpStateTest, TestIsRowsetWarmedUpWithDoneState) {
+    auto rowset = create_rowset(Version(23, 23));
+    ASSERT_NE(rowset, nullptr);
+
+    _tablet->add_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_TRUE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
+// Test is_rowset_warmed_up returns false for rowset with DOING state (in map but not done)
+TEST_F(CloudTabletWarmUpStateTest, TestIsRowsetWarmedUpWithDoingState) {
+    auto rowset = create_rowset(Version(24, 24));
+    ASSERT_NE(rowset, nullptr);
+
+    _tablet->add_not_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_FALSE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
+// Test add_not_warmed_up_rowset sets DOING state correctly
+TEST_F(CloudTabletWarmUpStateTest, TestAddNotWarmedUpRowset) {
+    auto rowset = create_rowset(Version(25, 25));
+    ASSERT_NE(rowset, nullptr);
+
+    _tablet->add_not_warmed_up_rowset(rowset->rowset_id());
+
+    WarmUpState state = _tablet->get_rowset_warmup_state(rowset->rowset_id());
+    WarmUpState expected_state =
+            WarmUpState {WarmUpTriggerSource::SYNC_ROWSET, WarmUpProgress::DOING};
+    EXPECT_EQ(state, expected_state);
+}
+
+// Test that add_warmed_up_rowset can override add_not_warmed_up_rowset
+TEST_F(CloudTabletWarmUpStateTest, TestWarmedUpOverridesNotWarmedUp) {
+    auto rowset = create_rowset(Version(26, 26));
+    ASSERT_NE(rowset, nullptr);
+
+    // First mark as not warmed up
+    _tablet->add_not_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_FALSE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+
+    // Then mark as warmed up
+    _tablet->add_warmed_up_rowset(rowset->rowset_id());
+    EXPECT_TRUE(_tablet->is_rowset_warmed_up(rowset->rowset_id()));
+}
+
 } // namespace doris
