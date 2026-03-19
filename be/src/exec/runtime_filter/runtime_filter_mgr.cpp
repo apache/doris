@@ -104,11 +104,21 @@ Status LocalMergeContext::register_producer(const QueryContext* query_ctx,
                                             const TRuntimeFilterDesc* desc,
                                             std::shared_ptr<RuntimeFilterProducer> producer) {
     std::lock_guard<std::mutex> l(mtx);
+    if (producer->stage() > stage) {
+        // New recursive CTE round: discard stale merger and producers from
+        // the previous round and recreate the merger for the new round.
+        merger.reset();
+        producers.clear();
+        stage = producer->stage();
+    }
     if (!merger) {
         RETURN_IF_ERROR(RuntimeFilterMerger::create(query_ctx, desc, &merger));
     }
     producers.emplace_back(producer);
     merger->set_expected_producer_num(cast_set<int>(producers.size()));
+    // Sync the local merger's stage from the producer so that outgoing merge RPCs
+    // (via _push_to_remote) carry the correct recursive CTE round number.
+    merger->set_stage(producer->stage());
     return Status::OK();
 }
 
@@ -479,6 +489,8 @@ Status GlobalMergeContext::reset(QueryContext* query_ctx) {
     source_addrs.clear();
     done = false;
     stage++;
+    // Keep the Merger's own stage in sync for consistent debug output.
+    merger->set_stage(stage);
     return Status::OK();
 }
 
@@ -499,7 +511,8 @@ std::string RuntimeFilterMergeControllerEntity::debug_string() {
     std::string result = "RuntimeFilterMergeControllerEntity Info:\n";
     std::shared_lock<std::shared_mutex> guard(_filter_map_mutex);
     for (const auto& [filter_id, ctx] : _filter_map) {
-        result += fmt::format("{}\n", ctx.merger->debug_string());
+        result += fmt::format("filter_id: {}, stage: {}, {}\n", filter_id, ctx.stage,
+                              ctx.merger->debug_string());
     }
     return result;
 }
