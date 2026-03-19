@@ -927,9 +927,7 @@ TEST_F(AnnIndexWriterTest, TestSkipIndexWhenTotalRowsLessThanNlist) {
 }
 
 TEST_F(AnnIndexWriterTest, TestPQMinTrainRows) {
-    // Test that PQ quantizer requires sufficient training data
-    // PQ with pq_m=2, pq_nbits=8 requires at least 256 * 2^8 * 2 = 256 * 256 * 2 = 131072 training vectors
-    // But nlist=10, so the effective minimum should be max(10, 131072) = 131072
+    // Test writer behavior under a large mocked min_train_rows threshold.
 
     auto mock_index = std::make_shared<MockVectorIndex>();
     auto writer = std::make_unique<TestAnnIndexColumnWriter>(_index_file_writer.get(),
@@ -942,7 +940,7 @@ TEST_F(AnnIndexWriterTest, TestPQMinTrainRows) {
     ASSERT_TRUE(writer->init().ok());
     writer->set_vector_index(mock_index);
 
-    // Set up expectations: PQ should require 131072 training vectors minimum
+    // Set up expectations: mock a very large min_train_rows threshold.
     // Since we only provide 1000 vectors, which is less than 131072, training will happen in batches
     // but finish() will skip saving since remaining data is insufficient
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
@@ -1047,7 +1045,7 @@ TEST_F(AnnIndexWriterTest, TestPQWithSufficientData) {
     ASSERT_TRUE(writer->init().ok());
     writer->set_vector_index(mock_index);
 
-    // PQ requires 131072 minimum, but we'll provide exactly that amount
+    // Mock min_train_rows to 131072 and provide exactly that amount.
     EXPECT_CALL(*mock_index, get_min_train_rows()).WillRepeatedly(testing::Return(131072));
     // Since we provide exactly 131072 vectors, they will be trained and added in chunks
     // Each chunk is 10 vectors, so we expect 13107 train calls and 13107 add calls for full chunks

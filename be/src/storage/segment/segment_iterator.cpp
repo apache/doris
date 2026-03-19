@@ -939,9 +939,9 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
                 static_cast<int64_t>(load_costs_ms));
     }
 
-    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(ann_index_iterator, &_row_bitmap,
-                                                                  rows_of_segment, result_column,
-                                                                  result_row_ids, ann_index_stats));
+    RETURN_IF_ERROR(_ann_topn_runtime->evaluate_vector_ann_search(
+            ann_index_iterator_casted, &_row_bitmap, rows_of_segment, result_column, result_row_ids,
+            ann_index_stats));
 
     VLOG_DEBUG << fmt::format("Ann topn filtered {} - {} = {} rows", pre_size,
                               _row_bitmap.cardinality(), pre_size - _row_bitmap.cardinality());
@@ -1195,8 +1195,8 @@ Status SegmentIterator::_apply_index_expr() {
     }
 
     // Apply ann range search
-    segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
+        segment_v2::AnnIndexStats ann_index_stats;
         size_t origin_rows = _row_bitmap.cardinality();
         RETURN_IF_ERROR(expr_ctx->evaluate_ann_range_search(
                 _index_iterators, _schema->column_ids(), _column_iterators,
@@ -1208,6 +1208,7 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->ann_range_result_convert_ns += ann_index_stats.result_process_costs_ns.value();
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
         _opts.stats->ann_range_pre_process_ns += ann_index_stats.engine_prepare_ns.value();
+        _opts.stats->ann_fall_back_brute_force_cnt += ann_index_stats.fall_back_brute_force_cnt;
     }
 
     for (auto it = _common_expr_ctxs_push_down.begin(); it != _common_expr_ctxs_push_down.end();) {

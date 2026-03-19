@@ -300,7 +300,8 @@ Int64 FaissVectorIndex::get_min_train_rows() const {
     // Calculate minimum training rows required by the quantizer
     Int64 quantizer_min = 0;
     if (_params.quantizer == FaissBuildParameter::Quantizer::PQ) {
-        // For PQ, we need to make sure each sub-quantizer has enough training vectors.
+        // For PQ, FAISS uses ksub = 2^pq_nbits and recommends ksub * 100 training vectors.
+        // This threshold depends on pq_nbits only (independent of pq_m).
         // See code from contrib/faiss/faiss/impl/ProductQuantizer.cpp::65
         quantizer_min = (1LL << _params.pq_nbits) * 100;
     } else if (_params.quantizer == FaissBuildParameter::Quantizer::SQ4 ||

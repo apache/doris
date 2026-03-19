@@ -49,6 +49,7 @@
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 struct AnnIndexStats;
+class AnnIndexIterator;
 
 Result<IColumn::Ptr> extract_query_vector(std::shared_ptr<VExpr> arg_expr);
 
@@ -116,7 +117,7 @@ public:
      * @param ann_index_stats Statistics collector for performance monitoring
      * @return Status indicating success or failure
      */
-    Status evaluate_vector_ann_search(segment_v2::IndexIterator* ann_index_iterator,
+    Status evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                       roaring::Roaring* row_bitmap, size_t rows_of_segment,
                                       IColumn::MutablePtr& result_column,
                                       std::unique_ptr<std::vector<uint64_t>>& row_ids,

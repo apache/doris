@@ -87,7 +87,4 @@ suite("small_segment") {
     // Test range search with HNSW (should work)
     qt_sql "select * from tbl_small_segment_hnsw where l2_distance_approximate(embedding, [1.0,2.0,3.0]) < 5.0 order by id;"
 
-    // Clean up
-    sql "drop table if exists tbl_small_segment"
-    sql "drop table if exists tbl_small_segment_hnsw"
 }

@@ -617,6 +617,7 @@ Status VectorizedFnCall::evaluate_ann_range_search(
         if (!ann_index_iterator->try_load_index()) {
             VLOG_DEBUG << "ANN range search skipped: "
                        << fmt::format("Failed to load ANN index for column cid {}", src_col_cid);
+            ann_index_stats.fall_back_brute_force_cnt += 1;
             return Status::OK();
         }
         double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000000.0;
