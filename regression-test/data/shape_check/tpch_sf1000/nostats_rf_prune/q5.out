@@ -14,16 +14,16 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_nationkey = supplier.s_nationkey) and (lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[l_suppkey]
 --------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 o_orderkey->[l_orderkey]
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=() build RFs:RF1 l_orderkey->[o_orderkey]
 ------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineitem] apply RFs: RF1 RF2
-------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 c_custkey->[o_custkey]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_custkey = orders.o_custkey)) otherCondition=() build RFs:RF0 o_custkey->[c_custkey]
+----------------------------------PhysicalProject
+------------------------------------PhysicalOlapScan[customer] apply RFs: RF0 RF4
 ----------------------------------PhysicalProject
 ------------------------------------filter((orders.o_orderdate < '1995-01-01') and (orders.o_orderdate >= '1994-01-01'))
---------------------------------------PhysicalOlapScan[orders] apply RFs: RF0
-----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[customer] apply RFs: RF4
+--------------------------------------PhysicalOlapScan[orders] apply RFs: RF1
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[lineitem] apply RFs: RF2
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[supplier] apply RFs: RF4
 ----------------------PhysicalProject

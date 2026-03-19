@@ -19,16 +19,16 @@ PhysicalResultSink
 --------------------------------PhysicalProject
 ----------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((cd1.cd_demo_sk = web_returns.wr_refunded_cdemo_sk)) otherCondition=(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree'),(web_sales.ws_sales_price >= 100.00),(web_sales.ws_sales_price <= 150.00)],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary'),(web_sales.ws_sales_price <= 100.00)],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree'),(web_sales.ws_sales_price >= 150.00)]]) build RFs:RF3 cd_demo_sk->[wr_refunded_cdemo_sk]
 ------------------------------------PhysicalProject
---------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF2 wp_web_page_sk->[ws_web_page_sk]
+--------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((web_sales.ws_web_page_sk = web_page.wp_web_page_sk)) otherCondition=() build RFs:RF2 ws_web_page_sk->[wp_web_page_sk]
+----------------------------------------PhysicalProject
+------------------------------------------PhysicalOlapScan[web_page] apply RFs: RF2
 ----------------------------------------PhysicalProject
 ------------------------------------------hashJoin[INNER_JOIN colocated] hashCondition=((web_sales.ws_item_sk = web_returns.wr_item_sk) and (web_sales.ws_order_number = web_returns.wr_order_number)) otherCondition=() build RFs:RF0 ws_item_sk->[wr_item_sk];RF1 ws_order_number->[wr_order_number]
 --------------------------------------------PhysicalProject
 ----------------------------------------------PhysicalOlapScan[web_returns] apply RFs: RF0 RF1 RF3 RF4 RF7 RF9
 --------------------------------------------PhysicalProject
 ----------------------------------------------filter((web_sales.ws_net_profit <= 300.00) and (web_sales.ws_net_profit >= 50.00) and (web_sales.ws_sales_price <= 200.00) and (web_sales.ws_sales_price >= 50.00))
-------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF2 RF8
-----------------------------------------PhysicalProject
-------------------------------------------PhysicalOlapScan[web_page]
+------------------------------------------------PhysicalOlapScan[web_sales] apply RFs: RF8
 ------------------------------------PhysicalProject
 --------------------------------------filter(OR[AND[(cd1.cd_marital_status = 'M'),(cd1.cd_education_status = '4 yr Degree')],AND[(cd1.cd_marital_status = 'S'),(cd1.cd_education_status = 'Secondary')],AND[(cd1.cd_marital_status = 'W'),(cd1.cd_education_status = 'Advanced Degree')]] and cd_education_status IN ('4 yr Degree', 'Advanced Degree', 'Secondary') and cd_marital_status IN ('M', 'S', 'W'))
 ----------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF5 RF6

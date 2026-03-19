@@ -23,7 +23,7 @@ PhysicalResultSink
 ------------------------------------filter((cd1.cd_education_status = 'Primary') and (cd1.cd_gender = 'F'))
 --------------------------------------PhysicalOlapScan[customer_demographics]
 ------------------------------PhysicalProject
---------------------------------hashJoin[INNER_JOIN shuffle] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF1 c_current_cdemo_sk->[cd_demo_sk]
+--------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((customer.c_current_cdemo_sk = cd2.cd_demo_sk)) otherCondition=() build RFs:RF1 c_current_cdemo_sk->[cd_demo_sk]
 ----------------------------------PhysicalProject
 ------------------------------------PhysicalOlapScan[customer_demographics] apply RFs: RF1
 ----------------------------------PhysicalProject

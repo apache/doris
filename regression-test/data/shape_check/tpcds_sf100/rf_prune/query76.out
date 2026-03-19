@@ -8,9 +8,7 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=() build RFs:RF3 ss_sold_date_sk->[d_date_sk]
-------------------PhysicalProject
---------------------PhysicalOlapScan[date_dim] apply RFs: RF3
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((ss_sold_date_sk = date_dim.d_date_sk)) otherCondition=()
 ------------------PhysicalUnion
 --------------------PhysicalDistribute[DistributionSpecExecutionAny]
 ----------------------PhysicalProject
@@ -36,4 +34,6 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------filter(cs_warehouse_sk IS NULL)
 ------------------------------PhysicalOlapScan[catalog_sales]
+------------------PhysicalProject
+--------------------PhysicalOlapScan[date_dim]
 

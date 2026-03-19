@@ -31,11 +31,11 @@ PhysicalResultSink
 ------------------------------------------PhysicalProject
 --------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = store_sales.ss_sold_date_sk)) otherCondition=() build RFs:RF1 d_date_sk->[ss_sold_date_sk]
 ----------------------------------------------PhysicalProject
-------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF0 s_store_sk->[ss_store_sk]
+------------------------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store.s_store_sk = store_sales.ss_store_sk)) otherCondition=() build RFs:RF0 ss_store_sk->[s_store_sk]
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1
+----------------------------------------------------PhysicalOlapScan[store] apply RFs: RF0 RF2
 --------------------------------------------------PhysicalProject
-----------------------------------------------------PhysicalOlapScan[store] apply RFs: RF2
+----------------------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF1
 ----------------------------------------------PhysicalProject
 ------------------------------------------------filter((date_dim.d_month_seq <= 1229) and (date_dim.d_month_seq >= 1218))
 --------------------------------------------------PhysicalOlapScan[date_dim]
