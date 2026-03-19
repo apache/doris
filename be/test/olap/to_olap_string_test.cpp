@@ -321,8 +321,8 @@ TEST_F(ToOlapStringTest, datetime_v1_vs_v2_precision_difference) {
         const TypeInfo* type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_DATETIME);
 
         int64_t olap_value = 20230615123456L;
-        std::string expected =
-                "2023-06-15 12:34:56"; // No fractional seconds        std::string expected_serde = expected;
+        std::string expected = "2023-06-15 12:34:56"; // No fractional seconds
+        std::string expected_serde = expected;
         std::string type_info_str = type_info->to_string(&olap_value);
         auto field = vectorized::Field::create_field_from_olap_value<TYPE_DATETIME>(
                 (uint64_t)olap_value);
@@ -349,8 +349,8 @@ TEST_F(ToOlapStringTest, datetime_v1_vs_v2_precision_difference) {
         const TypeInfo* type_info = get_scalar_type_info(FieldType::OLAP_FIELD_TYPE_DATETIMEV2);
 
         uint64_t olap_value = make_datetimev2(2023, 6, 15, 12, 34, 56, 123456);
-        std::string expected =
-                "2023-06-15 12:34:56.123456"; // With fractional seconds        std::string expected_serde = expected;
+        std::string expected = "2023-06-15 12:34:56.123456"; // With fractional seconds
+        std::string expected_serde = expected;
         std::string type_info_str = type_info->to_string(&olap_value);
         auto field = vectorized::Field::create_field_from_olap_value<TYPE_DATETIMEV2>(olap_value);
         std::string serde_str = serde->to_olap_string(field);
