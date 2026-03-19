@@ -18,7 +18,6 @@
 package org.apache.doris.httpv2.rest.manager;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.entity.ResponseBody;
@@ -61,7 +60,7 @@ public class HttpUtils {
 
     static List<Pair<String, Integer>> getFeList() {
         return Env.getCurrentEnv().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
+                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), fe.getHttpPort()))
                 .collect(Collectors.toList());
     }
 
