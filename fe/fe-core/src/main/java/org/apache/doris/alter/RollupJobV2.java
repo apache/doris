@@ -405,7 +405,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
-            if (!allBaseReplicasCaughtUp(tbl)) {
+            if (!baseTabletsHaveReadyReplicaQuorum(tbl)) {
                 return;
             }
             // Create object pool per MaterializedIndex
@@ -511,7 +511,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
     }
 
-    private boolean allBaseReplicasCaughtUp(OlapTable tbl) throws AlterCancelException {
+    private boolean baseTabletsHaveReadyReplicaQuorum(OlapTable tbl) throws AlterCancelException {
         for (Map.Entry<Long, MaterializedIndex> entry : partitionIdToRollupIndex.entrySet()) {
             long partitionId = entry.getKey();
             Partition partition = tbl.getPartition(partitionId);
