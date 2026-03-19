@@ -28,6 +28,7 @@ fi
 OPTS="$(getopt \
     -n "$0" \
     -o '' \
+    -l 'debug' \
     -l 'daemon' \
     -l 'helper:' \
     -l 'image:' \
@@ -42,6 +43,7 @@ eval set -- "${OPTS}"
 
 RUN_DAEMON=0
 RUN_CONSOLE=0
+RUN_DEBUG=0
 HELPER=''
 IMAGE_PATH=''
 IMAGE_TOOL=''
@@ -51,6 +53,10 @@ RECOVERY_JOURNAL_ID=''
 CLUSTER_SNAPSHOT=''
 while true; do
     case "$1" in
+    --debug)
+        RUN_DEBUG=1
+        shift
+        ;;
     --daemon)
         RUN_DAEMON=1
         shift
@@ -106,6 +112,7 @@ export DORIS_HOME
 # JAVA_OPTS
 # LOG_DIR
 # PID_DIR
+# DEBUG_PORT
 export JAVA_OPTS="-Xmx1024m"
 export LOG_DIR="${DORIS_HOME}/log"
 PID_DIR="$(
@@ -125,6 +132,9 @@ while read -r line; do
         eval 'export "${envline}"'
     fi
 done <"${DORIS_HOME}/conf/fe.conf"
+
+: "${DEBUG_PORT:=5001}"
+export DEBUG_PORT
 
 if [[ -e "${DORIS_HOME}/bin/palo_env.sh" ]]; then
     # shellcheck disable=1091
@@ -229,6 +239,11 @@ extract_java_opt_key() {
         -D*=*)
             # -Dfile.encoding=UTF-8
             # Extract property name: -Dfile.encoding
+            echo "${param%%=*}"
+            ;;
+        -agentlib:*=*)
+            # -agentlib:jdwp=transport=dt_socket,server=y,...
+            # Extract agent library name as key: -agentlib:jdwp
             echo "${param%%=*}"
             ;;
         -D*)
@@ -338,6 +353,16 @@ add_java_opt_if_missing "--add-opens=java.security.jgss/sun.security.krb5=ALL-UN
 add_java_opt_if_missing "--add-opens=java.management/sun.management=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.base/jdk.internal.ref=ALL-UNNAMED"
 add_java_opt_if_missing "--add-opens=java.xml/com.sun.org.apache.xerces.internal.jaxp=ALL-UNNAMED"
+
+if [[ "${RUN_DEBUG}" -eq 1 ]]; then
+    if ! [[ "${DEBUG_PORT}" =~ ^[0-9]+$ ]] || (( DEBUG_PORT < 1 || DEBUG_PORT > 65535 )); then
+        echo "DEBUG_PORT in fe.conf must be an integer between 1 and 65535, got: ${DEBUG_PORT}"
+        exit 1
+    fi
+    add_java_opt_if_missing \
+        "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:${DEBUG_PORT}"
+    log "Enabled FE debug mode on port ${DEBUG_PORT}"
+fi
 
 log "${final_java_opt}"
 export JAVA_OPTS="${final_java_opt}"
