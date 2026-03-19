@@ -23,9 +23,14 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "meta-store/keys.h"
-#include "mock_accessor.h"
-#include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/storage_vault_accessor.h"
+#ifdef UNIT_TEST
+#include "../test/mock_accessor.h"
+#endif
+#ifdef ENABLE_HDFS_STORAGE_VAULT
+#include "recycler/hdfs_accessor.h"
+#endif
 #include "recycler/util.h"
 #include "snapshot/doris_snapshot_manager.h"
 

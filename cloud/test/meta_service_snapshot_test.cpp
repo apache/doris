@@ -30,6 +30,7 @@
 #include "common/defer.h"
 #include "cpp/sync_point.h"
 #include "meta-service/meta_service.h"
+#include "meta-service/txn_lazy_committer.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv.h"
@@ -37,6 +38,7 @@
 #include "meta-store/versioned_value.h"
 #include "mock_accessor.h"
 #include "recycler/checker.h"
+#include "recycler/recycler.h"
 #include "recycler/snapshot_chain_compactor.h"
 #include "recycler/snapshot_data_migrator.h"
 #include "snapshot/doris_snapshot_manager.h"
@@ -1199,6 +1201,772 @@ TEST(DorisSnapshotManagerTest, CompactSnapshotChainsSourceNotFound) {
 
     // Source snapshot not found → return -1
     ASSERT_EQ(mgr.compact_snapshot_chains(&compactor), -1);
+}
+
+// ============================================================================
+// Phase 3 Tests: Clone Instance via RPC
+// ============================================================================
+
+TEST(MetaServiceSnapshotTest, CloneInstanceReadOnly) {
+    auto meta_service = get_meta_service(true);
+    const char* const cloud_unique_id = "test_cloud_unique_id";
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+
+    // Create source instance
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("clone_ro_source");
+        req.set_user_id("test_user");
+        req.set_name("source_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Begin + commit a snapshot on source
+    std::string snapshot_id;
+    {
+        brpc::Controller cntl;
+        BeginSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_timeout_seconds(3600);
+        req.set_ttl_seconds(86400);
+        req.set_snapshot_label("clone_ro_snap");
+        BeginSnapshotResponse res;
+        meta_service->begin_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        snapshot_id = res.snapshot_id();
+    }
+    {
+        brpc::Controller cntl;
+        CommitSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        req.set_last_journal_id(100);
+        CommitSnapshotResponse res;
+        meta_service->commit_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Clone as READ_ONLY
+    {
+        brpc::Controller cntl;
+        CloneInstanceRequest req;
+        req.set_from_snapshot_id(snapshot_id);
+        req.set_from_instance_id("clone_ro_source");
+        req.set_new_instance_id("clone_ro_target");
+        req.set_clone_type(CloneInstanceRequest::READ_ONLY);
+        CloneInstanceResponse res;
+        meta_service->clone_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_image_url());
+    }
+
+    // Clone same target again should fail (instance already exists)
+    {
+        brpc::Controller cntl;
+        CloneInstanceRequest req;
+        req.set_from_snapshot_id(snapshot_id);
+        req.set_from_instance_id("clone_ro_source");
+        req.set_new_instance_id("clone_ro_target");
+        req.set_clone_type(CloneInstanceRequest::READ_ONLY);
+        CloneInstanceResponse res;
+        meta_service->clone_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+}
+
+TEST(MetaServiceSnapshotTest, CloneInstanceWritable) {
+    auto meta_service = get_meta_service(true);
+    const char* const cloud_unique_id = "test_cloud_unique_id";
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+
+    // Create source instance
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("clone_wr_source");
+        req.set_user_id("test_user");
+        req.set_name("source_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    std::string snapshot_id;
+    {
+        brpc::Controller cntl;
+        BeginSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_timeout_seconds(3600);
+        req.set_ttl_seconds(86400);
+        req.set_snapshot_label("clone_wr_snap");
+        BeginSnapshotResponse res;
+        meta_service->begin_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        snapshot_id = res.snapshot_id();
+    }
+    {
+        brpc::Controller cntl;
+        CommitSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        req.set_last_journal_id(200);
+        CommitSnapshotResponse res;
+        meta_service->commit_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Clone as WRITABLE
+    {
+        brpc::Controller cntl;
+        CloneInstanceRequest req;
+        req.set_from_snapshot_id(snapshot_id);
+        req.set_from_instance_id("clone_wr_source");
+        req.set_new_instance_id("clone_wr_target");
+        req.set_clone_type(CloneInstanceRequest::WRITABLE);
+        // Provide new obj_info for writable clone
+        ObjectStoreInfoPB obj;
+        obj.set_ak("new_ak");
+        obj.set_sk("new_sk");
+        obj.set_bucket("new_bucket");
+        obj.set_prefix("new_prefix");
+        obj.set_endpoint("new_endpoint");
+        obj.set_region("new_region");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+        CloneInstanceResponse res;
+        meta_service->clone_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_TRUE(res.has_image_url());
+    }
+}
+
+TEST(MetaServiceSnapshotTest, CloneInstanceInvalidArgs) {
+    auto meta_service = get_meta_service(true);
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+
+    // Missing clone_type
+    {
+        brpc::Controller cntl;
+        CloneInstanceRequest req;
+        req.set_from_snapshot_id("00000000000000000000");
+        req.set_from_instance_id("some_source");
+        req.set_new_instance_id("some_target");
+        CloneInstanceResponse res;
+        meta_service->clone_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // UNKNOWN clone_type
+    {
+        brpc::Controller cntl;
+        CloneInstanceRequest req;
+        req.set_from_snapshot_id("00000000000000000000");
+        req.set_from_instance_id("some_source");
+        req.set_new_instance_id("some_target");
+        req.set_clone_type(CloneInstanceRequest::UNKNOWN);
+        CloneInstanceResponse res;
+        meta_service->clone_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Missing from_instance_id
+    {
+        brpc::Controller cntl;
+        CloneInstanceRequest req;
+        req.set_from_snapshot_id("00000000000000000000");
+        req.set_new_instance_id("some_target");
+        req.set_clone_type(CloneInstanceRequest::READ_ONLY);
+        CloneInstanceResponse res;
+        meta_service->clone_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Missing new_instance_id
+    {
+        brpc::Controller cntl;
+        CloneInstanceRequest req;
+        req.set_from_snapshot_id("00000000000000000000");
+        req.set_from_instance_id("some_source");
+        req.set_clone_type(CloneInstanceRequest::READ_ONLY);
+        CloneInstanceResponse res;
+        meta_service->clone_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+}
+
+// ============================================================================
+// Phase 4 Tests: Recycle Snapshots
+// ============================================================================
+
+TEST(DorisSnapshotManagerTest, RecycleSnapshotsPrepareTimeout) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "recycle_timeout_instance";
+    Versionstamp vs(1100, 0);
+
+    // Write a PREPARE snapshot that is already timed out
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_PREPARE);
+    pb.set_create_at(1000);     // created at t=1000
+    pb.set_timeout_seconds(60); // timeout after 60s
+    pb.set_image_url("snapshot/recycle_timeout/snap1/image/");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    // Create instance and recycler
+    InstanceInfoPB instance;
+    instance.set_instance_id(inst_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("res1");
+    write_test_instance(txn_kv.get(), instance);
+
+    RecyclerThreadPoolGroup thread_group;
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    DorisSnapshotManager mgr(txn_kv);
+    int ret = mgr.recycle_snapshots(&recycler);
+    // Should succeed - the timed-out PREPARE snapshot gets marked ABORTED and recycled
+    ASSERT_EQ(ret, 0);
+
+    // Verify the snapshot key is cleaned up
+    ASSERT_FALSE(snapshot_key_exists(txn_kv.get(), inst_id, vs));
+}
+
+TEST(DorisSnapshotManagerTest, RecycleSnapshotsTTLExpired) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "recycle_ttl_instance";
+    Versionstamp vs(1200, 0);
+
+    // Write a NORMAL snapshot whose TTL has expired
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    pb.set_create_at(1000); // created at t=1000
+    pb.set_ttl_seconds(60); // TTL of 60s (long expired)
+    pb.set_image_url("snapshot/recycle_ttl/snap1/image/");
+    pb.set_resource_id("res1");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(inst_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("res1");
+    write_test_instance(txn_kv.get(), instance);
+
+    RecyclerThreadPoolGroup thread_group;
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    DorisSnapshotManager mgr(txn_kv);
+    ASSERT_EQ(mgr.recycle_snapshots(&recycler), 0);
+
+    // Verify the TTL-expired snapshot is cleaned up
+    ASSERT_FALSE(snapshot_key_exists(txn_kv.get(), inst_id, vs));
+}
+
+TEST(DorisSnapshotManagerTest, RecycleSnapshotsMaxReserved) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "recycle_maxres_instance";
+    int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+
+    // Write 5 NORMAL snapshots with no TTL
+    std::vector<Versionstamp> vss;
+    for (int i = 0; i < 5; i++) {
+        Versionstamp vs(1300 + i, 0);
+        vss.push_back(vs);
+        SnapshotPB pb;
+        pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+        pb.set_create_at(now - 3600 + i * 100); // staggered creation times
+        pb.set_image_url("snapshot/recycle_maxres/snap" + std::to_string(i) + "/image/");
+        pb.set_resource_id("res1");
+        write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+    }
+
+    // Set max_reserved to 2 via config
+    auto old_max = config::snapshot_max_reserved_num;
+    config::snapshot_max_reserved_num = 2;
+    DORIS_CLOUD_DEFER {
+        config::snapshot_max_reserved_num = old_max;
+    };
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(inst_id);
+    auto obj_info = instance.add_obj_info();
+    obj_info->set_id("res1");
+    write_test_instance(txn_kv.get(), instance);
+
+    RecyclerThreadPoolGroup thread_group;
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    DorisSnapshotManager mgr(txn_kv);
+    ASSERT_EQ(mgr.recycle_snapshots(&recycler), 0);
+
+    // 3 oldest should be removed, 2 newest should remain
+    int remaining = 0;
+    for (auto& vs : vss) {
+        if (snapshot_key_exists(txn_kv.get(), inst_id, vs)) {
+            remaining++;
+        }
+    }
+    ASSERT_EQ(remaining, 2) << "max_reserved=2, should keep only 2 newest snapshots";
+}
+
+TEST(DorisSnapshotManagerTest, RecycleSnapshotsEmpty) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "recycle_empty_instance";
+    InstanceInfoPB instance;
+    instance.set_instance_id(inst_id);
+    write_test_instance(txn_kv.get(), instance);
+
+    RecyclerThreadPoolGroup thread_group;
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    DorisSnapshotManager mgr(txn_kv);
+    // No snapshots → return 0
+    ASSERT_EQ(mgr.recycle_snapshots(&recycler), 0);
+}
+
+TEST(DorisSnapshotManagerTest, RecycleSnapshotsKeepsActiveNormal) {
+    auto txn_kv = std::make_shared<MemTxnKv>();
+    ASSERT_EQ(txn_kv->init(), 0);
+
+    std::string inst_id = "recycle_keep_active";
+    int64_t now = std::chrono::duration_cast<std::chrono::seconds>(
+                          std::chrono::system_clock::now().time_since_epoch())
+                          .count();
+    Versionstamp vs(1400, 0);
+
+    // NORMAL snapshot with long TTL (not expired)
+    SnapshotPB pb;
+    pb.set_status(SnapshotStatus::SNAPSHOT_NORMAL);
+    pb.set_create_at(now);
+    pb.set_ttl_seconds(999999); // not expired
+    pb.set_image_url("snapshot/keep_active/snap1/image/");
+    write_test_snapshot(txn_kv.get(), inst_id, vs, pb);
+
+    // High max_reserved
+    auto old_max = config::snapshot_max_reserved_num;
+    config::snapshot_max_reserved_num = 100;
+    DORIS_CLOUD_DEFER {
+        config::snapshot_max_reserved_num = old_max;
+    };
+
+    InstanceInfoPB instance;
+    instance.set_instance_id(inst_id);
+    write_test_instance(txn_kv.get(), instance);
+
+    RecyclerThreadPoolGroup thread_group;
+    InstanceRecycler recycler(txn_kv, instance, thread_group,
+                              std::make_shared<TxnLazyCommitter>(txn_kv));
+    ASSERT_EQ(recycler.init(), 0);
+
+    DorisSnapshotManager mgr(txn_kv);
+    ASSERT_EQ(mgr.recycle_snapshots(&recycler), 0);
+
+    // Active snapshot should still exist
+    ASSERT_TRUE(snapshot_key_exists(txn_kv.get(), inst_id, vs));
+}
+
+// ============================================================================
+// Phase 5 Tests: Dedicated Update/Commit/Drop tests
+// ============================================================================
+
+TEST(MetaServiceSnapshotTest, UpdateSnapshotTest) {
+    auto meta_service = get_meta_service(true);
+    const char* const cloud_unique_id = "test_cloud_unique_id";
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+
+    // Create test instance
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("update_test_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    std::string snapshot_id;
+    {
+        brpc::Controller cntl;
+        BeginSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_timeout_seconds(3600);
+        req.set_ttl_seconds(86400);
+        req.set_snapshot_label("update_test_snap");
+        BeginSnapshotResponse res;
+        meta_service->begin_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        snapshot_id = res.snapshot_id();
+    }
+
+    // Update snapshot
+    {
+        brpc::Controller cntl;
+        UpdateSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        req.set_upload_file("image_20260101.dat");
+        req.set_upload_id("upload-xyz-789");
+        UpdateSnapshotResponse res;
+        meta_service->update_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Update again (should overwrite)
+    {
+        brpc::Controller cntl;
+        UpdateSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        req.set_upload_file("image_20260102.dat");
+        req.set_upload_id("upload-xyz-790");
+        UpdateSnapshotResponse res;
+        meta_service->update_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Cannot update a non-existent snapshot
+    {
+        brpc::Controller cntl;
+        UpdateSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id("00000000000000000000");
+        req.set_upload_file("file.dat");
+        UpdateSnapshotResponse res;
+        meta_service->update_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+}
+
+TEST(MetaServiceSnapshotTest, CommitSnapshotStateValidation) {
+    auto meta_service = get_meta_service(true);
+    const char* const cloud_unique_id = "test_cloud_unique_id";
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("commit_state_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    std::string snapshot_id;
+    {
+        brpc::Controller cntl;
+        BeginSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_timeout_seconds(3600);
+        req.set_ttl_seconds(86400);
+        req.set_snapshot_label("commit_state_snap");
+        BeginSnapshotResponse res;
+        meta_service->begin_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        snapshot_id = res.snapshot_id();
+    }
+
+    // Commit with metadata
+    {
+        brpc::Controller cntl;
+        CommitSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        req.set_last_journal_id(5000);
+        req.set_snapshot_meta_image_size(8192);
+        req.set_snapshot_logical_data_size(2097152);
+        CommitSnapshotResponse res;
+        meta_service->commit_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Double commit should fail (already NORMAL)
+    {
+        brpc::Controller cntl;
+        CommitSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        CommitSnapshotResponse res;
+        meta_service->commit_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_NE(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify via list
+    {
+        brpc::Controller cntl;
+        ListSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_required_snapshot_id(snapshot_id);
+        ListSnapshotResponse res;
+        meta_service->list_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.snapshots_size(), 1);
+        ASSERT_EQ(res.snapshots(0).journal_id(), 5000);
+        ASSERT_EQ(res.snapshots(0).snapshot_meta_image_size(), 8192);
+        ASSERT_EQ(res.snapshots(0).snapshot_logical_data_size(), 2097152);
+    }
+}
+
+TEST(MetaServiceSnapshotTest, DropSnapshotTest) {
+    auto meta_service = get_meta_service(true);
+    const char* const cloud_unique_id = "test_cloud_unique_id";
+
+    auto sp = SyncPoint::get_instance();
+    sp->enable_processing();
+    sp->set_call_back("encrypt_ak_sk:get_encryption_key", [](auto&& args) {
+        auto* ret = try_any_cast<int*>(args[0]);
+        *ret = 0;
+        auto* key = try_any_cast<std::string*>(args[1]);
+        *key = "selectdbselectdbselectdbselectdb";
+        auto* key_id = try_any_cast<int64_t*>(args[2]);
+        *key_id = 1;
+    });
+    DORIS_CLOUD_DEFER {
+        sp->disable_processing();
+        sp->clear_all_call_backs();
+    };
+
+    {
+        brpc::Controller cntl;
+        CreateInstanceRequest req;
+        req.set_instance_id("drop_test_instance");
+        req.set_user_id("test_user");
+        req.set_name("test_name");
+        ObjectStoreInfoPB obj;
+        obj.set_ak("123");
+        obj.set_sk("321");
+        obj.set_bucket("456");
+        obj.set_prefix("654");
+        obj.set_endpoint("789");
+        obj.set_region("987");
+        obj.set_external_endpoint("888");
+        obj.set_provider(ObjectStoreInfoPB::BOS);
+        req.mutable_obj_info()->CopyFrom(obj);
+        CreateInstanceResponse res;
+        meta_service->create_instance(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    std::string snapshot_id;
+    {
+        brpc::Controller cntl;
+        BeginSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_timeout_seconds(3600);
+        req.set_ttl_seconds(86400);
+        req.set_snapshot_label("drop_test_snap");
+        BeginSnapshotResponse res;
+        meta_service->begin_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        snapshot_id = res.snapshot_id();
+    }
+    {
+        brpc::Controller cntl;
+        CommitSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        req.set_last_journal_id(300);
+        CommitSnapshotResponse res;
+        meta_service->commit_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                      &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Drop the snapshot
+    {
+        brpc::Controller cntl;
+        DropSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        DropSnapshotResponse res;
+        meta_service->drop_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Drop again (idempotent — already in non-NORMAL state)
+    {
+        brpc::Controller cntl;
+        DropSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        req.set_snapshot_id(snapshot_id);
+        DropSnapshotResponse res;
+        meta_service->drop_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        // Either OK (idempotent) or error — depends on implementation
+    }
+
+    // List should not show dropped snapshot
+    {
+        brpc::Controller cntl;
+        ListSnapshotRequest req;
+        req.set_cloud_unique_id(cloud_unique_id);
+        ListSnapshotResponse res;
+        meta_service->list_snapshot(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        for (const auto& snap : res.snapshots()) {
+            ASSERT_NE(snap.snapshot_id(), snapshot_id)
+                    << "dropped snapshot should not appear in list";
+        }
+    }
 }
 
 } // namespace doris::cloud

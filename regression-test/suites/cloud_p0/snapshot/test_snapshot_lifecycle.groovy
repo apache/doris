@@ -190,7 +190,7 @@ suite("test_snapshot_lifecycle") {
                 logger.info("Snapshot ${label1} exists in state: ${rows[0][6]}")
                 snapshot1 = rows[0]
             } else {
-                logger.warn("Snapshot ${label1} not found in information_schema")
+                assertTrue(false, "Snapshot ${label1} not found in information_schema after 180s")
             }
         }
 

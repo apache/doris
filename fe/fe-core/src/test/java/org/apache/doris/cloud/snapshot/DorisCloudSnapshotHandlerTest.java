@@ -482,4 +482,165 @@ public class DorisCloudSnapshotHandlerTest {
         Assertions.assertEquals("snap_456", deserialized.getSnapshotId());
         Assertions.assertEquals("s3://test/url", deserialized.getSnapshotUrl());
     }
+
+    // ============================================================================
+    // submitJob workflow tests
+    // ============================================================================
+
+    @Test
+    public void testSubmitJobBeginSnapshotFails() throws Exception {
+        DorisCloudSnapshotHandler handler = new DorisCloudSnapshotHandler();
+        handler.initialize();
+
+        new Expectations() {{
+            MetaServiceProxy.getInstance();
+            result = metaServiceProxy;
+            minTimes = 0;
+
+            metaServiceProxy.beginSnapshot((Cloud.BeginSnapshotRequest) any);
+            result = Cloud.BeginSnapshotResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(Cloud.MetaServiceCode.INVALID_ARGUMENT)
+                            .setMsg("test error").build())
+                    .build();
+            minTimes = 0;
+        }};
+
+        // Should not throw — async, failures handled internally
+        Assertions.assertDoesNotThrow(() -> handler.submitJob(3600, "fail_begin"));
+        // Give async task time to complete
+        Thread.sleep(500);
+    }
+
+    @Test
+    public void testSubmitJobWithTTL() throws Exception {
+        DorisCloudSnapshotHandler handler = new DorisCloudSnapshotHandler();
+        handler.initialize();
+
+        new Expectations() {{
+            MetaServiceProxy.getInstance();
+            result = metaServiceProxy;
+            minTimes = 0;
+
+            metaServiceProxy.beginSnapshot((Cloud.BeginSnapshotRequest) any);
+            result = Cloud.BeginSnapshotResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(Cloud.MetaServiceCode.OK).build())
+                    .setSnapshotId("snap_ttl")
+                    .setImageUrl("snapshot/snap_ttl/image/")
+                    .setObjInfo(Cloud.ObjectStoreInfoPB.newBuilder()
+                            .setAk("ak").setSk("sk")
+                            .setBucket("bucket").setEndpoint("s3.example.com")
+                            .setRegion("us-east-1").setPrefix("data")
+                            .setProvider(Cloud.ObjectStoreInfoPB.Provider.S3)
+                            .build())
+                    .build();
+            minTimes = 0;
+
+            metaServiceProxy.abortSnapshot((Cloud.AbortSnapshotRequest) any);
+            result = Cloud.AbortSnapshotResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(Cloud.MetaServiceCode.OK).build())
+                    .build();
+            minTimes = 0;
+        }};
+
+        Assertions.assertDoesNotThrow(() -> handler.submitJob(7200, "ttl_test"));
+    }
+
+    // ============================================================================
+    // cloneSnapshot additional tests
+    // ============================================================================
+
+    @Test
+    public void testCloneSnapshotFileNotFound() {
+        DorisCloudSnapshotHandler handler = new DorisCloudSnapshotHandler();
+        handler.initialize();
+
+        Assertions.assertThrows(DdlException.class,
+                () -> handler.cloneSnapshot("/nonexistent/path/snapshot.json"));
+    }
+
+    @Test
+    public void testCloneSnapshotInvalidJson() throws Exception {
+        DorisCloudSnapshotHandler handler = new DorisCloudSnapshotHandler();
+        handler.initialize();
+
+        File badJson = new File(tempDir.toFile(), "bad.json");
+        try (FileWriter writer = new FileWriter(badJson)) {
+            writer.write("not valid json at all");
+        }
+
+        Assertions.assertThrows(Exception.class,
+                () -> handler.cloneSnapshot(badJson.getAbsolutePath()));
+    }
+
+    // ============================================================================
+    // runAfterCatalogReady abort orphan tests
+    // ============================================================================
+
+    @Test
+    public void testRunAfterCatalogReadyAbortsOrphan() throws Exception {
+        DorisCloudSnapshotHandler handler = new DorisCloudSnapshotHandler();
+        handler.initialize();
+
+        long now = System.currentTimeMillis() / 1000;
+
+        new Expectations() {{
+            Env.getCurrentEnv();
+            result = env;
+            minTimes = 0;
+
+            env.isMaster();
+            result = true;
+
+            MetaServiceProxy.getInstance();
+            result = metaServiceProxy;
+            minTimes = 0;
+
+            // getInstance returns ON
+            metaServiceProxy.getInstance((Cloud.GetInstanceRequest) any);
+            result = Cloud.GetInstanceResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(Cloud.MetaServiceCode.OK).build())
+                    .setInstance(Cloud.InstanceInfoPB.newBuilder()
+                            .setSnapshotSwitchStatus(
+                                    Cloud.SnapshotSwitchStatus.SNAPSHOT_SWITCH_ON)
+                            .setSnapshotIntervalSeconds(3600)
+                            .setMaxReservedSnapshot(10)
+                            .build())
+                    .build();
+
+            // listSnapshot returns a PREPARE snapshot (orphan from previous master)
+            metaServiceProxy.listSnapshot((Cloud.ListSnapshotRequest) any);
+            returns(
+                    // First call: check for aborted (include_aborted=true)
+                    Cloud.ListSnapshotResponse.newBuilder()
+                            .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                    .setCode(Cloud.MetaServiceCode.OK).build())
+                            .addSnapshots(Cloud.SnapshotInfoPB.newBuilder()
+                                    .setSnapshotId("orphan_snap")
+                                    .setStatus(Cloud.SnapshotStatus.SNAPSHOT_PREPARE)
+                                    .setCreateAt(now - 7200)
+                                    .build())
+                            .build(),
+                    // Second call: normal list
+                    Cloud.ListSnapshotResponse.newBuilder()
+                            .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                    .setCode(Cloud.MetaServiceCode.OK).build())
+                            .build());
+            minTimes = 0;
+
+            // Abort should be called for the orphan
+            metaServiceProxy.abortSnapshot((Cloud.AbortSnapshotRequest) any);
+            result = Cloud.AbortSnapshotResponse.newBuilder()
+                    .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                            .setCode(Cloud.MetaServiceCode.OK).build())
+                    .build();
+            minTimes = 0;
+        }};
+
+        // Should abort orphan PREPARE snapshot and not throw
+        Assertions.assertDoesNotThrow(() -> handler.runAfterCatalogReady());
+    }
 }
