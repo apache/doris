@@ -821,6 +821,30 @@ Status ScalarColumnWriter::_write_data_page(Page* page) {
     return Status::OK();
 }
 
+Status ScalarColumnWriter::_flush_pages_if_needed() {
+    if (_data_size < config::column_writer_page_flush_threshold) {
+        return Status::OK();
+    }
+    auto offset = _file_writer->bytes_appended();
+    auto collect_uncompressed_bytes = [](const PageFooterPB& footer) {
+        return footer.uncompressed_size() + footer.ByteSizeLong() +
+               sizeof(uint32_t) /* footer size */ + sizeof(uint32_t) /* checksum */;
+    };
+    for (auto& page : _pages) {
+        _total_uncompressed_data_pages_size += collect_uncompressed_bytes(page->footer);
+        RETURN_IF_ERROR(_write_data_page(page.get()));
+    }
+    _total_compressed_data_pages_size += _file_writer->bytes_appended() - offset;
+    LOG(INFO) << fmt::format(
+            "Flushed {} pages for column_id={}, total uncompressed data pages size={}, "
+            "total compressed data pages size={}, flush_data_size={}",
+            _pages.size(), _opts.meta->column_id(), _total_uncompressed_data_pages_size,
+            _total_compressed_data_pages_size, _data_size);
+    _pages.clear();
+    _data_size = 0;
+    return Status::OK();
+}
+
 Status ScalarColumnWriter::finish_current_page() {
     if (_next_rowid == _first_rowid) {
         return Status::OK();
@@ -881,6 +905,7 @@ Status ScalarColumnWriter::finish_current_page() {
     }
 
     _push_back_page(std::move(page));
+    RETURN_IF_ERROR(_flush_pages_if_needed());
     _first_rowid = _next_rowid;
     return Status::OK();
 }

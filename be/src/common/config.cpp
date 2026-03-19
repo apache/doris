@@ -1044,6 +1044,7 @@ DEFINE_mInt32(merged_hdfs_min_io_size, "8192");
 DEFINE_mInt32(orc_natural_read_size_mb, "8");
 DEFINE_mInt64(big_column_size_buffer, "65535");
 DEFINE_mInt64(small_column_size_buffer, "100");
+DEFINE_mInt64(column_writer_page_flush_threshold, "1048576");
 
 // Perform the always_true check at intervals determined by runtime_filter_sampling_frequency
 DEFINE_mInt32(runtime_filter_sampling_frequency, "32");
