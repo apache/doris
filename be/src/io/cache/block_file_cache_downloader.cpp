@@ -258,6 +258,8 @@ void FileCacheBlockDownloader::download_file_cache_block(
                                 .expiration_time = meta.expiration_time(),
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                 .is_warmup = true,
+                                .table_name = "",
+                                .partition_name = "",
                         },
                 .download_done = std::move(download_done),
         };

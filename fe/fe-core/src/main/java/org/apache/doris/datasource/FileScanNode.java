@@ -81,10 +81,42 @@ public abstract class FileScanNode extends ExternalScanNode {
         TFileScanNode fileScanNode = new TFileScanNode();
         fileScanNode.setTupleId(desc.getId().asInt());
         if (desc.getTable() != null) {
-            fileScanNode.setTableName(desc.getTable().getName());
+            fileScanNode.setTableName(desc.getTable().getNameWithFullQualifiers());
         }
         planNode.setFileScanNode(fileScanNode);
         super.toThrift(planNode);
+    }
+
+    public static void fillTablePartitionContext(TFileRangeDesc range, TableIf table, String partitionName) {
+        if (range == null) {
+            return;
+        }
+        if (table != null) {
+            range.setTableName(table.getNameWithFullQualifiers());
+        }
+        if (partitionName != null && !partitionName.isEmpty()) {
+            range.setPartitionName(partitionName);
+        }
+    }
+
+    public static String buildPartitionName(List<String> partitionKeys, List<String> partitionValues) {
+        if (partitionKeys == null || partitionValues == null) {
+            return "";
+        }
+        int count = Math.min(partitionKeys.size(), partitionValues.size());
+        if (count == 0) {
+            return "";
+        }
+        StringBuilder builder = new StringBuilder();
+        for (int i = 0; i < count; i++) {
+            if (i > 0) {
+                builder.append("/");
+            }
+            builder.append(partitionKeys.get(i));
+            builder.append("=");
+            builder.append(partitionValues.get(i));
+        }
+        return builder.toString();
     }
 
     protected void setPushDownCount(long count) {

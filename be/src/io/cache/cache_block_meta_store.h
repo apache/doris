@@ -27,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <variant>
 #include <vector>
@@ -41,14 +42,17 @@ struct BlockMeta {
     FileCacheType type;
     size_t size;
     uint64_t ttl;
+    uint64_t context_id;
 
-    BlockMeta() : type(DISPOSABLE), size(0), ttl(0) {}
-    BlockMeta(FileCacheType type_, size_t size_) : type(type_), size(size_), ttl(0) {}
-    BlockMeta(FileCacheType type_, size_t size_, uint64_t ttl_)
-            : type(type_), size(size_), ttl(ttl_) {}
+    BlockMeta() : type(DISPOSABLE), size(0), ttl(0), context_id(0) {}
+    BlockMeta(FileCacheType type_, size_t size_)
+            : type(type_), size(size_), ttl(0), context_id(0) {}
+    BlockMeta(FileCacheType type_, size_t size_, uint64_t ttl_, uint64_t context_id_ = 0)
+            : type(type_), size(size_), ttl(ttl_), context_id(context_id_) {}
 
     bool operator==(const BlockMeta& other) const {
-        return type == other.type && size == other.size && ttl == other.ttl;
+        return type == other.type && size == other.size && ttl == other.ttl &&
+               context_id == other.context_id;
     }
 };
 
@@ -105,6 +109,12 @@ public:
     // Asynchronously delete specified BlockMeta
     void delete_key(const BlockMetaKey& key);
 
+    // Get or create context id for table/partition
+    uint64_t get_or_create_context_id(std::string_view table_name, std::string_view partition_name);
+
+    // Get table/partition by context id
+    std::optional<std::pair<std::string, std::string>> get_context(uint64_t context_id);
+
     // Clear all records from rocksdb and the async queue
     void clear();
 
@@ -113,12 +123,22 @@ public:
 
 private:
     void async_write_worker();
+    Status _load_next_context_id();
+    static std::string _build_context_key(std::string_view table_name,
+                                          std::string_view partition_name);
+    static std::string _build_context_value(std::string_view table_name,
+                                            std::string_view partition_name);
+    static std::optional<std::pair<std::string, std::string>> _parse_context_value(
+            std::string_view value);
 
     std::string _db_path;
     std::unique_ptr<rocksdb::DB> _db;
     rocksdb::Options _options;
     std::unique_ptr<rocksdb::ColumnFamilyHandle> _file_cache_meta_cf_handle;
+    std::unique_ptr<rocksdb::ColumnFamilyHandle> _context_dict_cf_handle;
     std::atomic<bool> _initialized {false};
+    std::atomic<uint64_t> _next_context_id {1};
+    std::mutex _context_mutex;
 
     enum class OperationType { PUT, DELETE };
     struct WriteOperation {

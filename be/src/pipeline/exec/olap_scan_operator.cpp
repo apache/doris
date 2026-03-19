@@ -483,9 +483,19 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             key_ranges.emplace_back(range.get());
         }
 
+        std::unordered_map<int64_t, std::pair<std::string, std::string>> tablet_contexts;
+        tablet_contexts.reserve(_scan_ranges.size());
+        for (const auto& scan_range : _scan_ranges) {
+            tablet_contexts.emplace(
+                    scan_range->tablet_id,
+                    std::make_pair(
+                            scan_range->__isset.table_name ? scan_range->table_name : "",
+                            scan_range->__isset.partition_name ? scan_range->partition_name : ""));
+        }
+
         ParallelScannerBuilder scanner_builder(this, _tablets, _read_sources, _scanner_profile,
-                                               key_ranges, state(), p._limit, true,
-                                               p._olap_scan_node.is_preaggregation);
+                                               std::move(tablet_contexts), key_ranges, state(),
+                                               p._limit, true, p._olap_scan_node.is_preaggregation);
 
         int max_scanners_count = state()->parallel_scan_max_scanners_count();
 
@@ -562,17 +572,21 @@ Status OlapScanLocalState::_init_scanners(std::list<vectorized::ScannerSPtr>* sc
             for (auto& split : _read_sources[scan_range_idx].rs_splits) {
                 split.rs_reader = split.rs_reader->clone();
             }
+            const auto& scan_range = _scan_ranges[scan_range_idx];
             auto scanner = vectorized::OlapScanner::create_shared(
-                    this, vectorized::OlapScanner::Params {
-                                  state(),
-                                  _scanner_profile.get(),
-                                  scanner_ranges,
-                                  _tablets[scan_range_idx].tablet,
-                                  version,
-                                  _read_sources[scan_range_idx],
-                                  p._limit,
-                                  p._olap_scan_node.is_preaggregation,
-                          });
+                    this,
+                    vectorized::OlapScanner::Params {
+                            state(),
+                            _scanner_profile.get(),
+                            scanner_ranges,
+                            _tablets[scan_range_idx].tablet,
+                            version,
+                            _read_sources[scan_range_idx],
+                            p._limit,
+                            p._olap_scan_node.is_preaggregation,
+                            scan_range->__isset.table_name ? scan_range->table_name : "",
+                            scan_range->__isset.partition_name ? scan_range->partition_name : "",
+                    });
             RETURN_IF_ERROR(scanner->init(state(), _conjuncts));
             scanners->push_back(std::move(scanner));
         }

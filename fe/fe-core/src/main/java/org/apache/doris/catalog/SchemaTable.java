@@ -718,6 +718,8 @@ public class SchemaTable extends Table {
                                     .column("TABLET_ID", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("SIZE", ScalarType.createType(PrimitiveType.BIGINT))
                                     .column("TYPE", ScalarType.createStringType())
+                                    .column("TABLE_NAME", ScalarType.createStringType())
+                                    .column("PARTITION_NAME", ScalarType.createStringType())
                                     .column("REMOTE_PATH", ScalarType.createStringType())
                                     .column("CACHE_PATH", ScalarType.createStringType())
                                     .column("BE_ID", ScalarType.createType(PrimitiveType.BIGINT))

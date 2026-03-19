@@ -931,6 +931,7 @@ Status FileScanner::_get_next_reader() {
 
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
+        _update_io_context_from_range();
 
         if (!_partition_slot_descs.empty()) {
             // we need get partition columns first for runtime filter partition pruning
@@ -1501,6 +1502,7 @@ Status FileScanner::prepare_for_read_lines(const TFileRangeDesc& range) {
     _file_read_time_counter = ADD_TIMER_WITH_LEVEL(_profile, FileReadTimeProfile, 1);
 
     RETURN_IF_ERROR(_init_io_ctx());
+    _update_io_context_from_range();
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->file_reader_stats = _file_reader_stats.get();
     _default_val_row_desc.reset(new RowDescriptor((TupleDescriptor*)_real_tuple_desc));
@@ -1519,6 +1521,7 @@ Status FileScanner::read_lines_from_range(const TFileRangeDesc& range,
                                           const ExternalFileMappingInfo& external_info,
                                           int64_t* init_reader_ms, int64_t* get_block_ms) {
     _current_range = range;
+    _update_io_context_from_range();
     RETURN_IF_ERROR(_generate_partition_columns());
 
     TFileFormatType::type format_type = _get_current_format_type();
@@ -1769,6 +1772,49 @@ void FileScanner::try_stop() {
     if (_io_ctx) {
         _io_ctx->should_stop = true;
     }
+}
+
+void FileScanner::_update_io_context_from_range() {
+    if (!_io_ctx) {
+        return;
+    }
+    if (_current_range.__isset.table_name) {
+        _io_ctx->table_name = _current_range.table_name;
+    } else if (_local_state) {
+        auto& local_state = _local_state->cast<pipeline::FileScanLocalState>();
+        _io_ctx->table_name = local_state.table_name();
+    } else {
+        _io_ctx->table_name.clear();
+    }
+
+    if (_current_range.__isset.partition_name) {
+        _io_ctx->partition_name = _current_range.partition_name;
+    } else {
+        _io_ctx->partition_name = _build_partition_name(_current_range);
+    }
+}
+
+std::string FileScanner::_build_partition_name(const TFileRangeDesc& range) const {
+    if (!range.__isset.columns_from_path_keys || !range.__isset.columns_from_path) {
+        return "";
+    }
+    const auto& keys = range.columns_from_path_keys;
+    const auto& values = range.columns_from_path;
+    const size_t count = std::min(keys.size(), values.size());
+    if (count == 0) {
+        return "";
+    }
+    std::string result;
+    result.reserve(64);
+    for (size_t i = 0; i < count; ++i) {
+        if (i > 0) {
+            result.append("/");
+        }
+        result.append(keys[i]);
+        result.append("=");
+        result.append(values[i]);
+    }
+    return result;
 }
 
 void FileScanner::update_realtime_counters() {

@@ -43,12 +43,13 @@ using ScannerSPtr = std::shared_ptr<vectorized::Scanner>;
 
 class ParallelScannerBuilder {
 public:
-    ParallelScannerBuilder(pipeline::OlapScanLocalState* parent,
-                           const std::vector<TabletWithVersion>& tablets,
-                           std::vector<TabletReadSource>& read_sources,
-                           const std::shared_ptr<RuntimeProfile>& profile,
-                           const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state,
-                           int64_t limit, bool is_dup_mow_key, bool is_preaggregation)
+    ParallelScannerBuilder(
+            pipeline::OlapScanLocalState* parent, const std::vector<TabletWithVersion>& tablets,
+            std::vector<TabletReadSource>& read_sources,
+            const std::shared_ptr<RuntimeProfile>& profile,
+            std::unordered_map<int64_t, std::pair<std::string, std::string>> tablet_contexts,
+            const std::vector<OlapScanRange*>& key_ranges, RuntimeState* state, int64_t limit,
+            bool is_dup_mow_key, bool is_preaggregation)
             : _parent(parent),
               _scanner_profile(profile),
               _state(state),
@@ -57,6 +58,7 @@ public:
               _is_preaggregation(is_preaggregation),
               _tablets(tablets.cbegin(), tablets.cend()),
               _key_ranges(key_ranges.cbegin(), key_ranges.cend()),
+              _tablet_contexts(std::move(tablet_contexts)),
               _read_sources(read_sources) {}
 
     Status build_scanners(std::list<ScannerSPtr>& scanners);
@@ -112,6 +114,7 @@ private:
     bool _is_preaggregation;
     std::vector<TabletWithVersion> _tablets;
     std::vector<OlapScanRange*> _key_ranges;
+    std::unordered_map<int64_t, std::pair<std::string, std::string>> _tablet_contexts;
     std::unordered_map<int64_t, TabletReadSource> _all_read_sources;
     std::vector<TabletReadSource>& _read_sources;
 };

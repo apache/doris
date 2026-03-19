@@ -94,7 +94,9 @@ Status OrdinalIndexReader::_load(bool use_page_cache, bool kept_in_memory,
     OlapReaderStatistics tmp_stats;
     OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
     PageReadOptions opts(io::IOContext {.is_index_data = true,
-                                        .file_cache_stats = &stats_ptr->file_cache_stats});
+                                        .file_cache_stats = &stats_ptr->file_cache_stats,
+                                        .table_name = "",
+                                        .partition_name = ""});
     opts.use_page_cache = use_page_cache;
     opts.kept_in_memory = kept_in_memory;
     opts.type = INDEX_PAGE;

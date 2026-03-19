@@ -197,7 +197,12 @@ Status FSFileCacheStorage::finalize(const FileCacheKey& key, const size_t size) 
     }
 
     BlockMetaKey mkey(key.meta.tablet_id, UInt128Wrapper(key.hash), key.offset);
-    BlockMeta meta(key.meta.type, size, key.meta.expiration_time);
+    uint64_t context_id = 0;
+    if (_meta_store) {
+        context_id =
+                _meta_store->get_or_create_context_id(key.meta.table_name, key.meta.partition_name);
+    }
+    BlockMeta meta(key.meta.type, size, key.meta.expiration_time, context_id);
     _meta_store->put(mkey, meta);
 
     return Status::OK();
@@ -845,6 +850,12 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_db(BlockFileCache* _mg
         ctx.expiration_time = meta_value.ttl;
         ctx.tablet_id =
                 meta_key.tablet_id; //TODO(zhengyu): zero if loaded from v2, we can use this to decide whether the block is loaded from v2 or v3
+        if (meta_value.context_id != 0) {
+            if (auto context = _meta_store->get_context(meta_value.context_id); context) {
+                ctx.table_name = context->first;
+                ctx.partition_name = context->second;
+            }
+        }
         args.ctx = ctx;
 
         args.key_path = "";

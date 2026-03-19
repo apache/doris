@@ -217,6 +217,8 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.output_columns = _read_context->output_columns;
     _read_options.io_ctx.reader_type = _read_context->reader_type;
     _read_options.io_ctx.is_disposable = _read_context->reader_type != ReaderType::READER_QUERY;
+    _read_options.io_ctx.table_name = _read_context->table_name;
+    _read_options.io_ctx.partition_name = _read_context->partition_name;
     _read_options.target_cast_type_for_variants = _read_context->target_cast_type_for_variants;
     if (_read_context->runtime_state != nullptr) {
         _read_options.io_ctx.query_id = &_read_context->runtime_state->query_id();

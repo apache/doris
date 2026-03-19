@@ -18,6 +18,7 @@
 #ifndef DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 #define DORIS_BE_SRC_OLAP_ROWSET_ROWSET_READER_CONTEXT_H
 
+#include <string>
 #include <vector>
 
 #include "io/io_common.h"
@@ -68,6 +69,8 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
+    std::string table_name;
+    std::string partition_name;
     std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
     vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;

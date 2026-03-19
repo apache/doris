@@ -200,6 +200,9 @@ protected:
     int32_t _sequence_col_uid {-1};
 
 private:
+    void _update_io_context_from_range();
+    std::string _build_partition_name(const TFileRangeDesc& range) const;
+
     RuntimeProfile::Counter* _get_block_timer = nullptr;
     RuntimeProfile::Counter* _cast_to_input_block_timer = nullptr;
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;

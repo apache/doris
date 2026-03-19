@@ -94,6 +94,9 @@ struct IOContext {
     bool is_dryrun = false;
     // if `is_warmup` == true, this I/O request is from a warm up task
     bool is_warmup {false};
+    // table/partition context (optional)
+    std::string table_name;
+    std::string partition_name;
 };
 
 } // namespace io

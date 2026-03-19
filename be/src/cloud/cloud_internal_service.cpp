@@ -519,7 +519,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                     .ctx = {.is_index_data = false,
                             .expiration_time = expiration_time,
                             .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                            .is_warmup = true},
+                            .is_warmup = true,
+                            .table_name = "",
+                            .partition_name = ""},
                     .download_done = std::move(download_done),
             };
             g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
@@ -590,7 +592,9 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                         .ctx = {.is_index_data = false, // DORIS-20877
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
-                                .is_warmup = true},
+                                .is_warmup = true,
+                                .table_name = "",
+                                .partition_name = ""},
                         .download_done = std::move(download_done),
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;

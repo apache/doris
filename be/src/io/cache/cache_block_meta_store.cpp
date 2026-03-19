@@ -23,6 +23,7 @@
 #include <rocksdb/db.h>
 #include <rocksdb/filter_policy.h>
 #include <rocksdb/table.h>
+#include <rocksdb/write_batch.h>
 
 #include <algorithm>
 #include <cstring>
@@ -42,6 +43,83 @@
 namespace doris::io {
 
 const std::string FILE_CACHE_META_COLUMN_FAMILY = "file_cache_meta";
+const std::string FILE_CACHE_CONTEXT_DICT_COLUMN_FAMILY = "file_cache_context_dict";
+
+namespace {
+
+constexpr char kContextLookupPrefix = 'K';
+constexpr char kContextIdPrefix = 'I';
+
+void append_u32(std::string* out, uint32_t value) {
+    out->push_back(static_cast<char>((value >> 24) & 0xff));
+    out->push_back(static_cast<char>((value >> 16) & 0xff));
+    out->push_back(static_cast<char>((value >> 8) & 0xff));
+    out->push_back(static_cast<char>(value & 0xff));
+}
+
+void append_u64(std::string* out, uint64_t value) {
+    for (int shift = 56; shift >= 0; shift -= 8) {
+        out->push_back(static_cast<char>((value >> shift) & 0xff));
+    }
+}
+
+std::optional<uint32_t> decode_u32(std::string_view* in) {
+    if (in->size() < sizeof(uint32_t)) {
+        return std::nullopt;
+    }
+    const auto* data = reinterpret_cast<const uint8_t*>(in->data());
+    uint32_t value = (static_cast<uint32_t>(data[0]) << 24) |
+                     (static_cast<uint32_t>(data[1]) << 16) |
+                     (static_cast<uint32_t>(data[2]) << 8) | static_cast<uint32_t>(data[3]);
+    in->remove_prefix(sizeof(uint32_t));
+    return value;
+}
+
+std::optional<uint64_t> decode_u64(std::string_view* in) {
+    if (in->size() < sizeof(uint64_t)) {
+        return std::nullopt;
+    }
+    const auto* data = reinterpret_cast<const uint8_t*>(in->data());
+    uint64_t value = 0;
+    for (size_t i = 0; i < sizeof(uint64_t); ++i) {
+        value = (value << 8) | static_cast<uint64_t>(data[i]);
+    }
+    in->remove_prefix(sizeof(uint64_t));
+    return value;
+}
+
+std::optional<uint64_t> parse_context_lookup_value(std::string_view value) {
+    auto context_id = decode_u64(&value);
+    if (!context_id.has_value() || !value.empty()) {
+        return std::nullopt;
+    }
+    return context_id;
+}
+
+std::string build_context_lookup_value(uint64_t context_id) {
+    std::string value;
+    value.reserve(sizeof(uint64_t));
+    append_u64(&value, context_id);
+    return value;
+}
+
+std::string build_context_id_key(uint64_t context_id) {
+    std::string key;
+    key.reserve(1 + sizeof(uint64_t));
+    key.push_back(kContextIdPrefix);
+    append_u64(&key, context_id);
+    return key;
+}
+
+std::optional<uint64_t> parse_context_id_key(std::string_view key) {
+    if (key.empty() || key.front() != kContextIdPrefix) {
+        return std::nullopt;
+    }
+    key.remove_prefix(1);
+    return parse_context_lookup_value(key);
+}
+
+} // namespace
 
 // bvar metrics for rocksdb operation failures
 bvar::Adder<uint64_t> g_rocksdb_write_failed_num("file_cache_meta_rocksdb_write_failed_num");
@@ -64,6 +142,9 @@ CacheBlockMetaStore::~CacheBlockMetaStore() {
     if (_db) {
         if (_file_cache_meta_cf_handle) {
             _db->DestroyColumnFamilyHandle(_file_cache_meta_cf_handle.release());
+        }
+        if (_context_dict_cf_handle) {
+            _db->DestroyColumnFamilyHandle(_context_dict_cf_handle.release());
         }
         _db->Close();
     }
@@ -99,6 +180,9 @@ Status CacheBlockMetaStore::init() {
     column_families.emplace_back(rocksdb::kDefaultColumnFamilyName, rocksdb::ColumnFamilyOptions());
     // File cache meta column family
     column_families.emplace_back(FILE_CACHE_META_COLUMN_FAMILY, rocksdb::ColumnFamilyOptions());
+    // File cache context dictionary column family
+    column_families.emplace_back(FILE_CACHE_CONTEXT_DICT_COLUMN_FAMILY,
+                                 rocksdb::ColumnFamilyOptions());
 
     std::vector<rocksdb::ColumnFamilyHandle*> handles;
     rocksdb::DB* db_ptr = nullptr;
@@ -112,16 +196,20 @@ Status CacheBlockMetaStore::init() {
     }
     _db.reset(db_ptr);
 
-    // Store the file_cache_meta column family handle
-    // handles[0] is default column family, handles[1] is file_cache_meta
-    if (handles.size() >= 2) {
+    // handles[0] is default column family, handles[1] is file_cache_meta,
+    // handles[2] is file_cache_context_dict
+    if (handles.size() >= 3) {
         _file_cache_meta_cf_handle.reset(handles[1]);
+        _context_dict_cf_handle.reset(handles[2]);
         // Close default column family handle as we won't use it
         _db->DestroyColumnFamilyHandle(handles[0]);
     } else {
-        return Status::InternalError("Failed to get file_cache_meta column family handle");
+        return Status::InternalError(
+                "Failed to get file_cache_meta/file_cache_context_dict "
+                "column family handles");
     }
 
+    RETURN_IF_ERROR(_load_next_context_id());
     _write_thread = std::thread(&CacheBlockMetaStore::async_write_worker, this);
     _initialized.store(true, std::memory_order_release);
 
@@ -342,6 +430,78 @@ void CacheBlockMetaStore::delete_key(const BlockMetaKey& key) {
     _write_queue.enqueue(op);
 }
 
+uint64_t CacheBlockMetaStore::get_or_create_context_id(std::string_view table_name,
+                                                       std::string_view partition_name) {
+    if ((table_name.empty() && partition_name.empty()) || !_db || !_context_dict_cf_handle) {
+        return 0;
+    }
+
+    const std::string lookup_key = _build_context_key(table_name, partition_name);
+    std::string value;
+    rocksdb::Status status =
+            _db->Get(rocksdb::ReadOptions(), _context_dict_cf_handle.get(), lookup_key, &value);
+    if (status.ok()) {
+        auto context_id = parse_context_lookup_value(value);
+        if (context_id.has_value()) {
+            return *context_id;
+        }
+        LOG(WARNING) << "Invalid context lookup value for key";
+    } else if (!status.IsNotFound()) {
+        LOG(WARNING) << "Failed to get context id from rocksdb: " << status.ToString();
+    }
+
+    std::lock_guard<std::mutex> lock(_context_mutex);
+
+    value.clear();
+    status = _db->Get(rocksdb::ReadOptions(), _context_dict_cf_handle.get(), lookup_key, &value);
+    if (status.ok()) {
+        auto context_id = parse_context_lookup_value(value);
+        if (context_id.has_value()) {
+            return *context_id;
+        }
+        LOG(WARNING) << "Invalid context lookup value after retry for key";
+        return 0;
+    }
+    if (!status.IsNotFound()) {
+        LOG(WARNING) << "Failed to get context id from rocksdb after retry: " << status.ToString();
+        return 0;
+    }
+
+    const uint64_t context_id = _next_context_id.fetch_add(1, std::memory_order_acq_rel);
+
+    rocksdb::WriteBatch batch;
+    batch.Put(_context_dict_cf_handle.get(), lookup_key, build_context_lookup_value(context_id));
+    batch.Put(_context_dict_cf_handle.get(), build_context_id_key(context_id),
+              _build_context_value(table_name, partition_name));
+
+    status = _db->Write(rocksdb::WriteOptions(), &batch);
+    if (!status.ok()) {
+        LOG(WARNING) << "Failed to create context id in rocksdb: " << status.ToString();
+        _next_context_id.store(context_id, std::memory_order_release);
+        return 0;
+    }
+
+    return context_id;
+}
+
+std::optional<std::pair<std::string, std::string>> CacheBlockMetaStore::get_context(
+        uint64_t context_id) {
+    if (context_id == 0 || !_db || !_context_dict_cf_handle) {
+        return std::nullopt;
+    }
+
+    std::string value;
+    rocksdb::Status status = _db->Get(rocksdb::ReadOptions(), _context_dict_cf_handle.get(),
+                                      build_context_id_key(context_id), &value);
+    if (status.ok()) {
+        return _parse_context_value(value);
+    }
+    if (!status.IsNotFound()) {
+        LOG(WARNING) << "Failed to get context from rocksdb: " << status.ToString();
+    }
+    return std::nullopt;
+}
+
 void CacheBlockMetaStore::clear() {
     // First, stop the async worker thread
     _stop_worker.store(true, std::memory_order_release);
@@ -366,7 +526,17 @@ void CacheBlockMetaStore::clear() {
         if (!status.ok()) {
             LOG(WARNING) << "Failed to delete range from rocksdb: " << status.ToString();
         }
+        if (_context_dict_cf_handle) {
+            status = _db->DeleteRange(rocksdb::WriteOptions(), _context_dict_cf_handle.get(), start,
+                                      end);
+            if (!status.ok()) {
+                LOG(WARNING) << "Failed to delete context range from rocksdb: "
+                             << status.ToString();
+            }
+        }
     }
+
+    _next_context_id.store(1, std::memory_order_release);
 
     // Restart the async worker thread
     _stop_worker.store(false, std::memory_order_release);
@@ -459,6 +629,9 @@ std::string serialize_value(const BlockMeta& meta) {
     pb.set_type(static_cast<::doris::io::cache::FileCacheType>(meta.type));
     pb.set_size(meta.size);
     pb.set_ttl(meta.ttl);
+    if (meta.context_id != 0) {
+        pb.set_context_id(meta.context_id);
+    }
 
     std::string result;
     pb.SerializeToString(&result);
@@ -543,7 +716,8 @@ std::optional<BlockMeta> deserialize_value(const std::string& value_str, Status*
         }
 
         if (status) *status = Status::OK();
-        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
+        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl(),
+                         pb.has_context_id() ? pb.context_id() : 0);
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf: " << value_str;
@@ -576,12 +750,88 @@ std::optional<BlockMeta> deserialize_value(std::string_view value_view, Status* 
         }
 
         if (status) *status = Status::OK();
-        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl());
+        return BlockMeta(static_cast<FileCacheType>(pb.type()), pb.size(), pb.ttl(),
+                         pb.has_context_id() ? pb.context_id() : 0);
     }
 
     LOG(WARNING) << "Failed to deserialize value as protobuf from string_view";
     if (status) *status = Status::InternalError("Failed to deserialize value");
     return std::nullopt;
+}
+
+Status CacheBlockMetaStore::_load_next_context_id() {
+    if (!_db || !_context_dict_cf_handle) {
+        return Status::OK();
+    }
+
+    std::unique_ptr<rocksdb::Iterator> iter(
+            _db->NewIterator(rocksdb::ReadOptions(), _context_dict_cf_handle.get()));
+    if (!iter) {
+        return Status::InternalError("Failed to create iterator for context dictionary");
+    }
+
+    uint64_t next_context_id = 1;
+    for (iter->SeekToFirst(); iter->Valid(); iter->Next()) {
+        auto key = std::string_view(iter->key().data(), iter->key().size());
+        auto context_id = parse_context_id_key(key);
+        if (context_id.has_value()) {
+            next_context_id = std::max(next_context_id, *context_id + 1);
+        }
+    }
+
+    if (!iter->status().ok()) {
+        return Status::InternalError("Failed to iterate context dictionary: {}",
+                                     iter->status().ToString());
+    }
+
+    _next_context_id.store(next_context_id, std::memory_order_release);
+    return Status::OK();
+}
+
+std::string CacheBlockMetaStore::_build_context_key(std::string_view table_name,
+                                                    std::string_view partition_name) {
+    std::string key;
+    key.reserve(1 + sizeof(uint32_t) * 2 + table_name.size() + partition_name.size());
+    key.push_back(kContextLookupPrefix);
+    append_u32(&key, static_cast<uint32_t>(table_name.size()));
+    key.append(table_name.data(), table_name.size());
+    append_u32(&key, static_cast<uint32_t>(partition_name.size()));
+    key.append(partition_name.data(), partition_name.size());
+    return key;
+}
+
+std::string CacheBlockMetaStore::_build_context_value(std::string_view table_name,
+                                                      std::string_view partition_name) {
+    std::string value;
+    value.reserve(sizeof(uint32_t) * 2 + table_name.size() + partition_name.size());
+    append_u32(&value, static_cast<uint32_t>(table_name.size()));
+    value.append(table_name.data(), table_name.size());
+    append_u32(&value, static_cast<uint32_t>(partition_name.size()));
+    value.append(partition_name.data(), partition_name.size());
+    return value;
+}
+
+std::optional<std::pair<std::string, std::string>> CacheBlockMetaStore::_parse_context_value(
+        std::string_view value) {
+    auto table_name_size = decode_u32(&value);
+    if (!table_name_size.has_value() || value.size() < *table_name_size) {
+        return std::nullopt;
+    }
+    std::string table_name(value.substr(0, *table_name_size));
+    value.remove_prefix(*table_name_size);
+
+    auto partition_name_size = decode_u32(&value);
+    if (!partition_name_size.has_value() || value.size() < *partition_name_size) {
+        return std::nullopt;
+    }
+    std::string partition_name(value.substr(0, *partition_name_size));
+    value.remove_prefix(*partition_name_size);
+
+    if (!value.empty()) {
+        return std::nullopt;
+    }
+
+    return std::make_pair(std::move(table_name), std::move(partition_name));
 }
 
 } // namespace doris::io

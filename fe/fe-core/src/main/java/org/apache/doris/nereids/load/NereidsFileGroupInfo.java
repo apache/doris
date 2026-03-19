@@ -447,6 +447,10 @@ public class NereidsFileGroupInfo {
             rangeDesc.setFileSize(fileStatus.size);
         }
         rangeDesc.setModificationTime(fileStatus.getModificationTime());
+        String partitionName = org.apache.doris.datasource.FileScanNode.buildPartitionName(
+            columnsFromPathKeys, columnsFromPath);
+        org.apache.doris.datasource.FileScanNode.fillTablePartitionContext(
+            rangeDesc, targetTable, partitionName);
         return rangeDesc;
     }
 }

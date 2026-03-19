@@ -53,6 +53,7 @@ public:
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
+    const std::string& table_name() const;
     std::string name_suffix() const override;
     int max_scanners_concurrency(RuntimeState* state) const override;
     int min_scanners_concurrency(RuntimeState* state) const override;
@@ -116,6 +117,10 @@ private:
     const std::string _table_name;
     bool _batch_split_mode = false;
 };
+
+inline const std::string& FileScanLocalState::table_name() const {
+    return _parent->cast<FileScanOperatorX>()._table_name;
+}
 
 #include "common/compile_check_end.h"
 } // namespace doris::pipeline

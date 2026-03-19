@@ -89,6 +89,7 @@ struct TPaloScanRange {
   7: optional list<TKeyRange> partition_column_ranges
   8: optional string index_name
   9: optional string table_name
+  10: optional string partition_name
 }
 
 enum TFileFormatType {
@@ -520,6 +521,8 @@ struct TFileRangeDesc {
     14: optional i64 self_split_weight
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
+    16: optional string table_name;
+    17: optional string partition_name;
 }
 
 struct TSplitSource {
@@ -887,6 +890,7 @@ struct TOlapScanNode {
   20: optional i64 score_sort_limit
   21: optional TSortInfo ann_sort_info
   22: optional i64 ann_sort_limit
+  23: optional string partition_name
 }
 
 struct TEqJoinCondition {

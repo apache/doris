@@ -203,6 +203,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.delete_handler = &_delete_handler;
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
+    _reader_context.table_name = read_params.table_name;
+    _reader_context.partition_name = read_params.partition_name;
     _reader_context.sequence_id_idx = _sequence_col_idx;
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
     _reader_context.merged_rows = &_merged_rows;

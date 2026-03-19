@@ -500,6 +500,8 @@ public class OlapScanNode extends ScanNode {
             );
             paloRange.setVersionHash("");
             paloRange.setTabletId(tabletId);
+            paloRange.setTableName(buildFileCacheTableName());
+            paloRange.setPartitionName(buildFileCachePartitionName(partition));
 
             // random shuffle List && only collect one copy
             //
@@ -1174,11 +1176,14 @@ public class OlapScanNode extends ScanNode {
         } else {
             msg.olap_scan_node.setKeyType(olapTable.getKeysType().toThrift());
         }
-        String tableName = olapTable.getName();
-        if (selectedIndexId != -1) {
-            tableName = tableName + "(" + getSelectedIndexName() + ")";
+        msg.olap_scan_node.setTableName(buildFileCacheTableName());
+        String partitionName = "";
+        if (selectedPartitionIds != null && selectedPartitionIds.size() == 1) {
+            Long partitionId = selectedPartitionIds.iterator().next();
+            Partition partition = olapTable.getPartition(partitionId);
+            partitionName = buildFileCachePartitionName(partition);
         }
-        msg.olap_scan_node.setTableName(tableName);
+        msg.olap_scan_node.setPartitionName(partitionName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
@@ -1193,6 +1198,18 @@ public class OlapScanNode extends ScanNode {
         msg.olap_scan_node.setDistributeColumnIds(new ArrayList<>(distributionColumnIds));
 
         super.toThrift(msg);
+    }
+
+    private String buildFileCacheTableName() {
+        String tableName = olapTable.getNameWithFullQualifiers();
+        if (selectedIndexId != -1) {
+            tableName = tableName + "(" + getSelectedIndexName() + ")";
+        }
+        return tableName;
+    }
+
+    private String buildFileCachePartitionName(Partition partition) {
+        return partition == null ? "" : partition.getName();
     }
 
     @Override

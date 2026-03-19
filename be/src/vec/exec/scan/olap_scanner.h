@@ -69,6 +69,8 @@ public:
         TabletReadSource read_source;
         int64_t limit;
         bool aggregation;
+        std::string table_name;
+        std::string partition_name;
     };
 
     OlapScanner(pipeline::ScanLocalStateBase* parent, Params&& params);

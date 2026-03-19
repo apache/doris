@@ -70,35 +70,15 @@ using ReadSource = TabletReadSource;
 OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
-          _tablet_reader_params({.tablet = std::move(params.tablet),
-                                 .tablet_schema {},
-                                 .aggregation = params.aggregation,
-                                 .version = {0, params.version},
-                                 .start_key {},
-                                 .end_key {},
-                                 .predicates {},
-                                 .function_filters {},
-                                 .delete_predicates {},
-                                 .target_cast_type_for_variants {},
-                                 .all_access_paths {},
-                                 .predicate_access_paths {},
-                                 .rs_splits {},
-                                 .return_columns {},
-                                 .output_columns {},
-                                 .remaining_conjunct_roots {},
-                                 .common_expr_ctxs_push_down {},
-                                 .topn_filter_source_node_ids {},
-                                 .filter_block_conjuncts {},
-                                 .key_group_cluster_key_idxes {},
-                                 .virtual_column_exprs {},
-                                 .vir_cid_to_idx_in_block {},
-                                 .vir_col_idx_to_type {},
-                                 .score_runtime {},
-                                 .collection_statistics {},
-                                 .ann_topn_runtime {},
-                                 .condition_cache_digest = parent->get_condition_cache_digest()}) {
+          _tablet_reader_params() {
+    _tablet_reader_params.tablet = std::move(params.tablet);
+    _tablet_reader_params.aggregation = params.aggregation;
+    _tablet_reader_params.version = {0, params.version};
+    _tablet_reader_params.condition_cache_digest = parent->get_condition_cache_digest();
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
+    _tablet_reader_params.table_name = std::move(params.table_name);
+    _tablet_reader_params.partition_name = std::move(params.partition_name);
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
 }
@@ -297,6 +277,8 @@ Status OlapScanner::prepare() {
                 .query_id = &_state->query_id(),
                 .file_cache_stats = &_tablet_reader->mutable_stats()->file_cache_stats,
                 .is_inverted_index = true,
+                .table_name = _tablet_reader_params.table_name,
+                .partition_name = _tablet_reader_params.partition_name,
         };
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
@@ -416,6 +398,16 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
+    {
+        auto* olap_scan_local_state = (pipeline::OlapScanLocalState*)_local_state;
+        TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
+        if (_tablet_reader_params.table_name.empty() && olap_scan_node.__isset.table_name) {
+            _tablet_reader_params.table_name = olap_scan_node.table_name;
+        }
+        if (_tablet_reader_params.partition_name.empty() && olap_scan_node.__isset.partition_name) {
+            _tablet_reader_params.partition_name = olap_scan_node.partition_name;
+        }
+    }
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;

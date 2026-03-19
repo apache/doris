@@ -134,7 +134,7 @@ public:
         std::string region_buf;
         region_buf.resize(static_cast<size_t>(region_size));
         size_t br = 0;
-        io::IOContext io_ctx {.is_index_data = true};
+        io::IOContext io_ctx {.is_index_data = true, .table_name = "", .partition_name = ""};
         RETURN_IF_ERROR(_file_reader->read_at(_ptrs.region_start, Slice(region_buf), &br, &io_ctx));
         if (br != region_size) {
             return Status::Corruption("short read on meta region");

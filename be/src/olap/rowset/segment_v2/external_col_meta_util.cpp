@@ -124,7 +124,7 @@ Status ExternalColMetaUtil::read_col_meta(const io::FileReaderSPtr& file_reader,
     std::string buf;
     buf.resize(static_cast<size_t>(size));
     size_t meta_read = 0;
-    io::IOContext io_ctx {.is_index_data = true};
+    io::IOContext io_ctx {.is_index_data = true, .table_name = "", .partition_name = ""};
     RETURN_IF_ERROR(file_reader->read_at(pos, Slice(buf.data(), buf.size()), &meta_read, &io_ctx));
     if (meta_read != size) {
         return Status::Corruption("short read ColumnMetaPB: expect={}, actual={}", size, meta_read);

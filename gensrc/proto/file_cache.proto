@@ -59,5 +59,6 @@ message BlockMetaPb {
     optional FileCacheType type = 1;
     optional uint64 size = 2;
     optional uint64 ttl = 3;
+    optional uint64 context_id = 4;
 }
 

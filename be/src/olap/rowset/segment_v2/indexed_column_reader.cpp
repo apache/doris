@@ -121,7 +121,9 @@ Status IndexedColumnReader::read_page(const PagePointer& pp, PageHandle* handle,
     OlapReaderStatistics tmp_stats;
     OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
     PageReadOptions opts(io::IOContext {.is_index_data = true,
-                                        .file_cache_stats = &stats_ptr->file_cache_stats});
+                                        .file_cache_stats = &stats_ptr->file_cache_stats,
+                                        .table_name = "",
+                                        .partition_name = ""});
     opts.use_page_cache = _use_page_cache;
     opts.kept_in_memory = _kept_in_memory;
     opts.pre_decode = pre_decode;

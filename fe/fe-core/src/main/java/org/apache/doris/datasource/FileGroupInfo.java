@@ -428,6 +428,8 @@ public class FileGroupInfo {
             rangeDesc.setFileSize(fileStatus.size);
         }
         rangeDesc.setModificationTime(fileStatus.getModificationTime());
+        String partitionName = FileScanNode.buildPartitionName(columnsFromPathKeys, columnsFromPath);
+        FileScanNode.fillTablePartitionContext(rangeDesc, targetTable, partitionName);
         return rangeDesc;
     }
 }

@@ -500,6 +500,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             rangeDesc.setFsName(fileUri.getScheme() + "://" + fileUri.getAuthority());
         }
         rangeDesc.setModificationTime(fileSplit.getModificationTime());
+        String partitionName = FileScanNode.buildPartitionName(columnsFromPathKeys, columnsFromPath);
+        FileScanNode.fillTablePartitionContext(rangeDesc, desc.getTable(), partitionName);
         return rangeDesc;
     }
 

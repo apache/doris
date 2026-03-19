@@ -34,6 +34,8 @@ std::vector<SchemaScanner::ColumnDesc> SchemaFileCacheInfoScanner::_s_tbls_colum
         {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"SIZE", TYPE_BIGINT, sizeof(int64_t), true},
         {"TYPE", TYPE_STRING, sizeof(StringRef), true},
+        {"TABLE_NAME", TYPE_STRING, sizeof(StringRef), true},
+        {"PARTITION_NAME", TYPE_STRING, sizeof(StringRef), true},
         {"REMOTE_PATH", TYPE_STRING, sizeof(StringRef), true},
         {"CACHE_PATH", TYPE_STRING, sizeof(StringRef), true},
         {"BE_ID", TYPE_BIGINT, sizeof(int64_t), true}};
@@ -69,7 +71,9 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
     }
 
     // Collect all cache entries from all file cache instances
-    std::vector<std::tuple<std::string, int64_t, int64_t, int64_t, int, std::string>> cache_entries;
+    std::vector<std::tuple<std::string, int64_t, int64_t, int64_t, int, std::string, std::string,
+                           std::string>>
+            cache_entries;
 
     // Get all cache instances using the public getter
     const auto& caches = file_cache_factory->get_caches();
@@ -115,10 +119,20 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
 
             // Convert hash to string
             std::string hash_str = key.hash.to_string();
+            std::string table_name;
+            std::string partition_name;
+            if (value.context_id != 0) {
+                if (auto context = meta_store->get_context(value.context_id); context) {
+                    table_name = std::move(context->first);
+                    partition_name = std::move(context->second);
+                }
+            }
 
             // Add to cache entries
             cache_entries.emplace_back(hash_str, static_cast<int64_t>(key.offset), key.tablet_id,
-                                       static_cast<int64_t>(value.size), value.type, cache_path);
+                                       static_cast<int64_t>(value.size), value.type,
+                                       std::move(table_name), std::move(partition_name),
+                                       cache_path);
 
             iterator->next();
         }
@@ -139,7 +153,8 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
 
         for (size_t row_idx = 0; row_idx < row_num; ++row_idx) {
             const auto& entry = cache_entries[row_idx];
-            const auto& [hash, offset, tablet_id, size, type, cache_path] = entry;
+            const auto& [hash, offset, tablet_id, size, type, table_name, partition_name,
+                         cache_path] = entry;
 
             if (col_desc.type == TYPE_STRING) {
                 switch (col_idx) {
@@ -150,10 +165,16 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
                     column_values[row_idx] = doris::io::cache_type_to_string(
                             static_cast<doris::io::FileCacheType>(type));
                     break;
-                case 5:                          // REMOTE_PATH
+                case 5: // TABLE_NAME
+                    column_values[row_idx] = table_name;
+                    break;
+                case 6: // PARTITION_NAME
+                    column_values[row_idx] = partition_name;
+                    break;
+                case 7:                          // REMOTE_PATH
                     column_values[row_idx] = ""; // TODO: Implement remote path retrieval
                     break;
-                case 6: // CACHE_PATH
+                case 8: // CACHE_PATH
                     column_values[row_idx] = cache_path;
                     break;
                 default:
@@ -174,7 +195,7 @@ Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
                 case 3: // SIZE
                     int64_vals[row_idx] = size;
                     break;
-                case 7: // BE_ID
+                case 9: // BE_ID
                     int64_vals[row_idx] = ExecEnv::GetInstance()->cluster_info()->backend_id;
                     break;
                 default:

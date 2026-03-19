@@ -99,7 +99,9 @@ Status _get_segment_column_iterator(const BetaRowsetSharedPtr& rowset, uint32_t 
             .file_reader = segment->file_reader().get(),
             .stats = stats,
             .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
-                                     .file_cache_stats = &stats->file_cache_stats},
+                                     .file_cache_stats = &stats->file_cache_stats,
+                                     .table_name = "",
+                                     .partition_name = ""},
     };
     RETURN_IF_ERROR((*column_iterator)->init(opt));
     return Status::OK();

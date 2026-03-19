@@ -397,7 +397,9 @@ Status Segment::_parse_footer(std::shared_ptr<SegmentFooterPB>& footer,
     size_t bytes_read = 0;
     // TODO(plat1ko): Support session variable `enable_file_cache`
     io::IOContext io_ctx {.is_index_data = true,
-                          .file_cache_stats = stats ? &stats->file_cache_stats : nullptr};
+                          .file_cache_stats = stats ? &stats->file_cache_stats : nullptr,
+                          .table_name = "",
+                          .partition_name = ""};
     RETURN_IF_ERROR(
             _file_reader->read_at(file_size - 12, Slice(fixed_buf, 12), &bytes_read, &io_ctx));
     DCHECK_EQ(bytes_read, 12);
@@ -515,7 +517,9 @@ Status Segment::load_index(OlapReaderStatistics* stats) {
             OlapReaderStatistics tmp_stats;
             OlapReaderStatistics* stats_ptr = stats != nullptr ? stats : &tmp_stats;
             PageReadOptions opts(io::IOContext {.is_index_data = true,
-                                                .file_cache_stats = &stats_ptr->file_cache_stats});
+                                                .file_cache_stats = &stats_ptr->file_cache_stats,
+                                                .table_name = "",
+                                                .partition_name = ""});
             opts.use_page_cache = true;
             opts.type = INDEX_PAGE;
             opts.file_reader = _file_reader.get();
@@ -924,7 +928,9 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
             .stats = storage_read_options.stats,
             .io_ctx = io::IOContext {.reader_type = ReaderType::READER_QUERY,
                                      .file_cache_stats =
-                                             &storage_read_options.stats->file_cache_stats},
+                                             &storage_read_options.stats->file_cache_stats,
+                                     .table_name = "",
+                                     .partition_name = ""},
     };
 
     std::vector<segment_v2::rowid_t> single_row_loc {row_id};
