@@ -17,18 +17,20 @@
 
 import org.apache.doris.regression.suite.ClusterOptions
 
-suite('test_schema_change_waits_for_lagging_base_replica', 'docker') {
+suite('test_schema_change_waits_for_base_replica_catch_up_quorum', 'docker') {
     def options = new ClusterOptions()
     options.beNum = 3
     options.enableDebugPoints()
     options.feConfigs.add('disable_tablet_scheduler=true')
     docker(options) {
-        def blockedBe = cluster.getBeByIndex(1)
-        def normalBe = cluster.getBeByIndex(2)
+        def blockedBe1 = cluster.getBeByIndex(1)
+        def blockedBe2 = cluster.getBeByIndex(2)
+        def normalBe = cluster.getBeByIndex(3)
         def debugToken = 'schema_change_wait_base_replica'
 
         onFinish {
-            blockedBe.clearDebugPoints()
+            blockedBe1.clearDebugPoints()
+            blockedBe2.clearDebugPoints()
         }
 
         sql ''' DROP TABLE IF EXISTS test_schema_change_waits_for_lagging_base_replica '''
@@ -47,8 +49,10 @@ suite('test_schema_change_waits_for_lagging_base_replica', 'docker') {
 
         sql ''' INSERT INTO test_schema_change_waits_for_lagging_base_replica VALUES (1, 10) '''
 
-        blockedBe.enableDebugPoint('EnginePublishVersionTask::execute.enable_spin_wait', ['token': debugToken])
-        blockedBe.enableDebugPoint('EnginePublishVersionTask::execute.block', ['pass_token': 'keep_blocked'])
+        [blockedBe1, blockedBe2].each { be ->
+            be.enableDebugPoint('EnginePublishVersionTask::execute.enable_spin_wait', ['token': debugToken])
+            be.enableDebugPoint('EnginePublishVersionTask::execute.block', ['pass_token': 'keep_blocked'])
+        }
 
         sql ''' SET GLOBAL insert_visible_timeout_ms = 2000 '''
         sql ''' INSERT INTO test_schema_change_waits_for_lagging_base_replica VALUES (2, 20) '''
@@ -60,7 +64,7 @@ suite('test_schema_change_waits_for_lagging_base_replica', 'docker') {
 
         def tabletInfo = sql_return_maparray(
                 ''' SHOW TABLETS FROM test_schema_change_waits_for_lagging_base_replica ''')
-                .find { (it.BackendId as long) == blockedBe.backendId }
+                .find { (it.BackendId as long) == blockedBe1.backendId }
         assertNotNull(tabletInfo)
         def tabletId = tabletInfo.TabletId
 
@@ -68,7 +72,12 @@ suite('test_schema_change_waits_for_lagging_base_replica', 'docker') {
         assertEquals(0, code)
         assertTrue(out.contains('[3-3]'))
 
-        (code, out, err) = be_show_tablet_status(blockedBe.host, blockedBe.httpPort, tabletId)
+        (code, out, err) = be_show_tablet_status(blockedBe1.host, blockedBe1.httpPort, tabletId)
+        assertEquals(0, code)
+        assertTrue(out.contains('[2-2]'))
+        assertFalse(out.contains('[3-3]'))
+
+        (code, out, err) = be_show_tablet_status(blockedBe2.host, blockedBe2.httpPort, tabletId)
         assertEquals(0, code)
         assertTrue(out.contains('[2-2]'))
         assertFalse(out.contains('[3-3]'))
@@ -104,11 +113,11 @@ suite('test_schema_change_waits_for_lagging_base_replica', 'docker') {
         """)
         assertEquals('WAITING_TXN', waitingJobs[0].State)
 
-        blockedBe.clearDebugPoints()
+        blockedBe1.clearDebugPoints()
 
         def publishCaughtUp = false
         for (int i = 0; i < 30; i++) {
-            (code, out, err) = be_show_tablet_status(blockedBe.host, blockedBe.httpPort, tabletId)
+            (code, out, err) = be_show_tablet_status(blockedBe1.host, blockedBe1.httpPort, tabletId)
             assertEquals(0, code)
             if (out.contains('[3-3]')) {
                 publishCaughtUp = true
@@ -117,6 +126,26 @@ suite('test_schema_change_waits_for_lagging_base_replica', 'docker') {
             sleep(1000)
         }
         assertTrue(publishCaughtUp)
+
+        def leftWaitingTxn = false
+        for (int i = 0; i < 30; i++) {
+            def jobs = sql_return_maparray("""
+                SHOW ALTER TABLE COLUMN
+                WHERE TableName = 'test_schema_change_waits_for_lagging_base_replica'
+                ORDER BY CreateTime DESC LIMIT 1
+            """)
+            assertEquals(1, jobs.size())
+            def state = jobs[0].State
+            if (state != 'WAITING_TXN') {
+                leftWaitingTxn = true
+                assertNotEquals('CANCELLED', state)
+                break
+            }
+            sleep(1000)
+        }
+        assertTrue(leftWaitingTxn)
+
+        blockedBe2.clearDebugPoints()
 
         def finished = false
         for (int i = 0; i < 60; i++) {

@@ -517,6 +517,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             Partition partition = tbl.getPartition(partitionId);
             Preconditions.checkNotNull(partition, partitionId);
             long visibleVersion = partition.getVisibleVersion();
+            int requiredReadyReplicaNum = tbl.getPartitionInfo()
+                    .getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
             MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
             Preconditions.checkNotNull(baseIndex, baseIndexId);
             Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
@@ -527,19 +529,25 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         "base tablet does not exist for rollup tablet " + rollupTablet.getId());
                 Tablet baseTablet = baseIndex.getTablet(baseTabletId);
                 Preconditions.checkNotNull(baseTablet, baseTabletId);
+                int readyReplicaNum = 0;
                 for (Replica rollupReplica : rollupTablet.getReplicas()) {
                     long backendId = rollupReplica.getBackendIdWithoutException();
                     Replica baseReplica = baseTablet.getReplicaByBackendId(backendId);
                     Preconditions.checkNotNull(baseReplica,
                             "base replica does not exist on backend " + backendId + " for base tablet "
                                     + baseTabletId);
-                    if (!canWaitBaseReplicaCatchUp(tbl, partition, baseTablet, baseReplica, visibleVersion)) {
-                        LOG.info("wait base replica {} on backend {} to catch up visible version {} before sending "
-                                        + "rollup tasks, job: {}, partition: {}, rollup tablet: {}, base tablet: {}",
-                                baseReplica.getId(), backendId, visibleVersion, jobId, partitionId,
-                                rollupTablet.getId(), baseTabletId);
-                        return false;
+                    if (isReplicaVersionComplete(baseReplica, visibleVersion)) {
+                        readyReplicaNum++;
                     }
+                }
+                if (readyReplicaNum < requiredReadyReplicaNum) {
+                    ensureBaseTabletCatchUpPossible(tbl, partition, baseTablet, visibleVersion);
+                    LOG.info("wait base tablet {} to have enough ready replicas before sending rollup tasks, "
+                                    + "job: {}, partition: {}, rollup tablet: {}, readyReplicaNum: {}, "
+                                    + "requiredReadyReplicaNum: {}, visibleVersion: {}",
+                            baseTabletId, jobId, partitionId, rollupTablet.getId(), readyReplicaNum,
+                            requiredReadyReplicaNum, visibleVersion);
+                    return false;
                 }
             }
         }

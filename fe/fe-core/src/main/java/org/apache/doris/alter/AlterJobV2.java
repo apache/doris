@@ -310,22 +310,17 @@ public abstract class AlterJobV2 implements Writable {
         return replica.getLastFailedVersion() < 0 && replica.checkVersionCatchUp(visibleVersion, false);
     }
 
-    protected boolean canWaitBaseReplicaCatchUp(OlapTable tbl, Partition partition, Tablet baseTablet,
-            Replica baseReplica, long visibleVersion) throws AlterCancelException {
-        if (isReplicaVersionComplete(baseReplica, visibleVersion)) {
-            return true;
-        }
-
+    protected void ensureBaseTabletCatchUpPossible(OlapTable tbl, Partition partition, Tablet baseTablet,
+            long visibleVersion) throws AlterCancelException {
         Tablet.TabletHealth tabletHealth = baseTablet.getHealth(Env.getCurrentSystemInfo(), visibleVersion,
                 tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
                 Env.getCurrentSystemInfo().getAllBackendIds(true));
         if (tabletHealth.status == Tablet.TabletStatus.UNRECOVERABLE) {
             throw new AlterCancelException(String.format(
-                    "base tablet %d is unrecoverable while waiting replica %d on backend %d to catch up version %d",
-                    baseTablet.getId(), baseReplica.getId(), baseReplica.getBackendIdWithoutException(),
+                    "base tablet %d is unrecoverable while waiting it to catch up version %d",
+                    baseTablet.getId(),
                     visibleVersion));
         }
-        return false;
     }
 
     /**

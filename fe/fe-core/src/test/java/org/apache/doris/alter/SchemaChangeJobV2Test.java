@@ -218,7 +218,7 @@ public class SchemaChangeJobV2Test {
     }
 
     @Test
-    public void testSchemaChangeWaitsBaseReplicaCatchUp() throws Exception {
+    public void testSchemaChangeAllowsMinorityLaggingBaseReplica() throws Exception {
         fakeEnv = new FakeEnv();
         fakeEditLog = new FakeEditLog();
         FakeEnv.setEnv(masterEnv);
@@ -250,10 +250,47 @@ public class SchemaChangeJobV2Test {
         }
 
         schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());
+        Assert.assertEquals(3, AgentTaskQueue.getTask(TTaskType.ALTER).size());
+    }
+
+    @Test
+    public void testSchemaChangeWaitsForBaseReplicaCatchUpQuorum() throws Exception {
+        fakeEnv = new FakeEnv();
+        fakeEditLog = new FakeEditLog();
+        FakeEnv.setEnv(masterEnv);
+        SchemaChangeHandler schemaChangeHandler = Env.getCurrentEnv().getSchemaChangeHandler();
+
+        ArrayList<AlterOp> alterOps = new ArrayList<>();
+        alterOps.add(addColumnOp);
+        Database db = masterEnv.getInternalCatalog().getDbOrDdlException(CatalogTestUtil.testDbId1);
+        OlapTable olapTable = (OlapTable) db.getTableOrDdlException(CatalogTestUtil.testTableId1);
+        Partition testPartition = olapTable.getPartition(CatalogTestUtil.testPartitionId1);
+        schemaChangeHandler.process(alterOps, db, olapTable);
+        SchemaChangeJobV2 schemaChangeJob = (SchemaChangeJobV2) schemaChangeHandler.getAlterJobsV2()
+                .values().stream().findAny().get();
+
+        schemaChangeHandler.runAfterCatalogReady();
+        Assert.assertEquals(JobState.WAITING_TXN, schemaChangeJob.getJobState());
+
+        Tablet baseTablet = testPartition.getBaseIndex().getTablets().get(0);
+        List<Replica> baseReplicas = baseTablet.getReplicas();
+        long visibleVersion = testPartition.getVisibleVersion() + 1;
+        testPartition.updateVisibleVersion(visibleVersion);
+        for (int i = 0; i < baseReplicas.size(); i++) {
+            Replica replica = baseReplicas.get(i);
+            if (i == baseReplicas.size() - 1) {
+                replica.updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+            } else {
+                replica.updateVersionWithFailed(visibleVersion - 1, visibleVersion, visibleVersion - 1);
+            }
+        }
+
+        schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.WAITING_TXN, schemaChangeJob.getJobState());
         Assert.assertEquals(0, AgentTaskQueue.getTask(TTaskType.ALTER).size());
 
-        laggingReplica.updateVersionWithFailed(visibleVersion, -1, visibleVersion);
+        baseReplicas.get(0).updateVersionWithFailed(visibleVersion, -1, visibleVersion);
 
         schemaChangeHandler.runAfterCatalogReady();
         Assert.assertEquals(JobState.RUNNING, schemaChangeJob.getJobState());

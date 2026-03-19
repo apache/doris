@@ -608,6 +608,8 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
             Partition partition = tbl.getPartition(partitionId);
             Preconditions.checkNotNull(partition, partitionId);
             long visibleVersion = partition.getVisibleVersion();
+            int requiredReadyReplicaNum = tbl.getPartitionInfo()
+                    .getReplicaAllocation(partition.getId()).getTotalReplicaNum() / 2 + 1;
             Map<Long, MaterializedIndex> shadowIndexMap = partitionIndexMap.row(partitionId);
             for (Map.Entry<Long, MaterializedIndex> entry : shadowIndexMap.entrySet()) {
                 long shadowIdxId = entry.getKey();
@@ -623,20 +625,25 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
                             "origin tablet does not exist for shadow tablet " + shadowTablet.getId());
                     Tablet originTablet = originIdx.getTablet(originTabletId);
                     Preconditions.checkNotNull(originTablet, originTabletId);
+                    int readyReplicaNum = 0;
                     for (Replica shadowReplica : shadowTablet.getReplicas()) {
                         long backendId = shadowReplica.getBackendIdWithoutException();
                         Replica originReplica = originTablet.getReplicaByBackendId(backendId);
                         Preconditions.checkNotNull(originReplica,
                                 "origin replica does not exist on backend " + backendId
                                         + " for origin tablet " + originTabletId);
-                        if (!canWaitBaseReplicaCatchUp(tbl, partition, originTablet, originReplica, visibleVersion)) {
-                            LOG.info("wait origin replica {} on backend {} to catch up visible version {} before "
-                                            + "sending schema change tasks, job: {}, partition: {}, shadow tablet: {}, "
-                                            + "origin tablet: {}",
-                                    originReplica.getId(), backendId, visibleVersion, jobId, partitionId,
-                                    shadowTablet.getId(), originTabletId);
-                            return false;
+                        if (isReplicaVersionComplete(originReplica, visibleVersion)) {
+                            readyReplicaNum++;
                         }
+                    }
+                    if (readyReplicaNum < requiredReadyReplicaNum) {
+                        ensureBaseTabletCatchUpPossible(tbl, partition, originTablet, visibleVersion);
+                        LOG.info("wait origin tablet {} to have enough ready replicas before sending schema "
+                                        + "change tasks, job: {}, partition: {}, shadow tablet: {}, "
+                                        + "readyReplicaNum: {}, requiredReadyReplicaNum: {}, visibleVersion: {}",
+                                originTabletId, jobId, partitionId, shadowTablet.getId(), readyReplicaNum,
+                                requiredReadyReplicaNum, visibleVersion);
+                        return false;
                     }
                 }
             }
