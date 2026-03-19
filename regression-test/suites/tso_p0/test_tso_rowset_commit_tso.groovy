@@ -17,7 +17,7 @@
 
 import org.apache.doris.regression.util.Http
 
-suite("test_tso_rowset_commit_tso") {
+suite("test_tso_rowset_commit_tso", "nonConcurrent") {
     def ret = sql "SHOW FRONTEND CONFIG like '%experimental_enable_feature_tso%';"
     logger.info("${ret}")
     try {

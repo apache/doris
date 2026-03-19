@@ -18,7 +18,7 @@
 import org.apache.doris.regression.util.Http
 import groovy.json.JsonSlurper
 
-suite("test_tso_api") {
+suite("test_tso_api", "nonConcurrent") {
     def ret = sql "SHOW FRONTEND CONFIG like '%experimental_enable_feature_tso%';"
     logger.info("${ret}")
     try {

@@ -113,6 +113,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, const RowsetMetaPB& in) 
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
+    }
 }
 
 void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
@@ -191,6 +194,9 @@ void doris_rowset_meta_to_cloud(RowsetMetaCloudPB* out, RowsetMetaPB&& in) {
     }
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
+    }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
     }
 }
 
@@ -281,6 +287,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, const RowsetMetaCloudPB& in) 
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
     }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
+    }
 }
 
 void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
@@ -358,6 +367,9 @@ void cloud_rowset_meta_to_doris(RowsetMetaPB* out, RowsetMetaCloudPB&& in) {
     }
     if (in.has_job_id()) {
         out->set_job_id(in.job_id());
+    }
+    if (in.has_commit_tso()) {
+        out->set_commit_tso(in.commit_tso());
     }
 }
 
