@@ -195,6 +195,13 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         def schemaCount = sql """SELECT COUNT(*) FROM paimon_jdbc_tbl\$schemas"""
         assertEquals(1, schemaCount.size())
         assertTrue(schemaCount[0][0].toString().toInteger() >= 1)
+
+        def snapshotsDesc = sql """DESC paimon_jdbc_tbl\$snapshots"""
+        assertTrue(snapshotsDesc.toString().contains("snapshot_id"))
+
+        def snapshotsCount = sql """SELECT COUNT(*) FROM paimon_jdbc_tbl\$snapshots"""
+        assertEquals(1, snapshotsCount.size())
+        assertTrue(snapshotsCount[0][0].toString().toInteger() >= 1)
     } finally {
         try {
             sql """SWITCH ${catalogName}"""
