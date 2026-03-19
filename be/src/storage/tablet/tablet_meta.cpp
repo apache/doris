@@ -364,6 +364,7 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
     }
 
+    // Deprecated legacy flatten-nested switch. Distinct from variant_enable_nested_group.
     if (tablet_schema.__isset.variant_enable_flatten_nested) {
         schema->set_enable_variant_flatten_nested(tablet_schema.variant_enable_flatten_nested);
     }

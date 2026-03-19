@@ -18,6 +18,8 @@
 package load
 
 import (
+	"bytes"
+	"compress/gzip"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -52,6 +54,22 @@ func getNode(endpoints []string) (string, error) {
 	}
 
 	return endpointURL.Host, nil
+}
+
+// GzipCompress compresses r into memory and returns a *bytes.Reader of the compressed data.
+// Using *bytes.Reader ensures Go's http.NewRequest automatically sets GetBody, which is
+// required for the HTTP client to replay the body when Doris FE issues a 307 redirect to BE.
+// Callers should call this once before the retry loop to avoid re-compressing on each attempt.
+func GzipCompress(r io.Reader) (*bytes.Reader, error) {
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	if _, err := io.Copy(gz, r); err != nil {
+		return nil, fmt.Errorf("gzip compress: %w", err)
+	}
+	if err := gz.Close(); err != nil {
+		return nil, fmt.Errorf("gzip close: %w", err)
+	}
+	return bytes.NewReader(buf.Bytes()), nil
 }
 
 // CreateStreamLoadRequest creates an HTTP PUT request for Doris stream load
@@ -147,6 +165,15 @@ func buildStreamLoadOptions(cfg *config.Config) map[string]string {
 		result["group_commit"] = "async_mode"
 	case config.OFF:
 		// Don't add group_commit option
+	}
+
+	// Add compress_type header if gzip is enabled.
+	// Warn if user also set compress_type manually in Options to avoid silent conflicts.
+	if cfg.EnableGzip {
+		if _, exists := result["compress_type"]; exists {
+			log.Warnf("Both EnableGzip and Options[\"compress_type\"] are set; EnableGzip takes precedence, overriding to gz")
+		}
+		result["compress_type"] = "gz"
 	}
 
 	return result
