@@ -3295,6 +3295,11 @@ public class Config extends ConfigBase {
             "Whether to enable lazy commit for large transactions in cloud mode. Default is true."})
     public static boolean enable_cloud_txn_lazy_commit = true;
 
+    @ConfField(mutable = true, description = {
+            "Timeout in seconds for waiting publish to complete in async publish mode for MOW tables. "
+                    + "After timeout, commit is still valid and publish continues in background. Default is 300s."})
+    public static int mow_async_publish_publish_timeout_seconds = 300;
+
     @ConfField(mutable = true, masterOnly = true,
             description = {
                     "Whether to immediately reassign tablets to a new BE when the assigned BE is abnormal "

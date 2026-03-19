@@ -3076,6 +3076,35 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
     }
 
     /**
+     * Check if the table has enabled MOW async publish (two-phase commit).
+     * Preconditions: must be Cloud mode + MOW table.
+     *
+     * @return true if enable_mow_async_publish property is set to "true"
+     */
+    public boolean isEnableTwoPhaseCommit() {
+        if (!Config.isCloudMode()) {
+            return false;
+        }
+        if (!isUniqKeyMergeOnWrite()) {
+            return false;
+        }
+        if (tableProperty == null) {
+            return false;
+        }
+        return tableProperty.getEnableMowAsyncPublish();
+    }
+
+    /**
+     * Check if the table is a MOW table with async publish enabled.
+     * This is a convenience method combining isUniqKeyMergeOnWrite() and isEnableTwoPhaseCommit().
+     *
+     * @return true if this is a MOW table with async publish enabled
+     */
+    public boolean isMowAsyncPublish() {
+        return isUniqKeyMergeOnWrite() && isEnableTwoPhaseCommit();
+    }
+
+    /**
      * Check if this is a MOR (Merge-On-Read) table.
      * MOR = UNIQUE_KEYS without merge-on-write enabled.
      */

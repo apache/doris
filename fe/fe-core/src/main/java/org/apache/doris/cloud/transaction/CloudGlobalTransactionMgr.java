@@ -211,6 +211,9 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
     private Map<Long, CommitCostTimeStatistic> commitCostTimeStatisticMap = new ConcurrentHashMap<>();
 
+    // Manager for committed transactions in async publish (two-phase commit) flow
+    private final CommittedTxnManager committedTxnManager = new CommittedTxnManager();
+
     // tableId -> txnId
     private Map<Long, Long> lastTxnIdMap = Maps.newConcurrentMap();
     // txnId -> signature
@@ -220,6 +223,15 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     public AutoPartitionCacheManager getAutoPartitionCacheMgr() {
         return autoPartitionCacheManager;
+    }
+
+    /**
+     * Get the CommittedTxnManager instance for managing async publish transactions.
+     *
+     * @return the CommittedTxnManager
+     */
+    public CommittedTxnManager getCommittedTxnManager() {
+        return committedTxnManager;
     }
 
     public CloudGlobalTransactionMgr() {
@@ -704,42 +716,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             builder.addMowTableIds(olapTable.getId());
         }
 
-        if (txnCommitAttachment != null) {
-            if (txnCommitAttachment instanceof LoadJobFinalOperation) {
-                LoadJobFinalOperation loadJobFinalOperation = (LoadJobFinalOperation) txnCommitAttachment;
-                builder.setCommitAttachment(TxnUtil
-                        .loadJobFinalOperationToPb(loadJobFinalOperation));
-            } else if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
-                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
-                TxnStateChangeCallback cb = callbackFactory.getCallback(rlTaskTxnCommitAttachment.getJobId());
-                if (cb != null) {
-                    // use a temporary transaction state to do before commit check,
-                    // what actually works is the transactionId
-                    TransactionState tmpTxnState = new TransactionState();
-                    tmpTxnState.setTransactionId(transactionId);
-                    cb.beforeCommitted(tmpTxnState);
-                }
-                builder.setCommitAttachment(TxnUtil
-                        .rlTaskTxnCommitAttachmentToPb(rlTaskTxnCommitAttachment));
-            } else if (txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
-                StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachment =
-                            (StreamingTaskTxnCommitAttachment) txnCommitAttachment;
-                TxnStateChangeCallback cb = callbackFactory.getCallback(streamingTaskTxnCommitAttachment.getJobId());
-                TxnCommitAttachment commitAttachment = null;
-                if (cb != null) {
-                    // use a temporary transaction state to do before commit check,
-                    // what actually works is the transactionId
-                    TransactionState tmpTxnState = new TransactionState();
-                    tmpTxnState.setTransactionId(transactionId);
-                    cb.beforeCommitted(tmpTxnState);
-                    commitAttachment = tmpTxnState.getTxnCommitAttachment();
-                }
-                builder.setCommitAttachment(TxnUtil
-                        .streamingTaskTxnCommitAttachmentToPb((StreamingTaskTxnCommitAttachment) commitAttachment));
-            } else {
-                throw new UserException("invalid txnCommitAttachment");
-            }
-        }
+        // Populate commit attachment
+        populateCommitAttachment(builder, transactionId, txnCommitAttachment);
 
         final CommitTxnRequest commitTxnRequest = builder.build();
         executeCommitTxnRequest(commitTxnRequest, transactionId, is2PC, txnCommitAttachment, tabletCommitInfos,
@@ -1774,6 +1752,30 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     public boolean commitAndPublishTransaction(DatabaseIf db, List<Table> tableList, long transactionId,
                                                List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis,
                                                TxnCommitAttachment txnCommitAttachment) throws UserException {
+        // Check if any table has enabled two-phase commit (async publish)
+        boolean hasTwoPhaseTable = tableList.stream()
+                .filter(t -> t instanceof OlapTable)
+                .map(t -> (OlapTable) t)
+                .anyMatch(OlapTable::isEnableTwoPhaseCommit);
+
+        if (hasTwoPhaseTable) {
+            // New async publish flow with two-phase commit
+            return commitAndPublishTwoPhase(db, tableList, transactionId, tabletCommitInfos,
+                    timeoutMillis, txnCommitAttachment);
+        } else {
+            // Original one-phase commit flow (unchanged)
+            return commitAndPublishOnePhase(db, tableList, transactionId, tabletCommitInfos,
+                    timeoutMillis, txnCommitAttachment);
+        }
+    }
+
+    /**
+     * One-phase commit flow for non-async-publish tables.
+     * This is the original commit flow, unchanged for backward compatibility.
+     */
+    private boolean commitAndPublishOnePhase(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
@@ -1805,6 +1807,236 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             afterCommitTransaction(tableList, transactionId);
         }
         return true;
+    }
+
+    /**
+     * Two-phase commit flow for async publish tables.
+     * This is the new flow that separates commit and publish phases.
+     *
+     * Commit phase: lightweight, only updates partition commit versions
+     * Publish phase: async, handles delete bitmap calculation and rowset conversion
+     *
+     * @param db the database
+     * @param tableList list of tables in the transaction
+     * @param transactionId the transaction id
+     * @param tabletCommitInfos list of tablet commit infos
+     * @param timeoutMillis timeout in milliseconds
+     * @param txnCommitAttachment transaction commit attachment
+     * @return true if publish succeeded within timeout, false otherwise
+     * @throws UserException if commit failed
+     */
+    private boolean commitAndPublishTwoPhase(DatabaseIf db, List<Table> tableList, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, long timeoutMillis, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        StopWatch stopWatch = new StopWatch();
+        stopWatch.start();
+
+        // Step 1: Acquire FE commit lock
+        beforeCommitTransaction(tableList, transactionId, timeoutMillis);
+
+        try {
+            // Step 2: Call MS two-phase commit API
+            // This is a lightweight operation: only updates partition commit versions and TxnInfoPB
+            CommitTxnResponse response = callMsTwoPhaseCommit(db.getId(), transactionId,
+                    tabletCommitInfos, txnCommitAttachment);
+
+            // Step 3: Build CommittedTxnEntry and add to memory set
+            Map<Long, Long> partitionCommitVersions = extractPartitionVersions(response);
+            CommittedTxnEntry entry = new CommittedTxnEntry(
+                    transactionId, db.getId(), getSingleTableId(tableList),
+                    partitionCommitVersions, tabletCommitInfos, txnCommitAttachment);
+            committedTxnManager.addCommittedTxn(entry);
+
+        } finally {
+            // Step 4: Release FE commit lock (holding time is very short)
+            afterCommitTransaction(tableList, transactionId);
+            stopWatch.stop();
+            long twoPhaseCommitTime = stopWatch.getTime();
+            LOG.info("two-phase commit transaction {} cost {} ms", transactionId, twoPhaseCommitTime);
+            if (MetricRepo.isInit) {
+                MetricRepo.HISTO_COMMIT_AND_PUBLISH_LATENCY.update(twoPhaseCommitTime);
+            }
+        }
+
+        // Step 5: Wait for publish completion (outside of FE lock)
+        // Import thread waits here, publish happens in background
+        CommittedTxnEntry entry = committedTxnManager.getByTxnId(transactionId);
+        if (entry == null) {
+            throw new UserException("Failed to get committed txn entry for txnId: " + transactionId);
+        }
+
+        boolean completed = false;
+        try {
+            long publishTimeoutMs = (long) Config.mow_async_publish_publish_timeout_seconds * 1000;
+            // If caller provided timeout, use the smaller one
+            if (timeoutMillis > 0 && timeoutMillis < publishTimeoutMs) {
+                publishTimeoutMs = timeoutMillis;
+            }
+
+            completed = entry.awaitPublish(publishTimeoutMs);
+
+            if (!completed) {
+                // Publish timeout, but commit is still valid
+                // Background thread will continue to publish
+                LOG.warn("two-phase publish timeout for txn {}, will continue in background", transactionId);
+                return false;
+            }
+
+            if (!entry.isPublishSucceeded()) {
+                throw new UserException("publish failed for txn " + transactionId
+                        + ": " + entry.getPublishErrorMsg());
+            }
+
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new UserException("Interrupted while waiting for publish completion for txn "
+                    + transactionId, e);
+        } finally {
+            clearTxnLastSignature(db.getId(), transactionId);
+        }
+    }
+
+    /**
+     * Call MS two-phase commit API (enable_mow_async_publish=true).
+     *
+     * @param dbId database id
+     * @param transactionId transaction id
+     * @param tabletCommitInfos tablet commit infos
+     * @param txnCommitAttachment transaction commit attachment
+     * @return CommitTxnResponse with partition commit versions
+     * @throws UserException if RPC failed
+     */
+    private CommitTxnResponse callMsTwoPhaseCommit(long dbId, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        builder.setDbId(dbId)
+                .setTxnId(transactionId)
+                .setIs2Pc(false)
+                .setCloudUniqueId(Config.cloud_unique_id)
+                .setEnableMowAsyncPublish(true);  // Enable async publish
+
+        // Populate commit attachment
+        populateCommitAttachment(builder, transactionId, txnCommitAttachment);
+
+        CommitTxnRequest commitTxnRequest = builder.build();
+        return executeCommitTxnRequestTwoPhase(commitTxnRequest, transactionId, txnCommitAttachment);
+    }
+
+    /**
+     * Populate commit attachment into CommitTxnRequest.Builder.
+     * Shared helper function for both one-phase and two-phase commit.
+     *
+     * @param builder the CommitTxnRequest.Builder to populate
+     * @param transactionId transaction id
+     * @param txnCommitAttachment transaction commit attachment
+     * @throws UserException if attachment type is invalid
+     */
+    private void populateCommitAttachment(CommitTxnRequest.Builder builder, long transactionId,
+            TxnCommitAttachment txnCommitAttachment) throws UserException {
+        if (txnCommitAttachment != null) {
+            if (txnCommitAttachment instanceof LoadJobFinalOperation) {
+                LoadJobFinalOperation loadJobFinalOperation = (LoadJobFinalOperation) txnCommitAttachment;
+                builder.setCommitAttachment(TxnUtil
+                        .loadJobFinalOperationToPb(loadJobFinalOperation));
+            } else if (txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
+                TxnStateChangeCallback cb = callbackFactory.getCallback(rlTaskTxnCommitAttachment.getJobId());
+                if (cb != null) {
+                    TransactionState tmpTxnState = new TransactionState();
+                    tmpTxnState.setTransactionId(transactionId);
+                    cb.beforeCommitted(tmpTxnState);
+                }
+                builder.setCommitAttachment(TxnUtil
+                        .rlTaskTxnCommitAttachmentToPb(rlTaskTxnCommitAttachment));
+            } else if (txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
+                StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachment =
+                        (StreamingTaskTxnCommitAttachment) txnCommitAttachment;
+                TxnStateChangeCallback cb = callbackFactory.getCallback(streamingTaskTxnCommitAttachment.getJobId());
+                TxnCommitAttachment commitAttachment = null;
+                if (cb != null) {
+                    TransactionState tmpTxnState = new TransactionState();
+                    tmpTxnState.setTransactionId(transactionId);
+                    cb.beforeCommitted(tmpTxnState);
+                    commitAttachment = tmpTxnState.getTxnCommitAttachment();
+                }
+                builder.setCommitAttachment(TxnUtil
+                        .streamingTaskTxnCommitAttachmentToPb((StreamingTaskTxnCommitAttachment) commitAttachment));
+            } else {
+                throw new UserException("invalid txnCommitAttachment");
+            }
+        }
+    }
+
+    /**
+     * Execute the two-phase commit request to MS and return the response.
+     *
+     * @param commitTxnRequest the commit request
+     * @param transactionId transaction id
+     * @param txnCommitAttachment transaction commit attachment
+     * @return CommitTxnResponse
+     * @throws UserException if RPC failed
+     */
+    private CommitTxnResponse executeCommitTxnRequestTwoPhase(CommitTxnRequest commitTxnRequest,
+            long transactionId, TxnCommitAttachment txnCommitAttachment) throws UserException {
+        if (DebugPointUtil.isEnable("FE.mow.commit.exception")) {
+            LOG.info("debug point FE.mow.commit.exception, throw e");
+            throw new UserException(InternalErrorCode.INTERNAL_ERR, "debug point FE.mow.commit.exception");
+        }
+
+        try {
+            MetaServiceProxy proxy = new MetaServiceProxy();
+            CommitTxnResponse response = proxy.commitTxn(commitTxnRequest);
+            if (response == null) {
+                throw new UserException("commit txn failed, response is null. txnId=" + transactionId);
+            }
+            if (response.getStatus() != null && response.getStatus().getCode() != MetaServiceCode.OK) {
+                throw new UserException("commit txn failed, txnId=" + transactionId + ", code="
+                        + response.getStatus().getCode() + ", msg=" + response.getStatus().getMsg());
+            }
+            return response;
+        } catch (Exception e) {
+            LOG.error("failed to commit txn to MS, txnId={}", transactionId, e);
+            throw new UserException("failed to commit txn to MS: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Extract partition commit versions from CommitTxnResponse.
+     *
+     * @param response the commit response
+     * @return map of partition id to commit version
+     */
+    private Map<Long, Long> extractPartitionVersions(CommitTxnResponse response) {
+        Map<Long, Long> partitionVersions = new HashMap<>();
+        if (response != null && response.getPartitionIdsCount() == response.getCommitVersionsCount()) {
+            for (int i = 0; i < response.getPartitionIdsCount(); i++) {
+                partitionVersions.put(response.getPartitionIds(i), response.getCommitVersions(i));
+            }
+        }
+        return partitionVersions;
+    }
+
+    /**
+     * Get single table id from table list.
+     * For two-phase commit, we currently support single-table transactions.
+     *
+     * @param tableList list of tables
+     * @return the single table id
+     * @throws UserException if table list is empty or has multiple tables
+     */
+    private long getSingleTableId(List<Table> tableList) throws UserException {
+        if (tableList == null || tableList.isEmpty()) {
+            throw new UserException("Table list is empty");
+        }
+        if (tableList.size() > 1) {
+            // Currently only support single-table transactions for async publish
+            // TODO: support multi-table transactions
+            throw new UserException("Multi-table transactions are not supported for async publish yet");
+        }
+        return tableList.get(0).getId();
     }
 
     @Override

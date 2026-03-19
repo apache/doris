@@ -104,6 +104,9 @@ public class TableProperty implements GsonPostProcessable {
 
     private boolean skipWriteIndexOnLoad = false;
 
+    // Enable async publish for MOW tables in Cloud mode
+    private boolean enableMowAsyncPublish = false;
+
     private long rowStorePageSize = PropertyAnalyzer.ROW_STORE_PAGE_SIZE_DEFAULT_VALUE;
 
     private long storagePageSize = PropertyAnalyzer.STORAGE_PAGE_SIZE_DEFAULT_VALUE;
@@ -929,6 +932,7 @@ public class TableProperty implements GsonPostProcessable {
         buildReplicaAllocation();
         buildTDEAlgorithm();
         buildColumnSeqMapping();
+        buildEnableMowAsyncPublish();
     }
 
     // For some historical reason,
@@ -963,5 +967,40 @@ public class TableProperty implements GsonPostProcessable {
         } catch (JsonProcessingException e) {
             throw new IOException(e);
         }
+    }
+
+    // ---- enable_mow_async_publish ----
+
+    /**
+     * Build enableMowAsyncPublish from properties map.
+     * Called during gsonPostProcess() to restore the field from serialized properties.
+     */
+    private void buildEnableMowAsyncPublish() {
+        try {
+            this.enableMowAsyncPublish = PropertyAnalyzer.analyzeEnableMowAsyncPublish(properties);
+        } catch (AnalysisException e) {
+            LOG.error("failed to build enableMowAsyncPublish", e);
+            this.enableMowAsyncPublish = false;
+        }
+    }
+
+    /**
+     * Check if the table has enabled MOW async publish.
+     *
+     * @return true if enable_mow_async_publish property is set to "true"
+     */
+    public boolean getEnableMowAsyncPublish() {
+        return enableMowAsyncPublish;
+    }
+
+    /**
+     * Set enable_mow_async_publish property.
+     * Called during CREATE TABLE or ALTER TABLE.
+     *
+     * @param enable whether to enable MOW async publish
+     */
+    public void setEnableMowAsyncPublish(boolean enable) {
+        properties.put(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH, Boolean.toString(enable));
+        this.enableMowAsyncPublish = enable;
     }
 }

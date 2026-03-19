@@ -235,6 +235,12 @@ public class PropertyAnalyzer {
     // display/DORIS/DSIP-018%3A+Support+Merge-On-Write+implementation+for+UNIQUE+KEY+data+model)
     public static final String ENABLE_UNIQUE_KEY_MERGE_ON_WRITE = "enable_unique_key_merge_on_write";
     public static final String ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN = "enable_unique_key_skip_bitmap_column";
+
+    // Enable async publish for MOW tables in Cloud mode
+    // When enabled, the commit phase is lightweight (only updates partition commit versions)
+    // and the publish phase (delete bitmap calculation + rowset conversion) runs asynchronously
+    public static final String ENABLE_MOW_ASYNC_PUBLISH = "enable_mow_async_publish";
+
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     public static final String COMMA_SEPARATOR = ",";
     private static final double MAX_FPP = 0.05;
@@ -1831,6 +1837,31 @@ public class PropertyAnalyzer {
         }
         throw new AnalysisException(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN
                 + " must be `true` or `false`");
+    }
+
+    /**
+     * Analyze enable_mow_async_publish property.
+     * This property enables async publish for MOW tables in Cloud mode.
+     *
+     * @param properties the properties map from CREATE TABLE or ALTER TABLE statement
+     * @return true if enable_mow_async_publish is set to "true", false otherwise
+     * @throws AnalysisException if the value is not "true" or "false"
+     */
+    public static boolean analyzeEnableMowAsyncPublish(Map<String, String> properties) throws AnalysisException {
+        if (properties == null || properties.isEmpty()) {
+            return false;
+        }
+        String value = properties.get(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH);
+        if (value == null) {
+            return false;
+        }
+        properties.remove(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH);
+        if (value.equalsIgnoreCase("true")) {
+            return true;
+        } else if (value.equalsIgnoreCase("false")) {
+            return false;
+        }
+        throw new AnalysisException(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH + " must be `true` or `false`");
     }
 
     public static boolean analyzeEnableDeleteOnDeletePredicate(Map<String, String> properties,
