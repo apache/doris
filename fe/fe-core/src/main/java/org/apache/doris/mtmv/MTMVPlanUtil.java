@@ -45,6 +45,7 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -62,6 +63,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -80,8 +82,11 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -95,6 +100,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -130,6 +136,43 @@ public class MTMVPlanUtil {
         // After 1, this logic is no longer needed. This is to be compatible with older versions
         setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    /**
+     * Execute a Nereids command in an MTMV context with optional audit logging.
+     *
+     * @param mtmv           the materialized view
+     * @param command        the command to execute
+     * @param stmtCtx        pre-configured StatementContext (may contain snapshots, predicates, etc.)
+     * @param auditStmt      descriptive string for audit log; null to skip audit logging
+     * @param ctxCustomizer  optional callback to customize ConnectContext before execution (e.g. session variables)
+     * @return the StmtExecutor used (caller may extract queryId or stats)
+     */
+    public static StmtExecutor executeCommand(MTMV mtmv, Command command,
+            StatementContext stmtCtx, @Nullable String auditStmt,
+            @Nullable Consumer<ConnectContext> ctxCustomizer) throws Exception {
+        ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        ctx.setStatementContext(stmtCtx);
+        ctx.getState().setNereids(true);
+        if (ctxCustomizer != null) {
+            ctxCustomizer.accept(ctx);
+        }
+        StmtExecutor executor = new StmtExecutor(ctx,
+                new LogicalPlanAdapter(command, stmtCtx));
+        ctx.setExecutor(executor);
+        ctx.setQueryId(AbstractTask.generateQueryId());
+        try {
+            command.run(ctx, executor);
+            if (ctx.getState().getStateType() != MysqlStateType.OK) {
+                throw new UserException(ctx.getState().getErrorMessage());
+            }
+        } finally {
+            if (auditStmt != null) {
+                AuditLogHelper.logAuditLog(ctx, auditStmt,
+                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+            }
+        }
+        return executor;
     }
 
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
