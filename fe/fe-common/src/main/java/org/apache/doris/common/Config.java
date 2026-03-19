@@ -3261,8 +3261,8 @@ public class Config extends ConfigBase {
     public static boolean enable_commit_lock_for_all_tables = true;
 
     @ConfField(mutable = true, description = {
-            "Whether to enable lazy commit for large transactions in cloud mode. Default is false."})
-    public static boolean enable_cloud_txn_lazy_commit = false;
+            "Whether to enable lazy commit for large transactions in cloud mode. Default is true."})
+    public static boolean enable_cloud_txn_lazy_commit = true;
 
     @ConfField(mutable = true, masterOnly = true,
             description = {
