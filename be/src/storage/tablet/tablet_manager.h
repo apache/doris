@@ -73,7 +73,7 @@ public:
     // Drop a tablet by description.
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition,
-                        bool is_force = false);
+                       bool is_force = false);
 
     // Find two tablets.
     // One with the highest score to execute single compaction,
