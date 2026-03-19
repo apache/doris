@@ -96,6 +96,11 @@ public class MaxComputeJniWriter extends JniWriter {
     private static final String MAX_WRITE_BATCH_ROWS = "max_write_batch_rows";
 
     private final Map<String, String> params;
+
+    // 1GB safety threshold — Arrow VarCharVector uses int32 offsets,
+    // so total bytes per column per batch must stay below ~2.1GB.
+    private static final long MAX_ARROW_BATCH_BYTES = 1_073_741_824L;
+
     private final String endpoint;
     private final String project;
     private final String tableName;
@@ -215,34 +220,206 @@ public class MaxComputeJniWriter extends JniWriter {
         }
 
         try {
-            Object[][] data = inputTable.getMaterializedData();
+            // Materialize and write data in chunks to avoid Java heap OOM.
+            // getMaterializedData() copies off-heap data to Java heap as Object[].
+            // For large String columns, each row can consume ~1MB of heap.
+            // We limit each chunk to fit within available heap memory.
+            int materializeChunkRows = computeSafeMaterializeRows(inputTable, numRows, numCols);
 
-            // Split large batches into smaller chunks to avoid 413 Request Entity Too Large
             int rowOffset = 0;
             while (rowOffset < numRows) {
-                int batchRows = Math.min(maxWriteBatchRows, numRows - rowOffset);
+                int chunkRows = Math.min(materializeChunkRows, numRows - rowOffset);
 
-                VectorSchemaRoot root = batchWriter.newElement();
-                try {
-                    root.setRowCount(batchRows);
+                // Materialize only this chunk's data from off-heap to Java heap
+                Object[][] chunkData = inputTable.getMaterializedData(
+                        rowOffset, rowOffset + chunkRows, java.util.Collections.emptyMap());
 
-                    for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
-                        OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
-                        fillArrowVector(root, col, odpsType, data[col], rowOffset, batchRows);
-                    }
-
-                    batchWriter.write(root);
-                } finally {
-                    root.close();
+                if (LOG.isDebugEnabled()) {
+                    Runtime rt = Runtime.getRuntime();
+                    LOG.debug("writeInternal: chunk rowOffset=" + rowOffset
+                            + ", chunkRows=" + chunkRows + " of " + numRows
+                            + ", heapUsed=" + ((rt.totalMemory() - rt.freeMemory()) / 1024 / 1024) + "MB"
+                            + ", heapMax=" + (rt.maxMemory() / 1024 / 1024) + "MB");
                 }
-                writtenRows += batchRows;
-                rowOffset += batchRows;
+
+                // Further split this chunk if variable-width bytes exceed Arrow's int32 limit.
+                // Note: chunkData is indexed from 0, so we pass chunkRowOffset=0.
+                int chunkOffset = 0;
+                while (chunkOffset < chunkRows) {
+                    int batchRows = Math.min(chunkRows - chunkOffset, maxWriteBatchRows);
+
+                    batchRows = limitWriteBatchByBytes(chunkData, numCols, chunkOffset, batchRows);
+
+                    VectorSchemaRoot root = batchWriter.newElement();
+                    try {
+                        root.setRowCount(batchRows);
+
+                        for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
+                            OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
+                            fillArrowVector(root, col, odpsType, chunkData[col],
+                                    chunkOffset, batchRows);
+                        }
+
+                        batchWriter.write(root);
+                    } finally {
+                        root.close();
+                    }
+                    writtenRows += batchRows;
+                    chunkOffset += batchRows;
+                }
+
+                rowOffset += chunkRows;
+                // chunkData goes out of scope here, eligible for GC
             }
         } catch (Exception e) {
             String errorMsg = "Failed to write data to MaxCompute table " + project + "." + tableName;
             LOG.error(errorMsg, e);
             throw new IOException(errorMsg, e);
         }
+    }
+
+    /**
+     * Compute a safe number of rows to materialize at once based on available
+     * Java heap memory. For tables with large String columns, materializing all
+     * rows at once can cause OOM (e.g., 1790 rows × 600KB = 1.5GB heap spike).
+     *
+     * Strategy: materialize a small probe batch (10 rows), measure actual heap
+     * growth, then compute safe chunk size to fit within 1/4 of free heap.
+     */
+    private int computeSafeMaterializeRows(VectorTable inputTable, int numRows, int numCols) {
+        if (numRows == 0) {
+            return maxWriteBatchRows;
+        }
+
+        // Check if there are variable-width columns
+        boolean hasVarWidth = false;
+        for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
+            if (isVariableWidthType(columnTypeInfos.get(col).getOdpsType())) {
+                hasVarWidth = true;
+                break;
+            }
+        }
+        if (!hasVarWidth) {
+            return maxWriteBatchRows;
+        }
+
+        // Probe: materialize a small sample to measure actual heap cost per row
+        int probeRows = Math.min(10, numRows);
+        Runtime rt = Runtime.getRuntime();
+        rt.gc(); // Request GC to get a cleaner measurement
+        long heapBefore = rt.totalMemory() - rt.freeMemory();
+
+        // Materialize and immediately discard the probe data
+        Object[][] probeData = inputTable.getMaterializedData(
+                0, probeRows, java.util.Collections.emptyMap());
+        long heapAfter = rt.totalMemory() - rt.freeMemory();
+        // Null out to help GC
+        probeData = null;
+
+        long probeHeapCost = heapAfter - heapBefore;
+        long bytesPerRow;
+        if (probeHeapCost > 0 && probeRows > 0) {
+            bytesPerRow = probeHeapCost / probeRows;
+        } else {
+            // Fallback: use conservative estimate of 1MB per row
+            bytesPerRow = 1024 * 1024;
+        }
+
+        // Compute safe rows based on available heap
+        // Use at most 1/4 of max heap for materialized data (conservative)
+        long maxHeap = rt.maxMemory();
+        long materializeBudget = maxHeap / 4;
+
+        int safeRows = (int) Math.min(maxWriteBatchRows,
+                Math.max(1, materializeBudget / Math.max(1, bytesPerRow)));
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("computeSafeMaterializeRows: probeRows=" + probeRows
+                    + ", probeHeapCost=" + (probeHeapCost / 1024) + "KB"
+                    + ", bytesPerRow=" + (bytesPerRow / 1024) + "KB"
+                    + ", maxHeap=" + (maxHeap / 1024 / 1024) + "MB"
+                    + ", materializeBudget=" + (materializeBudget / 1024 / 1024) + "MB"
+                    + ", safeRows=" + safeRows);
+        }
+
+        return safeRows;
+    }
+
+    /**
+     * Limit the write batch size so that no single variable-width column exceeds
+     * MAX_ARROW_BATCH_BYTES. This prevents Arrow VarCharVector's int32 offset overflow.
+     *
+     * Estimates byte sizes from the materialized Object[][] data (byte[].length or
+     * String.getBytes().length) without copying data.
+     */
+    private int limitWriteBatchByBytes(Object[][] data, int numCols, int rowOffset, int batchRows) {
+        for (int col = 0; col < numCols && col < columnTypeInfos.size(); col++) {
+            OdpsType odpsType = columnTypeInfos.get(col).getOdpsType();
+            if (!isVariableWidthType(odpsType)) {
+                continue;
+            }
+            // Estimate bytes for this column and adjust batchRows if needed
+            batchRows = findMaxRowsForColumn(data[col], rowOffset, batchRows, MAX_ARROW_BATCH_BYTES);
+            if (batchRows <= 1) {
+                return Math.max(1, batchRows);
+            }
+        }
+        return batchRows;
+    }
+
+    private boolean isVariableWidthType(OdpsType type) {
+        return type == OdpsType.STRING || type == OdpsType.VARCHAR
+                || type == OdpsType.CHAR || type == OdpsType.BINARY;
+    }
+
+    /**
+     * Find the maximum number of rows (starting at rowOffset) whose total byte size
+     * fits within the given budget. Uses binary-search-like halving for efficiency.
+     */
+    private int findMaxRowsForColumn(Object[] colData, int rowOffset, int maxRows, long budget) {
+        long totalBytes = estimateColumnBytes(colData, rowOffset, maxRows);
+        if (totalBytes <= budget) {
+            return maxRows;
+        }
+        // Iteratively halve until we fit, then try to expand
+        int rows = maxRows;
+        while (rows > 1) {
+            rows = rows / 2;
+            totalBytes = estimateColumnBytes(colData, rowOffset, rows);
+            if (totalBytes <= budget) {
+                // Try to expand a bit — find the exact cutoff
+                int lo = rows;
+                int hi = Math.min(rows * 2, maxRows);
+                while (lo < hi) {
+                    int mid = lo + (hi - lo + 1) / 2;
+                    if (estimateColumnBytes(colData, rowOffset, mid) <= budget) {
+                        lo = mid;
+                    } else {
+                        hi = mid - 1;
+                    }
+                }
+                return lo;
+            }
+        }
+        // Even 1 row may exceed budget — allow it to make progress
+        return 1;
+    }
+
+    private long estimateColumnBytes(Object[] colData, int rowOffset, int rows) {
+        long total = 0;
+        for (int i = rowOffset; i < rowOffset + rows && i < colData.length; i++) {
+            if (colData[i] == null) {
+                continue;
+            }
+            if (colData[i] instanceof byte[]) {
+                total += ((byte[]) colData[i]).length;
+            } else {
+                // Estimate UTF-8 bytes: worst case is 3x for CJK, but typical is ~1x-1.5x
+                // Use 3x to be safe since we have a generous 1GB budget
+                total += (long) colData[i].toString().length() * 3;
+            }
+        }
+        return total;
     }
 
     private void fillArrowVector(VectorSchemaRoot root, int colIdx, OdpsType odpsType,
