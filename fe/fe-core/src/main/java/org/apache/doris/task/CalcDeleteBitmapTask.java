@@ -120,4 +120,12 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     public boolean isFinished() {
         return isFinished;
     }
+
+    /**
+     * Whether this task is in async publish mode (no synchronous latch waiting).
+     * In async mode, the task stays in AgentTaskQueue on failure for auto-retry.
+     */
+    public boolean isAsyncPublish() {
+        return latch == null;
+    }
 }

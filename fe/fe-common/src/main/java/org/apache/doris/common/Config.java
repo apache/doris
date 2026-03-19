@@ -3301,6 +3301,14 @@ public class Config extends ConfigBase {
     public static int mow_async_publish_publish_timeout_seconds = 300;
 
     @ConfField(mutable = true, masterOnly = true,
+            description = {"CloudPublishDaemon scheduling interval in milliseconds. Default is 100ms."})
+    public static long cloud_publish_interval_ms = 100;
+
+    @ConfField(mutable = true, masterOnly = true,
+            description = {"Thread pool size for cloud publish executor. Default is 32."})
+    public static int cloud_publish_thread_pool_size = 32;
+
+    @ConfField(mutable = true, masterOnly = true,
             description = {
                     "Whether to immediately reassign tablets to a new BE when the assigned BE is abnormal "
                             + "in cloud mode. Default is false."})

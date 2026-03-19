@@ -703,30 +703,69 @@ public class MasterImpl {
     }
 
     private void finishCalcDeleteBitmap(AgentTask task, TFinishTaskRequest request) {
-        // if we get here, this task will be removed from AgentTaskQueue for certain.
-        // because in this function, the only problem that cause failure is meta missing.
-        // and if meta is missing, we no longer need to resend this task
+        CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
+
+        if (calcDeleteBitmapTask.isAsyncPublish()) {
+            finishCalcDeleteBitmapAsync(calcDeleteBitmapTask, request);
+        } else {
+            finishCalcDeleteBitmapSync(calcDeleteBitmapTask, request);
+        }
+    }
+
+    /**
+     * Async publish mode: on success mark finished and remove from queue;
+     * on failure keep in queue for heartbeat auto-retry.
+     */
+    private void finishCalcDeleteBitmapAsync(CalcDeleteBitmapTask task, TFinishTaskRequest request) {
+        if (request.isSetRespPartitions()
+                && task.isFinishRequestStale(request.getRespPartitions())) {
+            LOG.warn("async publish: stale response from be={}, txn_id={}, will auto-retry",
+                    task.getBackendId(), task.getTransactionId());
+            return;
+        }
+
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            LOG.warn("async publish calc delete bitmap failed, will auto-retry. txn_id={}, be={}, err={}",
+                    task.getTransactionId(), task.getBackendId(),
+                    request.getTaskStatus().getErrorMsgs());
+            return;
+        }
+
+        // Success: mark finished and remove from queue
+        task.setIsFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CALCULATE_DELETE_BITMAP,
+                task.getSignature());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("async publish finish calc delete bitmap. txn_id={}, be={}",
+                    task.getTransactionId(), task.getBackendId());
+        }
+    }
+
+    /**
+     * Sync (original) mode: always remove from queue, count down latch.
+     */
+    private void finishCalcDeleteBitmapSync(CalcDeleteBitmapTask calcDeleteBitmapTask,
+            TFinishTaskRequest request) {
         try {
-            CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
-            // check if the request is stale first, if so, let it retry regardless of the status code
             if (request.isSetRespPartitions()
                     && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
                 LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"
-                        + "partitionInfos: {}. response's partitionInfos: {}", task.getBackendId(),
-                                request.getReportVersion(),
-                                        calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
-                                                request.getRespPartitions().toString());
-                // DELETE_BITMAP_LOCK_ERROR will be retried
+                        + "partitionInfos: {}. response's partitionInfos: {}",
+                        calcDeleteBitmapTask.getBackendId(), request.getReportVersion(),
+                        calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
+                        request.getRespPartitions().toString());
                 calcDeleteBitmapTask.countDownToZero(TStatusCode.DELETE_BITMAP_LOCK_ERROR,
-                        "get staled response from backend " + task.getBackendId() + ", report version: "
-                                + request.getReportVersion());
+                        "get staled response from backend " + calcDeleteBitmapTask.getBackendId()
+                                + ", report version: " + request.getReportVersion());
             } else if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
                 calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
+                        "backend: " + calcDeleteBitmapTask.getBackendId()
+                                + ", error_tablet_size: " + request.getErrorTabletIdsSize()
                                 + ", error_tablets: " + request.getErrorTabletIds()
                                 + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
             } else {
-                calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
+                calcDeleteBitmapTask.countDownLatch(calcDeleteBitmapTask.getBackendId(),
+                        calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("finish calc delete bitmap. transaction id: {}, be: {}, report version: {}",
                             calcDeleteBitmapTask.getTransactionId(), calcDeleteBitmapTask.getBackendId(),
@@ -734,7 +773,8 @@ public class MasterImpl {
                 }
             }
         } finally {
-            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CALCULATE_DELETE_BITMAP, task.getSignature());
+            AgentTaskQueue.removeTask(calcDeleteBitmapTask.getBackendId(),
+                    TTaskType.CALCULATE_DELETE_BITMAP, calcDeleteBitmapTask.getSignature());
         }
     }
 }
