@@ -42,6 +42,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TStorageMedium;
@@ -641,10 +642,19 @@ public class DynamicPartitionUtil {
         }
         expectCreatePartitionNum = (long) end - start;
 
-        if (!isReplay && hasEnd && (expectCreatePartitionNum > Config.max_dynamic_partition_num)
+        if (!isReplay && hasEnd
                 && Boolean.parseBoolean(analyzedProperties.getOrDefault(DynamicPartitionProperty.ENABLE, "true"))) {
-            throw new DdlException("Too many dynamic partitions: "
-                    + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
+            if (expectCreatePartitionNum > Config.max_dynamic_partition_num) {
+                throw new DdlException("Too many dynamic partitions: "
+                        + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
+            } else if (expectCreatePartitionNum > Config.max_dynamic_partition_num * 0.8) {
+                LOG.warn("Dynamic partition count {} is approaching limit {} (>80%)."
+                                + " Consider increasing max_dynamic_partition_num.",
+                        expectCreatePartitionNum, Config.max_dynamic_partition_num);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT.increase(1L);
+                }
+            }
         }
 
         if (properties.containsKey(DynamicPartitionProperty.START_DAY_OF_MONTH)) {
