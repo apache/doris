@@ -45,10 +45,11 @@ import java.util.stream.Collectors;
 
 /**
  * Normalizes the MV define plan for IVM at both CREATE MV and REFRESH MV time.
- * - Injects __IVM_ROW_ID__ at index 0 of each OlapScan output via a wrapping LogicalProject:
- *   - MOW (UNIQUE_KEYS + merge-on-write): Alias(cast(murmur_hash3_64(uk...) as LargeInt), "__IVM_ROW_ID__")
+ * - Injects __DORIS_IVM_ROW_ID_COL__ at index 0 of each OlapScan output via a wrapping LogicalProject:
+ *   - MOW (UNIQUE_KEYS + merge-on-write): Alias(cast(murmur_hash3_64(uk...) as LargeInt),
+ *     "__DORIS_IVM_ROW_ID_COL__")
  *     → deterministic (stable across refreshes)
- *   - DUP_KEYS: Alias(uuid_numeric(), "__IVM_ROW_ID__") → non-deterministic (random per insert)
+ *   - DUP_KEYS: Alias(uuid_numeric(), "__DORIS_IVM_ROW_ID_COL__") → non-deterministic (random per insert)
  *   - Other key types: not supported, throws.
  * - Records (rowIdSlot → isDeterministic) in IvmContext on CascadesContext.
  * - visitLogicalProject propagates child's row-id slot if not already in outputs.
@@ -57,8 +58,6 @@ import java.util.stream.Collectors;
  * TODO: avg rewrite, join support.
  */
 public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implements CustomRewriter {
-
-    public static final String IVM_ROW_ID_COL = "__IVM_ROW_ID__";
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
@@ -85,7 +84,7 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
     public Plan visitLogicalOlapScan(LogicalOlapScan scan, IvmContext ivmContext) {
         OlapTable table = scan.getTable();
         Pair<Expression, Boolean> rowId = buildRowId(table, scan);
-        Alias rowIdAlias = new Alias(rowId.first, IVM_ROW_ID_COL);
+        Alias rowIdAlias = new Alias(rowId.first, Column.IVM_ROW_ID_COL);
         ivmContext.addRowId(rowIdAlias.toSlot(), rowId.second);
         List<NamedExpression> outputs = ImmutableList.<NamedExpression>builder()
                 .add(rowIdAlias)
@@ -118,12 +117,12 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
 
     private boolean hasRowIdInOutputs(List<NamedExpression> outputs) {
         return outputs.stream()
-                .anyMatch(e -> e instanceof Slot && IVM_ROW_ID_COL.equals(((Slot) e).getName()));
+                .anyMatch(e -> e instanceof Slot && Column.IVM_ROW_ID_COL.equals(((Slot) e).getName()));
     }
 
     private List<NamedExpression> prependRowId(Plan normalizedChild, List<NamedExpression> outputs) {
         Slot rowId = normalizedChild.getOutput().stream()
-                .filter(s -> IVM_ROW_ID_COL.equals(s.getName()))
+                .filter(s -> Column.IVM_ROW_ID_COL.equals(s.getName()))
                 .findFirst()
                 .orElseThrow(() -> new AnalysisException(
                         "IVM normalization error: child plan has no row-id slot after normalization"));
