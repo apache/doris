@@ -32,7 +32,7 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 --------PhysicalDistribute[DistributionSpecGather]
 ----------PhysicalTopN[LOCAL_SORT]
 ------------PhysicalProject
---------------hashJoin[INNER_JOIN shuffleBucket] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=() build RFs:RF7 i_category->[i_category];RF8 i_brand->[i_brand];RF9 cc_name->[cc_name];RF10 rn->[(rn - 1)]
+--------------hashJoin[INNER_JOIN shuffle] hashCondition=((v1.cc_name = v1_lead.cc_name) and (v1.i_brand = v1_lead.i_brand) and (v1.i_category = v1_lead.i_category) and (v1.rn = expr_(rn - 1))) otherCondition=() build RFs:RF7 i_category->[i_category];RF8 i_brand->[i_brand];RF9 cc_name->[cc_name];RF10 rn->[(rn - 1)]
 ----------------PhysicalProject
 ------------------PhysicalCteConsumer ( cteId=CTEId#0 ) apply RFs: RF7 RF8 RF9 RF10
 ----------------PhysicalProject

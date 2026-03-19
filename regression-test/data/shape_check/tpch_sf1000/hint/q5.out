@@ -12,7 +12,7 @@ PhysicalResultSink
 ------------------PhysicalProject
 --------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineitem.l_suppkey = supplier.s_suppkey)) otherCondition=()
 ----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
+------------------------hashJoin[INNER_JOIN colocated] hashCondition=((lineitem.l_orderkey = orders.o_orderkey)) otherCondition=()
 --------------------------PhysicalProject
 ----------------------------PhysicalOlapScan[lineitem]
 --------------------------PhysicalProject

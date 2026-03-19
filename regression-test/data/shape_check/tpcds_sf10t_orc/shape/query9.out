@@ -18,15 +18,15 @@ PhysicalResultSink
 ------------------------------NestedLoopJoin[CROSS_JOIN]
 --------------------------------PhysicalProject
 ----------------------------------NestedLoopJoin[CROSS_JOIN]
-------------------------------------PhysicalProject
---------------------------------------filter((reason.r_reason_sk = 1))
-----------------------------------------PhysicalOlapScan[reason]
 ------------------------------------hashAgg[GLOBAL]
 --------------------------------------PhysicalDistribute[DistributionSpecGather]
 ----------------------------------------hashAgg[LOCAL]
 ------------------------------------------PhysicalProject
 --------------------------------------------filter((store_sales.ss_quantity <= 20) and (store_sales.ss_quantity >= 1))
 ----------------------------------------------PhysicalOlapScan[store_sales]
+------------------------------------PhysicalProject
+--------------------------------------filter((reason.r_reason_sk = 1))
+----------------------------------------PhysicalOlapScan[reason]
 --------------------------------hashAgg[GLOBAL]
 ----------------------------------PhysicalDistribute[DistributionSpecGather]
 ------------------------------------hashAgg[LOCAL]

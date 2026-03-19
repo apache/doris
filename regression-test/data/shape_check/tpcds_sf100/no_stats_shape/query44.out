@@ -19,53 +19,49 @@ PhysicalResultSink
 ------------------------PhysicalProject
 --------------------------filter((V11.rnk < 11))
 ----------------------------PhysicalWindow
-------------------------------PhysicalQuickSort[MERGE_SORT]
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------------------PhysicalPartitionTopN
+------------------------------PhysicalQuickSort[LOCAL_SORT]
+--------------------------------PhysicalPartitionTopN
+----------------------------------PhysicalProject
+------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
-------------------------------------------PhysicalProject
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((ss1.ss_store_sk = 146))
-------------------------------------------------------PhysicalOlapScan[store_sales]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalAssertNumRows
-----------------------------------------------PhysicalDistribute[DistributionSpecGather]
-------------------------------------------------PhysicalProject
---------------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
-------------------------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalAssertNumRows
+------------------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------------------PhysicalProject
+----------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+--------------------------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------PhysicalProject
+----------------------------------------hashAgg[GLOBAL]
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------hashAgg[LOCAL]
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((ss1.ss_store_sk = 146))
+--------------------------------------------------PhysicalOlapScan[store_sales]
 ------------------------PhysicalProject
 --------------------------filter((V21.rnk < 11))
 ----------------------------PhysicalWindow
-------------------------------PhysicalQuickSort[MERGE_SORT]
---------------------------------PhysicalDistribute[DistributionSpecGather]
-----------------------------------PhysicalQuickSort[LOCAL_SORT]
-------------------------------------PhysicalPartitionTopN
+------------------------------PhysicalQuickSort[LOCAL_SORT]
+--------------------------------PhysicalPartitionTopN
+----------------------------------PhysicalProject
+------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
 --------------------------------------PhysicalProject
-----------------------------------------NestedLoopJoin[INNER_JOIN](cast(rank_col as DECIMALV3(38, 5)) > (0.9 * rank_col))
-------------------------------------------PhysicalProject
---------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------PhysicalProject
-----------------------------------------------------filter((ss1.ss_store_sk = 146))
-------------------------------------------------------PhysicalOlapScan[store_sales]
-------------------------------------------PhysicalProject
---------------------------------------------PhysicalAssertNumRows
-----------------------------------------------PhysicalDistribute[DistributionSpecGather]
-------------------------------------------------PhysicalProject
---------------------------------------------------hashAgg[GLOBAL]
-----------------------------------------------------PhysicalDistribute[DistributionSpecHash]
-------------------------------------------------------hashAgg[LOCAL]
---------------------------------------------------------PhysicalProject
-----------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
-------------------------------------------------------------PhysicalOlapScan[store_sales]
+----------------------------------------PhysicalAssertNumRows
+------------------------------------------PhysicalDistribute[DistributionSpecGather]
+--------------------------------------------PhysicalProject
+----------------------------------------------hashAgg[GLOBAL]
+------------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------------hashAgg[LOCAL]
+----------------------------------------------------PhysicalProject
+------------------------------------------------------filter((store_sales.ss_store_sk = 146) and ss_addr_sk IS NULL)
+--------------------------------------------------------PhysicalOlapScan[store_sales]
+--------------------------------------PhysicalProject
+----------------------------------------hashAgg[GLOBAL]
+------------------------------------------PhysicalDistribute[DistributionSpecHash]
+--------------------------------------------hashAgg[LOCAL]
+----------------------------------------------PhysicalProject
+------------------------------------------------filter((ss1.ss_store_sk = 146))
+--------------------------------------------------PhysicalOlapScan[store_sales]
 
