@@ -19,7 +19,6 @@
 
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
-#include <glog/logging.h>
 
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>

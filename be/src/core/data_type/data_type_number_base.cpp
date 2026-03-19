@@ -21,7 +21,6 @@
 #include "core/data_type/data_type_number_base.h"
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <streamvbyte.h>
 
 #include <cstddef>

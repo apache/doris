@@ -17,7 +17,6 @@
 
 #include "service/http/action/file_cache_action.h"
 
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>

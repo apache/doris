@@ -20,7 +20,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
 #include <stdint.h>
 #include <sys/types.h>
 

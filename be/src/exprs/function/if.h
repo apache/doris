@@ -18,7 +18,6 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/If.cpp
 // and modified by Doris
 
-#include <glog/logging.h>
 #include <stddef.h>
 
 #include <boost/iterator/iterator_facade.hpp>

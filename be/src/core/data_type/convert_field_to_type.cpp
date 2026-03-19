@@ -21,7 +21,6 @@
 #include "core/data_type/convert_field_to_type.h"
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <stddef.h>
 
 #include <memory>

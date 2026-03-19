@@ -20,7 +20,6 @@
 #include <CLucene.h> // IWYU pragma: keep
 #include <CLucene/analysis/LanguageBasedAnalyzer.h>
 #include <CLucene/util/bkd/bkd_writer.h>
-#include <glog/logging.h>
 
 #include <cstdint>
 #include <memory>

@@ -22,7 +22,6 @@
 
 #include <fmt/core.h>
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <parallel_hashmap/phmap.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>

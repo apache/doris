@@ -22,7 +22,6 @@
 #include <bvar/reducer.h>
 #include <bvar/window.h>
 #include <fmt/core.h>
-#include <glog/logging.h>
 
 #include <sstream>
 #include <tuple>

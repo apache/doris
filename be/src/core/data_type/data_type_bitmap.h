@@ -17,7 +17,6 @@
 
 #pragma once
 #include <gen_cpp/Types_types.h>
-#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 

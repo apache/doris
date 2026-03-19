@@ -18,7 +18,6 @@
 #include "storage/storage_policy.h"
 
 #include <gen_cpp/cloud.pb.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <cstdlib>

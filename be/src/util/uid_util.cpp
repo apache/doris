@@ -20,7 +20,6 @@
 #include <fmt/compile.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
-#include <glog/logging.h>
 
 #include <cstdlib>
 
