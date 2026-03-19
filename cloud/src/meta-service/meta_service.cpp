@@ -5902,4 +5902,261 @@ std::pair<MetaServiceCode, std::string> MetaServiceImpl::wait_for_pending_txns(
     return {MetaServiceCode::OK, ""};
 }
 
+// Async publish: per-tablet tmp rowset conversion
+void MetaServiceImpl::convert_tmp_rowset(::google::protobuf::RpcController* controller,
+                                         const ConvertTmpRowsetRequest* request,
+                                         ConvertTmpRowsetResponse* response,
+                                         ::google::protobuf::Closure* done) {
+    RPC_PREPROCESS(convert_tmp_rowset, get, put, del);
+
+    // ===== Step 1: Authentication + Parameter validation =====
+    instance_id = get_instance_id(resource_mgr_, request->cloud_unique_id());
+    if (instance_id.empty()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = "empty instance_id";
+        LOG(WARNING) << msg << ", cloud_unique_id=" << request->cloud_unique_id();
+        return;
+    }
+
+    int64_t txn_id = request->txn_id();
+    int64_t tablet_id = request->tablet_id();
+    int64_t version = request->version();
+    if (txn_id <= 0 || tablet_id <= 0 || version <= 0) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("invalid params, txn_id={}, tablet_id={}, version={}", txn_id,
+                          tablet_id, version);
+        LOG(WARNING) << msg;
+        return;
+    }
+
+    RPC_RATE_LIMIT(convert_tmp_rowset)
+
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+
+    // Create FDB transaction
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to create txn";
+        LOG(WARNING) << msg << ", err=" << err;
+        return;
+    }
+    if (is_versioned_write) {
+        txn->enable_get_versionstamp();
+    }
+
+    // ===== Step 2: Idempotency check - check if formal rowset already exists =====
+    std::string formal_rowset_key = meta_rowset_key({instance_id, tablet_id, version});
+    std::string formal_rowset_val;
+    err = txn->get(formal_rowset_key, &formal_rowset_val);
+    if (err == TxnErrorCode::TXN_OK) {
+        // Formal rowset already exists - might be a retry
+        doris::RowsetMetaCloudPB existing_rs_meta;
+        if (!existing_rs_meta.ParseFromString(formal_rowset_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = "failed to parse existing formal rowset meta";
+            LOG(WARNING) << msg << ", key=" << hex(formal_rowset_key);
+            return;
+        }
+        // Check if rowset_id matches (same txn, same tablet should produce same rowset)
+        auto tmp_rs_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+        std::string tmp_rs_val;
+        err = txn->get(tmp_rs_key, &tmp_rs_val);
+        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+            // tmp deleted + formal exists -> fully duplicate request, return OK
+            response->mutable_rowset_meta()->CopyFrom(existing_rs_meta);
+            LOG(INFO) << "convert_tmp_rowset: idempotent, formal already exists, tmp deleted"
+                      << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id << ", version=" << version;
+            return;
+        }
+        if (err == TxnErrorCode::TXN_OK) {
+            doris::RowsetMetaCloudPB tmp_rs_meta;
+            if (!tmp_rs_meta.ParseFromString(tmp_rs_val)) {
+                code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                msg = "failed to parse tmp rowset meta";
+                LOG(WARNING) << msg << ", key=" << hex(tmp_rs_key);
+                return;
+            }
+            if (existing_rs_meta.rowset_id_v2() == tmp_rs_meta.rowset_id_v2()) {
+                // rowset_id matches, it's a retry
+                response->mutable_rowset_meta()->CopyFrom(existing_rs_meta);
+                LOG(INFO) << "convert_tmp_rowset: idempotent, rowset_id matches"
+                          << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id << ", version="
+                          << version;
+                return;
+            } else {
+                // rowset_id mismatch -> version conflict
+                code = MetaServiceCode::ALREADY_EXISTED;
+                msg = fmt::format("version {} already occupied by different rowset, existing={}, "
+                                  "current={}",
+                                  version, existing_rs_meta.rowset_id_v2(),
+                                  tmp_rs_meta.rowset_id_v2());
+                LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+                return;
+            }
+        }
+        // Other get errors
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check tmp rowset, err={}", err);
+        LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+        return;
+    }
+    if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to check formal rowset existence, err={}", err);
+        LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+        return;
+    }
+    // formal rowset doesn't exist, continue with normal flow
+
+    // ===== Step 3: Read tmp rowset KV =====
+    auto tmp_rs_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+    std::string tmp_rs_val;
+    err = txn->get(tmp_rs_key, &tmp_rs_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("tmp rowset not found, txn_id={}, tablet_id={}", txn_id, tablet_id);
+        LOG(WARNING) << msg;
+        return;
+    }
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::READ>(err);
+        msg = fmt::format("failed to get tmp rowset, err={}", err);
+        LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+        return;
+    }
+
+    doris::RowsetMetaCloudPB rs_meta;
+    if (!rs_meta.ParseFromString(tmp_rs_val)) {
+        code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+        msg = "failed to parse tmp rowset meta";
+        LOG(WARNING) << msg << ", key=" << hex(tmp_rs_key);
+        return;
+    }
+
+    // Check if tmp rowset has been marked as recycled
+    if (rs_meta.has_is_recycled() && rs_meta.is_recycled()) {
+        code = MetaServiceCode::TXN_ALREADY_ABORTED;
+        msg = "rowset has been marked as recycled";
+        LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+        return;
+    }
+
+    // Validate tablet_id consistency
+    if (rs_meta.tablet_id() != tablet_id) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("tablet_id mismatch: request={}, rowset_meta={}", tablet_id,
+                          rs_meta.tablet_id());
+        LOG(WARNING) << msg << ", txn_id=" << txn_id;
+        return;
+    }
+
+    // ===== Step 4: Set version fields =====
+    rs_meta.set_start_version(version);
+    rs_meta.set_end_version(version);
+    int64_t visible_ts_ms =
+            duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+    rs_meta.set_visible_ts_ms(visible_ts_ms);
+
+    // ===== Step 5: Write formal rowset KV =====
+    std::string formal_val;
+    if (!rs_meta.SerializeToString(&formal_val)) {
+        code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+        msg = "failed to serialize rowset meta";
+        LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+        return;
+    }
+    txn->put(formal_rowset_key, formal_val);
+    LOG(INFO) << "convert_tmp_rowset: put formal rowset_key=" << hex(formal_rowset_key)
+              << " txn_id=" << txn_id << " tablet_id=" << tablet_id << " version=" << version;
+
+    // ===== Step 6: Write versioned rowset (if enabled) =====
+    if (is_versioned_write) {
+        std::string versioned_rowset_key =
+                versioned::meta_rowset_load_key({instance_id, tablet_id, version});
+        doris::RowsetMetaCloudPB copied_rs_meta(rs_meta);
+        if (!versioned::document_put(txn.get(), versioned_rowset_key,
+                                     std::move(copied_rs_meta))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to put versioned rowset meta";
+            LOG(WARNING) << msg << ", key=" << hex(versioned_rowset_key) << ", txn_id=" << txn_id
+                         << ", tablet_id=" << tablet_id;
+            return;
+        }
+        LOG(INFO) << "convert_tmp_rowset: put versioned rowset key=" << hex(versioned_rowset_key)
+                  << " txn_id=" << txn_id << " tablet_id=" << tablet_id;
+    }
+
+    // ===== Step 7: Update tablet stats =====
+    TabletStats tablet_stats;
+    tablet_stats.data_size = rs_meta.total_disk_size();
+    tablet_stats.num_rows = rs_meta.num_rows();
+    tablet_stats.num_rowsets = 1;
+    tablet_stats.num_segs = rs_meta.num_segments();
+    tablet_stats.index_size = rs_meta.index_disk_size();
+    tablet_stats.segment_size = rs_meta.data_disk_size();
+
+    StatsTabletKeyInfo stats_info {instance_id, request->table_id(), request->index_id(),
+                                   request->partition_id(), tablet_id};
+    update_tablet_stats(stats_info, tablet_stats, txn, code, msg);
+    if (code != MetaServiceCode::OK) {
+        LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+        return;
+    }
+
+    // versioned tablet stats
+    if (is_versioned_write) {
+        // Read existing versioned stats first
+        CloneChainReader meta_reader(instance_id, resource_mgr_.get());
+        std::unordered_map<int64_t, TabletIndexPB> tablet_indexes;
+        TabletIndexPB idx;
+        idx.set_table_id(request->table_id());
+        idx.set_index_id(request->index_id());
+        idx.set_partition_id(request->partition_id());
+        idx.set_tablet_id(tablet_id);
+        tablet_indexes[tablet_id] = idx;
+
+        std::unordered_map<int64_t, TabletStatsPB> existing_versioned_stats;
+        internal_get_load_tablet_stats_batch(code, msg, meta_reader, txn.get(), instance_id,
+                                             tablet_indexes, &existing_versioned_stats);
+        if (code != MetaServiceCode::OK) {
+            LOG(WARNING) << "failed to get versioned tablet stats, tablet_id=" << tablet_id
+                         << ", code=" << code << ", msg=" << msg;
+            return;
+        }
+
+        TabletStatsPB stats_pb = existing_versioned_stats[tablet_id];
+        merge_tablet_stats(stats_pb, tablet_stats);
+        std::string versioned_stats_key =
+                versioned::tablet_load_stats_key({instance_id, tablet_id});
+        if (!versioned::document_put(txn.get(), versioned_stats_key, std::move(stats_pb))) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            msg = "failed to put versioned tablet stats";
+            LOG(WARNING) << msg << ", tablet_id=" << tablet_id << ", txn_id=" << txn_id;
+            return;
+        }
+        LOG(INFO) << "convert_tmp_rowset: put versioned stats key=" << hex(versioned_stats_key)
+                  << " tablet_id=" << tablet_id;
+    }
+
+    // ===== Step 8: Delete tmp rowset KV =====
+    txn->remove(tmp_rs_key);
+    LOG(INFO) << "convert_tmp_rowset: remove tmp_rs_key=" << hex(tmp_rs_key)
+              << " txn_id=" << txn_id << " tablet_id=" << tablet_id;
+
+    // ===== Step 9: Commit FDB transaction =====
+    err = txn->commit();
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::COMMIT>(err);
+        msg = fmt::format("failed to commit fdb txn, err={}", err);
+        LOG(WARNING) << msg << ", txn_id=" << txn_id << ", tablet_id=" << tablet_id;
+        return;
+    }
+
+    // ===== Step 10: Build Response =====
+    response->mutable_rowset_meta()->CopyFrom(rs_meta);
+    LOG(INFO) << "convert_tmp_rowset: success, txn_id=" << txn_id << ", tablet_id=" << tablet_id
+              << ", version=" << version;
+}
+
 } // namespace doris::cloud

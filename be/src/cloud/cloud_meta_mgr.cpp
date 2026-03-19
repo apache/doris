@@ -369,6 +369,9 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
         return fmt::format(" packed_file_path={}", req.packed_file_path());
+    } else if constexpr (std::is_same_v<Request, ConvertTmpRowsetRequest>) {
+        return fmt::format(" txn_id={}, tablet_id={}, version={}", req.txn_id(), req.tablet_id(),
+                         req.version());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -1415,6 +1418,49 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
         return Status::InternalError("failed to update committed rowset: {}", resp.status().msg());
     }
     return st;
+}
+
+Status CloudMetaMgr::convert_tmp_rowset(int64_t txn_id, int64_t tablet_id, int64_t version,
+                                         int64_t db_id, int64_t table_id, int64_t index_id,
+                                         int64_t partition_id, RowsetMetaSharedPtr* rowset_meta) {
+    VLOG_DEBUG << "convert tmp rowset, tablet_id: " << tablet_id << ", txn_id: " << txn_id
+               << ", version: " << version;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::convert_tmp_rowset", ret_st);
+    }
+
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(txn_id);
+    req.set_tablet_id(tablet_id);
+    req.set_version(version);
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
+
+    Status st = retry_rpc("convert tmp rowset", req, &resp, &MetaService_Stub::convert_tmp_rowset);
+    if (!st.ok()) {
+        LOG_WARNING("failed to convert tmp rowset: {}, tablet_id={}, txn_id={}, version={}",
+                   st.to_string(), tablet_id, txn_id, version);
+        return st;
+    }
+
+    // If rowset_meta is requested, fill it from response
+    if (rowset_meta != nullptr && resp.has_rowset_meta()) {
+        RowsetMetaPB doris_rs_meta = cloud_rowset_meta_to_doris(std::move(*resp.mutable_rowset_meta()));
+        *rowset_meta = std::make_shared<RowsetMeta>();
+        (*rowset_meta)->init_from_pb(doris_rs_meta);
+        LOG_INFO("convert tmp rowset success, tablet_id={}, txn_id={}, version={}", tablet_id,
+                 txn_id, version);
+    } else {
+        LOG_INFO("convert tmp rowset success, tablet_id={}, txn_id={}, version={}", tablet_id,
+                 txn_id, version);
+    }
+
+    return Status::OK();
 }
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP

@@ -345,6 +345,12 @@ public:
                                           RemoveDeleteBitmapUpdateLockResponse* response,
                                           ::google::protobuf::Closure* done) override;
 
+    // Async publish: per-tablet tmp rowset conversion
+    void convert_tmp_rowset(google::protobuf::RpcController* controller,
+                           const ConvertTmpRowsetRequest* request,
+                           ConvertTmpRowsetResponse* response,
+                           ::google::protobuf::Closure* done) override;
+
     // cloud control get cluster's status by this api
     void get_cluster_status(google::protobuf::RpcController* controller,
                             const GetClusterStatusRequest* request,
@@ -915,6 +921,14 @@ public:
                                           ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::remove_delete_bitmap_update_lock, controller, request,
                   response, done);
+    }
+
+    // Async publish: per-tablet tmp rowset conversion
+    void convert_tmp_rowset(google::protobuf::RpcController* controller,
+                           const ConvertTmpRowsetRequest* request,
+                           ConvertTmpRowsetResponse* response,
+                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::convert_tmp_rowset, controller, request, response, done);
     }
 
     // cloud control get cluster's status by this api

@@ -87,6 +87,11 @@ public:
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
 
+    // Async publish: convert tmp rowset to formal rowset (per-tablet)
+    Status convert_tmp_rowset(int64_t txn_id, int64_t tablet_id, int64_t version, int64_t db_id,
+                              int64_t table_id, int64_t index_id, int64_t partition_id,
+                              RowsetMetaSharedPtr* rowset_meta = nullptr);
+
     Status update_packed_file_info(const std::string& packed_file_path,
                                    const cloud::PackedFileInfoPB& packed_file_info);
 

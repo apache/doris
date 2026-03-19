@@ -120,6 +120,7 @@ static doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id,
     rowset.set_num_rows(100);
     rowset.set_data_disk_size(1024);
     rowset.set_index_disk_size(128);
+    rowset.set_total_disk_size(1024 + 128); // total = data + index
     rowset.mutable_tablet_schema()->set_schema_version(0);
     rowset.set_txn_expiration(::time(nullptr));
     return rowset;
@@ -582,6 +583,463 @@ TEST(TxnAsyncPublishTest, LoadSchemaParamPersisted) {
     auto txn_info = get_txn_info(txn_kv, mock_instance, db_id, txn_id);
     ASSERT_TRUE(txn_info.has_load_schema_param());
     ASSERT_EQ(txn_info.load_schema_param(), mock_schema_bytes);
+}
+
+// ==================== ConvertTmpRowset Tests ====================
+
+// Helper: read formal rowset from KV
+static std::optional<doris::RowsetMetaCloudPB> get_formal_rowset(std::shared_ptr<TxnKv>& txn_kv,
+                                                                  const std::string& instance_id,
+                                                                  int64_t tablet_id, int64_t version) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string rowset_key = meta_rowset_key({instance_id, tablet_id, version});
+    std::string rowset_val;
+    auto err = txn->get(rowset_key, &rowset_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) return std::nullopt;
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK);
+    doris::RowsetMetaCloudPB rowset_meta;
+    EXPECT_TRUE(rowset_meta.ParseFromString(rowset_val));
+    return rowset_meta;
+}
+
+// Helper: read tmp rowset from KV
+static std::optional<doris::RowsetMetaCloudPB> get_tmp_rowset(std::shared_ptr<TxnKv>& txn_kv,
+                                                              const std::string& instance_id,
+                                                              int64_t txn_id, int64_t tablet_id) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string tmp_key = meta_rowset_tmp_key({instance_id, txn_id, tablet_id});
+    std::string tmp_val;
+    auto err = txn->get(tmp_key, &tmp_val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) return std::nullopt;
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK);
+    doris::RowsetMetaCloudPB rowset_meta;
+    EXPECT_TRUE(rowset_meta.ParseFromString(tmp_val));
+    return rowset_meta;
+}
+
+// Basic: single tmp rowset conversion
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetBasic) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 2001;
+    int64_t table_id = 2002;
+    int64_t index_id = 3002;
+    int64_t partition_id = 4002;
+    int64_t tablet_id = 5002;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_convert_basic");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Call convert_tmp_rowset
+    brpc::Controller cntl;
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_tablet_id(tablet_id);
+    req.set_version(2); // commit version
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
+
+    meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    // Verify response contains rowset_meta with correct fields
+    ASSERT_TRUE(res.has_rowset_meta());
+    ASSERT_EQ(res.rowset_meta().tablet_id(), tablet_id);
+    ASSERT_EQ(res.rowset_meta().start_version(), 2);
+    ASSERT_EQ(res.rowset_meta().end_version(), 2);
+    ASSERT_GT(res.rowset_meta().visible_ts_ms(), 0);
+    ASSERT_EQ(res.rowset_meta().num_segments(), 1); // verify segments count from rowset
+
+    // Verify formal rowset exists in KV
+    auto formal_rowset = get_formal_rowset(txn_kv, mock_instance, tablet_id, 2);
+    ASSERT_TRUE(formal_rowset.has_value());
+    ASSERT_EQ(formal_rowset->rowset_id_v2(), rowset.rowset_id_v2());
+    ASSERT_EQ(formal_rowset->start_version(), 2);
+    ASSERT_EQ(formal_rowset->end_version(), 2);
+
+    // Verify tmp rowset deleted
+    auto tmp_rowset = get_tmp_rowset(txn_kv, mock_instance, txn_id, tablet_id);
+    ASSERT_FALSE(tmp_rowset.has_value()) << "tmp rowset should be deleted after conversion";
+
+    // Verify tablet stats updated by reading KV directly
+    if (config::split_tablet_stats) {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+
+        std::string num_rows_key, num_rows_val;
+        stats_tablet_num_rows_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                  &num_rows_key);
+        ASSERT_EQ(txn->get(num_rows_key, &num_rows_val), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(*(int64_t*)num_rows_val.data(), 100);
+
+        std::string data_size_key, data_size_val;
+        stats_tablet_data_size_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                   &data_size_key);
+        ASSERT_EQ(txn->get(data_size_key, &data_size_val), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(*(int64_t*)data_size_val.data(), 1152); // total_disk_size = data + index
+
+        std::string num_segs_key, num_segs_val;
+        stats_tablet_num_segs_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                   &num_segs_key);
+        ASSERT_EQ(txn->get(num_segs_key, &num_segs_val), TxnErrorCode::TXN_OK);
+        EXPECT_EQ(*(int64_t*)num_segs_val.data(), 1);
+
+        std::string num_rowsets_key, num_rowsets_val;
+        stats_tablet_num_rowsets_key({mock_instance, table_id, index_id, partition_id, tablet_id},
+                                     &num_rowsets_key);
+        ASSERT_EQ(txn->get(num_rowsets_key, &num_rowsets_val), TxnErrorCode::TXN_OK);
+        EXPECT_GT(*(int64_t*)num_rowsets_val.data(), 0); // Just verify it's updated
+    }
+}
+
+// Idempotent: second call should succeed
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetIdempotent) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 2002;
+    int64_t table_id = 2003;
+    int64_t index_id = 3003;
+    int64_t partition_id = 4003;
+    int64_t tablet_id = 5003;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_convert_idempotent");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // First call
+    brpc::Controller cntl;
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_tablet_id(tablet_id);
+    req.set_version(2);
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
+
+    meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    // Second call (idempotent)
+    brpc::Controller cntl2;
+    ConvertTmpRowsetResponse res2;
+    meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl2),
+                                     &req, &res2, nullptr);
+    ASSERT_EQ(res2.status().code(), MetaServiceCode::OK) << res2.status().msg();
+    ASSERT_TRUE(res2.has_rowset_meta());
+    ASSERT_EQ(res2.rowset_meta().rowset_id_v2(), rowset.rowset_id_v2());
+
+    // Verify only one formal rowset exists
+    auto formal_rowset = get_formal_rowset(txn_kv, mock_instance, tablet_id, 2);
+    ASSERT_TRUE(formal_rowset.has_value());
+}
+
+// Error: tmp rowset not found
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetNotFound) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 2003;
+    int64_t table_id = 2004;
+    int64_t index_id = 3004;
+    int64_t partition_id = 4004;
+    int64_t tablet_id = 5004;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    // Call convert_tmp_rowset without creating tmp rowset
+    brpc::Controller cntl;
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(99999); // non-existent txn
+    req.set_tablet_id(tablet_id);
+    req.set_version(2);
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
+
+    meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+}
+
+// Error: invalid parameters
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetInvalidParams) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    // Test with invalid txn_id
+    {
+        brpc::Controller cntl;
+        ConvertTmpRowsetRequest req;
+        ConvertTmpRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(0); // invalid
+        req.set_tablet_id(5005);
+        req.set_version(2);
+
+        meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                         &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test with invalid tablet_id
+    {
+        brpc::Controller cntl;
+        ConvertTmpRowsetRequest req;
+        ConvertTmpRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(12345);
+        req.set_tablet_id(0); // invalid
+        req.set_version(2);
+
+        meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                         &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+
+    // Test with invalid version
+    {
+        brpc::Controller cntl;
+        ConvertTmpRowsetRequest req;
+        ConvertTmpRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(12345);
+        req.set_tablet_id(5005);
+        req.set_version(0); // invalid
+
+        meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                         &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+    }
+}
+
+// Error: invalid instance_id (cloud_unique_id)
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetInvalidInstance) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    brpc::Controller cntl;
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse res;
+    req.set_cloud_unique_id("invalid_instance_id"); // won't resolve to instance_id
+    req.set_txn_id(12345);
+    req.set_tablet_id(5006);
+    req.set_version(2);
+
+    meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::INVALID_ARGUMENT);
+}
+
+// Error: tmp rowset recycled (transaction aborted)
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetRecycled) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 2004;
+    int64_t table_id = 2005;
+    int64_t index_id = 3005;
+    int64_t partition_id = 4005;
+    int64_t tablet_id = 5007;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_convert_recycled");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Manually mark tmp rowset as recycled
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string tmp_key = meta_rowset_tmp_key({mock_instance, txn_id, tablet_id});
+        std::string tmp_val;
+        ASSERT_EQ(txn->get(tmp_key, &tmp_val), TxnErrorCode::TXN_OK);
+        doris::RowsetMetaCloudPB rs_meta;
+        ASSERT_TRUE(rs_meta.ParseFromString(tmp_val));
+        rs_meta.set_is_recycled(true);
+        tmp_val = rs_meta.SerializeAsString();
+        txn->put(tmp_key, tmp_val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Try to convert recycled tmp rowset
+    brpc::Controller cntl;
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_tablet_id(tablet_id);
+    req.set_version(2);
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
+
+    meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_ABORTED);
+}
+
+// Verify version conflict: different rowset at same version
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetVersionConflict) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 2005;
+    int64_t table_id = 2006;
+    int64_t index_id = 3006;
+    int64_t partition_id = 4006;
+    int64_t tablet_id = 5008;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_convert_conflict");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Manually create a formal rowset at version 2 with different rowset_id
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string rowset_key = meta_rowset_key({mock_instance, tablet_id, 2});
+        doris::RowsetMetaCloudPB conflicting_rowset;
+        conflicting_rowset.set_rowset_id(0);  // Required field
+        conflicting_rowset.set_rowset_id_v2("conflicting_rowset_id");
+        conflicting_rowset.set_tablet_id(tablet_id);
+        conflicting_rowset.set_partition_id(partition_id);
+        conflicting_rowset.set_index_id(index_id);
+        conflicting_rowset.set_start_version(2);
+        conflicting_rowset.set_end_version(2);
+        conflicting_rowset.set_num_segments(1);
+        conflicting_rowset.mutable_tablet_schema()->set_schema_version(0);
+        std::string val = conflicting_rowset.SerializeAsString();
+        txn->put(rowset_key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Try to convert, should fail with version conflict
+    brpc::Controller cntl;
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse res;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_txn_id(txn_id);
+    req.set_tablet_id(tablet_id);
+    req.set_version(2);
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
+
+    meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                     &req, &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED);
+}
+
+// Multi-tablet: convert multiple tablets independently
+TEST(TxnAsyncPublishTest, ConvertTmpRowsetMultiTablet) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 2006;
+    int64_t table_id = 2007;
+    int64_t index_id = 3007;
+    int64_t partition_id = 4007;
+    int64_t tablet_id_1 = 5009;
+    int64_t tablet_id_2 = 5010;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id_1);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id_2);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_convert_multi");
+
+    auto rowset1 = create_rowset(txn_id, tablet_id_1, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset1);
+    commit_rowset(meta_service.get(), rowset1);
+
+    auto rowset2 = create_rowset(txn_id, tablet_id_2, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset2);
+    commit_rowset(meta_service.get(), rowset2);
+
+    // Convert first tablet
+    {
+        brpc::Controller cntl;
+        ConvertTmpRowsetRequest req;
+        ConvertTmpRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_tablet_id(tablet_id_1);
+        req.set_version(2);
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.set_index_id(index_id);
+        req.set_partition_id(partition_id);
+
+        meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                         &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Convert second tablet
+    {
+        brpc::Controller cntl;
+        ConvertTmpRowsetRequest req;
+        ConvertTmpRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_tablet_id(tablet_id_2);
+        req.set_version(2);
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.set_index_id(index_id);
+        req.set_partition_id(partition_id);
+
+        meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                         &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Verify both formal rowsets exist
+    auto formal1 = get_formal_rowset(txn_kv, mock_instance, tablet_id_1, 2);
+    auto formal2 = get_formal_rowset(txn_kv, mock_instance, tablet_id_2, 2);
+    ASSERT_TRUE(formal1.has_value());
+    ASSERT_TRUE(formal2.has_value());
+    ASSERT_EQ(formal1->rowset_id_v2(), rowset1.rowset_id_v2());
+    ASSERT_EQ(formal2->rowset_id_v2(), rowset2.rowset_id_v2());
+
+    // Verify both tmp rowsets deleted
+    auto tmp1 = get_tmp_rowset(txn_kv, mock_instance, txn_id, tablet_id_1);
+    auto tmp2 = get_tmp_rowset(txn_kv, mock_instance, txn_id, tablet_id_2);
+    ASSERT_FALSE(tmp1.has_value());
+    ASSERT_FALSE(tmp2.has_value());
 }
 
 } // namespace doris::cloud
