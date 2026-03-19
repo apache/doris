@@ -20,6 +20,7 @@
 
 #include <optional>
 #include <set>
+#include <string>
 #include <vector>
 
 #include "exprs/score_runtime.h"
@@ -74,6 +75,9 @@ struct RowsetReaderContext {
     const DeleteHandler* delete_handler = nullptr;
     OlapReaderStatistics* stats = nullptr;
     RuntimeState* runtime_state = nullptr;
+    std::string table_name;
+    std::string partition_name;
+    std::vector<VExprSPtr> remaining_conjunct_roots;
     VExprContextSPtrs common_expr_ctxs_push_down;
     bool use_page_cache = false;
     int sequence_id_idx = -1;

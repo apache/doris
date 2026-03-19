@@ -109,6 +109,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
           _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
+    _tablet_reader_params.table_name = std::move(params.table_name);
+    _tablet_reader_params.partition_name = std::move(params.partition_name);
     _has_prepared = false;
     _vector_search_params = params.state->get_vector_search_params();
 }
@@ -297,6 +299,8 @@ Status OlapScanner::_prepare_impl() {
         auto io_ctx = build_score_runtime_collection_io_context(
                 _state, _tablet_reader_params.reader_type, tablet->ttl_seconds(),
                 &_tablet_reader->mutable_stats()->file_cache_stats);
+        io_ctx.table_name = _tablet_reader_params.table_name;
+        io_ctx.partition_name = _tablet_reader_params.partition_name;
 
         RETURN_IF_ERROR(_tablet_reader_params.collection_statistics->collect(
                 _state, _tablet_reader_params.rs_splits, _tablet_reader_params.tablet_schema,
@@ -469,6 +473,16 @@ Status OlapScanner::_init_tablet_reader_params(
 
     _tablet_reader_params.profile = _local_state->custom_profile();
     _tablet_reader_params.runtime_state = _state;
+    {
+        auto* olap_scan_local_state = (pipeline::OlapScanLocalState*)_local_state;
+        TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
+        if (_tablet_reader_params.table_name.empty() && olap_scan_node.__isset.table_name) {
+            _tablet_reader_params.table_name = olap_scan_node.table_name;
+        }
+        if (_tablet_reader_params.partition_name.empty() && olap_scan_node.__isset.partition_name) {
+            _tablet_reader_params.partition_name = olap_scan_node.partition_name;
+        }
+    }
 
     _tablet_reader_params.origin_return_columns = &_return_columns;
     _tablet_reader_params.tablet_columns_convert_to_null_set = &_tablet_columns_convert_to_null_set;

@@ -102,6 +102,7 @@ struct TPaloScanRange {
   10: optional i64 start_tso
   11: optional i64 end_tso
   12: optional TBinlogScanType binlog_scan_type
+  13: optional string partition_name
 }
 
 enum TFileFormatType {
@@ -596,6 +597,7 @@ struct TFileRangeDesc {
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
     16: optional bool file_cache_admission;
+    17: optional string partition_name;
 }
 
 struct TSplitSource {
@@ -1026,6 +1028,7 @@ struct TOlapScanNode {
   27: optional list<TPartitionBoundary> partition_boundaries
   // Slot ids of extra storage key columns used only to align the scan tuple with storage schema.
   28: optional set<i32> extra_key_column_slot_ids
+  29: optional string partition_name
 }
 
 struct TEqJoinCondition {

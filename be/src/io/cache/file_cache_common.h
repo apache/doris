@@ -20,6 +20,7 @@
 
 #pragma once
 #include <cstdint>
+#include <string>
 #include <vector>
 
 #include "common/config.h"
@@ -117,6 +118,8 @@ struct KeyMeta {
     uint64_t expiration_time; // absolute time
     FileCacheType type;
     int64_t tablet_id {0};
+    std::string table_name;
+    std::string partition_name;
 };
 
 struct FileCacheKey {
@@ -171,6 +174,8 @@ struct CacheContext {
                 (!io_context->is_index_data || io_context->is_inverted_index ||
                  config::enable_file_cache_query_limit_segment_meta) &&
                 !io_context->is_warmup;
+        table_name = io_context->table_name;
+        partition_name = io_context->partition_name;
     }
     CacheContext() = default;
     bool operator==(const CacheContext& rhs) const {
@@ -186,6 +191,8 @@ struct CacheContext {
     int64_t tablet_id {0};
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr;
     bool admit_cache_write_by_remote_scan_limiter {false};
+    std::string table_name;
+    std::string partition_name;
 };
 
 template <class Lock>

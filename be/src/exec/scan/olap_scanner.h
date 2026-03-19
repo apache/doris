@@ -83,6 +83,8 @@ public:
         TBinlogScanType::type binlog_scan_type = TBinlogScanType::NONE;
         std::optional<int64_t> start_tso;
         std::optional<int64_t> end_tso;
+        std::string table_name;
+        std::string partition_name;
     };
 
     OlapScanner(ScanLocalStateBase* parent, Params&& params);

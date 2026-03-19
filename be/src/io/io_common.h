@@ -214,6 +214,9 @@ struct IOContext {
     bool bypass_peer_read {false};
     FileCacheMissPolicy file_cache_miss_policy = FileCacheMissPolicy::READ_THROUGH_AND_WRITE_BACK;
     RemoteScanCacheWriteLimiter* remote_scan_cache_write_limiter = nullptr; // Ref
+    // table/partition context (optional)
+    std::string table_name;
+    std::string partition_name;
 };
 
 } // namespace io
