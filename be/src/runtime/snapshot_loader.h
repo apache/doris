@@ -63,6 +63,8 @@ public:
 
     std::shared_ptr<ResourceContext> resource_ctx() { return _resource_ctx; }
 
+    void update_upload_bytes(const int64_t bytes) { _upload_bytes += bytes; }
+
 protected:
     Status _get_tablet_id_from_remote_path(const std::string& remote_path, int64_t* tablet_id);
 
@@ -79,6 +81,8 @@ protected:
     const std::map<std::string, std::string> _prop;
     std::shared_ptr<io::RemoteFileSystem> _remote_fs;
     std::shared_ptr<ResourceContext> _resource_ctx;
+    // metric
+    int64_t _upload_bytes = 0;
 };
 
 /*

@@ -931,11 +931,14 @@ public class BackupHandler extends MasterDaemon implements Writable {
         addBackupOrRestoreJob(job.getDbId(), job);
     }
 
-    public boolean report(TTaskType type, long jobId, long taskId, int finishedNum, int totalNum) {
+    public boolean report(TTaskType type, long jobId, long taskId, int finishedNum, int totalNum, long uploadBytes) {
         for (AbstractJob job : getAllCurrentJobs()) {
             if (job.getType() == JobType.BACKUP) {
                 if (!job.isDone() && job.getJobId() == jobId && type == TTaskType.UPLOAD) {
                     job.taskProgress.put(taskId, Pair.of(finishedNum, totalNum));
+                    if (job instanceof BackupJob) {
+                        ((BackupJob) job).updateMetric(taskId, uploadBytes);
+                    }
                     return true;
                 }
             } else if (job.getType() == JobType.RESTORE) {
