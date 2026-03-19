@@ -17,7 +17,6 @@
 
 #include "storage/schema.h"
 
-
 #include <ostream>
 #include <unordered_set>
 #include <utility>

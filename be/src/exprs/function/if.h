@@ -20,7 +20,6 @@
 
 #include <stddef.h>
 
-
 #include "core/column/column.h"
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type.h"

@@ -17,7 +17,6 @@
 
 #include "io/fs/remote_file_system.h"
 
-
 #include <algorithm>
 
 #include "common/config.h"

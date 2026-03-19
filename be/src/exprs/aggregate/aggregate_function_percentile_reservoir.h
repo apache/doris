@@ -17,7 +17,6 @@
 
 #pragma once
 
-
 #include <memory>
 
 #include "core/data_type/data_type_number.h"

@@ -17,7 +17,6 @@
 
 #include "jni_data_bridge.h"
 
-
 #include <sstream>
 #include <variant>
 

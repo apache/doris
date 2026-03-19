@@ -17,7 +17,6 @@
 
 #include "exprs/vmap_literal.h"
 
-
 #include <memory>
 #include <ostream>
 #include <vector>

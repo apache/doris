@@ -22,7 +22,6 @@
 
 #include <string.h>
 
-
 #include "core/column/column.h"
 #include "core/column/column_array.h" // IWYU pragma: keep
 #include "util/simd/bits.h"

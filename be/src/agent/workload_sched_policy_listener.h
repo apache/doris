@@ -17,7 +17,6 @@
 
 #pragma once
 
-
 #include "agent/topic_listener.h"
 #include "runtime/exec_env.h"
 
