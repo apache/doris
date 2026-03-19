@@ -21,10 +21,14 @@ import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
+import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
+import org.apache.doris.datasource.property.metastore.PaimonJdbcMetaStoreProperties;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
@@ -473,6 +477,38 @@ public class PaimonScanNodeTest {
         method.setAccessible(true);
         long target = (long) method.invoke(node, Collections.singletonList(dataSplit), false);
         Assert.assertEquals(100L * 1024L * 1024L, target);
+    }
+
+    @Test
+    public void testGetBackendPaimonOptionsForJdbcCatalog() throws Exception {
+        String driverUrl = "file:///tmp/postgresql-42.5.0.jar";
+        Map<String, String> props = new HashMap<>();
+        props.put("type", "paimon");
+        props.put("paimon.catalog.type", "jdbc");
+        props.put("uri", "jdbc:postgresql://127.0.0.1:5442/postgres");
+        props.put("warehouse", "s3://warehouse/path");
+        props.put("paimon.jdbc.driver_url", driverUrl);
+        props.put("paimon.jdbc.driver_class", "org.postgresql.Driver");
+        PaimonJdbcMetaStoreProperties jdbcMetaStoreProperties =
+                (PaimonJdbcMetaStoreProperties) MetastoreProperties.create(props);
+
+        CatalogProperty catalogProperty = Mockito.mock(CatalogProperty.class);
+        Mockito.when(catalogProperty.getMetastoreProperties()).thenReturn(jdbcMetaStoreProperties);
+
+        PaimonExternalCatalog catalog = Mockito.mock(PaimonExternalCatalog.class);
+        Mockito.when(catalog.getCatalogProperty()).thenReturn(catalogProperty);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        Mockito.when(source.getCatalog()).thenReturn(catalog);
+
+        PaimonScanNode node = new PaimonScanNode(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)),
+                false, sv, ScanContext.EMPTY);
+        node.setSource(source);
+
+        Map<String, String> backendOptions = node.getBackendPaimonOptions();
+        Assert.assertEquals("org.postgresql.Driver", backendOptions.get("jdbc.driver_class"));
+        Assert.assertEquals(driverUrl, backendOptions.get("jdbc.driver_url"));
+        Assert.assertEquals(2, backendOptions.size());
     }
 
     private void mockJniReader(PaimonScanNode spyNode) {

@@ -92,6 +92,7 @@ public class PaimonJniScanner extends JniScanner {
             // so we need to provide a classloader, otherwise it will cause NPE.
             Thread.currentThread().setContextClassLoader(classLoader);
             preExecutionAuthenticator.execute(() -> {
+                PaimonJdbcDriverUtils.registerDriverIfNeeded(params, classLoader);
                 initTable();
                 initReader();
                 return null;
@@ -227,4 +228,3 @@ public class PaimonJniScanner extends JniScanner {
     }
 
 }
-
