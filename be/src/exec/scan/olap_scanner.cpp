@@ -727,7 +727,6 @@ void OlapScanner::update_realtime_counters() {
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
     _tablet_reader->mutable_stats()->file_cache_stats = {};
-
 }
 
 void OlapScanner::_collect_profile_before_close() {
