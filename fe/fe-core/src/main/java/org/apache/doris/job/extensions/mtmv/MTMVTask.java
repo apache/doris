@@ -60,17 +60,14 @@ import org.apache.doris.mtmv.MTMVUtil;
 import org.apache.doris.mtmv.ivm.IVMRefreshManager;
 import org.apache.doris.mtmv.ivm.IVMRefreshResult;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.glue.LogicalPlanAdapter;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
-import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.QueryState.MysqlStateType;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
-import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -92,6 +89,7 @@ import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 
 public class MTMVTask extends AbstractTask {
     private static final Logger LOG = LogManager.getLogger(MTMVTask.class);
@@ -246,6 +244,7 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
+            // TODO: just for test, need refactor
             // Attempt IVM refresh for INCREMENTAL MVs
             if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
                 IVMRefreshManager ivmRefreshManager = new IVMRefreshManager();
@@ -259,6 +258,7 @@ public class MTMVTask extends AbstractTask {
                         + "Continuing with partition-based refresh.",
                         mtmv.getName(), ivmResult.getFallbackReason(),
                         ivmResult.getDetailMessage(), getTaskId());
+                // TODO: it may cause too many full refresh, need limit full refresh here
             }
             Map<TableIf, String> tableWithPartKey = getIncrementalTableMap();
             this.completedPartitions = Lists.newCopyOnWriteArrayList();
@@ -337,36 +337,24 @@ public class MTMVTask extends AbstractTask {
     private void exec(Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
-        ConnectContext ctx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         StatementContext statementContext = new StatementContext();
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
         }
-        ctx.setStatementContext(statementContext);
-        TUniqueId queryId = generateQueryId();
-        lastQueryId = DebugUtil.printId(queryId);
         // if SELF_MANAGE mv, only have default partition,  will not have partitionItem, so we give empty set
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-        try {
-            executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
-            ctx.setExecutor(executor);
-            ctx.setQueryId(queryId);
-            ctx.getState().setNereids(true);
-            command.run(ctx, executor);
-            if (getStatus() == TaskStatus.CANCELED) {
-                // Throwing an exception to interrupt subsequent partition update tasks
-                throw new JobException("task is CANCELED");
-            }
-            if (ctx.getState().getStateType() != MysqlStateType.OK) {
-                throw new JobException(ctx.getState().getErrorMessage());
-            }
-        } finally {
-            if (executor != null) {
-                AuditLogHelper.logAuditLog(ctx, getDummyStmt(refreshPartitionNames),
-                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
-            }
+        Consumer<ConnectContext> customizer = null;
+        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
+            customizer = ctx -> ctx.getSessionVariable()
+                    .setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "true");
+        }
+        executor = MTMVPlanUtil.executeCommand(mtmv, command, statementContext,
+                getDummyStmt(refreshPartitionNames), customizer);
+        lastQueryId = DebugUtil.printId(executor.getContext().queryId());
+        if (getStatus() == TaskStatus.CANCELED) {
+            throw new JobException("task is CANCELED");
         }
     }
 
