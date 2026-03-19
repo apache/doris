@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
+import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
@@ -39,6 +40,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.util.Optional;
 
@@ -388,6 +390,40 @@ class AuthenticatorManagerTest {
         Assertions.assertTrue(result);
         Mockito.verify(auth, Mockito.never()).doesUserExist(USER_NAME, REMOTE_IP);
         Mockito.verify(chainAuthenticator).authenticate(Mockito.any());
+    }
+
+    @Test
+    void testAuthenticatePropagatesIOExceptionWhenSendingFailureResponse() throws Exception {
+        Config.authentication_chain = "";
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
+                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failedResponse);
+
+        AuthenticatorManager manager = new AuthenticatorManager(AuthenticateType.DEFAULT.name());
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+
+        QueryState state = Mockito.mock(QueryState.class);
+        Mockito.when(state.getStateType()).thenReturn(QueryState.MysqlStateType.ERR);
+        ConnectContext context = mockContext(state);
+
+        try (MockedStatic<MysqlProto> mysqlProto = Mockito.mockStatic(MysqlProto.class)) {
+            mysqlProto.when(() -> MysqlProto.sendResponsePacket(context))
+                    .thenThrow(new IOException("send failed"));
+
+            IOException exception = Assertions.assertThrows(IOException.class, () ->
+                    manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                            Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                            Mockito.mock(MysqlHandshakePacket.class)));
+
+            Assertions.assertEquals("send failed", exception.getMessage());
+        }
     }
 
     private static void resetAuthenticatorManagerState() throws Exception {

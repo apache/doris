@@ -255,7 +255,7 @@ public class AuthenticatorManager {
     }
 
     private boolean reportAuthenticationFailure(ConnectContext context, String userName, String remoteIp,
-            Password password) {
+            Password password) throws IOException {
         ensureAuthenticationErrorReported(context, userName, remoteIp, password);
         if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             MysqlProto.sendResponsePacket(context);
