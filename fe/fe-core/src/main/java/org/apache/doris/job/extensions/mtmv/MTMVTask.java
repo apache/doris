@@ -345,13 +345,9 @@ public class MTMVTask extends AbstractTask {
         UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand
                 .from(mtmv, mtmv.getMvPartitionInfo().getPartitionType() != MTMVPartitionType.SELF_MANAGE
                         ? refreshPartitionNames : Sets.newHashSet(), tableWithPartKey, statementContext);
-        Consumer<ConnectContext> customizer = null;
-        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
-            customizer = ctx -> ctx.getSessionVariable()
-                    .setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "true");
-        }
+        boolean enableIvmNormalMTMVPlan = mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL;
         executor = MTMVPlanUtil.executeCommand(mtmv, command, statementContext,
-                getDummyStmt(refreshPartitionNames), customizer);
+                getDummyStmt(refreshPartitionNames), enableIvmNormalMTMVPlan);
         lastQueryId = DebugUtil.printId(executor.getContext().queryId());
         if (getStatus() == TaskStatus.CANCELED) {
             throw new JobException("task is CANCELED");
