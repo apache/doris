@@ -1102,6 +1102,28 @@ public class SystemInfoService {
                 .orElse(1);
     }
 
+    public int getMinTrashExpireTimeSec() {
+        List<Backend> currentBackends = null;
+        try {
+            currentBackends = getAllBackendsByAllCluster().values().asList();
+        } catch (UserException e) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get current cluster backends failed: ", e);
+            }
+            return 0;
+        }
+        if (currentBackends.size() == 0) {
+            return 0;
+        }
+
+        return currentBackends.stream()
+                .filter(Backend::isAlive)
+                .mapToInt(Backend::getTrashFileExpireTimeSec)
+                .filter(sec -> sec > 0)
+                .min()
+                .orElse(0);
+    }
+
     // CloudSystemInfoService override
     public int getTabletNumByBackendId(long beId) {
         return Env.getCurrentInvertedIndex().getTabletNumByBackendId(beId);

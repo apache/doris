@@ -72,7 +72,8 @@ public:
 
     // Drop a tablet by description.
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
-    Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
+    Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition,
+                        bool is_force = false);
 
     // Find two tablets.
     // One with the highest score to execute single compaction,
@@ -198,7 +199,8 @@ private:
     bool _check_tablet_id_exist_unlocked(TTabletId tablet_id);
 
     Status _drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
-                        bool is_drop_table_or_partition, bool had_held_shard_lock);
+                        bool is_drop_table_or_partition, bool had_held_shard_lock,
+                        bool is_force = false);
 
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id);
     TabletSharedPtr _get_tablet_unlocked(TTabletId tablet_id, bool include_deleted,

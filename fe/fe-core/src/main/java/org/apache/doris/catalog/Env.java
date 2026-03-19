@@ -7147,6 +7147,10 @@ public class Env {
     }
 
     public void onEraseOlapTable(long dbId, OlapTable olapTable, boolean isReplay) {
+        onEraseOlapTable(dbId, olapTable, isReplay, false);
+    }
+
+    public void onEraseOlapTable(long dbId, OlapTable olapTable, boolean isReplay, boolean isForce) {
         // inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
@@ -7162,7 +7166,7 @@ public class Env {
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
 
-        getInternalCatalog().eraseTableDropBackendReplicas(dbId, olapTable, isReplay);
+        getInternalCatalog().eraseTableDropBackendReplicas(dbId, olapTable, isReplay, isForce);
     }
 
     public void onErasePartition(Partition partition) {

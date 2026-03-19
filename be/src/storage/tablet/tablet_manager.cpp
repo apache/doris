@@ -513,16 +513,17 @@ TabletSharedPtr TabletManager::_create_tablet_meta_and_dir_unlocked(
 }
 
 Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
-                                  bool is_drop_table_or_partition) {
-    return _drop_tablet(tablet_id, replica_id, false, is_drop_table_or_partition, false);
+                                  bool is_drop_table_or_partition, bool is_force) {
+    return _drop_tablet(tablet_id, replica_id, false, is_drop_table_or_partition, false, is_force);
 }
 
 // Drop specified tablet.
 Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
-                                   bool is_drop_table_or_partition, bool had_held_shard_lock) {
+                                   bool is_drop_table_or_partition, bool had_held_shard_lock,
+                                   bool is_force) {
     LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
               << ", is_drop_table_or_partition=" << is_drop_table_or_partition
-              << ", keep_files=" << keep_files;
+              << ", keep_files=" << keep_files << ", is_force=" << is_force;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
 
     RETURN_IF_ERROR(register_transition_tablet(tablet_id, "drop tablet"));
@@ -569,6 +570,7 @@ Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, b
         //
         // Until now, only the restore task uses keep files.
         RETURN_IF_ERROR(to_drop_tablet->set_tablet_state(TABLET_SHUTDOWN));
+        to_drop_tablet->set_force_deleted(is_force);
         if (!keep_files) {
             LOG(INFO) << "set tablet to shutdown state and remove it from memory. "
                       << "tablet_id=" << tablet_id
@@ -1234,6 +1236,38 @@ Status TabletManager::start_trash_sweep() {
 }
 
 bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
+    // If force deleted, directly delete tablet data without moving to trash
+    if (tablet->is_force_deleted()) {
+        LOG(INFO) << "force delete tablet directly, skip trash. tablet_id=" << tablet->tablet_id();
+        RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "force delete"));
+        Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "force delete"); }};
+        tablet->clear_cache();
+        const auto& tablet_path = tablet->tablet_path();
+        bool exists = false;
+        Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
+        if (!exists_st) {
+            return false;
+        }
+        if (exists) {
+            Status del_st = io::global_local_filesystem()->delete_directory(tablet_path);
+            if (!del_st.ok()) {
+                LOG(WARNING) << "fail to force delete tablet dir. " << tablet_path;
+                return false;
+            }
+            RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_path));
+        }
+        auto remove_st = TabletMetaManager::remove(tablet->data_dir(), tablet->tablet_id(),
+                                                   tablet->schema_hash());
+        if (!remove_st.ok()) {
+            LOG(WARNING) << "failed to remove meta after force delete, tablet_id="
+                         << tablet->tablet_id() << ", error=" << remove_st;
+            return false;
+        }
+        LOG(INFO) << "successfully force deleted tablet. tablet_id=" << tablet->tablet_id()
+                  << ", tablet_path=" << tablet_path;
+        return true;
+    }
+
     RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));
     Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "move to trash"); }};
 

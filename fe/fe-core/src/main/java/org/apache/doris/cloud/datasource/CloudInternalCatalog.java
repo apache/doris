@@ -825,6 +825,11 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     @Override
     public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay) {
+        eraseTableDropBackendReplicas(dbId, olapTable, isReplay, false);
+    }
+
+    @Override
+    public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay, boolean isForce) {
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }

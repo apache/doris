@@ -1070,6 +1070,10 @@ public class InternalCatalog implements CatalogIf<Database> {
     }
 
     public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay) {
+        eraseTableDropBackendReplicas(dbId, olapTable, isReplay, false);
+    }
+
+    public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay, boolean isForce) {
         if (isReplay || Env.isCheckpointThread()) {
             return;
         }
@@ -1088,7 +1092,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         long backendId = replica.getBackendIdWithoutException();
                         long replicaId = replica.getId();
                         DropReplicaTask dropTask = new DropReplicaTask(backendId, tabletId,
-                                replicaId, schemaHash, true);
+                                replicaId, schemaHash, true, isForce);
                         batchTask.addTask(dropTask);
                     } // end for replicas
                 } // end for tablets
