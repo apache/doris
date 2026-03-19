@@ -67,11 +67,6 @@
 
 namespace doris::vectorized {
 
-// Nested group search is not available in branch-4.0
-static bool is_nested_group_search_supported() {
-    return false;
-}
-
 // Build canonical DSL signature for cache key.
 // Serializes the entire TSearchParam via Thrift binary protocol so that
 // every field (DSL, AST root, field bindings, default_operator,
