@@ -145,20 +145,16 @@ public class MTMVPlanUtil {
      * @param command        the command to execute
      * @param stmtCtx        pre-configured StatementContext (may contain snapshots, predicates, etc.)
      * @param auditStmt      descriptive string for audit log; null to skip audit logging
-     * @param ctxCustomizer  optional callback to customize ConnectContext before execution (e.g. session variables)
+     * @param enableIvmNormalMTMVPlan whether apply the ivm normal mv plan rule
      * @return the StmtExecutor used (caller may extract queryId or stats)
      */
     public static StmtExecutor executeCommand(MTMV mtmv, Command command,
-            StatementContext stmtCtx, @Nullable String auditStmt,
-            @Nullable Consumer<ConnectContext> ctxCustomizer) throws Exception {
+            StatementContext stmtCtx, @Nullable String auditStmt, boolean enableIvmNormalMTMVPlan) throws Exception {
         ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         ctx.setStatementContext(stmtCtx);
         ctx.getState().setNereids(true);
-        if (ctxCustomizer != null) {
-            ctxCustomizer.accept(ctx);
-        }
-        StmtExecutor executor = new StmtExecutor(ctx,
-                new LogicalPlanAdapter(command, stmtCtx));
+        ctx.getSessionVariable().setEnableIvmNormalRewrite(enableIvmNormalMTMVPlan);
+        StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, stmtCtx));
         ctx.setExecutor(executor);
         ctx.setQueryId(AbstractTask.generateQueryId());
         try {

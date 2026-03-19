@@ -46,8 +46,10 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IVMInfo;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
@@ -57,6 +59,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
@@ -443,6 +446,17 @@ public class MTMV extends OlapTable {
 
     public IVMInfo getIvmInfo() {
         return ivmInfo;
+    }
+
+    public List<String> getInsertedColumnNames()  {
+        List<Column> columns = getBaseSchema(true);
+        List<String> columnNames = Lists.newArrayListWithExpectedSize(columns.size());
+        for (Column column : columns) {
+            if (column.isVisible() || column.getName().equals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL)) {
+                columnNames.add(column.getName());
+            }
+        }
+        return columnNames;
     }
 
     public long getSchemaChangeVersion() {
