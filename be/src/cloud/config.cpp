@@ -98,7 +98,7 @@ DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
 // to get the remaining rowsets' results.
 DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
 
-DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
+DEFINE_Bool(enable_cloud_txn_lazy_commit, "true");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
 
