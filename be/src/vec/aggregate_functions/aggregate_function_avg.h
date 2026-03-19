@@ -72,12 +72,11 @@ struct AggregateFunctionAvgData {
             DecimalV2Value decimal_val_count(count, 0);
             DecimalV2Value decimal_val_sum(sum * multiplier);
             DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-            Decimal128V2 ret(cal_ret.value());
-            return ret;
+            return cal_ret;
         } else {
             if constexpr (T == TYPE_DECIMAL256) {
                 return static_cast<ResultT>(sum * multiplier /
-                                            typename PrimitiveTypeTraits<T>::ColumnItemType(count));
+                                            typename PrimitiveTypeTraits<T>::CppType(count));
             } else {
                 return static_cast<ResultT>(sum * multiplier) / static_cast<ResultT>(count);
             }
@@ -175,14 +174,18 @@ public:
         const auto& column =
                 assert_cast<const ColVecType&, TypeCheckOnRelease::DISABLE>(*columns[0]);
         if constexpr (is_add) {
-            if constexpr (is_decimal(T)) {
+            if constexpr (T == TYPE_DECIMALV2) {
+                this->data(place).sum += column.get_data()[row_num];
+            } else if constexpr (is_decimal(T)) {
                 this->data(place).sum += column.get_data()[row_num].value;
             } else {
                 this->data(place).sum += (DataType)column.get_data()[row_num];
             }
             ++this->data(place).count;
         } else {
-            if constexpr (is_decimal(T)) {
+            if constexpr (T == TYPE_DECIMALV2) {
+                this->data(place).sum += -column.get_data()[row_num];
+            } else if constexpr (is_decimal(T)) {
                 this->data(place).sum -= column.get_data()[row_num].value;
             } else {
                 this->data(place).sum -= (DataType)column.get_data()[row_num];
