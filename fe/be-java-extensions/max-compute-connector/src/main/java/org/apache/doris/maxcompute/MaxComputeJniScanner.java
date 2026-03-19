@@ -90,6 +90,8 @@ public class MaxComputeJniScanner extends JniScanner {
     private String table;
 
     private SplitReader<VectorSchemaRoot> currentSplitReader;
+    private VectorSchemaRoot currentBatch = null;
+    private int currentBatchRowOffset = 0;
     private MaxComputeColumnValue columnValue;
 
     private Map<String, Integer> readColumnsToId;
@@ -224,6 +226,8 @@ public class MaxComputeJniScanner extends JniScanner {
         }
         startOffset = -1;
         splitSize = -1;
+        currentBatch = null;
+        currentBatchRowOffset = 0;
         currentSplitReader = null;
         settings = null;
         scan = null;
@@ -241,45 +245,55 @@ public class MaxComputeJniScanner extends JniScanner {
         return readVectors(expectedRows);
     }
 
+    private VectorSchemaRoot getNextBatch() throws IOException {
+        try {
+            if (!currentSplitReader.hasNext()) {
+                currentSplitReader.close();
+                currentSplitReader = null;
+                return null;
+            }
+            return currentSplitReader.get();
+        } catch (Exception e) {
+            String errorMsg = "MaxComputeJniScanner readVectors get batch fail";
+            LOG.warn(errorMsg, e);
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
     private int readVectors(int expectedRows) throws IOException {
         int curReadRows = 0;
         while (curReadRows < expectedRows) {
-            try {
-                if (!currentSplitReader.hasNext()) {
-                    currentSplitReader.close();
-                    currentSplitReader = null;
+            if (currentBatch == null) {
+                currentBatch = getNextBatch();
+                if (currentBatch == null || currentBatch.getRowCount() == 0) {
+                    currentBatch = null;
                     break;
                 }
-            } catch (Exception e) {
-                String errorMsg = "MaxComputeJniScanner readVectors hasNext fail";
-                LOG.warn(errorMsg, e);
-                throw new IOException(e.getMessage(), e);
+                currentBatchRowOffset = 0;
             }
-
             try {
-                VectorSchemaRoot data = currentSplitReader.get();
-                if (data.getRowCount() == 0) {
-                    break;
-                }
-
-                List<FieldVector> fieldVectors = data.getFieldVectors();
-                int batchRows = 0;
+                int rowsToAppend = Math.min(expectedRows - curReadRows,
+                        currentBatch.getRowCount() - currentBatchRowOffset);
+                List<FieldVector> fieldVectors = currentBatch.getFieldVectors();
                 long startTime = System.nanoTime();
                 for (FieldVector column : fieldVectors) {
                     Integer readColumnId = readColumnsToId.get(column.getName());
-                    batchRows = column.getValueCount();
                     if (readColumnId == null) {
                         continue;
                     }
                     columnValue.reset(column);
-                    for (int j = 0; j < batchRows; j++) {
+                    for (int j = currentBatchRowOffset; j < currentBatchRowOffset + rowsToAppend; j++) {
                         columnValue.setColumnIdx(j);
                         appendData(readColumnId, columnValue);
                     }
                 }
                 appendDataTime += System.nanoTime() - startTime;
-
-                curReadRows += batchRows;
+                currentBatchRowOffset += rowsToAppend;
+                curReadRows += rowsToAppend;
+                if (currentBatchRowOffset >= currentBatch.getRowCount()) {
+                    currentBatch = null;
+                    currentBatchRowOffset = 0;
+                }
             } catch (Exception e) {
                 String errorMsg = String.format("MaxComputeJniScanner Fail to read arrow data. "
                         + "curReadRows = {}, expectedRows = {}", curReadRows, expectedRows);
