@@ -89,5 +89,37 @@ suite ("test_alter_table_property") {
     assertTrue(createTableStr.contains("\"storage_medium\" = \"ssd\""))
 
     sql "DROP TABLE ${tableName}"
+
+    tableName = "test_alter_table_partition_property_table"
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName}
+    (
+        k1 DATETIME(3),
+        k2 INT,
+        V1 VARCHAR(2048) REPLACE
+    )
+    PARTITION BY RANGE(k1)
+    (
+        PARTITION p1 VALUES LESS THAN ("2022-01-01 00:00:00.111"),
+        PARTITION p2 VALUES LESS THAN ("2022-02-01 00:00:00.111")
+    )
+    DISTRIBUTED BY HASH(k2) BUCKETS 2
+    PROPERTIES (
+        "replication_num" = "1",
+        "mutable" = "true"
+    )
+    """
+
+    sql """ALTER TABLE ${tableName} ADD PARTITION p3 VALUES LESS THAN ("2022-03-01 00:00:00.111") ("mutable" = "false")"""
+
+    def partitions = sql """SHOW PARTITIONS FROM ${tableName} where PartitionName = "p3" """
+    logger.info("partitions: $partitions")
+    def lastPartition = partitions[-1]
+    logger.info("lastPartition: $lastPartition")
+    def isMutable = lastPartition[-5]
+
+    logger.info("p3 IsMutable: ${isMutable}")
+    assertEquals('false', isMutable)
 }
 
