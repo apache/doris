@@ -153,7 +153,7 @@ Status TabletMetaManager::load_json_meta(DataDir* store, const std::string& meta
     }
 
     std::string json_meta((std::istreambuf_iterator<char>(infile)),
-                           std::istreambuf_iterator<char>());
+                          std::istreambuf_iterator<char>());
     boost::algorithm::trim(json_meta);
     TabletMetaPB tablet_meta_pb;
     std::string error;

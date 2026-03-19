@@ -47,6 +47,7 @@
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -54,12 +55,11 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_column_object_pool.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_cache.h"
-#include "storage/tablet/tablet_column_object_pool.h"
-#include "runtime/memory/cache_manager.h"
 #include "storage/types.h"
 #include "util/coding.h"
 
@@ -924,8 +924,7 @@ void init_common_components() {
     }
 
     doris::ExecEnv::GetInstance()->init_mem_tracker();
-    doris::ExecEnv::GetInstance()->set_cache_manager(
-            doris::CacheManager::create_global_instance());
+    doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
     doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
             doris::TabletSchemaCache::create_global_schema_cache(
                     doris::config::tablet_schema_cache_capacity));
