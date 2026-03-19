@@ -1042,4 +1042,477 @@ TEST(TxnAsyncPublishTest, ConvertTmpRowsetMultiTablet) {
     ASSERT_FALSE(tmp2.has_value());
 }
 
+// ==================== Lightweight Publish Tests ====================
+
+// Helper: read partition visible version from KV
+static int64_t get_partition_visible_version(std::shared_ptr<TxnKv>& txn_kv,
+                                             const std::string& instance_id, int64_t db_id,
+                                             int64_t table_id, int64_t partition_id) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = partition_version_key({instance_id, db_id, table_id, partition_id});
+    std::string val;
+    auto err = txn->get(key, &val);
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) return -1;
+    EXPECT_EQ(err, TxnErrorCode::TXN_OK);
+    VersionPB version_pb;
+    EXPECT_TRUE(version_pb.ParseFromString(val));
+    return version_pb.version();
+}
+
+// Helper: check if recycle_txn_key exists
+static bool recycle_txn_key_exists(std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                                   int64_t db_id, int64_t txn_id) {
+    std::unique_ptr<Transaction> txn;
+    EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+    std::string key = recycle_txn_key({instance_id, db_id, txn_id});
+    std::string val;
+    return txn->get(key, &val) == TxnErrorCode::TXN_OK;
+}
+
+// Helper: build a lightweight publish request
+static CommitTxnRequest build_lightweight_publish_req(int64_t db_id, int64_t txn_id) {
+    CommitTxnRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_db_id(db_id);
+    req.set_txn_id(txn_id);
+    req.set_is_lightweight_publish(true);
+    return req;
+}
+
+// Basic: single partition lightweight publish
+TEST(TxnAsyncPublishTest, LightweightPublishBasic) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3001;
+    int64_t table_id = 3002;
+    int64_t index_id = 3003;
+    int64_t partition_id = 4001;
+    int64_t tablet_id = 6001;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_lw_basic");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Async publish commit phase
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id,
+                                                  {{tablet_id, table_id, index_id, partition_id}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_COMMITTED);
+    }
+
+    // Lightweight publish phase
+    auto req = build_lightweight_publish_req(db_id, txn_id);
+    CommitTxnResponse res;
+    brpc::Controller cntl;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    // Verify response
+    ASSERT_EQ(res.partition_ids_size(), 1);
+    ASSERT_EQ(res.partition_ids(0), partition_id);
+    ASSERT_EQ(res.versions_size(), 1);
+    ASSERT_EQ(res.versions(0), 2); // visible version should be commit version
+
+    // Verify TxnInfoPB
+    ASSERT_TRUE(res.has_txn_info());
+    ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+
+    // Verify KV: partition visible version updated
+    int64_t vis_ver =
+            get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id);
+    ASSERT_EQ(vis_ver, 2);
+
+    // Verify KV: partition commit version still 2
+    int64_t commit_ver =
+            get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id);
+    ASSERT_EQ(commit_ver, 2);
+
+    // Verify KV: TxnInfoPB status is VISIBLE
+    auto txn_info = get_txn_info(txn_kv, mock_instance, db_id, txn_id);
+    ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+
+    // Verify KV: recycle_txn_key created
+    ASSERT_TRUE(recycle_txn_key_exists(txn_kv, mock_instance, db_id, txn_id));
+}
+
+// Idempotent: calling lightweight publish twice returns OK
+TEST(TxnAsyncPublishTest, LightweightPublishIdempotent) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3002;
+    int64_t table_id = 3003;
+    int64_t index_id = 3004;
+    int64_t partition_id = 4002;
+    int64_t tablet_id = 6002;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_lw_idempotent");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Async publish commit phase
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id,
+                                                  {{tablet_id, table_id, index_id, partition_id}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    auto req = build_lightweight_publish_req(db_id, txn_id);
+
+    // First lightweight publish
+    {
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+
+    // Second lightweight publish (idempotent)
+    {
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+
+    // Visible version should still be 2, not incremented again
+    int64_t vis_ver =
+            get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id);
+    ASSERT_EQ(vis_ver, 2);
+}
+
+// Already VISIBLE: lightweight publish on already VISIBLE txn returns OK
+TEST(TxnAsyncPublishTest, LightweightPublishAlreadyVisible) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3003;
+    int64_t table_id = 3004;
+    int64_t index_id = 3005;
+    int64_t partition_id = 4003;
+    int64_t tablet_id = 6003;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_lw_already_vis");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Async publish commit phase
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id,
+                                                  {{tablet_id, table_id, index_id, partition_id}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Lightweight publish
+    {
+        auto req = build_lightweight_publish_req(db_id, txn_id);
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Another lightweight publish (already VISIBLE)
+    {
+        auto req = build_lightweight_publish_req(db_id, txn_id);
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+}
+
+// Wrong status: lightweight publish on PREPARED txn should fail
+TEST(TxnAsyncPublishTest, LightweightPublishWrongStatus) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3004;
+    int64_t table_id = 3005;
+    int64_t index_id = 3006;
+    int64_t partition_id = 4004;
+    int64_t tablet_id = 6004;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_lw_wrong_status");
+
+    // Try lightweight publish without commit phase first
+    auto req = build_lightweight_publish_req(db_id, txn_id);
+    CommitTxnResponse res;
+    brpc::Controller cntl;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_INVALID_STATUS);
+}
+
+// Aborted transaction: lightweight publish should fail
+TEST(TxnAsyncPublishTest, LightweightPublishAbortedTxn) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3005;
+    int64_t table_id = 3006;
+    int64_t index_id = 3007;
+    int64_t partition_id = 4005;
+    int64_t tablet_id = 6005;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_lw_aborted");
+
+    // Abort the txn
+    {
+        brpc::Controller cntl;
+        AbortTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_reason("test abort");
+        AbortTxnResponse res;
+        meta_service->abort_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Try lightweight publish
+    auto req = build_lightweight_publish_req(db_id, txn_id);
+    CommitTxnResponse res;
+    brpc::Controller cntl;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ALREADY_ABORTED);
+}
+
+// Transaction not found: lightweight publish should fail
+TEST(TxnAsyncPublishTest, LightweightPublishTxnNotFound) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3006;
+    int64_t txn_id = 99999; // non-existent txn
+
+    // Try lightweight publish
+    auto req = build_lightweight_publish_req(db_id, txn_id);
+    CommitTxnResponse res;
+    brpc::Controller cntl;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_ID_NOT_FOUND);
+}
+
+// Multi-partition lightweight publish
+TEST(TxnAsyncPublishTest, LightweightPublishMultiPartition) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3007;
+    int64_t table_id = 3008;
+    int64_t index_id = 3009;
+    int64_t partition_id_1 = 4006;
+    int64_t partition_id_2 = 4007;
+    int64_t tablet_id_1 = 6006;
+    int64_t tablet_id_2 = 6007;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_1, tablet_id_1);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_2, tablet_id_2);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_lw_multi_part");
+
+    auto rowset1 = create_rowset(txn_id, tablet_id_1, index_id, partition_id_1);
+    auto rowset2 = create_rowset(txn_id, tablet_id_2, index_id, partition_id_2);
+    prepare_rowset(meta_service.get(), rowset1);
+    commit_rowset(meta_service.get(), rowset1);
+    prepare_rowset(meta_service.get(), rowset2);
+    commit_rowset(meta_service.get(), rowset2);
+
+    // Async publish commit phase
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id,
+                                                  {{tablet_id_1, table_id, index_id, partition_id_1},
+                                                   {tablet_id_2, table_id, index_id, partition_id_2}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Lightweight publish phase
+    auto req = build_lightweight_publish_req(db_id, txn_id);
+    CommitTxnResponse res;
+    brpc::Controller cntl;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+    // Verify both partitions updated
+    ASSERT_EQ(res.partition_ids_size(), 2);
+    ASSERT_EQ(res.versions_size(), 2);
+    for (int i = 0; i < res.versions_size(); ++i) {
+        ASSERT_EQ(res.versions(i), 2);
+    }
+
+    // Verify KV: both visible versions updated
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              2);
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              2);
+}
+
+// Not async publish transaction: lightweight publish should fail
+TEST(TxnAsyncPublishTest, LightweightPublishNotAsyncPublish) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3008;
+    int64_t table_id = 3009;
+    int64_t index_id = 3010;
+    int64_t partition_id = 4008;
+    int64_t tablet_id = 6008;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_lw_not_async");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Manually set txn status to COMMITTED but without mow_async_publish flag
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = txn_info_key({mock_instance, db_id, txn_id});
+        std::string val;
+        ASSERT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+        TxnInfoPB txn_info;
+        ASSERT_TRUE(txn_info.ParseFromString(val));
+        txn_info.set_status(TxnStatusPB::TXN_STATUS_COMMITTED);
+        // Don't set mow_async_publish
+        val = txn_info.SerializeAsString();
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
+    }
+
+    // Try lightweight publish
+    auto req = build_lightweight_publish_req(db_id, txn_id);
+    CommitTxnResponse res;
+    brpc::Controller cntl;
+    meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                             &res, nullptr);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::TXN_INVALID_STATUS);
+}
+
+// End-to-end: commit -> convert -> lightweight publish
+TEST(TxnAsyncPublishTest, EndToEndCommitConvertPublish) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3009;
+    int64_t table_id = 3010;
+    int64_t index_id = 3011;
+    int64_t partition_id = 4009;
+    int64_t tablet_id = 6009;
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_e2e");
+
+    auto rowset = create_rowset(txn_id, tablet_id, index_id, partition_id);
+    prepare_rowset(meta_service.get(), rowset);
+    commit_rowset(meta_service.get(), rowset);
+
+    // Phase 1: Async publish commit
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id,
+                                                  {{tablet_id, table_id, index_id, partition_id}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_COMMITTED);
+    }
+
+    // Phase 2: Convert tmp rowset
+    {
+        brpc::Controller cntl;
+        ConvertTmpRowsetRequest req;
+        ConvertTmpRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_tablet_id(tablet_id);
+        req.set_version(2);
+        req.set_db_id(db_id);
+        req.set_table_id(table_id);
+        req.set_index_id(index_id);
+        req.set_partition_id(partition_id);
+
+        meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                         &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Phase 3: Lightweight publish
+    {
+        auto req = build_lightweight_publish_req(db_id, txn_id);
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+
+    // Verify final state
+    auto txn_info = get_txn_info(txn_kv, mock_instance, db_id, txn_id);
+    ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id),
+              2);
+
+    // Verify formal rowset exists
+    auto formal_rowset = get_formal_rowset(txn_kv, mock_instance, tablet_id, 2);
+    ASSERT_TRUE(formal_rowset.has_value());
+
+    // Verify tmp rowset deleted
+    auto tmp_rowset = get_tmp_rowset(txn_kv, mock_instance, txn_id, tablet_id);
+    ASSERT_FALSE(tmp_rowset.has_value());
+}
+
 } // namespace doris::cloud

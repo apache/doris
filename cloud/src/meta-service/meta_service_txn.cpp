@@ -3527,6 +3527,381 @@ void MetaServiceImpl::commit_txn_async_publish(const CommitTxnRequest* request,
     } while (true);
 }
 
+void MetaServiceImpl::commit_txn_2pc_lightweight_publish(const CommitTxnRequest* request,
+                                                          CommitTxnResponse* response,
+                                                          MetaServiceCode& code, std::string& msg,
+                                                          const std::string& instance_id,
+                                                          int64_t db_id, KVStats& stats) {
+    std::stringstream ss;
+    int64_t txn_id = request->txn_id();
+
+    bool is_versioned_write = is_version_write_enabled(instance_id);
+
+    do {
+        std::unique_ptr<Transaction> txn;
+        TxnErrorCode err = txn_kv_->create_txn(&txn);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::CREATE>(err);
+            ss << "failed to create txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        if (is_versioned_write) {
+            txn->enable_get_versionstamp();
+        }
+
+        DORIS_CLOUD_DEFER {
+            if (txn == nullptr) return;
+            stats.get_bytes += txn->get_bytes();
+            stats.put_bytes += txn->put_bytes();
+            stats.del_bytes += txn->delete_bytes();
+            stats.get_counter += txn->num_get_keys();
+            stats.put_counter += txn->num_put_keys();
+            stats.del_counter += txn->num_del_keys();
+        };
+
+        // Step 1: Read and validate TxnInfoPB
+        std::string info_val;
+        const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
+        err = txn->get(info_key, &info_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                ss << "transaction [" << txn_id << "] not found, db_id=" << db_id;
+            } else {
+                ss << "failed to get txn_info, db_id=" << db_id << " txn_id=" << txn_id
+                   << " err=" << err;
+            }
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        TxnInfoPB txn_info;
+        if (!txn_info.ParseFromString(info_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        DCHECK(txn_info.txn_id() == txn_id);
+
+        // Idempotency check: if already VISIBLE, return success
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_VISIBLE) {
+            code = MetaServiceCode::OK;
+            ss << "transaction is already visible: db_id=" << db_id << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(INFO) << msg;
+            response->mutable_txn_info()->CopyFrom(txn_info);
+            return;
+        }
+
+        // Check if txn is aborted
+        if (txn_info.status() == TxnStatusPB::TXN_STATUS_ABORTED) {
+            code = MetaServiceCode::TXN_ALREADY_ABORTED;
+            ss << "transaction is already aborted: db_id=" << db_id << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        // Validate: must be COMMITTED status
+        if (txn_info.status() != TxnStatusPB::TXN_STATUS_COMMITTED) {
+            code = MetaServiceCode::TXN_INVALID_STATUS;
+            ss << "txn status is " << TxnStatusPB_Name(txn_info.status())
+               << ", expected COMMITTED for lightweight publish, db_id=" << db_id
+               << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        // Validate: must be async publish transaction
+        if (!txn_info.has_mow_async_publish() || !txn_info.mow_async_publish()) {
+            code = MetaServiceCode::TXN_INVALID_STATUS;
+            ss << "txn is not an async publish transaction, db_id=" << db_id
+               << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        // Validate: committed_partition_ids and committed_versions must exist and match
+        if (txn_info.committed_partition_ids_size() != txn_info.committed_versions_size()) {
+            code = MetaServiceCode::UNDEFINED_ERR;
+            ss << "committed_partition_ids size != committed_versions size, db_id=" << db_id
+               << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        if (txn_info.committed_partition_ids_size() == 0) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            ss << "no committed partitions in txn_info, db_id=" << db_id << " txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        LOG(INFO) << "commit_txn_2pc_lightweight_publish txn_id=" << txn_id
+                  << " txn_info=" << txn_info.ShortDebugString();
+
+        // Step 2: Extract partition info from TxnInfoPB
+        // partition_id -> {db_id, table_id}
+        std::unordered_map<int64_t, std::pair<int64_t, int64_t>> partition_indexes;
+        // Extract partition info from involved_tablets
+        for (const auto& tablet_info : txn_info.involved_tablets()) {
+            int64_t partition_id = tablet_info.partition_id();
+            int64_t table_id = tablet_info.table_id();
+            partition_indexes.emplace(partition_id, std::make_pair(db_id, table_id));
+        }
+
+        // Step 3: Update partition visible versions to commit versions
+        CommitTxnLogPB commit_txn_log;
+        commit_txn_log.set_txn_id(txn_id);
+        commit_txn_log.set_db_id(db_id);
+
+        int64_t version_update_time_ms =
+                duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        response->set_version_update_time_ms(version_update_time_ms);
+
+        // Use committed_partition_ids and committed_versions from TxnInfoPB
+        for (int i = 0; i < txn_info.committed_partition_ids_size(); ++i) {
+            int64_t partition_id = txn_info.committed_partition_ids(i);
+            int64_t commit_version = txn_info.committed_versions(i);
+
+            // Get table_id for this partition
+            if (!partition_indexes.contains(partition_id)) {
+                code = MetaServiceCode::UNDEFINED_ERR;
+                ss << "partition_id " << partition_id
+                   << " not found in partition_indexes, txn_id=" << txn_id;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            auto [p_db_id, table_id] = partition_indexes[partition_id];
+
+            // Read current partition visible version
+            std::string ver_key = partition_version_key({instance_id, p_db_id, table_id, partition_id});
+            std::string ver_val;
+            err = txn->get(ver_key, &ver_val);
+
+            VersionPB current_version_pb;
+            int64_t current_visible_version = 1; // Default to 1 if not exists (initial version)
+            if (err == TxnErrorCode::TXN_OK) {
+                if (!current_version_pb.ParseFromString(ver_val)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    ss << "failed to parse partition version, txn_id=" << txn_id
+                       << " partition_id=" << partition_id;
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+                current_visible_version = current_version_pb.version();
+            } else if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                // First time, visible version defaults to 1
+                // (create_tablet creates initial rowset with version 1)
+                current_visible_version = 1;
+            } else {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get partition version, txn_id=" << txn_id
+                   << " partition_id=" << partition_id << " err=" << err;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+
+            // Validate: commit_version should equal current_visible_version + 1
+            // This ensures the version sequence is correct (no gap or overlap)
+            if (commit_version != current_visible_version + 1) {
+                code = MetaServiceCode::UNDEFINED_ERR;
+                ss << "version mismatch: commit_version=" << commit_version
+                   << " but current_visible_version=" << current_visible_version
+                   << ", expected commit_version == current_visible_version + 1"
+                   << ", partition_id=" << partition_id << " txn_id=" << txn_id;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+
+            // Update visible version to commit version
+            VersionPB new_version_pb;
+            new_version_pb.set_version(commit_version);
+            new_version_pb.set_update_time_ms(version_update_time_ms);
+            new_version_pb.clear_pending_txn_ids(); // Clear pending markers
+            std::string new_ver_val;
+            if (!new_version_pb.SerializeToString(&new_ver_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize partition version, txn_id=" << txn_id
+                   << " partition_id=" << partition_id;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            txn->put(ver_key, new_ver_val);
+            LOG(INFO) << "put partition_version_key=" << hex(ver_key)
+                      << " version=" << commit_version << " txn_id=" << txn_id
+                      << " partition_id=" << partition_id;
+
+            // versioned write
+            if (is_versioned_write) {
+                std::string versioned_key =
+                        versioned::partition_version_key({instance_id, partition_id});
+                versioned_put(txn.get(), versioned_key, new_ver_val);
+                LOG(INFO) << "put versioned partition version key=" << hex(versioned_key)
+                          << " version=" << commit_version << " txn_id=" << txn_id;
+            }
+
+            commit_txn_log.mutable_partition_version_map()->insert({partition_id, commit_version});
+
+            // Fill response
+            response->add_table_ids(table_id);
+            response->add_partition_ids(partition_id);
+            response->add_versions(commit_version);
+        }
+
+        // Step 4: Update TxnInfoPB to VISIBLE
+        txn_info.set_status(TxnStatusPB::TXN_STATUS_VISIBLE);
+        int64_t finish_time = version_update_time_ms;
+        txn_info.set_finish_time(finish_time);
+
+        info_val.clear();
+        if (!txn_info.SerializeToString(&info_val)) {
+            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+            ss << "failed to serialize txn_info, txn_id=" << txn_id;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+        txn->put(info_key, info_val);
+        LOG(INFO) << "put txn_info_key=" << hex(info_key) << " txn_id=" << txn_id
+                  << " status=VISIBLE";
+
+        // Step 5: Delete txn_running_key (should already be deleted by commit phase, but for safety)
+        const std::string running_key = txn_running_key({instance_id, db_id, txn_id});
+        txn->remove(running_key);
+        LOG(INFO) << "remove running_key=" << hex(running_key) << " txn_id=" << txn_id;
+
+        // Step 6 & 7: Create CommitTxnLogPB and recycle information
+        RecycleTxnPB recycle_pb;
+        recycle_pb.set_creation_time(finish_time);
+        recycle_pb.set_label(txn_info.label());
+
+        if (is_versioned_write) {
+            commit_txn_log.mutable_recycle_txn()->Swap(&recycle_pb);
+            std::string log_key = versioned::log_key({instance_id});
+            OperationLogPB operation_log;
+            operation_log.mutable_commit_txn()->Swap(&commit_txn_log);
+            versioned::blob_put(txn.get(), log_key, operation_log);
+            LOG(INFO) << "put commit txn operation log, key=" << hex(log_key)
+                      << " txn_id=" << txn_id;
+        } else {
+            std::string recycle_key = recycle_txn_key({instance_id, db_id, txn_id});
+            std::string recycle_val;
+            if (!recycle_pb.SerializeToString(&recycle_val)) {
+                code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
+                ss << "failed to serialize recycle_pb, txn_id=" << txn_id;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            txn->put(recycle_key, recycle_val);
+            LOG(INFO) << "put recycle_txn_key=" << hex(recycle_key) << " txn_id=" << txn_id;
+        }
+
+        // Step 8: Update table versions
+        std::unordered_map<int64_t, TabletIndexPB> tablet_ids;
+        std::unordered_map<int64_t, TabletStats> tablet_stats; // Empty for lightweight publish
+        std::set<int64_t> table_ids_set;
+        for (const auto& [partition_id, db_table] : partition_indexes) {
+            auto [p_db_id, table_id] = db_table;
+            table_ids_set.insert(table_id);
+        }
+
+        // table_id -> version for response
+        std::map<int64_t, int64_t> table_version_map;
+        for (int64_t table_id : table_ids_set) {
+            // Read current table version before update
+            std::string ver_key = table_version_key({instance_id, db_id, table_id});
+            std::string ver_val;
+            err = txn->get(ver_key, &ver_val);
+            int64_t table_version = 0;
+            if (err == TxnErrorCode::TXN_OK) {
+                if (!txn->decode_atomic_int(ver_val, &table_version)) {
+                    code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+                    ss << "malformed table version value, table_id=" << table_id;
+                    msg = ss.str();
+                    LOG(WARNING) << msg;
+                    return;
+                }
+            } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                code = cast_as<ErrCategory::READ>(err);
+                ss << "failed to get table version, err=" << err << " table_id=" << table_id;
+                msg = ss.str();
+                LOG(WARNING) << msg;
+                return;
+            }
+            // Store the new version (current + 1) for response
+            table_version_map[table_id] = table_version + 1;
+
+            // Update table version
+            update_table_version(txn.get(), instance_id, db_id, table_id);
+            // Add to commit_txn_log
+            commit_txn_log.add_table_ids(table_id);
+        }
+
+        // Calculate table stats (empty for lightweight publish since rowsets already converted)
+        std::map<int64_t, TableStats> table_stats;
+        std::vector<int64_t> base_tablet_ids; // Empty for lightweight publish
+        calc_table_stats(tablet_ids, tablet_stats, table_stats, base_tablet_ids);
+
+        LOG(INFO) << "commit_txn_2pc_lightweight_publish put_size=" << txn->put_bytes()
+                  << " del_size=" << txn->delete_bytes() << " num_put_keys=" << txn->num_put_keys()
+                  << " num_del_keys=" << txn->num_del_keys()
+                  << " txn_size=" << txn->approximate_bytes() << " txn_id=" << txn_id;
+
+        // Step 9: Commit FDB transaction
+        err = txn->commit();
+        if (err == TxnErrorCode::TXN_CONFLICT) {
+            LOG(INFO) << "commit_txn_2pc_lightweight_publish conflict, retrying, txn_id="
+                      << txn_id;
+            ss.str("");
+            continue;
+        }
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::COMMIT>(err);
+            ss << "failed to commit kv txn, txn_id=" << txn_id << " err=" << err;
+            msg = ss.str();
+            LOG(WARNING) << msg;
+            return;
+        }
+
+        // Add table_stats to response
+        for (const auto& pair : table_version_map) {
+            TableStatsPB* stats_pb = response->add_table_stats();
+            auto table_id = pair.first;
+            stats_pb->set_table_id(table_id);
+            stats_pb->set_table_version(pair.second);
+            if (auto it = table_stats.find(table_id); it != table_stats.end()) {
+                get_pb_from_tablestats(it->second, stats_pb);
+                VLOG_DEBUG << "Add TableStats to CommitTxnResponse. txn_id=" << txn_id
+                           << " table_id=" << table_id
+                           << " updated_row_count=" << stats_pb->updated_row_count();
+            }
+        }
+        response->mutable_txn_info()->CopyFrom(txn_info);
+
+        LOG(INFO) << "commit_txn_2pc_lightweight_publish success, txn_id=" << txn_id
+                  << " partitions=" << txn_info.committed_partition_ids_size();
+        break;
+    } while (true);
+}
+
 void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
                                  const CommitTxnRequest* request, CommitTxnResponse* response,
                                  ::google::protobuf::Closure* done) {
@@ -3551,6 +3926,12 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     int64_t db_id;
     get_txn_db_id(txn_kv_.get(), instance_id, txn_id, code, msg, &db_id, &stats);
     if (code != MetaServiceCode::OK) {
+        // For lightweight publish, convert KV_TXN_GET_ERR to TXN_ID_NOT_FOUND
+        // if the request has is_lightweight_publish flag
+        if (request->has_is_lightweight_publish() && request->is_lightweight_publish() &&
+            code == MetaServiceCode::KV_TXN_GET_ERR) {
+            code = MetaServiceCode::TXN_ID_NOT_FOUND;
+        }
         LOG(WARNING) << "get_txn_db_id failed, txn_id=" << txn_id << " code=" << code;
         return;
     }
@@ -3563,6 +3944,13 @@ void MetaServiceImpl::commit_txn(::google::protobuf::RpcController* controller,
     // Async publish commit phase: fast commit without rowset conversion
     if (request->has_enable_mow_async_publish() && request->enable_mow_async_publish()) {
         commit_txn_async_publish(request, response, code, msg, instance_id, db_id, stats);
+        return;
+    }
+
+    // Async publish lightweight publish phase: update visible versions and mark txn as VISIBLE
+    if (request->has_is_lightweight_publish() && request->is_lightweight_publish()) {
+        commit_txn_2pc_lightweight_publish(request, response, code, msg, instance_id, db_id,
+                                           stats);
         return;
     }
 

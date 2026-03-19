@@ -504,6 +504,15 @@ private:
                                   MetaServiceCode& code, std::string& msg,
                                   const std::string& instance_id, int64_t db_id, KVStats& stats);
 
+    // Async publish lightweight publish phase: updates partition visible versions to
+    // commit versions and marks transaction as VISIBLE. Called after all per-tablet
+    // rowset conversions are completed.
+    void commit_txn_2pc_lightweight_publish(const CommitTxnRequest* request,
+                                            CommitTxnResponse* response,
+                                            MetaServiceCode& code, std::string& msg,
+                                            const std::string& instance_id, int64_t db_id,
+                                            KVStats& stats);
+
     // Get the first pending transaction ID for a partition. If there no any pending transaction,
     // `first_txn_id` will be set to -1.
     void get_partition_pending_txn_id(std::string_view instance_id, int64_t db_id, int64_t table_id,
