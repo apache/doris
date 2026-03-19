@@ -43,6 +43,7 @@ suite('test_schema_change_waits_for_base_replica_catch_up_quorum', 'docker') {
             DISTRIBUTED BY HASH(k1) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "3",
+                "disable_auto_compaction" = "true",
                 "light_schema_change" = "false"
             )
         '''
