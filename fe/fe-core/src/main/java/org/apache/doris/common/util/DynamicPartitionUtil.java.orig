@@ -649,7 +649,7 @@ public class DynamicPartitionUtil {
                         + expectCreatePartitionNum + ". Limit: " + Config.max_dynamic_partition_num);
             } else if (expectCreatePartitionNum > Config.max_dynamic_partition_num * 0.8) {
                 LOG.warn("Dynamic partition count {} is approaching limit {} (>80%)."
-                        + " Consider increasing max_dynamic_partition_num.",
+                                + " Consider increasing max_dynamic_partition_num.",
                         expectCreatePartitionNum, Config.max_dynamic_partition_num);
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT.increase(1L);
