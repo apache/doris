@@ -128,6 +128,10 @@ suite("test_string_function_regexp") {
     qt_sql_regexp_extract_all_9 "SELECT REGEXP_EXTRACT_ALL(concat('aXb', char(10), 'cXd'), '(?-s)(\\\\w.\\\\w)');"
     qt_sql_regexp_extract_all_10 "SELECT REGEXP_EXTRACT_ALL(concat('aXb', char(10), 'cXd'), '(\\\\w.\\\\w)');"
 
+    test {
+        sql 'SELECT REGEXP_EXTRACT_ALL_ARRAY(\'Apache/Doris\', \'([a-zA-Z_+-]+(?:\\/[a-zA-Z_0-9+-]+)*)(?=s|$)\');'
+        exception "Invalid regex pattern"
+    }
     qt_regexp_extract_all_array_1 "SELECT regexp_extract_all_array('x=a3&x=18abc&x=2&y=3&x=4&x=17bcd', 'x=([0-9]+)([a-z]+)');"
     qt_regexp_extract_all_array_2 "SELECT regexp_extract_all_array('http://a.m.baidu.com/i41915i73660.htm', 'i([0-9]+)');"
     qt_regexp_extract_all_array_3 "SELECT regexp_extract_all_array('abc=111, def=222, ghi=333', '(\"[^\"]+\"|\\\\w+)=(\"[^\"]+\"|\\\\w+)');"
