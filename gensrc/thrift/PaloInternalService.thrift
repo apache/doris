@@ -201,6 +201,7 @@ struct TQueryOptions {
   // deprecated
   60: optional i32 partitioned_hash_agg_rows_threshold = 0 // deprecated
 
+  // deprecated
   61: optional bool enable_file_cache = false
 
   62: optional i32 insert_timeout = 14400
@@ -424,6 +425,7 @@ struct TQueryOptions {
   183: optional bool enable_use_hybrid_sort = false;
   184: optional i32 cte_max_recursion_depth;
 
+
   185: optional bool enable_parquet_file_page_cache = true;
 
   186: optional bool enable_streaming_agg_hash_join_force_passthrough;
@@ -476,8 +478,13 @@ struct TQueryOptions {
   // For cloud, to control if the content would be written into file cache
   // In write path, to control if the content would be written into file cache.
   // In read path, read from file cache or remote storage when execute query.
+
+  // deprecated
   1000: optional bool disable_file_cache = false
   1001: optional i32 file_cache_query_limit_percent = -1
+
+  1002: optional bool enable_file_cache_for_olap_table = true;
+  1003: optional bool enable_file_cache_for_external_table = false;
 }
 
 

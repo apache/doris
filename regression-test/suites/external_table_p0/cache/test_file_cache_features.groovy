@@ -62,7 +62,7 @@ suite("test_file_cache_features", "p0,external") {
     String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
     String hdfs_port = context.config.otherConfigs.get(hivePrefix + "HdfsPort")
 
-    sql """set global enable_file_cache=true"""
+    sql """set global enable_file_cache_for_external_table=true"""
     sql """drop catalog if exists ${catalog_name} """
 
     sql """CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -236,6 +236,6 @@ suite("test_file_cache_features", "p0,external") {
     }
     // ===== End File Cache Features Metrics Check =====
 
-    sql """set global enable_file_cache=false"""
+    sql """set global enable_file_cache_for_external_table=false"""
     return true
 }

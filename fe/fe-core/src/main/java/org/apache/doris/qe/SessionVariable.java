@@ -484,9 +484,14 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TOPN_FILTER_RATIO = "topn_filter_ratio";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
 
+    // deprecated
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
+    // deprecated
     public static final String DISABLE_FILE_CACHE = "disable_file_cache";
+
+    public static final String ENABLE_FILE_CACHE_FOR_OLAP_TABLE = "enable_file_cache_for_olap_table";
+    public static final String ENABLE_FILE_CACHE_FOR_EXTERNAL_TABLE = "enable_file_cache_for_external_table";
 
     public static final String FILE_CACHE_QUERY_LIMIT_PERCENT = "file_cache_query_limit_percent";
 
@@ -2195,16 +2200,32 @@ public class SessionVariable implements Serializable, Writable {
 
     // Whether disable block file cache. Block cache only works when FE's query options sets disableFileCache false
     // along with BE's config `enable_file_cache` true
-    @VariableMgr.VarAttr(name = DISABLE_FILE_CACHE, needForward = true)
+    @VariableMgr.VarAttr(name = DISABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED)
     public boolean disableFileCache = false;
 
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
-    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, description = {
-            "是否启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true, varType = VariableAnnotation.DEPRECATED,
+            description = {"是否启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
                     + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
-            "Set wether to use file cache. This variable takes effect only if the BE config enable_file_cache=true. "
-                    + "The cache is not used when BE config enable_file_cache=false."})
+                "Set whether to use file cache. This variable takes effect only if the BE config "
+                    + "enable_file_cache=true. The cache is not used when BE config enable_file_cache=false."})
     public boolean enableFileCache = false;
+
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_FOR_OLAP_TABLE, needForward = true, description = {
+            "是否在存算分离场景下启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
+                    + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
+            "Set whether to enable file cache for OLAP tables in cloud mode. "
+                    + "This variable takes effect only if the BE config enable_file_cache=true. "
+                    + "The cache is not used when BE config enable_file_cache=false."})
+    public boolean enableFileCacheForOlapTable = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE_FOR_EXTERNAL_TABLE, needForward = true, description = {
+            "是否在湖仓一体场景下启用 file cache。该变量只有在 be.conf 中 enable_file_cache=true 时才有效，"
+                    + "如果 be.conf 中 enable_file_cache=false，该 BE 节点的 file cache 处于禁用状态。",
+            "Set whether to enable file cache for external tables in lakehouse scenarios. "
+                    + "This variable takes effect only if the BE config enable_file_cache=true. "
+                    + "The cache is not used when BE config enable_file_cache=false."})
+    public boolean enableFileCacheForExternalTable = false;
 
     // Specify base path for file cache, or chose a random path.
     @VariableMgr.VarAttr(name = FILE_CACHE_BASE_PATH, needForward = true, description = {
@@ -5175,6 +5196,22 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableFileCache(boolean enableFileCache) {
         this.enableFileCache = enableFileCache;
+    }
+
+    public boolean isEnableFileCacheForOlapTable() {
+        return enableFileCacheForOlapTable;
+    }
+
+    public void setEnableFileCacheForOlapTable(boolean enableFileCacheForOlapTable) {
+        this.enableFileCacheForOlapTable = enableFileCacheForOlapTable;
+    }
+
+    public boolean isEnableFileCacheForExternalTable() {
+        return enableFileCacheForExternalTable;
+    }
+
+    public void setEnableFileCacheForExternalTable(boolean enableFileCacheForExternalTable) {
+        this.enableFileCacheForExternalTable = enableFileCacheForExternalTable;
     }
 
     public String getFileCacheBasePath() {

@@ -158,7 +158,7 @@ public class OlapTableSink extends DataSink {
         tSink.setLoadChannelTimeoutS(loadChannelTimeoutS);
         tSink.setSendBatchParallelism(sendBatchParallelism);
         tSink.setWriteFileCache(ConnectContext.get() != null
-                ? !ConnectContext.get().getSessionVariable().isDisableFileCache()
+                ? ConnectContext.get().getSessionVariable().isEnableFileCacheForOlapTable()
                 : false);
         this.isStrictMode = isStrictMode;
         this.txnId = txnId;

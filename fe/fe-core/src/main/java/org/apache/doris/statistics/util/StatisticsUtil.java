@@ -244,7 +244,7 @@ public class StatisticsUtil {
                 LOG.warn("failed to connect to cloud cluster", e);
                 return ctx;
             }
-            sessionVariable.disableFileCache = !useFileCacheForStat;
+            sessionVariable.enableFileCacheForOlapTable = useFileCacheForStat;
             return ctx;
         } else {
             return new AutoCloseConnectContext(connectContext);
