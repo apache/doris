@@ -49,7 +49,6 @@
 
 #include <sys/mman.h>
 
-#include <algorithm>
 #include <cstdlib>
 #include <string>
 

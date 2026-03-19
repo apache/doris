@@ -19,7 +19,6 @@
 
 #include <absl/strings/str_split.h>
 
-#include <algorithm>
 #include <ostream>
 
 #include "common/config.h"

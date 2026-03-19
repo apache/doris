@@ -18,7 +18,6 @@
 #include <fmt/format.h>
 #include <glog/logging.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <cstdint>
 #include <cstdlib>

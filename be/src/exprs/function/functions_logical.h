@@ -23,7 +23,6 @@
 #include <fmt/format.h>
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 

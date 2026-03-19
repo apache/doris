@@ -21,7 +21,6 @@
 #include <fcntl.h>
 #include <gen_cpp/PlanNodes_types.h>
 
-#include <algorithm>
 #include <filesystem>
 #include <map>
 #include <mutex>

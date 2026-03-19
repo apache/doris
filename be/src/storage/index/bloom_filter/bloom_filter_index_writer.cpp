@@ -20,7 +20,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <string.h>
 
-#include <algorithm>
 #include <memory>
 #include <set>
 #include <string>

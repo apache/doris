@@ -20,7 +20,6 @@
 #include <gen_cpp/Types_types.h>
 #include <stddef.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <string>
 

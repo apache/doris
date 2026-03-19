@@ -21,7 +21,6 @@
 #include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
-#include <algorithm>
 #include <cstring>
 #include <memory>
 #include <ostream>
