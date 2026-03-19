@@ -43,7 +43,6 @@ struct SearchInputBundle {
     std::unordered_map<std::string, int> field_name_to_column_id;
     std::vector<int> column_ids;
     vectorized::ColumnsWithTypeAndName literal_args;
-    std::unordered_map<std::string, int> field_name_to_column_id;
 };
 
 Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
