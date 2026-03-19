@@ -22,6 +22,7 @@ import org.apache.doris.authentication.AuthenticationException;
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationIntegrationMeta;
+import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
@@ -63,20 +64,10 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
 
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
-        Password password = request.getPassword();
-        if (!(password instanceof ClearPassword)) {
+        AuthenticationRequest integrationRequest = toIntegrationRequest(request);
+        if (integrationRequest == null) {
             return AuthenticateResponse.failedResponse;
         }
-
-        ClearPassword clearPassword = (ClearPassword) password;
-        org.apache.doris.authentication.AuthenticationRequest integrationRequest =
-                org.apache.doris.authentication.AuthenticationRequest.builder()
-                        .username(request.getUserName())
-                        .credentialType(org.apache.doris.authentication.CredentialType.CLEAR_TEXT_PASSWORD)
-                        .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
-                        .remoteHost(request.getRemoteIp())
-                        .clientType("mysql")
-                        .build();
 
         AuthenticationOutcome outcome;
         try {
@@ -114,6 +105,33 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
     @Override
     public PasswordResolver getPasswordResolver() {
         return passwordResolver;
+    }
+
+    private AuthenticationRequest toIntegrationRequest(AuthenticateRequest request) {
+        AuthenticationRequest.Builder builder = AuthenticationRequest.builder()
+                .username(request.getUserName())
+                .remoteHost(request.getRemoteHost())
+                .remotePort(request.getRemotePort())
+                .clientType(request.getClientType() == null ? "mysql" : request.getClientType());
+        if (!request.getProperties().isEmpty()) {
+            builder.properties(request.getProperties());
+        }
+        if (request.getCredentialType() != null) {
+            return builder.credentialType(request.getCredentialType())
+                    .credential(request.getCredential())
+                    .build();
+        }
+
+        // TODO(authentication): drop password fallback once protocol adapters emit
+        // generic credentials for all plugin-based authenticators.
+        Password password = request.getPassword();
+        if (!(password instanceof ClearPassword)) {
+            return null;
+        }
+        ClearPassword clearPassword = (ClearPassword) password;
+        return builder.credentialType(org.apache.doris.authentication.CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
+                .build();
     }
 
     public static List<String> parseAuthenticationChain(String chainConfig) {

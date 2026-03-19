@@ -60,7 +60,6 @@ import java.util.Properties;
 public class AuthenticationPluginAuthenticator implements Authenticator {
     private static final Logger LOG = LogManager.getLogger(AuthenticationPluginAuthenticator.class);
     private static final String CONFIG_INTEGRATION_NAME_PREFIX = "__config_auth_type__:";
-    private static final String MYSQL_RANDOM_STRING_PROPERTY = "mysql.random_string";
 
     private final AuthenticationIntegration integration;
     private final AuthenticationPlugin plugin;
@@ -144,9 +143,21 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
     private AuthenticationRequest toPluginRequest(AuthenticateRequest request) {
         AuthenticationRequest.Builder builder = AuthenticationRequest.builder()
                 .username(request.getUserName())
-                .remoteHost(request.getRemoteIp())
-                .clientType("mysql");
+                .remoteHost(request.getRemoteHost())
+                .remotePort(request.getRemotePort())
+                .clientType(request.getClientType() == null ? "mysql" : request.getClientType());
 
+        if (!request.getProperties().isEmpty()) {
+            builder.properties(request.getProperties());
+        }
+        if (request.getCredentialType() != null) {
+            return builder.credentialType(request.getCredentialType())
+                    .credential(request.getCredential())
+                    .build();
+        }
+
+        // TODO(authentication): drop password fallback once protocol adapters emit
+        // generic credentials for all plugin-based authenticators.
         Password password = request.getPassword();
         if (password instanceof ClearPassword) {
             builder.credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
@@ -155,7 +166,7 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             NativePassword nativePassword = (NativePassword) password;
             builder.credentialType(CredentialType.MYSQL_NATIVE_PASSWORD)
                     .credential(nativePassword.getRemotePasswd())
-                    .property(MYSQL_RANDOM_STRING_PROPERTY, nativePassword.getRandomString());
+                    .property(NativePasswordResolver.MYSQL_RANDOM_STRING_PROPERTY, nativePassword.getRandomString());
         } else {
             throw new IllegalArgumentException("Unsupported password type: "
                     + (password == null ? "null" : password.getClass().getName()));

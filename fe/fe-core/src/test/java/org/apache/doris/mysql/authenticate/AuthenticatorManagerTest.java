@@ -127,8 +127,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -167,8 +168,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -176,8 +178,9 @@ class AuthenticatorManagerTest {
         PasswordResolver chainResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(chainAuthenticator.getPasswordResolver()).thenReturn(chainResolver);
-        Mockito.when(chainResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(chainResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(new AuthenticateResponse(true,
                         org.apache.doris.analysis.UserIdentity.createAnalyzedUserIdentWithIp(USER_NAME, REMOTE_IP),
@@ -208,8 +211,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -241,8 +245,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new NativePassword(new byte[] {1}, new byte[] {2})));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new NativePassword(new byte[] {1}, new byte[] {2})));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -250,8 +255,9 @@ class AuthenticatorManagerTest {
         PasswordResolver chainResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(chainAuthenticator.getPasswordResolver()).thenReturn(chainResolver);
-        Mockito.when(chainResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(chainResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(new AuthenticateResponse(true,
                         org.apache.doris.analysis.UserIdentity.createAnalyzedUserIdentWithIp(USER_NAME, REMOTE_IP),
@@ -270,8 +276,8 @@ class AuthenticatorManagerTest {
                 Mockito.mock(MysqlHandshakePacket.class));
 
         Assertions.assertTrue(result);
-        Mockito.verify(chainResolver).resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any(), Mockito.any());
+        Mockito.verify(chainResolver).resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any());
         Mockito.verify(chainAuthenticator).authenticate(Mockito.any());
     }
 
@@ -284,8 +290,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -325,8 +332,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -363,8 +371,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -400,8 +409,9 @@ class AuthenticatorManagerTest {
         PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
         Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
-        Mockito.when(primaryResolver.resolvePassword(Mockito.any(), Mockito.any(), Mockito.any(), Mockito.any(),
-                Mockito.any())).thenReturn(Optional.of(new ClearPassword("secret")));
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
@@ -441,6 +451,16 @@ class AuthenticatorManagerTest {
         Mockito.when(channel.getRemoteIp()).thenReturn(REMOTE_IP);
         Mockito.when(channel.getSerializer()).thenReturn(serializer);
         return context;
+    }
+
+    private Optional<AuthenticateRequest> authenticateRequest(
+            org.apache.doris.mysql.authenticate.password.Password password) {
+        return Optional.of(AuthenticateRequest.builder()
+                .userName(USER_NAME)
+                .password(password)
+                .remoteHost(REMOTE_IP)
+                .clientType("mysql")
+                .build());
     }
 
     private static void setStaticField(String fieldName, Object value) throws Exception {
