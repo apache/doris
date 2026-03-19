@@ -4403,7 +4403,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
             return result;
-        } else if (partitionNum > autoPartitionLimit * 0.8) {
+        } else if (partitionNum > autoPartitionLimit * 8 / 10) {
             LOG.warn("Table {}.{} auto partition count {} is approaching limit {} (>80%)."
                         + " Consider increasing max_auto_partition_num.",
                     db.getFullName(), olapTable.getName(), partitionNum, autoPartitionLimit);
