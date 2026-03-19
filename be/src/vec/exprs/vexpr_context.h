@@ -49,6 +49,7 @@ class RuntimeState;
 namespace doris::segment_v2 {
 class Segment;
 class ColumnIterator;
+class Segment;
 } // namespace doris::segment_v2
 
 namespace doris::vectorized {
@@ -64,8 +65,8 @@ public:
             const std::vector<vectorized::IndexFieldNameAndTypePair>& storage_name_and_type_vec,
             std::unordered_map<ColumnId, std::unordered_map<const vectorized::VExpr*, bool>>&
                     common_expr_index_status,
-            ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment,
-            const segment_v2::ColumnIteratorOptions& column_iter_opts)
+            ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment = nullptr,
+            const segment_v2::ColumnIteratorOptions& column_iter_opts = {})
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
@@ -203,6 +204,20 @@ public:
         return iter->second.get();
     }
 
+    void set_index_query_context(segment_v2::IndexQueryContextPtr index_query_context) {
+        _index_query_context = index_query_context;
+    }
+
+    const segment_v2::IndexQueryContextPtr& get_index_query_context() const {
+        return _index_query_context;
+    }
+
+    segment_v2::Segment* get_segment() const { return _segment; }
+
+    const segment_v2::ColumnIteratorOptions& get_column_iter_opts() const {
+        return _column_iter_opts;
+    }
+
 private:
     // A reference to a vector of column IDs for the current expression's output columns.
     const std::vector<ColumnId>& _col_ids;
@@ -231,6 +246,7 @@ private:
 
     segment_v2::Segment* _segment = nullptr; // Ref
     segment_v2::ColumnIteratorOptions _column_iter_opts;
+    segment_v2::IndexQueryContextPtr _index_query_context;
 };
 
 class VExprContext {
