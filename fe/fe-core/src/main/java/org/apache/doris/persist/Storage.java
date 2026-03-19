@@ -68,6 +68,7 @@ public class Storage {
     private long editsSeq;
     private long latestImageSeq = 0;
     private long latestValidatedImageSeq = 0;
+    private long latestImageCreateTime = 0;
     private String metaDir;
     private List<Long> editsFileSequenceNumbers;
 
@@ -83,6 +84,15 @@ public class Storage {
         this.editsSeq = editsSeq;
         this.latestImageSeq = latestImageSeq;
         this.metaDir = metaDir;
+        // try to set latestImageCreateTime from the image file if it exists
+        try {
+            File img = getImageFile(latestImageSeq);
+            if (img != null && img.exists()) {
+                latestImageCreateTime = img.lastModified();
+            }
+        } catch (Exception e) {
+            // ignore; best-effort only
+        }
     }
 
     public Storage(String metaDir) throws IOException {
@@ -146,6 +156,7 @@ public class Storage {
                         imageIds.add(fileSeq);
                         if (latestImageSeq < fileSeq) {
                             latestImageSeq = fileSeq;
+                            latestImageCreateTime = child.lastModified();
                         }
                     } else if (name.startsWith(EDITS)) {
                         // Just record the sequence part of the file name
@@ -160,6 +171,14 @@ public class Storage {
         // set latestValidatedImageSeq to the second largest image id, or 0 if less than 2 images.
         Collections.sort(imageIds);
         latestValidatedImageSeq = imageIds.size() < 2 ? 0 : imageIds.get(imageIds.size() - 2);
+    }
+
+    /**
+     * Return latest image creation time in milliseconds since epoch.
+     * 0 means unknown.
+     */
+    public long getLatestImageCreateTime() {
+        return latestImageCreateTime;
     }
 
     public int getClusterID() {
