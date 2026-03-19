@@ -258,12 +258,14 @@ public class Cast extends Expression implements UnaryExpression, Monotonic {
             return false;
         }
         Cast cast = (Cast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return Objects.equals(targetType, cast.targetType)
+                && isExplicitType == cast.isExplicitType
+                && Objects.equals(explicitTypeSql, cast.explicitTypeSql);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode(), targetType);
+        return Objects.hash(super.computeHashCode(), targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override

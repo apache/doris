@@ -89,16 +89,12 @@ public class TryCast extends Cast implements UnaryExpression, Monotonic, AlwaysN
 
     @Override
     public boolean equals(Object o) {
-        if (!super.equals(o)) {
-            return false;
-        }
-        TryCast cast = (TryCast) o;
-        return Objects.equals(targetType, cast.targetType);
+        return super.equals(o);
     }
 
     @Override
     public int computeHashCode() {
-        return Objects.hash(super.computeHashCode() + 1, targetType);
+        return Objects.hash(super.computeHashCode() + 1, targetType, isExplicitType, explicitTypeSql);
     }
 
     @Override

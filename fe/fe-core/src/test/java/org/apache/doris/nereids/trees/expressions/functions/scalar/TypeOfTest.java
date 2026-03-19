@@ -23,13 +23,17 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.MapType;
 import org.apache.doris.nereids.types.StructField;
 import org.apache.doris.nereids.types.StructType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TimeStampTzType;
+import org.apache.doris.nereids.types.VarBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
@@ -70,6 +74,14 @@ class TypeOfTest {
 
     @Test
     void testDisplayNameForComplexTypes() {
+        Assertions.assertEquals("real",
+                TypeOfDisplayName.fromDataType(FloatType.INSTANCE));
+        Assertions.assertEquals("varbinary",
+                TypeOfDisplayName.fromDataType(VarBinaryType.INSTANCE));
+        Assertions.assertEquals("date",
+                TypeOfDisplayName.fromDataType(DateV2Type.INSTANCE));
+        Assertions.assertEquals("time(0)",
+                TypeOfDisplayName.fromDataType(TimeV2Type.SYSTEM_DEFAULT));
         Assertions.assertEquals("array(integer)",
                 TypeOfDisplayName.fromDataType(ArrayType.of(IntegerType.INSTANCE)));
         Assertions.assertEquals("map(integer, integer)",

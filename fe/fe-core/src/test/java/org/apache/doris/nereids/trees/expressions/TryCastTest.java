@@ -46,6 +46,23 @@ import org.mockito.Mockito;
 public class TryCastTest {
 
     @Test
+    public void testTryCastEqualityIncludesExplicitTypeMetadata() {
+        SlotReference child = new SlotReference("slot", IntegerType.INSTANCE, false);
+
+        TryCast decimal = new TryCast(child, DecimalV3Type.SYSTEM_DEFAULT, true, "decimal");
+        TryCast sameDecimal = new TryCast(child, DecimalV3Type.SYSTEM_DEFAULT, true, "decimal");
+        TryCast decimalV3 = new TryCast(child, DecimalV3Type.SYSTEM_DEFAULT, true, "decimalv3");
+        TryCast implicitDecimal = new TryCast(child, DecimalV3Type.SYSTEM_DEFAULT, false, "decimal");
+
+        Assertions.assertEquals(decimal, sameDecimal);
+        Assertions.assertEquals(decimal.hashCode(), sameDecimal.hashCode());
+        Assertions.assertNotEquals(decimal, decimalV3);
+        Assertions.assertNotEquals(decimal.hashCode(), decimalV3.hashCode());
+        Assertions.assertNotEquals(decimal, implicitDecimal);
+        Assertions.assertNotEquals(decimal.hashCode(), implicitDecimal.hashCode());
+    }
+
+    @Test
     public void testTryCastFromBoolean() {
         try (MockedStatic<SessionVariable> mockedSessionVariable = Mockito.mockStatic(SessionVariable.class)) {
             // When strict mode is true, return child.nullable.
