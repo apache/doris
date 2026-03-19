@@ -174,7 +174,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
             p._aggregate_evaluators[0]->function()->is_simple_count()) /* only one count(*) */
         && !_should_limit_output /* no limit optimization */ &&
         !Base::_shared_state->enable_spill /* spill not enabled */) {
-        _shared_state->use_simple_count = _shared_state->agg_data->is_fixed_key;
+        _shared_state->use_simple_count = true;
 #ifndef NDEBUG
         // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.
         _shared_state->use_simple_count = rand() % 2 == 0;
@@ -639,11 +639,10 @@ void AggSinkLocalState::_emplace_into_hash_table_inline_count(ColumnRawPtrs& key
                              auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
-                                                                            creator_for_null_key);
-                                 ++reinterpret_cast<UInt64&>(*mapped_ptr);
-                             }
+                             lazy_emplace_batch(agg_method, state, num_rows, creator,
+                                                creator_for_null_key, [&](uint32_t, auto& mapped) {
+                                                    ++reinterpret_cast<UInt64&>(mapped);
+                                                });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
@@ -680,11 +679,11 @@ void AggSinkLocalState::_merge_into_hash_table_inline_count(ColumnRawPtrs& key_c
                              auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
                              SCOPED_TIMER(_hash_table_emplace_timer);
-                             for (size_t i = 0; i < num_rows; ++i) {
-                                 auto* mapped_ptr = agg_method.lazy_emplace(state, i, creator,
-                                                                            creator_for_null_key);
-                                 reinterpret_cast<UInt64&>(*mapped_ptr) += col_data[i].count;
-                             }
+                             lazy_emplace_batch(
+                                     agg_method, state, num_rows, creator, creator_for_null_key,
+                                     [&](uint32_t i, auto& mapped) {
+                                         reinterpret_cast<UInt64&>(mapped) += col_data[i].count;
+                                     });
 
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
