@@ -22,7 +22,6 @@
 #include <hs/hs_runtime.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
 #include <limits>
 #include <memory>

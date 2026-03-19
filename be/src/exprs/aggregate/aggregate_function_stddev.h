@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>

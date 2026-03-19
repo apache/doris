@@ -21,7 +21,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
 #include <memory>

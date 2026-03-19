@@ -23,7 +23,6 @@
 #include <crc32c/crc32c.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
 
 #include "core/arena.h"

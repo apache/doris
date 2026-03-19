@@ -20,7 +20,6 @@
 
 #include <stddef.h>
 
-#include <boost/iterator/iterator_facade.hpp>
 
 #include "core/column/column.h"
 #include "core/column/column_vector.h"

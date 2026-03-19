@@ -18,7 +18,6 @@
 #include "storage/schema.h"
 
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <ostream>
 #include <unordered_set>
 #include <utility>

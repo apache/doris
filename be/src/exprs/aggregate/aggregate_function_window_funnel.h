@@ -24,7 +24,6 @@
 #include <gen_cpp/data.pb.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <iterator>
 #include <memory>
 #include <type_traits>
