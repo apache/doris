@@ -58,7 +58,6 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.mv.MaterializedViewUtils;
-import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
@@ -384,7 +383,7 @@ public class MTMVPlanUtil {
     }
 
     private static boolean isIvmRowIdSlot(Slot slot) {
-        return IvmNormalizeMtmvPlan.IVM_ROW_ID_COL.equals(slot.getName());
+        return Column.IVM_ROW_ID_COL.equals(slot.getName());
     }
 
     /**
@@ -563,7 +562,7 @@ public class MTMVPlanUtil {
         if (isIvm) {
             // for IVM, the hidden row-id column is the sole unique key
             for (ColumnDefinition col : columns) {
-                if (IvmNormalizeMtmvPlan.IVM_ROW_ID_COL.equals(col.getName())) {
+                if (Column.IVM_ROW_ID_COL.equals(col.getName())) {
                     col.setIsKey(true);
                     return Lists.newArrayList(col.getName());
                 }
