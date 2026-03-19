@@ -67,6 +67,7 @@ public class Column implements GsonPostProcessable {
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String GLOBAL_ROWID_COL = "__DORIS_GLOBAL_ROWID_COL__";
+    public static final String IVM_ROW_ID_COL = "__DORIS_IVM_ROW_ID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";

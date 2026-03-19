@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableProperty;
@@ -68,7 +69,7 @@ class IvmNormalizeMtmvPlanTest {
         List<? extends Slot> outputs = project.getOutput();
         Assertions.assertEquals(scan.getOutput().size() + 1, outputs.size());
         Slot rowIdSlot = outputs.get(0);
-        Assertions.assertEquals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, rowIdSlot.getName());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rowIdSlot.getName());
 
         // row-id expression is UuidNumeric for DUP_KEYS
         Alias rowIdAlias = (Alias) project.getProjects().get(0);
@@ -90,7 +91,7 @@ class IvmNormalizeMtmvPlanTest {
         // outer project has row-id at index 0
         Assertions.assertInstanceOf(LogicalProject.class, result);
         LogicalProject<?> outer = (LogicalProject<?>) result;
-        Assertions.assertEquals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, outer.getOutput().get(0).getName());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, outer.getOutput().get(0).getName());
         // child is the scan-wrapping project
         Assertions.assertInstanceOf(LogicalProject.class, outer.child());
         Assertions.assertSame(scan, ((LogicalProject<?>) outer.child()).child());
@@ -109,7 +110,7 @@ class IvmNormalizeMtmvPlanTest {
         Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(mowScan, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
-        Assertions.assertEquals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL, result.getOutput().get(0).getName());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, result.getOutput().get(0).getName());
         IvmContext ivmContext = jobContext.getCascadesContext().getIvmContext().get();
         Assertions.assertTrue(ivmContext.getRowIdDeterminism().values().iterator().next());
     }

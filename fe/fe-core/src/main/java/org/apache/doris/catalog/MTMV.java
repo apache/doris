@@ -46,7 +46,6 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IVMInfo;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
-import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -452,7 +451,7 @@ public class MTMV extends OlapTable {
         List<Column> columns = getBaseSchema(true);
         List<String> columnNames = Lists.newArrayListWithExpectedSize(columns.size());
         for (Column column : columns) {
-            if (column.isVisible() || column.getName().equals(IvmNormalizeMtmvPlan.IVM_ROW_ID_COL)) {
+            if (column.isVisible() || column.getName().startsWith("__DORIS_IVM_")) {
                 columnNames.add(column.getName());
             }
         }
