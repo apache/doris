@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 
 import com.google.common.collect.ImmutableMap;
@@ -56,7 +57,7 @@ public class CTEContext {
         if ((parsedPlan == null && previousCteContext != null) || (parsedPlan != null && previousCteContext == null)) {
             throw new AnalysisException("Only first CteContext can contains null cte plan or previousCteContext");
         }
-        this.name = parsedPlan == null ? null : GlobalVariable.lowerCaseTableNames != 0
+        this.name = parsedPlan == null ? null : currentLowerCaseTableNames() != 0
                 ? parsedPlan.getAlias().toLowerCase(Locale.ROOT) : parsedPlan.getAlias();
         this.cteContextMap = previousCteContext == null
                 ? ImmutableMap.of()
@@ -66,6 +67,14 @@ public class CTEContext {
                         // if inner name same with outer name, use inner name in this scope.
                         .buildKeepingLast();
         this.cteId = cteId;
+    }
+
+    private static int currentLowerCaseTableNames() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getCurrentCatalog() != null) {
+            return ctx.getCurrentCatalog().getLowerCaseTableNames();
+        }
+        return GlobalVariable.lowerCaseTableNames;
     }
 
     public void setAnalyzedPlan(LogicalPlan analyzedPlan) {
@@ -86,7 +95,7 @@ public class CTEContext {
      * findCTEContext
      */
     public Optional<CTEContext> findCTEContext(String cteName) {
-        if (GlobalVariable.lowerCaseTableNames != 0) {
+        if (currentLowerCaseTableNames() != 0) {
             cteName = cteName.toLowerCase(Locale.ROOT);
         }
         if (cteName.equals(name)) {

@@ -106,8 +106,10 @@ iceberg_rest_case_db1
 -- !sql7 --
 
 -- !sqlx --
+case_tbl11
 
 -- !sql8 --
+case_tbl14
 
 -- !sql9 --
 case_tbl14
@@ -205,11 +207,13 @@ iceberg_rest_case_db1
 -- !sql7 --
 
 -- !sqlx --
+case_tbl11
 
 -- !sql8 --
 CASE_TBL14
 
 -- !sql9 --
+CASE_TBL14
 
 -- !sql10 --
 case_tbl13
@@ -219,6 +223,7 @@ case_tbl13
 -- !sql12 --
 
 -- !sql12 --
+CASE_TBL22
 
 -- !sql13 --
 test_iceberg_case_sensibility_rest	iceberg_rest_case_db2	CASE_TBL22	BASE TABLE	iceberg	\N	\N	-1	0	0	\N	0	\N	\N	\N	\N	\N	utf-8	\N	\N	
