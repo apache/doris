@@ -21,6 +21,9 @@ package org.apache.doris.nereids.trees.plans;
  * Types for all Plan in Nereids.
  */
 public enum PlanType {
+
+    SHOW_META_SERVICES_COMMAND,
+
     // special
     GROUP_PLAN,
     UNKNOWN,
