@@ -146,8 +146,6 @@ suite('test_schema_change_waits_for_base_replica_catch_up_quorum', 'docker') {
         }
         assertTrue(leftWaitingTxn)
 
-        blockedBe2.clearDebugPoints()
-
         def finished = false
         for (int i = 0; i < 60; i++) {
             def jobs = sql_return_maparray("""
@@ -165,6 +163,11 @@ suite('test_schema_change_waits_for_base_replica_catch_up_quorum', 'docker') {
             sleep(1000)
         }
         assertTrue(finished)
+
+        (code, out, err) = be_show_tablet_status(blockedBe2.host, blockedBe2.httpPort, tabletId)
+        assertEquals(0, code)
+        assertTrue(out.contains('[2-2]'))
+        assertFalse(out.contains('[3-3]'))
 
         def result = sql '''
             SELECT k1, k2 FROM test_schema_change_waits_for_lagging_base_replica ORDER BY k1
