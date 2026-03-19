@@ -511,8 +511,8 @@ private:
                     }
                 }
 
-                // because the date api argument is int32_t, we should cast to int32_t.
-                int32_t date_value = cast_set<int32_t>(data->data[i]) + _offset_days;
+                // ORC DATE stores a logical day count without time zone semantics.
+                int32_t date_value = cast_set<int32_t>(data->data[i]);
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
                     v.create_from_date_v2(date_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
@@ -655,7 +655,6 @@ private:
     int64_t _range_size;
     std::string _ctz;
 
-    int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     // The columns of the table to be read (contain columns that do not exist)
