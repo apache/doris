@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.TableId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
+import org.apache.doris.nereids.trees.plans.logical.LogicalCTEProducer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.util.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -158,7 +159,7 @@ public class StatementContext implements Closeable {
     private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers = new HashMap<>();
     private final Map<CTEId, Set<Slot>> cteIdToOutputIds = new HashMap<>();
 
-    private final Map<CTEId, Statistics> cteIdToProducerStats = new HashMap<>();
+    private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer = new HashMap<>();
 
     private final Map<RelationId, Set<Expression>> consumerIdToFilters = new HashMap<>();
     // Used to update consumer's stats
@@ -644,7 +645,7 @@ public class StatementContext implements Closeable {
         return new CteEnvironmentSnapshot(
                 copyMapOfSets(cteIdToConsumers),
                 copyMapOfSets(cteIdToOutputIds),
-                new HashMap<>(cteIdToProducerStats),
+                new HashMap<>(cteIdToProducer),
                 copyMapOfSets(consumerIdToFilters),
                 copyMapOfLists(cteIdToConsumerGroup),
                 new HashMap<>(rewrittenCteProducer),
@@ -659,8 +660,8 @@ public class StatementContext implements Closeable {
         cteIdToOutputIds.clear();
         cteIdToOutputIds.putAll(snapshot.cteIdToOutputIds);
 
-        cteIdToProducerStats.clear();
-        cteIdToProducerStats.putAll(snapshot.cteIdToProducerStats);
+        cteIdToProducer.clear();
+        cteIdToProducer.putAll(snapshot.cteIdToProducer);
 
         consumerIdToFilters.clear();
         consumerIdToFilters.putAll(snapshot.consumerIdToFilters);
@@ -695,7 +696,7 @@ public class StatementContext implements Closeable {
     public static class CteEnvironmentSnapshot {
         private final Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers;
         private final Map<CTEId, Set<Slot>> cteIdToOutputIds;
-        private final Map<CTEId, Statistics> cteIdToProducerStats;
+        private final Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer;
         private final Map<RelationId, Set<Expression>> consumerIdToFilters;
         private final Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup;
         private final Map<CTEId, LogicalPlan> rewrittenCteProducer;
@@ -707,14 +708,14 @@ public class StatementContext implements Closeable {
         public CteEnvironmentSnapshot(
                 Map<CTEId, Set<LogicalCTEConsumer>> cteIdToConsumers,
                 Map<CTEId, Set<Slot>> cteIdToOutputIds,
-                Map<CTEId, Statistics> cteIdToProducerStats,
+                Map<CTEId, LogicalCTEProducer<? extends Plan>> cteIdToProducer,
                 Map<RelationId, Set<Expression>> consumerIdToFilters,
                 Map<CTEId, List<Pair<Multimap<Slot, Slot>, Group>>> cteIdToConsumerGroup,
                 Map<CTEId, LogicalPlan> rewrittenCteProducer,
                 Map<CTEId, LogicalPlan> rewrittenCteConsumer) {
             this.cteIdToConsumers = cteIdToConsumers;
             this.cteIdToOutputIds = cteIdToOutputIds;
-            this.cteIdToProducerStats = cteIdToProducerStats;
+            this.cteIdToProducer = cteIdToProducer;
             this.consumerIdToFilters = consumerIdToFilters;
             this.cteIdToConsumerGroup = cteIdToConsumerGroup;
             this.rewrittenCteProducer = rewrittenCteProducer;
@@ -1117,12 +1118,12 @@ public class StatementContext implements Closeable {
         return prepareStage;
     }
 
-    public Statistics getProducerStatsByCteId(CTEId id) {
-        return cteIdToProducerStats.get(id);
+    public LogicalCTEProducer<? extends Plan> getCteProducerByCteId(CTEId id) {
+        return cteIdToProducer.get(id);
     }
 
-    public void setProducerStats(CTEId id, Statistics stats) {
-        cteIdToProducerStats.put(id, stats);
+    public void setCteProducer(CTEId id, LogicalCTEProducer<? extends Plan> producer) {
+        cteIdToProducer.put(id, producer);
     }
 
     public void setIsInsert(boolean isInsert) {
