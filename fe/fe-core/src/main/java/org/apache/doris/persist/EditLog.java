@@ -22,6 +22,7 @@ import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -1070,6 +1071,22 @@ public class EditLog {
                 case OperationType.OP_DROP_SQL_BLOCK_RULE: {
                     DropSqlBlockRuleOperationLog log = (DropSqlBlockRuleOperationLog) journal.getData();
                     env.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
+                    break;
+                }
+                case OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION: {
+                    AuthenticationIntegrationMeta log = (AuthenticationIntegrationMeta) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayCreateAuthenticationIntegration(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION: {
+                    AuthenticationIntegrationMeta log = (AuthenticationIntegrationMeta) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayAlterAuthenticationIntegration(log);
+                    break;
+                }
+                case OperationType.OP_DROP_AUTHENTICATION_INTEGRATION: {
+                    DropAuthenticationIntegrationOperationLog log =
+                            (DropAuthenticationIntegrationOperationLog) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayDropAuthenticationIntegration(log);
                     break;
                 }
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
@@ -2277,6 +2294,18 @@ public class EditLog {
 
     public void logDropSqlBlockRule(List<String> ruleNames) {
         logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
+    }
+
+    public void logCreateAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
+        logEdit(OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION, meta);
+    }
+
+    public void logAlterAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
+        logEdit(OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION, meta);
+    }
+
+    public void logDropAuthenticationIntegration(DropAuthenticationIntegrationOperationLog log) {
+        logEdit(OperationType.OP_DROP_AUTHENTICATION_INTEGRATION, log);
     }
 
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {

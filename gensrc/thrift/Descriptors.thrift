@@ -212,6 +212,7 @@ enum TSchemaTableType {
     SCH_BLACKHOLE = 62;
     SCH_COLUMN_DATA_SIZES = 63;
     SCH_LOAD_JOBS = 64;
+    SCH_AUTHENTICATION_INTEGRATIONS = 65;
 }
 
 enum THdfsCompression {
