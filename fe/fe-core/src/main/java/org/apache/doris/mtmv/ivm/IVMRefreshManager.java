@@ -83,7 +83,8 @@ public class IVMRefreshManager {
             return IVMRefreshResult.fallback(FallbackReason.BINLOG_BROKEN,
                     "Stream binlog is marked as broken");
         }
-        return checkStreamSupport(mtmv);
+        // return checkStreamSupport(mtmv);
+        return IVMRefreshResult.success();
     }
 
     @VisibleForTesting

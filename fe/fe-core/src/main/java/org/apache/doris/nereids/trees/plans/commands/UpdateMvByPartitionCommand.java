@@ -115,6 +115,10 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         if (plan instanceof Sink) {
             plan = plan.child(0);
         }
+        // FIXME: not support for ivm mv now, because ivm mv has invisible columns(rowid, sum, count).
+        // for invisible columns, need special them in sink's cols.
+        // but rule BindSink will check sink's cols size and sink child output size,
+        // there's unsolved problem between rule BindSink and IvmNormalMTMVPlan
         LogicalSink<? extends Plan> sink = UnboundTableSinkCreator.createUnboundTableSink(mv.getFullQualifiers(),
                 ImmutableList.of(), ImmutableList.of(), parts, plan);
         if (LOG.isDebugEnabled()) {

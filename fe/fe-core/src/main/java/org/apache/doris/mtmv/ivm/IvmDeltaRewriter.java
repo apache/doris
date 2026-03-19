@@ -62,8 +62,8 @@ public class IvmDeltaRewriter {
     }
 
     private Plan stripResultSink(Plan plan) {
-        if (plan instanceof LogicalResultSink) {
-            return ((LogicalResultSink<?>) plan).child();
+        while (plan instanceof LogicalResultSink) {
+            plan = ((LogicalResultSink<?>) plan).child();
         }
         return plan;
     }
@@ -86,7 +86,7 @@ public class IvmDeltaRewriter {
                 mtmv.getQualifiedDbName(),
                 mtmv.getName());
         UnboundTableSink<LogicalPlan> sink = new UnboundTableSink<>(
-                mvNameParts, ImmutableList.of(), ImmutableList.of(),
+                mvNameParts, mtmv.getInsertedColumnNames(), ImmutableList.of(),
                 false, ImmutableList.of(), false,
                 TPartialUpdateNewRowPolicy.APPEND, DMLCommandType.INSERT,
                 Optional.empty(), Optional.empty(), (LogicalPlan) queryPlan);

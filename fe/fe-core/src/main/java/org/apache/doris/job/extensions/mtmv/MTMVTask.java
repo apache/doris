@@ -63,7 +63,6 @@ import org.apache.doris.mtmv.ivm.IVMRefreshResult;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TCell;
@@ -354,12 +353,9 @@ public class MTMVTask extends AbstractTask {
             setComputeGroup(ctx);
             recordComputeGroup(ctx);
         };
-        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
-            customizer = customizer.andThen(ctx -> ctx.getSessionVariable()
-                    .setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "true"));
-        }
+        boolean enableIvmNormalMTMVPlan = mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL;
         executor = MTMVPlanUtil.executeCommand(mtmv, command, statementContext,
-                getDummyStmt(refreshPartitionNames), customizer);
+                getDummyStmt(refreshPartitionNames), enableIvmNormalMTMVPlan, customizer);
         lastQueryId = DebugUtil.printId(executor.getContext().queryId());
         if (getStatus() == TaskStatus.CANCELED) {
             throw new JobException("task is CANCELED");
