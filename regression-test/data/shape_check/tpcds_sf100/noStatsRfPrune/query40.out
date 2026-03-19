@@ -14,7 +14,7 @@ PhysicalResultSink
 ----------------------PhysicalProject
 ------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((catalog_sales.cs_warehouse_sk = warehouse.w_warehouse_sk)) otherCondition=()
 --------------------------PhysicalProject
-----------------------------hashJoin[LEFT_OUTER_JOIN colocated] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
+----------------------------hashJoin[LEFT_OUTER_JOIN bucketShuffle] hashCondition=((catalog_sales.cs_item_sk = catalog_returns.cr_item_sk) and (catalog_sales.cs_order_number = catalog_returns.cr_order_number)) otherCondition=()
 ------------------------------PhysicalProject
 --------------------------------PhysicalOlapScan[catalog_sales] apply RFs: RF1 RF2
 ------------------------------PhysicalProject

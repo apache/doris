@@ -17,8 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -52,6 +50,7 @@ import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -485,14 +484,9 @@ public class AdjustNullable extends DefaultPlanRewriter<Map<ExprId, Slot>> imple
                 // repeat may check fail.
                 if (!slotReference.nullable() && newSlotReference.nullable()
                         && check && ConnectContext.get() != null) {
-                    if (ConnectContext.get().getSessionVariable().feDebug) {
-                        throw new AnalysisException("AdjustNullable convert slot " + slotReference
-                                + " from not-nullable to nullable. You can disable check by set fe_debug = false.");
-                    } else {
-                        LOG.warn("adjust nullable convert slot '" + slotReference
-                                + "' from not-nullable to nullable for query "
-                                + DebugUtil.printId(ConnectContext.get().queryId()));
-                    }
+                    SessionVariable.throwAnalysisExceptionWhenFeDebug("AdjustNullable convert slot "
+                            + slotReference
+                            + " from not-nullable to nullable. You can disable check by set fe_debug = false.");
                 }
                 return newSlotReference;
             } else {

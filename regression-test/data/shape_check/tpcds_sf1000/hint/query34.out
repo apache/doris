@@ -5,9 +5,7 @@ PhysicalResultSink
 ----PhysicalDistribute[DistributionSpecGather]
 ------PhysicalQuickSort[LOCAL_SORT]
 --------PhysicalProject
-----------hashJoin[INNER_JOIN broadcast] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 ss_customer_sk->[c_customer_sk]
-------------PhysicalProject
---------------PhysicalOlapScan[customer] apply RFs: RF3
+----------hashJoin[INNER_JOIN bucketShuffle] hashCondition=((dn.ss_customer_sk = customer.c_customer_sk)) otherCondition=() build RFs:RF3 c_customer_sk->[ss_customer_sk]
 ------------PhysicalProject
 --------------filter((dn.cnt <= 20) and (dn.cnt >= 15))
 ----------------hashAgg[GLOBAL]
@@ -20,7 +18,7 @@ PhysicalResultSink
 ------------------------------PhysicalProject
 --------------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((store_sales.ss_store_sk = store.s_store_sk)) otherCondition=() build RFs:RF0 s_store_sk->[ss_store_sk]
 ----------------------------------PhysicalProject
-------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2
+------------------------------------PhysicalOlapScan[store_sales] apply RFs: RF0 RF1 RF2 RF3
 ----------------------------------PhysicalProject
 ------------------------------------filter((store.s_county = 'Williamson County'))
 --------------------------------------PhysicalOlapScan[store]
@@ -30,6 +28,8 @@ PhysicalResultSink
 --------------------------PhysicalProject
 ----------------------------filter((household_demographics.hd_vehicle_count > 0) and (if((hd_vehicle_count > 0), (cast(hd_dep_count as DOUBLE) / cast(hd_vehicle_count as DOUBLE)), NULL) > 1.2) and hd_buy_potential IN ('0-500', '1001-5000'))
 ------------------------------PhysicalOlapScan[household_demographics]
+------------PhysicalProject
+--------------PhysicalOlapScan[customer]
 
 Hint log:
 Used: leading(store_sales store date_dim household_demographics )

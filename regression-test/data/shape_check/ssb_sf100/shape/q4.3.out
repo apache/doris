@@ -8,24 +8,24 @@ PhysicalResultSink
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
 --------------PhysicalProject
-----------------hashJoin[INNER_JOIN shuffle] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF3 lo_custkey->[c_custkey]
+----------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF3 p_partkey->[lo_partkey]
 ------------------PhysicalProject
---------------------PhysicalOlapScan[customer] apply RFs: RF3
+--------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF2 s_suppkey->[lo_suppkey]
+----------------------PhysicalProject
+------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF1 d_datekey->[lo_orderdate]
+--------------------------PhysicalProject
+----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_custkey = customer.c_custkey)) otherCondition=() build RFs:RF0 c_custkey->[lo_custkey]
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2 RF3
+------------------------------PhysicalProject
+--------------------------------PhysicalOlapScan[customer]
+--------------------------PhysicalProject
+----------------------------filter(d_year IN (1997, 1998))
+------------------------------PhysicalOlapScan[dates]
+----------------------PhysicalProject
+------------------------filter((supplier.s_nation = 'UNITED STATES'))
+--------------------------PhysicalOlapScan[supplier]
 ------------------PhysicalProject
---------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_orderdate = dates.d_datekey)) otherCondition=() build RFs:RF2 d_datekey->[lo_orderdate]
-----------------------PhysicalProject
-------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_partkey = part.p_partkey)) otherCondition=() build RFs:RF1 p_partkey->[lo_partkey]
---------------------------PhysicalProject
-----------------------------hashJoin[INNER_JOIN broadcast] hashCondition=((lineorder.lo_suppkey = supplier.s_suppkey)) otherCondition=() build RFs:RF0 s_suppkey->[lo_suppkey]
-------------------------------PhysicalProject
---------------------------------PhysicalOlapScan[lineorder] apply RFs: RF0 RF1 RF2
-------------------------------PhysicalProject
---------------------------------filter((supplier.s_nation = 'UNITED STATES'))
-----------------------------------PhysicalOlapScan[supplier]
---------------------------PhysicalProject
-----------------------------filter((part.p_category = 'MFGR#14'))
-------------------------------PhysicalOlapScan[part]
-----------------------PhysicalProject
-------------------------filter(d_year IN (1997, 1998))
---------------------------PhysicalOlapScan[dates]
+--------------------filter((part.p_category = 'MFGR#14'))
+----------------------PhysicalOlapScan[part]
 
