@@ -36,6 +36,7 @@ std::string IColumn::dump_structure() const {
         res << ", " << subcolumn->dump_structure();
     };
 
+    // simply read using for_each_subcolumn without modification; const_cast can be used.
     const_cast<IColumn*>(this)->for_each_subcolumn(callback);
 
     res << ")";
