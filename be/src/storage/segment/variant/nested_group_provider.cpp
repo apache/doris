@@ -169,8 +169,8 @@ public:
     Status init_readers(const ColumnReaderOptions& /*opts*/,
                         const std::shared_ptr<SegmentFooterPB>& /*footer*/,
                         const std::shared_ptr<io::FileReader>& /*file_reader*/,
-                        ColumnMetaAccessor* /*accessor*/, uint64_t /*num_rows*/,
-                        NestedGroupReaders& /*out_readers*/) override {
+                        ColumnMetaAccessor* /*accessor*/, int32_t /*root_unique_id*/,
+                        uint64_t /*num_rows*/, NestedGroupReaders& /*out_readers*/) override {
         return Status::OK();
     }
 
