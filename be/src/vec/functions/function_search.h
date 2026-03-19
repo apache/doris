@@ -38,6 +38,8 @@
 CL_NS_USE(index)
 namespace doris::vectorized {
 
+class IndexExecContext;
+
 using namespace doris::segment_v2;
 
 struct FieldReaderBinding {
