@@ -39,9 +39,11 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.AbstractMap;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Queue;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
@@ -115,29 +117,41 @@ public class StatisticsAutoCollector extends MasterDaemon {
 
     protected Pair<Entry<TableNameInfo, Set<Pair<String, String>>>, JobPriority> getJob() {
         AnalysisManager manager = Env.getServingEnv().getAnalysisManager();
-        Optional<Entry<TableNameInfo, Set<Pair<String, String>>>> job = fetchJobFromMap(manager.highPriorityJobs);
-        if (job.isPresent()) {
-            return Pair.of(job.get(), JobPriority.HIGH);
+        
+        // Get job from priority queues (sorted by query frequency)
+        PriorityTableJob job = fetchJobFromQueue(manager.highPriorityJobs, manager.highPriorityJobMap);
+        if (job != null) {
+            return Pair.of(new AbstractMap.SimpleEntry<>(job.getTableNameInfo(), job.getColumns()), JobPriority.HIGH);
         }
-        job = fetchJobFromMap(manager.midPriorityJobs);
-        if (job.isPresent()) {
-            return Pair.of(job.get(), JobPriority.MID);
+        
+        job = fetchJobFromQueue(manager.midPriorityJobs, manager.midPriorityJobMap);
+        if (job != null) {
+            return Pair.of(new AbstractMap.SimpleEntry<>(job.getTableNameInfo(), job.getColumns()), JobPriority.MID);
         }
-        job = fetchJobFromMap(manager.lowPriorityJobs);
-        if (job.isPresent()) {
-            return Pair.of(job.get(), JobPriority.LOW);
+        
+        job = fetchJobFromQueue(manager.lowPriorityJobs, manager.lowPriorityJobMap);
+        if (job != null) {
+            return Pair.of(new AbstractMap.SimpleEntry<>(job.getTableNameInfo(), job.getColumns()), JobPriority.LOW);
         }
-        job = fetchJobFromMap(manager.veryLowPriorityJobs);
-        return job.map(tableNameSetEntry -> Pair.of(tableNameSetEntry, JobPriority.VERY_LOW)).orElse(null);
+        
+        job = fetchJobFromQueue(manager.veryLowPriorityJobs, manager.veryLowPriorityJobMap);
+        if (job != null) {
+            return Pair.of(new AbstractMap.SimpleEntry<>(job.getTableNameInfo(), job.getColumns()), JobPriority.VERY_LOW);
+        }
+        
+        return null;
     }
 
-    protected Optional<Map.Entry<TableNameInfo, Set<Pair<String, String>>>> fetchJobFromMap(
-            Map<TableNameInfo, Set<Pair<String, String>>> jobMap) {
-        synchronized (jobMap) {
-            Optional<Map.Entry<TableNameInfo, Set<Pair<String, String>>>> first =
-                    jobMap.entrySet().stream().findFirst();
-            first.ifPresent(entry -> jobMap.remove(entry.getKey()));
-            return first;
+    protected PriorityTableJob fetchJobFromQueue(Queue<PriorityTableJob> jobQueue, 
+                                                  Map<TableNameInfo, PriorityTableJob> jobMap) {
+        synchronized (jobQueue) {
+            PriorityTableJob job = jobQueue.poll();
+            if (job != null) {
+                jobMap.remove(job.getTableNameInfo());
+                LOG.debug("Fetched job from priority queue: {}, score: {}", 
+                        job.getTableNameInfo(), job.getPriorityScore());
+            }
+            return job;
         }
     }
 

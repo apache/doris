@@ -38,9 +38,12 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.PriorityQueue;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -95,10 +98,13 @@ public class StatisticsJobAppender extends MasterDaemon {
         }
     }
 
-    protected void appendColumnsToJobs(Queue<QueryColumn> columnQueue, Map<TableNameInfo,
-            Set<Pair<String, String>>> jobs) {
+    protected void appendColumnsToJobs(Queue<QueryColumn> columnQueue, Queue<PriorityTableJob> jobQueue) {
         int size = columnQueue.size();
         int processed = 0;
+        AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+        Map<TableNameInfo, Set<Pair<String, String>>> tempJobMap = new HashMap<>();
+        
+        // First, collect all columns for each table
         for (int i = 0; i < size; i++) {
             QueryColumn column = columnQueue.poll();
             if (column == null) {
@@ -128,27 +134,68 @@ public class StatisticsJobAppender extends MasterDaemon {
             }
             TableNameInfo tableName = new TableNameInfo(table.getDatabase().getCatalog().getName(),
                     table.getDatabase().getFullName(), table.getName());
-            synchronized (jobs) {
-                // If job map reach the upper limit, stop putting new jobs.
-                if (!jobs.containsKey(tableName) && jobs.size() >= JOB_MAP_SIZE) {
-                    LOG.info("High or mid job map full.");
-                    break;
-                }
-                if (jobs.containsKey(tableName)) {
-                    jobs.get(tableName).addAll(columnIndexPairs);
-                } else {
-                    jobs.put(tableName, columnIndexPairs);
-                }
-            }
+            tempJobMap.computeIfAbsent(tableName, k -> new HashSet<>()).addAll(columnIndexPairs);
             processed++;
         }
+        
+        // Then, add jobs to priority queue based on query frequency
+        synchronized (jobQueue) {
+            for (Map.Entry<TableNameInfo, Set<Pair<String, String>>> entry : tempJobMap.entrySet()) {
+                TableNameInfo tableName = entry.getKey();
+                Set<Pair<String, String>> columns = entry.getValue();
+                
+                // Calculate priority score based on query frequency
+                double priorityScore = TableQueryStats.getInstance().calculatePriorityScore(tableName);
+                
+                // Check if job already exists and merge columns
+                PriorityTableJob existingJob = null;
+                if (jobQueue == manager.highPriorityJobs) {
+                    existingJob = manager.highPriorityJobMap.get(tableName);
+                } else if (jobQueue == manager.midPriorityJobs) {
+                    existingJob = manager.midPriorityJobMap.get(tableName);
+                }
+                
+                if (existingJob != null) {
+                    // Merge columns
+                    existingJob.getColumns().addAll(columns);
+                    // Update priority score (may have increased due to new queries)
+                    double newScore = TableQueryStats.getInstance().calculatePriorityScore(tableName);
+                    if (newScore > existingJob.getPriorityScore()) {
+                        // Remove old job and add new one with updated score
+                        jobQueue.remove(existingJob);
+                        PriorityTableJob newJob = new PriorityTableJob(tableName, existingJob.getColumns(), newScore);
+                        jobQueue.offer(newJob);
+                        if (jobQueue == manager.highPriorityJobs) {
+                            manager.highPriorityJobMap.put(tableName, newJob);
+                        } else if (jobQueue == manager.midPriorityJobs) {
+                            manager.midPriorityJobMap.put(tableName, newJob);
+                        }
+                    }
+                } else {
+                    // Check queue size limit
+                    if (jobQueue.size() >= JOB_MAP_SIZE) {
+                        LOG.info("Job queue full, skipping table {}", tableName);
+                        continue;
+                    }
+                    // Create new job
+                    PriorityTableJob newJob = new PriorityTableJob(tableName, columns, priorityScore);
+                    jobQueue.offer(newJob);
+                    if (jobQueue == manager.highPriorityJobs) {
+                        manager.highPriorityJobMap.put(tableName, newJob);
+                    } else if (jobQueue == manager.midPriorityJobs) {
+                        manager.midPriorityJobMap.put(tableName, newJob);
+                    }
+                }
+            }
+        }
+        
         if (size > 0 && LOG.isDebugEnabled()) {
-            LOG.debug("{} of {} columns append to jobs", processed, size);
+            LOG.debug("{} of {} columns append to jobs, queue size: {}", processed, size, jobQueue.size());
         }
     }
 
-    protected int appendToLowJobs(Map<TableNameInfo, Set<Pair<String, String>>> lowPriorityJobs,
-                                   Map<TableNameInfo, Set<Pair<String, String>>> veryLowPriorityJobs) {
+    protected int appendToLowJobs(Queue<PriorityTableJob> lowPriorityJobs,
+                                   Queue<PriorityTableJob> veryLowPriorityJobs) {
         if (System.currentTimeMillis() - lastRoundFinishTime < lowJobIntervalMs) {
             return 0;
         }
@@ -180,21 +227,55 @@ public class StatisticsJobAppender extends MasterDaemon {
                         t.getDatabase().getFullName(), t.getName());
                 boolean appended = false;
                 long version = Config.isCloudMode() ? 0 : StatisticsUtil.getOlapTableVersion((OlapTable) t);
+                
+                // Collect columns for low and very low priority
+                Set<Pair<String, String>> lowPriorityColumns = new HashSet<>();
+                Set<Pair<String, String>> veryLowPriorityColumns = new HashSet<>();
+                
                 for (Pair<String, String> p : t.getColumnIndexPairs(columns)) {
-                    // Append to low job map first.
                     if (StatisticsUtil.needAnalyzeColumn(t, p)) {
-                        // If low job map is full, stop this iteration.
-                        if (!doAppend(lowPriorityJobs, p, tableName)) {
-                            LOG.debug("Low Priority job map is full.");
-                            return processed;
-                        }
+                        lowPriorityColumns.add(p);
                         appended = true;
                     } else if (StatisticsUtil.isLongTimeColumn(t, p, version)) {
-                        // If very low job map is full, simply ignore it and go to the next column.
-                        if (!doAppend(veryLowPriorityJobs, p, tableName)) {
-                            LOG.debug("Very low Priority job map is full.");
+                        veryLowPriorityColumns.add(p);
+                        appended = true;
+                    }
+                }
+                
+                // Add to priority queues based on query frequency
+                AnalysisManager manager = Env.getCurrentEnv().getAnalysisManager();
+                double priorityScore = TableQueryStats.getInstance().calculatePriorityScore(tableName);
+                
+                if (!lowPriorityColumns.isEmpty()) {
+                    synchronized (lowPriorityJobs) {
+                        if (lowPriorityJobs.size() >= JOB_MAP_SIZE) {
+                            LOG.debug("Low Priority job queue is full.");
+                            return processed;
+                        }
+                        PriorityTableJob existingJob = manager.lowPriorityJobMap.get(tableName);
+                        if (existingJob != null) {
+                            existingJob.getColumns().addAll(lowPriorityColumns);
                         } else {
-                            appended = true;
+                            PriorityTableJob newJob = new PriorityTableJob(tableName, lowPriorityColumns, priorityScore);
+                            lowPriorityJobs.offer(newJob);
+                            manager.lowPriorityJobMap.put(tableName, newJob);
+                        }
+                    }
+                }
+                
+                if (!veryLowPriorityColumns.isEmpty()) {
+                    synchronized (veryLowPriorityJobs) {
+                        if (veryLowPriorityJobs.size() >= JOB_MAP_SIZE) {
+                            LOG.debug("Very low Priority job queue is full.");
+                        } else {
+                            PriorityTableJob existingJob = manager.veryLowPriorityJobMap.get(tableName);
+                            if (existingJob != null) {
+                                existingJob.getColumns().addAll(veryLowPriorityColumns);
+                            } else {
+                                PriorityTableJob newJob = new PriorityTableJob(tableName, veryLowPriorityColumns, priorityScore);
+                                veryLowPriorityJobs.offer(newJob);
+                                manager.veryLowPriorityJobMap.put(tableName, newJob);
+                            }
                         }
                     }
                 }
