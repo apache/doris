@@ -213,5 +213,16 @@ std::vector<PipelineTask*> QueryTaskController::get_revocable_tasks() {
     return tasks;
 }
 
+std::string QueryTaskController::get_user() {
+    auto query_ctx = query_ctx_.lock();
+    if (query_ctx == nullptr) {
+        return "";
+    }
+    if (query_ctx->set_rsc_info) {
+        return query_ctx->user;
+    }
+    return "";
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

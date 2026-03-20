@@ -69,4 +69,15 @@ bool WorkloadConditionQueryMemory::eval(std::string str_val) {
                                                         _query_memory_bytes);
 }
 
+// username
+WorkloadConditionUsername::WorkloadConditionUsername(WorkloadCompareOperator op,
+                                                     std::string str_val) {
+    _op = op;
+    _username = str_val;
+}
+
+bool WorkloadConditionUsername::eval(std::string str_val) {
+    return WorkloadCompareUtils::compare_string(_op, str_val, _username);
+}
+
 } // namespace doris
