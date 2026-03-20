@@ -18,6 +18,7 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <cstring>
 #include <fstream>
 #include <iostream>
 
@@ -1129,25 +1130,23 @@ TEST_F(OlapTypeTest, ser_deser_datev2) {
 }
 
 // ---------------------------------------------------------------------------
-// DateTimeV2 (TYPE_DATETIMEV2): to_olap_string outputs "YYYY-MM-DD HH:MM:SS[.ffffff]".
+// DateTimeV2 (TYPE_DATETIMEV2): to_olap_string outputs "YYYY-MM-DD HH:MM:SS.ffffff".
 //   Internal: DateV2Value<DateTimeV2ValueType>, stored as uint64_t (bit-packed).
-//   to_olap_string calls CastToString::from_datetimev2(value) with DEFAULT scale=-1.
-//   With scale=-1, the microsecond part is appended ONLY if microsecond > 0,
-//   and always with 6 digits when present.
+//   to_olap_string always calls CastToString::from_datetimev2(value, 6) because
+//   historically the Field type for DateTimeV2 always stores 6-digit (microsecond) precision.
+//   With scale=6, the fractional part is ALWAYS written with 6 digits, even when microsecond=0.
 //
-//   Note: the old ZoneMap code in types.h used value.to_string(6) which ALWAYS
-//   outputs 6 fractional digits even when microsecond=0.
-//
-//   Multiple scale values are tested:
-//     scale=0: no fractional seconds (input microseconds are stored but to_olap_string
-//              still uses default scale=-1, so microseconds appear if non-zero)
-//     scale=3: millisecond precision
-//     scale=6: microsecond precision (full precision)
+//   Multiple serde scale values are tested, but since to_olap_string always uses scale=6,
+//   the output format is the same regardless of the serde's own scale:
+//     scale=0: output is still "YYYY-MM-DD HH:MM:SS.000000" (fractional part always present)
+//     scale=3: fractional part always present, 6 digits
+//     scale=6: fractional part always present, 6 digits
 //
 //   from_zonemap_string uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f").
 // ---------------------------------------------------------------------------
 TEST_F(OlapTypeTest, ser_deser_datetimev2_no_microsecond) {
-    // Test with scale=0: no fractional seconds expected
+    // Test with scale=0 serde, but to_olap_string always uses scale=6:
+    // fractional part is always written even when microsecond=0.
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/0);
     auto serde = data_type_ptr->get_serde();
@@ -1158,10 +1157,10 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_no_microsecond) {
         std::string expected_str;
     };
     std::vector<TestCase> test_cases = {
-            // No microseconds → no fractional part in output
-            {2023, 6, 15, 14, 30, 59, 0, "2023-06-15 14:30:59"},
-            {2000, 1, 1, 0, 0, 0, 0, "2000-01-01 00:00:00"},
-            {9999, 12, 31, 23, 59, 59, 0, "9999-12-31 23:59:59"},
+            // No microseconds → fractional part is still written as .000000 (scale=6 always)
+            {2023, 6, 15, 14, 30, 59, 0, "2023-06-15 14:30:59.000000"},
+            {2000, 1, 1, 0, 0, 0, 0, "2000-01-01 00:00:00.000000"},
+            {9999, 12, 31, 23, 59, 59, 0, "9999-12-31 23:59:59.000000"},
     };
 
     for (const auto& tc : test_cases) {
@@ -1189,7 +1188,7 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_no_microsecond) {
 
 TEST_F(OlapTypeTest, ser_deser_datetimev2_with_microsecond) {
     // Test with scale=6 (full microsecond precision)
-    // to_olap_string default scale=-1 will output microseconds when > 0
+    // to_olap_string always uses scale=6: fractional part is always written with 6 digits.
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/6);
     auto serde = data_type_ptr->get_serde();
@@ -1208,8 +1207,8 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_with_microsecond) {
             {9999, 12, 31, 23, 59, 59, 999999, "9999-12-31 23:59:59.999999"},
             // microsecond=100000 → ".100000"
             {2023, 3, 15, 12, 0, 0, 100000, "2023-03-15 12:00:00.100000"},
-            // microsecond=0 → no fractional part (scale=-1 omits when microsecond=0)
-            {2023, 3, 15, 12, 0, 0, 0, "2023-03-15 12:00:00"},
+            // microsecond=0 → fractional part is still written as .000000 (scale=6 always)
+            {2023, 3, 15, 12, 0, 0, 0, "2023-03-15 12:00:00.000000"},
     };
 
     for (const auto& tc : test_cases) {
@@ -1238,10 +1237,10 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_with_microsecond) {
 
 TEST_F(OlapTypeTest, ser_deser_datetimev2_scale3) {
     // Test with scale=3 (millisecond precision)
-    // to_olap_string uses default scale=-1, so behavior is the same as scale=6
-    // for the output: microsecond part appears ONLY if > 0, always 6 digits.
-    // However, the data type has scale=3, meaning from_zonemap_string should still
-    // be able to parse back the full microsecond value stored in the field.
+    // to_olap_string always uses scale=6: fractional part is always written with 6 digits.
+    // The data type has scale=3, but to_olap_string ignores this and always uses scale=6
+    // because historically Field type for DateTimeV2 always stores 6-digit precision.
+    // from_zonemap_string should still parse back the full microsecond value stored in the field.
     auto data_type_ptr = DataTypeFactory::instance().create_data_type(
             TYPE_DATETIMEV2, /*is_nullable=*/false, /*precision=*/0, /*scale=*/3);
     auto serde = data_type_ptr->get_serde();
@@ -1268,6 +1267,743 @@ TEST_F(OlapTypeTest, ser_deser_datetimev2_scale3) {
         EXPECT_EQ(restored_val.minute(), 30);
         EXPECT_EQ(restored_val.second(), 59);
         EXPECT_EQ(restored_val.microsecond(), 123000);
+    }
+}
+
+TEST_F(OlapTypeTest, char_type_with_padding) {
+    auto data_type =
+            DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_CHAR, 0, 0, 20);
+    auto serde = data_type->get_serde();
+
+    {
+        char buf[20];
+        memset(buf, 0, sizeof(buf));
+        memcpy(buf, "hello", 5);
+        Slice olap_value(buf, 20);
+
+        std::string expected("hello", 5);
+        expected.append(15, '\0');
+        std::string expected_serde = expected;
+
+        auto field = Field::create_field_from_olap_value<TYPE_CHAR>(
+                StringRef(olap_value.data, olap_value.size));
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for CHAR(20) 'hello'"
+                                             << "\n  expected len=" << expected_serde.size()
+                                             << "\n  actual   len=" << serde_str.size();
+    }
+
+    {
+        char buf[20];
+        memset(buf, 'x', 20);
+        Slice olap_value(buf, 20);
+
+        std::string expected(20, 'x');
+        std::string expected_serde = expected;
+
+        auto field = Field::create_field_from_olap_value<TYPE_CHAR>(
+                StringRef(olap_value.data, olap_value.size));
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for CHAR(20) filled 'x'";
+    }
+
+    {
+        char buf[20];
+        memset(buf, 0, 20);
+        Slice olap_value(buf, 20);
+
+        std::string expected(20, '\0');
+        std::string expected_serde = expected;
+
+        auto field = Field::create_field_from_olap_value<TYPE_CHAR>(
+                StringRef(olap_value.data, olap_value.size));
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for CHAR(20) empty"
+                                             << "\n  expected len=" << expected_serde.size()
+                                             << "\n  actual   len=" << serde_str.size();
+    }
+}
+
+TEST_F(OlapTypeTest, varchar_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(
+            FieldType::OLAP_FIELD_TYPE_VARCHAR, 0, 0, 100);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        std::string input;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {"hello world", "hello world", "hello world"},
+            {"", "", ""},
+    };
+
+    for (auto& tc : test_cases) {
+        Slice olap_value(tc.input.data(), tc.input.size());
+
+        auto field = Field::create_field_from_olap_value<TYPE_VARCHAR>(
+                StringRef(olap_value.data, olap_value.size));
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for VARCHAR '" << tc.input << "'";
+    }
+}
+
+TEST_F(OlapTypeTest, date_v1_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATE, false);
+    auto serde = data_type->get_serde();
+
+    auto make_olap_date = [](int year, int mon, int day) -> uint24_t {
+        return uint24_t(year * 16 * 32 + mon * 32 + day);
+    };
+
+    struct TestCase {
+        int year, month, day;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {2023, 6, 15, "2023-06-15", "2023-06-15"},
+            {2000, 1, 1, "2000-01-01", "2000-01-01"},
+            {9999, 12, 31, "9999-12-31", "9999-12-31"},
+            {1, 1, 1, "0001-01-01", "0001-01-01"},
+    };
+
+    for (auto& tc : test_cases) {
+        uint24_t olap_value = make_olap_date(tc.year, tc.month, tc.day);
+
+        auto field = Field::create_field_from_olap_value<TYPE_DATE>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for DATE " << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, datetime_v1_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        int64_t olap_value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {20230615120000L, "2023-06-15 12:00:00", "2023-06-15 12:00:00"},
+            {20000101000000L, "2000-01-01 00:00:00", "2000-01-01 00:00:00"},
+            {99991231235959L, "9999-12-31 23:59:59", "9999-12-31 23:59:59"},
+            {20230615123456L, "2023-06-15 12:34:56", "2023-06-15 12:34:56"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field_from_olap_value<TYPE_DATETIME>((uint64_t)tc.olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for DATETIME " << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, datev2_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATEV2, false);
+    auto serde = data_type->get_serde();
+
+    auto make_datev2 = [](int year, int month, int day) -> uint32_t {
+        return (year << 9) | (month << 5) | day;
+    };
+
+    struct TestCase {
+        int year, month, day;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {2023, 6, 15, "2023-06-15", "2023-06-15"},
+            {2000, 1, 1, "2000-01-01", "2000-01-01"},
+            {9999, 12, 31, "9999-12-31", "9999-12-31"},
+            {1, 1, 1, "0001-01-01", "0001-01-01"},
+    };
+
+    for (auto& tc : test_cases) {
+        uint32_t olap_value = make_datev2(tc.year, tc.month, tc.day);
+
+        auto field = Field::create_field_from_olap_value<TYPE_DATEV2>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for DATEV2 " << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, datetimev2_type) {
+    auto make_datetimev2 = [](int year, int month, int day, int hour, int minute, int second,
+                              int microsecond) -> uint64_t {
+        return ((uint64_t)year << 46) | ((uint64_t)month << 42) | ((uint64_t)day << 37) |
+               ((uint64_t)hour << 32) | ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
+               (uint64_t)microsecond;
+    };
+
+    struct TestCase {
+        uint64_t olap_value;
+        std::string expected;
+        std::string expected_serde;
+        std::string desc;
+    };
+    std::vector<TestCase> test_cases = {
+            {make_datetimev2(2023, 6, 15, 12, 34, 56, 123456), "2023-06-15 12:34:56.123456",
+             "2023-06-15 12:34:56.123456", "non-zero microseconds"},
+            {make_datetimev2(2023, 6, 15, 12, 34, 56, 0), "2023-06-15 12:34:56.000000",
+             "2023-06-15 12:34:56", "zero microseconds"},
+            {make_datetimev2(2023, 1, 1, 0, 0, 0, 123000), "2023-01-01 00:00:00.123000",
+             "2023-01-01 00:00:00.123000", "trailing zeros in microseconds"},
+            {make_datetimev2(2000, 1, 1, 0, 0, 0, 0), "2000-01-01 00:00:00.000000",
+             "2000-01-01 00:00:00", "epoch zero microseconds"},
+            {make_datetimev2(2023, 6, 15, 12, 34, 56, 1), "2023-06-15 12:34:56.000001",
+             "2023-06-15 12:34:56.000001", "1 microsecond"},
+            {make_datetimev2(9999, 12, 31, 23, 59, 59, 999999), "9999-12-31 23:59:59.999999",
+             "9999-12-31 23:59:59.999999", "max datetime"},
+    };
+
+    for (int scale = 0; scale <= 6; ++scale) {
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, scale);
+        auto serde = data_type->get_serde();
+
+        for (auto& tc : test_cases) {
+            auto field = Field::create_field_from_olap_value<TYPE_DATETIMEV2>(tc.olap_value);
+            std::string serde_str = serde->to_olap_string(field);
+
+            EXPECT_EQ(tc.expected, serde_str)
+                    << "serde mismatch for DATETIMEV2 scale=" << scale << ": " << tc.desc
+                    << "\n  expected: " << tc.expected << "\n  serde:    " << serde_str;
+        }
+    }
+}
+
+TEST_F(OlapTypeTest, datetime_v1_vs_v2_precision_difference) {
+    {
+        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIME, false);
+        auto serde = data_type->get_serde();
+
+        int64_t olap_value = 20230615123456L;
+        std::string expected = "2023-06-15 12:34:56";
+        std::string expected_serde = expected;
+        auto field = Field::create_field_from_olap_value<TYPE_DATETIME>((uint64_t)olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for DATETIME V1";
+        EXPECT_EQ(expected.find('.'), std::string::npos)
+                << "DATETIME V1 should NOT have fractional seconds";
+    }
+
+    {
+        auto make_datetimev2 = [](int year, int month, int day, int hour, int minute, int second,
+                                  int microsecond) -> uint64_t {
+            return ((uint64_t)year << 46) | ((uint64_t)month << 42) | ((uint64_t)day << 37) |
+                   ((uint64_t)hour << 32) | ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
+                   (uint64_t)microsecond;
+        };
+
+        auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DATETIMEV2, false, 0, 6);
+        auto serde = data_type->get_serde();
+
+        uint64_t olap_value = make_datetimev2(2023, 6, 15, 12, 34, 56, 123456);
+        std::string expected = "2023-06-15 12:34:56.123456";
+        std::string expected_serde = expected;
+        auto field = Field::create_field_from_olap_value<TYPE_DATETIMEV2>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(expected_serde, serde_str) << "serde mismatch for DATETIMEV2";
+        EXPECT_NE(expected.find('.'), std::string::npos)
+                << "DATETIMEV2 should have fractional seconds";
+    }
+}
+
+TEST_F(OlapTypeTest, decimalv2_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DECIMALV2, false, 27, 9);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        int64_t integer;
+        int32_t fraction;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, 0, "0.000000000", "0.000000000"},
+            {1, 0, "1.000000000", "1.000000000"},
+            {0, 100000000, "0.100000000", "0.100000000"},
+            {123, 456000000, "123.456000000", "123.456000000"},
+            {-123, -456000000, "-123.456000000", "-123.456000000"},
+            {999999999999999999L, 999999999, "999999999999999999.999999999",
+             "999999999999999999.999999999"},
+            {-999999999999999999L, -999999999, "-999999999999999999.999999999",
+             "-999999999999999999.999999999"},
+            {1, 1, "1.000000001", "1.000000001"},
+            {1, 10, "1.000000010", "1.000000010"},
+            {1, 100, "1.000000100", "1.000000100"},
+            {1, 1000, "1.000001000", "1.000001000"},
+            {1, 10000, "1.000010000", "1.000010000"},
+            {1, 100000, "1.000100000", "1.000100000"},
+            {1, 1000000, "1.001000000", "1.001000000"},
+            {1, 10000000, "1.010000000", "1.010000000"},
+            {1, 100000000, "1.100000000", "1.100000000"},
+            {0, 123456789, "0.123456789", "0.123456789"},
+            {42, 500000000, "42.500000000", "42.500000000"},
+    };
+
+    for (auto& tc : test_cases) {
+        decimal12_t olap_value;
+        olap_value.integer = tc.integer;
+        olap_value.fraction = tc.fraction;
+
+        auto field = Field::create_field_from_olap_value<TYPE_DECIMALV2>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for DECIMALV2 (" << tc.integer << ", " << tc.fraction << ")";
+    }
+}
+
+TEST_F(OlapTypeTest, decimal32_type) {
+    struct TestCase {
+        int32_t value;
+        int precision;
+        int scale;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, 9, 0, "0", "0"},
+            {12345, 9, 0, "12345", "12345"},
+            {12345, 9, 2, "12345", "12345"},
+            {12345, 9, 4, "12345", "12345"},
+            {-12345, 9, 2, "-12345", "-12345"},
+            {1, 9, 9, "1", "1"},
+            {999999999, 9, 0, "999999999", "999999999"},
+            {-999999999, 9, 0, "-999999999", "-999999999"},
+            {100000000, 9, 9, "100000000", "100000000"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto data_type = DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_DECIMAL32, tc.precision, tc.scale);
+        auto serde = data_type->get_serde();
+
+        int32_t olap_value = tc.value;
+        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL32>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for DECIMAL32 value=" << tc.value;
+    }
+}
+
+TEST_F(OlapTypeTest, decimal64_type) {
+    struct TestCase {
+        int64_t value;
+        int precision;
+        int scale;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, 18, 0, "0", "0"},
+            {123456789012345678L, 18, 0, "123456789012345678", "123456789012345678"},
+            {123456789012345678L, 18, 6, "123456789012345678", "123456789012345678"},
+            {-123456789012345678L, 18, 6, "-123456789012345678", "-123456789012345678"},
+            {1, 18, 18, "1", "1"},
+            {100000, 18, 5, "100000", "100000"},
+            {1000000000000L, 18, 6, "1000000000000", "1000000000000"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto data_type = DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_DECIMAL64, tc.precision, tc.scale);
+        auto serde = data_type->get_serde();
+
+        int64_t olap_value = tc.value;
+        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL64>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for DECIMAL64 value=" << tc.value;
+    }
+}
+
+TEST_F(OlapTypeTest, decimal128i_type) {
+    struct TestCase {
+        int128_t value;
+        int precision;
+        int scale;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, 38, 0, "0", "0"},
+            {123456789, 38, 0, "123456789", "123456789"},
+            {123456789, 38, 6, "123456789", "123456789"},
+            {-123456789, 38, 6, "-123456789", "-123456789"},
+            {1, 38, 38, "1", "1"},
+            {(int128_t)999999999999999999L * 1000000000L + 999999999, 38, 9,
+             "999999999999999999999999999", "999999999999999999999999999"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto data_type = DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_DECIMAL128I, tc.precision, tc.scale);
+        auto serde = data_type->get_serde();
+
+        int128_t olap_value = tc.value;
+        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL128I>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for DECIMAL128I expected=" << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, decimal256_type) {
+    struct TestCase {
+        wide::Int256 value;
+        int precision;
+        int scale;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {wide::Int256(0), 76, 0, "0", "0"},
+            {wide::Int256(123456789), 76, 0, "123456789", "123456789"},
+            {wide::Int256(123456789), 76, 6, "123456789", "123456789"},
+            {wide::Int256(-123456789), 76, 6, "-123456789", "-123456789"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto data_type = DataTypeFactory::instance().create_data_type(
+                FieldType::OLAP_FIELD_TYPE_DECIMAL256, tc.precision, tc.scale);
+        auto serde = data_type->get_serde();
+
+        wide::Int256 olap_value = tc.value;
+        auto field = Field::create_field_from_olap_value<TYPE_DECIMAL256>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for DECIMAL256 expected=" << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, float_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_FLOAT, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        float value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0.0f, "0", "0"},
+            {-0.0f, "-0", "-0"},
+            {1.0f, "1", "1"},
+            {-1.0f, "-1", "-1"},
+            {0.5f, "0.5", "0.5"},
+            {1.5f, "1.5", "1.5"},
+            {0.25f, "0.25", "0.25"},
+            {100.0f, "100", "100"},
+            {0.001f, "0.001", "0.001"},
+            {std::numeric_limits<float>::quiet_NaN(), "NaN", "NaN"},
+            {std::numeric_limits<float>::infinity(), "Infinity", "Infinity"},
+            {-std::numeric_limits<float>::infinity(), "-Infinity", "-Infinity"},
+            {std::numeric_limits<float>::max(), "3.402823e+38", "3.402823e+38"},
+            {std::numeric_limits<float>::lowest(), "-3.402823e+38", "-3.402823e+38"},
+            {std::numeric_limits<float>::min(), "1.175494e-38", "1.175494e-38"},
+            {std::numeric_limits<float>::denorm_min(), "1.401298e-45", "1.401298e-45"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_FLOAT>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for FLOAT expected='" << tc.expected << "'";
+    }
+}
+
+TEST_F(OlapTypeTest, double_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_DOUBLE, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        double value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0.0, "0", "0"},
+            {-0.0, "-0", "-0"},
+            {1.0, "1", "1"},
+            {-1.0, "-1", "-1"},
+            {0.5, "0.5", "0.5"},
+            {1.5, "1.5", "1.5"},
+            {0.25, "0.25", "0.25"},
+            {100.0, "100", "100"},
+            {3.141592653589793, "3.141592653589793", "3.141592653589793"},
+            {0.001, "0.001", "0.001"},
+            {std::numeric_limits<double>::quiet_NaN(), "NaN", "NaN"},
+            {std::numeric_limits<double>::infinity(), "Infinity", "Infinity"},
+            {-std::numeric_limits<double>::infinity(), "-Infinity", "-Infinity"},
+            {std::numeric_limits<double>::max(), "1.797693134862316e+308",
+             "1.797693134862316e+308"},
+            {std::numeric_limits<double>::lowest(), "-1.797693134862316e+308",
+             "-1.797693134862316e+308"},
+            {std::numeric_limits<double>::min(), "2.225073858507201e-308",
+             "2.225073858507201e-308"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_DOUBLE>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for DOUBLE expected='" << tc.expected << "'";
+    }
+}
+
+TEST_F(OlapTypeTest, bool_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_BOOLEAN, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        uint8_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, "0", "0"},
+            {1, "1", "1"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_BOOLEAN>((bool)tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for BOOL=" << (int)tc.value;
+    }
+}
+
+TEST_F(OlapTypeTest, tinyint_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_TINYINT, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        int8_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, "0", "0"},       {1, "1", "1"},          {-1, "-1", "-1"},
+            {127, "127", "127"}, {-128, "-128", "-128"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_TINYINT>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for TINYINT=" << (int)tc.value;
+    }
+}
+
+TEST_F(OlapTypeTest, smallint_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_SMALLINT, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        int16_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, "0", "0"},
+            {1, "1", "1"},
+            {-1, "-1", "-1"},
+            {32767, "32767", "32767"},
+            {-32768, "-32768", "-32768"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_SMALLINT>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for SMALLINT=" << tc.value;
+    }
+}
+
+TEST_F(OlapTypeTest, int_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_INT, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        int32_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, "0", "0"},
+            {1, "1", "1"},
+            {-1, "-1", "-1"},
+            {2147483647, "2147483647", "2147483647"},
+            {-2147483648, "-2147483648", "-2147483648"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_INT>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str) << "serde mismatch for INT=" << tc.value;
+    }
+}
+
+TEST_F(OlapTypeTest, bigint_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_BIGINT, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        int64_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, "0", "0"},
+            {1, "1", "1"},
+            {-1, "-1", "-1"},
+            {9223372036854775807L, "9223372036854775807", "9223372036854775807"},
+            {-9223372036854775807L - 1, "-9223372036854775808", "-9223372036854775808"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_BIGINT>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for BIGINT expected=" << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, largeint_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_LARGEINT, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        int128_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {(int128_t)0, "0", "0"},
+            {(int128_t)1, "1", "1"},
+            {(int128_t)-1, "-1", "-1"},
+            {(int128_t)9223372036854775807L, "9223372036854775807", "9223372036854775807"},
+            {(int128_t)(-9223372036854775807L - 1), "-9223372036854775808", "-9223372036854775808"},
+            {~((int128_t)(1) << 127), "170141183460469231731687303715884105727",
+             "170141183460469231731687303715884105727"},
+            {(int128_t)(1) << 127, "-170141183460469231731687303715884105728",
+             "-170141183460469231731687303715884105728"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_LARGEINT>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for LARGEINT expected=" << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, ipv4_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_IPV4, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        uint32_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {0, "0.0.0.0", "0.0.0.0"},
+            {0xFFFFFFFF, "255.255.255.255", "255.255.255.255"},
+            {0x7F000001, "127.0.0.1", "127.0.0.1"},
+            {0xC0A80001, "192.168.0.1", "192.168.0.1"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field<TYPE_IPV4>(tc.value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for IPV4 expected=" << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, ipv6_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_IPV6, false);
+    auto serde = data_type->get_serde();
+
+    struct TestCase {
+        uint128_t value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {(uint128_t)0, "::", "::"},
+            {(uint128_t)1, "::1", "::1"},
+            {(uint128_t)(-1), "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff",
+             "ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"},
+    };
+
+    for (auto& tc : test_cases) {
+        uint128_t olap_value = tc.value;
+        auto field = Field::create_field<TYPE_IPV6>(olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for IPV6 expected=" << tc.expected;
+    }
+}
+
+TEST_F(OlapTypeTest, timestamptz_type) {
+    auto data_type = DataTypeFactory::instance().create_data_type(TYPE_TIMESTAMPTZ, false, 0, 6);
+    auto serde = data_type->get_serde();
+
+    auto make_datetimev2 = [](int year, int month, int day, int hour, int minute, int second,
+                              int microsecond) -> uint64_t {
+        return ((uint64_t)year << 46) | ((uint64_t)month << 42) | ((uint64_t)day << 37) |
+               ((uint64_t)hour << 32) | ((uint64_t)minute << 26) | ((uint64_t)second << 20) |
+               (uint64_t)microsecond;
+    };
+
+    struct TestCase {
+        uint64_t olap_value;
+        std::string expected;
+        std::string expected_serde;
+    };
+    std::vector<TestCase> test_cases = {
+            {make_datetimev2(2023, 6, 15, 12, 34, 56, 123456), "2023-06-15 12:34:56.123456+00:00",
+             "2023-06-15 12:34:56.123456+00:00"},
+            {make_datetimev2(2023, 6, 15, 12, 34, 56, 0), "2023-06-15 12:34:56.000000+00:00",
+             "2023-06-15 12:34:56.000000+00:00"},
+            {make_datetimev2(2000, 1, 1, 0, 0, 0, 0), "2000-01-01 00:00:00.000000+00:00",
+             "2000-01-01 00:00:00.000000+00:00"},
+    };
+
+    for (auto& tc : test_cases) {
+        auto field = Field::create_field_from_olap_value<TYPE_TIMESTAMPTZ>(tc.olap_value);
+        std::string serde_str = serde->to_olap_string(field);
+
+        EXPECT_EQ(tc.expected_serde, serde_str)
+                << "serde mismatch for TIMESTAMPTZ expected=" << tc.expected;
     }
 }
 } // namespace doris

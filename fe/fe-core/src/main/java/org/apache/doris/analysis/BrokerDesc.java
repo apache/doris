@@ -137,12 +137,12 @@ public class BrokerDesc extends StorageDesc implements Writable {
             case S3:
                 return TFileType.FILE_S3;
             case HDFS:
+            case JFS:
                 return TFileType.FILE_HDFS;
             case STREAM:
                 return TFileType.FILE_STREAM;
             case BROKER:
             case OFS:
-            case JFS:
             default:
                 return TFileType.FILE_BROKER;
         }

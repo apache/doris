@@ -187,7 +187,9 @@ void SetSourceLocalState<is_intersect>::_add_result_columns() {
 
     for (auto& idx : build_col_idx) {
         const auto& column = *build_block.get_by_position(idx.second).column;
-        column.append_data_by_selector(_mutable_cols[idx.first], _result_indexs);
+        // use insert_indices_from to support ColumnString64
+        _mutable_cols[idx.first]->insert_indices_from(column, _result_indexs.data(),
+                                                      &_result_indexs[_result_indexs.size()]);
     }
 }
 template class SetSourceLocalState<true>;

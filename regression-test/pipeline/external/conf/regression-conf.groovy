@@ -98,6 +98,15 @@ hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
 
+// for JuiceFS(hadoop-compatible) regression cases
+// first step: enable case execution in external pipeline
+enableJfsTest=true
+jfsFs = "jfs://cluster"
+jfsImpl = "io.juicefs.JuiceFileSystem"
+jfsMeta = "mysql://root:123456@(127.0.0.1:3316)/juicefs_meta"
+jfsHiveMetastoreUris = "thrift://127.0.0.1:9383"
+jfsHadoopUser = "root"
+
 // broker load test config
 enableBrokerLoad=true
 

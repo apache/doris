@@ -88,7 +88,7 @@ public class HdfsProperties extends HdfsCompatibleProperties {
 
     private static final String DFS_NAME_SERVICES_KEY = "dfs.nameservices";
 
-    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs");
+    private static final Set<String> supportSchema = ImmutableSet.of("hdfs", "viewfs", "jfs");
 
     /**
      * The final HDFS configuration map that determines the effective settings.
@@ -143,7 +143,8 @@ public class HdfsProperties extends HdfsCompatibleProperties {
         }
         userOverriddenHdfsConfig = new HashMap<>();
         origProps.forEach((key, value) -> {
-            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")) {
+            if (key.startsWith("hadoop.") || key.startsWith("dfs.") || key.startsWith("fs.")
+                    || key.startsWith("juicefs.")) {
                 userOverriddenHdfsConfig.put(key, value);
             }
         });

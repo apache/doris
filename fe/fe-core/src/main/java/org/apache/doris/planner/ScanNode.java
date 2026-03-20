@@ -725,4 +725,8 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     public long getCatalogId() {
         return Env.getCurrentInternalCatalog().getId();
     }
+
+    protected boolean fileCacheAdmissionCheck() throws UserException {
+        return true;
+    }
 }
