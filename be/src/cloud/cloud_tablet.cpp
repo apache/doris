@@ -868,6 +868,12 @@ void CloudTablet::get_compaction_status(std::string* json_result) {
 
     // get snapshot version path json_doc
     _timestamped_version_tracker.get_stale_version_path_json_doc(path_arr);
+    rapidjson::Value compaction_policy_value;
+    auto compaction_policy = _tablet_meta->compaction_policy();
+    compaction_policy_value.SetString(compaction_policy.c_str(),
+                                      cast_set<uint32_t>(compaction_policy.length()),
+                                      root.GetAllocator());
+    root.AddMember("compaction policy", compaction_policy_value, root.GetAllocator());
     root.AddMember("cumulative point", _cumulative_point.load(), root.GetAllocator());
     rapidjson::Value cumu_value;
     std::string format_str = ToStringFromUnixMillis(_last_cumu_compaction_failure_millis.load());
@@ -1376,10 +1382,6 @@ void CloudTablet::agg_delete_bitmap_for_compaction(
 }
 
 Status CloudTablet::sync_meta() {
-    if (!config::enable_file_cache) {
-        return Status::OK();
-    }
-
     TabletMetaSharedPtr tablet_meta;
     auto st = _engine.meta_mgr().get_tablet_meta(tablet_id(), &tablet_meta);
     if (!st.ok()) {
@@ -1392,6 +1394,10 @@ Status CloudTablet::sync_meta() {
     auto new_compaction_policy = tablet_meta->compaction_policy();
     if (_tablet_meta->compaction_policy() != new_compaction_policy) {
         _tablet_meta->set_compaction_policy(new_compaction_policy);
+    }
+    auto new_ttl_seconds = tablet_meta->ttl_seconds();
+    if (_tablet_meta->ttl_seconds() != new_ttl_seconds) {
+        _tablet_meta->set_ttl_seconds(new_ttl_seconds);
     }
     auto new_time_series_compaction_goal_size_mbytes =
             tablet_meta->time_series_compaction_goal_size_mbytes();

@@ -541,6 +541,18 @@ public class BackendServiceProxy {
         }
     }
 
+    public ListenableFuture<InternalService.PSyncTabletMetaResponse> syncTabletMeta(TNetworkAddress address,
+            InternalService.PSyncTabletMetaRequest request) throws RpcException {
+        try {
+            final BackendServiceClient client = getProxy(address);
+            return client.syncTabletMeta(request);
+        } catch (Throwable e) {
+            LOG.warn("failed to sync tablet meta from address={}:{}", address.getHostname(),
+                    address.getPort(), e);
+            throw new RpcException(address.getHostname(), e.getMessage());
+        }
+    }
+
     public Future<InternalService.PFetchRemoteSchemaResponse> fetchRemoteTabletSchemaAsync(
             TNetworkAddress address, InternalService.PFetchRemoteSchemaRequest request) throws RpcException {
         try {

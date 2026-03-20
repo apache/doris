@@ -49,11 +49,56 @@ bvar::LatencyRecorder g_file_cache_get_by_peer_read_cache_file_latency(
         "file_cache_get_by_peer_read_cache_file_latency");
 bvar::LatencyRecorder g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency(
         "cloud_internal_service_get_file_cache_meta_by_tablet_id_latency");
+bvar::Adder<int64_t> g_cloud_sync_tablet_meta_requests_total(
+        "cloud_sync_tablet_meta_requests_total");
+bvar::Adder<int64_t> g_cloud_sync_tablet_meta_synced_total("cloud_sync_tablet_meta_synced_total");
+bvar::Adder<int64_t> g_cloud_sync_tablet_meta_skipped_total("cloud_sync_tablet_meta_skipped_total");
+bvar::Adder<int64_t> g_cloud_sync_tablet_meta_failed_total("cloud_sync_tablet_meta_failed_total");
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
 
 CloudInternalServiceImpl::~CloudInternalServiceImpl() = default;
+
+void CloudInternalServiceImpl::sync_tablet_meta(google::protobuf::RpcController* controller,
+                                                const PSyncTabletMetaRequest* request,
+                                                PSyncTabletMetaResponse* response,
+                                                google::protobuf::Closure* done) {
+    bool ret = _light_work_pool.try_offer([this, request, response, done]() {
+        brpc::ClosureGuard closure_guard(done);
+        int64_t synced = 0;
+        int64_t skipped = 0;
+        int64_t failed = 0;
+        g_cloud_sync_tablet_meta_requests_total << 1;
+        for (const auto tablet_id : request->tablet_ids()) {
+            auto tablet = _engine.tablet_mgr().get_tablet_if_cached(tablet_id);
+            if (!tablet) {
+                ++skipped;
+                continue;
+            }
+            auto st = tablet->sync_meta();
+            if (!st.ok()) {
+                ++failed;
+                LOG(WARNING) << "failed to sync tablet meta from cloud meta service, tablet="
+                             << tablet_id << ", err=" << st;
+                continue;
+            }
+            ++synced;
+        }
+        g_cloud_sync_tablet_meta_synced_total << synced;
+        g_cloud_sync_tablet_meta_skipped_total << skipped;
+        g_cloud_sync_tablet_meta_failed_total << failed;
+        response->set_synced_tablets(synced);
+        response->set_skipped_tablets(skipped);
+        response->set_failed_tablets(failed);
+        Status::OK().to_protobuf(response->mutable_status());
+    });
+    if (!ret) {
+        brpc::ClosureGuard closure_guard(done);
+        Status::InternalError("failed to offer sync_tablet_meta request to work pool")
+                .to_protobuf(response->mutable_status());
+    }
+}
 
 void CloudInternalServiceImpl::alter_vault_sync(google::protobuf::RpcController* controller,
                                                 const doris::PAlterVaultSyncRequest* request,
