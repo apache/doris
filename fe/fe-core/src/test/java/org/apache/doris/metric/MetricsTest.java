@@ -43,6 +43,18 @@ public class MetricsTest {
     @BeforeClass
     public static void setUp() {
         FeConstants.runningUnitTest = true;
+        MetricRepo.SYSTEM_METRICS = new SystemMetrics() {
+            @Override
+            protected String getCpuStatPath() {
+                return getClass().getClassLoader().getResource("data/stat_normal").getFile();
+            }
+
+            @Override
+            protected String getSnmpPath() {
+                return getClass().getClassLoader().getResource("data/net_snmp_normal").getFile();
+            }
+        };
+        MetricRepo.SYSTEM_METRICS.update();
         MetricRepo.init();
     }
 
@@ -65,6 +77,83 @@ public class MetricsTest {
                 Assert.fail();
             }
         }
+    }
+
+    @Test
+    public void testCpuMetrics() {
+        // Test CPU percentage metrics
+        List<Metric> cpuMetrics = MetricRepo.getMetricsByName("cpu");
+        // Expected: 5 CPU percentage metrics + 2 rate metrics + 2 process count metrics = 9 total
+        Assert.assertTrue("Expected at least 9 CPU metrics", cpuMetrics.size() >= 9);
+
+        boolean foundUsagePercent = false;
+        boolean foundUserPercent = false;
+        boolean foundSystemPercent = false;
+        boolean foundIowaitPercent = false;
+        boolean foundStealPercent = false;
+        boolean foundContextSwitchesRate = false;
+        boolean foundProcessForksRate = false;
+        boolean foundProcsRunning = false;
+        boolean foundProcsBlocked = false;
+
+        for (Metric<?> metric : cpuMetrics) {
+            String metricName = metric.getLabels().get(0).getValue();
+            switch (metricName) {
+                case "cpu_usage_percent":
+                    foundUsagePercent = true;
+                    GaugeMetric<Double> usageMetric = (GaugeMetric<Double>) metric;
+                    Assert.assertTrue("CPU usage should be non-negative", usageMetric.getValue() >= 0.0);
+                    break;
+                case "cpu_user_percent":
+                    foundUserPercent = true;
+                    break;
+                case "cpu_system_percent":
+                    foundSystemPercent = true;
+                    break;
+                case "cpu_iowait_percent":
+                    foundIowaitPercent = true;
+                    break;
+                case "cpu_steal_percent":
+                    foundStealPercent = true;
+                    break;
+                case "context_switches_rate":
+                    foundContextSwitchesRate = true;
+                    GaugeMetric<Double> ctxtMetric = (GaugeMetric<Double>) metric;
+                    Assert.assertEquals("context_switches_rate is 0.0 on first update (no previous baseline)",
+                            0.0, ctxtMetric.getValue(), 0.0);
+                    break;
+                case "process_forks_rate":
+                    foundProcessForksRate = true;
+                    GaugeMetric<Double> procsMetric = (GaugeMetric<Double>) metric;
+                    Assert.assertEquals("process_forks_rate is 0.0 on first update (no previous baseline)",
+                            0.0, procsMetric.getValue(), 0.0);
+                    break;
+                case "procs_running":
+                    foundProcsRunning = true;
+                    GaugeMetric<Long> runningMetric = (GaugeMetric<Long>) metric;
+                    Assert.assertEquals("Expected 3 running processes from test data",
+                            Long.valueOf(3L), runningMetric.getValue());
+                    break;
+                case "procs_blocked":
+                    foundProcsBlocked = true;
+                    GaugeMetric<Long> blockedMetric = (GaugeMetric<Long>) metric;
+                    Assert.assertEquals("Expected 1 blocked process from test data",
+                            Long.valueOf(1L), blockedMetric.getValue());
+                    break;
+                default:
+                    break;
+            }
+        }
+
+        Assert.assertTrue("cpu_usage_percent metric not found", foundUsagePercent);
+        Assert.assertTrue("cpu_user_percent metric not found", foundUserPercent);
+        Assert.assertTrue("cpu_system_percent metric not found", foundSystemPercent);
+        Assert.assertTrue("cpu_iowait_percent metric not found", foundIowaitPercent);
+        Assert.assertTrue("cpu_steal_percent metric not found", foundStealPercent);
+        Assert.assertTrue("context_switches_rate metric not found", foundContextSwitchesRate);
+        Assert.assertTrue("process_forks_rate metric not found", foundProcessForksRate);
+        Assert.assertTrue("procs_running metric not found", foundProcsRunning);
+        Assert.assertTrue("procs_blocked metric not found", foundProcsBlocked);
     }
 
     @Test
@@ -269,5 +358,56 @@ public class MetricsTest {
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_partition_prune_duration_ms summary"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_cloud_meta_duration_ms summary"));
         Assert.assertTrue(metricResult.contains("# TYPE doris_fe_plan_materialized_view_rewrite_duration_ms summary"));
+    }
+
+    @Test
+    public void testCpuPercentageCalculation() {
+        SystemMetrics metrics = new SystemMetrics() {
+            private boolean secondCall = false;
+
+            @Override
+            protected String getCpuStatPath() {
+                if (secondCall) {
+                    return getClass().getClassLoader().getResource("data/stat_normal_second").getFile();
+                }
+                secondCall = true;
+                return getClass().getClassLoader().getResource("data/stat_normal").getFile();
+            }
+        };
+
+        // First update establishes the baseline (reads stat_normal)
+        metrics.update();
+
+        // Second update computes percentages based on delta from first snapshot
+        metrics.update();
+
+        // Deltas derived from stat_normal → stat_normal_second:
+        //   stat_normal:   cpu 2000000 100000 500000 9000000 150000 50000 25000 10000
+        //   stat_normal_second: cpu 2100000 100000 520000 9080000 155000 50000 25000 11000
+        long userDelta   = 100000L;
+        long systemDelta = 20000L;
+        long idleDelta   = 80000L;
+        long iowaitDelta = 5000L;
+        long stealDelta  = 1000L;
+        long totalDelta  = userDelta + systemDelta + idleDelta + iowaitDelta + stealDelta; // 206000
+
+        double tolerance = 0.001;
+        Assert.assertEquals("cpu_usage_percent",
+                100.0 * (totalDelta - idleDelta) / totalDelta, metrics.cpuUsagePercent, tolerance);
+        Assert.assertEquals("cpu_user_percent",
+                100.0 * userDelta / totalDelta, metrics.cpuUserPercent, tolerance);
+        Assert.assertEquals("cpu_system_percent",
+                100.0 * systemDelta / totalDelta, metrics.cpuSystemPercent, tolerance);
+        Assert.assertEquals("cpu_iowait_percent",
+                100.0 * iowaitDelta / totalDelta, metrics.cpuIowaitPercent, tolerance);
+        Assert.assertEquals("cpu_steal_percent",
+                100.0 * stealDelta / totalDelta, metrics.cpuStealPercent, tolerance);
+
+        // Validate processes parsing fix: stat_normal_second has processes 5001000
+        Assert.assertEquals("processes should be parsed from stat_normal_second", 5001000L, metrics.processes);
+        Assert.assertTrue("process_forks_rate should be positive after two updates with distinct data",
+                metrics.processesRate > 0.0);
+        Assert.assertTrue("context_switches_rate should be positive after two updates with distinct data",
+                metrics.ctxtRate > 0.0);
     }
 }
