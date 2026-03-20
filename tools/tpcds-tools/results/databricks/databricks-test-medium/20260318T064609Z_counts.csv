@@ -1,0 +1,25 @@
+kind,catalog,schema,object_name,statement_id,state,duration_ms,scalar_result,row_count,started_at_utc,message,table_type,securable_kind
+count,test,tpcds_sf1000_ext,call_center,,FAILED,0,,0,20260318T064612Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,catalog_page,,FAILED,0,,0,20260318T064613Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,catalog_returns,,FAILED,0,,0,20260318T064613Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,catalog_sales,,FAILED,0,,0,20260318T064628Z,Remote end closed connection without response,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,customer,,FAILED,0,,0,20260318T064859Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,customer_address,,FAILED,0,,0,20260318T064859Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,customer_demographics,,FAILED,0,,0,20260318T064900Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,date_dim,,FAILED,0,,0,20260318T064901Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,household_demographics,,FAILED,0,,0,20260318T064944Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,income_band,,FAILED,0,,0,20260318T064959Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,inventory,,FAILED,0,,0,20260318T065018Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,item,,FAILED,0,,0,20260318T065018Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,promotion,,FAILED,0,,0,20260318T065019Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,reason,,FAILED,0,,0,20260318T065020Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,ship_mode,,FAILED,0,,0,20260318T065020Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,store,,FAILED,0,,0,20260318T065021Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,store_returns,,FAILED,0,,0,20260318T065036Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,store_sales,,FAILED,0,,0,20260318T065118Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,time_dim,,FAILED,0,,0,20260318T065147Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,warehouse,,FAILED,0,,0,20260318T065230Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,web_page,,FAILED,0,,0,20260318T065259Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,web_returns,,FAILED,0,,0,20260318T065314Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,web_sales,,FAILED,0,,0,20260318T065314Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL
+count,test,tpcds_sf1000_ext,web_site,,FAILED,0,,0,20260318T065315Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,EXTERNAL,TABLE_DELTA_EXTERNAL

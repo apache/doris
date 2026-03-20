@@ -1,0 +1,78 @@
+{
+  "run_id": "20260318T125750Z",
+  "workspace_url": "https://dbc-8dfd98c8-ab16.cloud.databricks.com",
+  "warehouse_id": "19f0f7c7efcf6c90",
+  "catalog": "test",
+  "schema": "tpcds_sf1000_ext",
+  "mode": "queries",
+  "size_label": "medium",
+  "passes": [
+    "cold",
+    "hot1",
+    "hot2"
+  ],
+  "tables_discovered": 0,
+  "summary": {
+    "total": 24,
+    "succeeded": 24,
+    "failed": 0,
+    "failed_objects": [],
+    "pass_totals_ms": {
+      "cold": 147204,
+      "hot1": 49340,
+      "hot2": 46159
+    },
+    "cold_total_ms": 147204,
+    "best_hot_total_ms": 45967,
+    "query_hot_breakdown": [
+      {
+        "object_name": "query16",
+        "hot1_ms": 4312,
+        "hot2_ms": 3209,
+        "best_hot_ms": 3209
+      },
+      {
+        "object_name": "query32",
+        "hot1_ms": 4014,
+        "hot2_ms": 3223,
+        "best_hot_ms": 3223
+      },
+      {
+        "object_name": "query50",
+        "hot1_ms": 9752,
+        "hot2_ms": 9109,
+        "best_hot_ms": 9109
+      },
+      {
+        "object_name": "query62",
+        "hot1_ms": 3429,
+        "hot2_ms": 3159,
+        "best_hot_ms": 3159
+      },
+      {
+        "object_name": "query92",
+        "hot1_ms": 4294,
+        "hot2_ms": 3728,
+        "best_hot_ms": 3728
+      },
+      {
+        "object_name": "query94",
+        "hot1_ms": 7719,
+        "hot2_ms": 7752,
+        "best_hot_ms": 7719
+      },
+      {
+        "object_name": "query95",
+        "hot1_ms": 13960,
+        "hot2_ms": 13980,
+        "best_hot_ms": 13960
+      },
+      {
+        "object_name": "query99",
+        "hot1_ms": 1860,
+        "hot2_ms": 1999,
+        "best_hot_ms": 1860
+      }
+    ]
+  }
+}

@@ -1,0 +1,2 @@
+object_name,cold_state,cold_ms,cold_metric_source,cold_statement_id,hot1_state,hot1_ms,hot1_metric_source,hot1_statement_id,hot2_state,hot2_ms,hot2_metric_source,hot2_statement_id,best_hot_ms
+query99,SUCCEEDED,279514,wall_duration_ms_fallback,01f12458-d783-1ba2-bb1b-4f68aa2186d8,SUCCEEDED,3682,wall_duration_ms_fallback,01f12459-7e0d-110c-a3b2-c45c3963b481,SUCCEEDED,3991,wall_duration_ms_fallback,01f12459-8030-1af8-a513-c6ee188d1663,3682

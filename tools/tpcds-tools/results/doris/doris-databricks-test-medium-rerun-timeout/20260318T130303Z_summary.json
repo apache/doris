@@ -1,0 +1,37 @@
+{
+  "run_id": "20260318T130303Z",
+  "engine": "doris",
+  "host": "3.90.78.41",
+  "port": 9030,
+  "user": "root",
+  "catalog": "databricks_test",
+  "schema": "tpcds_sf1000_ext",
+  "mode": "queries",
+  "size_label": "",
+  "passes": [
+    "cold",
+    "hot1",
+    "hot2"
+  ],
+  "tables_discovered": 0,
+  "summary": {
+    "total": 9,
+    "succeeded": 4,
+    "failed": 5,
+    "failed_objects": [
+      "query14:hot1",
+      "query14_1:hot2",
+      "query88:cold",
+      "query88:hot1",
+      "query88:hot2"
+    ],
+    "pass_totals_ms": {
+      "cold": 25834,
+      "hot1": 12169,
+      "hot2": 13875
+    },
+    "cold_total_ms": 25834,
+    "best_hot_total_ms": 0,
+    "query_hot_breakdown": []
+  }
+}

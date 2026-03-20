@@ -1,0 +1,5 @@
+kind,catalog,schema,object_name,pass_name,statement_id,state,wall_duration_ms,metric_duration_ms,metric_source,scalar_result,row_count,started_at_utc,message,query_file
+query,databricks_test,tpcds_sf1000_ext,query89,cold,5792bb5f0ea34f57-bdf4f8d3cf4a18e0,SUCCEEDED,14763,11439,profile_total,,100,20260319T010852Z,,/tmp/doris-rerun-s3-last/query89.sql
+query,databricks_test,tpcds_sf1000_ext,query91,cold,f1e77117b2b64088-b2eea32c3397ceff,SUCCEEDED,8405,5633,profile_total,,0,20260319T010908Z,,/tmp/doris-rerun-s3-last/query91.sql
+query,databricks_test,tpcds_sf1000_ext,query94,cold,9858266d198546ac-b874c0d8fc8c09c7,SUCCEEDED,10452,7680,profile_total,,1,20260319T010918Z,,/tmp/doris-rerun-s3-last/query94.sql
+query,databricks_test,tpcds_sf1000_ext,query99,cold,3956199e9a54958-b0b894b04aea9821,SUCCEEDED,6302,3565,profile_total,,0,20260319T010931Z,,/tmp/doris-rerun-s3-last/query99.sql

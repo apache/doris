@@ -1,0 +1,39 @@
+{
+  "run_id": "20260320T123220Z",
+  "workspace_url": "https://dbc-8dfd98c8-ab16.cloud.databricks.com",
+  "warehouse_id": "19f0f7c7efcf6c90",
+  "catalog": "test",
+  "schema": "tpcds_sf1000_ext",
+  "mode": "queries",
+  "size_label": "medium",
+  "passes": [
+    "cold",
+    "hot1",
+    "hot2"
+  ],
+  "tables_discovered": 0,
+  "summary": {
+    "total": 3,
+    "succeeded": 3,
+    "failed": 0,
+    "failed_objects": [],
+    "pass_totals_ms": {
+      "cold": 279514,
+      "hot1": 3682,
+      "hot2": 3991
+    },
+    "cold_total_ms": 279514,
+    "best_hot_total_ms": 3682,
+    "metric_source_counts": {
+      "wall_duration_ms_fallback": 3
+    },
+    "query_hot_breakdown": [
+      {
+        "object_name": "query99",
+        "hot1_ms": 3682,
+        "hot2_ms": 3991,
+        "best_hot_ms": 3682
+      }
+    ]
+  }
+}

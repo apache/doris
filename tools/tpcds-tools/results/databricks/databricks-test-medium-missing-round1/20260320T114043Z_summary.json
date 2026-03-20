@@ -1,0 +1,136 @@
+{
+  "run_id": "20260320T114043Z",
+  "workspace_url": "https://dbc-8dfd98c8-ab16.cloud.databricks.com",
+  "warehouse_id": "19f0f7c7efcf6c90",
+  "catalog": "test",
+  "schema": "tpcds_sf1000_ext",
+  "mode": "queries",
+  "size_label": "medium",
+  "passes": [
+    "cold",
+    "hot1",
+    "hot2"
+  ],
+  "tables_discovered": 0,
+  "summary": {
+    "total": 51,
+    "succeeded": 51,
+    "failed": 0,
+    "failed_objects": [],
+    "pass_totals_ms": {
+      "cold": 99747,
+      "hot1": 81314,
+      "hot2": 78309
+    },
+    "cold_total_ms": 99747,
+    "best_hot_total_ms": 77444,
+    "metric_source_counts": {
+      "query_history_total_duration_ms": 34,
+      "wall_duration_ms_fallback": 17
+    },
+    "query_hot_breakdown": [
+      {
+        "object_name": "query16",
+        "hot1_ms": 1659,
+        "hot2_ms": 1660,
+        "best_hot_ms": 1659
+      },
+      {
+        "object_name": "query32",
+        "hot1_ms": 1679,
+        "hot2_ms": 1831,
+        "best_hot_ms": 1679
+      },
+      {
+        "object_name": "query50",
+        "hot1_ms": 6857,
+        "hot2_ms": 6654,
+        "best_hot_ms": 6654
+      },
+      {
+        "object_name": "query62",
+        "hot1_ms": 2144,
+        "hot2_ms": 1976,
+        "best_hot_ms": 1976
+      },
+      {
+        "object_name": "query87",
+        "hot1_ms": 7020,
+        "hot2_ms": 6812,
+        "best_hot_ms": 6812
+      },
+      {
+        "object_name": "query88",
+        "hot1_ms": 16753,
+        "hot2_ms": 14409,
+        "best_hot_ms": 14409
+      },
+      {
+        "object_name": "query89",
+        "hot1_ms": 5268,
+        "hot2_ms": 5343,
+        "best_hot_ms": 5268
+      },
+      {
+        "object_name": "query90",
+        "hot1_ms": 2055,
+        "hot2_ms": 1985,
+        "best_hot_ms": 1985
+      },
+      {
+        "object_name": "query91",
+        "hot1_ms": 965,
+        "hot2_ms": 958,
+        "best_hot_ms": 958
+      },
+      {
+        "object_name": "query92",
+        "hot1_ms": 2053,
+        "hot2_ms": 2110,
+        "best_hot_ms": 2053
+      },
+      {
+        "object_name": "query93",
+        "hot1_ms": 790,
+        "hot2_ms": 852,
+        "best_hot_ms": 790
+      },
+      {
+        "object_name": "query94",
+        "hot1_ms": 6618,
+        "hot2_ms": 5878,
+        "best_hot_ms": 5878
+      },
+      {
+        "object_name": "query95",
+        "hot1_ms": 7690,
+        "hot2_ms": 7718,
+        "best_hot_ms": 7690
+      },
+      {
+        "object_name": "query96",
+        "hot1_ms": 4044,
+        "hot2_ms": 4113,
+        "best_hot_ms": 4044
+      },
+      {
+        "object_name": "query97",
+        "hot1_ms": 6122,
+        "hot2_ms": 6042,
+        "best_hot_ms": 6042
+      },
+      {
+        "object_name": "query98",
+        "hot1_ms": 7871,
+        "hot2_ms": 8292,
+        "best_hot_ms": 7871
+      },
+      {
+        "object_name": "query99",
+        "hot1_ms": 1726,
+        "hot2_ms": 1676,
+        "best_hot_ms": 1676
+      }
+    ]
+  }
+}

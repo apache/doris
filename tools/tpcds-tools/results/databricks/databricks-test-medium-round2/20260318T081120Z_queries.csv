@@ -1,0 +1,1435 @@
+kind,catalog,schema,object_name,pass_name,statement_id,state,wall_duration_ms,scalar_result,row_count,started_at_utc,message,query_file,execution_status,total_duration_ms,waiting_for_compute_duration_ms,waiting_at_capacity_duration_ms,execution_duration_ms,compilation_duration_ms,total_task_duration_ms,result_fetch_duration_ms,read_rows,produced_rows,read_bytes,read_files,spilled_local_bytes,written_bytes,shuffle_read_bytes,from_result_cache,start_time,end_time,metric_duration_ms
+query,test,tpcds_sf1000_ext,query1,cold,01f122a2-0c34-15f7-ad00-3ee337429564,SUCCEEDED,8429,,100,20260318T081120Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query1.sql,FINISHED,7295,0,0,6749,465,131708,74,553567193,100,5520418820,573,0,0,0,false,2026-03-18T08:11:21.004Z,2026-03-18T08:11:28.299Z,7295
+query,test,tpcds_sf1000_ext,query1,hot1,01f122a2-112d-1801-96bd-71867f27bfa6,SUCCEEDED,4265,,100,20260318T081128Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query1.sql,FINISHED,3235,0,0,2756,380,70143,45,553567193,100,4961269105,573,0,0,0,false,2026-03-18T08:11:29.348Z,2026-03-18T08:11:32.583Z,3235
+query,test,tpcds_sf1000_ext,query1,hot2,01f122a2-13bd-1f13-8054-25d10b7c7776,SUCCEEDED,3793,,100,20260318T081132Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query1.sql,FINISHED,2717,0,0,2339,305,64844,51,553567193,100,4956879682,573,0,0,0,false,2026-03-18T08:11:33.649Z,2026-03-18T08:11:36.366Z,2717
+query,test,tpcds_sf1000_ext,query2,cold,01f122a2-15fe-117e-8448-eb1c6bbe4175,SUCCEEDED,9046,,2513,20260318T081136Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query2.sql,FINISHED,7349,0,0,6946,327,264500,46,4305342649,2513,19559875106,7078,0,0,0,false,2026-03-18T08:11:37.425Z,2026-03-18T08:11:44.774Z,7349
+query,test,tpcds_sf1000_ext,query2,hot1,01f122a2-1b6b-116d-9d6e-7e3fee1c0749,SUCCEEDED,6940,,2513,20260318T081145Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query2.sql,FINISHED,5200,0,0,4787,332,191970,41,4305342649,2513,19569863416,7078,0,0,0,false,2026-03-18T08:11:46.528Z,2026-03-18T08:11:51.728Z,5200
+query,test,tpcds_sf1000_ext,query2,hot2,01f122a2-1f85-1c5f-bfdb-4851bd3e6692,SUCCEEDED,7130,,2513,20260318T081152Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query2.sql,FINISHED,5385,0,0,4972,343,190430,42,4305342649,2513,19569863416,7078,0,0,0,false,2026-03-18T08:11:53.414Z,2026-03-18T08:11:58.799Z,5385
+query,test,tpcds_sf1000_ext,query3,cold,01f122a2-23ea-186d-a8a5-c2a404dda509,SUCCEEDED,8394,,40,20260318T081159Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query3.sql,FINISHED,7101,0,0,6767,251,226158,45,1596928950,40,9162055683,3104,0,0,0,false,2026-03-18T08:12:00.786Z,2026-03-18T08:12:07.887Z,7101
+query,test,tpcds_sf1000_ext,query3,hot1,01f122a2-28c5-1d9b-824a-ebb767ba6629,SUCCEEDED,6972,,40,20260318T081208Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query3.sql,FINISHED,5926,0,0,5598,254,219853,39,1596928950,40,9201367484,3104,0,0,0,false,2026-03-18T08:12:08.934Z,2026-03-18T08:12:14.860Z,5926
+query,test,tpcds_sf1000_ext,query3,hot2,01f122a2-2dab-1253-9731-21a59096f0b7,SUCCEEDED,8094,,40,20260318T081215Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query3.sql,FINISHED,5789,0,0,5466,237,216506,81,1596928950,40,9201367484,3104,0,0,0,false,2026-03-18T08:12:17.148Z,2026-03-18T08:12:22.937Z,5789
+query,test,tpcds_sf1000_ext,query4,cold,01f122a2-31c1-1e1b-bc73-baab13c9c32d,SUCCEEDED,25828,,100,20260318T081223Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query4.sql,FINISHED,24812,0,0,24045,690,1146361,40,7366596762,100,124991223561,9533,0,0,0,false,2026-03-18T08:12:24.008Z,2026-03-18T08:12:48.820Z,24812
+query,test,tpcds_sf1000_ext,query4,hot1,01f122a2-4128-1c0d-843b-3ccfda27cbe6,SUCCEEDED,22687,,100,20260318T081249Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query4.sql,FINISHED,21637,0,0,20903,657,970816,45,7366596762,100,119986115862,9533,0,0,0,false,2026-03-18T08:12:49.848Z,2026-03-18T08:13:11.485Z,21637
+query,test,tpcds_sf1000_ext,query4,hot2,01f122a2-4eaf-11fc-bab1-e68713b0addb,SUCCEEDED,21863,,100,20260318T081311Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query4.sql,FINISHED,19411,0,0,18712,613,907894,1453,7366596762,100,119988562031,9533,0,0,0,false,2026-03-18T08:13:12.540Z,2026-03-18T08:13:31.951Z,19411
+query,test,tpcds_sf1000_ext,query5,cold,01f122a2-5bb6-16ea-a7c4-9179ba77ff56,SUCCEEDED,13943,,100,20260318T081333Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query5.sql,FINISHED,11422,0,0,10690,654,421543,1504,3780072669,100,46567235572,5914,0,0,0,false,2026-03-18T08:13:34.396Z,2026-03-18T08:13:45.818Z,11422
+query,test,tpcds_sf1000_ext,query5,hot1,01f122a2-6406-1b5f-bd18-8a79ab4fa7fc,SUCCEEDED,9080,,100,20260318T081347Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query5.sql,FINISHED,8005,0,0,7372,534,321891,61,3780072669,100,41625810173,5914,0,0,0,false,2026-03-18T08:13:48.344Z,2026-03-18T08:13:56.349Z,8005
+query,test,tpcds_sf1000_ext,query5,hot2,01f122a2-6971-1b4c-9591-d9f2eca940fd,SUCCEEDED,9230,,100,20260318T081356Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query5.sql,FINISHED,8189,0,0,7532,574,321868,37,3780072669,100,41626228374,5914,0,0,0,false,2026-03-18T08:13:57.435Z,2026-03-18T08:14:05.624Z,8189
+query,test,tpcds_sf1000_ext,query6,cold,01f122a2-6eef-1227-a58c-771f52fe4f1a,SUCCEEDED,5816,,52,20260318T081405Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query6.sql,FINISHED,4778,0,0,4390,314,157376,41,2659711287,52,5997293473,3147,0,0,0,false,2026-03-18T08:14:06.645Z,2026-03-18T08:14:11.423Z,4778
+query,test,tpcds_sf1000_ext,query6,hot1,01f122a2-7268-188c-95f6-9a75f808cd61,SUCCEEDED,5634,,52,20260318T081411Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query6.sql,FINISHED,4574,0,0,4137,360,154265,44,2659711287,52,5997346724,3147,0,0,0,false,2026-03-18T08:14:12.474Z,2026-03-18T08:14:17.048Z,4574
+query,test,tpcds_sf1000_ext,query6,hot2,01f122a2-75c2-1351-9bee-7b08b1ef8a3a,SUCCEEDED,5834,,52,20260318T081417Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query6.sql,FINISHED,4758,0,0,4274,410,153651,38,2659711287,52,5997346724,3147,0,0,0,false,2026-03-18T08:14:18.094Z,2026-03-18T08:14:22.852Z,4758
+query,test,tpcds_sf1000_ext,query7,cold,01f122a2-793f-18e4-acec-1e425d90ec92,SUCCEEDED,2192,,6,20260318T081423Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query7.sql,FINISHED,1130,0,0,765,284,259,71,1204477,6,19971633,7,0,0,0,false,2026-03-18T08:14:23.950Z,2026-03-18T08:14:25.080Z,1130
+query,test,tpcds_sf1000_ext,query7,hot1,01f122a2-7a8c-1144-b9bc-c16691e64abc,SUCCEEDED,2194,,6,20260318T081425Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query7.sql,FINISHED,1145,0,0,751,319,265,39,1204477,6,19971633,7,0,0,0,false,2026-03-18T08:14:26.129Z,2026-03-18T08:14:27.274Z,1145
+query,test,tpcds_sf1000_ext,query7,hot2,01f122a2-7c1c-1454-b066-299acae908f1,SUCCEEDED,2697,,6,20260318T081427Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query7.sql,FINISHED,1239,0,0,875,282,274,38,1204477,6,19971633,7,0,0,0,false,2026-03-18T08:14:28.751Z,2026-03-18T08:14:29.990Z,1239
+query,test,tpcds_sf1000_ext,query8,cold,01f122a2-7d71-145a-9b5a-3a54fd47fd0d,SUCCEEDED,5910,,10,20260318T081430Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query8.sql,FINISHED,4939,0,0,4519,340,144085,43,2685694502,10,17537790035,3153,0,0,0,false,2026-03-18T08:14:30.988Z,2026-03-18T08:14:35.927Z,4939
+query,test,tpcds_sf1000_ext,query8,hot1,01f122a2-80fb-1b5c-9b64-91302fe10e39,SUCCEEDED,5691,,10,20260318T081436Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query8.sql,FINISHED,4666,0,0,4256,328,142864,42,2685694502,10,17534796831,3153,0,0,0,false,2026-03-18T08:14:36.926Z,2026-03-18T08:14:41.592Z,4666
+query,test,tpcds_sf1000_ext,query8,hot2,01f122a2-8460-19f2-8ec3-760bbbb2a257,SUCCEEDED,5710,,10,20260318T081441Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query8.sql,FINISHED,4622,0,0,4174,372,142456,40,2685694502,10,17534796831,3153,0,0,0,false,2026-03-18T08:14:42.623Z,2026-03-18T08:14:47.245Z,4622
+query,test,tpcds_sf1000_ext,query9,cold,01f122a2-87d3-1d02-bf4d-fd46d7f419a3,SUCCEEDED,14046,,1,20260318T081447Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query9.sql,FINISHED,11274,0,0,10535,660,422620,1682,2750403743,1,21384865663,3102,0,0,0,false,2026-03-18T08:14:48.408Z,2026-03-18T08:14:59.682Z,11274
+query,test,tpcds_sf1000_ext,query9,hot1,01f122a2-9028-1325-a4f6-dda823b3bd76,SUCCEEDED,10467,,1,20260318T081501Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query9.sql,FINISHED,9407,0,0,8637,686,397041,45,2750403743,1,21430381877,3102,0,0,0,false,2026-03-18T08:15:02.384Z,2026-03-18T08:15:11.791Z,9407
+query,test,tpcds_sf1000_ext,query9,hot2,01f122a2-9666-12eb-a2f5-06d8fc1a2bcf,SUCCEEDED,10442,,1,20260318T081512Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query9.sql,FINISHED,9389,0,0,8640,669,397431,50,2750403743,1,21430381877,3102,0,0,0,false,2026-03-18T08:15:12.856Z,2026-03-18T08:15:22.245Z,9389
+query,test,tpcds_sf1000_ext,query10,cold,01f122a2-9c9c-1ab0-b417-1a88c740bfcb,SUCCEEDED,5910,,100,20260318T081522Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query10.sql,FINISHED,4886,0,0,4403,408,166233,46,3458093908,100,5405365959,4415,0,0,0,false,2026-03-18T08:15:23.280Z,2026-03-18T08:15:28.166Z,4886
+query,test,tpcds_sf1000_ext,query10,hot1,01f122a2-a026-1b20-b92b-40b5771199fe,SUCCEEDED,5758,,100,20260318T081528Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query10.sql,FINISHED,4686,0,0,4239,370,160069,44,3458093908,100,5406053829,4415,0,0,0,false,2026-03-18T08:15:29.217Z,2026-03-18T08:15:33.903Z,4686
+query,test,tpcds_sf1000_ext,query10,hot2,01f122a2-a38f-1981-98e6-84ea31088a14,SUCCEEDED,5760,,100,20260318T081534Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query10.sql,FINISHED,4736,0,0,4200,460,160458,49,3458093908,100,5406053829,4415,0,0,0,false,2026-03-18T08:15:34.939Z,2026-03-18T08:15:39.675Z,4736
+query,test,tpcds_sf1000_ext,query11,cold,01f122a2-a6fc-1149-b780-39c8580f8dc2,SUCCEEDED,15305,,100,20260318T081539Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query11.sql,FINISHED,14311,0,0,13749,489,659084,47,6795957041,100,53170489691,8592,0,0,0,false,2026-03-18T08:15:40.683Z,2026-03-18T08:15:54.994Z,14311
+query,test,tpcds_sf1000_ext,query11,hot1,01f122a2-b020-1ae0-9d1d-8c6f06392bc6,SUCCEEDED,16048,,100,20260318T081555Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query11.sql,FINISHED,14996,0,0,14480,439,670646,46,6795957041,100,53170823888,8592,0,0,0,false,2026-03-18T08:15:56.021Z,2026-03-18T08:16:11.017Z,14996
+query,test,tpcds_sf1000_ext,query11,hot2,01f122a2-b9ae-1708-9a11-02f80c3601ad,SUCCEEDED,16903,,100,20260318T081611Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query11.sql,FINISHED,15880,0,0,15377,425,725070,46,6795957041,100,53275302766,8592,0,0,0,false,2026-03-18T08:16:12.050Z,2026-03-18T08:16:27.930Z,15880
+query,test,tpcds_sf1000_ext,query12,cold,01f122a2-c3c5-19a9-b65e-0bf9707838dc,SUCCEEDED,3775,,100,20260318T081628Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query12.sql,FINISHED,2504,0,0,1952,475,43591,48,712209669,100,3754067018,1182,0,0,0,false,2026-03-18T08:16:28.979Z,2026-03-18T08:16:31.483Z,2504
+query,test,tpcds_sf1000_ext,query12,hot1,01f122a2-c603-1ed1-8743-c9dd4f4f0d1f,SUCCEEDED,3331,,100,20260318T081631Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query12.sql,FINISHED,2100,0,0,1655,369,39651,40,712209669,100,3754067040,1182,0,0,0,false,2026-03-18T08:16:32.743Z,2026-03-18T08:16:34.843Z,2100
+query,test,tpcds_sf1000_ext,query12,hot2,01f122a2-c7fd-165c-ab85-3e09d1dc219f,SUCCEEDED,3230,,100,20260318T081635Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query12.sql,FINISHED,2012,0,0,1681,256,40041,45,712209669,100,3754067574,1182,0,0,0,false,2026-03-18T08:16:36.056Z,2026-03-18T08:16:38.068Z,2012
+query,test,tpcds_sf1000_ext,query13,cold,01f122a2-c9f6-1a4d-ad46-55ce658ccf25,SUCCEEDED,7854,,1,20260318T081638Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query13.sql,FINISHED,6549,0,0,6085,347,257127,49,3507464,1,25392068727,3116,0,0,0,false,2026-03-18T08:16:39.368Z,2026-03-18T08:16:45.917Z,6549
+query,test,tpcds_sf1000_ext,query13,hot1,01f122a2-ce9c-1ba5-abda-7f365cbc39f6,SUCCEEDED,6493,,1,20260318T081646Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query13.sql,FINISHED,5446,0,0,5025,338,223783,43,2541707,1,25469516708,3116,0,0,0,false,2026-03-18T08:16:47.167Z,2026-03-18T08:16:52.613Z,5446
+query,test,tpcds_sf1000_ext,query13,hot2,01f122a2-d278-12c4-9c7b-0a63ed443fd7,SUCCEEDED,6405,,1,20260318T081652Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query13.sql,FINISHED,5390,0,0,5004,310,222469,42,2541707,1,25469516708,3116,0,0,0,false,2026-03-18T08:16:53.638Z,2026-03-18T08:16:59.028Z,5390
+query,test,tpcds_sf1000_ext,query14,cold,01f122a2-d649-1902-b840-99c3a6470d3c,SUCCEEDED,24242,,100,20260318T081659Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14.sql,FINISHED,23191,0,0,21652,1454,1064152,46,12026472117,100,37615921184,15748,0,0,0,false,2026-03-18T08:17:00.044Z,2026-03-18T08:17:23.235Z,23191
+query,test,tpcds_sf1000_ext,query14,hot1,01f122a2-e4be-1e56-b18b-551cb6772cf6,SUCCEEDED,22927,,100,20260318T081723Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14.sql,FINISHED,21902,0,0,20466,1347,1027632,45,12026472117,100,37137133737,15748,0,0,0,false,2026-03-18T08:17:24.299Z,2026-03-18T08:17:46.201Z,21902
+query,test,tpcds_sf1000_ext,query14,hot2,01f122a2-f26a-18fa-bfe8-4fb03c2a60a9,SUCCEEDED,22471,,100,20260318T081746Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14.sql,FINISHED,21435,0,0,20032,1327,1011317,43,12026472117,100,37052422240,15748,0,0,0,false,2026-03-18T08:17:47.235Z,2026-03-18T08:18:08.670Z,21435
+query,test,tpcds_sf1000_ext,query14_1,cold,01f122a2-ffce-1e78-bdbf-74266afeab79,SUCCEEDED,22638,,100,20260318T081808Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14_1.sql,FINISHED,21599,0,0,20583,928,1138618,65,14102449828,100,46652996292,20698,0,0,0,false,2026-03-18T08:18:09.705Z,2026-03-18T08:18:31.304Z,21599
+query,test,tpcds_sf1000_ext,query14_1,hot1,01f122a3-0d4c-18cf-b966-923044655bb5,SUCCEEDED,22532,,100,20260318T081831Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14_1.sql,FINISHED,21495,0,0,20405,960,1129432,76,14075440594,100,46502500038,20698,0,0,0,false,2026-03-18T08:18:32.337Z,2026-03-18T08:18:53.832Z,21495
+query,test,tpcds_sf1000_ext,query14_1,hot2,01f122a3-1abb-18d8-b6df-e50b5952f7ce,SUCCEEDED,22282,,100,20260318T081854Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14_1.sql,FINISHED,21263,0,0,20222,966,1123413,42,13945859155,100,45956140049,20698,0,0,0,false,2026-03-18T08:18:54.875Z,2026-03-18T08:19:16.138Z,21263
+query,test,tpcds_sf1000_ext,query15,cold,01f122a3-27fe-1e6d-a233-4ee6c43638a4,SUCCEEDED,2822,,100,20260318T081916Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query15.sql,FINISHED,1830,0,0,1469,283,25497,37,59625953,100,289575812,110,0,0,0,false,2026-03-18T08:19:17.127Z,2026-03-18T08:19:18.957Z,1830
+query,test,tpcds_sf1000_ext,query15,hot1,01f122a3-29ad-176d-a916-2064206a1506,SUCCEEDED,2473,,100,20260318T081919Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query15.sql,FINISHED,1463,0,0,1122,264,21142,50,59625953,100,290388377,110,0,0,0,false,2026-03-18T08:19:19.949Z,2026-03-18T08:19:21.412Z,1463
+query,test,tpcds_sf1000_ext,query15,hot2,01f122a3-2b2a-11db-ad6a-308d6c4e9358,SUCCEEDED,2535,,100,20260318T081921Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query15.sql,FINISHED,1489,0,0,1135,270,21131,48,59625953,100,290388377,110,0,0,0,false,2026-03-18T08:19:22.446Z,2026-03-18T08:19:23.935Z,1489
+query,test,tpcds_sf1000_ext,query16,cold,01f122a3-2cac-1b11-932d-4916561d6fbf,FAILED,1065,,0,20260318T081924Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 7, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query16
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query16' AS tag
+),
+__codex_query AS (
+select  
+   count(distinct cs_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(cs_ext_ship_cost) as ""total shipping cost""
+  ,sum(cs_net_profit) as ""total net profit""
+from
+   catalog_sales cs1
+  ,date_dim
+  ,customer_address
+  ,call_center
+where
+    d_date between '2002-4-01' and 
+           (cast('2002-4-01' as date) + interval 60 day)
+and cs1.cs_ship_date_sk = d_date_sk
+and cs1.cs_ship_addr_sk = ca_address_sk
+and ca_state = 'PA'
+and cs1.cs_call_center_sk = cc_call_center_sk
+and cc_county in ('Williamson County','Williamson County','Williamson County','Williamson County',
+                  'Williamson County'
+)
+and exists (select *
+            from catalog_sales cs2
+            where cs1.cs_order_number = cs2.cs_order_number
+              and cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
+and not exists(select *
+               from catalog_returns cr1
+               where cs1.cs_order_number = cr1.cr_order_number)
+order by count(distinct cs_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query16.sql,,,,,,,,,,,,,,,,,,,1065
+query,test,tpcds_sf1000_ext,query16,hot1,01f122a3-2d54-1e1f-b393-47c5a94dd7fa,FAILED,1100,,0,20260318T081925Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 7, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query16
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query16' AS tag
+),
+__codex_query AS (
+select  
+   count(distinct cs_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(cs_ext_ship_cost) as ""total shipping cost""
+  ,sum(cs_net_profit) as ""total net profit""
+from
+   catalog_sales cs1
+  ,date_dim
+  ,customer_address
+  ,call_center
+where
+    d_date between '2002-4-01' and 
+           (cast('2002-4-01' as date) + interval 60 day)
+and cs1.cs_ship_date_sk = d_date_sk
+and cs1.cs_ship_addr_sk = ca_address_sk
+and ca_state = 'PA'
+and cs1.cs_call_center_sk = cc_call_center_sk
+and cc_county in ('Williamson County','Williamson County','Williamson County','Williamson County',
+                  'Williamson County'
+)
+and exists (select *
+            from catalog_sales cs2
+            where cs1.cs_order_number = cs2.cs_order_number
+              and cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
+and not exists(select *
+               from catalog_returns cr1
+               where cs1.cs_order_number = cr1.cr_order_number)
+order by count(distinct cs_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query16.sql,,,,,,,,,,,,,,,,,,,1100
+query,test,tpcds_sf1000_ext,query16,hot2,01f122a3-2df8-126d-804e-5a885e11afd0,FAILED,1066,,0,20260318T081926Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 7, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query16
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query16' AS tag
+),
+__codex_query AS (
+select  
+   count(distinct cs_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(cs_ext_ship_cost) as ""total shipping cost""
+  ,sum(cs_net_profit) as ""total net profit""
+from
+   catalog_sales cs1
+  ,date_dim
+  ,customer_address
+  ,call_center
+where
+    d_date between '2002-4-01' and 
+           (cast('2002-4-01' as date) + interval 60 day)
+and cs1.cs_ship_date_sk = d_date_sk
+and cs1.cs_ship_addr_sk = ca_address_sk
+and ca_state = 'PA'
+and cs1.cs_call_center_sk = cc_call_center_sk
+and cc_county in ('Williamson County','Williamson County','Williamson County','Williamson County',
+                  'Williamson County'
+)
+and exists (select *
+            from catalog_sales cs2
+            where cs1.cs_order_number = cs2.cs_order_number
+              and cs1.cs_warehouse_sk <> cs2.cs_warehouse_sk)
+and not exists(select *
+               from catalog_returns cr1
+               where cs1.cs_order_number = cr1.cr_order_number)
+order by count(distinct cs_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query16.sql,,,,,,,,,,,,,,,,,,,1066
+query,test,tpcds_sf1000_ext,query17,cold,01f122a3-2e9c-1184-9733-a615e4792adb,SUCCEEDED,8998,,0,20260318T081927Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query17.sql,FINISHED,8058,0,0,7624,352,337689,47,3054587397,0,28701906102,3641,0,0,0,false,2026-03-18T08:19:28.225Z,2026-03-18T08:19:36.283Z,8058
+query,test,tpcds_sf1000_ext,query17,hot1,01f122a3-33f9-1acd-a460-00b7b09cc613,SUCCEEDED,7706,,0,20260318T081936Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query17.sql,FINISHED,6767,0,0,6326,366,301044,40,3054587397,0,28428465433,3641,0,0,0,false,2026-03-18T08:19:37.225Z,2026-03-18T08:19:43.992Z,6767
+query,test,tpcds_sf1000_ext,query17,hot2,01f122a3-388d-1bba-8e41-f295c52ca37d,SUCCEEDED,7864,,0,20260318T081944Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query17.sql,FINISHED,6959,0,0,6511,375,302055,39,3054587397,0,28428189752,3641,0,0,0,false,2026-03-18T08:19:44.906Z,2026-03-18T08:19:51.865Z,6959
+query,test,tpcds_sf1000_ext,query18,cold,01f122a3-3d3b-1e56-82ec-d603fc8e8640,SUCCEEDED,4298,,100,20260318T081951Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query18.sql,FINISHED,3298,0,0,2827,392,76167,40,291687552,100,4820373369,520,0,0,0,false,2026-03-18T08:19:52.758Z,2026-03-18T08:19:56.056Z,3298
+query,test,tpcds_sf1000_ext,query18,hot1,01f122a3-3fd6-1b6d-a1a7-02049a4ae4de,SUCCEEDED,3735,,100,20260318T081956Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query18.sql,FINISHED,2671,0,0,2149,442,63390,50,291687552,100,4361819925,520,0,0,0,false,2026-03-18T08:19:57.130Z,2026-03-18T08:19:59.801Z,2671
+query,test,tpcds_sf1000_ext,query18,hot2,01f122a3-4205-1077-b404-fc66611a7414,SUCCEEDED,3827,,100,20260318T082000Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query18.sql,FINISHED,2835,0,0,2345,394,64241,46,291687552,100,4361819925,520,0,0,0,false,2026-03-18T08:20:00.788Z,2026-03-18T08:20:03.623Z,2835
+query,test,tpcds_sf1000_ext,query19,cold,01f122a3-4450-1753-ad8e-f5f697e0c6c4,SUCCEEDED,6113,,100,20260318T082003Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query19.sql,FINISHED,5093,0,0,4705,313,218549,37,2587859545,100,21439438757,3145,0,0,0,false,2026-03-18T08:20:04.637Z,2026-03-18T08:20:09.730Z,5093
+query,test,tpcds_sf1000_ext,query19,hot1,01f122a3-47f7-10d5-b91f-d4eebda6d096,SUCCEEDED,6255,,100,20260318T082009Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query19.sql,FINISHED,5235,0,0,4811,347,205237,39,2587859545,100,21449776180,3145,0,0,0,false,2026-03-18T08:20:10.762Z,2026-03-18T08:20:15.997Z,5235
+query,test,tpcds_sf1000_ext,query19,hot2,01f122a3-4bb1-158a-bffd-8c7c7bd93cd3,SUCCEEDED,6359,,100,20260318T082016Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query19.sql,FINISHED,5305,0,0,4878,350,206543,69,2587859545,100,21449776180,3145,0,0,0,false,2026-03-18T08:20:17.017Z,2026-03-18T08:20:22.322Z,5305
+query,test,tpcds_sf1000_ext,query20,cold,01f122a3-4f7a-1a74-a043-0547b27ef9fd,SUCCEEDED,3107,,100,20260318T082022Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query20.sql,FINISHED,1885,0,0,1515,273,5428,42,14232002,100,100348061,27,0,0,0,false,2026-03-18T08:20:23.369Z,2026-03-18T08:20:25.254Z,1885
+query,test,tpcds_sf1000_ext,query20,hot1,01f122a3-515e-1eb0-87d1-7599fead6cb6,SUCCEEDED,2696,,100,20260318T082025Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query20.sql,FINISHED,1393,0,0,1002,314,4238,40,14232002,100,100764638,27,0,0,0,false,2026-03-18T08:20:26.542Z,2026-03-18T08:20:27.935Z,1393
+query,test,tpcds_sf1000_ext,query20,hot2,01f122a3-52f3-17b0-b842-c920d9b2af6e,SUCCEEDED,2688,,100,20260318T082028Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query20.sql,FINISHED,1431,0,0,1099,251,4201,45,14232002,100,100764638,27,0,0,0,false,2026-03-18T08:20:29.195Z,2026-03-18T08:20:30.626Z,1431
+query,test,tpcds_sf1000_ext,query21,cold,01f122a3-5489-129f-96f8-3c59714528a3,SUCCEEDED,3726,,100,20260318T082031Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query21.sql,FINISHED,2704,0,0,2394,234,31861,38,28141971,100,3357289998,134,0,0,0,false,2026-03-18T08:20:31.853Z,2026-03-18T08:20:34.557Z,2704
+query,test,tpcds_sf1000_ext,query21,hot1,01f122a3-56c0-142a-bbe6-d28a6337f0af,SUCCEEDED,2359,,100,20260318T082034Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query21.sql,FINISHED,1302,0,0,989,235,19865,36,28141971,100,3358071484,134,0,0,0,false,2026-03-18T08:20:35.569Z,2026-03-18T08:20:36.871Z,1302
+query,test,tpcds_sf1000_ext,query21,hot2,01f122a3-582a-1cd8-96a9-ddf9a4ffbce1,SUCCEEDED,2331,,100,20260318T082037Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query21.sql,FINISHED,1320,0,0,1020,230,19478,43,28141971,100,3358071484,134,0,0,0,false,2026-03-18T08:20:37.945Z,2026-03-18T08:20:39.265Z,1320
+query,test,tpcds_sf1000_ext,query22,cold,01f122a3-5990-1139-8476-32aba8a6ba3d,SUCCEEDED,29850,,100,20260318T082039Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query22.sql,FINISHED,27790,0,0,27480,227,495394,926,161215744,100,3421172424,133,0,0,0,false,2026-03-18T08:20:40.287Z,2026-03-18T08:21:08.077Z,27790
+query,test,tpcds_sf1000_ext,query22,hot1,01f122a3-6b5c-1846-ac5e-925d0ad8b806,SUCCEEDED,29725,,100,20260318T082109Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query22.sql,FINISHED,27417,0,0,27081,253,488230,1318,161215744,100,3422808170,133,0,0,0,false,2026-03-18T08:21:10.152Z,2026-03-18T08:21:37.569Z,27417
+query,test,tpcds_sf1000_ext,query22,hot2,01f122a3-7d14-1018-bbff-44758c9dc92f,SUCCEEDED,29730,,100,20260318T082139Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query22.sql,FINISHED,26918,0,0,26467,377,486957,1810,161215744,100,3422808170,133,0,0,0,false,2026-03-18T08:21:39.871Z,2026-03-18T08:22:06.789Z,26918
+query,test,tpcds_sf1000_ext,query23,cold,01f122a3-8ecd-1196-bc46-1a139d2cebf4,SUCCEEDED,24655,,1,20260318T082208Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23.sql,FINISHED,23611,0,0,22858,672,1082000,47,8858632340,1,31088978898,10542,0,0,0,false,2026-03-18T08:22:09.605Z,2026-03-18T08:22:33.216Z,23611
+query,test,tpcds_sf1000_ext,query23,hot1,01f122a3-9d7c-14fc-9433-1805a0f0480f,SUCCEEDED,24592,,1,20260318T082233Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23.sql,FINISHED,23578,0,0,22894,602,1076017,55,8858632340,1,31094692558,10542,0,0,0,false,2026-03-18T08:22:34.243Z,2026-03-18T08:22:57.821Z,23578
+query,test,tpcds_sf1000_ext,query23,hot2,01f122a3-ac24-1b2a-b9bf-d94ba371c791,SUCCEEDED,24720,,1,20260318T082258Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23.sql,FINISHED,23688,0,0,22996,616,1079180,46,8858632340,1,31093173370,10542,0,0,0,false,2026-03-18T08:22:58.833Z,2026-03-18T08:23:22.521Z,23688
+query,test,tpcds_sf1000_ext,query23_1,cold,01f122a3-bae4-188f-af6a-c7bbc00d7afa,SUCCEEDED,23438,,100,20260318T082322Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23_1.sql,FINISHED,22358,0,0,21643,640,1078372,40,8870632340,100,31197815889,10572,0,0,0,false,2026-03-18T08:23:23.580Z,2026-03-18T08:23:45.938Z,22358
+query,test,tpcds_sf1000_ext,query23_1,hot1,01f122a3-c8db-15e2-8da6-60e94c2dd5b4,SUCCEEDED,24339,,100,20260318T082346Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23_1.sql,FINISHED,23300,0,0,22578,644,1083807,39,8870632340,100,31194687726,10572,0,0,0,false,2026-03-18T08:23:47.007Z,2026-03-18T08:24:10.307Z,23300
+query,test,tpcds_sf1000_ext,query23_1,hot2,01f122a3-d75b-143d-a4db-77c8f64b5b95,SUCCEEDED,23889,,100,20260318T082410Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23_1.sql,FINISHED,22875,0,0,22078,701,1080896,45,8870632340,100,31188256924,10572,0,0,0,false,2026-03-18T08:24:11.333Z,2026-03-18T08:24:34.208Z,22875
+query,test,tpcds_sf1000_ext,query24,cold,01f122a3-e59b-1540-b627-aa578a6e2717,SUCCEEDED,15628,,6,20260318T082434Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24.sql,FINISHED,14587,0,0,14075,438,613139,43,5080109268,6,67131907694,6799,0,0,0,false,2026-03-18T08:24:35.241Z,2026-03-18T08:24:49.828Z,14587
+query,test,tpcds_sf1000_ext,query24,hot1,01f122a3-eeea-15b7-aebc-7930d80975e7,SUCCEEDED,14203,,6,20260318T082450Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24.sql,FINISHED,13148,0,0,12630,442,594890,43,5079505140,6,67178017921,6799,0,0,0,false,2026-03-18T08:24:50.858Z,2026-03-18T08:25:04.006Z,13148
+query,test,tpcds_sf1000_ext,query24,hot2,01f122a3-f768-142e-a048-07a7f71c0a26,SUCCEEDED,14700,,6,20260318T082504Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24.sql,FINISHED,13622,0,0,13076,465,595648,43,5079505140,6,67178496126,6799,0,0,0,false,2026-03-18T08:25:05.109Z,2026-03-18T08:25:18.731Z,13622
+query,test,tpcds_sf1000_ext,query24_1,cold,01f122a4-0023-1a7b-9076-7466e1217d51,SUCCEEDED,15442,,95,20260318T082518Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24_1.sql,FINISHED,14396,0,0,13907,408,612376,47,5873070407,95,67178435249,6799,0,0,0,false,2026-03-18T08:25:19.755Z,2026-03-18T08:25:34.151Z,14396
+query,test,tpcds_sf1000_ext,query24_1,hot1,01f122a4-095b-1064-bfe4-114adba788b3,SUCCEEDED,14407,,95,20260318T082534Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24_1.sql,FINISHED,13338,0,0,12858,404,611396,43,5873070407,95,67178496126,6799,0,0,0,false,2026-03-18T08:25:35.218Z,2026-03-18T08:25:48.556Z,13338
+query,test,tpcds_sf1000_ext,query24_1,hot2,01f122a4-11ec-1ebd-8317-00a2c53f976f,SUCCEEDED,14304,,95,20260318T082548Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24_1.sql,FINISHED,13292,0,0,12814,401,605576,47,5873070407,95,67178496126,6799,0,0,0,false,2026-03-18T08:25:49.596Z,2026-03-18T08:26:02.888Z,13292
+query,test,tpcds_sf1000_ext,query25,cold,01f122a4-1a77-1a69-a36b-29b9568a2b9b,SUCCEEDED,7070,,0,20260318T082603Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query25.sql,FINISHED,6133,0,0,5732,324,272203,44,3044462839,0,38056699974,3623,0,0,0,false,2026-03-18T08:26:03.927Z,2026-03-18T08:26:10.060Z,6133
+query,test,tpcds_sf1000_ext,query25,hot1,01f122a4-1eac-1048-b164-fb30f00757c9,SUCCEEDED,6888,,0,20260318T082610Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query25.sql,FINISHED,5965,0,0,5559,325,259993,45,3044462839,0,38059393070,3623,0,0,0,false,2026-03-18T08:26:10.981Z,2026-03-18T08:26:16.946Z,5965
+query,test,tpcds_sf1000_ext,query25,hot2,01f122a4-22c9-1472-bc9a-a97af702a683,SUCCEEDED,6717,,0,20260318T082617Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query25.sql,FINISHED,5783,0,0,5390,314,257972,41,3044462839,0,38060244909,3623,0,0,0,false,2026-03-18T08:26:17.885Z,2026-03-18T08:26:23.668Z,5783
+query,test,tpcds_sf1000_ext,query26,cold,01f122a4-26cb-103d-b04b-df38bf3e9e78,SUCCEEDED,1726,,0,20260318T082623Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query26.sql,FINISHED,785,0,0,434,276,161,46,329299,0,11743406,6,0,0,0,false,2026-03-18T08:26:24.606Z,2026-03-18T08:26:25.391Z,785
+query,test,tpcds_sf1000_ext,query26,hot1,01f122a4-27d1-101f-a423-f65761cc982b,SUCCEEDED,1623,,0,20260318T082625Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query26.sql,FINISHED,693,0,0,372,244,100,43,329299,0,11743406,6,0,0,0,false,2026-03-18T08:26:26.322Z,2026-03-18T08:26:27.015Z,693
+query,test,tpcds_sf1000_ext,query26,hot2,01f122a4-28c6-114e-b338-ad23dd075219,SUCCEEDED,1765,,0,20260318T082627Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query26.sql,FINISHED,862,0,0,450,335,93,36,329299,0,11743406,6,0,0,0,false,2026-03-18T08:26:27.929Z,2026-03-18T08:26:28.791Z,862
+query,test,tpcds_sf1000_ext,query27,cold,01f122a4-29d2-19c3-bc95-672ee6994c7f,SUCCEEDED,10001,,100,20260318T082628Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query27.sql,FINISHED,9007,0,0,8629,281,427424,72,2585602331,100,27214625377,3107,0,0,0,false,2026-03-18T08:26:29.689Z,2026-03-18T08:26:38.696Z,9007
+query,test,tpcds_sf1000_ext,query27,hot1,01f122a4-2fcf-1bb5-937b-2735f7ed08ef,SUCCEEDED,10029,,100,20260318T082638Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query27.sql,FINISHED,8938,0,0,8519,343,407589,69,2585602331,100,27535411998,3107,0,0,0,false,2026-03-18T08:26:39.736Z,2026-03-18T08:26:48.674Z,8938
+query,test,tpcds_sf1000_ext,query27,hot2,01f122a4-35ca-170c-9c40-d3ae960cf344,SUCCEEDED,9977,,100,20260318T082648Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query27.sql,FINISHED,8929,0,0,8462,391,406409,40,2585602331,100,27535411998,3107,0,0,0,false,2026-03-18T08:26:49.768Z,2026-03-18T08:26:58.697Z,8929
+query,test,tpcds_sf1000_ext,query28,cold,01f122a4-3bba-1338-b18e-2c19d0d616b4,SUCCEEDED,16703,,1,20260318T082658Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query28.sql,FINISHED,15675,0,0,15276,320,846242,41,201230501,1,113922289834,18606,0,0,0,false,2026-03-18T08:26:59.728Z,2026-03-18T08:27:15.403Z,15675
+query,test,tpcds_sf1000_ext,query28,hot1,01f122a4-45ad-14df-a98c-2a885895b172,SUCCEEDED,15602,,1,20260318T082715Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query28.sql,FINISHED,14567,0,0,14133,356,782646,41,201230501,1,114054837468,18606,0,0,0,false,2026-03-18T08:27:16.420Z,2026-03-18T08:27:30.987Z,14567
+query,test,tpcds_sf1000_ext,query28,hot2,01f122a4-4efa-1636-b02d-4ce8c77868d1,SUCCEEDED,15632,,1,20260318T082731Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query28.sql,FINISHED,14605,0,0,14181,350,781471,43,201230501,1,114056106111,18606,0,0,0,false,2026-03-18T08:27:32.025Z,2026-03-18T08:27:46.630Z,14605
+query,test,tpcds_sf1000_ext,query29,cold,01f122a4-584e-185e-b6b8-c1d22154c3cb,SUCCEEDED,9445,,0,20260318T082746Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query29.sql,FINISHED,8498,0,0,8085,340,413005,42,3748168718,0,30782615249,4781,0,0,0,false,2026-03-18T08:27:47.676Z,2026-03-18T08:27:56.174Z,8498
+query,test,tpcds_sf1000_ext,query29,hot1,01f122a4-5def-1685-b7c5-d91612aab361,SUCCEEDED,9205,,0,20260318T082756Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query29.sql,FINISHED,8242,0,0,7828,337,398084,61,3748168718,0,30773493550,4781,0,0,0,false,2026-03-18T08:27:57.119Z,2026-03-18T08:28:05.361Z,8242
+query,test,tpcds_sf1000_ext,query29,hot2,01f122a4-6367-179c-81d0-9aab3b730970,SUCCEEDED,9146,,0,20260318T082805Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query29.sql,FINISHED,8239,0,0,7845,323,402129,37,3748168718,0,30773919110,4781,0,0,0,false,2026-03-18T08:28:06.295Z,2026-03-18T08:28:14.534Z,8239
+query,test,tpcds_sf1000_ext,query30,cold,01f122a4-68e3-1398-9219-481775837254,SUCCEEDED,3492,,100,20260318T082814Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query30.sql,FINISHED,2414,0,0,2043,294,60023,41,150521246,100,2277967416,311,0,0,0,false,2026-03-18T08:28:15.494Z,2026-03-18T08:28:17.908Z,2414
+query,test,tpcds_sf1000_ext,query30,hot1,01f122a4-6af6-1334-b7ea-1faab0574f78,SUCCEEDED,2900,,100,20260318T082818Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query30.sql,FINISHED,1833,0,0,1440,311,39958,39,150521246,100,2252751661,311,0,0,0,false,2026-03-18T08:28:18.975Z,2026-03-18T08:28:20.808Z,1833
+query,test,tpcds_sf1000_ext,query30,hot2,01f122a4-6cae-1025-a7db-e9c15f5b94e3,SUCCEEDED,3032,,100,20260318T082821Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query30.sql,FINISHED,1991,0,0,1634,283,40009,47,150521246,100,2252751661,311,0,0,0,false,2026-03-18T08:28:21.857Z,2026-03-18T08:28:23.848Z,1991
+query,test,tpcds_sf1000_ext,query31,cold,01f122a4-6e79-1b63-b964-b9d8a1f9a401,SUCCEEDED,13906,,56,20260318T082824Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query31.sql,FINISHED,10402,0,0,9925,401,492803,2537,10173690286,56,54661455047,12853,0,0,0,false,2026-03-18T08:28:24.870Z,2026-03-18T08:28:35.272Z,10402
+query,test,tpcds_sf1000_ext,query31,hot1,01f122a4-76c5-1125-bf74-451c850e2010,SUCCEEDED,10863,,56,20260318T082838Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query31.sql,FINISHED,9834,0,0,9357,396,454165,44,10173690286,56,54709937510,12853,0,0,0,false,2026-03-18T08:28:38.784Z,2026-03-18T08:28:48.618Z,9834
+query,test,tpcds_sf1000_ext,query31,hot2,01f122a4-7d40-177a-ab5b-a36266c79313,SUCCEEDED,10728,,56,20260318T082848Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query31.sql,FINISHED,9683,0,0,9158,450,451349,59,10173690286,56,54704361987,12853,0,0,0,false,2026-03-18T08:28:49.660Z,2026-03-18T08:28:59.343Z,9683
+query,test,tpcds_sf1000_ext,query32,cold,01f122a4-83a8-16dc-9572-c7883979d1c4,FAILED,1119,,0,20260318T082859Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""excess discount amount""'. SQLSTATE: 42601 (line 6, pos 37)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query32
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query32' AS tag
+),
+__codex_query AS (
+select  sum(cs_ext_discount_amt)  as ""excess discount amount"" 
+-------------------------------------^^^
+from 
+   catalog_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 722
+and i_item_sk = cs_item_sk 
+and d_date between '2001-03-09' and 
+        (cast('2001-03-09' as date) + interval 90 day)
+and d_date_sk = cs_sold_date_sk 
+and cs_ext_discount_amt  
+     > ( 
+         select 
+            1.3 * avg(cs_ext_discount_amt) 
+         from 
+            catalog_sales 
+           ,date_dim
+         where 
+              cs_item_sk = i_item_sk 
+          and d_date between '2001-03-09' and
+                             (cast('2001-03-09' as date) + interval 90 day)
+          and d_date_sk = cs_sold_date_sk 
+      ) 
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query32.sql,,,,,,,,,,,,,,,,,,,1119
+query,test,tpcds_sf1000_ext,query32,hot1,01f122a4-844e-1470-ae6f-33a8d4a81751,FAILED,1065,,0,20260318T082900Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""excess discount amount""'. SQLSTATE: 42601 (line 6, pos 37)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query32
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query32' AS tag
+),
+__codex_query AS (
+select  sum(cs_ext_discount_amt)  as ""excess discount amount"" 
+-------------------------------------^^^
+from 
+   catalog_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 722
+and i_item_sk = cs_item_sk 
+and d_date between '2001-03-09' and 
+        (cast('2001-03-09' as date) + interval 90 day)
+and d_date_sk = cs_sold_date_sk 
+and cs_ext_discount_amt  
+     > ( 
+         select 
+            1.3 * avg(cs_ext_discount_amt) 
+         from 
+            catalog_sales 
+           ,date_dim
+         where 
+              cs_item_sk = i_item_sk 
+          and d_date between '2001-03-09' and
+                             (cast('2001-03-09' as date) + interval 90 day)
+          and d_date_sk = cs_sold_date_sk 
+      ) 
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query32.sql,,,,,,,,,,,,,,,,,,,1065
+query,test,tpcds_sf1000_ext,query32,hot2,01f122a4-84f5-1bcf-b424-59e2130c6c3e,FAILED,1112,,0,20260318T082901Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""excess discount amount""'. SQLSTATE: 42601 (line 6, pos 37)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query32
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query32' AS tag
+),
+__codex_query AS (
+select  sum(cs_ext_discount_amt)  as ""excess discount amount"" 
+-------------------------------------^^^
+from 
+   catalog_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 722
+and i_item_sk = cs_item_sk 
+and d_date between '2001-03-09' and 
+        (cast('2001-03-09' as date) + interval 90 day)
+and d_date_sk = cs_sold_date_sk 
+and cs_ext_discount_amt  
+     > ( 
+         select 
+            1.3 * avg(cs_ext_discount_amt) 
+         from 
+            catalog_sales 
+           ,date_dim
+         where 
+              cs_item_sk = i_item_sk 
+          and d_date between '2001-03-09' and
+                             (cast('2001-03-09' as date) + interval 90 day)
+          and d_date_sk = cs_sold_date_sk 
+      ) 
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query32.sql,,,,,,,,,,,,,,,,,,,1112
+query,test,tpcds_sf1000_ext,query33,cold,01f122a4-859a-1241-a38c-e1c4b82f1ad5,SUCCEEDED,7446,,100,20260318T082902Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query33.sql,FINISHED,6431,0,0,5953,408,207623,49,3362160447,100,20350123021,4319,0,0,0,false,2026-03-18T08:29:03.669Z,2026-03-18T08:29:10.100Z,6431
+query,test,tpcds_sf1000_ext,query33,hot1,01f122a4-8a09-1dc5-8d97-a496e5d198a2,SUCCEEDED,7355,,100,20260318T082910Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query33.sql,FINISHED,6349,0,0,5861,414,200677,40,3362160447,100,20353307179,4319,0,0,0,false,2026-03-18T08:29:11.112Z,2026-03-18T08:29:17.461Z,6349
+query,test,tpcds_sf1000_ext,query33,hot2,01f122a4-8e6f-146b-93f3-d767e52fa8b5,SUCCEEDED,7350,,100,20260318T082917Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query33.sql,FINISHED,6329,0,0,5846,402,200238,41,3362160447,100,20352011595,4319,0,0,0,false,2026-03-18T08:29:18.488Z,2026-03-18T08:29:24.817Z,6329
+query,test,tpcds_sf1000_ext,query34,cold,01f122a4-92cc-17ba-bcbb-72d64af7c9e4,SUCCEEDED,5044,,0,20260318T082925Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query34.sql,FINISHED,4146,0,0,3748,325,167545,39,551521233,0,21996351273,3134,0,0,0,false,2026-03-18T08:29:25.810Z,2026-03-18T08:29:29.956Z,4146
+query,test,tpcds_sf1000_ext,query34,hot1,01f122a4-95d2-1eea-beab-1c37b1491842,SUCCEEDED,5058,,0,20260318T082930Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query34.sql,FINISHED,4125,0,0,3778,268,165861,39,551521233,0,21937386108,3134,0,0,0,false,2026-03-18T08:29:30.885Z,2026-03-18T08:29:35.010Z,4125
+query,test,tpcds_sf1000_ext,query34,hot2,01f122a4-98d6-1e70-923d-9fa282225e47,SUCCEEDED,5172,,0,20260318T082935Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query34.sql,FINISHED,4205,0,0,3856,274,164578,74,551521233,0,21798231754,3134,0,0,0,false,2026-03-18T08:29:35.944Z,2026-03-18T08:29:40.149Z,4205
+query,test,tpcds_sf1000_ext,query35,cold,01f122a4-9bec-1ff3-a0d9-351a12e6b064,SUCCEEDED,6077,,100,20260318T082940Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query35.sql,FINISHED,5058,0,0,4589,391,200438,40,3569599186,100,5535791814,4585,0,0,0,false,2026-03-18T08:29:41.121Z,2026-03-18T08:29:46.179Z,5058
+query,test,tpcds_sf1000_ext,query35,hot1,01f122a4-9f8c-1dd9-a593-ffd5bd1bc10c,SUCCEEDED,5911,,100,20260318T082946Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query35.sql,FINISHED,4869,0,0,4374,420,184321,70,3569599186,100,5546579338,4585,0,0,0,false,2026-03-18T08:29:47.202Z,2026-03-18T08:29:52.071Z,4869
+query,test,tpcds_sf1000_ext,query35,hot2,01f122a4-a30f-1149-9303-db294e3ae5a3,SUCCEEDED,5848,,100,20260318T082952Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query35.sql,FINISHED,4827,0,0,4346,406,184788,42,3569599186,100,5546565531,4585,0,0,0,false,2026-03-18T08:29:53.090Z,2026-03-18T08:29:57.917Z,4827
+query,test,tpcds_sf1000_ext,query36,cold,01f122a4-a68d-17ac-8725-4a2c02c55349,SUCCEEDED,6390,,100,20260318T082958Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query36.sql,FINISHED,5364,0,0,4978,313,223531,43,2641856525,100,30388289333,3105,0,0,0,false,2026-03-18T08:29:58.951Z,2026-03-18T08:30:04.315Z,5364
+query,test,tpcds_sf1000_ext,query36,hot1,01f122a4-aa5a-137f-a3f7-7823dffeb554,SUCCEEDED,6460,,100,20260318T083004Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query36.sql,FINISHED,5460,0,0,5072,313,224111,36,2641856525,100,30390832227,3105,0,0,0,false,2026-03-18T08:30:05.325Z,2026-03-18T08:30:10.785Z,5460
+query,test,tpcds_sf1000_ext,query36,hot2,01f122a4-ae33-1d0d-a036-550c952e1c1a,SUCCEEDED,6310,,100,20260318T083011Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query36.sql,FINISHED,5309,0,0,4903,336,220643,36,2641856525,100,30390191914,3105,0,0,0,false,2026-03-18T08:30:11.784Z,2026-03-18T08:30:17.093Z,5309
+query,test,tpcds_sf1000_ext,query37,cold,01f122a4-b1f6-1ece-b4f8-277de11ba04a,SUCCEEDED,1582,,0,20260318T083017Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query37.sql,FINISHED,669,0,0,331,259,48,48,72,0,22929031,135,0,0,0,false,2026-03-18T08:30:18.096Z,2026-03-18T08:30:18.765Z,669
+query,test,tpcds_sf1000_ext,query37,hot1,01f122a4-b2e9-1324-9eea-af2fd8ed46f8,SUCCEEDED,1658,,0,20260318T083018Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query37.sql,FINISHED,722,0,0,290,246,48,55,72,0,22929031,135,0,0,0,false,2026-03-18T08:30:19.687Z,2026-03-18T08:30:20.409Z,722
+query,test,tpcds_sf1000_ext,query37,hot2,01f122a4-b3e3-1d67-8db0-41ce53566697,SUCCEEDED,1527,,0,20260318T083020Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query37.sql,FINISHED,615,0,0,307,236,46,49,72,0,22929031,135,0,0,0,false,2026-03-18T08:30:21.327Z,2026-03-18T08:30:21.942Z,615
+query,test,tpcds_sf1000_ext,query38,cold,01f122a4-b4d2-18b9-bef6-fe06e8b626e3,SUCCEEDED,6967,,1,20260318T083022Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query38.sql,FINISHED,5915,0,0,5526,317,269535,50,3688289525,1,5627656520,4779,0,0,0,false,2026-03-18T08:30:22.893Z,2026-03-18T08:30:28.808Z,5915
+query,test,tpcds_sf1000_ext,query38,hot1,01f122a4-b8f5-155c-bf1f-9e82143c3517,SUCCEEDED,6901,,1,20260318T083029Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query38.sql,FINISHED,5885,0,0,5479,329,269119,47,3688289525,1,5628040717,4779,0,0,0,false,2026-03-18T08:30:29.830Z,2026-03-18T08:30:35.715Z,5885
+query,test,tpcds_sf1000_ext,query38,hot2,01f122a4-bd11-1aae-8413-2bb4b4c57606,SUCCEEDED,6887,,1,20260318T083035Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query38.sql,FINISHED,5869,0,0,5461,327,269685,41,3688289525,1,5627890541,4779,0,0,0,false,2026-03-18T08:30:36.727Z,2026-03-18T08:30:42.596Z,5869
+query,test,tpcds_sf1000_ext,query39,cold,01f122a4-c130-17a9-b754-d43cf97b1c41,SUCCEEDED,6358,,14642,20260318T083042Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39.sql,FINISHED,3744,0,0,3377,294,39019,68,33634053,14642,7468402402,265,0,0,0,false,2026-03-18T08:30:43.640Z,2026-03-18T08:30:47.384Z,3744
+query,test,tpcds_sf1000_ext,query39,hot1,01f122a4-c4f7-1651-9613-bce4086f9060,SUCCEEDED,6225,,14642,20260318T083049Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39.sql,FINISHED,3663,0,0,3330,258,38808,38,33634053,14642,7468402402,265,0,0,0,false,2026-03-18T08:30:49.977Z,2026-03-18T08:30:53.640Z,3663
+query,test,tpcds_sf1000_ext,query39,hot2,01f122a4-c8b3-11e9-af61-2474bc91b38b,SUCCEEDED,5998,,14642,20260318T083055Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39.sql,FINISHED,3630,0,0,3293,259,39629,37,33634053,14642,7468402402,265,0,0,0,false,2026-03-18T08:30:56.240Z,2026-03-18T08:30:59.870Z,3630
+query,test,tpcds_sf1000_ext,query39_1,cold,01f122a4-cc43-1465-86c5-eef61ceb48bb,SUCCEEDED,5102,,551,20260318T083101Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39_1.sql,FINISHED,3616,0,0,3178,302,38226,82,33634053,551,7468402402,265,0,0,0,false,2026-03-18T08:31:02.218Z,2026-03-18T08:31:05.834Z,3616
+query,test,tpcds_sf1000_ext,query39_1,hot1,01f122a4-cf50-15d7-9372-55c483b7ba53,SUCCEEDED,5108,,551,20260318T083106Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39_1.sql,FINISHED,3639,0,0,3257,293,38941,42,33634053,551,7468402402,265,0,0,0,false,2026-03-18T08:31:07.337Z,2026-03-18T08:31:10.976Z,3639
+query,test,tpcds_sf1000_ext,query39_1,hot2,01f122a4-d25e-1f4e-8a42-15eb46d2e088,SUCCEEDED,4963,,551,20260318T083111Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39_1.sql,FINISHED,3489,0,0,3141,269,38716,46,33634053,551,7468402402,265,0,0,0,false,2026-03-18T08:31:12.467Z,2026-03-18T08:31:15.956Z,3489
+query,test,tpcds_sf1000_ext,query40,cold,01f122a4-d54b-1ce3-a07e-f1da7a2677bf,SUCCEEDED,3694,,100,20260318T083116Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query40.sql,FINISHED,2644,0,0,2274,272,71589,105,171758130,100,3057895550,233,0,0,0,false,2026-03-18T08:31:17.373Z,2026-03-18T08:31:20.017Z,2644
+query,test,tpcds_sf1000_ext,query40,hot1,01f122a4-d785-14ae-8b1f-33763b4b53b6,SUCCEEDED,2770,,100,20260318T083120Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query40.sql,FINISHED,1743,0,0,1393,270,32076,45,171758130,100,1629442356,233,0,0,0,false,2026-03-18T08:31:21.107Z,2026-03-18T08:31:22.850Z,1743
+query,test,tpcds_sf1000_ext,query40,hot2,01f122a4-d92b-1e45-8e3f-edf48eeeb7c6,SUCCEEDED,2770,,100,20260318T083123Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query40.sql,FINISHED,1710,0,0,1359,273,32399,42,171758130,100,1629442356,233,0,0,0,false,2026-03-18T08:31:23.875Z,2026-03-18T08:31:25.585Z,1710
+query,test,tpcds_sf1000_ext,query41,cold,01f122a4-dacf-178e-98b0-c711a2a84c51,SUCCEEDED,1939,,100,20260318T083125Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query41.sql,FINISHED,880,0,0,496,311,83,42,3672,100,5162376,4,0,0,0,false,2026-03-18T08:31:26.625Z,2026-03-18T08:31:27.505Z,880
+query,test,tpcds_sf1000_ext,query41,hot1,01f122a4-dbf9-1ff9-b8e6-7c2f29de387a,SUCCEEDED,1821,,100,20260318T083127Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query41.sql,FINISHED,766,0,0,440,236,89,49,3672,100,5162376,4,0,0,0,false,2026-03-18T08:31:28.582Z,2026-03-18T08:31:29.348Z,766
+query,test,tpcds_sf1000_ext,query41,hot2,01f122a4-dd19-1b66-a54a-f0d857bb2565,SUCCEEDED,1815,,100,20260318T083129Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query41.sql,FINISHED,725,0,0,444,208,91,41,3672,100,5162376,4,0,0,0,false,2026-03-18T08:31:30.467Z,2026-03-18T08:31:31.192Z,725
+query,test,tpcds_sf1000_ext,query42,cold,01f122a4-de23-15c4-bac1-f3bbc6b2439f,SUCCEEDED,4043,,11,20260318T083131Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query42.sql,FINISHED,3040,0,0,2760,205,118408,66,2623040055,11,14943958426,3104,0,0,0,false,2026-03-18T08:31:32.208Z,2026-03-18T08:31:35.248Z,3040
+query,test,tpcds_sf1000_ext,query42,hot1,01f122a4-e091-1688-82a4-4bcaa181dd97,SUCCEEDED,4062,,11,20260318T083135Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query42.sql,FINISHED,3003,0,0,2612,317,118543,42,2623040055,11,14944110363,3104,0,0,0,false,2026-03-18T08:31:36.284Z,2026-03-18T08:31:39.287Z,3003
+query,test,tpcds_sf1000_ext,query42,hot2,01f122a4-e2fb-11e8-9d0f-3635831318d5,SUCCEEDED,4019,,11,20260318T083139Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query42.sql,FINISHED,2990,0,0,2649,266,118649,43,2623040055,11,14944110363,3104,0,0,0,false,2026-03-18T08:31:40.333Z,2026-03-18T08:31:43.323Z,2990
+query,test,tpcds_sf1000_ext,query43,cold,01f122a4-e56b-12e6-a3e6-09f9c186219d,SUCCEEDED,5223,,100,20260318T083143Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query43.sql,FINISHED,4108,0,0,3760,256,188559,40,2674576756,100,11702504540,3103,0,0,0,false,2026-03-18T08:31:44.422Z,2026-03-18T08:31:48.530Z,4108
+query,test,tpcds_sf1000_ext,query43,hot1,01f122a4-e87a-119a-a9db-71cfb7e4e0e1,SUCCEEDED,5051,,100,20260318T083148Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query43.sql,FINISHED,4039,0,0,3718,250,188329,49,2674576756,100,11704762948,3103,0,0,0,false,2026-03-18T08:31:49.554Z,2026-03-18T08:31:53.593Z,4039
+query,test,tpcds_sf1000_ext,query43,hot2,01f122a4-eb7e-1e21-ba73-6c94a46a814a,SUCCEEDED,5190,,100,20260318T083153Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query43.sql,FINISHED,4135,0,0,3732,324,189125,46,2674576756,100,11704762948,3103,0,0,0,false,2026-03-18T08:31:54.619Z,2026-03-18T08:31:58.754Z,4135
+query,test,tpcds_sf1000_ext,query44,cold,01f122a4-ee95-1ed4-8acf-3782108fe882,SUCCEEDED,5173,,10,20260318T083159Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query44.sql,FINISHED,4161,0,0,3699,388,157457,39,2176398,10,36416377653,6204,0,0,0,false,2026-03-18T08:31:59.803Z,2026-03-18T08:32:03.964Z,4161
+query,test,tpcds_sf1000_ext,query44,hot1,01f122a4-f1aa-1705-b7ca-dd54029a0efd,SUCCEEDED,5027,,10,20260318T083204Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query44.sql,FINISHED,4004,0,0,3587,334,159365,45,2176398,10,36416599343,6204,0,0,0,false,2026-03-18T08:32:04.969Z,2026-03-18T08:32:08.973Z,4004
+query,test,tpcds_sf1000_ext,query44,hot2,01f122a4-f4ac-11ab-be99-34592abbc32d,SUCCEEDED,5116,,10,20260318T083209Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query44.sql,FINISHED,4098,0,0,3650,370,159353,36,2176398,10,36416599343,6204,0,0,0,false,2026-03-18T08:32:10.014Z,2026-03-18T08:32:14.112Z,4098
+query,test,tpcds_sf1000_ext,query45,cold,01f122a4-f7b7-19ca-a3fb-e012558511b2,SUCCEEDED,3647,,100,20260318T083214Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query45.sql,FINISHED,2631,0,0,2291,262,73284,38,733306620,100,3762515621,1223,0,0,0,false,2026-03-18T08:32:15.122Z,2026-03-18T08:32:17.753Z,2631
+query,test,tpcds_sf1000_ext,query45,hot1,01f122a4-f9e3-107c-b521-1311fda95a6b,SUCCEEDED,3257,,100,20260318T083217Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query45.sql,FINISHED,2222,0,0,1874,274,49420,44,733306620,100,2892301343,1223,0,0,0,false,2026-03-18T08:32:18.762Z,2026-03-18T08:32:20.984Z,2222
+query,test,tpcds_sf1000_ext,query45,hot2,01f122a4-fbd2-1f08-8d0d-6569e3f9ea88,SUCCEEDED,3308,,100,20260318T083221Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query45.sql,FINISHED,2296,0,0,1795,421,48790,46,733306620,100,2892301343,1223,0,0,0,false,2026-03-18T08:32:22.015Z,2026-03-18T08:32:24.311Z,2296
+query,test,tpcds_sf1000_ext,query46,cold,01f122a4-fdce-19cf-908a-e8173b245e5f,SUCCEEDED,6680,,100,20260318T083224Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query46.sql,FINISHED,5675,0,0,5021,573,233547,46,945894523,100,38786115275,3144,0,0,0,false,2026-03-18T08:32:25.341Z,2026-03-18T08:32:31.016Z,5675
+query,test,tpcds_sf1000_ext,query46,hot1,01f122a5-01c7-18b5-b847-f5b60610ec5d,SUCCEEDED,6464,,100,20260318T083231Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query46.sql,FINISHED,5439,0,0,5065,294,232718,43,945894523,100,38804971076,3144,0,0,0,false,2026-03-18T08:32:32.004Z,2026-03-18T08:32:37.443Z,5439
+query,test,tpcds_sf1000_ext,query46,hot2,01f122a5-05a6-1a8e-b0f0-2fa7c41d462e,SUCCEEDED,6308,,100,20260318T083237Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query46.sql,FINISHED,5276,0,0,4904,293,231968,44,945894523,100,38804971076,3144,0,0,0,false,2026-03-18T08:32:38.499Z,2026-03-18T08:32:43.775Z,5276
+query,test,tpcds_sf1000_ext,query47,cold,01f122a5-0964-1f58-b633-0c2914c0c1a3,SUCCEEDED,13919,,100,20260318T083244Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query47.sql,FINISHED,10148,0,0,9588,482,420233,36,2643678085,100,13343948431,3105,0,0,0,false,2026-03-18T08:32:44.780Z,2026-03-18T08:32:54.928Z,10148
+query,test,tpcds_sf1000_ext,query47,hot1,01f122a5-11b0-13b0-b4cc-23f685bcd7ad,SUCCEEDED,13905,,100,20260318T083257Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query47.sql,FINISHED,10291,0,0,9764,450,421975,2655,2643678085,100,13348474093,3105,0,0,0,false,2026-03-18T08:32:58.695Z,2026-03-18T08:33:08.986Z,10291
+query,test,tpcds_sf1000_ext,query47,hot2,01f122a5-19fe-1aef-ad5d-02210da66d6d,SUCCEEDED,13961,,100,20260318T083311Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query47.sql,FINISHED,10261,0,0,9727,459,422886,2695,2643678085,100,13348474093,3105,0,0,0,false,2026-03-18T08:33:12.632Z,2026-03-18T08:33:22.893Z,10261
+query,test,tpcds_sf1000_ext,query48,cold,01f122a5-224d-199b-9a94-bef351e24e62,SUCCEEDED,7514,,1,20260318T083325Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query48.sql,FINISHED,6490,0,0,6048,365,307125,42,420524092,1,28175943679,3115,0,0,0,false,2026-03-18T08:33:26.572Z,2026-03-18T08:33:33.062Z,6490
+query,test,tpcds_sf1000_ext,query48,hot1,01f122a5-26c9-1df3-b67b-22ceed49fa7a,SUCCEEDED,7297,,1,20260318T083333Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query48.sql,FINISHED,6253,0,0,5898,279,307490,42,420524092,1,28180049798,3115,0,0,0,false,2026-03-18T08:33:34.096Z,2026-03-18T08:33:40.349Z,6253
+query,test,tpcds_sf1000_ext,query48,hot2,01f122a5-2b26-1a6c-8ff6-f76fbc5e0493,SUCCEEDED,7404,,1,20260318T083340Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query48.sql,FINISHED,6361,0,0,5962,289,308112,36,420524092,1,28180049798,3115,0,0,0,false,2026-03-18T08:33:41.416Z,2026-03-18T08:33:47.777Z,6361
+query,test,tpcds_sf1000_ext,query49,cold,01f122a5-2f8f-1909-9040-948b8db2302e,SUCCEEDED,10275,,22,20260318T083348Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query49.sql,FINISHED,9208,0,0,8497,633,418467,50,440803161,22,57949765590,8039,0,0,0,false,2026-03-18T08:33:48.812Z,2026-03-18T08:33:58.020Z,9208
+query,test,tpcds_sf1000_ext,query49,hot1,01f122a5-35ac-14ea-9a97-d223e591f312,SUCCEEDED,8247,,22,20260318T083358Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query49.sql,FINISHED,7225,0,0,6571,494,323037,45,392550566,22,53747626842,7782,0,0,0,false,2026-03-18T08:33:59.067Z,2026-03-18T08:34:06.292Z,7225
+query,test,tpcds_sf1000_ext,query49,hot2,01f122a5-3a97-11ac-9610-a49c2a1cbb14,SUCCEEDED,8320,,22,20260318T083406Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query49.sql,FINISHED,7288,0,0,6479,727,308822,51,382731209,22,53315025161,7782,0,0,0,false,2026-03-18T08:34:07.318Z,2026-03-18T08:34:14.606Z,7288
+query,test,tpcds_sf1000_ext,query50,cold,01f122a5-3f8d-14ac-87a2-aaeece58d540,FAILED,1113,,0,20260318T083414Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 17, pos 87)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query50
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query50' AS tag
+),
+__codex_query AS (
+select  
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+---------------------------------------------------------------------------------------^^^
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 30) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 60) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 90) and
+                 (sr_returned_date_sk - ss_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   store_sales
+  ,store_returns
+  ,store
+  ,date_dim d1
+  ,date_dim d2
+where
+    d2.d_year = 2001
+and d2.d_moy  = 8
+and ss_ticket_number = sr_ticket_number
+and ss_item_sk = sr_item_sk
+and ss_sold_date_sk   = d1.d_date_sk
+and sr_returned_date_sk   = d2.d_date_sk
+and ss_customer_sk = sr_customer_sk
+and ss_store_sk = s_store_sk
+group by
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+order by s_store_name
+        ,s_company_id
+        ,s_street_number
+        ,s_street_name
+        ,s_street_type
+        ,s_suite_number
+        ,s_city
+        ,s_county
+        ,s_state
+        ,s_zip
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query50.sql,,,,,,,,,,,,,,,,,,,1113
+query,test,tpcds_sf1000_ext,query50,hot1,01f122a5-4032-1ff8-9552-ebcbbc4e1299,FAILED,1042,,0,20260318T083415Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 17, pos 87)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query50
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query50' AS tag
+),
+__codex_query AS (
+select  
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+---------------------------------------------------------------------------------------^^^
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 30) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 60) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 90) and
+                 (sr_returned_date_sk - ss_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   store_sales
+  ,store_returns
+  ,store
+  ,date_dim d1
+  ,date_dim d2
+where
+    d2.d_year = 2001
+and d2.d_moy  = 8
+and ss_ticket_number = sr_ticket_number
+and ss_item_sk = sr_item_sk
+and ss_sold_date_sk   = d1.d_date_sk
+and sr_returned_date_sk   = d2.d_date_sk
+and ss_customer_sk = sr_customer_sk
+and ss_store_sk = s_store_sk
+group by
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+order by s_store_name
+        ,s_company_id
+        ,s_street_number
+        ,s_street_name
+        ,s_street_type
+        ,s_suite_number
+        ,s_city
+        ,s_county
+        ,s_state
+        ,s_zip
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query50.sql,,,,,,,,,,,,,,,,,,,1042
+query,test,tpcds_sf1000_ext,query50,hot2,01f122a5-40d9-127f-b3dd-b032f94410b9,FAILED,1103,,0,20260318T083417Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 17, pos 87)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query50
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query50' AS tag
+),
+__codex_query AS (
+select  
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+---------------------------------------------------------------------------------------^^^
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 30) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 60) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 90) and
+                 (sr_returned_date_sk - ss_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   store_sales
+  ,store_returns
+  ,store
+  ,date_dim d1
+  ,date_dim d2
+where
+    d2.d_year = 2001
+and d2.d_moy  = 8
+and ss_ticket_number = sr_ticket_number
+and ss_item_sk = sr_item_sk
+and ss_sold_date_sk   = d1.d_date_sk
+and sr_returned_date_sk   = d2.d_date_sk
+and ss_customer_sk = sr_customer_sk
+and ss_store_sk = s_store_sk
+group by
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+order by s_store_name
+        ,s_company_id
+        ,s_street_number
+        ,s_street_name
+        ,s_street_type
+        ,s_suite_number
+        ,s_city
+        ,s_county
+        ,s_state
+        ,s_zip
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query50.sql,,,,,,,,,,,,,,,,,,,1103
+query,test,tpcds_sf1000_ext,query51,cold,01f122a5-4182-161d-8aaf-b2b2b2611644,SUCCEEDED,7041,,100,20260318T083418Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query51.sql,FINISHED,5985,0,0,5586,323,271672,41,3391954986,100,11540272488,4281,0,0,0,false,2026-03-18T08:34:18.926Z,2026-03-18T08:34:24.911Z,5985
+query,test,tpcds_sf1000_ext,query51,hot1,01f122a5-45b1-1698-9c63-24a41039c8bc,SUCCEEDED,6972,,100,20260318T083425Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query51.sql,FINISHED,5945,0,0,5581,289,270909,61,3391954986,100,11540314167,4281,0,0,0,false,2026-03-18T08:34:25.944Z,2026-03-18T08:34:31.889Z,5945
+query,test,tpcds_sf1000_ext,query51,hot2,01f122a5-49da-12ef-a55e-bd92cddf29e9,SUCCEEDED,7180,,100,20260318T083432Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query51.sql,FINISHED,6157,0,0,5656,392,271762,44,3391954986,100,11540314167,4281,0,0,0,false,2026-03-18T08:34:32.922Z,2026-03-18T08:34:39.079Z,6157
+query,test,tpcds_sf1000_ext,query52,cold,01f122a5-4e26-171e-bcc8-429d27ca8a56,SUCCEEDED,4234,,100,20260318T083439Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query52.sql,FINISHED,3159,0,0,2844,233,120400,46,2625671113,100,14944576565,3104,0,0,0,false,2026-03-18T08:34:40.134Z,2026-03-18T08:34:43.293Z,3159
+query,test,tpcds_sf1000_ext,query52,hot1,01f122a5-50a9-1bfc-9bee-fe7d53d26208,SUCCEEDED,4195,,100,20260318T083443Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query52.sql,FINISHED,2930,0,0,2628,228,117761,41,2625671113,100,14944576565,3104,0,0,0,false,2026-03-18T08:34:44.348Z,2026-03-18T08:34:47.278Z,2930
+query,test,tpcds_sf1000_ext,query52,hot2,01f122a5-5324-1d82-b98d-581e3d027d05,SUCCEEDED,3856,,100,20260318T083447Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query52.sql,FINISHED,2834,0,0,2518,243,117821,39,2625671113,100,14944576565,3104,0,0,0,false,2026-03-18T08:34:48.511Z,2026-03-18T08:34:51.345Z,2834
+query,test,tpcds_sf1000_ext,query53,cold,01f122a5-5571-1d39-8066-11ca12bac767,SUCCEEDED,7392,,100,20260318T083451Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query53.sql,FINISHED,6379,0,0,5975,301,265202,41,2641233985,100,13348289218,3105,0,0,0,false,2026-03-18T08:34:52.372Z,2026-03-18T08:34:58.751Z,6379
+query,test,tpcds_sf1000_ext,query53,hot1,01f122a5-59d7-1486-88e7-e3a090925a6e,SUCCEEDED,7405,,100,20260318T083458Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query53.sql,FINISHED,6422,0,0,6050,296,264764,42,2641233985,100,13349024600,3105,0,0,0,false,2026-03-18T08:34:59.747Z,2026-03-18T08:35:06.169Z,6422
+query,test,tpcds_sf1000_ext,query53,hot2,01f122a5-5e46-1a48-ad42-bdf3c512295c,SUCCEEDED,7566,,100,20260318T083506Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query53.sql,FINISHED,6528,0,0,6142,313,264779,40,2641233985,100,13349146550,3105,0,0,0,false,2026-03-18T08:35:07.187Z,2026-03-18T08:35:13.715Z,6528
+query,test,tpcds_sf1000_ext,query54,cold,01f122a5-62c7-15be-84aa-153422af7ec1,SUCCEEDED,5840,,100,20260318T083513Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query54.sql,FINISHED,4812,0,0,4271,457,180877,42,3426099466,100,16993511268,4351,0,0,0,false,2026-03-18T08:35:14.743Z,2026-03-18T08:35:19.555Z,4812
+query,test,tpcds_sf1000_ext,query54,hot1,01f122a5-6641-1c4d-80e5-f25cb326fa0f,SUCCEEDED,5911,,100,20260318T083519Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query54.sql,FINISHED,4894,0,0,4391,422,178035,44,3426099466,100,16993511268,4351,0,0,0,false,2026-03-18T08:35:20.578Z,2026-03-18T08:35:25.472Z,4894
+query,test,tpcds_sf1000_ext,query54,hot2,01f122a5-69d0-1792-818e-1857b502862c,SUCCEEDED,5937,,100,20260318T083525Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query54.sql,FINISHED,4850,0,0,4350,427,179515,65,3426099466,100,16993511268,4351,0,0,0,false,2026-03-18T08:35:26.545Z,2026-03-18T08:35:31.395Z,4850
+query,test,tpcds_sf1000_ext,query55,cold,01f122a5-6d56-1977-b357-eb5fd8d21d62,SUCCEEDED,3856,,100,20260318T083531Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query55.sql,FINISHED,2813,0,0,2495,236,113469,45,2552165285,100,14944576565,3104,0,0,0,false,2026-03-18T08:35:32.459Z,2026-03-18T08:35:35.272Z,2813
+query,test,tpcds_sf1000_ext,query55,hot1,01f122a5-6fa2-146e-9a74-b56840ee69cb,SUCCEEDED,4000,,100,20260318T083535Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query55.sql,FINISHED,2957,0,0,2653,225,114149,45,2552165285,100,14944576565,3104,0,0,0,false,2026-03-18T08:35:36.309Z,2026-03-18T08:35:39.266Z,2957
+query,test,tpcds_sf1000_ext,query55,hot2,01f122a5-7200-1472-b18f-b236ddfdf684,SUCCEEDED,3920,,100,20260318T083539Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query55.sql,FINISHED,2907,0,0,2540,295,114641,36,2552165285,100,14944576565,3104,0,0,0,false,2026-03-18T08:35:40.281Z,2026-03-18T08:35:43.188Z,2907
+query,test,tpcds_sf1000_ext,query56,cold,01f122a5-7459-14e8-b650-517c2f3133ee,SUCCEEDED,8262,,100,20260318T083543Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query56.sql,FINISHED,7207,0,0,6722,404,210494,62,3262538268,100,20337668055,4319,0,0,0,false,2026-03-18T08:35:44.220Z,2026-03-18T08:35:51.427Z,7207
+query,test,tpcds_sf1000_ext,query56,hot1,01f122a5-7944-1f18-a96f-aab80080f965,SUCCEEDED,7501,,100,20260318T083551Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query56.sql,FINISHED,6475,0,0,6004,392,204520,44,3262538268,100,20351471291,4319,0,0,0,false,2026-03-18T08:35:52.476Z,2026-03-18T08:35:58.951Z,6475
+query,test,tpcds_sf1000_ext,query56,hot2,01f122a5-7dca-178a-ace1-bb40426737f8,SUCCEEDED,7974,,100,20260318T083559Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query56.sql,FINISHED,6868,0,0,6376,413,204462,43,3262538268,100,20351472986,4319,0,0,0,false,2026-03-18T08:36:00.061Z,2026-03-18T08:36:06.929Z,6868
+query,test,tpcds_sf1000_ext,query57,cold,01f122a5-8298-10b8-b06f-ebf0ecfa0243,SUCCEEDED,5769,,100,20260318T083607Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query57.sql,FINISHED,4563,0,0,4035,450,133014,47,346756193,100,1475923504,580,0,0,0,false,2026-03-18T08:36:08.121Z,2026-03-18T08:36:12.684Z,4563
+query,test,tpcds_sf1000_ext,query57,hot1,01f122a5-85ed-1fd5-97fe-5a34fe34e004,SUCCEEDED,5206,,100,20260318T083612Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query57.sql,FINISHED,4170,0,0,3667,429,115488,47,346756193,100,1479435338,580,0,0,0,false,2026-03-18T08:36:13.716Z,2026-03-18T08:36:17.886Z,4170
+query,test,tpcds_sf1000_ext,query57,hot2,01f122a5-890b-1176-9bb1-1f2b6e1086d0,SUCCEEDED,5175,,100,20260318T083618Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query57.sql,FINISHED,4132,0,0,3641,410,115509,44,346756193,100,1479435338,580,0,0,0,false,2026-03-18T08:36:18.939Z,2026-03-18T08:36:23.071Z,4132
+query,test,tpcds_sf1000_ext,query58,cold,01f122a5-8c22-1b46-9637-ef5938686a81,SUCCEEDED,6238,,51,20260318T083623Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query58.sql,FINISHED,5206,0,0,4667,459,184136,38,3377952620,51,18699915246,4291,0,0,0,false,2026-03-18T08:36:24.128Z,2026-03-18T08:36:29.334Z,5206
+query,test,tpcds_sf1000_ext,query58,hot1,01f122a5-8fd7-16f9-9a93-ee858093d97b,SUCCEEDED,6139,,51,20260318T083629Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query58.sql,FINISHED,5090,0,0,4600,409,183823,65,3377952620,51,18700159552,4291,0,0,0,false,2026-03-18T08:36:30.345Z,2026-03-18T08:36:35.435Z,5090
+query,test,tpcds_sf1000_ext,query58,hot2,01f122a5-937f-1ebf-9b4e-a2e22b47fada,SUCCEEDED,6142,,51,20260318T083635Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query58.sql,FINISHED,5103,0,0,4572,457,185391,51,3377952620,51,18700159552,4291,0,0,0,false,2026-03-18T08:36:36.481Z,2026-03-18T08:36:41.584Z,5103
+query,test,tpcds_sf1000_ext,query59,cold,01f122a5-972c-1af3-8df1-a5b69ebe6b72,SUCCEEDED,14140,,100,20260318T083641Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query59.sql,FINISHED,10124,0,0,9686,363,464485,45,5352444771,100,23408813768,6210,0,0,0,false,2026-03-18T08:36:42.647Z,2026-03-18T08:36:52.771Z,10124
+query,test,tpcds_sf1000_ext,query59,hot1,01f122a5-9f95-1fce-8120-01f86b91234f,SUCCEEDED,14124,,100,20260318T083655Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query59.sql,FINISHED,10180,0,0,9690,412,464755,66,5352444771,100,23411307806,6210,0,0,0,false,2026-03-18T08:36:56.759Z,2026-03-18T08:37:06.939Z,10180
+query,test,tpcds_sf1000_ext,query59,hot2,01f122a5-a803-10a2-97c9-4bc2627efdd5,SUCCEEDED,14132,,100,20260318T083710Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query59.sql,FINISHED,10277,0,0,9795,403,466870,2658,5352444771,100,23411279948,6210,0,0,0,false,2026-03-18T08:37:10.896Z,2026-03-18T08:37:21.173Z,10277
+query,test,tpcds_sf1000_ext,query60,cold,01f122a5-b06a-17fc-82ea-f0d68ef40407,SUCCEEDED,7670,,100,20260318T083724Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query60.sql,FINISHED,6665,0,0,6177,414,215492,38,3362613337,100,20471633060,4348,0,0,0,false,2026-03-18T08:37:24.995Z,2026-03-18T08:37:31.660Z,6665
+query,test,tpcds_sf1000_ext,query60,hot1,01f122a5-b503-1ec6-a431-940a5baeee88,SUCCEEDED,7614,,100,20260318T083731Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query60.sql,FINISHED,6576,0,0,6081,422,212274,44,3362613337,100,20475133175,4348,0,0,0,false,2026-03-18T08:37:32.711Z,2026-03-18T08:37:39.287Z,6576
+query,test,tpcds_sf1000_ext,query60,hot2,01f122a5-b989-1bfd-9ff4-6e9bf30b7ecc,SUCCEEDED,8055,,100,20260318T083739Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query60.sql,FINISHED,7015,0,0,6539,398,215234,60,3362613337,100,20459870344,4348,0,0,0,false,2026-03-18T08:37:40.300Z,2026-03-18T08:37:47.315Z,7015
+query,test,tpcds_sf1000_ext,query61,cold,01f122a5-be58-161f-885e-9aa577720025,SUCCEEDED,6578,,1,20260318T083747Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query61.sql,FINISHED,5553,0,0,5074,409,211803,42,2419805845,1,21445119494,3147,0,0,0,false,2026-03-18T08:37:48.366Z,2026-03-18T08:37:53.919Z,5553
+query,test,tpcds_sf1000_ext,query61,hot1,01f122a5-c241-12e0-afd6-255f1e3d8602,SUCCEEDED,6245,,1,20260318T083754Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query61.sql,FINISHED,5243,0,0,4788,377,208605,45,2419805845,1,21446044251,3147,0,0,0,false,2026-03-18T08:37:54.923Z,2026-03-18T08:38:00.166Z,5243
+query,test,tpcds_sf1000_ext,query61,hot2,01f122a5-c5fc-16de-986f-d1441ea67e56,SUCCEEDED,6458,,1,20260318T083800Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query61.sql,FINISHED,5456,0,0,4838,532,209984,38,2419805845,1,21448194515,3147,0,0,0,false,2026-03-18T08:38:01.186Z,2026-03-18T08:38:06.642Z,5456
+query,test,tpcds_sf1000_ext,query62,cold,01f122a5-c9d8-16ea-bd95-a753b616cfb4,FAILED,1068,,0,20260318T083806Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 10, pos 83)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query62
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query62' AS tag
+),
+__codex_query AS (
+select  
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,web_name
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+-----------------------------------------------------------------------------------^^^
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 30) and 
+                 (ws_ship_date_sk - ws_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 60) and 
+                 (ws_ship_date_sk - ws_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 90) and
+                 (ws_ship_date_sk - ws_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   web_sales
+  ,warehouse
+  ,ship_mode
+  ,web_site
+  ,date_dim
+where
+    d_month_seq between 1223 and 1223 + 11
+and ws_ship_date_sk   = d_date_sk
+and ws_warehouse_sk   = w_warehouse_sk
+and ws_ship_mode_sk   = sm_ship_mode_sk
+and ws_web_site_sk    = web_site_sk
+group by
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,web_name
+order by substr(w_warehouse_name,1,20)
+        ,sm_type
+       ,web_name
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query62.sql,,,,,,,,,,,,,,,,,,,1068
+query,test,tpcds_sf1000_ext,query62,hot1,01f122a5-cada-1a11-b521-32793e8daffe,FAILED,1711,,0,20260318T083807Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 10, pos 83)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query62
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query62' AS tag
+),
+__codex_query AS (
+select  
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,web_name
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+-----------------------------------------------------------------------------------^^^
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 30) and 
+                 (ws_ship_date_sk - ws_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 60) and 
+                 (ws_ship_date_sk - ws_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 90) and
+                 (ws_ship_date_sk - ws_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   web_sales
+  ,warehouse
+  ,ship_mode
+  ,web_site
+  ,date_dim
+where
+    d_month_seq between 1223 and 1223 + 11
+and ws_ship_date_sk   = d_date_sk
+and ws_warehouse_sk   = w_warehouse_sk
+and ws_ship_mode_sk   = sm_ship_mode_sk
+and ws_web_site_sk    = web_site_sk
+group by
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,web_name
+order by substr(w_warehouse_name,1,20)
+        ,sm_type
+       ,web_name
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query62.sql,,,,,,,,,,,,,,,,,,,1711
+query,test,tpcds_sf1000_ext,query62,hot2,01f122a5-cb80-16a7-95ba-6ea7f9d7042e,FAILED,1108,,0,20260318T083809Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 10, pos 83)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query62
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query62' AS tag
+),
+__codex_query AS (
+select  
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,web_name
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+-----------------------------------------------------------------------------------^^^
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 30) and 
+                 (ws_ship_date_sk - ws_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 60) and 
+                 (ws_ship_date_sk - ws_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk > 90) and
+                 (ws_ship_date_sk - ws_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (ws_ship_date_sk - ws_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   web_sales
+  ,warehouse
+  ,ship_mode
+  ,web_site
+  ,date_dim
+where
+    d_month_seq between 1223 and 1223 + 11
+and ws_ship_date_sk   = d_date_sk
+and ws_warehouse_sk   = w_warehouse_sk
+and ws_ship_mode_sk   = sm_ship_mode_sk
+and ws_web_site_sk    = web_site_sk
+group by
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,web_name
+order by substr(w_warehouse_name,1,20)
+        ,sm_type
+       ,web_name
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query62.sql,,,,,,,,,,,,,,,,,,,1108
+query,test,tpcds_sf1000_ext,query63,cold,01f122a5-cc26-115b-8fce-ec38124100b3,SUCCEEDED,7425,,100,20260318T083810Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query63.sql,FINISHED,6418,0,0,6032,311,264032,39,2641314090,100,13348107530,3105,0,0,0,false,2026-03-18T08:38:11.523Z,2026-03-18T08:38:17.941Z,6418
+query,test,tpcds_sf1000_ext,query63,hot1,01f122a5-d093-1bba-89a8-baca04be0680,SUCCEEDED,7399,,100,20260318T083818Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query63.sql,FINISHED,6397,0,0,6046,278,263102,41,2641314090,100,13349024953,3105,0,0,0,false,2026-03-18T08:38:18.953Z,2026-03-18T08:38:25.350Z,6397
+query,test,tpcds_sf1000_ext,query63,hot2,01f122a5-d4f9-1a22-841f-cdb1a549610e,SUCCEEDED,7374,,100,20260318T083825Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query63.sql,FINISHED,6374,0,0,6012,285,264356,47,2641314090,100,13346774103,3105,0,0,0,false,2026-03-18T08:38:26.333Z,2026-03-18T08:38:32.707Z,6374
+query,test,tpcds_sf1000_ext,query64,cold,01f122a5-d964-156d-99d4-20a9257901c5,SUCCEEDED,6775,,0,20260318T083832Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query64.sql,FINISHED,5846,0,0,4903,846,216755,59,1930744539,0,15021946033,15264,0,0,0,false,2026-03-18T08:38:33.741Z,2026-03-18T08:38:39.587Z,5846
+query,test,tpcds_sf1000_ext,query64,hot1,01f122a5-dd6c-1b7e-a6e4-90e09965df4c,SUCCEEDED,6202,,0,20260318T083839Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query64.sql,FINISHED,5287,0,0,4217,990,181204,42,2099272080,0,19308547093,15264,0,0,0,false,2026-03-18T08:38:40.507Z,2026-03-18T08:38:45.794Z,5287
+query,test,tpcds_sf1000_ext,query64,hot2,01f122a5-e122-1a46-b092-f8b31176d91b,SUCCEEDED,5976,,0,20260318T083845Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query64.sql,FINISHED,5037,0,0,4111,847,176524,46,2058802567,0,18941752010,15264,0,0,0,false,2026-03-18T08:38:46.732Z,2026-03-18T08:38:51.769Z,5037
+query,test,tpcds_sf1000_ext,query65,cold,01f122a5-e4ae-17d4-a3f5-f2c952708ec3,SUCCEEDED,15994,,100,20260318T083851Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query65.sql,FINISHED,14990,0,0,14573,347,775204,42,5320219195,100,26709170582,6206,0,0,0,false,2026-03-18T08:38:52.682Z,2026-03-18T08:39:07.672Z,14990
+query,test,tpcds_sf1000_ext,query65,hot1,01f122a5-ee3e-1454-b50b-ba69f8953364,SUCCEEDED,15590,,100,20260318T083907Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query65.sql,FINISHED,14537,0,0,14154,300,777499,39,5320219195,100,26710522562,6206,0,0,0,false,2026-03-18T08:39:08.725Z,2026-03-18T08:39:23.262Z,14537
+query,test,tpcds_sf1000_ext,query65,hot2,01f122a5-f788-1df0-bea6-6521d5378929,SUCCEEDED,15157,,100,20260318T083923Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query65.sql,FINISHED,14076,0,0,13687,315,710586,59,5320219195,100,26704893567,6206,0,0,0,false,2026-03-18T08:39:24.313Z,2026-03-18T08:39:38.389Z,14076
+query,test,tpcds_sf1000_ext,query66,cold,01f122a6-008e-186f-bf35-2aec43c65ab7,SUCCEEDED,5892,,20,20260318T083938Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query66.sql,FINISHED,4658,0,0,3902,658,154012,41,671240334,20,13259986707,1656,0,0,0,false,2026-03-18T08:39:39.449Z,2026-03-18T08:39:44.107Z,4658
+query,test,tpcds_sf1000_ext,query66,hot1,01f122a6-040f-1424-9b70-37bc605d150f,SUCCEEDED,3826,,20,20260318T083944Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query66.sql,FINISHED,2585,0,0,2035,471,55478,41,671240334,20,13277280502,1656,0,0,0,false,2026-03-18T08:39:45.326Z,2026-03-18T08:39:47.911Z,2585
+query,test,tpcds_sf1000_ext,query66,hot2,01f122a6-0654-1785-b467-fc024523fad6,SUCCEEDED,3681,,20,20260318T083948Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query66.sql,FINISHED,2475,0,0,1942,451,54029,40,671240334,20,13277280502,1656,0,0,0,false,2026-03-18T08:39:49.135Z,2026-03-18T08:39:51.610Z,2475
+query,test,tpcds_sf1000_ext,query67,cold,01f122a6-088c-1ea5-ad21-de7fcd38a05f,SUCCEEDED,29742,,100,20260318T083952Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query67.sql,FINISHED,27237,0,0,26790,371,1463426,1507,2643356689,100,16083671987,3105,0,0,0,false,2026-03-18T08:39:52.860Z,2026-03-18T08:40:20.097Z,27237
+query,test,tpcds_sf1000_ext,query67,hot1,01f122a6-1a48-19c8-b7e2-749c7a2238c5,SUCCEEDED,29798,,100,20260318T084021Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query67.sql,FINISHED,26253,0,0,25772,400,1418806,2527,2643356689,100,16084286601,3105,0,0,0,false,2026-03-18T08:40:22.611Z,2026-03-18T08:40:48.864Z,26253
+query,test,tpcds_sf1000_ext,query67,hot2,01f122a6-2c02-17d6-8163-862df7f246b7,SUCCEEDED,29736,,100,20260318T084051Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query67.sql,FINISHED,26554,0,0,26104,377,1432285,2221,2643356689,100,16084286601,3105,0,0,0,false,2026-03-18T08:40:52.352Z,2026-03-18T08:41:18.906Z,26554
+query,test,tpcds_sf1000_ext,query68,cold,01f122a6-3dc2-12f8-819c-773e93a9b5ad,SUCCEEDED,5971,,100,20260318T084121Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query68.sql,FINISHED,4927,0,0,4479,376,198678,46,272741496,100,47076177563,3144,0,0,0,false,2026-03-18T08:41:22.129Z,2026-03-18T08:41:27.056Z,4927
+query,test,tpcds_sf1000_ext,query68,hot1,01f122a6-414f-1cef-bcc7-4f557b7f427a,SUCCEEDED,5835,,100,20260318T084127Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query68.sql,FINISHED,4825,0,0,4374,370,194951,36,272741496,100,47079909603,3144,0,0,0,false,2026-03-18T08:41:28.091Z,2026-03-18T08:41:32.916Z,4825
+query,test,tpcds_sf1000_ext,query68,hot2,01f122a6-44cb-1d1b-ae24-6bb38fdb6984,SUCCEEDED,5806,,100,20260318T084133Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query68.sql,FINISHED,4764,0,0,4386,302,194180,46,272741496,100,47065606221,3144,0,0,0,false,2026-03-18T08:41:33.936Z,2026-03-18T08:41:38.700Z,4764
+query,test,tpcds_sf1000_ext,query69,cold,01f122a6-4841-10e9-b897-19109d04bfdf,SUCCEEDED,5281,,100,20260318T084138Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query69.sql,FINISHED,4158,0,0,3661,425,165283,43,3443639454,100,5378514666,4390,0,0,0,false,2026-03-18T08:41:39.741Z,2026-03-18T08:41:43.899Z,4158
+query,test,tpcds_sf1000_ext,query69,hot1,01f122a6-4b6a-1b38-aea4-9d27f714aafe,SUCCEEDED,4819,,100,20260318T084144Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query69.sql,FINISHED,3764,0,0,3327,366,154384,39,3443639454,100,5381068955,4390,0,0,0,false,2026-03-18T08:41:45.043Z,2026-03-18T08:41:48.807Z,3764
+query,test,tpcds_sf1000_ext,query69,hot2,01f122a6-4e50-1cd4-a9a0-8d03a6e0dfc4,SUCCEEDED,5049,,100,20260318T084149Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query69.sql,FINISHED,3959,0,0,3502,380,152456,36,3443639454,100,5381068955,4390,0,0,0,false,2026-03-18T08:41:49.906Z,2026-03-18T08:41:53.865Z,3959
+query,test,tpcds_sf1000_ext,query70,cold,01f122a6-514b-14d1-b3d3-681a6062cc6e,SUCCEEDED,8411,,54,20260318T084154Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query70.sql,FINISHED,7328,0,0,6868,382,340600,46,5350662132,54,34851456319,6205,0,0,0,false,2026-03-18T08:41:54.906Z,2026-03-18T08:42:02.234Z,7328
+query,test,tpcds_sf1000_ext,query70,hot1,01f122a6-564c-18a4-add1-022a78aecebf,SUCCEEDED,8394,,54,20260318T084202Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query70.sql,FINISHED,7336,0,0,6802,461,339125,43,5350662132,54,34852189432,6205,0,0,0,false,2026-03-18T08:42:03.303Z,2026-03-18T08:42:10.639Z,7336
+query,test,tpcds_sf1000_ext,query70,hot2,01f122a6-5b51-1db7-93a0-27e166b3b99a,SUCCEEDED,8523,,54,20260318T084210Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query70.sql,FINISHED,7451,0,0,7031,345,343598,38,5350662132,54,34852189432,6205,0,0,0,false,2026-03-18T08:42:11.724Z,2026-03-18T08:42:19.175Z,7451
+query,test,tpcds_sf1000_ext,query71,cold,01f122a6-6064-1021-9142-a2beeb1365ff,SUCCEEDED,8163,,31671,20260318T084219Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query71.sql,FINISHED,5542,0,0,5162,301,225967,40,3405594499,31671,24049505303,4365,0,0,0,false,2026-03-18T08:42:20.231Z,2026-03-18T08:42:25.773Z,5542
+query,test,tpcds_sf1000_ext,query71,hot1,01f122a6-6542-13ec-8ff6-1926cfb2fb08,SUCCEEDED,7641,,31671,20260318T084227Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query71.sql,FINISHED,5067,0,0,4654,333,187478,51,3405594499,31671,24146792294,4365,0,0,0,false,2026-03-18T08:42:28.400Z,2026-03-18T08:42:33.467Z,5067
+query,test,tpcds_sf1000_ext,query71,hot2,01f122a6-81c3-12cd-85bf-d1a1a59c9c83,SUCCEEDED,48072,,31671,20260318T084235Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query71.sql,FINISHED,5305,0,0,4891,335,188943,38,3405594499,31671,24148053303,4365,0,0,0,false,2026-03-18T08:43:16.221Z,2026-03-18T08:43:21.526Z,5305
+query,test,tpcds_sf1000_ext,query72,cold,01f122a6-8672-17cf-9259-b42a1596d56e,SUCCEEDED,4953,,0,20260318T084323Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query72.sql,FINISHED,4051,0,0,3506,465,107851,41,940021949,0,6622009714,785,0,0,0,false,2026-03-18T08:43:24.080Z,2026-03-18T08:43:28.131Z,4051
+query,test,tpcds_sf1000_ext,query72,hot1,01f122a6-8975-1b07-ae5a-bd23874bb35c,SUCCEEDED,3808,,0,20260318T084328Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query72.sql,FINISHED,2802,0,0,2387,348,64812,47,940021949,0,6677251179,785,0,0,0,false,2026-03-18T08:43:29.134Z,2026-03-18T08:43:31.936Z,2802
+query,test,tpcds_sf1000_ext,query72,hot2,01f122a6-8bb4-1b54-933e-cb17c7b1eeae,SUCCEEDED,3996,,0,20260318T084332Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query72.sql,FINISHED,2818,0,0,2378,353,65373,43,940021949,0,6677251179,785,0,0,0,false,2026-03-18T08:43:32.904Z,2026-03-18T08:43:35.722Z,2818
+query,test,tpcds_sf1000_ext,query73,cold,01f122a6-8e12-1dc8-aaff-4d67e5ee1a9b,SUCCEEDED,5413,,430,20260318T084336Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query73.sql,FINISHED,4168,0,0,3829,267,156597,39,172696598,430,22035298268,3134,0,0,0,false,2026-03-18T08:43:36.875Z,2026-03-18T08:43:41.043Z,4168
+query,test,tpcds_sf1000_ext,query73,hot1,01f122a6-914e-1fac-926f-3bcfe649fb31,SUCCEEDED,5547,,430,20260318T084341Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query73.sql,FINISHED,4272,0,0,3888,305,156295,45,172696598,430,22035297921,3134,0,0,0,false,2026-03-18T08:43:42.304Z,2026-03-18T08:43:46.576Z,4272
+query,test,tpcds_sf1000_ext,query73,hot2,01f122a6-9499-1a2c-92b6-efdc3e0b069a,SUCCEEDED,5490,,430,20260318T084347Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query73.sql,FINISHED,4263,0,0,3899,287,155925,38,172696598,430,22035297921,3134,0,0,0,false,2026-03-18T08:43:47.826Z,2026-03-18T08:43:52.089Z,4263
+query,test,tpcds_sf1000_ext,query74,cold,01f122a6-97e1-1d0a-917d-b37858a97ed8,SUCCEEDED,13983,,100,20260318T084352Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query74.sql,FINISHED,9902,0,0,9415,410,468544,45,6795996342,100,38822388481,8592,0,0,0,false,2026-03-18T08:43:53.331Z,2026-03-18T08:44:03.233Z,9902
+query,test,tpcds_sf1000_ext,query74,hot1,01f122a6-a036-143b-abf7-606ed7d9e6c5,SUCCEEDED,13890,,100,20260318T084406Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query74.sql,FINISHED,10441,0,0,9965,404,468701,2461,6795996342,100,38827494142,8592,0,0,0,false,2026-03-18T08:44:07.306Z,2026-03-18T08:44:17.747Z,10441
+query,test,tpcds_sf1000_ext,query74,hot2,01f122a6-a87c-15d6-9b2e-586f79c6a5d0,SUCCEEDED,13943,,100,20260318T084420Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query74.sql,FINISHED,10070,0,0,9596,394,465984,42,6795996342,100,38828059326,8592,0,0,0,false,2026-03-18T08:44:21.189Z,2026-03-18T08:44:31.259Z,10070
+query,test,tpcds_sf1000_ext,query75,cold,01f122a6-b0d0-12cc-ad5e-ee79e6f63372,SUCCEEDED,24059,,100,20260318T084434Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query75.sql,FINISHED,23001,0,0,22379,542,1285669,48,8047321455,100,80857213877,10399,0,0,0,false,2026-03-18T08:44:35.160Z,2026-03-18T08:44:58.161Z,23001
+query,test,tpcds_sf1000_ext,query75,hot1,01f122a6-bf2b-1e37-95e1-4d782ea03b16,SUCCEEDED,24060,,100,20260318T084458Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query75.sql,FINISHED,22958,0,0,22282,603,1267931,69,8047321455,100,81415993857,10399,0,0,0,false,2026-03-18T08:44:59.250Z,2026-03-18T08:45:22.208Z,22958
+query,test,tpcds_sf1000_ext,query75,hot2,01f122a6-cd7e-1f19-8f5f-175768114d89,SUCCEEDED,23607,,100,20260318T084522Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query75.sql,FINISHED,22545,0,0,21851,618,1267752,42,8047321455,100,81420831606,10399,0,0,0,false,2026-03-18T08:45:23.280Z,2026-03-18T08:45:45.825Z,22545
+query,test,tpcds_sf1000_ext,query76,cold,01f122a6-db8a-1c3a-9163-dd53445f9527,SUCCEEDED,6407,,100,20260318T084546Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query76.sql,FINISHED,5365,0,0,4982,306,242387,48,34557351,100,26900693467,5461,0,0,0,false,2026-03-18T08:45:46.846Z,2026-03-18T08:45:52.211Z,5365
+query,test,tpcds_sf1000_ext,query76,hot1,01f122a6-df5e-1a70-a725-7702a2d8f369,SUCCEEDED,6125,,100,20260318T084552Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query76.sql,FINISHED,5098,0,0,4711,312,231912,42,34557351,100,26484810798,5461,0,0,0,false,2026-03-18T08:45:53.268Z,2026-03-18T08:45:58.366Z,5098
+query,test,tpcds_sf1000_ext,query76,hot2,01f122a6-e303-1aec-b830-39b6e266b861,SUCCEEDED,6271,,100,20260318T084558Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query76.sql,FINISHED,5023,0,0,4641,312,231551,36,34557351,100,26486083245,5461,0,0,0,false,2026-03-18T08:45:59.383Z,2026-03-18T08:46:04.406Z,5023
+query,test,tpcds_sf1000_ext,query77,cold,01f122a6-e6c2-19e3-831f-970ff112c854,SUCCEEDED,7320,,100,20260318T084604Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query77.sql,FINISHED,6291,0,0,5701,519,237939,47,3780801580,100,39545091774,4917,0,0,0,false,2026-03-18T08:46:05.666Z,2026-03-18T08:46:11.957Z,6291
+query,test,tpcds_sf1000_ext,query77,hot1,01f122a6-eb22-12bf-9325-e57621a1e9c9,SUCCEEDED,6882,,100,20260318T084612Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query77.sql,FINISHED,5824,0,0,5255,495,181356,38,3780801580,100,39551735237,4917,0,0,0,false,2026-03-18T08:46:13.004Z,2026-03-18T08:46:18.828Z,5824
+query,test,tpcds_sf1000_ext,query77,hot2,01f122a6-ef35-1ffe-9e58-b609381875e9,SUCCEEDED,6434,,100,20260318T084619Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query77.sql,FINISHED,5446,0,0,4881,493,181181,37,3780801580,100,39551735237,4917,0,0,0,false,2026-03-18T08:46:19.846Z,2026-03-18T08:46:25.292Z,5446
+query,test,tpcds_sf1000_ext,query78,cold,01f122a6-f30b-13eb-8c31-c77694682dd4,SUCCEEDED,29722,,100,20260318T084625Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query78.sql,FINISHED,28711,0,0,28233,399,1614887,46,4245008622,100,43221503711,5327,0,0,0,false,2026-03-18T08:46:26.275Z,2026-03-18T08:46:54.986Z,28711
+query,test,tpcds_sf1000_ext,query78,hot1,01f122a7-04c6-121c-b14c-350c81ee3893,SUCCEEDED,29694,,100,20260318T084655Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query78.sql,FINISHED,28477,0,0,27965,436,1610793,228,4245008622,100,42303408691,5327,0,0,0,false,2026-03-18T08:46:56.022Z,2026-03-18T08:47:24.499Z,28477
+query,test,tpcds_sf1000_ext,query78,hot2,01f122a7-1684-154f-8d09-0d6c059fe7ad,SUCCEEDED,30047,,100,20260318T084724Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query78.sql,FINISHED,28957,0,0,28355,523,1633533,40,4245008622,100,42303408691,5327,0,0,0,false,2026-03-18T08:47:25.791Z,2026-03-18T08:47:54.748Z,28957
+query,test,tpcds_sf1000_ext,query79,cold,01f122a7-2862-1338-ad75-37d371543a4d,SUCCEEDED,7423,,100,20260318T084754Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query79.sql,FINISHED,6393,0,0,6035,276,288699,41,2268286959,100,39116249060,3134,0,0,0,false,2026-03-18T08:47:55.765Z,2026-03-18T08:48:02.158Z,6393
+query,test,tpcds_sf1000_ext,query79,hot1,01f122a7-2ccf-1b8e-9de6-54ca1ce9a260,SUCCEEDED,7398,,100,20260318T084802Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query79.sql,FINISHED,6361,0,0,6017,267,292524,45,2268286959,100,39157196107,3134,0,0,0,false,2026-03-18T08:48:03.194Z,2026-03-18T08:48:09.555Z,6361
+query,test,tpcds_sf1000_ext,query79,hot2,01f122a7-3138-154b-b82a-f3fac53e5790,SUCCEEDED,7482,,100,20260318T084809Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query79.sql,FINISHED,6251,0,0,5876,297,286042,43,2268286959,100,39173177388,3134,0,0,0,false,2026-03-18T08:48:10.590Z,2026-03-18T08:48:16.841Z,6251
+query,test,tpcds_sf1000_ext,query80,cold,01f122a7-35ae-1903-9117-604a32e21ba9,SUCCEEDED,5040,,19,20260318T084817Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query80.sql,FINISHED,3978,0,0,3280,624,130629,45,348213365,19,4676353685,412,0,0,0,false,2026-03-18T08:48:18.075Z,2026-03-18T08:48:22.053Z,3978
+query,test,tpcds_sf1000_ext,query80,hot1,01f122a7-38ad-19a1-8bc7-cbad3f7e4c45,SUCCEEDED,4583,,19,20260318T084822Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query80.sql,FINISHED,3567,0,0,2948,549,113590,41,348213365,19,4676353663,412,0,0,0,false,2026-03-18T08:48:23.102Z,2026-03-18T08:48:26.669Z,3567
+query,test,tpcds_sf1000_ext,query80,hot2,01f122a7-3b6a-1740-a456-7f15fa2134fc,SUCCEEDED,4544,,19,20260318T084826Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query80.sql,FINISHED,3524,0,0,2868,586,100417,45,348213365,19,4676353663,412,0,0,0,false,2026-03-18T08:48:27.696Z,2026-03-18T08:48:31.220Z,3524
+query,test,tpcds_sf1000_ext,query81,cold,01f122a7-3e29-1ac6-b229-f6055e7e523a,SUCCEEDED,4660,,100,20260318T084831Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query81.sql,FINISHED,3355,0,0,2944,341,82162,59,119730117,100,1917095554,411,0,0,0,false,2026-03-18T08:48:32.304Z,2026-03-18T08:48:35.659Z,3355
+query,test,tpcds_sf1000_ext,query81,hot1,01f122a7-40e9-119d-bd17-a983870702e9,SUCCEEDED,4038,,100,20260318T084836Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query81.sql,FINISHED,2761,0,0,2391,295,61877,48,119730117,100,1671057120,411,0,0,0,false,2026-03-18T08:48:36.914Z,2026-03-18T08:48:39.675Z,2761
+query,test,tpcds_sf1000_ext,query81,hot2,01f122a7-434e-1cf6-a98c-17a2ab644e90,SUCCEEDED,3973,,100,20260318T084840Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query81.sql,FINISHED,2740,0,0,2345,323,62093,45,119730117,100,1671057120,411,0,0,0,false,2026-03-18T08:48:40.937Z,2026-03-18T08:48:43.677Z,2740
+query,test,tpcds_sf1000_ext,query82,cold,01f122a7-45aa-1f04-adda-4d03a2e6eb5f,SUCCEEDED,3985,,5,20260318T084844Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query82.sql,FINISHED,2949,0,0,2594,283,108649,42,2580279416,5,6667170948,3236,0,0,0,false,2026-03-18T08:48:44.897Z,2026-03-18T08:48:47.846Z,2949
+query,test,tpcds_sf1000_ext,query82,hot1,01f122a7-4811-1214-a9cf-36910e45ea70,SUCCEEDED,4011,,5,20260318T084848Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query82.sql,FINISHED,2967,0,0,2658,237,109424,69,2580279416,5,6667170948,3236,0,0,0,false,2026-03-18T08:48:48.920Z,2026-03-18T08:48:51.887Z,2967
+query,test,tpcds_sf1000_ext,query82,hot2,01f122a7-4a74-167c-8bdf-8de43186483c,SUCCEEDED,4068,,5,20260318T084852Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query82.sql,FINISHED,3033,0,0,2641,322,108941,36,2580279416,5,6667170948,3236,0,0,0,false,2026-03-18T08:48:52.926Z,2026-03-18T08:48:55.959Z,3033
+query,test,tpcds_sf1000_ext,query83,cold,01f122a7-4cdf-11bd-a460-33b4418b4f6a,SUCCEEDED,3211,,100,20260318T084856Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query83.sql,FINISHED,2176,0,0,1721,379,42117,50,371532741,100,2468509032,585,0,0,0,false,2026-03-18T08:48:56.980Z,2026-03-18T08:48:59.156Z,2176
+query,test,tpcds_sf1000_ext,query83,hot1,01f122a7-4ec6-1abf-a6cd-9f371c0fea44,SUCCEEDED,3326,,100,20260318T084859Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query83.sql,FINISHED,2319,0,0,1865,380,41738,56,371532741,100,2468302469,585,0,0,0,false,2026-03-18T08:49:00.176Z,2026-03-18T08:49:02.495Z,2319
+query,test,tpcds_sf1000_ext,query83,hot2,01f122a7-50c6-1376-84d5-ef70caf684ad,SUCCEEDED,3172,,100,20260318T084902Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query83.sql,FINISHED,2136,0,0,1693,374,40609,38,371532741,100,2468509032,585,0,0,0,false,2026-03-18T08:49:03.528Z,2026-03-18T08:49:05.664Z,2136
+query,test,tpcds_sf1000_ext,query84,cold,01f122a7-52a8-1862-9f58-fc408e9884cd,SUCCEEDED,2994,,100,20260318T084905Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query84.sql,FINISHED,1914,0,0,1535,301,55135,47,291150275,100,818158950,314,0,0,0,false,2026-03-18T08:49:06.692Z,2026-03-18T08:49:08.606Z,1914
+query,test,tpcds_sf1000_ext,query84,hot1,01f122a7-5471-110e-8990-e132b43d049f,SUCCEEDED,2495,,100,20260318T084908Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query84.sql,FINISHED,1488,0,0,1172,242,35315,39,291150275,100,826878161,314,0,0,0,false,2026-03-18T08:49:09.681Z,2026-03-18T08:49:11.169Z,1488
+query,test,tpcds_sf1000_ext,query84,hot2,01f122a7-55f0-18a4-8772-57f32399e8c1,SUCCEEDED,2630,,100,20260318T084911Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query84.sql,FINISHED,1598,0,0,1305,215,35261,41,291150275,100,827085119,314,0,0,0,false,2026-03-18T08:49:12.195Z,2026-03-18T08:49:13.793Z,1598
+query,test,tpcds_sf1000_ext,query85,cold,01f122a7-5785-1ec3-99f1-f1fdb16f6139,SUCCEEDED,3846,,0,20260318T084914Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query85.sql,FINISHED,2820,0,0,2424,325,99974,100,94974508,0,9033338301,1326,0,0,0,false,2026-03-18T08:49:14.853Z,2026-03-18T08:49:17.673Z,2820
+query,test,tpcds_sf1000_ext,query85,hot1,01f122a7-59c9-156f-9aa8-b0fdbb410710,SUCCEEDED,3407,,0,20260318T084917Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query85.sql,FINISHED,2503,0,0,2131,298,78174,38,94974508,0,9056900957,1326,0,0,0,false,2026-03-18T08:49:18.648Z,2026-03-18T08:49:21.151Z,2503
+query,test,tpcds_sf1000_ext,query85,hot2,01f122a7-5bd2-1abe-9a2b-c50e505c08e1,SUCCEEDED,3375,,0,20260318T084921Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query85.sql,FINISHED,2449,0,0,2047,325,77819,49,94974508,0,9056900957,1326,0,0,0,false,2026-03-18T08:49:22.067Z,2026-03-18T08:49:24.516Z,2449
+query,test,tpcds_sf1000_ext,query86,cold,01f122a7-5dd4-1acb-8d73-7a492cf931e5,SUCCEEDED,2963,,100,20260318T084924Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query86.sql,FINISHED,1942,0,0,1594,244,44914,51,716163988,100,3736511264,1182,0,0,0,false,2026-03-18T08:49:25.433Z,2026-03-18T08:49:27.375Z,1942
+query,test,tpcds_sf1000_ext,query86,hot1,01f122a7-5f9a-16ed-acec-113363537eb3,SUCCEEDED,197638,,100,20260318T084927Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query86.sql,FINISHED,196601,0,0,196157,370,44589,41,716163989,100,3736511264,1182,0,0,0,false,2026-03-18T08:49:28.409Z,2026-03-18T08:52:45.010Z,196601
+query,test,tpcds_sf1000_ext,query86,hot2,01f122a7-d566-1b1a-a24d-4e290b312d8f,SUCCEEDED,3321,,100,20260318T085245Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query86.sql,FINISHED,2296,0,0,1807,416,49555,39,716163988,100,3736519007,1182,0,0,0,false,2026-03-18T08:52:46.040Z,2026-03-18T08:52:48.336Z,2296
+query,test,tpcds_sf1000_ext,query87,cold,01f122a7-d762-1306-b6b0-b87f7d8ae18c,SUCCEEDED,9974,,1,20260318T085248Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query87.sql,FINISHED,8967,0,0,8553,337,322377,41,3689477050,1,5630033971,4783,0,0,0,false,2026-03-18T08:52:49.365Z,2026-03-18T08:52:58.332Z,8967
+query,test,tpcds_sf1000_ext,query87,hot1,01f122a7-dd54-1624-9d0d-321c3e30861c,SUCCEEDED,9445,,1,20260318T085258Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query87.sql,,,,,,,,,,,,,,,,,,,9445
+query,test,tpcds_sf1000_ext,query87,hot2,01f122a7-e2f9-18bb-83de-63adf486328c,SUCCEEDED,10301,,1,20260318T085307Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query87.sql,,,,,,,,,,,,,,,,,,,10301
+query,test,tpcds_sf1000_ext,query88,cold,01f122a7-e917-1c50-949a-4b70e6172beb,SUCCEEDED,22968,,1,20260318T085318Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query88.sql,,,,,,,,,,,,,,,,,,,22968
+query,test,tpcds_sf1000_ext,query88,hot1,01f122a7-f6cb-1a79-8e0e-ffd7b5f39afc,SUCCEEDED,22701,,1,20260318T085341Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query88.sql,,,,,,,,,,,,,,,,,,,22701
+query,test,tpcds_sf1000_ext,query88,hot2,01f122a8-0455-1653-b195-02da6a6a37c5,SUCCEEDED,22759,,1,20260318T085403Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query88.sql,,,,,,,,,,,,,,,,,,,22759
+query,test,tpcds_sf1000_ext,query89,cold,01f122a8-11e8-16d5-82f8-d23aae6f4106,SUCCEEDED,7709,,100,20260318T085426Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query89.sql,,,,,,,,,,,,,,,,,,,7709
+query,test,tpcds_sf1000_ext,query89,hot1,01f122a8-167c-1235-92c2-8d3df4e32bff,SUCCEEDED,7460,,100,20260318T085434Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query89.sql,,,,,,,,,,,,,,,,,,,7460
+query,test,tpcds_sf1000_ext,query89,hot2,01f122a8-1af1-10a6-871a-ca6c6369e7ac,SUCCEEDED,7509,,100,20260318T085441Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query89.sql,,,,,,,,,,,,,,,,,,,7509
+query,test,tpcds_sf1000_ext,query90,cold,01f122a8-1f69-11da-98ac-bc3c19089d93,SUCCEEDED,3147,,1,20260318T085449Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query90.sql,,,,,,,,,,,,,,,,,,,3147
+query,test,tpcds_sf1000_ext,query90,hot1,01f122a8-2149-12cb-a696-da5ed8d5aa5a,SUCCEEDED,2775,,1,20260318T085452Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query90.sql,,,,,,,,,,,,,,,,,,,2775
+query,test,tpcds_sf1000_ext,query90,hot2,01f122a8-22f2-118c-8a9a-d75e72f4b6a7,SUCCEEDED,2830,,1,20260318T085455Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query90.sql,,,,,,,,,,,,,,,,,,,2830
+query,test,tpcds_sf1000_ext,query91,cold,01f122a8-24a2-17e5-a533-336279749344,SUCCEEDED,2377,,0,20260318T085458Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query91.sql,,,,,,,,,,,,,,,,,,,2377
+query,test,tpcds_sf1000_ext,query91,hot1,01f122a8-2609-121a-bd3e-133b675e2aea,SUCCEEDED,1713,,0,20260318T085500Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query91.sql,,,,,,,,,,,,,,,,,,,1713
+query,test,tpcds_sf1000_ext,query91,hot2,01f122a8-270b-1161-b600-8d9f6e998193,SUCCEEDED,1772,,0,20260318T085502Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query91.sql,,,,,,,,,,,,,,,,,,,1772
+query,test,tpcds_sf1000_ext,query92,cold,01f122a8-281f-10c5-a1fb-3575b93cc587,FAILED,1105,,0,20260318T085504Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""Excess Discount Amount""'. SQLSTATE: 42601 (line 7, pos 32)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query92
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query92' AS tag
+),
+__codex_query AS (
+select  
+   sum(ws_ext_discount_amt)  as ""Excess Discount Amount"" 
+--------------------------------^^^
+from 
+    web_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 714
+and i_item_sk = ws_item_sk 
+and d_date between '2000-02-01' and 
+        (cast('2000-02-01' as date) + interval 90 day)
+and d_date_sk = ws_sold_date_sk 
+and ws_ext_discount_amt  
+     > ( 
+         SELECT 
+            1.3 * avg(ws_ext_discount_amt) 
+         FROM 
+            web_sales 
+           ,date_dim
+         WHERE 
+              ws_item_sk = i_item_sk 
+          and d_date between '2000-02-01' and
+                             (cast('2000-02-01' as date) + interval 90 day)
+          and d_date_sk = ws_sold_date_sk 
+      ) 
+order by sum(ws_ext_discount_amt)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query92.sql,,,,,,,,,,,,,,,,,,,1105
+query,test,tpcds_sf1000_ext,query92,hot1,01f122a8-28cb-1854-b742-7c7e2101dfb3,FAILED,1111,,0,20260318T085505Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""Excess Discount Amount""'. SQLSTATE: 42601 (line 7, pos 32)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query92
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query92' AS tag
+),
+__codex_query AS (
+select  
+   sum(ws_ext_discount_amt)  as ""Excess Discount Amount"" 
+--------------------------------^^^
+from 
+    web_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 714
+and i_item_sk = ws_item_sk 
+and d_date between '2000-02-01' and 
+        (cast('2000-02-01' as date) + interval 90 day)
+and d_date_sk = ws_sold_date_sk 
+and ws_ext_discount_amt  
+     > ( 
+         SELECT 
+            1.3 * avg(ws_ext_discount_amt) 
+         FROM 
+            web_sales 
+           ,date_dim
+         WHERE 
+              ws_item_sk = i_item_sk 
+          and d_date between '2000-02-01' and
+                             (cast('2000-02-01' as date) + interval 90 day)
+          and d_date_sk = ws_sold_date_sk 
+      ) 
+order by sum(ws_ext_discount_amt)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query92.sql,,,,,,,,,,,,,,,,,,,1111
+query,test,tpcds_sf1000_ext,query92,hot2,01f122a8-2974-1468-9f41-7cdd5aeccde8,FAILED,1089,,0,20260318T085506Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""Excess Discount Amount""'. SQLSTATE: 42601 (line 7, pos 32)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query92
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query92' AS tag
+),
+__codex_query AS (
+select  
+   sum(ws_ext_discount_amt)  as ""Excess Discount Amount"" 
+--------------------------------^^^
+from 
+    web_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 714
+and i_item_sk = ws_item_sk 
+and d_date between '2000-02-01' and 
+        (cast('2000-02-01' as date) + interval 90 day)
+and d_date_sk = ws_sold_date_sk 
+and ws_ext_discount_amt  
+     > ( 
+         SELECT 
+            1.3 * avg(ws_ext_discount_amt) 
+         FROM 
+            web_sales 
+           ,date_dim
+         WHERE 
+              ws_item_sk = i_item_sk 
+          and d_date between '2000-02-01' and
+                             (cast('2000-02-01' as date) + interval 90 day)
+          and d_date_sk = ws_sold_date_sk 
+      ) 
+order by sum(ws_ext_discount_amt)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query92.sql,,,,,,,,,,,,,,,,,,,1089
+query,test,tpcds_sf1000_ext,query93,cold,01f122a8-2a23-1c01-8c37-eb60c4d49fa8,SUCCEEDED,1818,,0,20260318T085507Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query93.sql,,,,,,,,,,,,,,,,,,,1818
+query,test,tpcds_sf1000_ext,query93,hot1,01f122a8-2b27-1708-872d-960f55d1e650,SUCCEEDED,1537,,0,20260318T085509Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query93.sql,,,,,,,,,,,,,,,,,,,1537
+query,test,tpcds_sf1000_ext,query93,hot2,01f122a8-2c13-1ff6-ac4a-7a8f45a9bea8,SUCCEEDED,1570,,0,20260318T085510Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query93.sql,,,,,,,,,,,,,,,,,,,1570
+query,test,tpcds_sf1000_ext,query94,cold,01f122a8-2d09-1156-bba9-58de2bce37da,FAILED,1111,,0,20260318T085512Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 7, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query94
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query94' AS tag
+),
+__codex_query AS (
+select  
+   count(distinct ws_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(ws_ext_ship_cost) as ""total shipping cost""
+  ,sum(ws_net_profit) as ""total net profit""
+from
+   web_sales ws1
+  ,date_dim
+  ,customer_address
+  ,web_site
+where
+    d_date between '2002-5-01' and 
+           (cast('2002-5-01' as date) + interval 60 day)
+and ws1.ws_ship_date_sk = d_date_sk
+and ws1.ws_ship_addr_sk = ca_address_sk
+and ca_state = 'OK'
+and ws1.ws_web_site_sk = web_site_sk
+and web_company_name = 'pri'
+and exists (select *
+            from web_sales ws2
+            where ws1.ws_order_number = ws2.ws_order_number
+              and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
+and not exists(select *
+               from web_returns wr1
+               where ws1.ws_order_number = wr1.wr_order_number)
+order by count(distinct ws_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query94.sql,,,,,,,,,,,,,,,,,,,1111
+query,test,tpcds_sf1000_ext,query94,hot1,01f122a8-2daf-10eb-b241-6ff591c5b468,FAILED,1074,,0,20260318T085513Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 7, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query94
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query94' AS tag
+),
+__codex_query AS (
+select  
+   count(distinct ws_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(ws_ext_ship_cost) as ""total shipping cost""
+  ,sum(ws_net_profit) as ""total net profit""
+from
+   web_sales ws1
+  ,date_dim
+  ,customer_address
+  ,web_site
+where
+    d_date between '2002-5-01' and 
+           (cast('2002-5-01' as date) + interval 60 day)
+and ws1.ws_ship_date_sk = d_date_sk
+and ws1.ws_ship_addr_sk = ca_address_sk
+and ca_state = 'OK'
+and ws1.ws_web_site_sk = web_site_sk
+and web_company_name = 'pri'
+and exists (select *
+            from web_sales ws2
+            where ws1.ws_order_number = ws2.ws_order_number
+              and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
+and not exists(select *
+               from web_returns wr1
+               where ws1.ws_order_number = wr1.wr_order_number)
+order by count(distinct ws_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query94.sql,,,,,,,,,,,,,,,,,,,1074
+query,test,tpcds_sf1000_ext,query94,hot2,01f122a8-2e53-14e7-b91f-6cf16d7581ed,FAILED,1068,,0,20260318T085514Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 7, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query94
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query94' AS tag
+),
+__codex_query AS (
+select  
+   count(distinct ws_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(ws_ext_ship_cost) as ""total shipping cost""
+  ,sum(ws_net_profit) as ""total net profit""
+from
+   web_sales ws1
+  ,date_dim
+  ,customer_address
+  ,web_site
+where
+    d_date between '2002-5-01' and 
+           (cast('2002-5-01' as date) + interval 60 day)
+and ws1.ws_ship_date_sk = d_date_sk
+and ws1.ws_ship_addr_sk = ca_address_sk
+and ca_state = 'OK'
+and ws1.ws_web_site_sk = web_site_sk
+and web_company_name = 'pri'
+and exists (select *
+            from web_sales ws2
+            where ws1.ws_order_number = ws2.ws_order_number
+              and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
+and not exists(select *
+               from web_returns wr1
+               where ws1.ws_order_number = wr1.wr_order_number)
+order by count(distinct ws_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query94.sql,,,,,,,,,,,,,,,,,,,1068
+query,test,tpcds_sf1000_ext,query95,cold,01f122a8-2ef7-1a34-b942-aad0d2003884,FAILED,1285,,0,20260318T085515Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 12, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query95
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query95' AS tag
+),
+__codex_query AS (
+with ws_wh as
+(select ws1.ws_order_number,ws1.ws_warehouse_sk wh1,ws2.ws_warehouse_sk wh2
+ from web_sales ws1,web_sales ws2
+ where ws1.ws_order_number = ws2.ws_order_number
+   and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
+ select  
+   count(distinct ws_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(ws_ext_ship_cost) as ""total shipping cost""
+  ,sum(ws_net_profit) as ""total net profit""
+from
+   web_sales ws1
+  ,date_dim
+  ,customer_address
+  ,web_site
+where
+    d_date between '2001-4-01' and 
+           (cast('2001-4-01' as date) + interval 60 day)
+and ws1.ws_ship_date_sk = d_date_sk
+and ws1.ws_ship_addr_sk = ca_address_sk
+and ca_state = 'VA'
+and ws1.ws_web_site_sk = web_site_sk
+and web_company_name = 'pri'
+and ws1.ws_order_number in (select ws_order_number
+                            from ws_wh)
+and ws1.ws_order_number in (select wr_order_number
+                            from web_returns,ws_wh
+                            where wr_order_number = ws_wh.ws_order_number)
+order by count(distinct ws_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query95.sql,,,,,,,,,,,,,,,,,,,1285
+query,test,tpcds_sf1000_ext,query95,hot1,01f122a8-2fb9-1a48-96cf-5ceb50531609,FAILED,1052,,0,20260318T085516Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 12, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query95
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query95' AS tag
+),
+__codex_query AS (
+with ws_wh as
+(select ws1.ws_order_number,ws1.ws_warehouse_sk wh1,ws2.ws_warehouse_sk wh2
+ from web_sales ws1,web_sales ws2
+ where ws1.ws_order_number = ws2.ws_order_number
+   and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
+ select  
+   count(distinct ws_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(ws_ext_ship_cost) as ""total shipping cost""
+  ,sum(ws_net_profit) as ""total net profit""
+from
+   web_sales ws1
+  ,date_dim
+  ,customer_address
+  ,web_site
+where
+    d_date between '2001-4-01' and 
+           (cast('2001-4-01' as date) + interval 60 day)
+and ws1.ws_ship_date_sk = d_date_sk
+and ws1.ws_ship_addr_sk = ca_address_sk
+and ca_state = 'VA'
+and ws1.ws_web_site_sk = web_site_sk
+and web_company_name = 'pri'
+and ws1.ws_order_number in (select ws_order_number
+                            from ws_wh)
+and ws1.ws_order_number in (select wr_order_number
+                            from web_returns,ws_wh
+                            where wr_order_number = ws_wh.ws_order_number)
+order by count(distinct ws_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query95.sql,,,,,,,,,,,,,,,,,,,1052
+query,test,tpcds_sf1000_ext,query95,hot2,01f122a8-305c-14dd-8e04-e1e6f8c94f6b,FAILED,1080,,0,20260318T085517Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""order count""'. SQLSTATE: 42601 (line 12, pos 38)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query95
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query95' AS tag
+),
+__codex_query AS (
+with ws_wh as
+(select ws1.ws_order_number,ws1.ws_warehouse_sk wh1,ws2.ws_warehouse_sk wh2
+ from web_sales ws1,web_sales ws2
+ where ws1.ws_order_number = ws2.ws_order_number
+   and ws1.ws_warehouse_sk <> ws2.ws_warehouse_sk)
+ select  
+   count(distinct ws_order_number) as ""order count""
+--------------------------------------^^^
+  ,sum(ws_ext_ship_cost) as ""total shipping cost""
+  ,sum(ws_net_profit) as ""total net profit""
+from
+   web_sales ws1
+  ,date_dim
+  ,customer_address
+  ,web_site
+where
+    d_date between '2001-4-01' and 
+           (cast('2001-4-01' as date) + interval 60 day)
+and ws1.ws_ship_date_sk = d_date_sk
+and ws1.ws_ship_addr_sk = ca_address_sk
+and ca_state = 'VA'
+and ws1.ws_web_site_sk = web_site_sk
+and web_company_name = 'pri'
+and ws1.ws_order_number in (select ws_order_number
+                            from ws_wh)
+and ws1.ws_order_number in (select wr_order_number
+                            from web_returns,ws_wh
+                            where wr_order_number = ws_wh.ws_order_number)
+order by count(distinct ws_order_number)
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query95.sql,,,,,,,,,,,,,,,,,,,1080
+query,test,tpcds_sf1000_ext,query96,cold,01f122a8-3106-1498-8314-ff341aadc7c4,SUCCEEDED,4691,,1,20260318T085518Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query96.sql,,,,,,,,,,,,,,,,,,,4691
+query,test,tpcds_sf1000_ext,query96,hot1,01f122a8-33ca-1e09-8a86-93263e523b16,SUCCEEDED,4614,,1,20260318T085523Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query96.sql,,,,,,,,,,,,,,,,,,,4614
+query,test,tpcds_sf1000_ext,query96,hot2,01f122a8-368c-19a7-8461-2805497b9331,SUCCEEDED,4652,,1,20260318T085528Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query96.sql,,,,,,,,,,,,,,,,,,,4652
+query,test,tpcds_sf1000_ext,query97,cold,01f122a8-3959-114b-81b3-314fb16d0cfe,SUCCEEDED,7133,,1,20260318T085532Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query97.sql,,,,,,,,,,,,,,,,,,,7133
+query,test,tpcds_sf1000_ext,query97,hot1,01f122a8-3e2b-1282-95d2-54a0370bb414,SUCCEEDED,8159,,1,20260318T085540Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query97.sql,,,,,,,,,,,,,,,,,,,8159
+query,test,tpcds_sf1000_ext,query97,hot2,01f122a8-4271-102d-b1cd-60520952ea5f,SUCCEEDED,7194,,1,20260318T085548Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query97.sql,,,,,,,,,,,,,,,,,,,7194
+query,test,tpcds_sf1000_ext,query98,cold,01f122a8-46ba-1dc0-8f2a-c8a5821a3e5d,SUCCEEDED,9510,,14001,20260318T085555Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query98.sql,,,,,,,,,,,,,,,,,,,9510
+query,test,tpcds_sf1000_ext,query98,hot1,01f122a8-4c65-17f3-a322-6b850ab1e0d3,SUCCEEDED,9592,,14001,20260318T085604Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query98.sql,,,,,,,,,,,,,,,,,,,9592
+query,test,tpcds_sf1000_ext,query98,hot2,01f122a8-521c-126b-8d77-07b305f372d7,SUCCEEDED,9440,,14001,20260318T085614Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query98.sql,,,,,,,,,,,,,,,,,,,9440
+query,test,tpcds_sf1000_ext,query99,cold,01f122a8-57bb-175a-8053-2bbf47afb340,FAILED,1043,,0,20260318T085623Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 10, pos 83)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query99
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query99' AS tag
+),
+__codex_query AS (
+select  
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,cc_name
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+-----------------------------------------------------------------------------------^^^
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 30) and 
+                 (cs_ship_date_sk - cs_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 60) and 
+                 (cs_ship_date_sk - cs_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 90) and
+                 (cs_ship_date_sk - cs_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   catalog_sales
+  ,warehouse
+  ,ship_mode
+  ,call_center
+  ,date_dim
+where
+    d_month_seq between 1194 and 1194 + 11
+and cs_ship_date_sk   = d_date_sk
+and cs_warehouse_sk   = w_warehouse_sk
+and cs_ship_mode_sk   = sm_ship_mode_sk
+and cs_call_center_sk = cc_call_center_sk
+group by
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,cc_name
+order by substr(w_warehouse_name,1,20)
+        ,sm_type
+        ,cc_name
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query99.sql,,,,,,,,,,,,,,,,,,,1043
+query,test,tpcds_sf1000_ext,query99,hot1,01f122a8-585c-1dc7-924d-9367163ae97f,FAILED,1071,,0,20260318T085624Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 10, pos 83)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query99
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query99' AS tag
+),
+__codex_query AS (
+select  
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,cc_name
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+-----------------------------------------------------------------------------------^^^
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 30) and 
+                 (cs_ship_date_sk - cs_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 60) and 
+                 (cs_ship_date_sk - cs_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 90) and
+                 (cs_ship_date_sk - cs_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   catalog_sales
+  ,warehouse
+  ,ship_mode
+  ,call_center
+  ,date_dim
+where
+    d_month_seq between 1194 and 1194 + 11
+and cs_ship_date_sk   = d_date_sk
+and cs_warehouse_sk   = w_warehouse_sk
+and cs_ship_mode_sk   = sm_ship_mode_sk
+and cs_call_center_sk = cc_call_center_sk
+group by
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,cc_name
+order by substr(w_warehouse_name,1,20)
+        ,sm_type
+        ,cc_name
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query99.sql,,,,,,,,,,,,,,,,,,,1071
+query,test,tpcds_sf1000_ext,query99,hot2,01f122a8-58fe-178b-ba51-276869470562,FAILED,1055,,0,20260318T085626Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 10, pos 83)
+
+== SQL ==
+-- run_id=20260318T081120Z query=query99
+WITH __codex_cache_bust AS (
+    SELECT current_timestamp() AS ts, '20260318T081120Z:query99' AS tag
+),
+__codex_query AS (
+select  
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,cc_name
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+-----------------------------------------------------------------------------------^^^
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 30) and 
+                 (cs_ship_date_sk - cs_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 60) and 
+                 (cs_ship_date_sk - cs_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk > 90) and
+                 (cs_ship_date_sk - cs_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (cs_ship_date_sk - cs_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   catalog_sales
+  ,warehouse
+  ,ship_mode
+  ,call_center
+  ,date_dim
+where
+    d_month_seq between 1194 and 1194 + 11
+and cs_ship_date_sk   = d_date_sk
+and cs_warehouse_sk   = w_warehouse_sk
+and cs_ship_mode_sk   = sm_ship_mode_sk
+and cs_call_center_sk = cc_call_center_sk
+group by
+   substr(w_warehouse_name,1,20)
+  ,sm_type
+  ,cc_name
+order by substr(w_warehouse_name,1,20)
+        ,sm_type
+        ,cc_name
+limit 100
+)
+SELECT q.*
+FROM __codex_query q
+CROSS JOIN __codex_cache_bust b
+WHERE b.ts IS NOT NULL
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query99.sql,,,,,,,,,,,,,,,,,,,1055

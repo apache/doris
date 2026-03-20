@@ -1,0 +1,197 @@
+kind,catalog,schema,object_name,statement_id,state,duration_ms,scalar_result,row_count,started_at_utc,message,query_file
+query,test,tpcds_sf1000_ext,query1,,FAILED,0,,0,20260318T065329Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query1.sql
+query,test,tpcds_sf1000_ext,query2,,FAILED,0,,0,20260318T065413Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query2.sql
+query,test,tpcds_sf1000_ext,query3,,FAILED,0,,0,20260318T065441Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query3.sql
+query,test,tpcds_sf1000_ext,query4,,FAILED,0,,0,20260318T065510Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query4.sql
+query,test,tpcds_sf1000_ext,query5,,FAILED,0,,0,20260318T065538Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query5.sql
+query,test,tpcds_sf1000_ext,query6,,FAILED,0,,0,20260318T065607Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query6.sql
+query,test,tpcds_sf1000_ext,query7,,FAILED,0,,0,20260318T065621Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query7.sql
+query,test,tpcds_sf1000_ext,query8,,FAILED,0,,0,20260318T065650Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query8.sql
+query,test,tpcds_sf1000_ext,query9,,FAILED,0,,0,20260318T065719Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query9.sql
+query,test,tpcds_sf1000_ext,query10,,FAILED,0,,0,20260318T065748Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query10.sql
+query,test,tpcds_sf1000_ext,query11,,FAILED,0,,0,20260318T065803Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query11.sql
+query,test,tpcds_sf1000_ext,query12,,FAILED,0,,0,20260318T065804Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query12.sql
+query,test,tpcds_sf1000_ext,query13,,FAILED,0,,0,20260318T065819Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query13.sql
+query,test,tpcds_sf1000_ext,query14,,FAILED,0,,0,20260318T065820Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14.sql
+query,test,tpcds_sf1000_ext,query14_1,,FAILED,0,,0,20260318T065835Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query14_1.sql
+query,test,tpcds_sf1000_ext,query15,,FAILED,0,,0,20260318T065903Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query15.sql
+query,test,tpcds_sf1000_ext,query16,,FAILED,0,,0,20260318T065918Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query16.sql
+query,test,tpcds_sf1000_ext,query17,,FAILED,0,,0,20260318T065919Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query17.sql
+query,test,tpcds_sf1000_ext,query18,,FAILED,0,,0,20260318T065920Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query18.sql
+query,test,tpcds_sf1000_ext,query19,,FAILED,0,,0,20260318T065934Z,Remote end closed connection without response,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query19.sql
+query,test,tpcds_sf1000_ext,query20,01f12298-5880-1549-8a90-4961dd9c28c8,SUCCEEDED,0,,100,20260318T070151Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query20.sql
+query,test,tpcds_sf1000_ext,query21,,FAILED,0,,0,20260318T070157Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query21.sql
+query,test,tpcds_sf1000_ext,query22,,FAILED,0,,0,20260318T070157Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query22.sql
+query,test,tpcds_sf1000_ext,query23,,FAILED,0,,0,20260318T070221Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23.sql
+query,test,tpcds_sf1000_ext,query23_1,,FAILED,0,,0,20260318T070222Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query23_1.sql
+query,test,tpcds_sf1000_ext,query24,,FAILED,0,,0,20260318T070246Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24.sql
+query,test,tpcds_sf1000_ext,query24_1,01f12298-81bc-1fdb-8a89-7a537e315cc5,SUCCEEDED,16636,,95,20260318T070301Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query24_1.sql
+query,test,tpcds_sf1000_ext,query25,01f12298-92d5-14ff-ad33-224128bbcd8c,SUCCEEDED,0,,0,20260318T070330Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query25.sql
+query,test,tpcds_sf1000_ext,query26,01f12298-9929-164e-9469-854fa2418bc8,SUCCEEDED,0,,0,20260318T070340Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query26.sql
+query,test,tpcds_sf1000_ext,query27,,FAILED,0,,0,20260318T070343Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query27.sql
+query,test,tpcds_sf1000_ext,query28,,FAILED,0,,0,20260318T070344Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query28.sql
+query,test,tpcds_sf1000_ext,query29,01f12298-a9fb-1cc2-ab01-6cb5f3442a27,SUCCEEDED,4648,,0,20260318T070408Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query29.sql
+query,test,tpcds_sf1000_ext,query30,,FAILED,0,,0,20260318T070425Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query30.sql
+query,test,tpcds_sf1000_ext,query31,,FAILED,0,,0,20260318T070426Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query31.sql
+query,test,tpcds_sf1000_ext,query32,,FAILED,0,,0,20260318T070440Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query32.sql
+query,test,tpcds_sf1000_ext,query33,01f12298-bd62-1a21-8903-4306f39d39ea,SUCCEEDED,0,,100,20260318T070441Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query33.sql
+query,test,tpcds_sf1000_ext,query34,,FAILED,0,,0,20260318T070450Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query34.sql
+query,test,tpcds_sf1000_ext,query35,01f12298-c35c-14ba-9ef0-21aef266e9f5,SUCCEEDED,0,,100,20260318T070451Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query35.sql
+query,test,tpcds_sf1000_ext,query36,01f12298-c892-183d-8851-26e02dd427aa,SUCCEEDED,0,,100,20260318T070500Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query36.sql
+query,test,tpcds_sf1000_ext,query37,01f12298-cd85-1728-a581-5517d23b37cd,SUCCEEDED,0,,0,20260318T070508Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query37.sql
+query,test,tpcds_sf1000_ext,query38,,FAILED,0,,0,20260318T070511Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query38.sql
+query,test,tpcds_sf1000_ext,query39,01f12298-cfd4-1e84-a022-b0c74b496672,SUCCEEDED,0,,14642,20260318T070512Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39.sql
+query,test,tpcds_sf1000_ext,query39_1,01f12298-d72f-1e79-90ad-648da50fa04c,SUCCEEDED,0,,551,20260318T070524Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query39_1.sql
+query,test,tpcds_sf1000_ext,query40,01f12298-db84-1c74-9ef0-1eea30d86702,SUCCEEDED,0,,100,20260318T070531Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query40.sql
+query,test,tpcds_sf1000_ext,query41,,FAILED,0,,0,20260318T070537Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query41.sql
+query,test,tpcds_sf1000_ext,query42,,FAILED,0,,0,20260318T070538Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query42.sql
+query,test,tpcds_sf1000_ext,query43,01f12298-dfb3-1ed7-aa95-c5fce06fbb2a,SUCCEEDED,0,,100,20260318T070538Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query43.sql
+query,test,tpcds_sf1000_ext,query44,01f12298-e48a-1ad7-8285-e39ab0df954e,SUCCEEDED,0,,10,20260318T070546Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query44.sql
+query,test,tpcds_sf1000_ext,query45,01f12298-e9bf-1ca6-aba1-f25a68593471,SUCCEEDED,0,,100,20260318T070555Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query45.sql
+query,test,tpcds_sf1000_ext,query46,01f12298-ed3b-1f82-908e-691668de662c,SUCCEEDED,0,,100,20260318T070601Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query46.sql
+query,test,tpcds_sf1000_ext,query47,,FAILED,0,,0,20260318T070610Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query47.sql
+query,test,tpcds_sf1000_ext,query48,,FAILED,0,,0,20260318T070629Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query48.sql
+query,test,tpcds_sf1000_ext,query49,01f12298-fe1c-1e38-ad6e-6c9401d75bd0,SUCCEEDED,4545,,22,20260318T070629Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query49.sql
+query,test,tpcds_sf1000_ext,query50,01f12299-08b2-14c5-acaf-e1b7b934bd99,FAILED,0,,0,20260318T070646Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""30 days""'. SQLSTATE: 42601 (line 12, pos 87)
+
+== SQL ==
+select  
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk <= 30 ) then 1 else 0 end)  as ""30 days"" 
+---------------------------------------------------------------------------------------^^^
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 30) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 60) then 1 else 0 end )  as ""31-60 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 60) and 
+                 (sr_returned_date_sk - ss_sold_date_sk <= 90) then 1 else 0 end)  as ""61-90 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk > 90) and
+                 (sr_returned_date_sk - ss_sold_date_sk <= 120) then 1 else 0 end)  as ""91-120 days"" 
+  ,sum(case when (sr_returned_date_sk - ss_sold_date_sk  > 120) then 1 else 0 end)  as "">120 days"" 
+from
+   store_sales
+  ,store_returns
+  ,store
+  ,date_dim d1
+  ,date_dim d2
+where
+    d2.d_year = 2001
+and d2.d_moy  = 8
+and ss_ticket_number = sr_ticket_number
+and ss_item_sk = sr_item_sk
+and ss_sold_date_sk   = d1.d_date_sk
+and sr_returned_date_sk   = d2.d_date_sk
+and ss_customer_sk = sr_customer_sk
+and ss_store_sk = s_store_sk
+group by
+   s_store_name
+  ,s_company_id
+  ,s_street_number
+  ,s_street_name
+  ,s_street_type
+  ,s_suite_number
+  ,s_city
+  ,s_county
+  ,s_state
+  ,s_zip
+order by s_store_name
+        ,s_company_id
+        ,s_street_number
+        ,s_street_name
+        ,s_street_type
+        ,s_suite_number
+        ,s_city
+        ,s_county
+        ,s_state
+        ,s_zip
+limit 100;
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query50.sql
+query,test,tpcds_sf1000_ext,query51,,FAILED,0,,0,20260318T070650Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query51.sql
+query,test,tpcds_sf1000_ext,query52,01f12299-0a7c-1f81-934b-dfef5ff6251d,SUCCEEDED,0,,100,20260318T070650Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query52.sql
+query,test,tpcds_sf1000_ext,query53,01f12299-0e5f-1915-a7a1-8904551bb6cc,SUCCEEDED,0,,100,20260318T070657Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query53.sql
+query,test,tpcds_sf1000_ext,query54,,FAILED,0,,0,20260318T070706Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query54.sql
+query,test,tpcds_sf1000_ext,query55,01f12299-1408-1593-a6bf-d50696b0854a,SUCCEEDED,0,,100,20260318T070706Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query55.sql
+query,test,tpcds_sf1000_ext,query56,01f12299-17b1-1135-8c53-69a9d497913b,SUCCEEDED,0,,100,20260318T070712Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query56.sql
+query,test,tpcds_sf1000_ext,query57,,FAILED,0,,0,20260318T070722Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query57.sql
+query,test,tpcds_sf1000_ext,query58,01f12299-1de9-1fae-99d7-102c1740b4dd,SUCCEEDED,0,,51,20260318T070723Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query58.sql
+query,test,tpcds_sf1000_ext,query59,01f12299-22e7-165a-8d4b-adc18c9da0de,SUCCEEDED,6047,,100,20260318T070731Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query59.sql
+query,test,tpcds_sf1000_ext,query60,01f12299-2deb-1efc-a511-1fd1c0f4744e,SUCCEEDED,0,,100,20260318T070749Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query60.sql
+query,test,tpcds_sf1000_ext,query61,01f12299-3608-1721-8c44-51f2bca5e0f6,SUCCEEDED,0,,1,20260318T070759Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query61.sql
+query,test,tpcds_sf1000_ext,query62,,FAILED,0,,0,20260318T070811Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query62.sql
+query,test,tpcds_sf1000_ext,query63,01f12299-3b39-1e80-8899-acf2c11118d2,SUCCEEDED,0,,100,20260318T070812Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query63.sql
+query,test,tpcds_sf1000_ext,query64,,FAILED,0,,0,20260318T070821Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query64.sql
+query,test,tpcds_sf1000_ext,query65,,FAILED,0,,0,20260318T070822Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query65.sql
+query,test,tpcds_sf1000_ext,query66,01f12299-414e-1e63-bae6-8cdda3f0fd48,SUCCEEDED,0,,20,20260318T070822Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query66.sql
+query,test,tpcds_sf1000_ext,query67,,FAILED,0,,0,20260318T070831Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query67.sql
+query,test,tpcds_sf1000_ext,query68,,FAILED,0,,0,20260318T070855Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query68.sql
+query,test,tpcds_sf1000_ext,query69,01f12299-54fd-1bf4-a9ff-d0b5306e69d3,SUCCEEDED,8534,,100,20260318T070855Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query69.sql
+query,test,tpcds_sf1000_ext,query70,01f12299-615d-11a6-9299-3c0d5a7e4494,SUCCEEDED,4520,,54,20260318T070916Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query70.sql
+query,test,tpcds_sf1000_ext,query71,,FAILED,0,,0,20260318T070933Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query71.sql
+query,test,tpcds_sf1000_ext,query72,,FAILED,0,,0,20260318T070933Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query72.sql
+query,test,tpcds_sf1000_ext,query73,01f12299-6c1e-1ab4-82eb-d0bfb664f37d,SUCCEEDED,0,,430,20260318T070934Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query73.sql
+query,test,tpcds_sf1000_ext,query74,,FAILED,0,,0,20260318T070941Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query74.sql
+query,test,tpcds_sf1000_ext,query75,,FAILED,0,,0,20260318T070942Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query75.sql
+query,test,tpcds_sf1000_ext,query76,01f12299-7992-1a70-99f6-d6aa382fd3c0,SUCCEEDED,4325,,100,20260318T070957Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query76.sql
+query,test,tpcds_sf1000_ext,query77,01f12299-8374-18e5-be89-5cf9ad31c11e,SUCCEEDED,0,,100,20260318T071013Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query77.sql
+query,test,tpcds_sf1000_ext,query78,,FAILED,0,,0,20260318T071023Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query78.sql
+query,test,tpcds_sf1000_ext,query79,,FAILED,0,,0,20260318T071057Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query79.sql
+query,test,tpcds_sf1000_ext,query80,,FAILED,0,,0,20260318T071057Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query80.sql
+query,test,tpcds_sf1000_ext,query81,01f12299-9e1d-1269-a911-c0ea36aedcef,SUCCEEDED,0,,100,20260318T071058Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query81.sql
+query,test,tpcds_sf1000_ext,query82,01f12299-a489-160f-b609-2124013406ae,SUCCEEDED,0,,5,20260318T071108Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query82.sql
+query,test,tpcds_sf1000_ext,query83,,FAILED,0,,0,20260318T071115Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query83.sql
+query,test,tpcds_sf1000_ext,query84,01f12299-a895-1b03-a674-66fb5f475835,SUCCEEDED,0,,100,20260318T071115Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query84.sql
+query,test,tpcds_sf1000_ext,query85,01f12299-ab7e-1dd9-8b69-d91dd12f56c9,SUCCEEDED,0,,0,20260318T071120Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query85.sql
+query,test,tpcds_sf1000_ext,query86,01f12299-aebd-14bc-8f4d-f460dd24d9f1,SUCCEEDED,0,,100,20260318T071126Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query86.sql
+query,test,tpcds_sf1000_ext,query87,01f12299-b190-181e-89ee-bb2e6afdfd98,SUCCEEDED,0,,1,20260318T071131Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query87.sql
+query,test,tpcds_sf1000_ext,query88,,FAILED,0,,0,20260318T071142Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query88.sql
+query,test,tpcds_sf1000_ext,query89,01f12299-b8d8-15ea-b64a-7d8f9a8cd960,SUCCEEDED,0,,100,20260318T071143Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query89.sql
+query,test,tpcds_sf1000_ext,query90,,FAILED,0,,0,20260318T071152Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query90.sql
+query,test,tpcds_sf1000_ext,query91,,FAILED,0,,0,20260318T071153Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query91.sql
+query,test,tpcds_sf1000_ext,query92,01f12299-beec-19d2-8ec4-9ebd489cff06,FAILED,0,,0,20260318T071153Z,"
+[PARSE_SYNTAX_ERROR] Syntax error at or near '""Excess Discount Amount""'. SQLSTATE: 42601 (line 2, pos 32)
+
+== SQL ==
+select  
+   sum(ws_ext_discount_amt)  as ""Excess Discount Amount"" 
+--------------------------------^^^
+from 
+    web_sales 
+   ,item 
+   ,date_dim
+where
+i_manufact_id = 714
+and i_item_sk = ws_item_sk 
+and d_date between '2000-02-01' and 
+        (cast('2000-02-01' as date) + interval 90 day)
+and d_date_sk = ws_sold_date_sk 
+and ws_ext_discount_amt  
+     > ( 
+         SELECT 
+            1.3 * avg(ws_ext_discount_amt) 
+         FROM 
+            web_sales 
+           ,date_dim
+         WHERE 
+              ws_item_sk = i_item_sk 
+          and d_date between '2000-02-01' and
+                             (cast('2000-02-01' as date) + interval 90 day)
+          and d_date_sk = ws_sold_date_sk 
+      ) 
+order by sum(ws_ext_discount_amt)
+limit 100;
+",/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query92.sql
+query,test,tpcds_sf1000_ext,query93,01f12299-c045-14aa-a762-7a33125129f1,SUCCEEDED,0,,0,20260318T071155Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query93.sql
+query,test,tpcds_sf1000_ext,query94,,FAILED,0,,0,20260318T071158Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query94.sql
+query,test,tpcds_sf1000_ext,query95,,FAILED,0,,0,20260318T071159Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query95.sql
+query,test,tpcds_sf1000_ext,query96,01f12299-c2a5-10ca-a942-d7a8c705bd2c,SUCCEEDED,0,,1,20260318T071159Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query96.sql
+query,test,tpcds_sf1000_ext,query97,01f12299-c651-1ffc-b814-a2b8c85b4d41,SUCCEEDED,0,,1,20260318T071205Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query97.sql
+query,test,tpcds_sf1000_ext,query98,,FAILED,0,,0,20260318T071214Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query98.sql
+query,test,tpcds_sf1000_ext,query99,,FAILED,0,,0,20260318T071214Z,<urlopen error [SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1010)>,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query99.sql

@@ -1,0 +1,10 @@
+kind,catalog,schema,object_name,pass_name,statement_id,state,wall_duration_ms,metric_duration_ms,scalar_result,row_count,started_at_utc,message,query_file
+query,databricks_test,tpcds_sf1000_ext,query14,cold,,FAILED,0,0,,0,20260318T135110Z,"ERROR 1105 (HY000) at line 5: errCode = 2, detailMessage = cancel query by user from 43.154.68.180:43201",/tmp/doris-rerun-timeout-clean/query14.sql
+query,databricks_test,tpcds_sf1000_ext,query14,hot1,4cdc924ff22b4961-ae685364992641b7,SUCCEEDED,14290,14290,,100,20260318T140345Z,,/tmp/doris-rerun-timeout-clean/query14.sql
+query,databricks_test,tpcds_sf1000_ext,query14,hot2,4ffb9fe260a34447-84a7228d29a1b157,SUCCEEDED,11963,11963,,100,20260318T140359Z,,/tmp/doris-rerun-timeout-clean/query14.sql
+query,databricks_test,tpcds_sf1000_ext,query14_1,cold,a2322aab42624e5f-8a01f79c38bdc673,SUCCEEDED,12519,12519,,100,20260318T140411Z,,/tmp/doris-rerun-timeout-clean/query14_1.sql
+query,databricks_test,tpcds_sf1000_ext,query14_1,hot1,a7071a5905b64cee-acfe1e204f00889e,SUCCEEDED,12672,12672,,100,20260318T140424Z,,/tmp/doris-rerun-timeout-clean/query14_1.sql
+query,databricks_test,tpcds_sf1000_ext,query14_1,hot2,6ed28a8f4f4814-a65bbb47aaf67d33,SUCCEEDED,12597,12597,,100,20260318T140436Z,,/tmp/doris-rerun-timeout-clean/query14_1.sql
+query,databricks_test,tpcds_sf1000_ext,query88,cold,,FAILED,0,0,,0,20260318T140449Z,"ERROR 1105 (HY000) at line 5: errCode = 2, detailMessage = (172.31.25.127)[INTERNAL_ERROR]failed to read from : ExpiredToken Unable to parse ExceptionName: ExpiredToken Message: The provided token has expired. code=400 type=100, request_id=ZS27FQ6HST1FSCVKfailed to read. cur path: s3://yy-s3-bucket-us-east-1/databricks/tpcds_sf1000/store/cC/part-00000-db8ab2fb-ef2a-4c1a-bf66-a32cdb0cc417.c000.snappy.parquet",/tmp/doris-rerun-timeout-clean/query88.sql
+query,databricks_test,tpcds_sf1000_ext,query88,hot1,,FAILED,0,0,,0,20260318T140452Z,mysql client timed out after 7200s,/tmp/doris-rerun-timeout-clean/query88.sql
+query,databricks_test,tpcds_sf1000_ext,query88,hot2,be816d8ec0d04e7d-81521a05bac89317,SUCCEEDED,12312,12312,,1,20260318T160452Z,,/tmp/doris-rerun-timeout-clean/query88.sql

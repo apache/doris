@@ -1,0 +1,11 @@
+object_name,cold_state,cold_ms,cold_statement_id
+query62,FAILED,0,
+query64,FAILED,0,
+query66,FAILED,0,
+query77,FAILED,0,
+query80,FAILED,0,
+query85,FAILED,0,
+query91,FAILED,0,
+query93,SUCCEEDED,3202,477aab830ada41c4-967e978f27bdc191
+query94,SUCCEEDED,7663,4a3f74434dbc44e5-b68772cd80be282c
+query99,SUCCEEDED,4274,bf39952ba6e4ab8-83ac6c1ffec7d213

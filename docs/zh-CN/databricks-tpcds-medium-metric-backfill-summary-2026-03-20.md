@@ -25,11 +25,11 @@ under the License.
 ## 来源目录
 
 - 原始主结果目录：
-  [databricks-test-medium-round2](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-round2)
+  [databricks-test-medium-round2](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-round2)
 - 第一轮补跑目录：
-  [databricks-test-medium-missing-round1](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round1)
+  [databricks-test-medium-missing-round1](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round1)
 - 第二轮补跑目录：
-  [databricks-test-medium-missing-round2](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round2)
+  [databricks-test-medium-missing-round2](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round2)
 
 ## 背景
 
@@ -60,8 +60,8 @@ under the License.
 
 结果文件：
 
-- [20260320T114043Z_summary.json](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round1/20260320T114043Z_summary.json)
-- [20260320T114043Z_query_summary.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round1/20260320T114043Z_query_summary.csv)
+- [20260320T114043Z_summary.json](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round1/20260320T114043Z_summary.json)
+- [20260320T114043Z_query_summary.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round1/20260320T114043Z_query_summary.csv)
 
 | Item | Value |
 | --- | --- |
@@ -90,8 +90,8 @@ Round 1 补跑后仍未补上的对象是：
 
 结果文件：
 
-- [20260320T115616Z_summary.json](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round2/20260320T115616Z_summary.json)
-- [20260320T115616Z_query_summary.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round2/20260320T115616Z_query_summary.csv)
+- [20260320T115616Z_summary.json](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round2/20260320T115616Z_summary.json)
+- [20260320T115616Z_query_summary.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round2/20260320T115616Z_query_summary.csv)
 
 第二轮只补跑了 Round 1 后仍未补上的 6 个 query：
 
@@ -115,9 +115,9 @@ Round 2 结论：
 
 把下面三组结果按同一 `(query, pass)` 口径合并后：
 
-- 原始主结果 [20260318T081120Z_queries.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-round2/20260318T081120Z_queries.csv)
-- 第一轮补跑 [20260320T114043Z_queries.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round1/20260320T114043Z_queries.csv)
-- 第二轮补跑 [20260320T115616Z_queries.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks-test-medium-missing-round2/20260320T115616Z_queries.csv)
+- 原始主结果 [20260318T081120Z_queries.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-round2/20260318T081120Z_queries.csv)
+- 第一轮补跑 [20260320T114043Z_queries.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round1/20260320T114043Z_queries.csv)
+- 第二轮补跑 [20260320T115616Z_queries.csv](/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/results/databricks/databricks-test-medium-missing-round2/20260320T115616Z_queries.csv)
 
 当前 Databricks `medium` 最终状态是：
 

@@ -1,0 +1,8 @@
+kind,catalog,schema,object_name,pass_name,statement_id,state,wall_duration_ms,metric_duration_ms,scalar_result,row_count,started_at_utc,message,query_file
+query,databricks_test,tpcds_sf1000_ext,query62,cold,ef6348be863844b5-97df5afdd6dfd3b6,SUCCEEDED,8272,8272,,100,20260318T133709Z,,/tmp/doris-rerun-s3-remaining/query62.sql
+query,databricks_test,tpcds_sf1000_ext,query64,cold,5f53f93669c24857-9512ac80efdbe187,SUCCEEDED,13604,13604,,0,20260318T133717Z,,/tmp/doris-rerun-s3-remaining/query64.sql
+query,databricks_test,tpcds_sf1000_ext,query66,cold,1d830dc2adf74a82-9b2de610695aa489,SUCCEEDED,10124,10124,,20,20260318T133731Z,,/tmp/doris-rerun-s3-remaining/query66.sql
+query,databricks_test,tpcds_sf1000_ext,query77,cold,7f3a129d18bc428b-89afbea42a132079,SUCCEEDED,11334,11334,,100,20260318T133741Z,,/tmp/doris-rerun-s3-remaining/query77.sql
+query,databricks_test,tpcds_sf1000_ext,query80,cold,d6a86c130c894302-9a3c5462da8b642b,SUCCEEDED,5984,5984,,19,20260318T133753Z,,/tmp/doris-rerun-s3-remaining/query80.sql
+query,databricks_test,tpcds_sf1000_ext,query85,cold,eecd593963734c68-89d448ba27d025e7,SUCCEEDED,5918,5918,,0,20260318T133759Z,,/tmp/doris-rerun-s3-remaining/query85.sql
+query,databricks_test,tpcds_sf1000_ext,query91,cold,4be6265b2aea4bf7-92facb10c7ac8c74,SUCCEEDED,4246,4246,,0,20260318T133804Z,,/tmp/doris-rerun-s3-remaining/query91.sql

@@ -1,0 +1,4 @@
+kind,catalog,schema,object_name,pass_name,statement_id,state,wall_duration_ms,scalar_result,row_count,started_at_utc,message,query_file,metric_duration_ms,metric_source
+query,test,tpcds_sf1000_ext,query99,cold,01f12458-d783-1ba2-bb1b-4f68aa2186d8,SUCCEEDED,279514,,0,20260320T123220Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query99.sql,279514,wall_duration_ms_fallback
+query,test,tpcds_sf1000_ext,query99,hot1,01f12459-7e0d-110c-a3b2-c45c3963b481,SUCCEEDED,3682,,0,20260320T123700Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query99.sql,3682,wall_duration_ms_fallback
+query,test,tpcds_sf1000_ext,query99,hot2,01f12459-8030-1af8-a513-c6ee188d1663,SUCCEEDED,3991,,0,20260320T123703Z,,/mnt/disk2/yunyou/chenjunwei/doris/tools/tpcds-tools/queries/sf1000/query99.sql,3991,wall_duration_ms_fallback

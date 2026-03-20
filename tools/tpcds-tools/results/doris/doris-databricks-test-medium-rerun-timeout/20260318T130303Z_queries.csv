@@ -1,0 +1,10 @@
+kind,catalog,schema,object_name,pass_name,statement_id,state,wall_duration_ms,metric_duration_ms,scalar_result,row_count,started_at_utc,message,query_file
+query,databricks_test,tpcds_sf1000_ext,query14,cold,6be08da4961c4456-a3ed3f4cc07499fa,SUCCEEDED,13314,13314,,100,20260318T130303Z,,/tmp/doris-rerun-timeout/query14.sql
+query,databricks_test,tpcds_sf1000_ext,query14,hot1,,FAILED,0,0,,0,20260318T130316Z,"ERROR 1105 (HY000) at line 4: errCode = 2, detailMessage = query is timeout, killed by timeout checker",/tmp/doris-rerun-timeout/query14.sql
+query,databricks_test,tpcds_sf1000_ext,query14,hot2,88ba7faee87048f8-9005581f5b894306,SUCCEEDED,13875,13875,,100,20260318T131819Z,,/tmp/doris-rerun-timeout/query14.sql
+query,databricks_test,tpcds_sf1000_ext,query14_1,cold,9abb0ee8e367426b-b929bee2b37449a7,SUCCEEDED,12520,12520,,100,20260318T131833Z,,/tmp/doris-rerun-timeout/query14_1.sql
+query,databricks_test,tpcds_sf1000_ext,query14_1,hot1,ae6e962e3e2b4782-95dca11367d85367,SUCCEEDED,12169,12169,,100,20260318T131845Z,,/tmp/doris-rerun-timeout/query14_1.sql
+query,databricks_test,tpcds_sf1000_ext,query14_1,hot2,,FAILED,0,0,,0,20260318T131857Z,"ERROR 1105 (HY000) at line 4: errCode = 2, detailMessage = cancel query by user from 43.154.68.180:39009",/tmp/doris-rerun-timeout/query14_1.sql
+query,databricks_test,tpcds_sf1000_ext,query88,cold,,FAILED,0,0,,0,20260318T132544Z,"ERROR 1105 (HY000) at line 4: errCode = 2, detailMessage = cancel query by user from 43.154.68.180:44801",/tmp/doris-rerun-timeout/query88.sql
+query,databricks_test,tpcds_sf1000_ext,query88,hot1,,FAILED,0,0,,0,20260318T133430Z,"ERROR 1105 (HY000) at line 4: errCode = 2, detailMessage = cancel query by user from 43.154.68.180:27318",/tmp/doris-rerun-timeout/query88.sql
+query,databricks_test,tpcds_sf1000_ext,query88,hot2,,FAILED,0,0,,0,20260318T134514Z,"ERROR 1105 (HY000) at line 4: errCode = 2, detailMessage = cancel query by user from 43.154.68.180:7826",/tmp/doris-rerun-timeout/query88.sql

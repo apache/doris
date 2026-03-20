@@ -1,0 +1,4 @@
+object_name,cold_state,cold_ms,cold_statement_id,hot1_state,hot1_ms,hot1_statement_id,hot2_state,hot2_ms,hot2_statement_id,best_hot_ms
+query14,SUCCEEDED,13314,6be08da4961c4456-a3ed3f4cc07499fa,FAILED,0,,SUCCEEDED,13875,88ba7faee87048f8-9005581f5b894306,0
+query14_1,SUCCEEDED,12520,9abb0ee8e367426b-b929bee2b37449a7,SUCCEEDED,12169,ae6e962e3e2b4782-95dca11367d85367,FAILED,0,,0
+query88,FAILED,0,,FAILED,0,,FAILED,0,,0

@@ -1,0 +1,625 @@
+{
+  "run_id": "20260318T081120Z",
+  "workspace_url": "https://dbc-8dfd98c8-ab16.cloud.databricks.com",
+  "warehouse_id": "19f0f7c7efcf6c90",
+  "catalog": "test",
+  "schema": "tpcds_sf1000_ext",
+  "mode": "queries",
+  "size_label": "medium",
+  "passes": [
+    "cold",
+    "hot1",
+    "hot2"
+  ],
+  "tables_discovered": 0,
+  "summary": {
+    "total": 309,
+    "succeeded": 285,
+    "failed": 24,
+    "failed_objects": [
+      "query16:cold",
+      "query16:hot1",
+      "query16:hot2",
+      "query32:cold",
+      "query32:hot1",
+      "query32:hot2",
+      "query50:cold",
+      "query50:hot1",
+      "query50:hot2",
+      "query62:cold",
+      "query62:hot1",
+      "query62:hot2",
+      "query92:cold",
+      "query92:hot1",
+      "query92:hot2",
+      "query94:cold",
+      "query94:hot1",
+      "query94:hot2",
+      "query95:cold",
+      "query95:hot1",
+      "query95:hot2",
+      "query99:cold",
+      "query99:hot1",
+      "query99:hot2"
+    ],
+    "pass_totals_ms": {
+      "cold": 734498,
+      "hot1": 887169,
+      "hot2": 690752
+    },
+    "cold_total_ms": 734498,
+    "best_hot_total_ms": 683057,
+    "query_hot_breakdown": [
+      {
+        "object_name": "query1",
+        "hot1_ms": 3235,
+        "hot2_ms": 2717,
+        "best_hot_ms": 2717
+      },
+      {
+        "object_name": "query10",
+        "hot1_ms": 4686,
+        "hot2_ms": 4736,
+        "best_hot_ms": 4686
+      },
+      {
+        "object_name": "query11",
+        "hot1_ms": 14996,
+        "hot2_ms": 15880,
+        "best_hot_ms": 14996
+      },
+      {
+        "object_name": "query12",
+        "hot1_ms": 2100,
+        "hot2_ms": 2012,
+        "best_hot_ms": 2012
+      },
+      {
+        "object_name": "query13",
+        "hot1_ms": 5446,
+        "hot2_ms": 5390,
+        "best_hot_ms": 5390
+      },
+      {
+        "object_name": "query14",
+        "hot1_ms": 21902,
+        "hot2_ms": 21435,
+        "best_hot_ms": 21435
+      },
+      {
+        "object_name": "query14_1",
+        "hot1_ms": 21495,
+        "hot2_ms": 21263,
+        "best_hot_ms": 21263
+      },
+      {
+        "object_name": "query15",
+        "hot1_ms": 1463,
+        "hot2_ms": 1489,
+        "best_hot_ms": 1463
+      },
+      {
+        "object_name": "query17",
+        "hot1_ms": 6767,
+        "hot2_ms": 6959,
+        "best_hot_ms": 6767
+      },
+      {
+        "object_name": "query18",
+        "hot1_ms": 2671,
+        "hot2_ms": 2835,
+        "best_hot_ms": 2671
+      },
+      {
+        "object_name": "query19",
+        "hot1_ms": 5235,
+        "hot2_ms": 5305,
+        "best_hot_ms": 5235
+      },
+      {
+        "object_name": "query2",
+        "hot1_ms": 5200,
+        "hot2_ms": 5385,
+        "best_hot_ms": 5200
+      },
+      {
+        "object_name": "query20",
+        "hot1_ms": 1393,
+        "hot2_ms": 1431,
+        "best_hot_ms": 1393
+      },
+      {
+        "object_name": "query21",
+        "hot1_ms": 1302,
+        "hot2_ms": 1320,
+        "best_hot_ms": 1302
+      },
+      {
+        "object_name": "query22",
+        "hot1_ms": 27417,
+        "hot2_ms": 26918,
+        "best_hot_ms": 26918
+      },
+      {
+        "object_name": "query23",
+        "hot1_ms": 23578,
+        "hot2_ms": 23688,
+        "best_hot_ms": 23578
+      },
+      {
+        "object_name": "query23_1",
+        "hot1_ms": 23300,
+        "hot2_ms": 22875,
+        "best_hot_ms": 22875
+      },
+      {
+        "object_name": "query24",
+        "hot1_ms": 13148,
+        "hot2_ms": 13622,
+        "best_hot_ms": 13148
+      },
+      {
+        "object_name": "query24_1",
+        "hot1_ms": 13338,
+        "hot2_ms": 13292,
+        "best_hot_ms": 13292
+      },
+      {
+        "object_name": "query25",
+        "hot1_ms": 5965,
+        "hot2_ms": 5783,
+        "best_hot_ms": 5783
+      },
+      {
+        "object_name": "query26",
+        "hot1_ms": 693,
+        "hot2_ms": 862,
+        "best_hot_ms": 693
+      },
+      {
+        "object_name": "query27",
+        "hot1_ms": 8938,
+        "hot2_ms": 8929,
+        "best_hot_ms": 8929
+      },
+      {
+        "object_name": "query28",
+        "hot1_ms": 14567,
+        "hot2_ms": 14605,
+        "best_hot_ms": 14567
+      },
+      {
+        "object_name": "query29",
+        "hot1_ms": 8242,
+        "hot2_ms": 8239,
+        "best_hot_ms": 8239
+      },
+      {
+        "object_name": "query3",
+        "hot1_ms": 5926,
+        "hot2_ms": 5789,
+        "best_hot_ms": 5789
+      },
+      {
+        "object_name": "query30",
+        "hot1_ms": 1833,
+        "hot2_ms": 1991,
+        "best_hot_ms": 1833
+      },
+      {
+        "object_name": "query31",
+        "hot1_ms": 9834,
+        "hot2_ms": 9683,
+        "best_hot_ms": 9683
+      },
+      {
+        "object_name": "query33",
+        "hot1_ms": 6349,
+        "hot2_ms": 6329,
+        "best_hot_ms": 6329
+      },
+      {
+        "object_name": "query34",
+        "hot1_ms": 4125,
+        "hot2_ms": 4205,
+        "best_hot_ms": 4125
+      },
+      {
+        "object_name": "query35",
+        "hot1_ms": 4869,
+        "hot2_ms": 4827,
+        "best_hot_ms": 4827
+      },
+      {
+        "object_name": "query36",
+        "hot1_ms": 5460,
+        "hot2_ms": 5309,
+        "best_hot_ms": 5309
+      },
+      {
+        "object_name": "query37",
+        "hot1_ms": 722,
+        "hot2_ms": 615,
+        "best_hot_ms": 615
+      },
+      {
+        "object_name": "query38",
+        "hot1_ms": 5885,
+        "hot2_ms": 5869,
+        "best_hot_ms": 5869
+      },
+      {
+        "object_name": "query39",
+        "hot1_ms": 3663,
+        "hot2_ms": 3630,
+        "best_hot_ms": 3630
+      },
+      {
+        "object_name": "query39_1",
+        "hot1_ms": 3639,
+        "hot2_ms": 3489,
+        "best_hot_ms": 3489
+      },
+      {
+        "object_name": "query4",
+        "hot1_ms": 21637,
+        "hot2_ms": 19411,
+        "best_hot_ms": 19411
+      },
+      {
+        "object_name": "query40",
+        "hot1_ms": 1743,
+        "hot2_ms": 1710,
+        "best_hot_ms": 1710
+      },
+      {
+        "object_name": "query41",
+        "hot1_ms": 766,
+        "hot2_ms": 725,
+        "best_hot_ms": 725
+      },
+      {
+        "object_name": "query42",
+        "hot1_ms": 3003,
+        "hot2_ms": 2990,
+        "best_hot_ms": 2990
+      },
+      {
+        "object_name": "query43",
+        "hot1_ms": 4039,
+        "hot2_ms": 4135,
+        "best_hot_ms": 4039
+      },
+      {
+        "object_name": "query44",
+        "hot1_ms": 4004,
+        "hot2_ms": 4098,
+        "best_hot_ms": 4004
+      },
+      {
+        "object_name": "query45",
+        "hot1_ms": 2222,
+        "hot2_ms": 2296,
+        "best_hot_ms": 2222
+      },
+      {
+        "object_name": "query46",
+        "hot1_ms": 5439,
+        "hot2_ms": 5276,
+        "best_hot_ms": 5276
+      },
+      {
+        "object_name": "query47",
+        "hot1_ms": 10291,
+        "hot2_ms": 10261,
+        "best_hot_ms": 10261
+      },
+      {
+        "object_name": "query48",
+        "hot1_ms": 6253,
+        "hot2_ms": 6361,
+        "best_hot_ms": 6253
+      },
+      {
+        "object_name": "query49",
+        "hot1_ms": 7225,
+        "hot2_ms": 7288,
+        "best_hot_ms": 7225
+      },
+      {
+        "object_name": "query5",
+        "hot1_ms": 8005,
+        "hot2_ms": 8189,
+        "best_hot_ms": 8005
+      },
+      {
+        "object_name": "query51",
+        "hot1_ms": 5945,
+        "hot2_ms": 6157,
+        "best_hot_ms": 5945
+      },
+      {
+        "object_name": "query52",
+        "hot1_ms": 2930,
+        "hot2_ms": 2834,
+        "best_hot_ms": 2834
+      },
+      {
+        "object_name": "query53",
+        "hot1_ms": 6422,
+        "hot2_ms": 6528,
+        "best_hot_ms": 6422
+      },
+      {
+        "object_name": "query54",
+        "hot1_ms": 4894,
+        "hot2_ms": 4850,
+        "best_hot_ms": 4850
+      },
+      {
+        "object_name": "query55",
+        "hot1_ms": 2957,
+        "hot2_ms": 2907,
+        "best_hot_ms": 2907
+      },
+      {
+        "object_name": "query56",
+        "hot1_ms": 6475,
+        "hot2_ms": 6868,
+        "best_hot_ms": 6475
+      },
+      {
+        "object_name": "query57",
+        "hot1_ms": 4170,
+        "hot2_ms": 4132,
+        "best_hot_ms": 4132
+      },
+      {
+        "object_name": "query58",
+        "hot1_ms": 5090,
+        "hot2_ms": 5103,
+        "best_hot_ms": 5090
+      },
+      {
+        "object_name": "query59",
+        "hot1_ms": 10180,
+        "hot2_ms": 10277,
+        "best_hot_ms": 10180
+      },
+      {
+        "object_name": "query6",
+        "hot1_ms": 4574,
+        "hot2_ms": 4758,
+        "best_hot_ms": 4574
+      },
+      {
+        "object_name": "query60",
+        "hot1_ms": 6576,
+        "hot2_ms": 7015,
+        "best_hot_ms": 6576
+      },
+      {
+        "object_name": "query61",
+        "hot1_ms": 5243,
+        "hot2_ms": 5456,
+        "best_hot_ms": 5243
+      },
+      {
+        "object_name": "query63",
+        "hot1_ms": 6397,
+        "hot2_ms": 6374,
+        "best_hot_ms": 6374
+      },
+      {
+        "object_name": "query64",
+        "hot1_ms": 5287,
+        "hot2_ms": 5037,
+        "best_hot_ms": 5037
+      },
+      {
+        "object_name": "query65",
+        "hot1_ms": 14537,
+        "hot2_ms": 14076,
+        "best_hot_ms": 14076
+      },
+      {
+        "object_name": "query66",
+        "hot1_ms": 2585,
+        "hot2_ms": 2475,
+        "best_hot_ms": 2475
+      },
+      {
+        "object_name": "query67",
+        "hot1_ms": 26253,
+        "hot2_ms": 26554,
+        "best_hot_ms": 26253
+      },
+      {
+        "object_name": "query68",
+        "hot1_ms": 4825,
+        "hot2_ms": 4764,
+        "best_hot_ms": 4764
+      },
+      {
+        "object_name": "query69",
+        "hot1_ms": 3764,
+        "hot2_ms": 3959,
+        "best_hot_ms": 3764
+      },
+      {
+        "object_name": "query7",
+        "hot1_ms": 1145,
+        "hot2_ms": 1239,
+        "best_hot_ms": 1145
+      },
+      {
+        "object_name": "query70",
+        "hot1_ms": 7336,
+        "hot2_ms": 7451,
+        "best_hot_ms": 7336
+      },
+      {
+        "object_name": "query71",
+        "hot1_ms": 5067,
+        "hot2_ms": 5305,
+        "best_hot_ms": 5067
+      },
+      {
+        "object_name": "query72",
+        "hot1_ms": 2802,
+        "hot2_ms": 2818,
+        "best_hot_ms": 2802
+      },
+      {
+        "object_name": "query73",
+        "hot1_ms": 4272,
+        "hot2_ms": 4263,
+        "best_hot_ms": 4263
+      },
+      {
+        "object_name": "query74",
+        "hot1_ms": 10441,
+        "hot2_ms": 10070,
+        "best_hot_ms": 10070
+      },
+      {
+        "object_name": "query75",
+        "hot1_ms": 22958,
+        "hot2_ms": 22545,
+        "best_hot_ms": 22545
+      },
+      {
+        "object_name": "query76",
+        "hot1_ms": 5098,
+        "hot2_ms": 5023,
+        "best_hot_ms": 5023
+      },
+      {
+        "object_name": "query77",
+        "hot1_ms": 5824,
+        "hot2_ms": 5446,
+        "best_hot_ms": 5446
+      },
+      {
+        "object_name": "query78",
+        "hot1_ms": 28477,
+        "hot2_ms": 28957,
+        "best_hot_ms": 28477
+      },
+      {
+        "object_name": "query79",
+        "hot1_ms": 6361,
+        "hot2_ms": 6251,
+        "best_hot_ms": 6251
+      },
+      {
+        "object_name": "query8",
+        "hot1_ms": 4666,
+        "hot2_ms": 4622,
+        "best_hot_ms": 4622
+      },
+      {
+        "object_name": "query80",
+        "hot1_ms": 3567,
+        "hot2_ms": 3524,
+        "best_hot_ms": 3524
+      },
+      {
+        "object_name": "query81",
+        "hot1_ms": 2761,
+        "hot2_ms": 2740,
+        "best_hot_ms": 2740
+      },
+      {
+        "object_name": "query82",
+        "hot1_ms": 2967,
+        "hot2_ms": 3033,
+        "best_hot_ms": 2967
+      },
+      {
+        "object_name": "query83",
+        "hot1_ms": 2319,
+        "hot2_ms": 2136,
+        "best_hot_ms": 2136
+      },
+      {
+        "object_name": "query84",
+        "hot1_ms": 1488,
+        "hot2_ms": 1598,
+        "best_hot_ms": 1488
+      },
+      {
+        "object_name": "query85",
+        "hot1_ms": 2503,
+        "hot2_ms": 2449,
+        "best_hot_ms": 2449
+      },
+      {
+        "object_name": "query86",
+        "hot1_ms": 196601,
+        "hot2_ms": 2296,
+        "best_hot_ms": 2296
+      },
+      {
+        "object_name": "query87",
+        "hot1_ms": 9445,
+        "hot2_ms": 10301,
+        "best_hot_ms": 9445
+      },
+      {
+        "object_name": "query88",
+        "hot1_ms": 22701,
+        "hot2_ms": 22759,
+        "best_hot_ms": 22701
+      },
+      {
+        "object_name": "query89",
+        "hot1_ms": 7460,
+        "hot2_ms": 7509,
+        "best_hot_ms": 7460
+      },
+      {
+        "object_name": "query9",
+        "hot1_ms": 9407,
+        "hot2_ms": 9389,
+        "best_hot_ms": 9389
+      },
+      {
+        "object_name": "query90",
+        "hot1_ms": 2775,
+        "hot2_ms": 2830,
+        "best_hot_ms": 2775
+      },
+      {
+        "object_name": "query91",
+        "hot1_ms": 1713,
+        "hot2_ms": 1772,
+        "best_hot_ms": 1713
+      },
+      {
+        "object_name": "query93",
+        "hot1_ms": 1537,
+        "hot2_ms": 1570,
+        "best_hot_ms": 1537
+      },
+      {
+        "object_name": "query96",
+        "hot1_ms": 4614,
+        "hot2_ms": 4652,
+        "best_hot_ms": 4614
+      },
+      {
+        "object_name": "query97",
+        "hot1_ms": 8159,
+        "hot2_ms": 7194,
+        "best_hot_ms": 7194
+      },
+      {
+        "object_name": "query98",
+        "hot1_ms": 9592,
+        "hot2_ms": 9440,
+        "best_hot_ms": 9440
+      }
+    ]
+  }
+}
