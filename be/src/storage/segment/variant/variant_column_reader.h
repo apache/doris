@@ -30,13 +30,13 @@
 
 #include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
+#include "nested_group_provider.h"
+#include "nested_group_reader.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/page_handle.h"
 #include "storage/segment/variant/binary_column_reader.h"
 #include "storage/segment/variant/hierarchical_data_iterator.h"
-#include "storage/segment/variant/nested_group_provider.h"
-#include "storage/segment/variant/nested_group_reader.h"
 #include "storage/segment/variant/variant_external_meta_reader.h"
 #include "storage/segment/variant/variant_statistics.h"
 #include "storage/tablet/tablet_schema.h"
@@ -315,6 +315,9 @@ private:
     struct ReadPlan {
         ReadKind kind {ReadKind::DEFAULT_FILL};
         DataTypePtr type;
+        // Some root reads still need a final merge with NestedGroup readers even after the actual
+        // source iterator kind has been chosen by the planner.
+        bool needs_root_merge = false;
 
         // path & meta context
         PathInData relative_path;
@@ -352,6 +355,9 @@ private:
 
     static bool _need_read_flat_leaves(const StorageReadOptions* opts);
     bool _can_use_nested_group_read_path() const;
+    // Only root-path reads need the extra merge; child-path reads are already served by the
+    // specific iterator selected in the plan.
+    bool _needs_root_nested_group_merge(const PathInData& relative_path) const;
     Status _validate_access_paths_debug(const TabletColumn& target_col,
                                         const StorageReadOptions* opt, int32_t col_uid,
                                         const PathInData& relative_path) const;
@@ -375,6 +381,10 @@ private:
                                       const TabletColumn& target_col, const StorageReadOptions* opt,
                                       ColumnReaderCache* column_reader_cache,
                                       PathToBinaryColumnCache* binary_column_cache_ptr);
+    // Keep the merge wrapper centralized so each read-kind branch only decides where data comes
+    // from, not how root NestedGroup readers are stitched together.
+    Status _maybe_wrap_root_merge_iterator(ColumnIteratorUPtr* iterator, const ReadPlan& plan,
+                                           const StorageReadOptions* opt);
     // init for compaction read
     Status _new_default_iter_with_same_nested(ColumnIteratorUPtr* iterator, const TabletColumn& col,
                                               const StorageReadOptions* opt,
@@ -451,10 +461,6 @@ public:
                           MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
-
-    Status read_null_map(size_t* n, NullMap& null_map) override {
-        return _inner_iter->read_null_map(n, null_map);
-    }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
