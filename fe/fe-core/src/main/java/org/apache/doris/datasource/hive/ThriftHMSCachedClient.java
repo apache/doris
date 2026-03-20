@@ -96,11 +96,18 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private volatile boolean isClosed = false;
     private final HiveConf hiveConf;
     private final ExecutionAuthenticator executionAuthenticator;
+    private final MetaStoreClientProvider metaStoreClientProvider;
 
     public ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator) {
+        this(hiveConf, poolSize, executionAuthenticator, new DefaultMetaStoreClientProvider());
+    }
+
+    ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator,
+            MetaStoreClientProvider metaStoreClientProvider) {
         Preconditions.checkArgument(poolSize > 0, poolSize);
         this.hiveConf = hiveConf;
         this.executionAuthenticator = executionAuthenticator;
+        this.metaStoreClientProvider = Preconditions.checkNotNull(metaStoreClientProvider, "metaStoreClientProvider");
         this.clientPool = new GenericObjectPool<>(new ThriftHMSClientFactory(), createPoolConfig(poolSize));
     }
 
@@ -658,17 +665,14 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return config;
     }
 
-    private IMetaStoreClient createHiveMetastoreClient() throws MetaException {
+    static String getMetastoreClientClassName(HiveConf hiveConf) {
         String type = hiveConf.get(HMSBaseProperties.HIVE_METASTORE_TYPE);
         if (HMSBaseProperties.DLF_TYPE.equalsIgnoreCase(type)) {
-            return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                    ProxyMetaStoreClient.class.getName());
+            return ProxyMetaStoreClient.class.getName();
         } else if (HMSBaseProperties.GLUE_TYPE.equalsIgnoreCase(type)) {
-            return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                    AWSCatalogMetastoreClient.class.getName());
+            return AWSCatalogMetastoreClient.class.getName();
         } else {
-            return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
-                    HiveMetaStoreClient.class.getName());
+            return HiveMetaStoreClient.class.getName();
         }
     }
 
@@ -685,7 +689,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private class ThriftHMSClientFactory extends BasePooledObjectFactory<ThriftHMSClient> {
         @Override
         public ThriftHMSClient create() throws Exception {
-            return withSystemClassLoader(() -> ugiDoAs(() -> new ThriftHMSClient(createHiveMetastoreClient())));
+            return withSystemClassLoader(() -> ugiDoAs(
+                    () -> new ThriftHMSClient(metaStoreClientProvider.create(hiveConf))));
         }
 
         @Override
@@ -758,6 +763,18 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             throw e;
         } catch (Exception e) {
             throw new HMSClientException("failed to borrow hms client from pool", e);
+        }
+    }
+
+    interface MetaStoreClientProvider {
+        IMetaStoreClient create(HiveConf hiveConf) throws MetaException;
+    }
+
+    private static class DefaultMetaStoreClientProvider implements MetaStoreClientProvider {
+        @Override
+        public IMetaStoreClient create(HiveConf hiveConf) throws MetaException {
+            return RetryingMetaStoreClient.getProxy(hiveConf, DUMMY_HOOK_LOADER,
+                    getMetastoreClientClassName(hiveConf));
         }
     }
 
