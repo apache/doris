@@ -50,6 +50,7 @@
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "storage/predicate/null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
@@ -1030,28 +1031,30 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
-    _rows_read_counter = ADD_COUNTER(custom_profile(), "RowsRead", TUnit::UNIT);
-    _num_scanners = ADD_COUNTER(custom_profile(), "NumScanners", TUnit::UNIT);
+    _rows_read_counter = ADD_COUNTER(custom_profile(), profile::ROWS_READ, TUnit::UNIT);
+    _num_scanners = ADD_COUNTER(custom_profile(), profile::NUM_SCANNERS, TUnit::UNIT);
     //custom_profile()->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
-    _scanner_profile.reset(new RuntimeProfile("Scanner"));
+    _scanner_profile.reset(new RuntimeProfile(profile::SCANNER));
     custom_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _newly_create_free_blocks_num =
-            ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
-    _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
-    _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
+            ADD_COUNTER(_scanner_profile, profile::NEWLY_CREATE_FREE_BLOCKS_NUM, TUnit::UNIT);
+    _scan_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_GET_BLOCK_TIME);
+    _scan_cpu_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_CPU_TIME);
+    _filter_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_FILTER_TIME);
 
     // time of scan thread to wait for worker thread of the thread pool
-    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), "ScannerWorkerWaitTime");
+    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), profile::SCANNER_WORKER_WAIT_TIME);
 
-    _max_scan_concurrency = ADD_COUNTER(custom_profile(), "MaxScanConcurrency", TUnit::UNIT);
-    _min_scan_concurrency = ADD_COUNTER(custom_profile(), "MinScanConcurrency", TUnit::UNIT);
+    _max_scan_concurrency =
+            ADD_COUNTER(custom_profile(), profile::MAX_SCAN_CONCURRENCY, TUnit::UNIT);
+    _min_scan_concurrency =
+            ADD_COUNTER(custom_profile(), profile::MIN_SCAN_CONCURRENCY, TUnit::UNIT);
 
     _peak_running_scanner =
-            _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
+            _scanner_profile->AddHighWaterMarkCounter(profile::RUNNING_SCANNER, TUnit::UNIT);
 
     _condition_cache_hit_counter = ADD_COUNTER(_scanner_profile, "ConditionCacheHit", TUnit::UNIT);
     _condition_cache_filtered_rows_counter =
@@ -1059,10 +1062,10 @@ Status ScanLocalState<Derived>::_init_profile() {
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanRows", TUnit::UNIT, 1);
+    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), profile::SCAN_ROWS, TUnit::UNIT, 1);
     // Size of data that read from storage.
     // Does not include rows that are cached by doris page cache.
-    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanBytes", TUnit::BYTES, 1);
+    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), profile::SCAN_BYTES, TUnit::BYTES, 1);
     return Status::OK();
 }
 
