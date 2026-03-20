@@ -18,7 +18,6 @@
 #pragma once
 
 #include <cstdint>
-#include <memory>
 
 #include "arrow/io/interfaces.h"
 #include "common/factory_creator.h"

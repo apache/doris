@@ -20,7 +20,6 @@
 #include <unicode/uchar.h>
 
 #include <functional>
-#include <memory>
 #include <vector>
 
 #include "CLucene/_ApiHeader.h"

@@ -27,7 +27,6 @@
 #include <glog/logging.h>
 #include <stdint.h>
 
-#include <memory>
 #include <utility>
 #include <vector>
 

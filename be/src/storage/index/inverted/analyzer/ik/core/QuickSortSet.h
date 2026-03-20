@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include <memory>
 #include <optional>
 
 #include "CLucene/_ApiHeader.h"
