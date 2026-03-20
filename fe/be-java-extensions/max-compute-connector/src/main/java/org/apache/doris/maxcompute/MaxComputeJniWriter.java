@@ -308,13 +308,7 @@ public class MaxComputeJniWriter extends JniWriter {
         Runtime rt = Runtime.getRuntime();
         rt.gc(); // Request GC to get a cleaner measurement
         long heapBefore = rt.totalMemory() - rt.freeMemory();
-
-        // Materialize and immediately discard the probe data
-        Object[][] probeData = inputTable.getMaterializedData(
-                0, probeRows, java.util.Collections.emptyMap());
         long heapAfter = rt.totalMemory() - rt.freeMemory();
-        // Null out to help GC
-        probeData = null;
 
         long probeHeapCost = heapAfter - heapBefore;
         long bytesPerRow;
