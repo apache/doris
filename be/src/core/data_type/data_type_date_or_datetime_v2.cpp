@@ -20,7 +20,6 @@
 #include <gen_cpp/data.pb.h>
 
 #include <memory>
-#include <ostream>
 #include <string>
 #include <typeinfo>
 #include <utility>

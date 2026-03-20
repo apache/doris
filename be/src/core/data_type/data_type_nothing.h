@@ -26,7 +26,6 @@
 #include <stdint.h>
 
 #include <memory>
-#include <ostream>
 #include <string>
 
 #include "core/data_type/data_type.h"

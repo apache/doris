@@ -18,7 +18,6 @@
 #include <stddef.h>
 
 #include <memory>
-#include <ostream>
 #include <string>
 #include <utility>
 

@@ -28,7 +28,6 @@
 #include <atomic>
 #include <cstdint>
 #include <memory>
-#include <ostream>
 #include <regex>
 #include <utility>
 #include <vector>

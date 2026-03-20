@@ -20,7 +20,6 @@
 #include <strings.h>
 
 #include <memory>
-#include <ostream>
 
 #include "common/cast_set.h"
 #include "common/logging.h"

@@ -21,7 +21,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-#include <ostream>
 #include <string>
 
 #include "common/status.h"
