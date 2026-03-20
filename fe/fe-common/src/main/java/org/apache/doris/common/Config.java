@@ -3364,6 +3364,83 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_notify_be_after_load_txn_commit = false;
 
+    //==========================================================================
+    //                      cloud meta service rpc limiter config
+    //==========================================================================
+    @ConfField(mutable = true, description = {"Whether to enable rate limiting for meta-service RPC calls"})
+    public static boolean meta_service_rpc_rate_limit_enabled = true;
+
+    @ConfField(mutable = true, description = {
+            "Default QPS limit for each method (requests per second) in each cpu core, "
+                    + "non-positive value (<= 0) means no limit"})
+    public static int meta_service_rpc_rate_limit_default_qps_per_core = 10;
+
+    @ConfField(mutable = true, description = {
+            "Maximum waiting requests per method, requests exceeding this will be rejected immediately"})
+    public static int meta_service_rpc_rate_limit_max_waiting_request_num = 100;
+
+    @ConfField(mutable = true, description = {"Maximum wait time (ms) to acquire a token, request fails if timeout"})
+    public static long meta_service_rpc_rate_limit_wait_timeout_ms = 5000;
+
+    @ConfField(mutable = true, description = {"QPS limit config per rpc method to meta service in per cpu core, "
+            + "format: method1:qps1;method2:qps2, e.g.: getVersion:100;getTabletStats:50, "
+            + "non-positive value (<= 0) means no limit"})
+    public static String meta_service_rpc_rate_limit_qps_per_core_config = "";
+
+    @ConfField(mutable = true, description = {
+            "Cost limit config per method in per cpu core, format: method1:cost1;method2:cost2, "
+                    + "e.g.: getVersion:1000;getTabletStats:50, non-positive value (<= 0) means no limit. "
+                    + "The cost is calculated based on the estimated number of kv accesses required by the rpc"})
+    public static String meta_service_rpc_cost_limit_per_core_config = "getVersion:5000";
+
+    @ConfField(mutable = true, description = {"If the meta-service RPC cost exceeds the limit, "
+            + "it will be adjusted to the limit value to prevent RPCs with high costs from failing to execute."})
+    public static boolean meta_service_rpc_cost_clamped_to_limit_enabled = true;
+
+    @ConfField(mutable = true, description = {
+            "Whether to enable overload throttle (auto-adjust QPS based on timeout and server backpressure)"})
+    public static boolean meta_service_rpc_overload_throttle_enabled = true;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle minimum factor, effective QPS will not drop below configuredQps * minFactor"})
+    public static double meta_service_rpc_overload_throttle_min_factor = 0.1;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle fast decrease multiplier, factor = factor * decreaseMultiplier on each overload"})
+    public static double meta_service_rpc_overload_throttle_decrease_multiplier = 0.7;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle cooldown period (ms), wait this long after decrease before starting recovery"})
+    public static long meta_service_rpc_overload_throttle_cooldown_ms = 20000;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle recovery interval (ms), recover once every this interval"})
+    public static long meta_service_rpc_overload_throttle_recovery_interval_ms = 5000;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle recovery step, factor += recoveryStep on each recovery tick"})
+    public static double meta_service_rpc_overload_throttle_recovery_step = 0.05;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle sliding window duration (seconds) for counting requests and errors"})
+    public static int meta_service_rpc_overload_throttle_window_seconds = 10;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle minimum requests in window before overload can trigger"})
+    public static int meta_service_rpc_overload_throttle_min_window_requests = 100;
+
+    @ConfField(mutable = true, description = {
+            "Minimum overload event count (timeout + backpressure) in window to trigger overload throttle"})
+    public static int meta_service_rpc_overload_event_count_trigger = 10;
+
+    @ConfField(mutable = true, description = {
+            "Minimum overload event rate (overload/total) in window to trigger overload throttle"})
+    public static double meta_service_rpc_overload_event_rate_trigger = 0.05;
+
+    @ConfField(mutable = true, description = {
+            "Overload throttle method allowlist (comma-separated), e.g. getVersion,beginTxn"})
+    public static String meta_service_rpc_overload_throttle_methods = "getVersion,beginTxn";
+
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
     // ATTN: DONOT add any config not related to cloud mode here
