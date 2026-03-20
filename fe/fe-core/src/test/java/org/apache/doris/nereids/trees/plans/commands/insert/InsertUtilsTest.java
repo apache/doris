@@ -17,7 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.common.Config;
+
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -26,6 +29,12 @@ import org.junit.jupiter.api.Test;
 public class InsertUtilsTest {
 
     private static final int MAX_TOTAL_BYTES = 512;
+
+    @BeforeEach
+    public void setUp() {
+        // Use 512 to keep existing test assertions consistent
+        Config.insert_error_msg_max_length = MAX_TOTAL_BYTES;
+    }
 
     private String generateString(int length) {
         return generateString(length, "X");
