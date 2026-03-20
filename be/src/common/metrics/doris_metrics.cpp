@@ -103,15 +103,17 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(full_compaction_bytes_total, MetricUnit::BY
                                      compaction_bytes_total, Labels({{"type", "full"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_running_total, MetricUnit::ROWSETS, "",
-                                     compaction_task_state_total, Labels({{"type", "base"}}));
+                                     compaction_task_state_total,
+                                     Labels({{"type", "base"}, {"state", "running"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(base_compaction_task_pending_total, MetricUnit::ROWSETS, "",
-                                     compaction_task_state_total, Labels({{"type", "base"}}));
+                                     compaction_task_state_total,
+                                     Labels({{"type", "base"}, {"state", "pending"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_running_total, MetricUnit::ROWSETS,
                                      "", compaction_task_state_total,
-                                     Labels({{"type", "cumulative"}}));
+                                     Labels({{"type", "cumulative"}, {"state", "running"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(cumulative_compaction_task_pending_total, MetricUnit::ROWSETS,
                                      "", compaction_task_state_total,
-                                     Labels({{"type", "cumulative"}}));
+                                     Labels({{"type", "cumulative"}, {"state", "pending"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(segment_read_total, MetricUnit::OPERATIONS,
                                      "(segment_v2) total number of segments read", segment_read,
@@ -144,21 +146,29 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(compaction_producer_callback_a_round_time,
                                      MetricUnit::ROWSETS);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_read_rows_total, MetricUnit::ROWS, "",
-                                     compaction_rows_total, Labels({{"type", "read"}}));
+                                     compaction_rows_total,
+                                     Labels({{"type", "read"}, {"location", "local"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_read_bytes_total, MetricUnit::BYTES, "",
-                                     compaction_bytes_total, Labels({{"type", "read"}}));
+                                     compaction_bytes_total,
+                                     Labels({{"type", "read"}, {"location", "local"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_write_rows_total, MetricUnit::ROWS, "",
-                                     compaction_rows_total, Labels({{"type", "write"}}));
+                                     compaction_rows_total,
+                                     Labels({{"type", "write"}, {"location", "local"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(local_compaction_write_bytes_total, MetricUnit::BYTES, "",
-                                     compaction_bytes_total, Labels({{"type", "write"}}));
+                                     compaction_bytes_total,
+                                     Labels({{"type", "write"}, {"location", "local"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_read_rows_total, MetricUnit::ROWS, "",
-                                     compaction_rows_total, Labels({{"type", "read"}}));
+                                     compaction_rows_total,
+                                     Labels({{"type", "read"}, {"location", "remote"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_read_bytes_total, MetricUnit::BYTES, "",
-                                     compaction_bytes_total, Labels({{"type", "read"}}));
+                                     compaction_bytes_total,
+                                     Labels({{"type", "read"}, {"location", "remote"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_write_rows_total, MetricUnit::ROWS, "",
-                                     compaction_rows_total, Labels({{"type", "write"}}));
+                                     compaction_rows_total,
+                                     Labels({{"type", "write"}, {"location", "remote"}}));
 DEFINE_COUNTER_METRIC_PROTOTYPE_5ARG(remote_compaction_write_bytes_total, MetricUnit::BYTES, "",
-                                     compaction_bytes_total, Labels({{"type", "write"}}));
+                                     compaction_bytes_total,
+                                     Labels({{"type", "write"}, {"location", "remote"}}));
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(load_bytes, MetricUnit::BYTES);
