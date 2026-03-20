@@ -17,11 +17,13 @@
 
 package org.apache.doris.system;
 
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.Pair;
 import org.apache.doris.meta.MetaContext;
@@ -409,7 +411,7 @@ public class SystemInfoServiceTest {
         Map<Long, Integer> beCounterMap = Maps.newHashMap();
         for (int i = 0; i < 30000; ++i) {
             Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(replicaAlloc,
-                    Maps.newHashMap(), TStorageMedium.HDD, false, false);
+                    Maps.newHashMap(), TStorageMedium.HDD, MediumAllocationMode.ADAPTIVE, false);
             Map<Tag, List<Long>> res = ret.first;
             Assert.assertEquals(3, res.get(Tag.DEFAULT_BACKEND_TAG).size());
             for (Long beId : res.get(Tag.DEFAULT_BACKEND_TAG)) {
@@ -505,4 +507,110 @@ public class SystemInfoServiceTest {
         Assert.assertEquals(6, result);
     }
 
+    @Test
+    public void testSelectBackendIdsStrictModeSingleMediumFallback() throws Exception {
+        addBackend(30001, "192.168.3.1", 9050);
+        Backend be1 = infoService.getBackend(30001);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be1.setAlive(true);
+        addBackend(30002, "192.168.3.2", 9050);
+        Backend be2 = infoService.getBackend(30002);
+        addDisk(be2, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be2.setAlive(true);
+        addBackend(30003, "192.168.3.3", 9050);
+        Backend be3 = infoService.getBackend(30003);
+        addDisk(be3, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be3.setAlive(true);
+
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(
+                replicaAlloc, Maps.newHashMap(), TStorageMedium.SSD, MediumAllocationMode.STRICT, false);
+        Assert.assertEquals(3, ret.first.get(Tag.DEFAULT_BACKEND_TAG).size());
+        Assert.assertEquals(TStorageMedium.HDD, ret.second);
+    }
+
+    @Test
+    public void testSelectBackendIdsAdaptiveModeFallback() throws Exception {
+        addBackend(40001, "192.168.4.1", 9050);
+        Backend be1 = infoService.getBackend(40001);
+        addDisk(be1, "path1", TStorageMedium.SSD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be1.setAlive(true);
+        addBackend(40002, "192.168.4.2", 9050);
+        Backend be2 = infoService.getBackend(40002);
+        addDisk(be2, "path1", TStorageMedium.SSD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be2.setAlive(true);
+        addBackend(40003, "192.168.4.3", 9050);
+        Backend be3 = infoService.getBackend(40003);
+        addDisk(be3, "path1", TStorageMedium.SSD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be3.setAlive(true);
+
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(
+                replicaAlloc, Maps.newHashMap(), TStorageMedium.HDD, MediumAllocationMode.ADAPTIVE, false);
+        Assert.assertEquals(3, ret.first.get(Tag.DEFAULT_BACKEND_TAG).size());
+        Assert.assertEquals(TStorageMedium.SSD, ret.second);
+    }
+
+    @Test(expected = DdlException.class)
+    public void testSelectBackendIdsStrictModeDualMediumNoRetry() throws Exception {
+        addBackend(60001, "192.168.6.1", 9050);
+        Backend be1 = infoService.getBackend(60001);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be1.setAlive(true);
+        addBackend(60002, "192.168.6.2", 9050);
+        Backend be2 = infoService.getBackend(60002);
+        addDisk(be2, "path1", TStorageMedium.SSD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be2.setAlive(true);
+        addBackend(60003, "192.168.6.3", 9050);
+        Backend be3 = infoService.getBackend(60003);
+        addDisk(be3, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be3.setAlive(true);
+
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        infoService.selectBackendIdsForReplicaCreation(
+                replicaAlloc, Maps.newHashMap(), TStorageMedium.SSD, MediumAllocationMode.STRICT, false);
+    }
+
+    @Test
+    public void testIsSingleMediumEnvironmentSkipsDeadBackends() throws Exception {
+        addBackend(70001, "192.168.7.1", 9050);
+        Backend be1 = infoService.getBackend(70001);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be1.setAlive(true);
+        addBackend(70002, "192.168.7.2", 9050);
+        Backend be2 = infoService.getBackend(70002);
+        addDisk(be2, "path1", TStorageMedium.SSD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be2.setAlive(false);
+        addBackend(70003, "192.168.7.3", 9050);
+        Backend be3 = infoService.getBackend(70003);
+        addDisk(be3, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be3.setAlive(true);
+        be3.setDecommissioned(true);
+        addBackend(70004, "192.168.7.4", 9050);
+        Backend be4 = infoService.getBackend(70004);
+        addDisk(be4, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be4.setAlive(true);
+        addBackend(70005, "192.168.7.5", 9050);
+        Backend be5 = infoService.getBackend(70005);
+        addDisk(be5, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be5.setAlive(true);
+
+        ReplicaAllocation replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
+        Pair<Map<Tag, List<Long>>, TStorageMedium> ret = infoService.selectBackendIdsForReplicaCreation(
+                replicaAlloc, Maps.newHashMap(), TStorageMedium.SSD, MediumAllocationMode.STRICT, false);
+        Assert.assertEquals(3, ret.first.get(Tag.DEFAULT_BACKEND_TAG).size());
+        Assert.assertEquals(TStorageMedium.HDD, ret.second);
+    }
+
+    @Test
+    public void testGetStartPosOfRoundRobinAdaptiveFallback() {
+        addBackend(50001, "192.168.5.1", 9050);
+        Backend be1 = infoService.getBackend(50001);
+        addDisk(be1, "path1", TStorageMedium.HDD, 200 * 1024 * 1024L, 150 * 1024 * 1024L);
+        be1.setAlive(true);
+
+        int pos = infoService.getStartPosOfRoundRobin(Tag.DEFAULT_BACKEND_TAG,
+                TStorageMedium.SSD, MediumAllocationMode.ADAPTIVE);
+        Assert.assertTrue(pos >= 0);
+    }
 }

@@ -3912,6 +3912,18 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (request.isForceReplace()) {
             properties.put(RestoreCommand.PROP_FORCE_REPLACE, "true");
         }
+        if (request.isSetStorageMedium()) {
+            properties.put(RestoreCommand.PROP_STORAGE_MEDIUM, request.getStorageMedium());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("RPC: setting storage_medium to properties: {}", request.getStorageMedium());
+            }
+        }
+        if (request.isSetMediumAllocationMode()) {
+            properties.put(RestoreCommand.PROP_MEDIUM_ALLOCATION_MODE, request.getMediumAllocationMode());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("RPC: setting medium_allocation_mode to properties: {}", request.getMediumAllocationMode());
+            }
+        }
 
         List<TableRefInfo> tableRefs = new ArrayList<>();
         if (request.isSetTableRefs()) {
@@ -4667,7 +4679,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 // that's reasonable because we want iot-auto-detect txn has as less impact as possible. so only when we
                 // detected the conflict in this RPC, we will fail the txn. it allows more concurrent transactions.
                 List<String> pendingPartitionNames = olapTable.getEqualPartitionNames(reqPartitionIds,
-                                resultPartitionIds);
+                        resultPartitionIds);
                 for (String name : pendingPartitionNames) {
                     pendingPartitionIds.add(olapTable.getPartition(name).getId()); // put [1 2]
                 }

@@ -110,7 +110,10 @@ public class CloudRestoreJob extends RestoreJob {
             String storageVaultName) {
         super(label, backupTs, dbId, dbName, jobInfo, allowLoad, replicaAlloc, timeoutMs, metaVersion, reserveReplica,
                 false, reserveDynamicPartitionEnable, isBeingSynced, isCleanTables, isCleanPartitions,
-                isAtomicRestore, isForceReplace, env, repoId);
+                isAtomicRestore, isForceReplace,
+                RestoreCommand.STORAGE_MEDIUM_SAME_WITH_UPSTREAM,
+                RestoreCommand.MEDIUM_ALLOCATION_MODE_STRICT,
+                env, repoId);
         if (((CloudEnv) env).getEnableStorageVault()) {
             this.storageVaultName = storageVaultName;
             properties.put(PROP_STORAGE_VAULT_NAME, storageVaultName);

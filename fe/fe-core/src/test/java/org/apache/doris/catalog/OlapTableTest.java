@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.DataProperty.MediumAllocationMode;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.proto.Cloud;
@@ -33,6 +34,7 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.utframe.UtFrameUtils;
 
@@ -552,5 +554,28 @@ public class OlapTableTest {
             ConnectContext.remove();
         }
         // CHECKSTYLE ONca
+    }
+
+    @Test
+    public void testStorageMediumGetterSetter() {
+        OlapTable table = new OlapTable();
+        Assert.assertNull(table.getStorageMedium());
+
+        table.setStorageMedium(TStorageMedium.SSD);
+        Assert.assertEquals(TStorageMedium.SSD, table.getStorageMedium());
+
+        table.setStorageMedium(TStorageMedium.HDD);
+        Assert.assertEquals(TStorageMedium.HDD, table.getStorageMedium());
+    }
+
+    @Test
+    public void testMediumAllocationModeGetterSetter() {
+        OlapTable table = new OlapTable();
+
+        table.setMediumAllocationMode(MediumAllocationMode.STRICT);
+        Assert.assertEquals(MediumAllocationMode.STRICT, table.getMediumAllocationMode());
+
+        table.setMediumAllocationMode(MediumAllocationMode.ADAPTIVE);
+        Assert.assertEquals(MediumAllocationMode.ADAPTIVE, table.getMediumAllocationMode());
     }
 }
