@@ -20,7 +20,7 @@
 
 from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import ContextManager, Optional, Union
+from typing import Any, ContextManager, Dict, Optional, Union
 
 import mysql.connector
 
@@ -41,6 +41,7 @@ class DorisCredentials(Credentials):
     password: str = ""
     database: Optional[str] = None
     schema: Optional[str] = None
+    session_variables: Optional[Dict[str, Union[str, int, bool]]] = None
 
 
     @property
@@ -48,7 +49,7 @@ class DorisCredentials(Credentials):
         return "doris"
 
     def _connection_keys(self):
-        return "host", "port", "user", "schema"
+        return "host", "port", "user", "schema", "session_variables"
 
     @property
     def unique_field(self) -> str:
@@ -103,7 +104,30 @@ class DorisConnectionManager(SQLConnectionManager):
                 connection.state = 'fail'
 
                 raise exceptions.DbtRuntimeError(str(e))
+
+        if credentials.session_variables:
+            cls._set_session_variables(connection, credentials.session_variables)
         return connection
+
+    @classmethod
+    def _set_session_variables(
+        cls, connection: Connection, session_variables: Dict[str, Union[str, int, bool]]
+    ) -> None:
+        """Execute SET SESSION for each variable on the given connection."""
+        cursor = connection.handle.cursor()
+        try:
+            for name, value in session_variables.items():
+                if isinstance(value, str):
+                    # Escape single quotes by doubling
+                    escaped = value.replace("'", "''")
+                    sql = f"SET {name} = '{escaped}'"
+                elif isinstance(value, bool):
+                    sql = f"SET {name} = {str(value).upper()}"
+                else:
+                    sql = f"SET {name} = {value}"
+                cursor.execute(sql)
+        finally:
+            cursor.close()
 
     @classmethod
     def get_credentials(cls, credentials):
