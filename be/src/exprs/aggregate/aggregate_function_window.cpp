@@ -49,16 +49,25 @@ AggregateFunctionPtr create_aggregate_function_window_first(const std::string& n
                                                             const DataTypePtr& result_type,
                                                             const bool result_is_nullable,
                                                             const AggregateFunctionAttr& attr);
+AggregateFunctionPtr create_aggregate_function_window_first_ignore_null(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 AggregateFunctionPtr create_aggregate_function_window_last(const std::string& name,
                                                            const DataTypes& argument_types,
                                                            const DataTypePtr& result_type,
                                                            const bool result_is_nullable,
                                                            const AggregateFunctionAttr& attr);
+AggregateFunctionPtr create_aggregate_function_window_last_ignore_null(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 AggregateFunctionPtr create_aggregate_function_window_nth_value(const std::string& name,
                                                                 const DataTypes& argument_types,
                                                                 const DataTypePtr& result_type,
                                                                 const bool result_is_nullable,
                                                                 const AggregateFunctionAttr& attr);
+AggregateFunctionPtr create_aggregate_function_window_nth_value_ignore_null(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 template <typename AggregateFunctionTemplate>
 AggregateFunctionPtr create_empty_arg_window(const std::string& name,
@@ -89,9 +98,45 @@ void register_aggregate_function_window_lead_lag_first_last(
         AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("lead", create_aggregate_function_window_lead);
     factory.register_function_both("lag", create_aggregate_function_window_lag);
-    factory.register_function_both("first_value", create_aggregate_function_window_first);
-    factory.register_function_both("last_value", create_aggregate_function_window_last);
-    factory.register_function_both("nth_value", create_aggregate_function_window_nth_value);
+    // FE rewrites first_value(k1, false) → first_value(k1), so argument_types.size() == 2
+    // means arg_ignore_null = true. Dispatch at registration to avoid runtime branching
+    // that would double template instantiations.
+    factory.register_function_both(
+            "first_value",
+            [](const std::string& name, const DataTypes& argument_types,
+               const DataTypePtr& result_type, const bool result_is_nullable,
+               const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
+                if (argument_types.size() == 2) {
+                    return create_aggregate_function_window_first_ignore_null(
+                            name, argument_types, result_type, result_is_nullable, attr);
+                }
+                return create_aggregate_function_window_first(name, argument_types, result_type,
+                                                              result_is_nullable, attr);
+            });
+    factory.register_function_both(
+            "last_value",
+            [](const std::string& name, const DataTypes& argument_types,
+               const DataTypePtr& result_type, const bool result_is_nullable,
+               const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
+                if (argument_types.size() == 2) {
+                    return create_aggregate_function_window_last_ignore_null(
+                            name, argument_types, result_type, result_is_nullable, attr);
+                }
+                return create_aggregate_function_window_last(name, argument_types, result_type,
+                                                             result_is_nullable, attr);
+            });
+    factory.register_function_both(
+            "nth_value",
+            [](const std::string& name, const DataTypes& argument_types,
+               const DataTypePtr& result_type, const bool result_is_nullable,
+               const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
+                if (argument_types.size() == 2) {
+                    return create_aggregate_function_window_nth_value_ignore_null(
+                            name, argument_types, result_type, result_is_nullable, attr);
+                }
+                return create_aggregate_function_window_nth_value(name, argument_types, result_type,
+                                                                  result_is_nullable, attr);
+            });
 }
 
 } // namespace doris
