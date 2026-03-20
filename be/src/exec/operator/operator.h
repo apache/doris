@@ -39,7 +39,6 @@
 #include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"

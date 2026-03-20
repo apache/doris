@@ -24,7 +24,6 @@
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exec/runtime_filter/runtime_filter_wrapper.h"
 #include "exec/runtime_filter/utils.h"
-#include "runtime/query_context.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/query_context.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"

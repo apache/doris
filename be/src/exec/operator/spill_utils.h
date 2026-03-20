@@ -28,7 +28,6 @@
 #include "exec/partitioner/partitioner.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
