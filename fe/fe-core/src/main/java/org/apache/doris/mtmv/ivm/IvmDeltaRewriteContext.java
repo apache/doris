@@ -15,54 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
+package org.apache.doris.mtmv.ivm;
+
+import org.apache.doris.catalog.MTMV;
+import org.apache.doris.qe.ConnectContext;
+
+import java.util.Objects;
 
 /**
- * refresh enum
+ * Context passed to {@link IvmDeltaRewriter} during delta command construction.
  */
-public class MTMVRefreshEnum {
+public class IvmDeltaRewriteContext {
+    private final MTMV mtmv;
+    private final ConnectContext connectContext;
 
-    /**
-     * RefreshMethod
-     */
-    public enum RefreshMethod {
-        COMPLETE, //complete
-        AUTO, // existing auto refresh behavior
-        INCREMENTAL // opt in nereids ivm rewrite flow
+    public IvmDeltaRewriteContext(MTMV mtmv, ConnectContext connectContext) {
+        this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
+        this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
     }
 
-    /**
-     * BuildMode
-     */
-    public enum BuildMode {
-        IMMEDIATE, //right now
-        DEFERRED // deferred
+    public MTMV getMtmv() {
+        return mtmv;
     }
 
-    /**
-     * RefreshTrigger
-     */
-    public enum RefreshTrigger {
-        MANUAL, //manual
-        COMMIT, //manual
-        SCHEDULE // schedule
-    }
-
-    /**
-     * MTMVState
-     */
-    public enum MTMVState {
-        INIT,
-        NORMAL,
-        SCHEMA_CHANGE
-    }
-
-    /**
-     * MTMVRefreshState
-     */
-    public enum MTMVRefreshState {
-        INIT,
-        FAIL,
-        SUCCESS
+    public ConnectContext getConnectContext() {
+        return connectContext;
     }
 }

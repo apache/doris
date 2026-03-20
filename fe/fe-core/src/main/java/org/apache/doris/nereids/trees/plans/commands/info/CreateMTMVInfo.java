@@ -28,6 +28,7 @@ import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -39,6 +40,7 @@ import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVPartitionUtil;
 import org.apache.doris.mtmv.MTMVPlanUtil;
 import org.apache.doris.mtmv.MTMVPropertyUtil;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRefreshInfo;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
@@ -145,6 +147,12 @@ public class CreateMTMVInfo extends CreateTableInfo {
             throw new AnalysisException(message);
         }
         analyzeProperties();
+        // IVM MVs must not have user-specified keys — the unique key is the hidden row-id
+        if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL && !keys.isEmpty()) {
+            throw new AnalysisException(
+                    "Incremental materialized view does not allow specifying key columns. "
+                    + "The unique key is the hidden row-id column managed by IVM.");
+        }
         analyzeQuery(ctx);
         this.partitionDesc = generatePartitionDesc(ctx);
         if (distribution == null) {
@@ -172,8 +180,21 @@ public class CreateMTMVInfo extends CreateTableInfo {
     }
 
     private void rewriteQuerySql(ConnectContext ctx) {
-        analyzeAndFillRewriteSqlMap(querySql, ctx);
-        querySql = BaseViewInfo.rewriteSql(ctx.getStatementContext().getIndexInSqlToString(), querySql);
+        TreeMap<Pair<Integer, Integer>, String> rewriteMap = ctx.getStatementContext().getIndexInSqlToString();
+        TreeMap<Pair<Integer, Integer>, String> snapshot = new TreeMap<>(rewriteMap);
+        rewriteMap.clear();
+        try {
+            analyzeAndFillRewriteSqlMap(querySql, ctx);
+            querySql = BaseViewInfo.rewriteSql(rewriteMap, querySql);
+            if (!simpleColumnDefinitions.isEmpty()) {
+                querySql = BaseViewInfo.rewriteProjectsToUserDefineAlias(querySql, simpleColumnDefinitions.stream()
+                        .map(SimpleColumnDefinition::getName)
+                        .collect(Collectors.toList()));
+            }
+        } finally {
+            rewriteMap.clear();
+            rewriteMap.putAll(snapshot);
+        }
     }
 
     private void analyzeAndFillRewriteSqlMap(String sql, ConnectContext ctx) {
@@ -213,9 +234,10 @@ public class CreateMTMVInfo extends CreateTableInfo {
      * analyzeQuery
      */
     public void analyzeQuery(ConnectContext ctx) throws UserException {
-        MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties, this.querySql,
+        boolean enableIvmNormalize = this.refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL;
+        MTMVAnalyzeQueryInfo mtmvAnalyzeQueryInfo = MTMVPlanUtil.analyzeQuery(ctx, this.mvProperties,
                 this.mvPartitionDefinition, this.distribution, this.simpleColumnDefinitions, this.properties, this.keys,
-                this.logicalQuery);
+                this.logicalQuery, enableIvmNormalize);
         this.mvPartitionInfo = mtmvAnalyzeQueryInfo.getMvPartitionInfo();
         this.columns = mtmvAnalyzeQueryInfo.getColumnDefinitions();
         this.relation = mtmvAnalyzeQueryInfo.getRelation();
@@ -281,7 +303,15 @@ public class CreateMTMVInfo extends CreateTableInfo {
         this.setTableName(tableNameInfo.getTbl());
         this.setCtasColumns(ctasColumns.isEmpty() ? null : ctasColumns);
         this.setEngineName(CreateTableInfo.ENGINE_OLAP);
-        this.setKeysType(KeysType.DUP_KEYS);
+        if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL) {
+            this.setKeysType(KeysType.UNIQUE_KEYS);
+            if (properties == null) {
+                properties = Maps.newHashMap();
+            }
+            properties.put(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true");
+        } else {
+            this.setKeysType(KeysType.DUP_KEYS);
+        }
         this.setPartitionTableInfo(partitionDesc == null
                 ? PartitionTableInfo.EMPTY : partitionDesc.convertToPartitionTableInfo());
         this.setRollups(Lists.newArrayList());

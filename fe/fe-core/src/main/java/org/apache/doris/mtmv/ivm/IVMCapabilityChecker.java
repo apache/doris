@@ -15,54 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mtmv;
+package org.apache.doris.mtmv.ivm;
+
+import java.util.List;
 
 /**
- * refresh enum
+ * Checks whether the MV and its delta bundles support incremental refresh.
  */
-public class MTMVRefreshEnum {
-
-    /**
-     * RefreshMethod
-     */
-    public enum RefreshMethod {
-        COMPLETE, //complete
-        AUTO, // existing auto refresh behavior
-        INCREMENTAL // opt in nereids ivm rewrite flow
-    }
-
-    /**
-     * BuildMode
-     */
-    public enum BuildMode {
-        IMMEDIATE, //right now
-        DEFERRED // deferred
-    }
-
-    /**
-     * RefreshTrigger
-     */
-    public enum RefreshTrigger {
-        MANUAL, //manual
-        COMMIT, //manual
-        SCHEDULE // schedule
-    }
-
-    /**
-     * MTMVState
-     */
-    public enum MTMVState {
-        INIT,
-        NORMAL,
-        SCHEMA_CHANGE
-    }
-
-    /**
-     * MTMVRefreshState
-     */
-    public enum MTMVRefreshState {
-        INIT,
-        FAIL,
-        SUCCESS
+public class IVMCapabilityChecker {
+    public IVMCapabilityResult check(IVMRefreshContext context, List<DeltaCommandBundle> bundles) {
+        return IVMCapabilityResult.ok();
     }
 }

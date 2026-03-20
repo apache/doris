@@ -34,6 +34,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ConfigBase;
 import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -1131,6 +1132,131 @@ public class CreateTableCommandTest extends TestWithFeService {
         System.out.println(ex.getMessage());
         Assertions.assertTrue(ex.getMessage().contains("MTMV do not support varbinary type"));
         Assertions.assertTrue(ex.getMessage().contains("vb"));
+    }
+
+    @Test
+    public void testCreateMTMVWithIncrementRefreshMethod() throws Exception {
+        String mv = "CREATE MATERIALIZED VIEW mtmv_increment\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS SELECT 1 AS k1;";
+
+        LogicalPlan plan = new NereidsParser().parseSingle(mv);
+        Assertions.assertTrue(plan instanceof CreateMTMVCommand);
+        CreateMTMVCommand cmd = (CreateMTMVCommand) plan;
+
+        Assertions.assertEquals(RefreshMethod.INCREMENTAL,
+                cmd.getCreateMTMVInfo().getRefreshInfo().getRefreshMethod());
+    }
+
+    @Test
+    public void testCreateMTMVRewriteQuerySqlWithDefinedColumnsForScanPlan() throws Exception {
+        createTable("create table test.mtmv_scan_base (id int, score int)\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_scan_alias"
+                + " (mv_id, mv_score)\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT * FROM mtmv_scan_base;");
+
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
+        Assertions.assertFalse(createMTMVInfo.getColumns().get(0).isVisible());
+        Assertions.assertEquals("mv_id", createMTMVInfo.getColumns().get(1).getName());
+        Assertions.assertEquals("mv_score", createMTMVInfo.getColumns().get(2).getName());
+        Assertions.assertTrue(createMTMVInfo.getQuerySql().contains("AS `mv_id`"));
+        Assertions.assertTrue(createMTMVInfo.getQuerySql().contains("AS `mv_score`"));
+    }
+
+    @Test
+    public void testCreateMTMVRewriteQuerySqlWithDefinedColumnsForProjectScanPlan() throws Exception {
+        createTable("create table test.mtmv_project_scan_base (id int, score int)\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_project_scan_alias"
+                + " (mv_inc_id, mv_score)\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT id + 1, score FROM mtmv_project_scan_base;");
+
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
+        Assertions.assertFalse(createMTMVInfo.getColumns().get(0).isVisible());
+        Assertions.assertEquals("mv_inc_id", createMTMVInfo.getColumns().get(1).getName());
+        Assertions.assertEquals("mv_score", createMTMVInfo.getColumns().get(2).getName());
+        Assertions.assertTrue(createMTMVInfo.getQuerySql().contains("AS `mv_inc_id`"));
+        Assertions.assertTrue(createMTMVInfo.getQuerySql().contains("AS `mv_score`"));
+    }
+
+    @Test
+    public void testCreateMTMVWithoutDefinedColumnsInjectsRowId() throws Exception {
+        createTable("create table test.mtmv_no_cols_base (id int, score int)\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_no_cols"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT id, score FROM mtmv_no_cols_base;");
+
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, createMTMVInfo.getColumns().get(0).getName());
+        Assertions.assertFalse(createMTMVInfo.getColumns().get(0).isVisible());
+        Assertions.assertEquals("id", createMTMVInfo.getColumns().get(1).getName());
+        Assertions.assertEquals("score", createMTMVInfo.getColumns().get(2).getName());
+    }
+
+    @Test
+    public void testCreateMTMVRewriteQuerySqlContainsAliases() throws Exception {
+        createTable("create table test.mtmv_alias_base (id int, score int)\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo createMTMVInfo = getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_alias"
+                + " (mv_id, mv_score)\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT id, score FROM mtmv_alias_base;");
+
+        String querySql = createMTMVInfo.getQuerySql();
+        Assertions.assertTrue(querySql.contains("AS `mv_id`"), "querySql should contain AS `mv_id`: " + querySql);
+        Assertions.assertTrue(querySql.contains("AS `mv_score`"), "querySql should contain AS `mv_score`: " + querySql);
+        Assertions.assertFalse(querySql.contains("AS `mv_" + Column.IVM_ROW_ID_COL + "`"),
+                "querySql should not alias the row-id column: " + querySql);
+    }
+
+    @Test
+    public void testCreateIvmMVColumnCountMismatchFails() throws Exception {
+        createTable("create table test.mtmv_col_mismatch_base (id int, score int)\n"
+                + "duplicate key(id)\n"
+                + "distributed by hash(id) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        // user specifies 2 column names but query only selects 1 column — should fail
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> getPartitionTableInfo("CREATE MATERIALIZED VIEW mtmv_col_mismatch"
+                        + " (mv_id, mv_score)\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS\n"
+                        + " SELECT id FROM mtmv_col_mismatch_base;"));
+        Assertions.assertTrue(ex.getMessage().contains("simpleColumnDefinitions size is not equal"),
+                "unexpected message: " + ex.getMessage());
     }
 
     @Test

@@ -621,6 +621,18 @@ public class ColumnDefinition {
     /**
      * add hidden column
      */
+    public static ColumnDefinition newIvmRowIdColumnDefinition(DataType type, boolean isNullable) {
+        ColumnDefinition columnDefinition = new ColumnDefinition(
+                Column.IVM_ROW_ID_COL, type, false, null, isNullable, Optional.empty(),
+                "ivm row id hidden column", false);
+        columnDefinition.setEnableAddHiddenColumn(true);
+
+        return columnDefinition;
+    }
+
+    /**
+     * add hidden column
+     */
     public static ColumnDefinition newVersionColumnDefinition(AggregateType aggregateType) {
         ColumnDefinition columnDefinition = new ColumnDefinition(Column.VERSION_COL, BigIntType.INSTANCE, false,
                     aggregateType, false, Optional.of(new DefaultValue(DefaultValue.ZERO_NUMBER)),

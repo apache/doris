@@ -84,6 +84,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.TreeMap;
+import java.util.stream.Collectors;
 
 /** BaseViewInfo */
 public class BaseViewInfo {
@@ -140,12 +141,21 @@ public class BaseViewInfo {
     }
 
     protected String rewriteProjectsToUserDefineAlias(String resSql) {
+        return rewriteProjectsToUserDefineAlias(resSql, finalCols.stream()
+                .map(Column::getName)
+                .collect(Collectors.toList()));
+    }
+
+    /**
+     * rewrite projects to user define alias by column names list
+     */
+    public static String rewriteProjectsToUserDefineAlias(String resSql, List<String> finalColNames) {
+        if (finalColNames.isEmpty()) {
+            return resSql;
+        }
         IndexFinder finder = new IndexFinder();
         ParserRuleContext tree = NereidsParser.toAst(resSql, DorisParser::singleStatement);
         finder.visit(tree);
-        if (simpleColumnDefinitions.isEmpty()) {
-            return resSql;
-        }
         List<NamedExpressionContext> namedExpressionContexts = finder.getNamedExpressionContexts();
         StringBuilder replaceWithColsBuilder = new StringBuilder();
         for (int i = 0; i < namedExpressionContexts.size(); ++i) {
@@ -154,7 +164,7 @@ public class BaseViewInfo {
             int stop = namedExpressionContext.expression().stop.getStopIndex();
             replaceWithColsBuilder.append(resSql, start, stop + 1);
             replaceWithColsBuilder.append(" AS `");
-            String escapeBacktick = finalCols.get(i).getName().replace("`", "``");
+            String escapeBacktick = finalColNames.get(i).replace("`", "``");
             replaceWithColsBuilder.append(escapeBacktick);
             replaceWithColsBuilder.append('`');
             if (i != namedExpressionContexts.size() - 1) {

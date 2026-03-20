@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
 import java.util.List;
@@ -25,6 +26,8 @@ public class MTMVAnalyzeQueryInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private List<ColumnDefinition> columnDefinitions;
+    // set when IVM normalization is enabled
+    private Plan ivmNormalizedPlan;
 
     public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
             MTMVRelation relation) {
@@ -43,5 +46,13 @@ public class MTMVAnalyzeQueryInfo {
 
     public MTMVRelation getRelation() {
         return relation;
+    }
+
+    public Plan getIvmNormalizedPlan() {
+        return ivmNormalizedPlan;
+    }
+
+    public void setIvmNormalizedPlan(Plan ivmNormalizedPlan) {
+        this.ivmNormalizedPlan = ivmNormalizedPlan;
     }
 }

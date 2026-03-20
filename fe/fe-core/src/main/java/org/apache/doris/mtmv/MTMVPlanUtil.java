@@ -45,7 +45,9 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -60,6 +62,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateMTMVInfo;
@@ -78,8 +81,11 @@ import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
+import org.apache.doris.qe.AuditLogHelper;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.qe.StmtExecutor;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -93,6 +99,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -128,6 +135,39 @@ public class MTMVPlanUtil {
         // After 1, this logic is no longer needed. This is to be compatible with older versions
         setCatalogAndDb(ctx, mtmv);
         return ctx;
+    }
+
+    /**
+     * Execute a Nereids command in an MTMV context with optional audit logging.
+     *
+     * @param mtmv           the materialized view
+     * @param command        the command to execute
+     * @param stmtCtx        pre-configured StatementContext (may contain snapshots, predicates, etc.)
+     * @param auditStmt      descriptive string for audit log; null to skip audit logging
+     * @param enableIvmNormalMTMVPlan whether apply the ivm normal mv plan rule
+     * @return the StmtExecutor used (caller may extract queryId or stats)
+     */
+    public static StmtExecutor executeCommand(MTMV mtmv, Command command,
+            StatementContext stmtCtx, @Nullable String auditStmt, boolean enableIvmNormalMTMVPlan) throws Exception {
+        ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        ctx.setStatementContext(stmtCtx);
+        ctx.getState().setNereids(true);
+        ctx.getSessionVariable().setEnableIvmNormalRewrite(enableIvmNormalMTMVPlan);
+        StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, stmtCtx));
+        ctx.setExecutor(executor);
+        ctx.setQueryId(AbstractTask.generateQueryId());
+        try {
+            command.run(ctx, executor);
+            if (ctx.getState().getStateType() != MysqlStateType.OK) {
+                throw new UserException(ctx.getState().getErrorMessage());
+            }
+        } finally {
+            if (auditStmt != null) {
+                AuditLogHelper.logAuditLog(ctx, auditStmt,
+                        executor.getParsedStmt(), executor.getQueryStatisticsForAuditLog(), true);
+            }
+        }
+        return executor;
     }
 
     public static ConnectContext createBasicMvContext(@Nullable ConnectContext parentContext,
@@ -289,14 +329,22 @@ public class MTMVPlanUtil {
         if (slots.isEmpty()) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("table should contain at least one column");
         }
-        if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != slots.size()) {
+        Slot ivmRowIdSlot = isIvmRowIdSlot(slots.get(0)) ? slots.get(0) : null;
+        int userSlotOffset = ivmRowIdSlot == null ? 0 : 1;
+        int userSlotSize = slots.size() - userSlotOffset;
+        if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != userSlotSize) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "simpleColumnDefinitions size is not equal to the query's");
         }
+        if (ivmRowIdSlot != null) {
+            columns.add(ColumnDefinition.newIvmRowIdColumnDefinition(
+                    ivmRowIdSlot.getDataType().conversion(), ivmRowIdSlot.nullable()));
+        }
         Set<String> colNames = Sets.newHashSet();
-        for (int i = 0; i < slots.size(); i++) {
+        for (int i = userSlotOffset; i < slots.size(); i++) {
+            int userColumnIndex = i - userSlotOffset;
             String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? slots.get(i).getName()
-                    : simpleColumnDefinitions.get(i).getName();
+                    : simpleColumnDefinitions.get(userColumnIndex).getName();
             try {
                 FeNameFormat.checkColumnName(colName);
             } catch (org.apache.doris.common.AnalysisException e) {
@@ -307,7 +355,7 @@ public class MTMVPlanUtil {
             } else {
                 colNames.add(colName);
             }
-            DataType dataType = getDataType(slots.get(i), i, ctx, partitionCol, distributionColumnNames);
+            DataType dataType = getDataType(slots.get(i), userColumnIndex, ctx, partitionCol, distributionColumnNames);
             // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
             columns.add(new ColumnDefinition(
                     colName,
@@ -317,7 +365,7 @@ public class MTMVPlanUtil {
                     slots.get(i).nullable(),
                     Optional.empty(),
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
-                            : simpleColumnDefinitions.get(i).getComment()));
+                            : simpleColumnDefinitions.get(userColumnIndex).getComment()));
         }
         // add a hidden column as row store
         if (properties != null) {
@@ -332,6 +380,10 @@ public class MTMVPlanUtil {
             }
         }
         return columns;
+    }
+
+    private static boolean isIvmRowIdSlot(Slot slot) {
+        return Column.IVM_ROW_ID_COL.equals(slot.getName());
     }
 
     /**
@@ -382,7 +434,8 @@ public class MTMVPlanUtil {
         return dataType;
     }
 
-    public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx) throws UserException {
+    public static MTMVAnalyzeQueryInfo analyzeQueryWithSql(MTMV mtmv, ConnectContext ctx,
+            boolean enableIvmNormalize) throws UserException {
         String querySql = mtmv.getQuerySql();
         MTMVPartitionInfo mvPartitionInfo = mtmv.getMvPartitionInfo();
         MTMVPartitionDefinition mtmvPartitionDefinition = new MTMVPartitionDefinition();
@@ -409,16 +462,14 @@ public class MTMVPlanUtil {
         DistributionDescriptor distribution = new DistributionDescriptor(defaultDistributionInfo.getType().equals(
                 DistributionInfoType.HASH), defaultDistributionInfo.getAutoBucket(),
                 defaultDistributionInfo.getBucketNum(), Lists.newArrayList(mtmv.getDistributionColumnNames()));
-        return analyzeQuery(ctx, mtmv.getMvProperties(), querySql, mtmvPartitionDefinition, distribution, null,
-                mtmv.getTableProperty().getProperties(), keys, logicalPlan);
+        return analyzeQuery(ctx, mtmv.getMvProperties(), mtmvPartitionDefinition, distribution, null,
+                mtmv.getTableProperty().getProperties(), keys, logicalPlan, enableIvmNormalize);
     }
 
     public static MTMVAnalyzeQueryInfo analyzeQuery(ConnectContext ctx, Map<String, String> mvProperties,
-            String querySql,
             MTMVPartitionDefinition mvPartitionDefinition, DistributionDescriptor distribution,
             List<SimpleColumnDefinition> simpleColumnDefinitions, Map<String, String> properties, List<String> keys,
-            LogicalPlan
-                    logicalQuery) throws UserException {
+            LogicalPlan logicalQuery, boolean enableIvmNormalize) throws UserException {
         try (StatementContext statementContext = ctx.getStatementContext()) {
             NereidsPlanner planner = new NereidsPlanner(statementContext);
             // this is for expression column name infer when not use alias
@@ -432,17 +483,24 @@ public class MTMVPlanUtil {
             try {
                 // must disable constant folding by be, because be constant folding may return wrong type
                 ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_FOLD_CONSTANT_BY_BE, "false");
+                if (enableIvmNormalize) {
+                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "true");
+                }
                 plan = planner.planWithLock(logicalSink, PhysicalProperties.ANY, ExplainLevel.ALL_PLAN);
             } finally {
                 // after operate, roll back the disable rules
                 ctx.getSessionVariable().setDisableNereidsRules(String.join(",", tempDisableRules));
                 statementContext.invalidCache(SessionVariable.DISABLE_NEREIDS_RULES);
+                if (enableIvmNormalize) {
+                    ctx.getSessionVariable().setVarOnce(SessionVariable.ENABLE_IVM_NORMAL_REWRITE, "false");
+                }
             }
+            Plan analyzedPlan = planner.getAnalyzedPlan();
             // can not contain Random function
-            analyzeExpressions(planner.getAnalyzedPlan(), mvProperties);
+            analyzeExpressions(analyzedPlan, mvProperties);
             // can not contain partition or tablets
             boolean containTableQueryOperator = MaterializedViewUtils.containTableQueryOperator(
-                    planner.getAnalyzedPlan());
+                    analyzedPlan);
             if (containTableQueryOperator) {
                 throw new AnalysisException("can not contain invalid expression");
             }
@@ -467,13 +525,18 @@ public class MTMVPlanUtil {
                     (distribution == null || CollectionUtils.isEmpty(distribution.getCols())) ? Sets.newHashSet()
                             : Sets.newHashSet(distribution.getCols()),
                     simpleColumnDefinitions, properties);
-            analyzeKeys(keys, properties, columns);
+            keys = analyzeKeys(keys, properties, columns, enableIvmNormalize);
             // analyze column
-            final boolean finalEnableMergeOnWrite = false;
+            final boolean finalEnableMergeOnWrite = enableIvmNormalize;
             Set<String> keysSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
             keysSet.addAll(keys);
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
-            return new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
+            MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
+            if (enableIvmNormalize) {
+                planner.getCascadesContext().getIvmContext().ifPresent(
+                        ivm -> queryInfo.setIvmNormalizedPlan(ivm.getNormalizedPlan()));
+            }
+            return queryInfo;
         }
     }
 
@@ -494,7 +557,19 @@ public class MTMVPlanUtil {
         }
     }
 
-    private static void analyzeKeys(List<String> keys, Map<String, String> properties, List<ColumnDefinition> columns) {
+    private static List<String> analyzeKeys(List<String> keys, Map<String, String> properties,
+            List<ColumnDefinition> columns, boolean isIvm) {
+        if (isIvm) {
+            // for IVM, the hidden row-id column is the sole unique key
+            for (ColumnDefinition col : columns) {
+                if (Column.IVM_ROW_ID_COL.equals(col.getName())) {
+                    col.setIsKey(true);
+                    return Lists.newArrayList(col.getName());
+                }
+            }
+            throw new org.apache.doris.nereids.exceptions.AnalysisException(
+                    "IVM row-id column not found in generated columns; IVM normalization may have failed.");
+        }
         boolean enableDuplicateWithoutKeysByDefault = false;
         try {
             if (properties != null) {
@@ -532,6 +607,7 @@ public class MTMVPlanUtil {
                 }
             }
         }
+        return keys;
     }
 
     private static void analyzeExpressions(Plan plan, Map<String, String> mvProperties) {
@@ -553,7 +629,8 @@ public class MTMVPlanUtil {
     public static void ensureMTMVQueryUsable(MTMV mtmv, ConnectContext ctx) throws JobException {
         MTMVAnalyzeQueryInfo mtmvAnalyzedQueryInfo;
         try {
-            mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx);
+            boolean enableIvmNormalize = mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL;
+            mtmvAnalyzedQueryInfo = MTMVPlanUtil.analyzeQueryWithSql(mtmv, ctx, enableIvmNormalize);
         } catch (Exception e) {
             throw new JobException(e.getMessage(), e);
         }
