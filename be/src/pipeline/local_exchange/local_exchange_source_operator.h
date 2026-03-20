@@ -63,20 +63,47 @@ class LocalExchangeSourceOperatorX final : public OperatorX<LocalExchangeSourceL
 public:
     using Base = OperatorX<LocalExchangeSourceLocalState>;
     LocalExchangeSourceOperatorX(ObjectPool* pool, int id) : Base(pool, id, id) {}
+    LocalExchangeSourceOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
+                                 const DescriptorTbl& descs)
+            : Base(pool, tnode, operator_id, descs),
+              _exchange_type(tnode.local_exchange_node.partition_type),
+              _planned_by_fe(true) {}
 #ifdef BE_TEST
     LocalExchangeSourceOperatorX() = default;
 #endif
-    Status init(ExchangeType type) override {
+    Status init(TLocalPartitionType::type type) override {
+        DCHECK(!_planned_by_fe);
         _op_name = "LOCAL_EXCHANGE_OPERATOR(" + get_exchange_type_name(type) + ")";
         _exchange_type = type;
         return Status::OK();
     }
-    Status prepare(RuntimeState* state) override { return Status::OK(); }
+    Status prepare(RuntimeState* state) override {
+        if (_planned_by_fe) {
+            RETURN_IF_ERROR(Base::prepare(state));
+            // Base::prepare() resets _op_name from tnode node_type; restore the type-qualified name.
+            _op_name = "LOCAL_EXCHANGE_OPERATOR(" + get_exchange_type_name(_exchange_type) + ")";
+            return Status::OK();
+        }
+        return Status::OK();
+    }
     const RowDescriptor& intermediate_row_desc() const override {
+        if (_planned_by_fe) {
+            return Base::intermediate_row_desc();
+        }
         return _child->intermediate_row_desc();
     }
-    RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
-    const RowDescriptor& row_desc() const override { return _child->row_desc(); }
+    RowDescriptor& row_descriptor() override {
+        if (_planned_by_fe) {
+            return Base::row_descriptor();
+        }
+        return _child->row_descriptor();
+    }
+    const RowDescriptor& row_desc() const override {
+        if (_planned_by_fe) {
+            return Base::row_desc();
+        }
+        return _child->row_desc();
+    }
 
     Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
@@ -85,7 +112,8 @@ public:
 private:
     friend class LocalExchangeSourceLocalState;
 
-    ExchangeType _exchange_type;
+    TLocalPartitionType::type _exchange_type;
+    const bool _planned_by_fe = false;
 };
 
 } // namespace doris::pipeline

@@ -118,15 +118,17 @@ public:
 
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_needs_finalize && _probe_expr_ctxs.empty()) {
-            return {ExchangeType::NOOP};
+            return {TLocalPartitionType::NOOP};
         }
         if (_needs_finalize || (!_probe_expr_ctxs.empty() && !_is_streaming_preagg)) {
             return _is_colocate && _require_bucket_distribution
-                           ? DataDistribution(ExchangeType::BUCKET_HASH_SHUFFLE, _partition_exprs)
-                           : DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+                           ? DataDistribution(TLocalPartitionType::BUCKET_HASH_SHUFFLE,
+                                              _partition_exprs)
+                           : DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                              _partition_exprs);
         }
         if (state->enable_distinct_streaming_agg_force_passthrough()) {
-            return {ExchangeType::PASSTHROUGH};
+            return {TLocalPartitionType::PASSTHROUGH};
         } else {
             return StatefulOperatorX<DistinctStreamingAggLocalState>::required_data_distribution(
                     state);

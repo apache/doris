@@ -223,7 +223,7 @@ public:
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         if (_child && _child->is_hash_join_probe() &&
             state->enable_streaming_agg_hash_join_force_passthrough()) {
-            return DataDistribution(ExchangeType::PASSTHROUGH);
+            return DataDistribution(TLocalPartitionType::PASSTHROUGH);
         }
         if (!state->get_query_ctx()->should_be_shuffled_agg(
                     StatefulOperatorX<StreamingAggLocalState>::node_id())) {
@@ -231,11 +231,12 @@ public:
         }
         if (_partition_exprs.empty()) {
             return _needs_finalize
-                           ? DataDistribution(ExchangeType::NOOP)
+                           ? DataDistribution(TLocalPartitionType::NOOP)
                            : StatefulOperatorX<StreamingAggLocalState>::required_data_distribution(
                                      state);
         }
-        return DataDistribution(ExchangeType::HASH_SHUFFLE, _partition_exprs);
+        return DataDistribution(TLocalPartitionType::GLOBAL_EXECUTION_HASH_SHUFFLE,
+                                _partition_exprs);
     }
 
 private:
