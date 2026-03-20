@@ -78,7 +78,8 @@ public:
 
     std::string debug_string() const {
         std::ostringstream buf;
-        buf << "begin=(" << begin_scan_range << "), end=(" << end_scan_range << ")";
+        buf << "begin=(" << begin_scan_range.debug_string() << "), end=("
+            << end_scan_range.debug_string() << ")";
         return buf.str();
     }
 };
