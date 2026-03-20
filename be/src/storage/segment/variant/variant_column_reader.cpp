@@ -413,8 +413,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
                     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
                             col_uid, leaf->path, &reader, opts->stats, leaf.get()));
                     if (!reader) {
-                        return Status::NotFound(
-                                "subcolumn reader not found for path: {}", path);
+                        return Status::NotFound("subcolumn reader not found for path: {}", path);
                     }
                     plan->subcolumn_entries_for_doc.push_back(
                             {path, std::move(reader), leaf->data.file_column_type});

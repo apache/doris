@@ -2256,7 +2256,6 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 
         configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
         configs[i].max_subcolumns_count = column.variant_max_subcolumns_count();
-
     }
 
     RETURN_IF_ERROR(parse_and_materialize_variant_columns(block, variant_column_pos, configs));

@@ -116,8 +116,7 @@ private:
                 const auto& leaf_col = _leaf_columns[col_idx];
 
                 // Subcolumn leaves are always nullable
-                const auto& nullable =
-                        assert_cast<const ColumnNullable&>(*leaf_col);
+                const auto& nullable = assert_cast<const ColumnNullable&>(*leaf_col);
                 if (nullable.is_null_at(row)) {
                     continue; // skip null values
                 }
@@ -127,8 +126,8 @@ private:
 
                 // Insert serialized JSONB binary as value
                 ColumnString::Chars& chars = map_values.get_chars();
-                _nested_serdes[col_idx]->write_one_cell_to_binary(
-                        nullable.get_nested_column(), chars, row);
+                _nested_serdes[col_idx]->write_one_cell_to_binary(nullable.get_nested_column(),
+                                                                  chars, row);
                 map_values.get_offsets().push_back(chars.size());
             }
             map_offsets.push_back(map_keys.size());
@@ -144,8 +143,8 @@ private:
     }
 
     std::vector<LeafEntry> _entries;
-    std::vector<MutableColumnPtr> _leaf_columns;        // pre-allocated, reused per batch
-    std::vector<DataTypeSerDeSPtr> _nested_serdes;       // cached nested serdes
+    std::vector<MutableColumnPtr> _leaf_columns;   // pre-allocated, reused per batch
+    std::vector<DataTypeSerDeSPtr> _nested_serdes; // cached nested serdes
 };
 
 #include "common/compile_check_end.h"

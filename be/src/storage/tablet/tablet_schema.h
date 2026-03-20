@@ -283,8 +283,6 @@ public:
 
     void set_variant_enable_nested_group(bool val) { _variant.enable_nested_group = val; }
 
-
-
     bool is_decimal() const { return _is_decimal; }
 
 private:
