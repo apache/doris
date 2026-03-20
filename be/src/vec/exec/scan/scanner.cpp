@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "pipeline/exec/scan_operator.h"
 #include "runtime/descriptors.h"
+#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
 #include "vec/columns/column_nothing.h"
@@ -77,6 +78,7 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
 }
 
 Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    SCOPED_CONCURRENCY_COUNT(ConcurrencyStatsManager::instance().vscanner_get_block);
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         if (_alreay_eos) {
