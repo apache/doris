@@ -169,7 +169,7 @@ public class ConfigUtil {
         return result;
     }
 
-      /**
+    /**
      * Parse all target-table name mappings from config.
      *
      * <p>Scans all keys matching {@code "table.<srcTableName>.target_table"} and returns a map from
