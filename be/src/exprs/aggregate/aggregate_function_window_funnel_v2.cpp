@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/aggregate/aggregate_function_window_funnel.h"
+#include "exprs/aggregate/aggregate_function_window_funnel_v2.h"
 
 #include <string>
 
@@ -28,17 +28,17 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
-                                                             const DataTypes& argument_types,
-                                                             const DataTypePtr& result_type,
-                                                             const bool result_is_nullable,
-                                                             const AggregateFunctionAttr& attr) {
+AggregateFunctionPtr create_aggregate_function_window_funnel_v2(const std::string& name,
+                                                                const DataTypes& argument_types,
+                                                                const DataTypePtr& result_type,
+                                                                const bool result_is_nullable,
+                                                                const AggregateFunctionAttr& attr) {
     if (argument_types.size() < 3) {
-        LOG(WARNING) << "window_funnel's argument less than 3.";
+        LOG(WARNING) << "window_funnel_v2's argument less than 3.";
         return nullptr;
     }
     if (argument_types[2]->get_primitive_type() == TYPE_DATETIMEV2) {
-        return creator_without_type::create<AggregateFunctionWindowFunnel>(
+        return creator_without_type::create<AggregateFunctionWindowFunnelV2>(
                 argument_types, result_is_nullable, attr);
     } else {
         LOG(WARNING) << "Only support DateTime type as window argument!";
@@ -46,11 +46,8 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
     }
 }
 
-void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("window_funnel_v1", create_aggregate_function_window_funnel);
-    factory.register_alias("window_funnel_v1", "window_funnel");
+void register_aggregate_function_window_funnel_v2(AggregateFunctionSimpleFactory& factory) {
+    factory.register_function_both("window_funnel_v2", create_aggregate_function_window_funnel_v2);
 }
-void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory) {
-    BeExecVersionManager::registe_restrict_function_compatibility("window_funnel");
-}
+
 } // namespace doris

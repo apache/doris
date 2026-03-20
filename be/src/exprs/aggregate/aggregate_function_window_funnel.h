@@ -56,7 +56,7 @@ namespace doris {
 
 enum class WindowFunnelMode : Int64 { INVALID, DEFAULT, DEDUPLICATION, FIXED, INCREASE };
 
-WindowFunnelMode string_to_window_funnel_mode(const String& string) {
+inline WindowFunnelMode string_to_window_funnel_mode(const String& string) {
     if (string == "default") {
         return WindowFunnelMode::DEFAULT;
     } else if (string == "deduplication") {
