@@ -84,8 +84,8 @@ public class GetDataTypeTest {
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(charLiteral)));
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(varcharLiteral)));
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(stringLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Sum(dateTimeLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(dateLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Sum(dateTimeLiteral)));
     }
 
     @Test
@@ -125,8 +125,8 @@ public class GetDataTypeTest {
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(charLiteral)));
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(varcharLiteral)));
         Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(stringLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Avg(dateLiteral)));
-        Assertions.assertThrows(RuntimeException.class, () -> checkAndGetDataType(new Avg(dateTimeLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(dateLiteral)));
+        Assertions.assertEquals(DoubleType.INSTANCE, checkAndGetDataType(new Avg(dateTimeLiteral)));
     }
 
     private DataType checkAndGetDataType(Expression expression) {
