@@ -312,7 +312,7 @@ under the License.
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.14.1</junit.version>
         <hikaricp.version>6.0.0</hikaricp.version>
-        <thrift.version>0.16.0</thrift.version>
+        <thrift.version>0.22.0</thrift.version>
         <tomcat-embed.version>9.0.104</tomcat-embed.version>
         <log4j2.version>2.25.3</log4j2.version>
         <log4j-1.2.version>2.25.3</log4j-1.2.version>

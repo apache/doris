@@ -3476,13 +3476,13 @@ public class Config extends ConfigBase {
     public static String file_cache_admission_control_json_dir = "";
 
     @ConfField
-    public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";
+    public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.DorisCloudSnapshotHandler";
     @ConfField
     public static int cloud_snapshot_handler_interval_second = 3600;
     @ConfField(mutable = true)
     public static long cloud_snapshot_timeout_seconds = 600;
     @ConfField(mutable = true)
-    public static long cloud_auto_snapshot_max_reversed_num = 35;
+    public static long cloud_auto_snapshot_max_reserved_num = 35;
     @ConfField(mutable = true)
     public static long cloud_auto_snapshot_min_interval_seconds = 3600;
 

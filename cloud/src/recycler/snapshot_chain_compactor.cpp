@@ -23,10 +23,14 @@
 #include "common/stopwatch.h"
 #include "common/util.h"
 #include "meta-store/keys.h"
-#include "mock_accessor.h"
-#include "recycler/hdfs_accessor.h"
 #include "recycler/s3_accessor.h"
+#include "recycler/storage_vault_accessor.h"
+#ifdef ENABLE_HDFS_STORAGE_VAULT
+#include "recycler/hdfs_accessor.h"
+#endif
+#include "cpp/sync_point.h"
 #include "recycler/util.h"
+#include "snapshot/doris_snapshot_manager.h"
 
 namespace doris::cloud {
 
@@ -298,9 +302,13 @@ int InstanceChainCompactor::init() {
 
 int InstanceChainCompactor::init_obj_store_accessors() {
     for (const auto& obj_info : instance_info_.obj_info()) {
-#ifdef UNIT_TEST
-        auto accessor = std::make_shared<MockAccessor>();
-#else
+        // Test injection point: allow tests to provide mock accessor
+        TEST_SYNC_POINT_CALLBACK("InstanceChainCompactor::init_obj_store.mock", &accessor_map_,
+                                 &obj_info);
+        if (accessor_map_.count(obj_info.id())) {
+            continue;
+        }
+
         auto s3_conf = S3Conf::from_obj_store_info(obj_info);
         if (!s3_conf) {
             LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
@@ -314,7 +322,6 @@ int InstanceChainCompactor::init_obj_store_accessors() {
                          << " resource_id=" << obj_info.id();
             return ret;
         }
-#endif
 
         accessor_map_.emplace(obj_info.id(), std::move(accessor));
     }
@@ -339,8 +346,12 @@ int InstanceChainCompactor::init_storage_vault_accessors() {
             LOG(WARNING) << "malformed storage vault, unable to deserialize key=" << hex(k);
             return -1;
         }
-        TEST_SYNC_POINT_CALLBACK("InstanceRecycler::init_storage_vault_accessors.mock_vault",
-                                 &accessor_map_, &vault);
+        // Test injection point: allow tests to provide mock accessor
+        TEST_SYNC_POINT_CALLBACK("InstanceChainCompactor::init_storage_vault.mock", &accessor_map_,
+                                 &vault);
+        if (accessor_map_.count(vault.id())) {
+            continue;
+        }
         if (vault.has_hdfs_info()) {
 #ifdef ENABLE_HDFS_STORAGE_VAULT
             auto accessor = std::make_shared<HdfsAccessor>(vault.hdfs_info());
@@ -357,9 +368,6 @@ int InstanceChainCompactor::init_storage_vault_accessors() {
                        << "but HDFS storage vaults were detected";
 #endif
         } else if (vault.has_obj_info()) {
-#ifdef UNIT_TEST
-            auto accessor = std::make_shared<MockAccessor>();
-#else
             auto s3_conf = S3Conf::from_obj_store_info(vault.obj_info());
             if (!s3_conf) {
                 LOG(WARNING) << "failed to init object accessor, instance_id=" << instance_id_;
@@ -373,7 +381,6 @@ int InstanceChainCompactor::init_storage_vault_accessors() {
                              << " resource_id=" << vault.id() << " name=" << vault.name();
                 return ret;
             }
-#endif
 
             accessor_map_.emplace(vault.id(), std::move(accessor));
         }
@@ -396,7 +403,7 @@ int InstanceChainCompactor::do_compact() {
                 .tag("cost(sec)", stop_watch.elapsed_seconds());
     };
 
-    SnapshotManager snapshot_mgr(txn_kv_);
+    DorisSnapshotManager snapshot_mgr(txn_kv_);
     int res = snapshot_mgr.compact_snapshot_chains(this);
     if (res != 0) {
         LOG_WARNING("failed to compact snapshot chains").tag("instance_id", instance_id_);
