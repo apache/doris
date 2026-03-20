@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.parser;
 
+import org.apache.doris.nereids.DorisLexer;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.ErrorIdentContext;
 import org.apache.doris.nereids.DorisParser.NonReservedContext;
@@ -43,11 +44,18 @@ public class PostProcessor extends DorisParserBaseListener {
 
     @Override
     public void exitQuotedIdentifier(QuotedIdentifierContext ctx) {
-        replaceTokenByIdentifier(ctx, 1, token -> {
-            // Remove the double back ticks in the string.
-            token.setText(token.getText().replace("``", "`"));
-            return token;
-        });
+        Token childToken = (Token) (ctx.getChild(0).getPayload());
+        if (childToken.getType() == DorisLexer.DOUBLE_QUOTED_IDENTIFIER) {
+            replaceTokenByIdentifier(ctx, 1, token -> {
+                token.setText(token.getText().replace("\"\"", "\""));
+                return token;
+            });
+        } else {
+            replaceTokenByIdentifier(ctx, 1, token -> {
+                token.setText(token.getText().replace("``", "`"));
+                return token;
+            });
+        }
     }
 
     @Override
