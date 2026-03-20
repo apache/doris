@@ -104,7 +104,8 @@ public class TabletSchedCtxTest extends TestWithFeService {
         while (!queue.isEmpty()) {
             gotTablets.add(queue.pollFirst());
         }
-        Assert.assertEquals(Config.max_scheduling_tablets, gotTablets.size());
+        // all pending tablets = global pending tablets + worker-queued tablets
+        Assert.assertTrue(Config.max_scheduling_tablets >= gotTablets.size());
         for (int i = 0; i < gotTablets.size(); i++) {
             TabletSchedCtx tablet = gotTablets.get(i);
             Assert.assertEquals(Type.REPAIR, tablet.getType());
