@@ -134,6 +134,17 @@ public final class AuthenticationResult {
     }
 
     /**
+     * Creates a failure result with a failure category and message.
+     *
+     * @param failureType the failure category
+     * @param message the error message
+     * @return failure result
+     */
+    public static AuthenticationResult failure(AuthenticationFailureType failureType, String message) {
+        return failure(new AuthenticationException(message, failureType));
+    }
+
+    /**
      * Returns the authentication status.
      *
      * @return the status

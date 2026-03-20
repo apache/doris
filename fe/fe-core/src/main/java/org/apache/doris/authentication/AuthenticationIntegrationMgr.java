@@ -17,6 +17,7 @@
 
 package org.apache.doris.authentication;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -92,6 +93,8 @@ public class AuthenticationIntegrationMgr implements Writable {
             // TODO(authentication-integration): Re-enable edit log persistence
             // when authentication integration is fully integrated.
             // Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime().markAuthenticationIntegrationDirty(
+                    integrationName);
         } finally {
             writeUnlock();
         }
@@ -107,6 +110,8 @@ public class AuthenticationIntegrationMgr implements Writable {
             // TODO(authentication-integration): Re-enable edit log persistence
             // when authentication integration is fully integrated.
             // Env.getCurrentEnv().getEditLog().logAlterAuthenticationIntegration(updated);
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime().markAuthenticationIntegrationDirty(
+                    integrationName);
         } finally {
             writeUnlock();
         }
@@ -141,6 +146,8 @@ public class AuthenticationIntegrationMgr implements Writable {
             // when authentication integration is fully integrated.
             // Env.getCurrentEnv().getEditLog().logDropAuthenticationIntegration(
             //         new DropAuthenticationIntegrationOperationLog(integrationName));
+            Env.getCurrentEnv().getAuthenticationIntegrationRuntime()
+                    .removeAuthenticationIntegration(integrationName);
         } finally {
             writeUnlock();
         }
@@ -170,6 +177,15 @@ public class AuthenticationIntegrationMgr implements Writable {
             nameToIntegration.remove(log.getIntegrationName());
         } finally {
             writeUnlock();
+        }
+    }
+
+    public AuthenticationIntegrationMeta getAuthenticationIntegration(String integrationName) {
+        readLock();
+        try {
+            return nameToIntegration.get(integrationName);
+        } finally {
+            readUnlock();
         }
     }
 

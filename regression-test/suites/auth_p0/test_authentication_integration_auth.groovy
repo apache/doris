@@ -57,6 +57,7 @@ suite("test_authentication_integration_auth", "p0,auth") {
             exception "does not allow modifying property 'type'"
         }
 
+
         sql """
             ALTER AUTHENTICATION INTEGRATION ${integrationName}
             SET PROPERTIES (
@@ -87,10 +88,12 @@ suite("test_authentication_integration_auth", "p0,auth") {
         assertEquals(integrationName, result[0][0])
         assertEquals("ldap", result[0][1])
         assertTrue(result[0][2].contains("\"ldap.server\" = \"ldap://127.0.0.1:1389\""))
+        assertTrue(!result[0][2].contains("\"ldap.server\" = \"ldap://127.0.0.1:2389\""))
         assertTrue(result[0][2].contains("\"ldap.admin_password\" = \"*XXX\""))
         assertTrue(result[0][2].contains("\"secret.endpoint\" = \"*XXX\""))
         assertTrue(!result[0][2].contains("abcdef"))
         assertTrue(!result[0][2].contains("secret_alter_value"))
+        assertTrue(!result[0][2].contains("plugin.initialize_immediately"))
         assertEquals("updated comment", result[0][3])
         assertTrue(result[0][4] != null && result[0][4].length() > 0)
         assertTrue(result[0][5] != null && result[0][5].length() > 0)

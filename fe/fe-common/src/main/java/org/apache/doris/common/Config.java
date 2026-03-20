@@ -2772,9 +2772,16 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"Specifies the authentication type"},
-            options = {"default", "ldap"})
+    @ConfField(description = {"指定 mysql 登录主认证器名称，可为内置认证器或认证插件名称",
+            "Specifies the primary MySQL authenticator name, either a built-in authenticator or an "
+                    + "authentication plugin name"},
+            options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
+
+    @ConfField(description = {"指定主认证失败后使用的认证链，多个 integration 名称用逗号分隔",
+            "Specifies the authentication chain used after primary authentication failure, multiple integration "
+                    + "names are comma-separated"})
+    public static String authentication_chain = "";
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})

@@ -22,10 +22,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.persist.DropAuthenticationIntegrationOperationLog;
 import org.apache.doris.persist.EditLog;
 
-import mockit.Expectations;
-import mockit.Mocked;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -38,53 +40,36 @@ import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
 
-public class AuthenticationIntegrationMgrTest {
+class AuthenticationIntegrationMgrTest {
     private static final String CREATE_USER = "creator";
     private static final String ALTER_USER = "modifier";
-
-    @Mocked
     private Env env;
-
-    @Mocked
     private EditLog editLog;
+    private AuthenticationIntegrationRuntime runtime;
+    private MockedStatic<Env> envMockedStatic;
 
-    private static Map<String, String> map(String... kvs) {
-        Map<String, String> result = new LinkedHashMap<>();
-        for (int i = 0; i < kvs.length; i += 2) {
-            result.put(kvs[i], kvs[i + 1]);
-        }
-        return result;
+    @BeforeEach
+    void setUp() {
+        env = Mockito.mock(Env.class);
+        editLog = Mockito.mock(EditLog.class);
+        runtime = Mockito.mock(AuthenticationIntegrationRuntime.class);
+
+        envMockedStatic = Mockito.mockStatic(Env.class);
+        envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
+
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(env.getAuthenticationIntegrationRuntime()).thenReturn(runtime);
     }
 
-    private static Set<String> set(String... keys) {
-        Set<String> result = new LinkedHashSet<>();
-        Collections.addAll(result, keys);
-        return result;
+    @AfterEach
+    void tearDown() {
+        if (envMockedStatic != null) {
+            envMockedStatic.close();
+        }
     }
 
     @Test
-    public void testCreateAlterDropFlow() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                editLog.logCreateAuthenticationIntegration((AuthenticationIntegrationMeta) any);
-                minTimes = 0;
-
-                editLog.logAlterAuthenticationIntegration((AuthenticationIntegrationMeta) any);
-                minTimes = 0;
-
-                editLog.logDropAuthenticationIntegration((DropAuthenticationIntegrationOperationLog) any);
-                minTimes = 0;
-            }
-        };
-
+    void testCreateAlterDropFlow() throws Exception {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         Map<String, String> createProperties = new LinkedHashMap<>();
         createProperties.put("type", "ldap");
@@ -92,7 +77,7 @@ public class AuthenticationIntegrationMgrTest {
         createProperties.put("ldap.admin_password", "123456");
 
         mgr.createAuthenticationIntegration("corp_ldap", false, createProperties, "comment", CREATE_USER);
-        AuthenticationIntegrationMeta created = mgr.getAuthenticationIntegrations().get("corp_ldap");
+        AuthenticationIntegrationMeta created = mgr.getAuthenticationIntegration("corp_ldap");
         Assertions.assertNotNull(created);
         Assertions.assertEquals("ldap", created.getType());
         Assertions.assertEquals(CREATE_USER, created.getCreateUser());
@@ -115,28 +100,15 @@ public class AuthenticationIntegrationMgrTest {
 
         mgr.dropAuthenticationIntegration("corp_ldap", false);
         Assertions.assertTrue(mgr.getAuthenticationIntegrations().isEmpty());
+
+        Mockito.verify(runtime, Mockito.times(2)).markAuthenticationIntegrationDirty("corp_ldap");
+        Mockito.verify(runtime).removeAuthenticationIntegration("corp_ldap");
+        Mockito.verifyNoMoreInteractions(runtime);
+        Mockito.verifyNoInteractions(editLog);
     }
 
     @Test
-    public void testCreateDuplicateAndDropIfExists() throws Exception {
-        new Expectations() {
-            {
-                Env.getCurrentEnv();
-                minTimes = 0;
-                result = env;
-
-                env.getEditLog();
-                minTimes = 0;
-                result = editLog;
-
-                editLog.logCreateAuthenticationIntegration((AuthenticationIntegrationMeta) any);
-                minTimes = 0;
-
-                editLog.logDropAuthenticationIntegration((DropAuthenticationIntegrationOperationLog) any);
-                minTimes = 0;
-            }
-        };
-
+    void testCreateDuplicateAndDropIfExists() throws Exception {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         mgr.createAuthenticationIntegration("corp_ldap", false, map(
                 "type", "ldap",
@@ -150,10 +122,12 @@ public class AuthenticationIntegrationMgrTest {
         Assertions.assertDoesNotThrow(() -> mgr.dropAuthenticationIntegration("not_exist", true));
         Assertions.assertThrows(DdlException.class,
                 () -> mgr.dropAuthenticationIntegration("not_exist", false));
+        Mockito.verifyNoInteractions(runtime);
+        Mockito.verifyNoInteractions(editLog);
     }
 
     @Test
-    public void testAlterNotExistThrows() {
+    void testAlterNotExistThrows() {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         Assertions.assertThrows(DdlException.class,
                 () -> mgr.alterAuthenticationIntegrationProperties("not_exist", map("k", "v"), ALTER_USER));
@@ -164,7 +138,7 @@ public class AuthenticationIntegrationMgrTest {
     }
 
     @Test
-    public void testReplayAndGetUnmodifiableView() throws Exception {
+    void testReplayAndGetUnmodifiableView() throws Exception {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
 
         AuthenticationIntegrationMeta meta1 = AuthenticationIntegrationMeta.fromCreateSql(
@@ -184,7 +158,7 @@ public class AuthenticationIntegrationMgrTest {
     }
 
     @Test
-    public void testWriteReadRoundTrip() throws IOException, DdlException {
+    void testWriteReadRoundTrip() throws IOException, DdlException {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         AuthenticationIntegrationMeta meta = AuthenticationIntegrationMeta.fromCreateSql(
                 "corp_ldap", map(
@@ -212,5 +186,19 @@ public class AuthenticationIntegrationMgrTest {
         Assertions.assertEquals("comment", readMeta.getComment());
         Assertions.assertEquals(CREATE_USER, readMeta.getCreateUser());
         Assertions.assertEquals(CREATE_USER, readMeta.getAlterUser());
+    }
+
+    private static Map<String, String> map(String... kvs) {
+        Map<String, String> result = new LinkedHashMap<>();
+        for (int i = 0; i < kvs.length; i += 2) {
+            result.put(kvs[i], kvs[i + 1]);
+        }
+        return result;
+    }
+
+    private static Set<String> set(String... keys) {
+        Set<String> result = new LinkedHashSet<>();
+        Collections.addAll(result, keys);
+        return result;
     }
 }
