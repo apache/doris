@@ -18,7 +18,6 @@
 #pragma once
 
 #include <atomic>
-#include <memory>
 #include <string>
 
 #include "common/status.h"

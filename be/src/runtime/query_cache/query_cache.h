@@ -23,7 +23,6 @@
 #include <stdint.h>
 
 #include <atomic>
-#include <memory>
 #include <roaring/roaring.hh>
 #include <string>
 

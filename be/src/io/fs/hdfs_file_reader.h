@@ -20,7 +20,6 @@
 #include <stddef.h>
 
 #include <atomic>
-#include <memory>
 #include <string>
 
 #include "common/status.h"
