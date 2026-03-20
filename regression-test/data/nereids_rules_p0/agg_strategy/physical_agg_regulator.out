@@ -50,10 +50,7 @@ PhysicalResultSink
 ----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[t1025]
+----------PhysicalOlapScan[t1025]
 
 -- !split_multi_agg_use_three_phase --
 PhysicalResultSink
@@ -67,11 +64,8 @@ PhysicalResultSink
 -- !split_multi_agg_use_four_phase --
 PhysicalResultSink
 --PhysicalDistribute[DistributionSpecGather]
-----hashAgg[DISTINCT_GLOBAL]
+----hashAgg[GLOBAL]
 ------PhysicalDistribute[DistributionSpecHash]
---------hashAgg[DISTINCT_LOCAL]
-----------hashAgg[GLOBAL]
-------------PhysicalDistribute[DistributionSpecHash]
---------------hashAgg[LOCAL]
-----------------PhysicalOlapScan[t1025]
+--------hashAgg[LOCAL]
+----------PhysicalOlapScan[t1025]
 

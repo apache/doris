@@ -17,13 +17,18 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DistributionInfo;
+import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.StatsDerive.DeriveContext;
-import org.apache.doris.nereids.stats.ExpressionEstimation;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AnyValue;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
@@ -34,11 +39,13 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum0;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Aggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -70,6 +77,7 @@ import java.util.Set;
  */
 public class DistinctAggregateRewriter implements RewriteRuleFactory {
     public static final DistinctAggregateRewriter INSTANCE = new DistinctAggregateRewriter();
+    private static final double MULTI_DISTINCT_GBY_PER_INSTANCE_THRESHOLD = 30.0;
     // TODO: add other functions
     private static final Set<Class<? extends AggregateFunction>> supportSplitOtherFunctions = ImmutableSet.of(
             Sum.class, Min.class, Max.class, Count.class, Sum0.class, AnyValue.class);
@@ -113,21 +121,115 @@ public class DistinctAggregateRewriter implements RewriteRuleFactory {
         // has unknown statistics, split to bottom and top agg
         if (AggregateUtils.hasUnknownStatistics(aggregate.getGroupByExpressions(), aggChildStats)
                 || AggregateUtils.hasUnknownStatistics(dstArgs, aggChildStats)) {
-            return true;
+            return !isDistinctKeySatisfyDistribution(aggregate);
         }
 
         double gbyNdv = aggStats.getRowCount();
-        Expression dstKey = dstArgs.iterator().next();
-        ColumnStatistic dstKeyStats = aggChildStats.findColumnStatistics(dstKey);
-        if (dstKeyStats == null) {
-            dstKeyStats = ExpressionEstimation.estimate(dstKey, aggChildStats);
+        int instanceNum = getParallelExecInstanceNum(ConnectContext.get());
+        if (instanceNum <= 0) {
+            instanceNum = 1;
         }
-        double dstNdv = dstKeyStats.ndv;
-        double inputRows = aggChildStats.getRowCount();
-        // group by key ndv is low, distinct key ndv is high, multi_distinct is better
-        // otherwise split to bottom and top agg
-        return gbyNdv < inputRows * AggregateUtils.LOW_CARDINALITY_THRESHOLD
-                && dstNdv > inputRows * AggregateUtils.HIGH_CARDINALITY_THRESHOLD;
+        return gbyNdv / instanceNum <= MULTI_DISTINCT_GBY_PER_INSTANCE_THRESHOLD;
+    }
+
+    private int getParallelExecInstanceNum(ConnectContext ctx) {
+        if (ctx == null) {
+            return 1;
+        }
+        return ctx.getSessionVariable()
+                .getParallelExecInstanceNum(ctx.getSessionVariable().resolveCloudClusterName(ctx));
+    }
+
+    private boolean isDistinctKeySatisfyDistribution(LogicalAggregate<? extends Plan> aggregate) {
+        DistinctDistributionInfo info = resolveDistinctDistributionInfo(aggregate);
+        if (info == null) {
+            return false;
+        }
+        Set<String> distinctColumnNames = new HashSet<>();
+        for (SlotReference slot : info.distinctSlots) {
+            if (!slot.getOriginalColumn().isPresent()) {
+                return false;
+            }
+            distinctColumnNames.add(slot.getOriginalColumn().get().getName().toLowerCase());
+        }
+        DistributionInfo distributionInfo = info.table.getDefaultDistributionInfo();
+        if (!(distributionInfo instanceof HashDistributionInfo)) {
+            return false;
+        }
+        List<Column> distributionColumns = ((HashDistributionInfo) distributionInfo).getDistributionColumns();
+        if (distributionColumns.isEmpty()) {
+            return false;
+        }
+        for (Column column : distributionColumns) {
+            if (!distinctColumnNames.contains(column.getName().toLowerCase())) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private DistinctDistributionInfo resolveDistinctDistributionInfo(LogicalAggregate<? extends Plan> aggregate) {
+        Set<Expression> distinctArgs = aggregate.getDistinctArguments();
+        if (distinctArgs.isEmpty()) {
+            return null;
+        }
+        Set<SlotReference> distinctSlots = new HashSet<>();
+        for (Expression expression : distinctArgs) {
+            if (!(expression instanceof SlotReference)) {
+                return null;
+            }
+            distinctSlots.add((SlotReference) expression);
+        }
+        Plan child = aggregate.child();
+        while (child instanceof LogicalProject || child instanceof LogicalFilter) {
+            if (child instanceof LogicalProject) {
+                LogicalProject<? extends Plan> project = (LogicalProject<? extends Plan>) child;
+                Map<Slot, Expression> projectExprMap = new HashMap<>();
+                for (NamedExpression namedExpression : project.getProjects()) {
+                    Expression projectExpr = namedExpression;
+                    if (namedExpression instanceof Alias) {
+                        projectExpr = ((Alias) namedExpression).child();
+                    }
+                    projectExprMap.put(namedExpression.toSlot(), projectExpr);
+                }
+                Set<SlotReference> replaced = new HashSet<>();
+                for (SlotReference slot : distinctSlots) {
+                    Expression projectExpr = projectExprMap.get(slot);
+                    if (!(projectExpr instanceof SlotReference)) {
+                        return null;
+                    }
+                    replaced.add((SlotReference) projectExpr);
+                }
+                distinctSlots = replaced;
+                child = project.child();
+                continue;
+            }
+            child = ((LogicalFilter<? extends Plan>) child).child();
+        }
+        if (!(child instanceof LogicalOlapScan)) {
+            return null;
+        }
+        OlapTable olapTable = ((LogicalOlapScan) child).getTable();
+        if (olapTable == null) {
+            return null;
+        }
+        for (SlotReference slot : distinctSlots) {
+            if (!slot.getOriginalTable().isPresent()
+                    || slot.getOriginalTable().get() != olapTable) {
+                return null;
+            }
+        }
+        return new DistinctDistributionInfo(olapTable, distinctSlots);
+    }
+
+    private static class DistinctDistributionInfo {
+        private final OlapTable table;
+        private final Set<SlotReference> distinctSlots;
+
+        private DistinctDistributionInfo(OlapTable table, Set<SlotReference> distinctSlots) {
+            this.table = table;
+            this.distinctSlots = distinctSlots;
+        }
     }
 
     private Plan rewrite(LogicalAggregate<? extends Plan> aggregate, ConnectContext ctx) {
