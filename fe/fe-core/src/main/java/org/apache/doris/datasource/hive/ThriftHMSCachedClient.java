@@ -766,6 +766,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         }
     }
 
+    // Keep the HMS client creation behind an injectable seam so unit tests can verify
+    // Doris-side pool behavior without relying on Hive static construction internals.
     interface MetaStoreClientProvider {
         IMetaStoreClient create(HiveConf hiveConf) throws MetaException;
     }
