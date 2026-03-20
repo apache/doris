@@ -1178,10 +1178,10 @@ Status ScanOperatorX<LocalStateType>::init(const TPlanNode& tnode, RuntimeState*
 #endif
     if (_mem_arb) {
         _mem_arb->register_scan_node();
-        _mem_limiter = MemLimiter::create_shared(
-                state->query_id(), state->query_parallel_instance_num(),
-                OperatorX<LocalStateType>::is_serial_operator(),
-                state->get_query_ctx()->get_query_options().mem_limit);
+        _mem_limiter =
+                MemLimiter::create_shared(state->query_id(), state->query_parallel_instance_num(),
+                                          OperatorX<LocalStateType>::is_serial_operator(),
+                                          state->get_query_ctx()->get_query_options().mem_limit);
     }
     // tnode.olap_scan_node.push_down_agg_type_opt field is deprecated
     // Introduced a new field : tnode.push_down_agg_type_opt

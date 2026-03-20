@@ -97,8 +97,7 @@ private:
 
 public:
     ENABLE_FACTORY_CREATOR(MemLimiter)
-    MemLimiter(const TUniqueId& qid, int64_t parallelism, bool serial_operator_,
-                      int64_t mem_limit)
+    MemLimiter(const TUniqueId& qid, int64_t parallelism, bool serial_operator_, int64_t mem_limit)
             : query_id(qid),
               parallelism(parallelism),
               serial_operator(serial_operator_),
@@ -257,8 +256,7 @@ public:
                    const RowDescriptor* output_row_descriptor,
                    const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
                    std::shared_ptr<Dependency> dependency, std::shared_ptr<MemShareArbitrator> arb,
-                   std::shared_ptr<MemLimiter> limiter, int ins_idx,
-                   bool enable_adaptive_scan
+                   std::shared_ptr<MemLimiter> limiter, int ins_idx, bool enable_adaptive_scan
 #ifdef BE_TEST
                    ,
                    int num_parallel_instances
