@@ -30,6 +30,8 @@
 #include <vector>
 
 #include "common/status.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type.h"
 #include "format/file_reader/new_plain_text_line_reader.h"
 #include "format/generic_reader.h"
@@ -284,6 +286,14 @@ private:
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
     std::vector<int> _use_nullable_string_opt;
+
+    // Cached column pointers for nullable string fast path, avoiding per-row assert_cast.
+    struct NullableStringColumnCache {
+        ColumnStr<uint32_t>* nested_str_col = nullptr;
+        NullMap* null_map = nullptr;
+    };
+    std::vector<NullableStringColumnCache> _nullable_str_col_cache;
+    bool _has_escape_char = false;
 };
 #include "common/compile_check_end.h"
 } // namespace doris
