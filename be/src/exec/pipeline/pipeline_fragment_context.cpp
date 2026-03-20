@@ -465,6 +465,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
             _tasks[instance_idx].emplace_back(
                     std::pair<std::shared_ptr<PipelineTask>, std::unique_ptr<RuntimeState>> {
                             std::move(task), std::move(task_runtime_state)});
+            _instance_tasks_count[instance_idx]++;
         }
     }
 
@@ -530,8 +531,14 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
 Status PipelineFragmentContext::_build_pipeline_tasks(ThreadPool* thread_pool) {
     _total_tasks = 0;
     _closed_tasks = 0;
+    _finished_instances_count = 0;
     const auto target_size = _params.local_params.size();
     _tasks.resize(target_size);
+    _instance_tasks_count.assign(target_size, 0);
+    _instance_closed_tasks_count.reset(new std::atomic<int>[target_size]);
+    for (int i = 0; i < target_size; i++) {
+        _instance_closed_tasks_count[i] = 0;
+    }
     _runtime_filter_mgr_map.resize(target_size);
     for (size_t pip_idx = 0; pip_idx < _pipelines.size(); pip_idx++) {
         _pip_id_to_pipeline[_pipelines[pip_idx]->id()] = _pipelines[pip_idx].get();
@@ -1852,11 +1859,13 @@ void PipelineFragmentContext::_close_fragment_instance() {
 
     if (!_need_notify_close) {
         // all submitted tasks done
+        _query_ctx->update_finished_instance_counts(get_total_instances(),
+                                                    get_finished_instances());
         _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
     }
 }
 
-void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
+void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id, int instance_idx) {
     // If all tasks of this pipeline has been closed, upstream tasks is never needed, and we just make those runnable here
     DCHECK(_pip_id_to_pipeline.contains(pipeline_id));
     if (_pip_id_to_pipeline[pipeline_id]->close_task()) {
@@ -1865,6 +1874,11 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
                 _pip_id_to_pipeline[dep]->make_all_runnable(pipeline_id);
             }
         }
+    }
+    // Increment closed task count for the specific instance
+    if (++_instance_closed_tasks_count[instance_idx] == _instance_tasks_count[instance_idx]) {
+        // If all tasks in this instance are closed, the instance is finished
+        ++_finished_instances_count;
     }
     std::lock_guard<std::mutex> l(_task_mutex);
     ++_closed_tasks;
@@ -2138,6 +2152,8 @@ void PipelineFragmentContext::_release_resource() {
     _pipelines.clear();
     _sink.reset();
     _root_op.reset();
+    _instance_tasks_count.clear();
+    _instance_closed_tasks_count.reset();
     _runtime_filter_mgr_map.clear();
     _op_id_to_shared_state.clear();
 }

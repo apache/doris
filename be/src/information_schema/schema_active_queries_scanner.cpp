@@ -40,7 +40,10 @@ std::vector<SchemaScanner::ColumnDesc> SchemaActiveQueriesScanner::_s_tbls_colum
         {"QUEUE_END_TIME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"QUERY_STATUS", TYPE_VARCHAR, sizeof(StringRef), true},
         {"USER", TYPE_VARCHAR, sizeof(StringRef), true},
-        {"SQL", TYPE_STRING, sizeof(StringRef), true}};
+        {"SQL", TYPE_STRING, sizeof(StringRef), true},
+        {"TOTAL_INSTANCES", TYPE_BIGINT, sizeof(int64_t), true},
+        {"FINISHED_INSTANCES", TYPE_BIGINT, sizeof(int64_t), true},
+        {"PROGRESS", TYPE_VARCHAR, sizeof(StringRef), true}};
 
 SchemaActiveQueriesScanner::SchemaActiveQueriesScanner()
         : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_ACTIVE_QUERIES) {}

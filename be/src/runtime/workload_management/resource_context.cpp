@@ -20,6 +20,8 @@
 #include <gen_cpp/data.pb.h>
 #include <glog/logging.h>
 
+#include "runtime/query_context.h"
+#include "runtime/workload_management/query_task_controller.h"
 #include "util/time.h"
 
 namespace doris {
@@ -50,6 +52,16 @@ void ResourceContext::to_thrift_query_statistics(TQueryStatistics* statistics) c
             io_context_->spill_write_bytes_to_local_storage());
     statistics->__set_spill_read_bytes_from_local_storage(
             io_context_->spill_read_bytes_from_local_storage());
+
+    if (auto* query_task_controller = dynamic_cast<QueryTaskController*>(task_controller())) {
+        if (auto query_ctx = query_task_controller->get_query_ctx()) {
+            int total = 0;
+            int finished = 0;
+            query_ctx->get_instance_counts(&total, &finished);
+            statistics->__set_total_instances_num(total);
+            statistics->__set_finished_instances_num(finished);
+        }
+    }
 }
 
 #include "common/compile_check_end.h"

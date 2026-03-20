@@ -506,6 +506,9 @@ public class SchemaTable extends Table {
                             .column("QUERY_STATUS", ScalarType.createVarchar(256))
                             .column("USER", ScalarType.createVarchar(256))
                             .column("SQL", ScalarType.createStringType())
+                            .column("TOTAL_INSTANCES", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("FINISHED_INSTANCES", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("PROGRESS", ScalarType.createVarchar(16))
                             .build()))
             .put("workload_groups", new SchemaTable(SystemIdGenerator.getNextId(), "workload_groups", TableType.SCHEMA,
                     builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))
@@ -552,7 +555,11 @@ public class SchemaTable extends Table {
                                     .column("TraceId", ScalarType.createVarchar(256))
                                     .column("Info", ScalarType.createVarchar(ScalarType.MAX_VARCHAR_LENGTH))
                                     .column("FE", ScalarType.createVarchar(64))
-                                    .column("CloudCluster", ScalarType.createVarchar(64)).build(), true))
+                                    .column("CloudCluster", ScalarType.createVarchar(64))
+                                    .column("TotalInstances", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("FinishedInstances", ScalarType.createType(PrimitiveType.BIGINT))
+                                    .column("Progress", ScalarType.createVarchar(16))
+                                    .build(), true))
             .put("workload_policy",
                     new SchemaTable(SystemIdGenerator.getNextId(), "workload_policy", TableType.SCHEMA,
                             builder().column("ID", ScalarType.createType(PrimitiveType.BIGINT))

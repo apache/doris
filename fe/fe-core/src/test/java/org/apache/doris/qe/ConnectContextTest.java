@@ -121,7 +121,7 @@ public class ConnectContextTest {
         // Thread info
         Assert.assertNotNull(ctx.toThreadInfo(false));
         List<String> row = ctx.toThreadInfo(false).toRow(101, 1000, Optional.of("+08:00"));
-        Assert.assertEquals(15, row.size());
+        Assert.assertEquals(18, row.size());
         Assert.assertEquals("Yes", row.get(0));
         Assert.assertEquals("101", row.get(1));
         Assert.assertEquals("testUser", row.get(2));
@@ -134,6 +134,10 @@ public class ConnectContextTest {
         Assert.assertEquals("OK", row.get(9));
         Assert.assertEquals("", row.get(10));
         Assert.assertEquals("", row.get(11));
+
+        Assert.assertEquals("0", row.get(15));
+        Assert.assertEquals("0", row.get(16));
+        Assert.assertEquals("0%", row.get(17));
 
         // Start time
         Assert.assertEquals(0, ctx.getStartTime());

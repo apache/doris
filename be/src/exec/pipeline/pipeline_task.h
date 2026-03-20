@@ -123,7 +123,11 @@ public:
     DataSinkOperatorPtr sink() const { return _sink; }
 
     int task_id() const { return _index; };
+    int task_idx() const { return _task_idx; }
     virtual bool is_finalized() const { return _exec_state == State::FINALIZED; }
+    virtual bool is_finished() const {
+        return _exec_state == State::FINISHED || _exec_state == State::FINALIZED;
+    }
 
     void set_wake_up_early(PipelineId wake_by = -1) {
         _wake_up_early = true;

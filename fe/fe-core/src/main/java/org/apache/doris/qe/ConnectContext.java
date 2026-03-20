@@ -1257,6 +1257,30 @@ public class ConnectContext {
             } else {
                 row.add(cloudCluster);
             }
+
+            Coordinator coord = null;
+            if (executor != null) {
+                coord = executor.getCoord();
+            }
+            if (coord == null && queryId != null) {
+                LOG.info("coord is null, try to get from QeProcessorImpl, queryId: {}", DebugUtil.printId(queryId));
+                coord = QeProcessorImpl.INSTANCE.getCoordinator(queryId);
+            }
+            if (coord != null) {
+                long total = coord.getFragmentInstanceCount();
+                long finished = coord.getFragmentInstanceFinishedCount();
+                row.add(String.valueOf(total));
+                row.add(String.valueOf(finished));
+                if (total > 0) {
+                    row.add((finished * 100 / total) + "%");
+                } else {
+                    row.add("0%");
+                }
+            } else {
+                row.add("0");
+                row.add("0");
+                row.add("0%");
+            }
             return row;
         }
     }

@@ -111,7 +111,7 @@ public class QueryProcessor extends AbstractJobProcessor {
 
     @Override
     protected void doProcessReportExecStatus(TReportExecStatusParams params, SingleFragmentPipelineTask fragmentTask) {
-
+        fragmentTask.processReportExecStatus(params);
     }
 
     public boolean isEos() {
