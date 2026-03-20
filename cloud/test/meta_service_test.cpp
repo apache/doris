@@ -11364,6 +11364,9 @@ TEST(MetaServiceTest, RestoreJobTest) {
         make_req.set_tablet_id(tablet_id);
         make_req.set_expiration(time(nullptr) + 3600);
         make_req.set_action(RestoreJobRequest::PREPARE);
+        if (store_version > 0) {
+            make_req.set_store_version(store_version);
+        }
         auto* tablet_meta = make_req.mutable_tablet_meta();
         tablet_meta->set_table_id(table_id);
         tablet_meta->set_index_id(index_id);
@@ -11391,13 +11394,75 @@ TEST(MetaServiceTest, RestoreJobTest) {
 
         meta_service->prepare_restore_job(&cntl, &make_req, &make_res, nullptr);
         ASSERT_EQ(make_res.status().code(), MetaServiceCode::OK);
+
         std::string restore_job_key = job_restore_tablet_key({instance_id, tablet_id});
         std::string val;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
         ASSERT_EQ(txn->get(restore_job_key, &val), TxnErrorCode::TXN_OK);
         std::string restore_job_rs_key = job_restore_rowset_key({instance_id, tablet_id, version});
         ASSERT_EQ(txn->get(restore_job_rs_key, &val), TxnErrorCode::TXN_OK);
-
+        // check delete bitmap
+        {
+            TxnErrorCode err = (store_version == 0 || store_version == 1 || store_version == 3)
+                                       ? TxnErrorCode::TXN_OK
+                                       : TxnErrorCode::TXN_KEY_NOT_FOUND;
+            std::string bitmap_key =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rs_meta->rowset_id_v2(), 1, 1});
+            ASSERT_EQ(txn->get(bitmap_key, &val), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                ASSERT_EQ(val, "test_bitmap");
+            }
+            bitmap_key =
+                    meta_delete_bitmap_key({instance_id, tablet_id, rs_meta->rowset_id_v2(), 1, 2});
+            ASSERT_EQ(txn->get(bitmap_key, &val), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                ASSERT_EQ(val, "test_bitmap2");
+            }
+            bitmap_key = meta_delete_bitmap_key(
+                    {instance_id, tablet_id, rs_meta->rowset_id_v2() + "2", 1, 1});
+            ASSERT_EQ(txn->get(bitmap_key, &val), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                ASSERT_EQ(val, "test_bitmap3");
+            }
+        }
+        {
+            TxnErrorCode err = (store_version == 2 || store_version == 3)
+                                       ? TxnErrorCode::TXN_OK
+                                       : TxnErrorCode::TXN_KEY_NOT_FOUND;
+            std::string bitmap_key = versioned::meta_delete_bitmap_key(
+                    {instance_id, tablet_id, rs_meta->rowset_id_v2()});
+            ValueBuf val_buf;
+            ASSERT_EQ(cloud::blob_get(txn.get(), bitmap_key, &val_buf), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                DeleteBitmapStoragePB delete_bitmap_storage;
+                ASSERT_TRUE(val_buf.to_pb(&delete_bitmap_storage));
+                ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+                auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), 2);
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(0), rs_meta->rowset_id_v2());
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.versions(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(0), "test_bitmap");
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(1), rs_meta->rowset_id_v2());
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(1), 2);
+                ASSERT_EQ(delete_bitmap_pb.versions(1), 1);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(1), "test_bitmap2");
+            }
+            bitmap_key = versioned::meta_delete_bitmap_key(
+                    {instance_id, tablet_id, rs_meta->rowset_id_v2() + "2"});
+            ASSERT_EQ(cloud::blob_get(txn.get(), bitmap_key, &val_buf), err);
+            if (err == TxnErrorCode::TXN_OK) {
+                DeleteBitmapStoragePB delete_bitmap_storage;
+                ASSERT_TRUE(val_buf.to_pb(&delete_bitmap_storage));
+                ASSERT_TRUE(delete_bitmap_storage.store_in_fdb());
+                auto& delete_bitmap_pb = delete_bitmap_storage.delete_bitmap();
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids_size(), 1);
+                ASSERT_EQ(delete_bitmap_pb.rowset_ids(0), rs_meta->rowset_id_v2() + "2");
+                ASSERT_EQ(delete_bitmap_pb.segment_ids(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.versions(0), 1);
+                ASSERT_EQ(delete_bitmap_pb.segment_delete_bitmaps(0), "test_bitmap3");
+            }
+        }
         // commit_restore_job
         req.set_tablet_id(tablet_id);
         req.set_action(RestoreJobRequest::COMMIT);
