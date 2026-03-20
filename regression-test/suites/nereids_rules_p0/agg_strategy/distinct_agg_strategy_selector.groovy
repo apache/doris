@@ -21,6 +21,7 @@ suite("distinct_agg_strategy_selector") {
     set runtime_filter_mode=OFF;
     set enable_parallel_result_sink=false;
     set be_number_for_test=1;
+    set bucketed_agg_min_input_rows = 1000000;
     """
     multi_sql """
     analyze table t1000 with sync;
