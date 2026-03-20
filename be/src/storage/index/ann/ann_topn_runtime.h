@@ -45,7 +45,9 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 
-namespace doris { class RuntimeState; }
+namespace doris {
+class RuntimeState;
+} // namespace doris
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 struct AnnIndexStats;

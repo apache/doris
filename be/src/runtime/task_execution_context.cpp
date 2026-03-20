@@ -17,11 +17,11 @@
 
 #include "runtime/task_execution_context.h"
 
-#include "runtime/runtime_state.h"
-
 #include <glog/logging.h>
 
 #include <condition_variable>
+
+#include "runtime/runtime_state.h"
 
 namespace doris {
 void TaskExecutionContext::ref_task_execution_ctx() {

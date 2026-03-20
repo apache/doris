@@ -16,7 +16,6 @@
 // under the License.
 
 #include "exprs/short_circuit_evaluation_expr.h"
-#include "runtime/runtime_state.h"
 
 #include <gen_cpp/Exprs_types.h>
 
@@ -37,6 +36,7 @@
 #include "core/field.h"
 #include "exprs/short_circuit_util.h"
 #include "exprs/vexpr.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 
