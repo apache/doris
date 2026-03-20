@@ -1550,6 +1550,7 @@ Status CloudMetaMgr::prepare_restore_job(const TabletMetaPB& tablet_meta) {
     req.set_tablet_id(tablet_meta.tablet_id());
     req.set_expiration(config::snapshot_expire_time_sec);
     req.set_action(RestoreJobRequest::PREPARE);
+    req.set_store_version(config::delete_bitmap_store_write_version);
 
     doris_tablet_meta_to_cloud(req.mutable_tablet_meta(), std::move(tablet_meta));
     return retry_rpc("prepare restore job", req, &resp, &MetaService_Stub::prepare_restore_job);
