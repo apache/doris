@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregatePhase;
+import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.trees.plans.AggMode;
 import org.apache.doris.nereids.trees.plans.AggPhase;
@@ -215,6 +216,17 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
         // These are produced by DistinctAggregateRewriter as the bottom dedup phase.
         if (aggregate.getAggregateFunctions().isEmpty()) {
             return ImmutableList.of();
+        }
+        // Skip aggregates containing multi-distinct functions (e.g., multi_distinct_count,
+        // multi_distinct_sum). These are semantically distinct aggregations rewritten by
+        // DistinctAggregateRewriter — they embed deduplication in the BE-level function.
+        // The bucketed agg cost model does not account for deduplication overhead, which
+        // causes the base-table bucketed path to appear artificially cheap compared to
+        // materialized views using pre-aggregated bitmap_union/hll_union.
+        for (AggregateFunction func : aggregate.getAggregateFunctions()) {
+            if (func instanceof MultiDistinction) {
+                return ImmutableList.of();
+            }
         }
         // Skip aggregates whose child group contains a LogicalAggregate.
         // This detects the top aggregate in a DISTINCT decomposition (e.g.,
