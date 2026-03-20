@@ -143,6 +143,10 @@ jars=(
 
 cd ${CUR_DIR}/auxlib
 for jar in "${jars[@]}"; do
-    curl -O "https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3/${jar}"
+    if [[ ! -f "${jar}" ]]; then
+        curl -O "https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3/${jar}"
+    else
+        echo "${CUR_DIR}/auxlib/${jar} exist, continue !"
+    fi
 done
 
