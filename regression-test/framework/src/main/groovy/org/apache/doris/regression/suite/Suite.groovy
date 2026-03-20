@@ -2479,6 +2479,35 @@ class Suite implements GroovyInterceptable {
         return false;
     }
 
+
+    // Randomly pick at most one representative SQL from each category to reduce runtime
+    // while still covering error, incremental, complete, and normal success paths.
+    static List pickRepresentativeCases(List allList, List incrementList, List completeList, List errorList) {
+        def rng = new Random()
+        def selectedCases = new LinkedHashSet()
+        def successList = allList.findAll { !(it in errorList) }
+
+        // Pick one SQL from the candidate list (only if it exists in allList).
+        def pickOne = { List candidates ->
+            def inAll = candidates.findAll { it in allList }
+            if (!inAll.isEmpty()) {
+                selectedCases.add(inAll[rng.nextInt(inAll.size())])
+            }
+        }
+
+        pickOne(errorList) // error path
+        pickOne(incrementList.findAll { it in successList }) // incremental refresh path
+        pickOne(completeList.findAll { it in successList && !(it in incrementList) }) // complete refresh path
+        pickOne(successList.findAll { !(it in incrementList) && !(it in completeList) }) // normal success path
+
+        // Fallback: if nothing is selected, pick one from allList.
+        if (selectedCases.isEmpty() && !allList.isEmpty()) {
+            selectedCases.add(allList[rng.nextInt(allList.size())])
+        }
+
+        return selectedCases as List
+    }
+
     /**
      * decide the mv should check or not, if expected_pre_rewrite_strategy is differnt from
      * current_strategy, should not check
