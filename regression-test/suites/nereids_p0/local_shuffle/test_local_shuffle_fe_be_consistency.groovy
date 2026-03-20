@@ -184,10 +184,12 @@ suite("test_local_shuffle_fe_be_consistency", "nereids_p0") {
     //  ls_t1: HASH(k1) 8 buckets
     //  ls_t2: HASH(k1) 8 buckets  (same distribution → colocate-eligible)
     //  ls_t3: HASH(k4) 5 buckets  (different distribution)
+    //  ls_serial: HASH(k1) 2 buckets (for serial-scan tests: 2 < parallel_pipeline_task_num=4)
     // ============================================================
     sql "DROP TABLE IF EXISTS ls_t1"
     sql "DROP TABLE IF EXISTS ls_t2"
     sql "DROP TABLE IF EXISTS ls_t3"
+    sql "DROP TABLE IF EXISTS ls_serial"
 
     sql """
         CREATE TABLE ls_t1 (
@@ -241,6 +243,21 @@ suite("test_local_shuffle_fe_be_consistency", "nereids_p0") {
             (3, 1003, 8), (4, 1004, 9), (5, 1005, 10)
     """
 
+    sql """
+        CREATE TABLE ls_serial (
+            k1 INT NOT NULL,
+            k2 INT,
+            v1 INT
+        ) ENGINE=OLAP
+        DUPLICATE KEY(k1, k2)
+        DISTRIBUTED BY HASH(k1) BUCKETS 2
+        PROPERTIES ("replication_num" = "1")
+    """
+    sql """
+        INSERT INTO ls_serial VALUES
+            (1, 10, 2), (2, 20, 4), (3, 30, 5), (4, 40, 6)
+    """
+
     // SET_VAR prefix used in most test SQLs (disables plan reorder/colocate for deterministic plans)
     def sv = "/*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0)*/"
     // Same as sv but forces serial source path (default in many environments)
@@ -269,6 +286,20 @@ suite("test_local_shuffle_fe_be_consistency", "nereids_p0") {
     //       This explicitly validates FE/BE consistency under serial-source planning path.
     checkConsistencyWithSql("agg_1phase_bucket_key_serial_source",
         "SELECT ${svSerialSource} k1, count(*) AS cnt FROM ls_t1 GROUP BY k1 ORDER BY k1")
+
+    // 1-2c: Finalize agg, serial/pooling scan, bucket key (k1), ls_serial (2 buckets).
+    //       Known diff: For pooling scan + bucket-key colocate agg, BE inserts LOCAL_HASH_SHUFFLE
+    //       running as 4 pipeline tasks + 2 PASSTHROUGH exchanges (one per pipeline boundary).
+    //       FE inserts LOCAL_HASH_SHUFFLE as a single tree node (1 task) + 1 PASSTHROUGH.
+    //       BE's pipeline-level task granularity produces more profile entries than FE's tree model.
+    //       Results are correct (verified by check_sql_equal).
+    checkConsistencyWithSql("agg_finalize_serial_pooling_bucket",
+        "SELECT ${svSerialSource} k1, count(*) AS cnt FROM ls_serial GROUP BY k1 ORDER BY k1",
+        true /* knownDiff */)
+
+    // 1-2d: Agg, serial/pooling scan, non-bucket key (k2), ls_serial.
+    checkConsistencyWithSql("agg_finalize_serial_pooling_non_bucket",
+        "SELECT ${svSerialSource} k2, count(*) AS cnt FROM ls_serial GROUP BY k2 ORDER BY k2")
 
     // 1-3: AggSink 1-phase, non-bucket key (k2)
     //      BE: GLOBAL_EXECUTION_HASH_SHUFFLE vs BUCKET_HASH_SHUFFLE from scan
@@ -636,6 +667,66 @@ suite("test_local_shuffle_fe_be_consistency", "nereids_p0") {
         """SELECT ${sv} DISTINCT a.k1
            FROM ls_t1 a JOIN [shuffle] ls_t2 b ON a.k1 = b.k1
            ORDER BY a.k1""")
+
+    // ================================================================
+    // Section 11: AggSink LOCAL_HASH_SHUFFLE scenarios
+    // Scenarios where BE's need_to_local_exchange() inserts GLOBAL/BUCKET
+    // hash exchange because the source distribution is not hash-compatible.
+    //
+    // Key rule in pipeline.cpp need_to_local_exchange():
+    //   If source is BUCKET_HASH and sink requires GLOBAL_HASH → both are hash
+    //   → need_to_local_exchange returns false → NO local exchange.
+    //   But if source is PASSTHROUGH/NOOP → not both hash → insert GLOBAL_HASH.
+    // ================================================================
+
+    // 11-1: force_to_local_shuffle=true + non-bucket finalize agg
+    //       With force_to_local_shuffle, OlapScanNode.isSerialOperator()=true even with 8 tablets.
+    //       Optimizer puts agg in a separate finalize fragment receiving hash-partitioned data,
+    //       so no LOCAL_HASH_SHUFFLE is generated — only PASSTHROUGH for the NLJ/scan boundary.
+    checkConsistencyWithSql("agg_finalize_force_local_shuffle_non_bucket",
+        """SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,
+                             ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,
+                             force_to_local_shuffle=true,enable_local_shuffle=true)*/ k2, count(*) AS cnt
+           FROM ls_t1 GROUP BY k2 ORDER BY k2""")
+
+    // 11-2: force_to_local_shuffle=true + bucket-key finalize agg
+    //       GROUP BY k1 (bucket key of ls_t1): colocate agg stays in same fragment as scan.
+    //       FE: AggNode is colocate → requireHash. BE: AggSink returns BUCKET_HASH.
+    //       Result MATCH: [PASSTHROUGH:9], consistent with other bucket-key colocate cases.
+    checkConsistencyWithSql("agg_finalize_force_local_shuffle_bucket_key",
+        """SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,
+                             ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,
+                             force_to_local_shuffle=true,enable_local_shuffle=true)*/ k1, count(*) AS cnt
+           FROM ls_t1 GROUP BY k1 ORDER BY k1""")
+
+    // 11-3: NLJ (theta join) → finalize agg on non-bucket key
+    //       GROUP BY k2 (non-bucket): optimizer puts agg in a separate finalize fragment
+    //       receiving data via a hash-partitioned inter-fragment exchange on k2.
+    //       Within each fragment, the distributions are compatible → no LOCAL_HASH_SHUFFLE.
+    //       Result MATCH: [ADAPTIVE_PASSTHROUGH:5, PASSTHROUGH:5]
+    checkConsistencyWithSql("agg_after_nlj_non_bucket",
+        """SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,
+                             ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,
+                             auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0)*/ a.k2, count(*) AS cnt
+           FROM ls_t1 a, ls_t2 b WHERE a.k1 > b.k1
+           GROUP BY a.k2 ORDER BY a.k2""")
+
+    // 11-4: NLJ (theta join) → finalize agg on bucket key (LOCAL_HASH_SHUFFLE test)
+    //       GROUP BY k1 (bucket key): colocate agg stays in same pipeline as NLJ probe.
+    //       The NLJ probe requires ADAPTIVE_PASSTHROUGH → local exchange inserted.
+    //       After that exchange, the next pipeline has LocalExchangeSource (PASSTHROUGH distribution)
+    //       feeding into AggSink (BUCKET_HASH_SHUFFLE for colocate k1 agg).
+    //       PASSTHROUGH source ≠ BUCKET_HASH target, not both-hash → need_to_local_exchange=true
+    //       → BE inserts LOCAL_HASH_SHUFFLE (BUCKET type).
+    //       FE: AggNode isColocated=true → requireHash → inserts LocalExchangeNode.
+    //       Result MATCH: [ADAPTIVE_PASSTHROUGH:9, LOCAL_HASH_SHUFFLE:9, PASSTHROUGH:9]
+    //       This is a primary test for regular AggSink generating LOCAL_HASH_SHUFFLE.
+    checkConsistencyWithSql("agg_after_nlj_bucket_key",
+        """SELECT /*+SET_VAR(disable_join_reorder=true,disable_colocate_plan=true,
+                             ignore_storage_data_distribution=false,parallel_pipeline_task_num=4,
+                             auto_broadcast_join_threshold=-1,broadcast_row_count_limit=0)*/ a.k1, count(*) AS cnt
+           FROM ls_t1 a, ls_t2 b WHERE a.k1 > b.k1
+           GROUP BY a.k1 ORDER BY a.k1""")
 
     // ================================================================
     //  Summary
