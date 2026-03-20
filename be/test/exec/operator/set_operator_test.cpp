@@ -384,6 +384,143 @@ TEST_F(ExceptOperatorTest, test_output_null_batsh_size) {
     }
 }
 
+TEST_F(IntersectOperatorTest, test_sink_large_string_data_over_4g) {
+    // Test that SetSinkOperatorX can handle string data exceeding 4GB total size.
+    // This exercises the convert_column_if_overflow path in _process_build_block.
+    init_op(2, {std::make_shared<DataTypeString>()});
+
+    sink_op->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeString>()});
+    probe_sink_ops[0]->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeString>()});
+
+    init_local_state();
+
+    // Create a large string (~1MB each) and insert enough rows to exceed 4GB total.
+    // We need total string data > 4GB to trigger ColumnString offset overflow
+    // and exercise the convert_column_if_overflow path in _process_build_block.
+    const size_t large_str_size = 1 * 1024 * 1024; // 1MB per string
+    const size_t num_rows = 4200;                  // ~4.1GB total
+    std::string large_str(large_str_size, 'x');
+
+    auto string_type = std::make_shared<DataTypeString>();
+
+    // Build a block with large strings and sink in batches (non-eos), then send eos.
+    const size_t rows_per_batch = 500;
+    for (size_t batch_start = 0; batch_start < num_rows; batch_start += rows_per_batch) {
+        size_t current_batch_size = std::min(rows_per_batch, num_rows - batch_start);
+
+        auto col = string_type->create_column();
+        for (size_t i = 0; i < current_batch_size; i++) {
+            // Make each string slightly different to avoid dedup in hash table.
+            // Modify large_str in-place, insert, then restore to avoid copying 1MB per row.
+            auto suffix = std::to_string(batch_start + i);
+            // Save original bytes
+            char saved[32];
+            std::memcpy(saved, large_str.data(), suffix.size());
+            // Stamp the suffix
+            std::memcpy(large_str.data(), suffix.data(), suffix.size());
+            col->insert_data(large_str.data(), large_str.size());
+            // Restore original bytes
+            std::memcpy(large_str.data(), saved, suffix.size());
+        }
+
+        Block block;
+        block.insert({std::move(col), string_type, "col0"});
+
+        bool is_last = (batch_start + rows_per_batch >= num_rows);
+        auto st = sink_op->sink(state.get(), &block, is_last);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+    }
+
+    // Verify hash table was built successfully
+    EXPECT_EQ(shared_state->get_hash_table_size(), num_rows);
+
+    // Now probe with a small subset to verify correctness
+    {
+        auto col = string_type->create_column();
+        // Insert string matching row 0
+        auto suffix = std::to_string(0);
+        char saved[32];
+        std::memcpy(saved, large_str.data(), suffix.size());
+        std::memcpy(large_str.data(), suffix.data(), suffix.size());
+        col->insert_data(large_str.data(), large_str.size());
+        std::memcpy(large_str.data(), saved, suffix.size());
+
+        Block block;
+        block.insert({std::move(col), string_type, "col0"});
+        EXPECT_TRUE(probe_sink_ops[0]->sink(states[0].get(), &block, true));
+    }
+
+    // Read from source - for INTERSECT, should get the one matching row
+    {
+        Block block;
+        bool eos = false;
+        EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+        EXPECT_EQ(block.rows(), 1);
+    }
+}
+
+TEST_F(ExceptOperatorTest, test_sink_large_string_data_over_4g) {
+    // Test that SetSinkOperatorX (EXCEPT) can handle string data exceeding 4GB total size.
+    init_op(2, {std::make_shared<DataTypeString>()});
+
+    sink_op->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeString>()});
+    probe_sink_ops[0]->_child_exprs =
+            MockSlotRef::create_mock_contexts(DataTypes {std::make_shared<DataTypeString>()});
+
+    init_local_state();
+
+    auto string_type = std::make_shared<DataTypeString>();
+    const size_t large_str_size = 1 * 1024 * 1024; // 1MB per string
+    const size_t num_rows = 4200;                  // ~4.1GB total
+    std::string large_str(large_str_size, 'y');
+
+    const size_t rows_per_batch = 100;
+    for (size_t batch_start = 0; batch_start < num_rows; batch_start += rows_per_batch) {
+        size_t current_batch_size = std::min(rows_per_batch, num_rows - batch_start);
+
+        auto col = string_type->create_column();
+        for (size_t i = 0; i < current_batch_size; i++) {
+            auto suffix = std::to_string(batch_start + i);
+            char saved[32];
+            std::memcpy(saved, large_str.data(), suffix.size());
+            std::memcpy(large_str.data(), suffix.data(), suffix.size());
+            col->insert_data(large_str.data(), large_str.size());
+            std::memcpy(large_str.data(), saved, suffix.size());
+        }
+
+        Block block;
+        block.insert({std::move(col), string_type, "col0"});
+
+        bool is_last = (batch_start + rows_per_batch >= num_rows);
+        auto st = sink_op->sink(state.get(), &block, is_last);
+        EXPECT_TRUE(st.ok()) << st.to_string();
+    }
+
+    EXPECT_EQ(shared_state->get_hash_table_size(), num_rows);
+
+    // Probe with empty block - EXCEPT should return all rows
+    {
+        Block block;
+        block.insert({string_type->create_column(), string_type, "col0"});
+        EXPECT_TRUE(probe_sink_ops[0]->sink(states[0].get(), &block, true));
+    }
+
+    // Read from source - for EXCEPT with empty probe, should get all build rows
+    {
+        size_t total_rows = 0;
+        bool eos = false;
+        while (!eos) {
+            Block block;
+            EXPECT_TRUE(source_op->get_block(state.get(), &block, &eos));
+            total_rows += block.rows();
+        }
+        EXPECT_EQ(total_rows, num_rows);
+    }
+}
+
 TEST_F(IntersectOperatorTest, test_extract_probe_column) {
     init_op(2, {std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()),
                 std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>())});
