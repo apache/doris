@@ -1840,6 +1840,7 @@ enum MetaServiceCode {
 
     // Rate limit
     MAX_QPS_LIMIT = 6001;
+    MS_RATE_LIMIT = 6002;
 
     ERR_ENCRYPT = 7001;
     ERR_DECPYPT = 7002;
