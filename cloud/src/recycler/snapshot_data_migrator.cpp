@@ -215,8 +215,8 @@ int InstanceDataMigrator::init() {
 int InstanceDataMigrator::init_obj_store_accessors() {
     for (const auto& obj_info : instance_info_.obj_info()) {
         // Test injection point: allow tests to provide mock accessor
-        TEST_SYNC_POINT_CALLBACK("InstanceDataMigrator::init_obj_store.mock",
-                                 &accessor_map_, &obj_info);
+        TEST_SYNC_POINT_CALLBACK("InstanceDataMigrator::init_obj_store.mock", &accessor_map_,
+                                 &obj_info);
         if (accessor_map_.count(obj_info.id())) {
             continue;
         }
@@ -259,8 +259,8 @@ int InstanceDataMigrator::init_storage_vault_accessors() {
             return -1;
         }
         // Test injection point: allow tests to provide mock accessor
-        TEST_SYNC_POINT_CALLBACK("InstanceDataMigrator::init_storage_vault.mock",
-                                 &accessor_map_, &vault);
+        TEST_SYNC_POINT_CALLBACK("InstanceDataMigrator::init_storage_vault.mock", &accessor_map_,
+                                 &vault);
         if (accessor_map_.count(vault.id())) {
             continue;
         }
