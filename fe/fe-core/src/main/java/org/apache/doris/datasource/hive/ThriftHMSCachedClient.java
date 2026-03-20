@@ -632,6 +632,18 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
         return builder.build();
     }
 
+    /**
+     * The Doris HMS pool only manages client object lifecycle in FE:
+     * 1. Create clients.
+     * 2. Borrow and return clients.
+     * 3. Invalidate borrowers that have already failed.
+     * 4. Destroy clients when the pool is closed.
+     *
+     * The pool does not manage Hive-side socket lifetime or reconnect:
+     * 1. RetryingMetaStoreClient handles hive.metastore.client.socket.lifetime itself.
+     * 2. The pool does not interpret that config.
+     * 3. The pool does not probe remote socket health.
+     */
     private GenericObjectPoolConfig createPoolConfig(int poolSize) {
         GenericObjectPoolConfig config = new GenericObjectPoolConfig();
         config.setMaxTotal(poolSize);
@@ -694,19 +706,19 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     private class ThriftHMSClient implements AutoCloseable {
         private final IMetaStoreClient client;
-        private volatile boolean broken;
         private volatile boolean destroyed;
+        private volatile Throwable throwable;
 
         private ThriftHMSClient(IMetaStoreClient client) {
             this.client = client;
         }
 
         public void setThrowable(Throwable throwable) {
-            this.broken = true;
+            this.throwable = throwable;
         }
 
         private boolean isValid() {
-            return !destroyed;
+            return !destroyed && throwable == null;
         }
 
         private void destroy() {
@@ -724,7 +736,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 return;
             }
             try {
-                if (broken) {
+                if (throwable != null) {
                     clientPool.invalidateObject(this);
                 } else {
                     clientPool.returnObject(this);
