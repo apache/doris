@@ -2940,7 +2940,7 @@ public class SessionVariable implements Serializable, Writable {
                     + "and serialization/deserialization costs. Enabled by default."})
     public boolean enableBucketedHashAgg = true;
 
-    @VariableMgr.VarAttr(name = BUCKETED_AGG_MIN_INPUT_ROWS, needForward = true, description = {
+    @VariableMgr.VarAttr(name = BUCKETED_AGG_MIN_INPUT_ROWS, fuzzy = true, needForward = true, description = {
             "bucketed hash aggregation 要求的最小输入行数。当估算输入行数小于此阈值时，"
                     + "数据量太小，256-bucket two-level hash table 的初始化和 merge 开销大于收益，"
                     + "不生成 bucketed agg 候选计划。设为 0 表示不限制。默认 100000。",
@@ -3652,6 +3652,7 @@ public class SessionVariable implements Serializable, Writable {
             this.rewriteOrToInPredicateThreshold = 100000;
             this.enableFunctionPushdown = false;
             this.enableSyncRuntimeFilterSize = true;
+            this.bucketedAggMinInputRows = 0;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
             this.enableFunctionPushdown = true;
