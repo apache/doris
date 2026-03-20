@@ -30,7 +30,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /**
  * literal for json type.
  */
-public class JsonLiteral extends Literal {
+public class JsonLiteral extends Literal implements ComparableLiteral {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
@@ -71,6 +71,21 @@ public class JsonLiteral extends Literal {
         } catch (Throwable t) {
             throw new AnalysisException(t.getMessage(), t);
         }
+    }
+
+    @Override
+    public int compareTo(ComparableLiteral other) {
+        if (other instanceof JsonLiteral) {
+            return value.compareTo(((JsonLiteral) other).value);
+        }
+        if (other instanceof NullLiteral) {
+            return 1;
+        }
+        if (other instanceof MaxLiteral) {
+            return -1;
+        }
+        throw new RuntimeException("Cannot compare two values with different data types: "
+                + this + " (" + dataType + ") vs " + other + " (" + ((Literal) other).dataType + ")");
     }
 
     @Override
