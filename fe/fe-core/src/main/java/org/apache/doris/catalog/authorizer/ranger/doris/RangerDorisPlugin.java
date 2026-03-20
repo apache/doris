@@ -31,3 +31,4 @@ public class RangerDorisPlugin extends RangerBasePlugin {
         super.registerAuthContextEventListener(rangerAuthContextListener);
     }
 }
+
