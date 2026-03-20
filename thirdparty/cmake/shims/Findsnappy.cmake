@@ -1,0 +1,13 @@
+# Find module shim for snappy (lowercase, used by rocksdb)
+if(TARGET snappy)
+    # Get include directory from the snappy target
+    get_target_property(_snappy_src snappy SOURCE_DIR)
+    get_target_property(_snappy_bin snappy BINARY_DIR)
+    set(SNAPPY_FOUND TRUE)
+    set(SNAPPY_INCLUDE_DIR "${_snappy_src}" "${_snappy_bin}")
+    set(SNAPPY_INCLUDE_DIRS ${SNAPPY_INCLUDE_DIR})
+    set(SNAPPY_LIBRARIES snappy)
+    include(FindPackageHandleStandardArgs)
+    find_package_handle_standard_args(snappy DEFAULT_MSG SNAPPY_LIBRARIES SNAPPY_INCLUDE_DIR)
+    mark_as_advanced(SNAPPY_INCLUDE_DIR SNAPPY_LIBRARIES)
+endif()

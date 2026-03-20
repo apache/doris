@@ -20,7 +20,10 @@ add_subdirectory(cmake-protect)
 # Use all .cpp files in this directory as sources
 file(GLOB VECTOR_LIB_SRC CONFIGURE_DEPENDS *.cpp)
 
-find_package(OpenMP REQUIRED)
+find_package(OpenMP QUIET)
+if(NOT TARGET OpenMP::OpenMP_CXX)
+    add_library(OpenMP::OpenMP_CXX INTERFACE IMPORTED)
+endif()
 
 add_library(ann_index STATIC ${VECTOR_LIB_SRC})
 target_link_libraries(ann_index PUBLIC faiss OpenMP::OpenMP_CXX)

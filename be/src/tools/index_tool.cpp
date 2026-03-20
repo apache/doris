@@ -276,7 +276,7 @@ int main(int argc, char** argv) {
 
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_operation == "show_nested_files") {
         if (FLAGS_idx_file_path == "") {

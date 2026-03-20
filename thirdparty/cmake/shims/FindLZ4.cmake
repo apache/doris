@@ -1,0 +1,15 @@
+# Find module shim for LZ4 (uppercase, used by arrow/ORC find_package(LZ4))
+if(TARGET lz4_static)
+    get_target_property(_lz4_src_dir lz4_static SOURCE_DIR)
+    # SOURCE_DIR is .../lz4-1.9.4/build/cmake, lz4.h is in .../lz4-1.9.4/lib/
+    get_filename_component(_lz4_root "${_lz4_src_dir}" DIRECTORY)
+    get_filename_component(_lz4_root "${_lz4_root}" DIRECTORY)
+    set(LZ4_FOUND TRUE)
+    set(LZ4_INCLUDE_DIR "${_lz4_root}/lib")
+    # Use target name so cmake tracks build deps correctly
+    set(LZ4_LIBRARY lz4_static)
+    set(LZ4_STATIC_LIB lz4_static)
+    set(LZ4_LIBRARIES lz4_static)
+    message(STATUS "Found the LZ4 header: ${LZ4_INCLUDE_DIR}/lz4.h")
+    message(STATUS "Found the LZ4 library: lz4_static (target)")
+endif()

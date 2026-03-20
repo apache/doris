@@ -1,0 +1,4 @@
+# googletest
+set(BUILD_GMOCK ON CACHE BOOL "" FORCE)
+set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
+add_subdirectory(${TP_SOURCE_DIR}/googletest-release-1.12.1 ${CMAKE_CURRENT_BINARY_DIR}/gtest EXCLUDE_FROM_ALL)

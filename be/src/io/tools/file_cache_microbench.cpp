@@ -2651,7 +2651,7 @@ private:
 };
 
 int main(int argc, char* argv[]) {
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
     FLAGS_minloglevel = google::GLOG_INFO;
     FLAGS_log_dir = "./logs";
     FLAGS_logbufsecs = 0; // Disable buffering, write immediately

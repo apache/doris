@@ -100,7 +100,7 @@ int read_conf(const std::string& conf, std::map<std::string, std::string>* conf_
 int main(int argc, char** argv) {
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     std::string conf_file = FLAGS_conf;
     std::map<std::string, std::string> conf_map;

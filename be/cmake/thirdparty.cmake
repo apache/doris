@@ -33,6 +33,15 @@ function(add_thirdparty)
         ${ARGN})
 
     set(DORIS_THIRDPARTY_NAME ${DORIS_THIRDPARTY_UNPARSED_ARGUMENTS})
+
+    # Skip if target already exists (e.g., from source build via USE_CONTRIB_SOURCE)
+    if(TARGET ${DORIS_THIRDPARTY_NAME})
+        if (NOT DORIS_THIRDPARTY_NOTADD)
+            set(COMMON_THIRDPARTY ${COMMON_THIRDPARTY} ${DORIS_THIRDPARTY_NAME} PARENT_SCOPE)
+        endif()
+        return()
+    endif()
+
     add_library(${DORIS_THIRDPARTY_NAME} STATIC IMPORTED)
 
     if (NOT DORIS_THIRDPARTY_NOTADD)

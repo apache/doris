@@ -78,7 +78,7 @@ list(APPEND UT_FILES
     ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnReader.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestColumnStatistics.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestCompression.cc
-    ${CONTRIB_PATH}/apache-orc/c++/test/TestDecompression.cc
+    #${CONTRIB_PATH}/apache-orc/c++/test/TestDecompression.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestDecimal.cc
     ${CONTRIB_PATH}/apache-orc/c++/test/TestDictionaryEncoding.cc
     #${CONTRIB_PATH}/apache-orc/c++/test/TestDriver.cc

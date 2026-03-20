@@ -64,6 +64,7 @@
 
 #include "agent/heartbeat_server.h"
 #include "common/config.h"
+#include <gflags/gflags.h>
 #include "common/daemon.h"
 #include "common/logging.h"
 #include "common/signal_handler.h"
@@ -387,7 +388,7 @@ int main(int argc, char** argv) {
     }
 
     // ATTN: Callers that want to override default gflags variables should do so before calling this method
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
     // ATTN: MUST init before LOG
     doris::init_glog("be");
 

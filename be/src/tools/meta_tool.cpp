@@ -903,7 +903,7 @@ int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
     std::string usage = get_usage(argv[0]);
     gflags::SetUsageMessage(usage);
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_operation == "show_meta") {
         show_meta();

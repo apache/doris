@@ -1,0 +1,7 @@
+# protobuf
+set(protobuf_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(protobuf_BUILD_PROTOC_BINARIES ON CACHE BOOL "" FORCE)
+set(protobuf_ABSL_PROVIDER "module" CACHE STRING "" FORCE)
+set(protobuf_USE_EXTERNAL_GTEST ON CACHE BOOL "" FORCE)
+add_subdirectory(${TP_SOURCE_DIR}/protobuf-21.11/cmake ${CMAKE_CURRENT_BINARY_DIR}/protobuf EXCLUDE_FROM_ALL)

@@ -31,7 +31,7 @@ int main(int argc, char** argv) {
     google::SetUsageMessage(
             "Dump packed file trailer for debugging.\n"
             "Usage: packed_file_tool --file=/path/to/merge_file");
-    google::ParseCommandLineFlags(&argc, &argv, true);
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_file.empty()) {
         std::cerr << "Flag --file is required\n";
