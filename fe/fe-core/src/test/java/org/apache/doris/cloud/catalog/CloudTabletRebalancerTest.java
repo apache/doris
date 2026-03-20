@@ -17,7 +17,6 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.catalog.Tablet;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
 import org.apache.doris.metric.MetricRepo;
