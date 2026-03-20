@@ -203,10 +203,13 @@ import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.routineload.AbstractDataSourceProperties;
 import org.apache.doris.load.routineload.KafkaProgress;
 import org.apache.doris.load.routineload.KafkaRoutineLoadJob;
+import org.apache.doris.load.routineload.KinesisProgress;
+import org.apache.doris.load.routineload.KinesisRoutineLoadJob;
 import org.apache.doris.load.routineload.RLTaskTxnCommitAttachment;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.load.routineload.RoutineLoadProgress;
 import org.apache.doris.load.routineload.kafka.KafkaDataSourceProperties;
+import org.apache.doris.load.routineload.kinesis.KinesisDataSourceProperties;
 import org.apache.doris.mtmv.MTMVMaxTimestampSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
@@ -443,7 +446,10 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<AbstractDataSourceProperties> rdsTypeAdapterFactory =
             RuntimeTypeAdapterFactory.of(
                             AbstractDataSourceProperties.class, "clazz")
-                    .registerSubtype(KafkaDataSourceProperties.class, KafkaDataSourceProperties.class.getSimpleName());
+                    .registerSubtype(KafkaDataSourceProperties.class,
+                            KafkaDataSourceProperties.class.getSimpleName())
+                    .registerSubtype(KinesisDataSourceProperties.class,
+                            KinesisDataSourceProperties.class.getSimpleName());
     private static RuntimeTypeAdapterFactory<org.apache.doris.job.base.AbstractJob>
             jobExecutorRuntimeTypeAdapterFactory
                     = RuntimeTypeAdapterFactory.of(org.apache.doris.job.base.AbstractJob.class, "clazz")
@@ -568,12 +574,14 @@ public class GsonUtils {
     private static RuntimeTypeAdapterFactory<RoutineLoadProgress> routineLoadTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(RoutineLoadProgress.class, "clazz")
             .registerDefaultSubtype(RoutineLoadProgress.class)
-            .registerSubtype(KafkaProgress.class, KafkaProgress.class.getSimpleName());
+            .registerSubtype(KafkaProgress.class, KafkaProgress.class.getSimpleName())
+            .registerSubtype(KinesisProgress.class, KinesisProgress.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<RoutineLoadJob> routineLoadJobTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(RoutineLoadJob.class, "clazz")
             .registerDefaultSubtype(RoutineLoadJob.class)
-            .registerSubtype(KafkaRoutineLoadJob.class, KafkaRoutineLoadJob.class.getSimpleName());
+            .registerSubtype(KafkaRoutineLoadJob.class, KafkaRoutineLoadJob.class.getSimpleName())
+            .registerSubtype(KinesisRoutineLoadJob.class, KinesisRoutineLoadJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<PersistentFileSystem> remoteFileSystemTypeAdapterFactory
             = RuntimeTypeAdapterFactory.of(PersistentFileSystem.class, "clazz")

@@ -623,6 +623,19 @@ struct TKafkaRLTaskProgress {
     1: required map<i32,i64> partitionCmtOffset
 }
 
+// Kinesis routine load task progress
+// Maps shard ID to the last committed sequence number
+struct TKinesisRLTaskProgress {
+    1: required map<string,string> shardCmtSeqNum
+    // MillisBehindLatest per shard, returned by GetRecords API.
+    // Indicates how far behind the consumer is from the tip of the stream.
+    // 0 means the consumer has caught up; absent means unknown.
+    2: optional map<string,i64> shardMillsBehindLatest
+    // Set of shard IDs that have been closed (split/merge) during consumption.
+    // FE should remove these shards from tracking.
+    3: optional set<string> closedShardIds
+}
+
 struct TRLTaskTxnCommitAttachment {
     1: required Types.TLoadSourceType loadSourceType
     2: required Types.TUniqueId id
@@ -635,6 +648,7 @@ struct TRLTaskTxnCommitAttachment {
     9: optional i64 loadCostMs
     10: optional TKafkaRLTaskProgress kafkaRLTaskProgress
     11: optional string errorLogUrl
+    12: optional TKinesisRLTaskProgress kinesisRLTaskProgress
 }
 
 struct TTxnCommitAttachment {
