@@ -42,6 +42,7 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/status.h"
+#include "runtime/exec_env.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_handler_with_auth.h"
 #include "service/http/http_headers.h"

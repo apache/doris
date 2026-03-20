@@ -27,10 +27,10 @@
 #include "common/status.h"
 #include "load/group_commit/wal/wal_info.h"
 #include "load/stream_load/stream_load_context.h"
-#include "runtime/exec_env.h"
 #include "service/http/action/http_stream.h"
 
 namespace doris {
+class ExecEnv;
 class WalTable {
 public:
     WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id);

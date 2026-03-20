@@ -35,7 +35,6 @@
 #include "common/status.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "exec/scan/scanner_scheduler.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/runtime_predicate.h"
 #include "runtime/workload_group/workload_group.h"
@@ -44,6 +43,7 @@
 #include "util/threadpool.h"
 
 namespace doris {
+class ExecEnv;
 
 class PipelineFragmentContext;
 class PipelineTask;

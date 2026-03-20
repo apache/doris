@@ -19,7 +19,6 @@
 
 #include <gen_cpp/FrontendService.h>
 
-#include "runtime/exec_env.h"
 #include "service/http/http_handler.h"
 
 namespace doris {

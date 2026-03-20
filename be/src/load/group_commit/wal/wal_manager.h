@@ -38,11 +38,11 @@
 #include "load/group_commit/wal/wal_table.h"
 #include "load/group_commit/wal/wal_writer.h"
 #include "load/stream_load/stream_load_context.h"
-#include "runtime/exec_env.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {
+class ExecEnv;
 class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
     struct ScanWalInfo {

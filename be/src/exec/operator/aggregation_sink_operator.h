@@ -20,7 +20,6 @@
 #include <stdint.h>
 
 #include "exec/operator/operator.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
