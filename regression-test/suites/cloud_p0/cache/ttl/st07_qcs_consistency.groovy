@@ -35,8 +35,12 @@ suite("st07_qcs_consistency") {
                 .replace("\${TABLE_NAME}", tableName)
         sql ddl
 
-        (0..<500).each { i ->
-            sql """insert into ${tableName} values (${i}, 'qcs_tpl_${i}')"""
+        (0..<10).each { batch ->
+            def values = (0..<50).collect { i ->
+                def id = batch * 50 + i
+                "(${id}, 'qcs_tpl_${id}')"
+            }.join(",")
+            sql """insert into ${tableName} values ${values}"""
         }
         qt_q1 """select count(*) from ${tableName} where c1 like 'qcs_tpl_%'"""
 
