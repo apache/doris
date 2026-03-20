@@ -148,6 +148,56 @@ public:
 
     static std::string debug_string();
 
+    static long get_cache_size(CacheLevel level) {
+        long cache_sizes[NUM_CACHE_LEVELS];
+        long cache_line_sizes[NUM_CACHE_LEVELS];
+        _get_cache_info(cache_sizes, cache_line_sizes);
+        return cache_sizes[level];
+    }
+
+    static long get_cache_line_size(CacheLevel level) {
+        long cache_sizes[NUM_CACHE_LEVELS];
+        long cache_line_sizes[NUM_CACHE_LEVELS];
+        _get_cache_info(cache_sizes, cache_line_sizes);
+        return cache_line_sizes[level];
+    }
+
+    struct StreamingHtMinReductionEntry {
+        long min_ht_mem;
+        double streaming_ht_min_reduction;
+    };
+
+    static const std::vector<StreamingHtMinReductionEntry>& get_streaming_ht_min_reduction() {
+        static std::vector<StreamingHtMinReductionEntry> entries;
+        static bool initialized = false;
+
+        if (!initialized) {
+            long l2_cache_size = CpuInfo::get_cache_size(CpuInfo::L2_CACHE);
+            long l3_cache_size = CpuInfo::get_cache_size(CpuInfo::L3_CACHE);
+
+            entries.push_back({.min_ht_mem = 0, .streaming_ht_min_reduction = 0.0});
+
+            if (l2_cache_size > 256 * 1024) {
+                entries.push_back(
+                        {.min_ht_mem = l2_cache_size / 4, .streaming_ht_min_reduction = 1.1});
+            } else {
+                entries.push_back({.min_ht_mem = 256 * 1024, .streaming_ht_min_reduction = 1.1});
+            }
+
+            if (l3_cache_size > 4 * 1024 * 1024) {
+                entries.push_back(
+                        {.min_ht_mem = l3_cache_size / 2, .streaming_ht_min_reduction = 2.0});
+            } else {
+                entries.push_back(
+                        {.min_ht_mem = 16 * 1024 * 1024, .streaming_ht_min_reduction = 2.0});
+            }
+
+            initialized = true;
+        }
+
+        return entries;
+    }
+
     /// A utility class for temporarily disabling CPU features. Usage:
     ///
     /// {

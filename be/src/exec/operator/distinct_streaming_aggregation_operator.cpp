@@ -25,6 +25,7 @@
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/vectorized_agg_fn.h"
+#include "util/cpu_info.h"
 
 namespace doris {
 class ExecNode;
