@@ -443,7 +443,6 @@ struct TQueryOptions {
 
   185: optional bool enable_parquet_file_page_cache = true;
 
-  200: optional bool enable_adjust_conjunct_order_by_cost;
   203: optional bool enable_inverted_index_wand_query = true;
 
   // For cloud, to control if the content would be written into file cache
