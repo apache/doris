@@ -107,6 +107,19 @@ add_thirdparty(lzma LIB64)
 add_thirdparty(idn LIB64)
 add_thirdparty(gsasl)
 # end krb5 libs
+# begin oss libs
+if(BUILD_OSS STREQUAL "ON")
+    # STS SDK V2 for AssumeRole (must be before OSS SDK)
+    add_thirdparty(darabonba_core)
+    add_thirdparty(alibabacloud_credentials)
+    add_thirdparty(alibabacloud_open_api_v2)
+    add_thirdparty(alibabacloud_sts20150401)
+    # OSS SDK
+    add_thirdparty(alibabacloud-oss-cpp-sdk LIB64)
+    add_thirdparty(apr-1)
+    add_thirdparty(aprutil-1)
+endif()
+# end oss libs
 # begin azure libs
 if(BUILD_AZURE STREQUAL "ON")
     add_thirdparty(azure-core)

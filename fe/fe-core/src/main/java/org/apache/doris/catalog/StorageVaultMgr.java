@@ -25,6 +25,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.lock.MonitoredReentrantReadWriteLock;
+import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
@@ -69,9 +70,12 @@ public class StorageVaultMgr {
             case S3:
                 createS3Vault(StorageVault.fromCommand(command));
                 break;
+            case OSS:
+                createOssVault(StorageVault.fromCommand(command));
+                break;
             case UNKNOWN:
             default:
-                throw new DdlException("Only support S3, HDFS storage vault.");
+                throw new DdlException("Only support S3, HDFS, OSS storage vault.");
         }
         // Make BE eagerly fetch the storage vault info from Meta Service
         ALTER_BE_SYNC_THREAD_POOL.execute(() -> alterSyncVaultTask());
@@ -170,6 +174,22 @@ public class StorageVaultMgr {
         return alterHdfsInfoBuilder;
     }
 
+    private Cloud.StorageVaultPB.Builder buildAlterOssVaultRequest(Map<String, String> properties, String name)
+            throws Exception {
+        // Ensure provider is set to OSS for ObjectStoreInfoPB
+        Map<String, String> ossProperties = new HashMap<>(properties);
+        ossProperties.put(StorageProperties.FS_PROVIDER_KEY, "OSS");
+
+        Cloud.ObjectStoreInfoPB.Builder objBuilder = OSSProperties.getObjStoreInfoPB(ossProperties);
+        Cloud.StorageVaultPB.Builder alterOssVaultBuilder = Cloud.StorageVaultPB.newBuilder();
+        alterOssVaultBuilder.setName(name);
+        alterOssVaultBuilder.setObjInfo(objBuilder.build());
+        if (properties.containsKey(StorageVault.PropertyKey.VAULT_NAME)) {
+            alterOssVaultBuilder.setAlterName(properties.get(StorageVault.PropertyKey.VAULT_NAME));
+        }
+        return alterOssVaultBuilder;
+    }
+
     private Cloud.StorageVaultPB.Builder buildAlterStorageVaultRequest(StorageVaultType type,
             Map<String, String> properties, String name) throws Exception {
         Cloud.StorageVaultPB.Builder builder;
@@ -177,6 +197,8 @@ public class StorageVaultMgr {
             builder = buildAlterS3VaultRequest(properties, name);
         } else if (type == StorageVaultType.HDFS) {
             builder = buildAlterHdfsVaultRequest(properties, name);
+        } else if (type == StorageVaultType.OSS) {
+            builder = buildAlterOssVaultRequest(properties, name);
         } else {
             throw new DdlException("Unknown storage vault type");
         }
@@ -218,6 +240,15 @@ public class StorageVaultMgr {
                             throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
                         });
                 request.setOp(Operation.ALTER_HDFS_VAULT);
+            } else if (type == StorageVaultType.OSS) {
+                // For OSS, use OSS-specific allowed properties
+                properties.keySet().stream()
+                        .filter(key -> !OSSStorageVault.ALLOW_ALTER_PROPERTIES.contains(key))
+                        .findAny()
+                        .ifPresent(key -> {
+                            throw new IllegalArgumentException("Alter property " + key + " is not allowed.");
+                        });
+                request.setOp(Operation.ALTER_S3_VAULT);  // OSS uses same operation as S3
             }
             Cloud.StorageVaultPB.Builder vaultBuilder = buildAlterStorageVaultRequest(type, properties, name);
             request.setVault(vaultBuilder);
@@ -307,6 +338,11 @@ public class StorageVaultMgr {
                     if (vault.hasHdfsInfo()) {
                         return StorageVaultType.HDFS;
                     } else if (vault.hasObjInfo()) {
+                        // Check if it's OSS or S3 based on provider
+                        if (vault.getObjInfo().hasProvider()
+                                && vault.getObjInfo().getProvider() == Cloud.ObjectStoreInfoPB.Provider.OSS) {
+                            return StorageVaultType.OSS;
+                        }
                         return StorageVaultType.S3;
                     }
                 }
@@ -394,6 +430,37 @@ public class StorageVaultMgr {
             addStorageVaultToCache(vault.getName(), response.getStorageVaultId(), vault.setAsDefault());
         } catch (RpcException e) {
             LOG.warn("failed to alter storage vault due to RpcException: {}", e);
+            throw new DdlException(e.getMessage());
+        }
+    }
+
+    public void createOssVault(StorageVault vault) throws Exception {
+        Cloud.StorageVaultPB.Builder ossStorageVaultBuilder = buildAlterStorageVaultRequest(vault);
+        Cloud.AlterObjStoreInfoRequest.Builder requestBuilder
+                = Cloud.AlterObjStoreInfoRequest.newBuilder()
+                .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        requestBuilder.setOp(Cloud.AlterObjStoreInfoRequest.Operation.ADD_S3_VAULT);
+        requestBuilder.setVault(ossStorageVaultBuilder);
+        requestBuilder.setSetAsDefaultStorageVault(vault.setAsDefault());
+        try {
+            Cloud.AlterObjStoreInfoResponse response =
+                    MetaServiceProxy.getInstance().alterStorageVault(requestBuilder.build());
+            if (response.getStatus().getCode() == Cloud.MetaServiceCode.ALREADY_EXISTED
+                    && vault.ifNotExists()) {
+                LOG.info("OSS vault {} already existed", vault.getName());
+                return;
+            }
+            if (response.getStatus().getCode() != Cloud.MetaServiceCode.OK) {
+                LOG.warn("failed to create OSS storage vault, vault name {}, response: {} ",
+                        vault.getName(), response);
+                throw new DdlException(response.getStatus().getMsg());
+            }
+
+            LOG.info("Succeed to create OSS vault {}, id {}, origin default vault replaced {}",
+                    vault.getName(), response.getStorageVaultId(), response.getDefaultStorageVaultReplaced());
+            addStorageVaultToCache(vault.getName(), response.getStorageVaultId(), vault.setAsDefault());
+        } catch (RpcException e) {
+            LOG.warn("failed to create OSS storage vault due to RpcException: {}", e);
             throw new DdlException(e.getMessage());
         }
     }

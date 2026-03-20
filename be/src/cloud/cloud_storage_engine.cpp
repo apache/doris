@@ -52,6 +52,7 @@
 #include "io/cache/file_cache_common.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
+#include "io/fs/oss_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_util.h"
 #include "io/io_common.h"
@@ -108,7 +109,8 @@ CloudStorageEngine::~CloudStorageEngine() {
 }
 
 static Status vault_process_error(std::string_view id,
-                                  std::variant<S3Conf, cloud::HdfsVaultInfo>& vault, Status err) {
+                                  std::variant<S3Conf, cloud::HdfsVaultInfo, OSSConf>& vault,
+                                  Status err) {
     std::stringstream ss;
     std::visit(
             [&]<typename T>(T& val) {
@@ -116,6 +118,8 @@ static Status vault_process_error(std::string_view id,
                     ss << val.to_string();
                 } else if constexpr (std::is_same_v<T, cloud::HdfsVaultInfo>) {
                     val.SerializeToOstream(&ss);
+                } else if constexpr (std::is_same_v<T, OSSConf>) {
+                    ss << val.to_string();
                 }
             },
             vault);
@@ -157,6 +161,27 @@ struct VaultCreateFSVisitor {
         return Status::OK();
     }
 
+    Status operator()(const OSSConf& oss_conf) const {
+        LOG(INFO) << "get new oss info: " << oss_conf.to_string() << " resource_id=" << id
+                  << " check_fs: " << check_fs;
+
+        auto fs = DORIS_TRY(io::OSSFileSystem::create(oss_conf, id));
+        if (check_fs) {
+            bool res = false;
+            // just check connectivity, not care object if exist
+            auto st = fs->exists("not_exist_object", &res);
+            if (!st.ok()) {
+                LOG(FATAL) << "failed to check oss fs, resource_id: " << id << " st: " << st
+                           << "oss_conf: " << oss_conf.to_string()
+                           << "add enable_check_storage_vault=false to be.conf to skip the check";
+            }
+        }
+
+        put_storage_resource(id, {std::move(fs), path_format}, 0);
+        LOG_INFO("successfully create oss vault, vault id {}", id);
+        return Status::OK();
+    }
+
     const std::string& id;
     const cloud::StorageVaultPB_PathFormat& path_format;
     bool check_fs;
@@ -186,6 +211,17 @@ struct RefreshFSVaultVisitor {
         auto hdfs = std::static_pointer_cast<io::HdfsFileSystem>(hdfs_fs);
         put_storage_resource(id, {std::move(hdfs), path_format}, 0);
         return Status::OK();
+    }
+
+    Status operator()(const OSSConf& oss_conf) const {
+        DCHECK_EQ(fs->type(), io::FileSystemType::OSS) << id;
+        auto oss_fs = std::static_pointer_cast<io::OSSFileSystem>(fs);
+        auto client_holder = oss_fs->client_holder();
+        auto st = client_holder->reset(oss_conf.client_conf);
+        if (!st.ok()) {
+            LOG(WARNING) << "failed to update oss fs, resource_id=" << id << ": " << st;
+        }
+        return st;
     }
 
     const std::string& id;

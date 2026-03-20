@@ -17,11 +17,14 @@
 
 package org.apache.doris.datasource.property.storage;
 
+import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.common.UserException;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import lombok.Setter;
@@ -102,19 +105,21 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     /**
      * The timeout (in milliseconds) for requests made to the object storage system.
      * This value is optional and can be configured by the user.
+     * Default: 10000ms (10 seconds)
      */
     @Getter
     @ConnectorProperty(names = {"oss.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
-            description = "Request timeout in seconds.")
+            description = "Request timeout in milliseconds. Default: 10000 (10 seconds)")
     protected String requestTimeoutS = "10000";
 
     /**
      * The timeout (in milliseconds) for establishing a connection to the object storage system.
      * This value is optional and can be configured by the user.
+     * Default: 10000ms (10 seconds)
      */
     @Getter
     @ConnectorProperty(names = {"oss.connection.timeout", "s3.connection.timeout"}, required = false,
-            description = "Connection timeout in seconds.")
+            description = "Connection timeout in milliseconds. Default: 10000 (10 seconds)")
     protected String connectionTimeoutS = "10000";
 
     /**
@@ -168,6 +173,18 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     private static final String DLS_URI_KEYWORDS = "oss-dls.aliyuncs";
 
+    // OSS Property Constants for Storage Vault Integration
+    public static final String OSS_PREFIX = "oss.";
+    public static final String ENDPOINT_KEY = "oss.endpoint";
+    public static final String REGION_KEY = "oss.region";
+    public static final String ACCESS_KEY_KEY = "oss.access_key";
+    public static final String SECRET_KEY_KEY = "oss.secret_key";
+    public static final String SESSION_TOKEN_KEY = "oss.session_token";
+    public static final String ROOT_PATH_KEY = "oss.root.path";
+    public static final String BUCKET_KEY = "oss.bucket";
+    public static final String ROLE_ARN_KEY = "oss.role_arn";
+    public static final String EXTERNAL_ID_KEY = "oss.external_id";
+
     protected OSSProperties(Map<String, String> origProps) {
         super(Type.OSS, origProps);
     }
@@ -180,7 +197,7 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return propertiesObj;
     }
 
-    protected static boolean guessIsMe(Map<String, String> origProps) {
+    public static boolean guessIsMe(Map<String, String> origProps) {
         String value = Stream.of("oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
                         "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "fs.oss.accessKeyId")
                 .map(origProps::get)
@@ -275,6 +292,8 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         if (StringUtils.isBlank(endpoint) || !STANDARD_ENDPOINT_PATTERN.matcher(endpoint).matches()) {
+            Preconditions.checkArgument(StringUtils.isNotBlank(region),
+                    "Region is not set. Either set a standard endpoint or specify oss.region explicitly.");
             this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
         }
     }
@@ -388,5 +407,123 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             // Be conservative: fallback to original URI
             return uri;
         }
+    }
+
+    /** Delegates to {@link #getObjStoreInfoPB(Map)} using this instance's origProps. */
+    public Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB() {
+        return getObjStoreInfoPB(this.origProps);
+    }
+
+    /**
+     * Build ObjectStoreInfoPB from OSS properties for storage vault creation/alteration.
+     * This method specifically handles OSS properties and sets the provider to OSS.
+     *
+     * @param properties Map containing OSS configuration properties
+     * @return Builder for ObjectStoreInfoPB with OSS configuration
+     */
+    public static Cloud.ObjectStoreInfoPB.Builder getObjStoreInfoPB(Map<String, String> properties) {
+        Cloud.ObjectStoreInfoPB.Builder builder = Cloud.ObjectStoreInfoPB.newBuilder();
+
+        // Set OSS provider explicitly
+        builder.setProvider(Cloud.ObjectStoreInfoPB.Provider.OSS);
+
+        // Endpoint - try multiple property keys for compatibility
+        String endpoint = Stream.of(ENDPOINT_KEY, "s3.endpoint", "endpoint")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (endpoint != null) {
+            builder.setEndpoint(endpoint);
+        }
+
+        // Region - try multiple property keys for compatibility
+        String region = Stream.of(REGION_KEY, "s3.region", "region")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (region != null) {
+            builder.setRegion(region);
+        }
+
+        // Access Key - try multiple property keys for compatibility
+        String accessKey = Stream.of(ACCESS_KEY_KEY, "s3.access_key", "access_key")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (accessKey != null) {
+            builder.setAk(accessKey);
+        }
+
+        // Secret Key - try multiple property keys for compatibility
+        String secretKey = Stream.of(SECRET_KEY_KEY, "s3.secret_key", "secret_key")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (secretKey != null) {
+            builder.setSk(secretKey);
+        }
+
+        // Session token managed at runtime by ECSMetadataCredentialsProvider, not stored in protobuf
+
+        // Root Path (prefix)
+        String rootPath = Stream.of(ROOT_PATH_KEY, "s3.root.path", "root.path")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (rootPath != null) {
+            Preconditions.checkArgument(!Strings.isNullOrEmpty(rootPath),
+                    "OSS root path cannot be empty");
+            builder.setPrefix(rootPath);
+        }
+
+        // Bucket
+        String bucket = Stream.of(BUCKET_KEY, "bucket")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+        if (bucket != null) {
+            builder.setBucket(bucket);
+        }
+
+        // AssumeRole configuration - matches S3 pattern (lines 628-634 of S3Properties.java)
+        // When role_arn is present, automatically set INSTANCE_PROFILE as base credential provider
+        String roleArn = Stream.of(ROLE_ARN_KEY, "oss.role_arn", "s3.role_arn")
+                .map(properties::get)
+                .filter(StringUtils::isNotBlank)
+                .findFirst()
+                .orElse(null);
+
+        if (roleArn != null) {
+            builder.setRoleArn(roleArn);
+
+            // Set external_id if provided (for cross-account AssumeRole security)
+            String externalId = Stream.of(EXTERNAL_ID_KEY, "oss.external_id", "s3.external_id")
+                    .map(properties::get)
+                    .filter(StringUtils::isNotBlank)
+                    .findFirst()
+                    .orElse(null);
+            if (externalId != null) {
+                builder.setExternalId(externalId);
+            }
+
+            // When role_arn is present, use INSTANCE_PROFILE as base credentials for AssumeRole
+            // This matches S3 behavior: instance profile credentials → AssumeRole API → temporary credentials
+            builder.setCredProviderType(Cloud.CredProviderTypePB.INSTANCE_PROFILE);
+        } else {
+            // No role_arn: determine credential provider type based on whether AK/SK are provided
+            if (StringUtils.isBlank(accessKey) || StringUtils.isBlank(secretKey)) {
+                builder.setCredProviderType(Cloud.CredProviderTypePB.INSTANCE_PROFILE);
+            } else {
+                builder.setCredProviderType(Cloud.CredProviderTypePB.SIMPLE);
+            }
+        }
+
+        return builder;
     }
 }

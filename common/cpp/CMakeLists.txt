@@ -19,4 +19,10 @@
 set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/common_cpp")
 
 file(GLOB_RECURSE SRC_FILES CONFIGURE_DEPENDS *.cpp)
+
+# Conditionally exclude OSS credential provider if OSS is disabled
+if(BUILD_OSS STREQUAL "OFF")
+    list(REMOVE_ITEM SRC_FILES "${CMAKE_CURRENT_SOURCE_DIR}/oss_credential_provider.cpp")
+endif()
+
 add_library(CommonCPP STATIC ${SRC_FILES})

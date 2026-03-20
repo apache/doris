@@ -29,6 +29,7 @@
 #include "common/status.h"
 #include "storage/rowset/rowset_fwd.h"
 #include "storage/rowset/rowset_meta.h"
+#include "util/oss_util.h"
 #include "util/s3_util.h"
 
 namespace doris {
@@ -50,8 +51,9 @@ class TabletJobInfoPB;
 class TabletStatsPB;
 class TabletIndexPB;
 
-using StorageVaultInfos = std::vector<
-        std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo>, StorageVaultPB_PathFormat>>;
+using StorageVaultInfos =
+        std::vector<std::tuple<std::string, std::variant<S3Conf, HdfsVaultInfo, OSSConf>,
+                               StorageVaultPB_PathFormat>>;
 
 // run tasks in bthread with concurrency and wait until all tasks done
 // it stops running tasks if there are any tasks return !ok, leaving some tasks untouched

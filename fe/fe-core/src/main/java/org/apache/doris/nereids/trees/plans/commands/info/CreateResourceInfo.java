@@ -26,6 +26,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AzureProperties;
+import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -93,6 +94,11 @@ public class CreateResourceInfo {
 
         if (AzureProperties.guessIsMe(properties)) {
             resourceType = ResourceType.AZURE;
+            return;
+        }
+
+        if (OSSProperties.guessIsMe(properties)) {
+            resourceType = ResourceType.OSS;
             return;
         }
 
