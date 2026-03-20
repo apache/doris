@@ -435,8 +435,8 @@ protected:
 
     std::vector<int> _topn_filter_source_node_ids;
 
-    std::shared_ptr<ScannerMemShareArbitrator> _mem_arb = nullptr;
-    std::shared_ptr<ScannerMemLimiter> _mem_limiter = nullptr;
+    std::shared_ptr<MemShareArbitrator> _mem_arb = nullptr;
+    std::shared_ptr<MemLimiter> _mem_limiter = nullptr;
 };
 
 #include "common/compile_check_end.h"

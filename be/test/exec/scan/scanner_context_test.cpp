@@ -836,23 +836,23 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
 }
 
 /**
-    ScannerMemShareArbitrator Tests (5 tests)
+    MemShareArbitrator Tests (5 tests)
   - scanner_mem_share_arbitrator_basic: Tests initialization, query_id, memory limits, and initial state
   - scanner_mem_share_arbitrator_register_scan_node: Tests registering scan nodes and default memory allocation (64MB)
-  - scanner_mem_share_arbitrator_update_scanner_mem_bytes: Tests updating memory bytes and handling zero values
+  - scanner_mem_share_arbitrator_update_mem_bytes: Tests updating memory bytes and handling zero values
   - scanner_mem_share_arbitrator_proportional_sharing: Tests proportional memory distribution across multiple contexts
   - scanner_mem_share_arbitrator_zero_ratio: Tests edge case with zero scan ratio
 
-  ScannerMemLimiter Tests (9 tests)
+  MemLimiter Tests (9 tests)
 
   - scanner_mem_limiter_basic: Tests initialization and default values
   - scanner_mem_limiter_reestimated_block_mem_bytes: Tests averaging algorithm for block memory estimation
   - scanner_mem_limiter_reestimated_zero_value: Tests that zero values are properly ignored
   - scanner_mem_limiter_available_scanner_count: Tests scanner count calculation based on memory limits
   - scanner_mem_limiter_serial_scan: Tests serial scan mode behavior
-  - scanner_mem_limiter_update_running_scanner_count: Tests atomic counter updates
-  - scanner_mem_limiter_update_open_scanner_context_count: Tests context count tracking
-  - scanner_mem_limiter_update_arb_scanner_mem_bytes: Tests memory capping at query limit
+  - scanner_mem_limiter_update_running_tasks_count: Tests atomic counter updates
+  - scanner_mem_limiter_update_open_tasks_count: Tests context count tracking
+  - scanner_mem_limiter_update_arb_mem_bytes: Tests memory capping at query limit
   - scanner_mem_limiter_available_count_distribution: Tests fair distribution across parallel instances
 
   ScannerContext with Memory Control Tests (4 tests)
@@ -870,7 +870,7 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
   - Atomic operations and thread safety
   - Memory distribution algorithms
 */
-// ==================== ScannerMemShareArbitrator Tests ====================
+// ==================== MemShareArbitrator Tests ====================
 TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_basic) {
     TUniqueId query_id;
     query_id.hi = 1;
@@ -878,8 +878,7 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_basic) {
     int64_t query_mem_limit = 1024 * 1024 * 1024;
     double max_scan_ratio = 0.3;
 
-    auto arbitrator =
-            ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
     ASSERT_EQ(arbitrator->query_id.hi, 1);
     ASSERT_EQ(arbitrator->query_id.lo, 2);
@@ -895,8 +894,7 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_register_scan_node) {
     int64_t query_mem_limit = 1024 * 1024 * 1024;
     double max_scan_ratio = 0.3;
 
-    auto arbitrator =
-            ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
     arbitrator->register_scan_node();
     ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 64 * 1024 * 1024);
@@ -905,21 +903,20 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_register_scan_node) {
     ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 128 * 1024 * 1024);
 }
 
-TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_update_scanner_mem_bytes) {
+TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_update_mem_bytes) {
     TUniqueId query_id;
     query_id.hi = 1;
     query_id.lo = 2;
     int64_t query_mem_limit = 1024 * 1024 * 1024;
     double max_scan_ratio = 0.3;
 
-    auto arbitrator =
-            ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
-    int64_t new_limit = arbitrator->update_scanner_mem_bytes(0, 100 * 1024 * 1024);
+    int64_t new_limit = arbitrator->update_mem_bytes(0, 100 * 1024 * 1024);
     ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 100 * 1024 * 1024);
     ASSERT_GT(new_limit, 0);
 
-    new_limit = arbitrator->update_scanner_mem_bytes(100 * 1024 * 1024, 0);
+    new_limit = arbitrator->update_mem_bytes(100 * 1024 * 1024, 0);
     ASSERT_EQ(new_limit, 0);
     ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 0);
 }
@@ -931,11 +928,10 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_proportional_sharing) {
     int64_t query_mem_limit = 1024 * 1024 * 1024;
     double max_scan_ratio = 0.5;
 
-    auto arbitrator =
-            ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
-    int64_t limit1 = arbitrator->update_scanner_mem_bytes(0, 200 * 1024 * 1024);
-    int64_t limit2 = arbitrator->update_scanner_mem_bytes(0, 300 * 1024 * 1024);
+    int64_t limit1 = arbitrator->update_mem_bytes(0, 200 * 1024 * 1024);
+    int64_t limit2 = arbitrator->update_mem_bytes(0, 300 * 1024 * 1024);
 
     ASSERT_LT(limit2, limit1);
     ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 500 * 1024 * 1024);
@@ -948,13 +944,12 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_zero_ratio) {
     int64_t query_mem_limit = 1024 * 1024 * 1024;
     double max_scan_ratio = 0.0;
 
-    auto arbitrator =
-            ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
     ASSERT_GE(arbitrator->scan_mem_limit, 1);
 }
 
-// ==================== ScannerMemLimiter Tests ====================
+// ==================== MemLimiter Tests ====================
 TEST_F(ScannerContextTest, scanner_mem_limiter_basic) {
     TUniqueId query_id;
     query_id.hi = 1;
@@ -963,7 +958,7 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_basic) {
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
     ASSERT_EQ(limiter->get_estimated_block_mem_bytes(), 0);
     ASSERT_EQ(limiter->get_arb_scanner_mem_bytes(), 0);
@@ -977,7 +972,7 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_reestimated_block_mem_bytes) {
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
     limiter->reestimated_block_mem_bytes(100 * 1024 * 1024);
     ASSERT_EQ(limiter->get_estimated_block_mem_bytes(), 100 * 1024 * 1024);
@@ -997,7 +992,7 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_reestimated_zero_value) {
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
     limiter->reestimated_block_mem_bytes(100 * 1024 * 1024);
     ASSERT_EQ(limiter->get_estimated_block_mem_bytes(), 100 * 1024 * 1024);
@@ -1014,9 +1009,9 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_available_scanner_count) {
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
-    limiter->update_scan_mem_limit(400 * 1024 * 1024);
+    limiter->update_mem_limit(400 * 1024 * 1024);
     limiter->reestimated_block_mem_bytes(100 * 1024 * 1024);
 
     int count = limiter->available_scanner_count(0);
@@ -1031,16 +1026,16 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_serial_scan) {
     bool serial_scan = true;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
-    limiter->update_scan_mem_limit(400 * 1024 * 1024);
+    limiter->update_mem_limit(400 * 1024 * 1024);
     limiter->reestimated_block_mem_bytes(100 * 1024 * 1024);
 
     int count = limiter->available_scanner_count(0);
     ASSERT_GE(count, 1);
 }
 
-TEST_F(ScannerContextTest, scanner_mem_limiter_update_running_scanner_count) {
+TEST_F(ScannerContextTest, scanner_mem_limiter_update_running_tasks_count) {
     TUniqueId query_id;
     query_id.hi = 1;
     query_id.lo = 2;
@@ -1048,14 +1043,14 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_update_running_scanner_count) {
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
-    ASSERT_EQ(limiter->update_running_scanner_count(5), 5);
-    ASSERT_EQ(limiter->update_running_scanner_count(-2), 3);
-    ASSERT_EQ(limiter->update_running_scanner_count(1), 4);
+    ASSERT_EQ(limiter->update_running_tasks_count(5), 5);
+    ASSERT_EQ(limiter->update_running_tasks_count(-2), 3);
+    ASSERT_EQ(limiter->update_running_tasks_count(1), 4);
 }
 
-TEST_F(ScannerContextTest, scanner_mem_limiter_update_open_scanner_context_count) {
+TEST_F(ScannerContextTest, scanner_mem_limiter_update_open_tasks_count) {
     TUniqueId query_id;
     query_id.hi = 1;
     query_id.lo = 2;
@@ -1063,15 +1058,15 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_update_open_scanner_context_count
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
-    ASSERT_EQ(limiter->update_open_scanner_context_count(1), 0);
-    ASSERT_EQ(limiter->update_open_scanner_context_count(1), 1);
-    ASSERT_EQ(limiter->update_open_scanner_context_count(-1), 2);
-    ASSERT_EQ(limiter->update_open_scanner_context_count(-1), 1);
+    ASSERT_EQ(limiter->update_open_tasks_count(1), 0);
+    ASSERT_EQ(limiter->update_open_tasks_count(1), 1);
+    ASSERT_EQ(limiter->update_open_tasks_count(-1), 2);
+    ASSERT_EQ(limiter->update_open_tasks_count(-1), 1);
 }
 
-TEST_F(ScannerContextTest, scanner_mem_limiter_update_arb_scanner_mem_bytes) {
+TEST_F(ScannerContextTest, scanner_mem_limiter_update_arb_mem_bytes) {
     TUniqueId query_id;
     query_id.hi = 1;
     query_id.lo = 2;
@@ -1079,12 +1074,12 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_update_arb_scanner_mem_bytes) {
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
-    limiter->update_arb_scanner_mem_bytes(100 * 1024 * 1024);
+    limiter->update_arb_mem_bytes(100 * 1024 * 1024);
     ASSERT_EQ(limiter->get_arb_scanner_mem_bytes(), 100 * 1024 * 1024);
 
-    limiter->update_arb_scanner_mem_bytes(1024 * 1024 * 1024);
+    limiter->update_arb_mem_bytes(1024 * 1024 * 1024);
     ASSERT_EQ(limiter->get_arb_scanner_mem_bytes(), mem_limit);
 }
 
@@ -1096,9 +1091,9 @@ TEST_F(ScannerContextTest, scanner_mem_limiter_available_count_distribution) {
     bool serial_scan = false;
     int64_t mem_limit = 512 * 1024 * 1024;
 
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
+    auto limiter = MemLimiter::create_shared(query_id, parallelism, serial_scan, mem_limit);
 
-    limiter->update_scan_mem_limit(500 * 1024 * 1024);
+    limiter->update_mem_limit(500 * 1024 * 1024);
     limiter->reestimated_block_mem_bytes(100 * 1024 * 1024);
 
     int count0 = limiter->available_scanner_count(0);
@@ -1137,15 +1132,15 @@ TEST_F(ScannerContextTest, scanner_context_with_adaptive_memory) {
 
     TUniqueId query_id = state->get_query_ctx()->query_id();
     int64_t query_mem_limit = 1024 * 1024 * 1024;
-    auto arbitrator = ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallel_tasks, false,
-                                                    static_cast<int64_t>(query_mem_limit * 0.3));
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, arbitrator, limiter, 0, true, parallel_tasks);
 
-    limiter->update_open_scanner_context_count(1);
+    limiter->update_open_tasks_count(1);
     ASSERT_TRUE(scanner_context->_enable_adaptive_scanners);
     ASSERT_NE(scanner_context->_mem_share_arb, nullptr);
     ASSERT_NE(scanner_context->_scanner_mem_limiter, nullptr);
@@ -1177,9 +1172,9 @@ TEST_F(ScannerContextTest, scanner_context_adjust_scan_mem_limit) {
 
     TUniqueId query_id = state->get_query_ctx()->query_id();
     int64_t query_mem_limit = 1024 * 1024 * 1024;
-    auto arbitrator = ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallel_tasks, false,
-                                                    static_cast<int64_t>(query_mem_limit * 0.3));
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
@@ -1189,7 +1184,7 @@ TEST_F(ScannerContextTest, scanner_context_adjust_scan_mem_limit) {
     int64_t new_mem = 200 * 1024 * 1024;
     scanner_context->_adjust_scan_mem_limit(old_mem, new_mem);
 
-    limiter->update_open_scanner_context_count(1);
+    limiter->update_open_tasks_count(1);
     ASSERT_GT(arbitrator->total_scanner_mem_bytes.load(), 0);
 }
 
@@ -1219,9 +1214,9 @@ TEST_F(ScannerContextTest, scanner_context_reestimated_block_mem_bytes) {
 
     TUniqueId query_id = state->get_query_ctx()->query_id();
     int64_t query_mem_limit = 1024 * 1024 * 1024;
-    auto arbitrator = ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallel_tasks, false,
-                                                    static_cast<int64_t>(query_mem_limit * 0.3));
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
@@ -1229,7 +1224,7 @@ TEST_F(ScannerContextTest, scanner_context_reestimated_block_mem_bytes) {
 
     scanner_context->reestimated_block_mem_bytes(150 * 1024 * 1024);
     ASSERT_GT(limiter->get_estimated_block_mem_bytes(), 0);
-    limiter->update_open_scanner_context_count(1);
+    limiter->update_open_tasks_count(1);
 }
 
 TEST_F(ScannerContextTest, scanner_context_update_peak_running_scanner) {
@@ -1259,17 +1254,17 @@ TEST_F(ScannerContextTest, scanner_context_update_peak_running_scanner) {
 
     TUniqueId query_id = state->get_query_ctx()->query_id();
     int64_t query_mem_limit = 1024 * 1024 * 1024;
-    auto arbitrator = ScannerMemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
-    auto limiter = ScannerMemLimiter::create_shared(query_id, parallel_tasks, false,
-                                                    static_cast<int64_t>(query_mem_limit * 0.3));
+    auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, 0.3);
+    auto limiter = MemLimiter::create_shared(query_id, parallel_tasks, false,
+                                             static_cast<int64_t>(query_mem_limit * 0.3));
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
             scanners, limit, scan_dependency, arbitrator, limiter, 0, true, parallel_tasks);
 
     scanner_context->update_peak_running_scanner(3);
-    ASSERT_EQ(limiter->update_running_scanner_count(0), 3);
-    limiter->update_open_scanner_context_count(1);
+    ASSERT_EQ(limiter->update_running_tasks_count(0), 3);
+    limiter->update_open_tasks_count(1);
 }
 
 } // namespace doris

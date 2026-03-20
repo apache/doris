@@ -52,50 +52,50 @@ namespace doris {
 
 using namespace std::chrono_literals;
 #include "common/compile_check_begin.h"
-// ==================== ScannerMemShareArbitrator ====================
+// ==================== MemShareArbitrator ====================
 static constexpr int64_t DEFAULT_SCANNER_MEM_BYTES = 64 * 1024 * 1024; // 64MB default
 
-ScannerMemShareArbitrator::ScannerMemShareArbitrator(const TUniqueId& qid, int64_t query_mem_limit,
-                                                     double max_scan_ratio)
+MemShareArbitrator::MemShareArbitrator(const TUniqueId& qid, int64_t query_mem_limit,
+                                       double max_scan_ratio)
         : query_id(qid),
           query_mem_limit(query_mem_limit),
-          scan_mem_limit(std::max<int64_t>(
+          mem_limit(std::max<int64_t>(
                   1, static_cast<int64_t>(static_cast<double>(query_mem_limit) * max_scan_ratio))) {
 }
 
-void ScannerMemShareArbitrator::register_scan_node() {
+void MemShareArbitrator::register_scan_node() {
     total_scanner_mem_bytes.fetch_add(DEFAULT_SCANNER_MEM_BYTES);
 }
 
-int64_t ScannerMemShareArbitrator::update_scanner_mem_bytes(int64_t old_value, int64_t new_value) {
+int64_t MemShareArbitrator::update_mem_bytes(int64_t old_value, int64_t new_value) {
     int64_t diff = new_value - old_value;
     int64_t total = total_scanner_mem_bytes.fetch_add(diff) + diff;
     if (new_value == 0) return 0;
-    if (total <= 0) return scan_mem_limit;
+    if (total <= 0) return mem_limit;
     // Proportional sharing: allocate based on this context's share of total usage
     double ratio = static_cast<double>(new_value) / static_cast<double>(std::max(total, new_value));
-    return static_cast<int64_t>(static_cast<double>(scan_mem_limit) * ratio);
+    return static_cast<int64_t>(static_cast<double>(mem_limit) * ratio);
 }
 
-// ==================== ScannerMemLimiter ====================
-int ScannerMemLimiter::available_scanner_count(int ins_idx) const {
-    int64_t scan_mem_limit_value = scan_mem_limit.load();
-    int64_t running_scanner_count_value = running_scanner_count.load();
-    int64_t scanner_mem_bytes_value = get_estimated_block_mem_bytes();
+// ==================== MemLimiter ====================
+int MemLimiter::available_scanner_count(int ins_idx) const {
+    int64_t mem_limit_value = mem_limit.load();
+    int64_t running_tasks_count_value = running_tasks_count.load();
+    int64_t estimated_block_mem_bytes_value = get_estimated_block_mem_bytes();
 
-    int64_t max_count = std::max(1L, scan_mem_limit_value / scanner_mem_bytes_value);
+    int64_t max_count = std::max(1L, mem_limit_value / estimated_block_mem_bytes_value);
     int64_t avail_count = max_count;
     int64_t per_count = avail_count / parallelism;
-    if (serial_scan) {
+    if (serial_operator) {
         per_count += (avail_count - per_count * parallelism);
     } else if (ins_idx < avail_count - per_count * parallelism) {
         per_count += 1;
     }
 
-    VLOG_DEBUG << "available_scanner_count. max_count=" << max_count << "(" << scan_mem_limit_value
-               << "/" << scanner_mem_bytes_value
-               << "), query_scan_mem_limit = " << query_scan_mem_limit
-               << ", running_scanner_count = " << running_scanner_count_value
+    VLOG_DEBUG << "available_scanner_count. max_count=" << max_count << "("
+               << running_tasks_count_value << "/" << estimated_block_mem_bytes_value
+               << "), operator_mem_limit = " << operator_mem_limit
+               << ", running_tasks_count = " << running_tasks_count_value
                << ", parallelism = " << parallelism << ", avail_count = " << avail_count
                << ", ins_id = " << ins_idx << ", per_count = " << per_count
                << " debug_string: " << debug_string();
@@ -103,9 +103,9 @@ int ScannerMemLimiter::available_scanner_count(int ins_idx) const {
     return cast_set<int>(per_count);
 }
 
-void ScannerMemLimiter::reestimated_block_mem_bytes(int64_t value) {
+void MemLimiter::reestimated_block_mem_bytes(int64_t value) {
     if (value == 0) return;
-    value = std::min(value, query_scan_mem_limit);
+    value = std::min(value, operator_mem_limit);
 
     std::lock_guard<std::mutex> L(lock);
     auto old_value = estimated_block_mem_bytes.load();
@@ -114,7 +114,7 @@ void ScannerMemLimiter::reestimated_block_mem_bytes(int64_t value) {
     estimated_block_mem_bytes_update_count += 1;
     estimated_block_mem_bytes = total / estimated_block_mem_bytes_update_count;
     VLOG_DEBUG << fmt::format(
-            "reestimated_block_mem_bytes. ScannerMemLimiter = {}, estimated_block_mem_bytes = {}, "
+            "reestimated_block_mem_bytes. MemLimiter = {}, estimated_block_mem_bytes = {}, "
             "old_value = {}, value: {}",
             debug_string(), estimated_block_mem_bytes, old_value, value);
 }
@@ -125,8 +125,8 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
                                const RowDescriptor* output_row_descriptor,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
                                int64_t limit_, std::shared_ptr<Dependency> dependency,
-                               std::shared_ptr<ScannerMemShareArbitrator> arb,
-                               std::shared_ptr<ScannerMemLimiter> limiter, int ins_idx,
+                               std::shared_ptr<MemShareArbitrator> arb,
+                               std::shared_ptr<MemLimiter> limiter, int ins_idx,
                                bool enable_adaptive_scan
 #ifdef BE_TEST
                                ,
@@ -186,9 +186,9 @@ void ScannerContext::_adjust_scan_mem_limit(int64_t old_value, int64_t new_value
         return;
     }
 
-    int64_t new_scan_mem_limit = _mem_share_arb->update_scanner_mem_bytes(old_value, new_value);
-    _scanner_mem_limiter->update_scan_mem_limit(new_scan_mem_limit);
-    _scanner_mem_limiter->update_arb_scanner_mem_bytes(new_value);
+    int64_t new_scan_mem_limit = _mem_share_arb->update_mem_bytes(old_value, new_value);
+    _scanner_mem_limiter->update_mem_limit(new_scan_mem_limit);
+    _scanner_mem_limiter->update_arb_mem_bytes(new_value);
 
     VLOG_DEBUG << fmt::format(
             "adjust_scan_mem_limit. context = {}, new mem scan limit = {}, scanner mem bytes = {} "
@@ -365,10 +365,10 @@ Status ScannerContext::init() {
     // Initialize memory limiter if memory-aware scheduling is enabled
     if (_enable_adaptive_scanners) {
         DCHECK(_scanner_mem_limiter && _mem_share_arb);
-        int64_t c = _scanner_mem_limiter->update_open_scanner_context_count(1);
+        int64_t c = _scanner_mem_limiter->update_open_tasks_count(1);
         // TODO(gabriel): set estimated block size
         _scanner_mem_limiter->reestimated_block_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
-        _scanner_mem_limiter->update_arb_scanner_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
+        _scanner_mem_limiter->update_arb_mem_bytes(DEFAULT_SCANNER_MEM_BYTES);
         if (c == 0) {
             // First scanner context to open, adjust scan memory limit
             _adjust_scan_mem_limit(DEFAULT_SCANNER_MEM_BYTES,
@@ -419,7 +419,7 @@ ScannerContext::~ScannerContext() {
 
     // Cleanup memory limiter if last context closing
     if (_enable_adaptive_scanners) {
-        if (_scanner_mem_limiter->update_open_scanner_context_count(-1) == 1) {
+        if (_scanner_mem_limiter->update_open_tasks_count(-1) == 1) {
             // Last scanner context to close, reset scan memory limit
             _adjust_scan_mem_limit(_scanner_mem_limiter->get_arb_scanner_mem_bytes(), 0);
         }
@@ -686,7 +686,7 @@ void ScannerContext::update_peak_running_scanner(int num) {
     _local_state->_peak_running_scanner->add(num);
 #endif
     if (_enable_adaptive_scanners) {
-        _scanner_mem_limiter->update_running_scanner_count(num);
+        _scanner_mem_limiter->update_running_tasks_count(num);
     }
 }
 

@@ -138,7 +138,7 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     }
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     DorisMetrics::instance()->query_ctx_cnt->increment(1);
-    _mem_arb = ScannerMemShareArbitrator::create_shared(
+    _mem_arb = MemShareArbitrator::create_shared(
             query_id, query_options.mem_limit,
             query_options.__isset.max_scan_mem_ratio ? query_options.max_scan_mem_ratio : 1.0);
 }
