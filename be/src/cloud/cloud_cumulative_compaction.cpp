@@ -292,6 +292,22 @@ Status CloudCumulativeCompaction::modify_rowsets() {
         LOG(INFO) << "CloudCumulativeCompaction::modify_rowsets.enable_spin_wait, exit";
     });
 
+    // Block only NOTREADY tablets (SC new tablets) before compaction commit.
+    // RUNNING tablets (system tables, base tablets) are not affected.
+    DBUG_EXECUTE_IF("CloudCumulativeCompaction::modify_rowsets.block_notready", {
+        if (_tablet->tablet_state() == TABLET_NOTREADY) {
+            LOG(INFO) << "block NOTREADY tablet compaction before commit"
+                      << ", tablet_id=" << _tablet->tablet_id() << ", output=["
+                      << _input_rowsets.front()->start_version() << "-"
+                      << _input_rowsets.back()->end_version() << "]";
+            while (DebugPoints::instance()->is_enable(
+                    "CloudCumulativeCompaction::modify_rowsets.block_notready")) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+            }
+            LOG(INFO) << "release NOTREADY tablet compaction, tablet_id=" << _tablet->tablet_id();
+        }
+    });
+
     DeleteBitmapPtr output_rowset_delete_bitmap = nullptr;
     int64_t initiator = this->initiator();
     int64_t get_delete_bitmap_lock_start_time = 0;
