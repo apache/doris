@@ -19,7 +19,6 @@
 
 #include <parallel_hashmap/phmap.h>
 
-#include <algorithm>
 #include <memory>
 #include <optional>
 #include <sstream>

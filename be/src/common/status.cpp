@@ -10,7 +10,6 @@
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 
-#include <algorithm>
 #include <new>
 #include <vector>
 

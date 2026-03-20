@@ -27,7 +27,6 @@
 #include <sys/sysmacros.h>
 #include <sys/types.h>
 
-#include <algorithm>
 #include <boost/algorithm/string/classification.hpp>
 #include <boost/algorithm/string/detail/classification.hpp>
 #include <boost/algorithm/string/trim.hpp>

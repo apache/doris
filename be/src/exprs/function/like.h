@@ -21,7 +21,6 @@
 #include <hs/hs_runtime.h>
 #include <re2/re2.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <boost/regex.hpp>
 #include <cstddef>

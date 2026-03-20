@@ -25,7 +25,6 @@
 #include <rapidjson/stringbuffer.h>
 #include <sys/types.h>
 
-#include <algorithm>
 #include <memory>
 #include <ostream>
 #include <string>

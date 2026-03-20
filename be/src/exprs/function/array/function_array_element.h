@@ -23,7 +23,6 @@
 #include <glog/logging.h>
 #include <string.h>
 
-#include <algorithm>
 #include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <ostream>

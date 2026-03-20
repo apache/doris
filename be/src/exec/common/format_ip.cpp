@@ -20,7 +20,6 @@
 
 #include "exec/common/format_ip.h"
 
-#include <algorithm>
 #include <array>
 
 namespace doris {
