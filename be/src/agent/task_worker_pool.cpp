@@ -1792,25 +1792,40 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         increase_report_version();
         // get path hash of the created tablet
         TabletSharedPtr tablet;
+        std::string error_msg;
         {
             SCOPED_TIMER(ADD_TIMER(profile, "GetTablet"));
-            tablet = engine.tablet_manager()->get_tablet(create_tablet_req.tablet_id);
+            tablet = engine.tablet_manager()->get_tablet(create_tablet_req.tablet_id, false,
+                                                         &error_msg);
         }
-        DCHECK(tablet != nullptr);
-        TTabletInfo tablet_info;
-        tablet_info.tablet_id = tablet->tablet_id();
-        tablet_info.schema_hash = tablet->schema_hash();
-        tablet_info.version = create_tablet_req.version;
-        // Useless but it is a required field in TTabletInfo
-        tablet_info.version_hash = 0;
-        tablet_info.row_count = 0;
-        tablet_info.data_size = 0;
-        tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
-        tablet_info.__set_replica_id(tablet->replica_id());
-        finish_tablet_infos.push_back(tablet_info);
-        LOG_INFO("successfully create tablet")
-                .tag("signature", req.signature)
-                .tag("tablet_id", create_tablet_req.tablet_id);
+
+        if (tablet) {
+            TTabletInfo tablet_info;
+            tablet_info.tablet_id = tablet->tablet_id();
+            tablet_info.schema_hash = tablet->schema_hash();
+            tablet_info.version = create_tablet_req.version;
+            // Useless but it is a required field in TTabletInfo
+            tablet_info.version_hash = 0;
+            tablet_info.row_count = 0;
+            tablet_info.data_size = 0;
+            tablet_info.__set_path_hash(tablet->data_dir()->path_hash());
+            tablet_info.__set_replica_id(tablet->replica_id());
+            finish_tablet_infos.push_back(tablet_info);
+            LOG_INFO("successfully create tablet")
+                    .tag("signature", req.signature)
+                    .tag("tablet_id", create_tablet_req.tablet_id);
+        } else {
+            // This is not a normal path, a possible case is that DataDir::health_check()
+            // encounters an IO_ERROR, causing get_tablet() to return nullptr even though
+            // the create_tablet succeeded.
+            status = Status::NotFound("failed to get tablet, reason={}", error_msg);
+            DorisMetrics::instance()->create_tablet_requests_failed->increment(1);
+            LOG_WARNING("created tablet is missing before finishing create task, reason={}",
+                        status.to_string())
+                    .tag("signature", req.signature)
+                    .tag("tablet_id", create_tablet_req.tablet_id)
+                    .error(status);
+        }
     }
     TFinishTaskRequest finish_task_request;
     finish_task_request.__set_finish_tablet_infos(finish_tablet_infos);
