@@ -224,7 +224,7 @@ public:
 
         // Write rows
         RowCursor row;
-        auto olap_st = row.init(schema);
+        auto olap_st = row._init(schema, schema->num_columns());
         EXPECT_EQ(Status::OK(), olap_st);
 
         // Write one row: (1, "hello")
