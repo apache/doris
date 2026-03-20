@@ -30,8 +30,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.ParseUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.storage.HdfsProperties;
@@ -47,8 +47,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -59,7 +57,6 @@ import java.util.Set;
 
 // For syntax select * from tbl INTO OUTFILE xxxx
 public class OutFileClause {
-    private static final Logger LOG = LogManager.getLogger(OutFileClause.class);
 
     public static final List<String> RESULT_COL_NAMES = Lists.newArrayList();
     public static final List<Type> RESULT_COL_TYPES = Lists.newArrayList();
@@ -611,8 +608,9 @@ public class OutFileClause {
          *    - Centralize HDFS URI parsing logic
          *    - Add validation in FE to reject incomplete or malformed configs
          */
-        if (null != brokerDesc.getStorageType() && brokerDesc.getStorageType()
-                .equals(StorageBackend.StorageType.HDFS)) {
+        if (null != brokerDesc.getStorageType() && (brokerDesc.getStorageType()
+                .equals(StorageBackend.StorageType.HDFS)
+                || brokerDesc.getStorageType().equals(StorageBackend.StorageType.JFS))) {
             String defaultFs = HdfsPropertiesUtils.extractDefaultFsFromPath(filePath);
             brokerDesc.getBackendConfigProperties().put(HdfsProperties.HDFS_DEFAULT_FS_NAME, defaultFs);
         }
@@ -727,7 +725,7 @@ public class OutFileClause {
                 .append(fileFormatProperties.getFormatName());
         if (properties != null && !properties.isEmpty()) {
             sb.append(" PROPERTIES(");
-            sb.append(new PrintableMap<>(properties, " = ", true, false));
+            sb.append(new DatasourcePrintableMap<>(properties, " = ", true, false));
             sb.append(")");
         }
         return sb.toString();
@@ -769,5 +767,4 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
 

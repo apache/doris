@@ -43,6 +43,7 @@ import org.apache.doris.datasource.maxcompute.source.MaxComputeSplit.SplitType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.nereids.util.DateUtils;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
 import org.apache.doris.thrift.TFileFormatType;
@@ -54,6 +55,7 @@ import com.aliyun.odps.OdpsType;
 import com.aliyun.odps.PartitionSpec;
 import com.aliyun.odps.table.configuration.ArrowOptions;
 import com.aliyun.odps.table.configuration.ArrowOptions.TimestampUnit;
+import com.aliyun.odps.table.configuration.SplitOptions;
 import com.aliyun.odps.table.optimizer.predicate.Predicate;
 import com.aliyun.odps.table.read.TableBatchReadSession;
 import com.aliyun.odps.table.read.TableReadSessionBuilder;
@@ -100,6 +102,8 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     private int readTimeout;
     private int retryTimes;
 
+    private boolean onlyPartitionEqualityPredicate = false;
+
     @Setter
     private SelectedPartitions selectedPartitions = null;
 
@@ -110,13 +114,14 @@ public class MaxComputeScanNode extends FileQueryScanNode {
     // For new planner
     public MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc,
             SelectedPartitions selectedPartitions, boolean needCheckColumnPriv,
-            SessionVariable sv) {
-        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv);
+            SessionVariable sv, ScanContext scanContext) {
+        this(id, desc, "MCScanNode", selectedPartitions, needCheckColumnPriv, sv, scanContext);
     }
 
     private MaxComputeScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName,
-            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv, SessionVariable sv) {
-        super(id, desc, planNodeName, needCheckColumnPriv, sv);
+            SelectedPartitions selectedPartitions, boolean needCheckColumnPriv, SessionVariable sv,
+            ScanContext scanContext) {
+        super(id, desc, planNodeName, scanContext, needCheckColumnPriv, sv);
         table = (MaxComputeExternalTable) desc.getTable();
         this.selectedPartitions = selectedPartitions;
     }
@@ -177,6 +182,12 @@ public class MaxComputeScanNode extends FileQueryScanNode {
      */
     TableBatchReadSession createTableBatchReadSession(List<PartitionSpec> requiredPartitionSpecs) throws IOException {
         MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
+        return createTableBatchReadSession(requiredPartitionSpecs, mcCatalog.getSplitOption());
+    }
+
+    TableBatchReadSession createTableBatchReadSession(
+            List<PartitionSpec> requiredPartitionSpecs, SplitOptions splitOptions) throws IOException {
+        MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
 
         readTimeout = mcCatalog.getReadTimeout();
         connectTimeout = mcCatalog.getConnectTimeout();
@@ -186,7 +197,7 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
         return scanBuilder.identifier(table.getTableIdentifier())
                         .withSettings(mcCatalog.getSettings())
-                        .withSplitOptions(mcCatalog.getSplitOption())
+                .withSplitOptions(splitOptions)
                         .requiredPartitionColumns(requiredPartitionColumns)
                         .requiredDataColumns(orderedRequiredDataColumns)
                         .withFilterPredicate(filterPredicate)
@@ -315,6 +326,51 @@ public class MaxComputeScanNode extends FileQueryScanNode {
             }
             this.filterPredicate = filterPredicate;
         }
+
+        this.onlyPartitionEqualityPredicate = checkOnlyPartitionEqualityPredicate();
+    }
+
+    private boolean checkOnlyPartitionEqualityPredicate() {
+        if (conjuncts.isEmpty()) {
+            return true;
+        }
+        Set<String> partitionColumns =
+                table.getPartitionColumns().stream().map(Column::getName).collect(Collectors.toSet());
+        for (Expr expr : conjuncts) {
+            if (expr instanceof BinaryPredicate) {
+                BinaryPredicate bp = (BinaryPredicate) expr;
+                if (bp.getOp() != BinaryPredicate.Operator.EQ) {
+                    return false;
+                }
+                if (!(bp.getChild(0) instanceof SlotRef) || !(bp.getChild(1) instanceof LiteralExpr)) {
+                    return false;
+                }
+                String colName = ((SlotRef) bp.getChild(0)).getColumnName();
+                if (!partitionColumns.contains(colName)) {
+                    return false;
+                }
+            } else if (expr instanceof InPredicate) {
+                InPredicate inPredicate = (InPredicate) expr;
+                if (inPredicate.isNotIn()) {
+                    return false;
+                }
+                if (!(inPredicate.getChild(0) instanceof SlotRef)) {
+                    return false;
+                }
+                String colName = ((SlotRef) inPredicate.getChild(0)).getColumnName();
+                if (!partitionColumns.contains(colName)) {
+                    return false;
+                }
+                for (int i = 1; i < inPredicate.getChildren().size(); i++) {
+                    if (!(inPredicate.getChild(i) instanceof LiteralExpr)) {
+                        return false;
+                    }
+                }
+            } else {
+                return false;
+            }
+        }
+        return true;
     }
 
     private Predicate convertExprToOdpsPredicate(Expr expr) throws AnalysisException {
@@ -576,14 +632,23 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
     private List<Split> getSplitByTableSession(TableBatchReadSession tableBatchReadSession) throws IOException {
         List<Split> result = new ArrayList<>();
+
+        long t0 = System.currentTimeMillis();
         String scanSessionSerialize =  serializeSession(tableBatchReadSession);
+        long t1 = System.currentTimeMillis();
+        LOG.info("MaxComputeScanNode getSplitByTableSession: serializeSession cost {} ms, "
+                + "serialized size: {} bytes", t1 - t0, scanSessionSerialize.length());
+
         InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
+        long t2 = System.currentTimeMillis();
+        LOG.info("MaxComputeScanNode getSplitByTableSession: getInputSplitAssigner cost {} ms", t2 - t1);
+
         long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
 
         MaxComputeExternalCatalog mcCatalog = (MaxComputeExternalCatalog) table.getCatalog();
 
         if (mcCatalog.getSplitStrategy().equals(MCProperties.SPLIT_BY_BYTE_SIZE_STRATEGY)) {
-
+            long t3 = System.currentTimeMillis();
             for (com.aliyun.odps.table.read.split.InputSplit split : assigner.getAllSplits()) {
                 MaxComputeSplit maxComputeSplit =
                         new MaxComputeSplit(BYTE_SIZE_PATH,
@@ -599,7 +664,10 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
                 result.add(maxComputeSplit);
             }
+            LOG.info("MaxComputeScanNode getSplitByTableSession: byte_size getAllSplits+build cost {} ms, "
+                    + "splits size: {}", System.currentTimeMillis() - t3, result.size());
         } else {
+            long t3 = System.currentTimeMillis();
             long totalRowCount =  assigner.getTotalRowCount();
 
             long recordsPerSplit = mcCatalog.getSplitRowCount();
@@ -619,17 +687,27 @@ public class MaxComputeScanNode extends FileQueryScanNode {
 
                 result.add(maxComputeSplit);
             }
+            LOG.info("MaxComputeScanNode getSplitByTableSession: row_offset getSplitByRowOffset+build cost {} ms, "
+                            + "splits size: {}, totalRowCount: {}", System.currentTimeMillis() - t3, result.size(),
+                    totalRowCount);
         }
+
         return result;
     }
 
     @Override
     public List<Split> getSplits(int numBackends) throws UserException {
+        long startTime = System.currentTimeMillis();
         List<Split> result = new ArrayList<>();
         com.aliyun.odps.Table odpsTable = table.getOdpsTable();
+        long getOdpsTableTime = System.currentTimeMillis();
+        LOG.info("MaxComputeScanNode getSplits: getOdpsTable cost {} ms", getOdpsTableTime - startTime);
+
         if (desc.getSlots().isEmpty() || odpsTable.getFileNum() <= 0) {
             return result;
         }
+        long getFileNumTime = System.currentTimeMillis();
+        LOG.info("MaxComputeScanNode getSplits: getFileNum cost {} ms", getFileNumTime - getOdpsTableTime);
 
         createRequiredColumns();
 
@@ -649,11 +727,71 @@ public class MaxComputeScanNode extends FileQueryScanNode {
         }
 
         try {
-            TableBatchReadSession tableBatchReadSession = createTableBatchReadSession(requiredPartitionSpecs);
-            result = getSplitByTableSession(tableBatchReadSession);
+            long beforeSession = System.currentTimeMillis();
+            if (sessionVariable.enableMcLimitSplitOptimization
+                    && onlyPartitionEqualityPredicate && hasLimit()) {
+                result = getSplitsWithLimitOptimization(requiredPartitionSpecs);
+            } else {
+                TableBatchReadSession tableBatchReadSession = createTableBatchReadSession(requiredPartitionSpecs);
+                long afterSession = System.currentTimeMillis();
+                LOG.info("MaxComputeScanNode getSplits: createTableBatchReadSession cost {} ms, "
+                        + "partitionSpecs size: {}", afterSession - beforeSession, requiredPartitionSpecs.size());
+
+                result = getSplitByTableSession(tableBatchReadSession);
+                long afterSplit = System.currentTimeMillis();
+                LOG.info("MaxComputeScanNode getSplits: getSplitByTableSession cost {} ms, "
+                        + "splits size: {}", afterSplit - afterSession, result.size());
+            }
         } catch (IOException e) {
             throw new RuntimeException(e);
         }
+        LOG.info("MaxComputeScanNode getSplits: total cost {} ms", System.currentTimeMillis() - startTime);
+        return result;
+    }
+
+    private List<Split> getSplitsWithLimitOptimization(
+            List<PartitionSpec> requiredPartitionSpecs) throws IOException {
+        long startTime = System.currentTimeMillis();
+
+        SplitOptions rowOffsetOptions = SplitOptions.newBuilder()
+                .SplitByRowOffset()
+                .withCrossPartition(false)
+                .build();
+
+        TableBatchReadSession tableBatchReadSession =
+                createTableBatchReadSession(requiredPartitionSpecs, rowOffsetOptions);
+        long afterSession = System.currentTimeMillis();
+        LOG.info("MaxComputeScanNode getSplitsWithLimitOptimization: "
+                + "createTableBatchReadSession cost {} ms", afterSession - startTime);
+
+        String scanSessionSerialize = serializeSession(tableBatchReadSession);
+        InputSplitAssigner assigner = tableBatchReadSession.getInputSplitAssigner();
+        long totalRowCount = assigner.getTotalRowCount();
+
+        LOG.info("MaxComputeScanNode getSplitsWithLimitOptimization: "
+                + "totalRowCount={}, limit={}", totalRowCount, getLimit());
+
+        List<Split> result = new ArrayList<>();
+        if (totalRowCount <= 0) {
+            return result;
+        }
+
+        long rowsToRead = Math.min(getLimit(), totalRowCount);
+        long modificationTime = table.getOdpsTable().getLastDataModifiedTime().getTime();
+        com.aliyun.odps.table.read.split.InputSplit split =
+                assigner.getSplitByRowOffset(0, rowsToRead);
+
+        MaxComputeSplit maxComputeSplit = new MaxComputeSplit(
+                ROW_OFFSET_PATH, 0, rowsToRead, totalRowCount,
+                modificationTime, null, Collections.emptyList());
+        maxComputeSplit.scanSerialize = scanSessionSerialize;
+        maxComputeSplit.splitType = SplitType.ROW_OFFSET;
+        maxComputeSplit.sessionId = split.getSessionId();
+        result.add(maxComputeSplit);
+
+        LOG.info("MaxComputeScanNode getSplitsWithLimitOptimization: "
+                        + "total cost {} ms, 1 split with {} rows",
+                System.currentTimeMillis() - startTime, rowsToRead);
         return result;
     }
 

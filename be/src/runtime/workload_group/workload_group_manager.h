@@ -22,20 +22,16 @@
 #include <unordered_map>
 
 #include "common/be_mock_util.h"
-#include "workload_group.h"
+#include "runtime/workload_group/workload_group.h"
 
 namespace doris {
 
 class CgroupCpuCtl;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
-namespace pipeline {
 class TaskScheduler;
 class MultiCoreTaskQueue;
-} // namespace pipeline
 
 // In doris, query includes all tasks such as query, load, compaction, schemachange, etc.
 class PausedQuery {
@@ -85,7 +81,7 @@ public:
 
     void refresh_workload_group_memory_state();
 
-    void get_wg_resource_usage(vectorized::Block* block);
+    void get_wg_resource_usage(Block* block);
 
     void refresh_workload_group_metrics();
 

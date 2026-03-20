@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_hive_insert_overwrite_with_empty_table", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_hive_insert_overwrite_with_empty_table", "p0,external") {
 
     for (String hivePrefix : ["hive2"]) {
 

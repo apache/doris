@@ -19,7 +19,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.qe.ConnectContext;
@@ -220,7 +223,7 @@ public final class RuntimeFilter {
     public TRuntimeFilterDesc toThrift() {
         TRuntimeFilterDesc tFilter = new TRuntimeFilterDesc();
         tFilter.setFilterId(id.asInt());
-        tFilter.setSrcExpr(srcExpr.treeToThrift());
+        tFilter.setSrcExpr(ExprToThriftVisitor.treeToThrift(srcExpr));
         tFilter.setExprOrder(exprOrder);
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
@@ -228,7 +231,7 @@ public final class RuntimeFilter {
 
         boolean hasSerialTargets = false;
         for (RuntimeFilterTarget target : targets) {
-            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), ExprToThriftVisitor.treeToThrift(target.expr));
             hasSerialTargets = hasSerialTargets
                     || (target.node.isSerialOperator() && target.node.fragment.useSerialSource(ConnectContext.get()));
         }
@@ -258,7 +261,7 @@ public final class RuntimeFilter {
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
         if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
-            tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
+            tFilter.setBitmapTargetExpr(ExprToThriftVisitor.treeToThrift(targets.get(0).expr));
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {
@@ -493,7 +496,7 @@ public final class RuntimeFilter {
         if (getBuilderNode().getId().equals(nodeId)) {
             // source side
             filterStr.append(" <- ");
-            filterStr.append(getSrcExpr().toSql());
+            filterStr.append(getSrcExpr().accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             filterStr.append("(").append(getEstimateNdv()).append("/")
                     .append(getExpectFilterSizeBytes()).append("/")
                     .append(getFilterSizeBytes()).append(")");
@@ -501,7 +504,7 @@ public final class RuntimeFilter {
             // target side
             if (getTargetExpr(nodeId) != null) {
                 filterStr.append(" -> ");
-                filterStr.append(getTargetExpr(nodeId).toSql());
+                filterStr.append(getTargetExpr(nodeId).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
         return filterStr.toString();

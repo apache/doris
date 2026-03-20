@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -35,7 +36,7 @@ public class DateLiteralTest {
         value = "2020-02-02 09:03:04.123456+08:00";
         dateLiteral = new DateLiteral(value, ScalarType.createTimeStampTzType(6));
         expectedResult = "'2020-02-02 01:03:04.123456+00:00'";
-        Assertions.assertEquals(expectedResult, dateLiteral.toSql());
+        Assertions.assertEquals(expectedResult, dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -51,12 +52,12 @@ public class DateLiteralTest {
             timeZone = "+08:00";
             context.getSessionVariable().setTimeZone(timeZone);
             expected = "2020-02-02 20:00:03.123456+08:00";
-            Assertions.assertEquals(expected, dateLiteral.getStringValueForQuery(null));
+            Assertions.assertEquals(expected, dateLiteral.accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
 
             timeZone = "-08:00";
             context.getSessionVariable().setTimeZone(timeZone);
             expected = "2020-02-02 04:00:03.123456-08:00";
-            Assertions.assertEquals(expected, dateLiteral.getStringValueForQuery(null));
+            Assertions.assertEquals(expected, dateLiteral.accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         } finally {
             ConnectContext.remove();
         }
@@ -72,12 +73,12 @@ public class DateLiteralTest {
         value = "2020-02-02 09:03:04.123456+08:00";
         dateLiteral = new DateLiteral(value, ScalarType.createDatetimeV2Type(6));
         expectedResult = "'2020-02-02 09:03:04.123456'";
-        Assertions.assertEquals(expectedResult, dateLiteral.toSql());
+        Assertions.assertEquals(expectedResult, dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
 
         value = "2020-02-02 09:03:04.123456+09:00";
         dateLiteral = new DateLiteral(value, ScalarType.createDatetimeV2Type(6));
         expectedResult = "'2020-02-02 08:03:04.123456'";
-        Assertions.assertEquals(expectedResult, dateLiteral.toSql());
+        Assertions.assertEquals(expectedResult, dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -89,10 +90,10 @@ public class DateLiteralTest {
         value = "2020-02-02+08:00";
         dateLiteral = new DateLiteral(value, ScalarType.DATEV2);
         expectedResult = "'2020-02-02'";
-        Assertions.assertEquals(expectedResult, dateLiteral.toSql());
+        Assertions.assertEquals(expectedResult, dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         value = "2020-02-02+09:00";
         dateLiteral = new DateLiteral(value, ScalarType.DATEV2);
         expectedResult = "'2020-02-01'";
-        Assertions.assertEquals(expectedResult, dateLiteral.toSql());
+        Assertions.assertEquals(expectedResult, dateLiteral.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 }

@@ -32,13 +32,13 @@
 
 #include "arrow/type_fwd.h"
 #include "common/config.h"
-#include "pipeline/dependency.h"
+#include "core/block/block.h"
+#include "exec/pipeline/dependency.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
+#include "exec/sink/writer/vmysql_result_writer.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
-#include "util/runtime_profile.h"
 #include "util/thrift_util.h"
-#include "vec/core/block.h"
-#include "vec/sink/varrow_flight_result_writer.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -117,7 +117,7 @@ void ResultBlockBuffer<ResultCtxType>::cancel(const Status& reason) {
 
 template <typename ResultCtxType>
 void ResultBlockBuffer<ResultCtxType>::set_dependency(
-        const TUniqueId& id, std::shared_ptr<pipeline::Dependency> result_sink_dependency) {
+        const TUniqueId& id, std::shared_ptr<Dependency> result_sink_dependency) {
     std::unique_lock<std::mutex> l(_lock);
     _result_sink_dependencies[id] = result_sink_dependency;
     _update_dependency();
@@ -192,7 +192,7 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
         auto sz = 0;
         auto num_rows = 0;
         size_t batch_size = 0;
-        if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
+        if constexpr (std::is_same_v<InBlockType, Block>) {
             num_rows = cast_set<int>(result->rows());
             batch_size = result->bytes();
         } else if constexpr (std::is_same_v<InBlockType, TFetchDataResult>) {
@@ -202,14 +202,14 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
             }
         }
         if (!_result_batch_queue.empty()) {
-            if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
+            if constexpr (std::is_same_v<InBlockType, Block>) {
                 sz = cast_set<int>(_result_batch_queue.back()->rows());
             } else if constexpr (std::is_same_v<InBlockType, TFetchDataResult>) {
                 sz = cast_set<int>(_result_batch_queue.back()->result_batch.rows.size());
             }
             if (sz + num_rows < _buffer_limit &&
                 (batch_size + _last_batch_bytes) <= config::thrift_max_message_size) {
-                if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
+                if constexpr (std::is_same_v<InBlockType, Block>) {
                     auto last_block = _result_batch_queue.back();
                     for (size_t i = 0; i < last_block->columns(); i++) {
                         last_block->mutate_columns()[i]->insert_range_from(
@@ -228,14 +228,14 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
                 _result_batch_queue.push_back(std::move(result));
                 _last_batch_bytes = batch_size;
                 _arrow_data_arrival
-                        .notify_one(); // Only valid for get_arrow_batch(std::shared_ptr<vectorized::Block>,)
+                        .notify_one(); // Only valid for get_arrow_batch(std::shared_ptr<Block>,)
             }
         } else {
             _instance_rows_in_queue.emplace_back();
             _result_batch_queue.push_back(std::move(result));
             _last_batch_bytes = batch_size;
             _arrow_data_arrival
-                    .notify_one(); // Only valid for get_arrow_batch(std::shared_ptr<vectorized::Block>,)
+                    .notify_one(); // Only valid for get_arrow_batch(std::shared_ptr<Block>,)
         }
         _instance_rows[state->fragment_instance_id()] += num_rows;
         _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
@@ -250,8 +250,8 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
     return Status::OK();
 }
 
-template class ResultBlockBuffer<vectorized::GetArrowResultBatchCtx>;
-template class ResultBlockBuffer<vectorized::GetResultBatchCtx>;
+template class ResultBlockBuffer<GetArrowResultBatchCtx>;
+template class ResultBlockBuffer<GetResultBatchCtx>;
 
 #include "common/compile_check_end.h"
 } // namespace doris

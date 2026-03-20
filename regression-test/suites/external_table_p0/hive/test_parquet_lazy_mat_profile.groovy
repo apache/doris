@@ -18,7 +18,7 @@
 import java.util.regex.Pattern
 import groovy.json.JsonSlurper
 
-suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_parquet_lazy_mat_profile", "p0,external") {
 
 
     def getProfileList = {
@@ -107,6 +107,7 @@ suite("test_parquet_lazy_mat_profile", "p0,external,hive,external_docker,externa
     sql " set parallel_pipeline_task_num = 1;"
     sql " set file_split_size = 10000000;"
     sql """set max_file_scanners_concurrency =  1; """
+    sql """set enable_condition_cache = false; """
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (!"true".equalsIgnoreCase(enabled)) {

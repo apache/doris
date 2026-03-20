@@ -19,10 +19,10 @@
 
 #include "common/exception.h"
 #include "common/status.h"
+#include "core/column/column_dictionary.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/bloom_filter_func_impl.h"
 #include "exprs/filter_base.h"
-#include "runtime_filter/runtime_filter_definitions.h"
-#include "vec/columns/column_dictionary.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -132,9 +132,9 @@ public:
 
     virtual void insert_set(std::shared_ptr<HybridSetBase> set) = 0;
 
-    virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
+    virtual void insert_fixed_len(const ColumnPtr& column, size_t start) = 0;
 
-    virtual void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results,
+    virtual void find_fixed_len(const ColumnPtr& column, uint8_t* results,
                                 const uint8_t* __restrict filter = nullptr) = 0;
 
     virtual uint16_t find_fixed_len_olap_engine(const char* data, const uint8_t* nullmap,
@@ -172,18 +172,18 @@ public:
         _bloom_filter->set_contain_null(set->contain_null());
     }
 
-    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+    void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         DCHECK(_bloom_filter != nullptr);
         OpV2::insert_batch(*_bloom_filter, column, start);
     }
 
-    void find_fixed_len(const vectorized::ColumnPtr& column, uint8_t* results,
+    void find_fixed_len(const ColumnPtr& column, uint8_t* results,
                         const uint8_t* __restrict filter = nullptr) override {
         OpV2::find_batch(*_bloom_filter, column, results, filter);
     }
 
     template <bool is_nullable>
-    uint16_t find_dict_olap_engine(const vectorized::ColumnDictI32* column, const uint8_t* nullmap,
+    uint16_t find_dict_olap_engine(const ColumnDictI32* column, const uint8_t* nullmap,
                                    uint16_t* offsets, int number) {
         uint16_t new_size = 0;
         for (uint16_t i = 0; i < number; i++) {

@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.CreateDatabaseCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
@@ -41,6 +42,7 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMetadataType;
 import org.apache.doris.thrift.TNullableStringLiteral;
 import org.apache.doris.thrift.TSchemaTableName;
+import org.apache.doris.thrift.TSchemaTableRequestParams;
 import org.apache.doris.thrift.TShowUserRequest;
 import org.apache.doris.thrift.TShowUserResult;
 import org.apache.doris.thrift.TStatusCode;
@@ -57,6 +59,7 @@ import org.junit.rules.ExpectedException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -246,5 +249,58 @@ public class FrontendServiceImplTest {
         TShowUserRequest request = new TShowUserRequest();
         TShowUserResult result = impl.showUser(request);
         System.out.println(result);
+    }
+
+    @Test
+    public void testFetchAuthenticationIntegrationsSchemaTableData() throws Exception {
+        String integrationName = "test_authentication_integration";
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+
+        LinkedHashMap<String, String> properties = new LinkedHashMap<>();
+        properties.put("type", "ldap");
+        properties.put("server", "ldap://127.0.0.1:389");
+        properties.put("bind_password", "plain_secret");
+        properties.put("secret.endpoint", "masked_by_prefix");
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .createAuthenticationIntegration(
+                        integrationName, false, properties, "ldap comment", connectContext.getQualifiedUser());
+
+        try {
+            FrontendServiceImpl impl = new FrontendServiceImpl(exeEnv);
+            TFetchSchemaTableDataRequest request = new TFetchSchemaTableDataRequest();
+            request.setSchemaTableName(TSchemaTableName.AUTHENTICATION_INTEGRATIONS);
+            TSchemaTableRequestParams params = new TSchemaTableRequestParams();
+            params.setCurrentUserIdent(connectContext.getCurrentUserIdentity().toThrift());
+            request.setSchemaTableParams(params);
+
+            TFetchSchemaTableDataResult result = impl.fetchSchemaTableData(request);
+            Assert.assertEquals(TStatusCode.OK, result.getStatus().getStatusCode());
+
+            List<String> rowValues = result.getDataBatch().stream()
+                    .filter(row -> integrationName.equals(row.getColumnValue().get(0).getStringVal()))
+                    .map(row -> row.getColumnValue().stream()
+                            .map(cell -> cell.isSetStringVal() ? cell.getStringVal() : null)
+                            .collect(Collectors.toList()))
+                    .findFirst()
+                    .orElseThrow(() -> new java.lang.AssertionError("authentication integration row not found"));
+
+            Assert.assertEquals(integrationName, rowValues.get(0));
+            Assert.assertEquals("ldap", rowValues.get(1));
+            Assert.assertTrue(rowValues.get(2).contains("\"server\" = \"ldap://127.0.0.1:389\""));
+            Assert.assertTrue(rowValues.get(2).contains(
+                    "\"bind_password\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+            Assert.assertTrue(rowValues.get(2).contains(
+                    "\"secret.endpoint\" = \"" + DatasourcePrintableMap.PASSWORD_MASK + "\""));
+            Assert.assertFalse(rowValues.get(2).contains("plain_secret"));
+            Assert.assertFalse(rowValues.get(2).contains("masked_by_prefix"));
+            Assert.assertEquals("ldap comment", rowValues.get(3));
+            Assert.assertEquals(connectContext.getQualifiedUser(), rowValues.get(4));
+            Assert.assertNotNull(rowValues.get(5));
+            Assert.assertFalse(rowValues.get(5).isEmpty());
+            Assert.assertEquals(connectContext.getQualifiedUser(), rowValues.get(6));
+            Assert.assertEquals(rowValues.get(5), rowValues.get(7));
+        } finally {
+            Env.getCurrentEnv().getAuthenticationIntegrationMgr().dropAuthenticationIntegration(integrationName, true);
+        }
     }
 }

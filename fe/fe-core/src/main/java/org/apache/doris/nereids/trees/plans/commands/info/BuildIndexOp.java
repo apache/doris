@@ -24,12 +24,12 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.info.IndexType;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -141,7 +141,7 @@ public class BuildIndexOp extends AlterTableOp {
             throw new AnalysisException(indexType + " index is not needed to build.");
         }
 
-        if (indexType == IndexDefinition.IndexType.ANN) {
+        if (indexType == IndexType.ANN) {
             List<String> columns = existedIdx.getColumns();
             Map<String, String> properties = existedIdx.getProperties();
             String comment = existedIdx.getComment();

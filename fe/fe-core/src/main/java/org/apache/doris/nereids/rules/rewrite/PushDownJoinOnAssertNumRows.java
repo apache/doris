@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -90,7 +89,7 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
         // 1. right is LogicalAssertNumRows or LogicalProject->LogicalAssertNumRows
         // 2. left is join or project->join
         // 3. only one join condition.
-        if (topJoin.getJoinType() != JoinType.INNER_JOIN && topJoin.getJoinType() != JoinType.CROSS_JOIN) {
+        if (!topJoin.getJoinType().isInnerOrCrossJoin()) {
             return false;
         }
         LogicalJoin bottomJoin;
@@ -107,7 +106,7 @@ public class PushDownJoinOnAssertNumRows extends OneRewriteRuleFactory {
             return false;
         }
 
-        if (bottomJoin.getJoinType() != JoinType.INNER_JOIN && bottomJoin.getJoinType() != JoinType.CROSS_JOIN) {
+        if (!bottomJoin.getJoinType().isInnerOrCrossJoin()) {
             return false;
         }
 

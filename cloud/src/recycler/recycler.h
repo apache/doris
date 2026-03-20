@@ -88,6 +88,8 @@ public:
 
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
+    RecyclerThreadPoolGroup& thread_pool_group() { return _thread_pool_group; }
+
 private:
     void recycle_callback();
 
@@ -138,6 +140,7 @@ struct RowsetDeleteTask {
     std::string recycle_rowset_key;       // Primary key marking "pending recycle"
     std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
     std::string versioned_rowset_key;     // Versioned meta rowset key
+    Versionstamp versionstamp;
     std::string rowset_ref_count_key;
 };
 
@@ -450,8 +453,17 @@ private:
     int delete_rowset_data(const std::map<std::string, doris::RowsetMetaCloudPB>& rowsets,
                            RowsetRecyclingState type, RecyclerMetricsContext& metrics_context);
 
-    // return 0 for success otherwise error
+    // Decrement packed file ref counts for rowset segments.
+    // Returns 0 for success, -1 for error.
     int decrement_packed_file_ref_counts(const doris::RowsetMetaCloudPB& rs_meta_pb);
+
+    // Decrement packed file ref count for delete bitmap if it's stored in packed file.
+    // Returns 0 for success, -1 for error.
+    // If delete bitmap is not stored in packed file, this function does nothing and returns 0.
+    // out_is_packed: if not null, will be set to true if delete bitmap is stored in packed file.
+    int decrement_delete_bitmap_packed_file_ref_counts(int64_t tablet_id,
+                                                       const std::string& rowset_id,
+                                                       bool* out_is_packed);
 
     int delete_packed_file_and_kv(const std::string& packed_file_path,
                                   const std::string& packed_key,
@@ -485,12 +497,8 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
-    // Both recycle_rowset_key and non_versioned_rowset_key will be removed in the same transaction.
-    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta,
-                                     std::string_view non_versioned_rowset_key = "");
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,

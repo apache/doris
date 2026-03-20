@@ -17,7 +17,6 @@
 
 package org.apache.doris.alter;
 
-import org.apache.doris.analysis.ColumnPosition;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -26,12 +25,13 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.info.ColumnPosition;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.trees.plans.commands.AlterTableCommand;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
@@ -897,13 +897,13 @@ public class SchemaChangeHandlerTest extends TestWithFeService {
             Assertions.assertNotNull(indexMeta);
 
             Assertions.assertEquals("idx_error_msg", tbl.getIndexes().get(0).getIndexName());
-            Assertions.assertEquals(IndexDefinition.IndexType.NGRAM_BF, tbl.getIndexes().get(0).getIndexType());
+            Assertions.assertEquals(IndexType.NGRAM_BF, tbl.getIndexes().get(0).getIndexType());
             Map<String, String> props = tbl.getIndexes().get(0).getProperties();
             Assertions.assertEquals("2", props.get("gram_size"));
             Assertions.assertEquals("256", props.get("bf_size"));
             Index index = tbl.getIndexes().get(0);
             LOG.warn("index:{}", index.toString());
-            Assertions.assertEquals(IndexDefinition.IndexType.NGRAM_BF, index.getIndexType());
+            Assertions.assertEquals(IndexType.NGRAM_BF, index.getIndexType());
             Assertions.assertTrue(index.toString().contains("USING NGRAM_BF"));
         } finally {
             tbl.readUnlock();

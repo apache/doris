@@ -21,6 +21,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -57,7 +58,8 @@ public class LogicalPreAggOnHint<CHILD_TYPE extends Plan> extends LogicalUnary<C
     @Override
     public LogicalPreAggOnHint<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalPreAggOnHint<>(children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalPreAggOnHint<>(children.get(0)));
     }
 
     @Override
@@ -72,14 +74,16 @@ public class LogicalPreAggOnHint<CHILD_TYPE extends Plan> extends LogicalUnary<C
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalPreAggOnHint<>(groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalPreAggOnHint<>(groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalPreAggOnHint<>(groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalPreAggOnHint<>(groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override

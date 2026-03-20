@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_wide_table", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_wide_table", "p0,external") {
 
     def formats = ["_orc"]
     def decimal_test1 = """select col1, col70, col71, col81, col100, col534 from wide_table1SUFFIX where col1 is not null order by col1 limit 1;"""

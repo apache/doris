@@ -109,6 +109,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot("ms", "abort_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot("ms", "drop_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot("ms", "list_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_clone_instance("ms", "clone_instance");
+BvarLatencyRecorderWithTag g_bvar_ms_compact_snapshot("ms", "compact_snapshot");
 BvarLatencyRecorderWithTag g_bvar_ms_update_packed_file_info("ms", "update_packed_file_info");
 bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 bvar::Window<bvar::Adder<int64_t> > g_bvar_update_delete_bitmap_fail_counter_minute("ms", "update_delete_bitmap_fail", &g_bvar_update_delete_bitmap_fail_counter, 60);
@@ -517,6 +518,9 @@ mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_del_counter("rpc_kv_drop_snapshot_de
 mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_counter("rpc_kv_clone_instance_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_counter("rpc_kv_clone_instance_put_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_counter("rpc_kv_clone_instance_del_counter",{"instance_id"});
+// compact_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_get_counter("rpc_kv_compact_snapshot_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_counter("rpc_kv_compact_snapshot_put_counter",{"instance_id"});
 
 // bytes
 // get_rowset
@@ -724,5 +728,8 @@ mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_del_bytes("rpc_kv_list_snapshot_del_
 mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_bytes("rpc_kv_clone_instance_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_bytes("rpc_kv_clone_instance_put_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_bytes("rpc_kv_clone_instance_del_bytes",{"instance_id"});
+// compact_snapshot
+mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_get_bytes("rpc_kv_compact_snapshot_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_bytes("rpc_kv_compact_snapshot_put_bytes",{"instance_id"});
 
 // clang-format on

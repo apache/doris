@@ -19,7 +19,6 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -144,7 +143,7 @@ public class UserPropertyMgr implements Writable {
                         return;
                     }
                     if (clusterName.equals(userProperty.getDefaultCloudCluster())) {
-                        ret.add(ClusterNamespace.getNameFromFullName(u));
+                        ret.add(u);
                     }
                 }
         );

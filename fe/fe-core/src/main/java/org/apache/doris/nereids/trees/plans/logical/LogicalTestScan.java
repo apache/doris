@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.logical;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -66,19 +67,22 @@ public class LogicalTestScan extends LogicalCatalogRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTestScan(relationId, table, qualifier,
-                groupExpression, Optional.ofNullable(getLogicalProperties()), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTestScan(relationId, table, qualifier,
+                groupExpression, Optional.ofNullable(getLogicalProperties()), tableAlias));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalTestScan(relationId, table, qualifier, groupExpression, logicalProperties, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTestScan(relationId, table, qualifier, groupExpression, logicalProperties, tableAlias));
     }
 
     public LogicalTestScan withTableAlias(String tableAlias) {
-        return new LogicalTestScan(relationId, table, qualifier, Optional.empty(),
-                Optional.of(getLogicalProperties()), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTestScan(relationId, table, qualifier, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias));
     }
 
     @Override

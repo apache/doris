@@ -22,12 +22,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -41,27 +37,23 @@ import java.util.Objects;
 public class BinaryPredicate extends Predicate {
 
     public enum Operator {
-        EQ("=", "eq", TExprOpcode.EQ),
-        NE("!=", "ne", TExprOpcode.NE),
-        LE("<=", "le", TExprOpcode.LE),
-        GE(">=", "ge", TExprOpcode.GE),
-        LT("<", "lt", TExprOpcode.LT),
-        GT(">", "gt", TExprOpcode.GT),
-        EQ_FOR_NULL("<=>", "eq_for_null", TExprOpcode.EQ_FOR_NULL);
+        EQ("=", "eq"),
+        NE("!=", "ne"),
+        LE("<=", "le"),
+        GE(">=", "ge"),
+        LT("<", "lt"),
+        GT(">", "gt"),
+        EQ_FOR_NULL("<=>", "eq_for_null");
 
         @SerializedName("desc")
         private final String description;
         @SerializedName("name")
         private final String name;
-        @SerializedName("opcode")
-        private final TExprOpcode opcode;
 
         Operator(String description,
-                 String name,
-                 TExprOpcode opcode) {
+                 String name) {
             this.description = description;
             this.name = name;
-            this.opcode = opcode;
         }
 
         @Override
@@ -73,14 +65,10 @@ public class BinaryPredicate extends Predicate {
             return name;
         }
 
-        public TExprOpcode getOpcode() {
-            return opcode;
-        }
-
         public Operator commutative() {
             switch (this) {
                 case EQ:
-                    return this;
+                case EQ_FOR_NULL:
                 case NE:
                     return this;
                 case LE:
@@ -90,9 +78,7 @@ public class BinaryPredicate extends Predicate {
                 case LT:
                     return GT;
                 case GT:
-                    return LE;
-                case EQ_FOR_NULL:
-                    return this;
+                    return LT;
                 default:
                     return null;
             }
@@ -102,7 +88,7 @@ public class BinaryPredicate extends Predicate {
     @SerializedName("op")
     private Operator op;
     // check if left is slot and right isnot slot.
-    private Boolean slotIsleft = null;
+    private Boolean slotIsLeft = null;
 
     // for restoring
     public BinaryPredicate() {
@@ -115,7 +101,6 @@ public class BinaryPredicate extends Predicate {
     public BinaryPredicate(Operator op, Expr e1, Expr e2) {
         super();
         this.op = op;
-        this.opcode = op.opcode;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkNotNull(e2);
@@ -125,21 +110,20 @@ public class BinaryPredicate extends Predicate {
     public BinaryPredicate(Operator op, Expr e1, Expr e2, Type retType, boolean nullable) {
         super();
         this.op = op;
-        this.opcode = op.opcode;
         Preconditions.checkNotNull(e1);
         children.add(e1);
         Preconditions.checkNotNull(e2);
         children.add(e2);
         fn = new Function(new FunctionName(op.name), Lists.newArrayList(e1.getType(), e2.getType()), retType,
                 false, true,
-                op == Operator.GT.EQ_FOR_NULL ? NullableMode.ALWAYS_NOT_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
+                op == Operator.EQ_FOR_NULL ? NullableMode.ALWAYS_NOT_NULLABLE : NullableMode.DEPEND_ON_ARGUMENT);
         this.nullable = nullable;
     }
 
     protected BinaryPredicate(BinaryPredicate other) {
         super(other);
         op = other.op;
-        slotIsleft = other.slotIsleft;
+        slotIsLeft = other.slotIsLeft;
     }
 
     @Override
@@ -167,27 +151,12 @@ public class BinaryPredicate extends Predicate {
         if (!super.equals(obj)) {
             return false;
         }
-        return ((BinaryPredicate) obj).opcode == this.opcode;
+        return ((BinaryPredicate) obj).op == this.op;
     }
 
     @Override
-    public String toSqlImpl() {
-        return "(" + getChild(0).toSql() + " " + op.toString() + " " + getChild(1).toSql() + ")";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return "(" + getChild(0).toSql(disableTableName, needExternalSql, tableType, table)
-                + " " + op.toString() + " "
-                + getChild(1).toSql(disableTableName, needExternalSql, tableType, table) + ")";
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.BINARY_PRED;
-        msg.setOpcode(opcode);
-        msg.setChildType(getChild(0).getType().getPrimitiveType().toThrift());
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitBinaryPredicate(this, context);
     }
 
     /**
@@ -206,7 +175,7 @@ public class BinaryPredicate extends Predicate {
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = true;
+            slotIsLeft = true;
             return getChild(1);
         }
 
@@ -220,7 +189,7 @@ public class BinaryPredicate extends Predicate {
         }
 
         if (slotRef != null && slotRef.getSlotId() == id) {
-            slotIsleft = false;
+            slotIsLeft = false;
             return getChild(0);
         }
 
@@ -228,8 +197,8 @@ public class BinaryPredicate extends Predicate {
     }
 
     public boolean slotIsLeft() {
-        Preconditions.checkState(slotIsleft != null);
-        return slotIsleft;
+        Preconditions.checkState(slotIsLeft != null);
+        return slotIsLeft;
     }
 
     @Override

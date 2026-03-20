@@ -23,8 +23,8 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/config.h"
-#include "olap/delta_writer.h"
-#include "runtime/tablets_channel.h"
+#include "load/channel/tablets_channel.h"
+#include "load/delta_writer/delta_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -250,9 +250,9 @@ Status CloudTabletsChannel::close(LoadChannel* parent, const PTabletWriterAddBlo
         }
     }
 
-    // 6. set txn related delete bitmap if necessary
+    // 6. set txn related info if necessary
     for (auto it = writers_to_commit.begin(); it != writers_to_commit.end();) {
-        auto st = (*it)->set_txn_related_delete_bitmap();
+        auto st = (*it)->set_txn_related_info();
         if (!st.ok()) {
             _add_error_tablet(tablet_errors, (*it)->tablet_id(), st);
             _close_status = std::move(st);

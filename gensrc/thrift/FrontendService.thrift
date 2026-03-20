@@ -402,6 +402,8 @@ struct TMasterOpRequest {
 
     // temporary table
     1002: optional string sessionId
+    // propagate client's CLIENT_DEPRECATE_EOF capability for proxy forwarding
+    1003: optional bool clientDeprecatedEOF
 }
 
 struct TColumnDefinition {
@@ -464,6 +466,8 @@ struct TLoadTxnBeginRequest {
     14: optional i64 table_id
     15: optional i64 backend_id
     16: optional TCertBasedAuth cert_based_auth
+    // If set to true: use table group_commit_mode property
+    17: optional bool use_table_group_commit_mode
 }
 
 struct TLoadTxnBeginResult {
@@ -471,6 +475,9 @@ struct TLoadTxnBeginResult {
     2: optional i64 txnId
     3: optional string job_status // if label already used, set status of existing job
     4: optional i64 db_id
+    // If use_table_group_commit_mode is true in TLoadTxnBeginRequest, and table group_commit_mode property is
+    // async_mode or sync_mode, return table group_commit_mode (begin_txn is skipped)
+    5: optional string table_group_commit_mode
 }
 
 struct TBeginTxnRequest {
@@ -863,6 +870,7 @@ enum TSchemaTableName {
   VIEW_DEPENDENCY = 11,
   SQL_BLOCK_RULE_STATUS = 12,
   DATABASE_PROPERTIES = 13,
+  AUTHENTICATION_INTEGRATIONS = 14,
 }
 
 struct TMetadataTableRequestParams {
@@ -1526,6 +1534,8 @@ struct TReportCommitTxnResultRequest {
     2: optional i64 txnId
     3: optional string label
     4: optional binary payload
+    // tablets which need to update stats
+    5: optional list<i64> tabletIds
 }
 
 struct TQueryColumn {
@@ -1860,6 +1870,10 @@ struct TMasterAddressResult {
     2: optional Types.TNetworkAddress master_address
 }
 
+struct TSyncCloudTabletStatsRequest {
+    1: optional binary tablet_stats_pb
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -1982,4 +1996,6 @@ service FrontendService {
     TInsertOverwriteRecordResult addOrDropInsertOverwriteRecord(1: TInsertOverwriteRecordRequest request)
 
     TRecordFinishedLoadJobResult recordFinishedLoadJobRequest(1: TRecordFinishedLoadJobRequest request)
+
+    Status.TStatus syncCloudTabletStats(1: TSyncCloudTabletStatsRequest request)
 }

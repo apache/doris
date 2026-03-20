@@ -368,6 +368,14 @@ if [[ -d "${DORIS_HOME}/lib/jindofs" ]]; then
     done
 fi
 
+# add juicefs
+# should after jars in lib/, or it will override the hadoop jars in lib/
+if [[ -d "${DORIS_HOME}/lib/juicefs" ]]; then
+    for f in "${DORIS_HOME}/lib/juicefs"/*.jar; do
+        CLASSPATH="${CLASSPATH}:${f}"
+    done
+fi
+
 # add plugins/java_extensions to CLASSPATH
 if [[ -d "${DORIS_HOME}/plugins/java_extensions" ]]; then
     for f in "${DORIS_HOME}/plugins/java_extensions"/*.jar; do

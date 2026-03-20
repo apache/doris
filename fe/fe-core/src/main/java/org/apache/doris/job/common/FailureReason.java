@@ -50,7 +50,9 @@ public class FailureReason implements Writable {
 
     private static boolean isTooManyFailureRowsErr(String msg) {
         return msg.contains("Insert has filtered data in strict mode")
-                || msg.contains("too many filtered rows");
+                || msg.contains("too many filtered")
+                || msg.contains("Encountered unqualified data")
+                || msg.contains("parse number fail");
     }
 
     public InternalErrorCode getCode() {

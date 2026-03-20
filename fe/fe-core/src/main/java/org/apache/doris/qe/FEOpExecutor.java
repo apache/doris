@@ -17,6 +17,7 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
@@ -206,6 +207,10 @@ public class FEOpExecutor {
             }
         }
 
+        // Propagate the client's CLIENT_DEPRECATE_EOF capability so the master FE
+        // generates packets matching the original client's protocol expectations.
+        params.setClientDeprecatedEOF(ctx.getMysqlChannel().clientDeprecatedEOF());
+
         return params;
     }
 
@@ -275,7 +280,7 @@ public class FEOpExecutor {
         Map<String, TExprNode> forwardVariables = Maps.newHashMap();
         for (Map.Entry<String, LiteralExpr> entry : userVariables.entrySet()) {
             LiteralExpr literalExpr = entry.getValue();
-            TExpr tExpr = literalExpr.treeToThrift();
+            TExpr tExpr = ExprToThriftVisitor.treeToThrift(literalExpr);
             TExprNode tExprNode = tExpr.nodes.get(0);
             forwardVariables.put(entry.getKey(), tExprNode);
         }

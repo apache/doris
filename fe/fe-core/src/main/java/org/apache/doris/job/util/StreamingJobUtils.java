@@ -25,7 +25,10 @@ import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.SmallFileMgr;
+import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.jdbc.client.JdbcClient;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
@@ -33,6 +36,7 @@ import org.apache.doris.job.cdc.DataSourceConfigKeys;
 import org.apache.doris.job.cdc.split.SnapshotSplit;
 import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
@@ -59,12 +63,14 @@ import org.apache.commons.text.StringSubstitutor;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -245,6 +251,32 @@ public class StreamingJobUtils {
         return index;
     }
 
+    /**
+     * When enabling SSL, you need to convert FILE:ca.pem to FILE:ca.pem:md5.
+     */
+    public static Map<String, String> convertCertFile(long dbId, Map<String, String> sourceProperties)
+            throws JobException {
+        SmallFileMgr smallFileMgr = Env.getCurrentEnv().getSmallFileMgr();
+        Map<String, String> newProps = new HashMap<>(sourceProperties);
+        if (sourceProperties.containsKey(DataSourceConfigKeys.SSL_ROOTCERT)) {
+            String certFile = sourceProperties.get(DataSourceConfigKeys.SSL_ROOTCERT);
+            if (certFile.startsWith("FILE:")) {
+                String file = certFile.substring(certFile.indexOf(":") + 1);
+                try {
+                    SmallFile smallFile =
+                            smallFileMgr.getSmallFile(dbId, StreamingInsertJob.JOB_FILE_CATALOG, file, true);
+                    newProps.put(DataSourceConfigKeys.SSL_ROOTCERT, "FILE:" + smallFile.id + ":" + smallFile.md5);
+                } catch (DdlException ex) {
+                    throw new JobException("ssl root cert file not found: " + certFile, ex);
+                }
+            } else {
+                throw new JobException("ssl root cert is not in expected format, "
+                        + "should start with FILE:, got " + certFile);
+            }
+        }
+        return newProps;
+    }
+
     public static List<CreateTableCommand> generateCreateTableCmds(String targetDb, DataSourceType sourceType,
             Map<String, String> properties, Map<String, String> targetProperties)
             throws JobException {
@@ -289,6 +321,16 @@ public class StreamingJobUtils {
             if (primaryKeys.isEmpty()) {
                 noPrimaryKeyTables.add(table);
             }
+
+            // Validate and apply exclude_columns for this table
+            Set<String> excludeColumns = parseExcludeColumns(properties, table);
+            if (!excludeColumns.isEmpty()) {
+                validateExcludeColumns(excludeColumns, table, columns, primaryKeys);
+                columns = columns.stream()
+                        .filter(col -> !excludeColumns.contains(col.getName()))
+                        .collect(Collectors.toList());
+            }
+
             // Convert Column to ColumnDefinition
             List<ColumnDefinition> columnDefinitions = columns.stream().map(col -> {
                 DataType dataType = DataType.fromCatalogType(col.getType());
@@ -405,6 +447,37 @@ public class StreamingJobUtils {
                 throw new JobException("Unsupported source type " + sourceType);
         }
         return remoteDb;
+    }
+
+    private static Set<String> parseExcludeColumns(Map<String, String> properties, String tableName) {
+        String key = DataSourceConfigKeys.TABLE + "." + tableName + "."
+                + DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX;
+        String value = properties.get(key);
+        if (StringUtils.isEmpty(value)) {
+            return Collections.emptySet();
+        }
+        return Arrays.stream(value.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isEmpty())
+                .collect(Collectors.toSet());
+    }
+
+    private static void validateExcludeColumns(Set<String> excludeColumns, String tableName,
+            List<Column> columns, List<String> primaryKeys) throws JobException {
+        Set<String> colNames = columns.stream().map(Column::getName).collect(Collectors.toSet());
+        for (String col : excludeColumns) {
+            if (!colNames.contains(col)) {
+                throw new JobException(String.format(
+                        "exclude_columns validation failed: column '%s' does not exist in table '%s'",
+                        col, tableName));
+            }
+            if (primaryKeys.contains(col)) {
+                throw new JobException(String.format(
+                        "exclude_columns validation failed: column '%s' in table '%s'"
+                                + " is a primary key column and cannot be excluded",
+                        col, tableName));
+            }
+        }
     }
 
     private static Map<String, String> getTableCreateProperties(Map<String, String> properties) {

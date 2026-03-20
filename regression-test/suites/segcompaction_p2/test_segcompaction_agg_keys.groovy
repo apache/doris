@@ -86,7 +86,17 @@ suite("test_segcompaction_agg_keys") {
             }
         }
 
-        qt_select_default """ SELECT * FROM ${tableName} WHERE col_0=47; """
+        // Cannot use qt_select_default here: S3 Load parallelizes across multiple BE workers,
+        // each creating separate segments with non-deterministic sequence numbers.
+        // REPLACE aggregation picks the value from the segment with the highest sequence,
+        // so the winner among the 12 source rows with col_0=47 is not guaranteed across runs.
+        def selectResult = sql """ SELECT * FROM ${tableName} WHERE col_0=47; """
+        assertEquals(1, selectResult.size(), "Expected exactly 1 row for col_0=47 after REPLACE aggregation")
+        def row = selectResult[0].collect { it?.toString() }
+        def possibleResult1 = ["47", "Lychee", "Lychee", "Plum", "Banana", "Lychee", "Lychee", "Cherry", "Pineapple", "Banana", "Watermelon", "Mango", "Apple", "Apple", "Peach", "Raspberry", "Grapes", "Raspberry", "Raspberry", "Kiwi", "Orange", "Apple", "Plum", "Blueberry", "Strawberry", "Orange", "Raspberry", "Strawberry", "Lemon", "Orange", "Blueberry", "Apple", "Peach", "Banana", "Kiwi", "Orange", "Banana", "Strawberry", "Lemon", "Mango", "Orange", "Peach", "Avocado", "Pineapple", "Kiwi", "Lemon", "Grapes", "Strawberry", "Grapes", "Lychee"]
+        def possibleResult2 = ["47", "Banana", "Watermelon", "Lychee", "Blueberry", "Raspberry", "Strawberry", "Grapes", "Watermelon", "Lemon", "Lemon", "Pineapple", "Watermelon", "Peach", "Kiwi", "Lychee", "Peach", "Pineapple", "Raspberry", "Grapes", "Lychee", "Raspberry", "Peach", "Kiwi", "Pineapple", "Apple", "Lemon", "Lychee", "Pineapple", "Blueberry", "Blueberry", "Avocado", "Cherry", "Kiwi", "Cherry", "Watermelon", "Plum", "Banana", "Peach", "Pineapple", "Apple", "Strawberry", "Avocado", "Kiwi", "Blueberry", "Mango", "Watermelon", "Orange", "Strawberry", "Banana"]
+        assertTrue(row == possibleResult1 || row == possibleResult2,
+            "Result for col_0=47 does not match either expected outcome.\nGot: ${row}")
 
         String[][] tablets = sql """ show tablets from ${tableName}; """
 

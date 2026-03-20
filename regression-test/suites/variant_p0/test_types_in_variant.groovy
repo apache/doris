@@ -81,7 +81,7 @@ suite("regression_test_variant_types", "var_view") {
         ) engine = olap
         duplicate key (id)
         distributed by hash(id) buckets 1
-        properties ("replication_num" = "1", "variant_enable_flatten_nested" = "true")
+        properties ("replication_num" = "1", "deprecated_variant_enable_flatten_nested" = "true")
     """
 
     sql """ set enable_variant_flatten_nested = false """

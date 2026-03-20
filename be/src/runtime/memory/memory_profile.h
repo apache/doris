@@ -17,9 +17,8 @@
 
 #pragma once
 
-#include <common/multi_version.h>
-
-#include "util/runtime_profile.h"
+#include "common/multi_version.h"
+#include "runtime/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

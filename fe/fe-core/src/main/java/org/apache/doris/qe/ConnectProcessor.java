@@ -17,9 +17,20 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.BoolLiteral;
+import org.apache.doris.analysis.DateLiteral;
+import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.ExplainOptions;
+import org.apache.doris.analysis.FloatLiteral;
+import org.apache.doris.analysis.IPv4Literal;
+import org.apache.doris.analysis.IPv6Literal;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.JsonLiteral;
+import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -44,6 +55,7 @@ import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlPacket;
+import org.apache.doris.mysql.MysqlResultSetEndPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.MysqlServerStatusFlag;
 import org.apache.doris.nereids.SqlCacheContext;
@@ -64,6 +76,7 @@ import org.apache.doris.proto.Data;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.CacheAnalyzer;
 import org.apache.doris.thrift.TExprNode;
+import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TUniqueId;
@@ -553,7 +566,17 @@ public abstract class ConnectProcessor {
     // only Mysql protocol
     protected ByteBuffer getResultPacket() {
         Preconditions.checkState(connectType.equals(ConnectType.MYSQL));
-        MysqlPacket packet = ctx.getState().toResponsePacket();
+        MysqlPacket packet;
+        // When CLIENT_DEPRECATE_EOF is set and the state is EOF (end of result set),
+        // we need to send a "ResultSet OK" packet (0xFE header with payload > 5 bytes)
+        // instead of the traditional EOF packet. This is required by the MySQL protocol
+        // and expected by MySQL Connector/J 9.5.0+.
+        if (ctx.getState().getStateType() == QueryState.MysqlStateType.EOF
+                && ctx.getMysqlChannel().clientDeprecatedEOF()) {
+            packet = new MysqlResultSetEndPacket(ctx.getState());
+        } else {
+            packet = ctx.getState().toResponsePacket();
+        }
         if (packet == null) {
             // possible two cases:
             // 1. handler has send request
@@ -642,6 +665,12 @@ public abstract class ConnectProcessor {
 
         // set compute group
         ctx.setComputeGroup(Env.getCurrentEnv().getAuth().getComputeGroup(ctx.getQualifiedUser()));
+
+        // Propagate the client's CLIENT_DEPRECATE_EOF capability to the proxy channel.
+        // This ensures the master generates packets matching the original client's protocol.
+        if (request.isSetClientDeprecatedEOF() && request.isClientDeprecatedEOF()) {
+            ctx.getMysqlChannel().setClientDeprecatedEOF();
+        }
 
         ctx.setThreadLocalInfo();
         StmtExecutor executor = null;
@@ -761,12 +790,30 @@ public abstract class ConnectProcessor {
             Map<String, LiteralExpr> userVariables = Maps.newHashMap();
             for (Map.Entry<String, TExprNode> entry : thriftMap.entrySet()) {
                 TExprNode tExprNode = entry.getValue();
-                LiteralExpr literalExpr = LiteralExpr.getLiteralExprFromThrift(tExprNode);
+                LiteralExpr literalExpr = getLiteralExprFromThrift(tExprNode);
                 userVariables.put(entry.getKey(), literalExpr);
             }
             return userVariables;
         } catch (AnalysisException e) {
             throw new TException(e.getMessage());
+        }
+    }
+
+    private static LiteralExpr getLiteralExprFromThrift(TExprNode node) throws AnalysisException {
+        TExprNodeType type = node.node_type;
+        switch (type) {
+            case NULL_LITERAL: return new NullLiteral();
+            case BOOL_LITERAL: return new BoolLiteral(node.bool_literal.value);
+            case INT_LITERAL: return new IntLiteral(node.int_literal.value);
+            case LARGE_INT_LITERAL: return new LargeIntLiteral(node.large_int_literal.value);
+            case FLOAT_LITERAL: return new FloatLiteral(node.float_literal.value);
+            case DECIMAL_LITERAL: return new DecimalLiteral(node.decimal_literal.value);
+            case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
+            case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
+            case DATE_LITERAL: return new DateLiteral(node.date_literal.value);
+            case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
+            case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
+            default: throw new AnalysisException("Wrong type from thrift;");
         }
     }
 

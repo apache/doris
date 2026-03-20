@@ -30,4 +30,5 @@ public class JobBaseConfig {
     private Long jobId;
     private String dataSource;
     private Map<String, String> config;
+    private String frontendAddress;
 }

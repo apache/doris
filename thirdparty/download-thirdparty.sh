@@ -425,6 +425,16 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
         fi
         cd -
     fi
+    if [[ "${ARROW_SOURCE}" == "arrow-apache-arrow-17.0.0" ]]; then
+        cd "${TP_SOURCE_DIR}/${ARROW_SOURCE}"
+        if [[ ! -f "${PATCHED_MARK}" ]]; then
+            # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
+            # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+            touch "${PATCHED_MARK}"
+        fi
+        cd -
+    fi
     echo "Finished patching ${ARROW_SOURCE}"
 fi
 
@@ -711,6 +721,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     fi
     cd -
     echo "Finished patching ${CCTZ_SOURCE}"
+fi
+
+# boost patch to fix sigtimedwait not available on macOS
+if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
+    cd "${TP_SOURCE_DIR}/${BOOST_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/boost-1.81.0-mac-sigtimedwait.patch"
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${BOOST_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.Queriable;
-import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.mysql.FieldInfo;
 import org.apache.doris.nereids.StatementContext;
@@ -61,11 +60,6 @@ public class LogicalPlanAdapter extends StatementBase implements Queriable {
                 && !statementContext.getConnectContext().isProxy()) {
             digest = logicalPlan == null ? "" : logicalPlan.toDigest();
         }
-    }
-
-    @Override
-    public RedirectStatus getRedirectStatus() {
-        return RedirectStatus.NO_FORWARD;
     }
 
     public LogicalPlan getLogicalPlan() {

@@ -51,10 +51,7 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
     @Override
     public Catalog initCatalog(String catalogName, Map<String, String> catalogProps,
                                List<StorageProperties> storagePropertiesList) {
-        checkInitialized();
-
         buildS3CatalogProperties(catalogProps);
-
         S3TablesCatalog catalog = new S3TablesCatalog();
         try {
             catalog.initialize(catalogName, catalogProps);
@@ -72,12 +69,5 @@ public class IcebergS3TablesMetaStoreProperties extends AbstractIcebergPropertie
         props.put("client.credentials-provider.s3.secret-access-key", s3Properties.getSecretKey());
         props.put("client.credentials-provider.s3.session-token", s3Properties.getSessionToken());
         props.put("client.region", s3Properties.getRegion());
-    }
-
-    private void checkInitialized() {
-        if (s3Properties == null) {
-            throw new IllegalStateException("S3Properties not initialized."
-                    + " Please call initNormalizeAndCheckProps() before using.");
-        }
     }
 }

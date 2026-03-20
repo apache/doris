@@ -29,6 +29,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -126,7 +127,7 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public String toString() {
-        return Utils.toSqlStringSkipNull("LogicalFileScan",
+        return Utils.toSqlStringSkipNull("LogicalFileScan[" + id.asInt() + "]",
                 "qualified", qualifiedName(),
                 "alias", tableAlias,
                 "output", getOutput(),
@@ -136,39 +137,44 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public LogicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs);
+                cachedOutputs));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs);
+                scanParams, groupExpression, logicalProperties, tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withSelectedPartitions(SelectedPartitions selectedPartitions) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs);
+                cachedOutputs));
     }
 
     @Override
     public LogicalFileScan withRelationId(RelationId relationId) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs);
+                scanParams, Optional.empty(), Optional.empty(), tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withTableAlias(String tableAlias) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
                 scanParams, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias,
-                cachedOutputs);
+                cachedOutputs));
     }
 
     @Override
@@ -279,15 +285,17 @@ public class LogicalFileScan extends LogicalCatalogRelation implements SupportPr
 
     @Override
     public LogicalFileScan withOperativeSlots(Collection<Slot> operativeSlots) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias, cachedOutputs);
+                scanParams, groupExpression, Optional.of(getLogicalProperties()), tableAlias, cachedOutputs));
     }
 
     public LogicalFileScan withCachedOutput(List<Slot> cachedOutputs) {
-        return new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalFileScan(relationId, (ExternalTable) table, qualifier,
                 selectedPartitions, operativeSlots, virtualColumns, tableSample, tableSnapshot,
-                scanParams, groupExpression, Optional.empty(), tableAlias, Optional.of(cachedOutputs));
+                scanParams, groupExpression, Optional.empty(), tableAlias, Optional.of(cachedOutputs)));
     }
 
     @Override

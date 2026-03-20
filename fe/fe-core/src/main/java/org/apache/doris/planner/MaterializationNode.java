@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.qe.ConnectContext;
@@ -70,6 +71,50 @@ import java.util.List;
  * }
  */
 public class MaterializationNode extends PlanNode {
+    /**
+     * Example to illustrate the fields below:
+     *
+     *   SQL:  SELECT pk, col_date FROM t ORDER BY pk LIMIT 10
+     *         (col_date is chosen for lazy materialization)
+     *
+     *   The child plan produces:  [pk(eager), row_id_t]
+     *   row_id_t is a "global row-id" slot that encodes where the real col_date lives on disk.
+     *
+     *   materializeTupleDescriptor (intermediate tuple, e.g. tuple 5):
+     *     index 0 → pk          (eager slot, already in the child block)
+     *     index 1 → col_date    (lazy slot, to be fetched remotely via row_id)
+     *
+     *   outputTupleDesc (final output tuple, e.g. tuple 6):
+     *     contains the columns actually returned to the parent node after
+     *     applying projectList on top of materializeTupleDescriptor.
+     *     In simple cases it is the same set of columns.
+     *     Example: projectList = [pk#0, col_date#1]  →  outputTupleDesc = {pk, col_date}
+     *
+     *   Relationship:
+     *     materializeTupleDescriptor  =  "working" tuple that holds eager + lazy columns,
+     *                                    used to build the RPC fetch request and place the
+     *                                    fetched values back into the block.
+     *     outputTupleDesc             =  "public" tuple visible to the parent; produced by
+     *                                    projecting materializeTupleDescriptor through projectList.
+     *
+     *   locations (= PhysicalLazyMaterialize.lazySlotLocations):
+     *     For each relation, the index of each lazy slot inside materializeTupleDescriptor.
+     *     In the example above: [[1]]
+     *       → outer list index 0 = first (only) relation t
+     *       → inner value 1      = col_date is at index 1 in materializeTupleDescriptor.slots()
+     *     BE uses this to call  slots[location]->to_protobuf(...)  when building the fetch
+     *     request so the remote side knows the schema of what to return.
+     *
+    *   columnIdxsLists (= PhysicalLazyMaterialize.lazyBaseColumnIndices):
+     *     For each relation, the physical column index in the table for each lazy column.
+     *     In the example above: [[3]]   (col_date is the 3rd column in t, 0-indexed)
+     *     BE sends this index to the storage layer so it can locate the column on disk
+     *     without needing the full schema.
+     *
+     *   If two columns b and c from table t were both lazy, and the column indices in the
+     *   table are 2 and 5 respectively, and they occupy slots at index 1 and 2 in the tuple:
+     *     locations = [[1, 2]],  columnIdxsLists = [[2, 5]]
+     */
     private TPaloNodesInfo nodesInfo;
     private TupleDescriptor materializeTupleDescriptor;
 
@@ -78,7 +123,7 @@ public class MaterializationNode extends PlanNode {
     private List<List<Column>> lazyColumns;
 
     private List<List<Integer>> locations;
-    private List<List<Integer>> idxs;
+    private List<List<Integer>> columnIdxsLists;
 
     private List<Boolean> rowStoreFlags;
 
@@ -123,7 +168,7 @@ public class MaterializationNode extends PlanNode {
         }
         output.append(detailPrefix).append("column_descs_lists").append(lazyColumns).append("\n");
         output.append(detailPrefix).append("locations: ").append(locations).append("\n");
-        output.append(detailPrefix).append("table_idxs: ").append(idxs).append("\n");
+        output.append(detailPrefix).append("column_idxs_lists: ").append(columnIdxsLists).append("\n");
         output.append(detailPrefix).append("row_ids: ").append(rowIds).append("\n");
         output.append(detailPrefix).append("isTopMaterializeNode: ").append(isTopMaterializeNode).append("\n");
         printNestedColumns(output, detailPrefix, outputTupleDesc);
@@ -138,7 +183,7 @@ public class MaterializationNode extends PlanNode {
         msg.materialization_node.setTupleId(tupleIds.get(0).asInt());
         msg.materialization_node.setIntermediateTupleId(materializeTupleDescriptor.getId().asInt());
         msg.materialization_node.setNodesInfo(nodesInfo);
-        msg.materialization_node.setFetchExprLists(Expr.treesToThrift(rowIds));
+        msg.materialization_node.setFetchExprLists(ExprToThriftVisitor.treesToThrift(rowIds));
 
         List<List<TColumn>> thriftCols = new ArrayList<>();
         for (List<Column> cols : lazyColumns) {
@@ -151,7 +196,7 @@ public class MaterializationNode extends PlanNode {
         msg.materialization_node.setColumnDescsLists(thriftCols);
 
         msg.materialization_node.setSlotLocsLists(locations);
-        msg.materialization_node.setColumnIdxsLists(idxs);
+        msg.materialization_node.setColumnIdxsLists(columnIdxsLists);
         msg.materialization_node.setFetchRowStores(rowStoreFlags);
         msg.materialization_node.setGcIdMap(isTopMaterializeNode);
     }
@@ -168,8 +213,8 @@ public class MaterializationNode extends PlanNode {
         this.locations = locations;
     }
 
-    public void setIdxs(List<List<Integer>> idxs) {
-        this.idxs = idxs;
+    public void setColumnIdxsLists(List<List<Integer>> columnIdxsLists) {
+        this.columnIdxsLists = columnIdxsLists;
     }
 
     public void setRowStoreFlags(List<Boolean> rowStoreFlags) {

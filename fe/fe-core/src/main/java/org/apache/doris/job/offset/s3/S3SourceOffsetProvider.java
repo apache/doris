@@ -17,6 +17,8 @@
 
 package org.apache.doris.job.offset.s3;
 
+import org.apache.doris.backup.Status;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.GlobListResult;
@@ -69,6 +71,11 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             filePath = storageProperties.validateAndNormalizeUri(uri);
             GlobListResult globListResult = fileSystem.globListWithLimit(filePath, rfiles, startFile,
                     jobProps.getS3BatchBytes(), jobProps.getS3BatchFiles());
+            if (globListResult == null || !globListResult.getStatus().ok()) {
+                String errMsg = globListResult != null
+                        ? globListResult.getStatus().getErrMsg() : "null result";
+                throw new RuntimeException("Failed to list S3 files: " + errMsg);
+            }
 
             if (!rfiles.isEmpty()) {
                 String bucket = globListResult.getBucket();
@@ -162,11 +169,19 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
             String filePath = storageProperties.validateAndNormalizeUri(uri);
             List<RemoteFile> objects = new ArrayList<>();
             GlobListResult globListResult = fileSystem.globListWithLimit(filePath, objects, startFile, 1, 1);
-            if (globListResult != null && !objects.isEmpty() && StringUtils.isNotEmpty(globListResult.getMaxFile())) {
+            // debug point: simulate globListWithLimit returning a failed status (e.g. S3 auth error)
+            if (DebugPointUtil.isEnable("S3SourceOffsetProvider.fetchRemoteMeta.error")) {
+                globListResult = new GlobListResult(new Status(Status.ErrCode.COMMON_ERROR,
+                        "debug point: simulated S3 auth error"));
+            }
+            if (globListResult == null || !globListResult.getStatus().ok()) {
+                String errMsg = globListResult != null
+                        ? globListResult.getStatus().getErrMsg() : "null result";
+                throw new Exception("Failed to list S3 files: " + errMsg);
+            }
+            if (!objects.isEmpty() && StringUtils.isNotEmpty(globListResult.getMaxFile())) {
                 maxEndFile = globListResult.getMaxFile();
             }
-        } catch (Exception e) {
-            throw e;
         }
     }
 

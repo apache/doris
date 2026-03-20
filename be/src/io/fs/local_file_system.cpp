@@ -39,8 +39,8 @@
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_reader.h"
 #include "io/fs/local_file_writer.h"
-#include "olap/data_dir.h"
 #include "runtime/thread_context.h"
+#include "storage/data_dir.h"
 #include "util/async_io.h" // IWYU pragma: keep
 #include "util/debug_points.h"
 #include "util/defer_op.h"
@@ -411,6 +411,20 @@ bool LocalFileSystem::contain_path(const Path& parent_, const Path& sub_) {
         }
     }
     return true;
+}
+
+bool LocalFileSystem::equal_or_sub_path(const Path& parent, const Path& child) {
+    auto parent_path = parent.lexically_normal();
+    auto child_path = child.lexically_normal();
+    auto parent_it = parent_path.begin();
+    auto child_it = child_path.begin();
+    for (; parent_it != parent_path.end() && child_it != child_path.end();
+         ++parent_it, ++child_it) {
+        if (*parent_it != *child_it) {
+            return false;
+        }
+    }
+    return parent_it == parent_path.end();
 }
 
 const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_text_garbled_file", "p0,external,hive,external_docker,external_docker_hive") {
+suite("test_text_garbled_file", "p0,external") {
     //test hive garbled files  , prevent be hanged
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")

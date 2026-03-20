@@ -22,6 +22,7 @@ import org.apache.doris.alter.AlterJobV2.JobState;
 import org.apache.doris.alter.BatchAlterJobPersistInfo;
 import org.apache.doris.alter.IndexChangeJob;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.backup.BackupJob;
 import org.apache.doris.backup.Repository;
 import org.apache.doris.backup.RestoreJob;
@@ -39,6 +40,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSearchDesc;
 import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.cloud.CloudWarmUpJob;
 import org.apache.doris.cloud.catalog.CloudEnv;
 import org.apache.doris.cloud.persist.CloudMetaSyncPoint;
@@ -66,6 +68,7 @@ import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.ha.MasterInfo;
 import org.apache.doris.indexpolicy.DropIndexPolicyLog;
 import org.apache.doris.indexpolicy.IndexPolicy;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.insertoverwrite.InsertOverwriteLog;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.journal.Journal;
@@ -1083,6 +1086,22 @@ public class EditLog {
                     env.getSqlBlockRuleMgr().replayDrop(log.getRuleNames());
                     break;
                 }
+                case OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION: {
+                    AuthenticationIntegrationMeta log = (AuthenticationIntegrationMeta) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayCreateAuthenticationIntegration(log);
+                    break;
+                }
+                case OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION: {
+                    AuthenticationIntegrationMeta log = (AuthenticationIntegrationMeta) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayAlterAuthenticationIntegration(log);
+                    break;
+                }
+                case OperationType.OP_DROP_AUTHENTICATION_INTEGRATION: {
+                    DropAuthenticationIntegrationOperationLog log =
+                            (DropAuthenticationIntegrationOperationLog) journal.getData();
+                    env.getAuthenticationIntegrationMgr().replayDropAuthenticationIntegration(log);
+                    break;
+                }
                 case OperationType.OP_MODIFY_TABLE_ENGINE: {
                     ModifyTableEngineOperationLog log = (ModifyTableEngineOperationLog) journal.getData();
                     env.getAlterInstance().replayProcessModifyEngine(log);
@@ -1170,18 +1189,36 @@ public class EditLog {
                 case OperationType.OP_ADD_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
                     try {
-                        log.getTableIf().replayAddConstraint(log.getConstraint());
+                        TableNameInfo tni = log.getTableNameInfo();
+                        Constraint constraint = log.getConstraint();
+                        if (tni == null) {
+                            LOG.warn("Failed to replay add constraint {}: "
+                                    + "table name could not be resolved",
+                                    constraint.getName());
+                            break;
+                        }
+                        env.getConstraintManager().addConstraint(
+                                tni, constraint.getName(), constraint, true);
                     } catch (Exception e) {
-                        LOG.error("Failed to replay add constraint", e);
+                        LOG.warn("Failed to replay add constraint", e);
                     }
                     break;
                 }
                 case OperationType.OP_DROP_CONSTRAINT: {
                     final AlterConstraintLog log = (AlterConstraintLog) journal.getData();
                     try {
-                        log.getTableIf().replayDropConstraint(log.getConstraint().getName());
+                        TableNameInfo tni = log.getTableNameInfo();
+                        Constraint constraint = log.getConstraint();
+                        if (tni == null) {
+                            LOG.warn("Failed to replay drop constraint {}: "
+                                    + "table name could not be resolved",
+                                    constraint.getName());
+                            break;
+                        }
+                        env.getConstraintManager().dropConstraint(
+                                tni, constraint.getName(), true);
                     } catch (Exception e) {
-                        LOG.error("Failed to replay drop constraint", e);
+                        LOG.warn("Failed to replay drop constraint", e);
                     }
                     break;
                 }
@@ -2316,6 +2353,18 @@ public class EditLog {
 
     public void logDropSqlBlockRule(List<String> ruleNames) {
         logEdit(OperationType.OP_DROP_SQL_BLOCK_RULE, new DropSqlBlockRuleOperationLog(ruleNames));
+    }
+
+    public void logCreateAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
+        logEdit(OperationType.OP_CREATE_AUTHENTICATION_INTEGRATION, meta);
+    }
+
+    public void logAlterAuthenticationIntegration(AuthenticationIntegrationMeta meta) {
+        logEdit(OperationType.OP_ALTER_AUTHENTICATION_INTEGRATION, meta);
+    }
+
+    public void logDropAuthenticationIntegration(DropAuthenticationIntegrationOperationLog log) {
+        logEdit(OperationType.OP_DROP_AUTHENTICATION_INTEGRATION, log);
     }
 
     public void logModifyTableEngine(ModifyTableEngineOperationLog log) {

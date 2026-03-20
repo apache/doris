@@ -51,10 +51,12 @@
 #include "cloud/cloud_schema_change_job.h"
 #include "cloud/cloud_snapshot_loader.h"
 #include "cloud/cloud_snapshot_mgr.h"
+#include "cloud/cloud_tablet.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/config.h"
 #include "common/config.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
@@ -63,26 +65,6 @@
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
-#include "olap/cumulative_compaction_time_series_policy.h"
-#include "olap/data_dir.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/snapshot_manager.h"
-#include "olap/storage_engine.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema.h"
-#include "olap/task/engine_batch_load_task.h"
-#include "olap/task/engine_checksum_task.h"
-#include "olap/task/engine_clone_task.h"
-#include "olap/task/engine_cloud_index_change_task.h"
-#include "olap/task/engine_index_change_task.h"
-#include "olap/task/engine_publish_version_task.h"
-#include "olap/task/engine_storage_migration_task.h"
-#include "olap/txn_manager.h"
-#include "olap/utils.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/index_policy/index_policy_mgr.h"
@@ -90,9 +72,28 @@
 #include "runtime/snapshot_loader.h"
 #include "runtime/user_function_cache.h"
 #include "service/backend_options.h"
+#include "storage/compaction/cumulative_compaction_time_series_policy.h"
+#include "storage/data_dir.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/snapshot/snapshot_manager.h"
+#include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/task/engine_batch_load_task.h"
+#include "storage/task/engine_checksum_task.h"
+#include "storage/task/engine_clone_task.h"
+#include "storage/task/engine_cloud_index_change_task.h"
+#include "storage/task/engine_index_change_task.h"
+#include "storage/task/engine_publish_version_task.h"
+#include "storage/task/engine_storage_migration_task.h"
+#include "storage/txn/txn_manager.h"
+#include "storage/utils.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
 #include "util/jni-util.h"
 #include "util/mem_info.h"
 #include "util/random.h"
@@ -962,6 +963,11 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
             }
             tablet->tablet_meta()->set_time_series_compaction_level_threshold(
                     tablet_meta_info.time_series_compaction_level_threshold);
+            need_to_save = true;
+        }
+        if (tablet_meta_info.__isset.vertical_compaction_num_columns_per_group) {
+            tablet->tablet_meta()->set_vertical_compaction_num_columns_per_group(
+                    tablet_meta_info.vertical_compaction_num_columns_per_group);
             need_to_save = true;
         }
         if (tablet_meta_info.__isset.replica_id) {
@@ -2386,6 +2392,57 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);
+}
+
+void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
+                                              const TAgentTaskRequest& req) {
+    if (!config::enable_cloud_make_rs_visible_on_be) {
+        return;
+    }
+    LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
+              << req.make_cloud_tmp_rs_visible_req.txn_id
+              << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();
+
+    const auto& make_visible_req = req.make_cloud_tmp_rs_visible_req;
+    auto& tablet_mgr = engine.tablet_mgr();
+
+    int64_t txn_id = make_visible_req.txn_id;
+    int64_t version_update_time_ms = make_visible_req.__isset.version_update_time_ms
+                                             ? make_visible_req.version_update_time_ms
+                                             : 0;
+
+    // Process each tablet involved in this transaction on this BE
+    for (int64_t tablet_id : make_visible_req.tablet_ids) {
+        auto tablet_result =
+                tablet_mgr.get_tablet(tablet_id, /* warmup_data */ false,
+                                      /* sync_delete_bitmap */ false,
+                                      /* sync_stats */ nullptr, /* force_use_only_cached */ true,
+                                      /* cache_on_miss */ false);
+        if (!tablet_result.has_value()) {
+            continue;
+        }
+        auto cloud_tablet = tablet_result.value();
+
+        int64_t partition_id = cloud_tablet->partition_id();
+        auto version_iter = make_visible_req.partition_version_map.find(partition_id);
+        if (version_iter == make_visible_req.partition_version_map.end()) {
+            continue;
+        }
+        int64_t visible_version = version_iter->second;
+        DBUG_EXECUTE_IF("make_cloud_committed_rs_visible_callback.block", {
+            auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+            auto target_table_id = dp->param<int64_t>("table_id", -1);
+            auto version = dp->param<int64_t>("version", -1);
+            if ((target_tablet_id == tablet_id || target_table_id == cloud_tablet->table_id()) &&
+                version == visible_version) {
+                DBUG_BLOCK
+            }
+        });
+        cloud_tablet->try_make_committed_rs_visible(txn_id, visible_version,
+                                                    version_update_time_ms);
+    }
+    LOG(INFO) << "make cloud tmp rs visible finished, txn_id=" << txn_id
+              << ", processed_tablets=" << make_visible_req.tablet_ids.size();
 }
 
 void clean_trash_callback(StorageEngine& engine, const TAgentTaskRequest& req) {

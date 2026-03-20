@@ -71,6 +71,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
@@ -106,10 +107,13 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
     // This is also important for local shuffle logic.
     // Now only OlapScanNode and FileQueryScanNode implement this.
     protected HashSet<Long> scanBackendIds = new HashSet<>();
+    // Immutable scan context used for evolving scan-related metadata.
+    protected final ScanContext scanContext;
 
-    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
+    public ScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
         super(id, desc.getId().asList(), planNodeName);
         this.desc = desc;
+        this.scanContext = Objects.requireNonNull(scanContext, "scanContext can not be null");
     }
 
     protected List<Column> getColumns() {
@@ -692,11 +696,21 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return selectedSplitNum;
     }
 
+    public ScanContext getScanContext() {
+        return scanContext;
+    }
+
     @Override
     public boolean isSerialOperator() {
-        return numScanBackends() <= 0 || getScanRangeNum()
-                < ConnectContext.get().getSessionVariable().getParallelExecInstanceNum() * numScanBackends()
-                || (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isForceToLocalShuffle());
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return numScanBackends() <= 0;
+        }
+        int parallelExecInstanceNum = context.getSessionVariable()
+                .getParallelExecInstanceNum(scanContext.getClusterName());
+        return numScanBackends() <= 0
+                || getScanRangeNum() < parallelExecInstanceNum * numScanBackends()
+                || context.getSessionVariable().isForceToLocalShuffle();
     }
 
     @Override
@@ -710,5 +724,9 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
 
     public long getCatalogId() {
         return Env.getCurrentInternalCatalog().getId();
+    }
+
+    protected boolean fileCacheAdmissionCheck() throws UserException {
+        return true;
     }
 }

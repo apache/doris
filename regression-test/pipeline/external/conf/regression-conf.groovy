@@ -57,7 +57,7 @@ trinoPluginsPath = "/tmp/trino_connector"
 
 // will test <group>/<suite>.groovy
 // empty group will test all group
-testGroups = ""
+testGroups = "external"
 // empty suite will test all suite
 testSuites = ""
 // empty directories will test all directories
@@ -75,6 +75,7 @@ excludeSuites = "000_the_start_sentinel_do_not_touch," + // keep this line as th
     "test_profile," +
     "test_refresh_mtmv," +
     "test_spark_load," +
+    "test_paimon_gcs," +
     "test_broker_load_func," +
     "test_stream_stub_fault_injection," +
     "test_iceberg_overwrite_with_wrong_partition," +
@@ -96,6 +97,15 @@ hdfsFs = "hdfs://127.0.0.1:9000"
 hdfsUser = "doris-test"
 hdfsPasswd = ""
 brokerName = "broker_name"
+
+// for JuiceFS(hadoop-compatible) regression cases
+// first step: enable case execution in external pipeline
+enableJfsTest=true
+jfsFs = "jfs://cluster"
+jfsImpl = "io.juicefs.JuiceFileSystem"
+jfsMeta = "mysql://root:123456@(127.0.0.1:3316)/juicefs_meta"
+jfsHiveMetastoreUris = "thrift://127.0.0.1:9383"
+jfsHadoopUser = "root"
 
 // broker load test config
 enableBrokerLoad=true

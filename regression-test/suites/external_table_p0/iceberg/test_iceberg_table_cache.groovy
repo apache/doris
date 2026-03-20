@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_docker_doris") {
+suite("test_iceberg_table_cache", "p0,external") {
 
     String enabled = context.config.otherConfigs.get("enableIcebergTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
@@ -71,9 +71,11 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
 
         // Test 1.1: INSERT
         logger.info("--- Test 1.1: External INSERT ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_insert"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_insert (id INT, name STRING) USING iceberg"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_insert VALUES (1, 'initial')"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_insert;
+            CREATE TABLE demo.${testDb}.test_insert (id INT, name STRING) USING iceberg;
+            INSERT INTO demo.${testDb}.test_insert VALUES (1, 'initial');
+        """
 
         // Query from Doris to cache the data
         sql """switch ${catalogWithCache}"""
@@ -110,9 +112,12 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
 
         // Test 1.2: DELETE
         logger.info("--- Test 1.2: External DELETE ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_delete"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_delete (id INT, name STRING) USING iceberg TBLPROPERTIES ('format-version'='2')"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_delete VALUES (1, 'row1'), (2, 'row2'), (3, 'row3')"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_delete;
+            CREATE TABLE demo.${testDb}.test_delete (id INT, name STRING) USING iceberg
+                TBLPROPERTIES ('format-version'='2');
+            INSERT INTO demo.${testDb}.test_delete VALUES (1, 'row1'), (2, 'row2'), (3, 'row3');
+        """
 
         // Cache the data
         sql """switch ${catalogWithCache}"""
@@ -144,9 +149,12 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
 
         // Test 1.3: UPDATE
         logger.info("--- Test 1.3: External UPDATE ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_update"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_update (id INT, value INT) USING iceberg TBLPROPERTIES ('format-version'='2')"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_update VALUES (1, 100), (2, 200)"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_update;
+            CREATE TABLE demo.${testDb}.test_update (id INT, value INT) USING iceberg
+                TBLPROPERTIES ('format-version'='2');
+            INSERT INTO demo.${testDb}.test_update VALUES (1, 100), (2, 200);
+        """
 
         // Cache the data
         sql """switch ${catalogWithCache}"""
@@ -175,9 +183,11 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
 
         // Test 1.4: INSERT OVERWRITE
         logger.info("--- Test 1.4: External INSERT OVERWRITE ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_overwrite"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_overwrite (id INT, name STRING) USING iceberg"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_overwrite VALUES (1, 'old1'), (2, 'old2')"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_overwrite;
+            CREATE TABLE demo.${testDb}.test_overwrite (id INT, name STRING) USING iceberg;
+            INSERT INTO demo.${testDb}.test_overwrite VALUES (1, 'old1'), (2, 'old2');
+        """
 
         // Cache the data
         sql """switch ${catalogWithCache}"""
@@ -206,11 +216,15 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
         // ==================== Test 2: Schema Change Operations ====================
         logger.info("========== Test 2: Schema Change Operations ==========")
 
+        // Keep representative schema changes and one column-count-change case
+        // to reduce Spark execution cost while preserving key coverage.
         // Test 2.1: ADD COLUMN
         logger.info("--- Test 2.1: External ADD COLUMN ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_add_column"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_add_column (id INT, name STRING) USING iceberg"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_add_column VALUES (1, 'test')"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_add_column;
+            CREATE TABLE demo.${testDb}.test_add_column (id INT, name STRING) USING iceberg;
+            INSERT INTO demo.${testDb}.test_add_column VALUES (1, 'test');
+        """
 
         // Cache the schema
         sql """switch ${catalogWithCache}"""
@@ -241,41 +255,13 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
         def add_col_desc3 = sql """desc ${testDb}.test_add_column"""
         assertEquals(3, add_col_desc3.size())
 
-        // Test 2.2: DROP COLUMN
-        logger.info("--- Test 2.2: External DROP COLUMN ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_drop_column"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_drop_column (id INT, name STRING, to_drop INT) USING iceberg"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_drop_column VALUES (1, 'test', 100)"
-
-        // Cache the schema
-        sql """switch ${catalogWithCache}"""
-        def drop_col_desc1 = sql """desc ${testDb}.test_drop_column"""
-        assertEquals(3, drop_col_desc1.size())
-
-        // External DROP COLUMN via Spark
-        spark_iceberg "ALTER TABLE demo.${testDb}.test_drop_column DROP COLUMN to_drop"
-
-        // Verify cache behavior
-        sql """switch ${catalogWithCache}"""
-        def drop_col_desc2 = sql """desc ${testDb}.test_drop_column"""
-        logger.info("After external DROP COLUMN (with cache, no refresh): ${drop_col_desc2}")
-        assertEquals(3, drop_col_desc2.size())  // Should still see 3 columns
-
-        sql """switch ${catalogNoCache}"""
-        def drop_col_desc2_nc = sql """desc ${testDb}.test_drop_column"""
-        logger.info("After external DROP COLUMN (no cache): ${drop_col_desc2_nc}")
-        assertEquals(2, drop_col_desc2_nc.size())  // Should see 2 columns
-
-        sql """switch ${catalogWithCache}"""
-        sql """refresh table ${testDb}.test_drop_column"""
-        def drop_col_desc3 = sql """desc ${testDb}.test_drop_column"""
-        assertEquals(2, drop_col_desc3.size())
-
-        // Test 2.3: RENAME COLUMN
-        logger.info("--- Test 2.3: External RENAME COLUMN ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_rename_column"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_rename_column (id INT, old_name STRING) USING iceberg"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_rename_column VALUES (1, 'test')"
+        // Test 2.2: RENAME COLUMN
+        logger.info("--- Test 2.2: External RENAME COLUMN ---")
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_rename_column;
+            CREATE TABLE demo.${testDb}.test_rename_column (id INT, old_name STRING) USING iceberg;
+            INSERT INTO demo.${testDb}.test_rename_column VALUES (1, 'test');
+        """
 
         // Cache the schema
         sql """switch ${catalogWithCache}"""
@@ -302,11 +288,13 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
         def rename_col_desc3 = sql """desc ${testDb}.test_rename_column"""
         assertTrue(rename_col_desc3.toString().contains("new_name"))
 
-        // Test 2.4: ALTER COLUMN TYPE
-        logger.info("--- Test 2.4: External ALTER COLUMN TYPE ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_alter_type"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_alter_type (id INT, value INT) USING iceberg"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_alter_type VALUES (1, 100)"
+        // Test 2.3: ALTER COLUMN TYPE
+        logger.info("--- Test 2.3: External ALTER COLUMN TYPE ---")
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_alter_type;
+            CREATE TABLE demo.${testDb}.test_alter_type (id INT, value INT) USING iceberg;
+            INSERT INTO demo.${testDb}.test_alter_type VALUES (1, 100);
+        """
 
         // Cache the schema
         sql """switch ${catalogWithCache}"""
@@ -339,20 +327,22 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
 
         // Test 3.1: ADD PARTITION FIELD
         logger.info("--- Test 3.1: External ADD PARTITION FIELD ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_add_partition"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_add_partition (id INT, dt DATE, value INT) USING iceberg"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_add_partition VALUES (1, DATE'2024-01-15', 100)"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_add_partition;
+            CREATE TABLE demo.${testDb}.test_add_partition (id INT, dt DATE, value INT) USING iceberg;
+            INSERT INTO demo.${testDb}.test_add_partition VALUES (1, DATE'2024-01-15', 100);
+        """
 
         // Cache the partition spec by querying data (show partitions is not supported for Iceberg tables)
         sql """switch ${catalogWithCache}"""
         def add_part_result_initial = sql """select count(*) from ${testDb}.test_add_partition"""
         logger.info("Initial data count (with cache): ${add_part_result_initial}")
 
-        // External ADD PARTITION FIELD via Spark
-        spark_iceberg "ALTER TABLE demo.${testDb}.test_add_partition ADD PARTITION FIELD month(dt)"
-
-        // Insert data after partition evolution
-        spark_iceberg "INSERT INTO demo.${testDb}.test_add_partition VALUES (2, DATE'2024-02-20', 200)"
+        // External ADD PARTITION FIELD via Spark and insert evolved data
+        spark_iceberg_multi """
+            ALTER TABLE demo.${testDb}.test_add_partition ADD PARTITION FIELD month(dt);
+            INSERT INTO demo.${testDb}.test_add_partition VALUES (2, DATE'2024-02-20', 200);
+        """
 
         // Verify cache behavior - check data count as partition spec is harder to verify directly
         sql """switch ${catalogWithCache}"""
@@ -372,20 +362,23 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
 
         // Test 3.2: DROP PARTITION FIELD
         logger.info("--- Test 3.2: External DROP PARTITION FIELD ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_drop_partition"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_drop_partition (id INT, category STRING, value INT) USING iceberg PARTITIONED BY (category)"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_drop_partition VALUES (1, 'A', 100), (2, 'B', 200)"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_drop_partition;
+            CREATE TABLE demo.${testDb}.test_drop_partition (id INT, category STRING, value INT)
+                USING iceberg PARTITIONED BY (category);
+            INSERT INTO demo.${testDb}.test_drop_partition VALUES (1, 'A', 100), (2, 'B', 200);
+        """
 
         // Cache the partition spec
         sql """switch ${catalogWithCache}"""
         def drop_part_result1 = sql """select * from ${testDb}.test_drop_partition order by id"""
         assertEquals(2, drop_part_result1.size())
 
-        // External DROP PARTITION FIELD via Spark
-        spark_iceberg "ALTER TABLE demo.${testDb}.test_drop_partition DROP PARTITION FIELD category"
-
-        // Insert data after partition evolution
-        spark_iceberg "INSERT INTO demo.${testDb}.test_drop_partition VALUES (3, 'C', 300)"
+        // External DROP PARTITION FIELD via Spark and insert evolved data
+        spark_iceberg_multi """
+            ALTER TABLE demo.${testDb}.test_drop_partition DROP PARTITION FIELD category;
+            INSERT INTO demo.${testDb}.test_drop_partition VALUES (3, 'C', 300);
+        """
 
         // Verify cache behavior
         sql """switch ${catalogWithCache}"""
@@ -405,20 +398,26 @@ suite("test_iceberg_table_cache", "p0,external,doris,external_docker,external_do
 
         // Test 3.3: REPLACE PARTITION FIELD
         logger.info("--- Test 3.3: External REPLACE PARTITION FIELD ---")
-        spark_iceberg "DROP TABLE IF EXISTS demo.${testDb}.test_replace_partition"
-        spark_iceberg "CREATE TABLE demo.${testDb}.test_replace_partition (id INT, ts TIMESTAMP, value INT) USING iceberg PARTITIONED BY (days(ts))"
-        spark_iceberg "INSERT INTO demo.${testDb}.test_replace_partition VALUES (1, TIMESTAMP'2024-01-15 10:00:00', 100)"
+        spark_iceberg_multi """
+            DROP TABLE IF EXISTS demo.${testDb}.test_replace_partition;
+            CREATE TABLE demo.${testDb}.test_replace_partition (id INT, ts TIMESTAMP, value INT)
+                USING iceberg PARTITIONED BY (days(ts));
+            INSERT INTO demo.${testDb}.test_replace_partition VALUES
+                (1, TIMESTAMP'2024-01-15 10:00:00', 100);
+        """
 
         // Cache the partition spec
         sql """switch ${catalogWithCache}"""
         def replace_part_result1 = sql """select * from ${testDb}.test_replace_partition order by id"""
         assertEquals(1, replace_part_result1.size())
 
-        // External REPLACE PARTITION FIELD via Spark (days -> months)
-        spark_iceberg "ALTER TABLE demo.${testDb}.test_replace_partition REPLACE PARTITION FIELD days(ts) WITH months(ts)"
-
-        // Insert data after partition evolution
-        spark_iceberg "INSERT INTO demo.${testDb}.test_replace_partition VALUES (2, TIMESTAMP'2024-02-20 15:00:00', 200)"
+        // External REPLACE PARTITION FIELD via Spark (days -> months) and insert evolved data
+        spark_iceberg_multi """
+            ALTER TABLE demo.${testDb}.test_replace_partition
+                REPLACE PARTITION FIELD days(ts) WITH months(ts);
+            INSERT INTO demo.${testDb}.test_replace_partition VALUES
+                (2, TIMESTAMP'2024-02-20 15:00:00', 200);
+        """
 
         // Verify cache behavior
         sql """switch ${catalogWithCache}"""

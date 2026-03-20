@@ -75,6 +75,8 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
 
         BACKEND_TABLE.add("backend_tablets");
         BACKEND_TABLE.add("backend_configuration");
+
+        BACKEND_TABLE.add("column_data_sizes");
     }
 
     public static boolean isBackendPartitionedSchemaTable(String tableName) {
@@ -96,8 +98,9 @@ public class BackendPartitionedSchemaScanNode extends SchemaScanNode {
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
 
     public BackendPartitionedSchemaScanNode(PlanNodeId id, TableIf table, TupleDescriptor desc,
-            String schemaCatalog, String schemaDatabase, String schemaTable, List<Expr> frontendConjuncts) {
-        super(id, desc, schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts);
+            String schemaCatalog, String schemaDatabase, String schemaTable, List<Expr> frontendConjuncts,
+            ScanContext scanContext) {
+        super(id, desc, schemaCatalog, schemaDatabase, schemaTable, frontendConjuncts, scanContext);
         this.tableIf = table;
     }
 

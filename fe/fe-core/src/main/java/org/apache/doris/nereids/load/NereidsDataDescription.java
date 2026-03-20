@@ -26,10 +26,9 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
-import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -40,7 +39,6 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.JsonFileFormatProperties;
-import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -105,7 +103,7 @@ public class NereidsDataDescription {
             "md5sum",
             "replace_value",
             "now",
-            FunctionSet.HLL_HASH,
+            "hll_hash",
             "substitute");
 
     private static final String DEFAULT_READ_JSON_BY_LINE = "true";
@@ -498,7 +496,7 @@ public class NereidsDataDescription {
             validateMd5sum(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("replace_value")) {
             validateReplaceValue(args, mappingColumn);
-        } else if (functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)) {
+        } else if (functionName.equalsIgnoreCase("hll_hash")) {
             validateHllHash(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("now")) {
             validateNowFunction(mappingColumn);
@@ -1101,7 +1099,7 @@ public class NereidsDataDescription {
             sb.append(" NEGATIVE");
         }
         sb.append(" INTO TABLE ");
-        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
+        sb.append(isMysqlLoad ? dbName + "." + tableName : tableName);
         if (partitionNamesInfo != null) {
             sb.append(" ");
             sb.append(partitionNamesInfo.toSql());

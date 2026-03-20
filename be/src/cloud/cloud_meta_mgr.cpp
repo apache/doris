@@ -22,7 +22,12 @@
 #include <bthread/bthread.h>
 #include <bthread/condition_variable.h>
 #include <bthread/mutex.h>
+#include <gen_cpp/FrontendService.h>
+#include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/PlanNodes_types.h>
+#include <gen_cpp/Types_types.h>
+#include <gen_cpp/cloud.pb.h>
+#include <gen_cpp/olap_file.pb.h>
 #include <glog/logging.h>
 
 #include <algorithm>
@@ -48,21 +53,16 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "gen_cpp/FrontendService.h"
-#include "gen_cpp/HeartbeatService_types.h"
-#include "gen_cpp/Types_types.h"
-#include "gen_cpp/cloud.pb.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "io/fs/obj_storage_client.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_fwd.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_meta.h"
-#include "runtime/client_cache.h"
+#include "load/stream_load/stream_load_context.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/stream_load_context.h"
+#include "storage/olap_common.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_fwd.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_meta.h"
+#include "util/client_cache.h"
 #include "util/network_util.h"
 #include "util/s3_util.h"
 #include "util/thrift_rpc_helper.h"
@@ -565,6 +565,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     using namespace std::chrono;
 
     TEST_SYNC_POINT_RETURN_WITH_VALUE("CloudMetaMgr::sync_tablet_rowsets", Status::OK(), tablet);
+    DBUG_EXECUTE_IF("CloudMetaMgr::sync_tablet_rowsets.before.inject_error", {
+        auto target_tablet_id = dp->param<int64_t>("tablet_id", -1);
+        auto target_table_id = dp->param<int64_t>("table_id", -1);
+        if (target_tablet_id == tablet->tablet_id() || target_table_id == tablet->table_id()) {
+            return Status::InternalError(
+                    "[sync_tablet_rowsets_unlocked] injected error for testing");
+        }
+    });
 
     MetaServiceProxy* proxy;
     RETURN_IF_ERROR(MetaServiceProxy::get_proxy(&proxy));
@@ -590,7 +598,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         idx->set_index_id(index_id);
         idx->set_partition_id(tablet->partition_id());
         {
+            auto lock_start = std::chrono::steady_clock::now();
             std::shared_lock rlock(tablet->get_header_lock());
+            if (sync_stats) {
+                sync_stats->meta_lock_wait_ns +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - lock_start)
+                                .count();
+            }
             if (options.full_sync) {
                 req.set_start_version(0);
             } else {
@@ -693,7 +708,14 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
         });
         {
             const auto& stats = resp.stats();
+            auto lock_start = std::chrono::steady_clock::now();
             std::unique_lock wlock(tablet->get_header_lock());
+            if (sync_stats) {
+                sync_stats->meta_lock_wait_ns +=
+                        std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                std::chrono::steady_clock::now() - lock_start)
+                                .count();
+            }
 
             // ATTN: we are facing following data race
             //
@@ -786,7 +808,7 @@ Status CloudMetaMgr::sync_tablet_rowsets_unlocked(CloudTablet* tablet,
     }
 }
 
-bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet, int64_t old_max_version,
+bool CloudMetaMgr::sync_tablet_delete_bitmap_by_cache(CloudTablet* tablet,
                                                       std::ranges::range auto&& rs_metas,
                                                       DeleteBitmap* delete_bitmap) {
     std::set<int64_t> txn_processed;
@@ -944,7 +966,7 @@ Status CloudMetaMgr::sync_tablet_delete_bitmap(CloudTablet* tablet, int64_t old_
     }
 
     if (!full_sync && config::enable_sync_tablet_delete_bitmap_by_cache &&
-        sync_tablet_delete_bitmap_by_cache(tablet, old_max_version, rs_metas, delete_bitmap)) {
+        sync_tablet_delete_bitmap_by_cache(tablet, rs_metas, delete_bitmap)) {
         if (sync_stats) {
             sync_stats->get_local_delete_bitmap_rowsets_num += rs_metas.size();
         }
@@ -1213,10 +1235,12 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
         }
         return Status::OK();
     };
-    auto get_delete_bitmap_from_file = [&](const std::string& rowset_id) {
+    auto get_delete_bitmap_from_file = [&](const std::string& rowset_id,
+                                           const DeleteBitmapStoragePB& storage) {
         if (config::enable_mow_verbose_log) {
             LOG(INFO) << "get delete bitmap for tablet_id=" << tablet->tablet_id()
-                      << ", rowset_id=" << rowset_id << " from file";
+                      << ", rowset_id=" << rowset_id << " from file"
+                      << ", is_packed=" << storage.has_packed_slice_location();
         }
         if (rowset_to_resource.find(rowset_id) == rowset_to_resource.end()) {
             return Status::InternalError("vault id not found for tablet_id={}, rowset_id={}",
@@ -1229,11 +1253,23 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
             return Status::InternalError("vault id not found, maybe not sync, vault id {}",
                                          resource_id);
         }
-        DeleteBitmapFileReader reader(tablet->tablet_id(), rowset_id, storage_resource);
-        RETURN_IF_ERROR(reader.init());
+
+        // Use packed file reader if packed_slice_location is present
+        std::unique_ptr<DeleteBitmapFileReader> reader;
+        if (storage.has_packed_slice_location() &&
+            !storage.packed_slice_location().packed_file_path().empty()) {
+            reader = std::make_unique<DeleteBitmapFileReader>(tablet->tablet_id(), rowset_id,
+                                                              storage_resource,
+                                                              storage.packed_slice_location());
+        } else {
+            reader = std::make_unique<DeleteBitmapFileReader>(tablet->tablet_id(), rowset_id,
+                                                              storage_resource);
+        }
+
+        RETURN_IF_ERROR(reader->init());
         DeleteBitmapPB dbm;
-        RETURN_IF_ERROR(reader.read(dbm));
-        RETURN_IF_ERROR(reader.close());
+        RETURN_IF_ERROR(reader->read(dbm));
+        RETURN_IF_ERROR(reader->close());
         return merge_delete_bitmap(rowset_id, dbm);
     };
     CloudStorageEngine& engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
@@ -1247,8 +1283,9 @@ Status CloudMetaMgr::_read_tablet_delete_bitmap_v2(CloudTablet* tablet, int64_t 
             DeleteBitmapPB dbm = delete_bitmap_storages[i].delete_bitmap();
             RETURN_IF_ERROR(merge_delete_bitmap(rowset_id, dbm));
         } else {
-            auto submit_st = token->submit_func([&]() {
-                auto status = get_delete_bitmap_from_file(rowset_id);
+            const auto& storage = delete_bitmap_storages[i];
+            auto submit_st = token->submit_func([&, rowset_id, storage]() {
+                auto status = get_delete_bitmap_from_file(rowset_id, storage);
                 if (!status.ok()) {
                     LOG(WARNING) << "failed to get delete bitmap for tablet_id="
                                  << tablet->tablet_id() << ", rowset_id=" << rowset_id
@@ -1335,7 +1372,7 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
         const double speed_mbps = 100.0; // 100MB/s
         const double safety_factor = 2.0;
         timeout_ms = std::min(
-                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.data_disk_size()) /
+                std::max(static_cast<int64_t>(static_cast<double>(rs_meta.total_disk_size()) /
                                               (speed_mbps * 1024 * 1024) * safety_factor * 1000),
                          config::warm_up_rowset_sync_wait_min_timeout_ms),
                 config::warm_up_rowset_sync_wait_max_timeout_ms);
@@ -1345,6 +1382,17 @@ Status CloudMetaMgr::commit_rowset(RowsetMeta& rs_meta, const std::string& job_i
     auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
     manager.warm_up_rowset(rs_meta, timeout_ms);
     return st;
+}
+
+void CloudMetaMgr::cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time) {
+    // For load-generated rowsets (job_id is empty), add to pending rowset manager
+    // so FE can notify BE to promote them later
+
+    // TODO(bobhan1): copy rs_meta?
+    int64_t txn_id = rs_meta->txn_id();
+    int64_t tablet_id = rs_meta->tablet_id();
+    ExecEnv::GetInstance()->storage_engine().to_cloud().committed_rs_mgr().add_committed_rowset(
+            txn_id, tablet_id, std::move(rs_meta), expiration_time);
 }
 
 Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
@@ -1371,15 +1419,18 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
 
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
 static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
-                                   const std::string& label, CommitTxnResponse& res) {
+                                   const std::string& label, CommitTxnResponse& res,
+                                   const std::vector<int64_t>& tablet_ids) {
     std::string protobufBytes;
-    res.SerializeToString(&protobufBytes);
+    if (txn_id != -1) {
+        res.SerializeToString(&protobufBytes);
+    }
     auto st = ExecEnv::GetInstance()->send_table_stats_thread_pool()->submit_func(
-            [db_id, txn_id, label, protobufBytes]() -> Status {
+            [db_id, txn_id, label, protobufBytes, tablet_ids]() -> Status {
                 TReportCommitTxnResultRequest request;
                 TStatus result;
 
-                if (protobufBytes.length() <= 0) {
+                if (txn_id != -1 && protobufBytes.length() <= 0) {
                     LOG(WARNING) << "protobufBytes: " << protobufBytes.length();
                     return Status::OK(); // nobody cares the return status
                 }
@@ -1388,6 +1439,7 @@ static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                 request.__set_txnId(txn_id);
                 request.__set_label(label);
                 request.__set_payload(protobufBytes);
+                request.__set_tabletIds(tablet_ids);
 
                 Status status;
                 int64_t duration_ns = 0;
@@ -1441,7 +1493,11 @@ Status CloudMetaMgr::commit_txn(const StreamLoadContext& ctx, bool is_2pc) {
     auto st = retry_rpc("commit txn", req, &res, &MetaService_Stub::commit_txn);
 
     if (st.ok()) {
-        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res);
+        std::vector<int64_t> tablet_ids;
+        for (auto& commit_info : ctx.commit_infos) {
+            tablet_ids.emplace_back(commit_info.tabletId);
+        }
+        send_stats_to_fe_async(ctx.db_id, ctx.txn_id, ctx.label, res, tablet_ids);
     }
 
     return st;
@@ -1600,6 +1656,13 @@ Status CloudMetaMgr::commit_tablet_job(const TabletJobInfoPB& job, FinishTabletJ
         return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
                 "txn conflict when commit tablet job {}", job.ShortDebugString());
     }
+
+    if (st.ok() && !job.compaction().empty() && job.has_idx()) {
+        CommitTxnResponse commit_txn_resp;
+        std::vector<int64_t> tablet_ids = {job.idx().tablet_id()};
+        send_stats_to_fe_async(-1, -1, "", commit_txn_resp, tablet_ids);
+    }
+
     return st;
 }
 
@@ -1638,7 +1701,7 @@ static void add_delete_bitmap(DeleteBitmapPB& delete_bitmap_pb, const DeleteBitm
 static Status store_delete_bitmap(std::string& rowset_id, DeleteBitmapPB& delete_bitmap_pb,
                                   int64_t tablet_id,
                                   std::optional<StorageResource> storage_resource,
-                                  UpdateDeleteBitmapRequest& req) {
+                                  UpdateDeleteBitmapRequest& req, int64_t txn_id) {
     if (config::enable_mow_verbose_log) {
         std::stringstream ss;
         for (int i = 0; i < delete_bitmap_pb.rowset_ids_size(); i++) {
@@ -1658,12 +1721,26 @@ static Status store_delete_bitmap(std::string& rowset_id, DeleteBitmapPB& delete
     DeleteBitmapStoragePB delete_bitmap_storage;
     if (config::delete_bitmap_store_v2_max_bytes_in_fdb >= 0 &&
         delete_bitmap_pb.ByteSizeLong() > config::delete_bitmap_store_v2_max_bytes_in_fdb) {
-        DeleteBitmapFileWriter file_writer(tablet_id, rowset_id, storage_resource);
+        // Enable packed file only for load (txn_id > 0)
+        bool enable_packed = config::enable_packed_file && txn_id > 0;
+        DeleteBitmapFileWriter file_writer(tablet_id, rowset_id, storage_resource, enable_packed,
+                                           txn_id);
         RETURN_IF_ERROR(file_writer.init());
         RETURN_IF_ERROR(file_writer.write(delete_bitmap_pb));
         RETURN_IF_ERROR(file_writer.close());
         delete_bitmap_pb.Clear();
         delete_bitmap_storage.set_store_in_fdb(false);
+
+        // Store packed slice location if file was written to packed file
+        if (file_writer.is_packed()) {
+            io::PackedSliceLocation loc;
+            RETURN_IF_ERROR(file_writer.get_packed_slice_location(&loc));
+            auto* packed_loc = delete_bitmap_storage.mutable_packed_slice_location();
+            packed_loc->set_packed_file_path(loc.packed_file_path);
+            packed_loc->set_offset(loc.offset);
+            packed_loc->set_size(loc.size);
+            packed_loc->set_packed_file_size(loc.packed_file_size);
+        }
     } else {
         delete_bitmap_storage.set_store_in_fdb(true);
         *(delete_bitmap_storage.mutable_delete_bitmap()) = std::move(delete_bitmap_pb);
@@ -1746,7 +1823,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                     if (!pre_rowset_id.empty() && delete_bitmap_pb.rowset_ids_size() > 0) {
                         RETURN_IF_ERROR(store_delete_bitmap(pre_rowset_id, delete_bitmap_pb,
                                                             tablet.tablet_id(), storage_resource,
-                                                            req));
+                                                            req, txn_id));
                     }
                     pre_rowset_id = cur_rowset_id;
                     DCHECK_EQ(delete_bitmap_pb.rowset_ids_size(), 0);
@@ -1759,7 +1836,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
             if (delete_bitmap_pb.rowset_ids_size() > 0) {
                 DCHECK(!cur_rowset_id.empty());
                 RETURN_IF_ERROR(store_delete_bitmap(cur_rowset_id, delete_bitmap_pb,
-                                                    tablet.tablet_id(), storage_resource, req));
+                                                    tablet.tablet_id(), storage_resource, req,
+                                                    txn_id));
             }
         } else {
             DeleteBitmapPB delete_bitmap_pb;
@@ -1767,7 +1845,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                 add_delete_bitmap(delete_bitmap_pb, key, bitmap);
             }
             RETURN_IF_ERROR(store_delete_bitmap(rowset_id, delete_bitmap_pb, tablet.tablet_id(),
-                                                storage_resource, req));
+                                                storage_resource, req, txn_id));
         }
         DCHECK_EQ(req.delta_rowset_ids_size(), req.delete_bitmap_storages_size());
     }

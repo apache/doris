@@ -19,16 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.qe.SessionVariable;
-import org.apache.doris.thrift.TDecimalLiteral;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -239,25 +233,14 @@ public class DecimalLiteral extends NumericLiteralExpr {
                 return this.compareLiteral(decimalLiteral);
             } catch (AnalysisException e) {
                 throw new ClassCastException("Those two values cannot be compared: " + value
-                        + " and " + expr.toSqlImpl());
+                        + " and " + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
     }
 
     @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        return value.toPlainString();
-    }
-
-    @Override
-    public String toSqlImpl() {
-        return getStringValue();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getStringValue();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitDecimalLiteral(this, context);
     }
 
     @Override
@@ -273,13 +256,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
     @Override
     public double getDoubleValue() {
         return value.doubleValue();
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        // TODO(hujie01) deal with loss information
-        msg.node_type = TExprNodeType.DECIMAL_LITERAL;
-        msg.decimal_literal = new TDecimalLiteral(value.toPlainString());
     }
 
     // To be compatible with OLAP, only need 9 digits.

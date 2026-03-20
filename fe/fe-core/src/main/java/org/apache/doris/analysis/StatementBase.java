@@ -20,39 +20,20 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.OriginStatement;
 
 import com.google.common.base.Preconditions;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public abstract class StatementBase implements ParseNode {
-    private static final Logger LOG = LogManager.getLogger(StatementBase.class);
-    private String clusterName;
-
     // Set this variable if this QueryStmt is the top level query from an EXPLAIN <query>
     protected ExplainOptions explainOptions = null;
-
-    /////////////////////////////////////////
-    // BEGIN: Members that need to be reset()
-
-    // END: Members that need to be reset()
-    /////////////////////////////////////////
-
     private OriginStatement origStmt;
-
     private UserIdentity userInfo;
-
     private boolean isPrepared = false;
-    // select * from tbl where a = ? and b = ?
-    // `?` is the placeholder
-    private ArrayList<PlaceHolderExpr> placeholders = new ArrayList<>();
 
     protected StatementBase() { }
 
@@ -75,24 +56,12 @@ public abstract class StatementBase implements ParseNode {
     public void analyze() throws UserException {
     }
 
-    public void checkPriv() throws AnalysisException {
-    }
-
     public void setIsExplain(ExplainOptions options) {
         this.explainOptions = options;
     }
 
-    public void setPlaceHolders(ArrayList<PlaceHolderExpr> placeholders) {
-        LOG.debug("setPlaceHolders {}", placeholders);
-        this.placeholders = new ArrayList<PlaceHolderExpr>(placeholders);
-    }
-
     public boolean isExplain() {
         return this.explainOptions != null;
-    }
-
-    public ArrayList<PlaceHolderExpr> getPlaceHolders() {
-        return this.placeholders;
     }
 
     public boolean isVerbose() {
@@ -101,10 +70,6 @@ public abstract class StatementBase implements ParseNode {
 
     public ExplainOptions getExplainOptions() {
         return explainOptions;
-    }
-
-    public void setIsPrepared() {
-        this.isPrepared = true;
     }
 
     public boolean isPrepared() {
@@ -124,8 +89,6 @@ public abstract class StatementBase implements ParseNode {
     public StmtType stmtType() {
         return StmtType.OTHER;
     }
-
-    public abstract RedirectStatus getRedirectStatus();
 
     /**
      * Returns the output column labels of this statement, if applicable, or an empty list
@@ -160,30 +123,6 @@ public abstract class StatementBase implements ParseNode {
 
     public void setUserInfo(UserIdentity userInfo) {
         this.userInfo = userInfo;
-    }
-
-    /**
-     * Resets the internal analysis state of this node.
-     * For easier maintenance, class members that need to be reset are grouped into
-     * a 'section' clearly indicated by comments as follows:
-     *
-     * class SomeStmt extends StatementBase {
-     *   ...
-     *   /////////////////////////////////////////
-     *   // BEGIN: Members that need to be reset()
-     *
-     *   <member declarations>
-     *
-     *   // END: Members that need to be reset()
-     *   /////////////////////////////////////////
-     *   ...
-     * }
-     *
-     * In general, members that are set or modified during analyze() must be reset().
-     * TODO: Introduce this same convention for Exprs, possibly by moving clone()/reset()
-     * into the ParseNode interface for clarity.
-     */
-    public void reset() {
     }
 
     // Override this method and return true

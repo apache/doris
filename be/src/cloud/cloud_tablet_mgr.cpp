@@ -28,9 +28,9 @@
 #include "cloud/config.h"
 #include "common/status.h"
 #include "cpp/sync_point.h"
-#include "olap/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "util/debug_points.h"
+#include "util/lru_cache.h"
 #include "util/stack_util.h"
 
 namespace doris {
@@ -359,6 +359,10 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
                       << ", max useless rowset version count=" << max_useless_rowset_version_count
                       << ", tablet_id=" << tablet_id_with_max_useless_rowset_version_count;
         }
+    }
+    {
+        _tablet_map->traverse(
+                [](auto&& tablet) { tablet->clear_unused_visible_pending_rowsets(); });
     }
 }
 

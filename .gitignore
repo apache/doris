@@ -16,6 +16,8 @@ core.*
 nohup.out
 /custom_env.sh
 /custom_env_mac.sh
+/.build_profile.jsonl
+/.build_profile_state.*
 derby.log
 dependency-reduced-pom.xml
 yarn.lock
@@ -90,6 +92,8 @@ fe/fe-core/src/main/antlr4/org/apache/doris/nereids/DorisLexer.tokens
 fe/fe-core/src/main/antlr4/org/apache/doris/nereids/gen/
 fe/fe-common/src/main/java/org/apache/doris/thrift
 fe/fe-common/src/main/java/org/apache/parquet
+fe/fe-thrift/src/main/java/org/apache/doris/thrift
+fe/fe-thrift/src/main/java/org/apache/parquet
 fe/fe-core/src/main/java/org/apache/parquet
 
 # BE

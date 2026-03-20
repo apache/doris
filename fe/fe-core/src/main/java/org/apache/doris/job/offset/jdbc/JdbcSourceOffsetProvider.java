@@ -17,6 +17,7 @@
 
 package org.apache.doris.job.offset.jdbc;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.job.cdc.DataSourceConfigKeys;
@@ -85,6 +86,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap;
     @SerializedName("bop")
     Map<String, String> binlogOffsetPersist;
+
+    @SerializedName("ts")
+    String tableSchemas;
 
     volatile boolean hasMoreData = true;
 
@@ -192,7 +196,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     @Override
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
         Backend backend = StreamingJobUtils.selectBackend();
-        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        JobBaseConfig requestParams =
+                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -273,7 +278,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
         CompareOffsetRequest requestParams =
-                new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties, offsetFirst, offsetSecond);
+                new CompareOffsetRequest(getJobId(), sourceType.name(), sourceProperties,
+                        getFrontendAddress(), offsetFirst, offsetSecond);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/compareOffset")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -352,6 +358,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     JdbcSourceOffsetProvider.class);
             this.binlogOffsetPersist = replayFromPersist.getBinlogOffsetPersist();
             this.chunkHighWatermarkMap = replayFromPersist.getChunkHighWatermarkMap();
+            this.tableSchemas = replayFromPersist.getTableSchemas();
             log.info("Replaying offset provider for job {}, binlogOffset size {}, chunkHighWatermark size {}",
                     getJobId(),
                     binlogOffsetPersist == null ? 0 : binlogOffsetPersist.size(),
@@ -486,7 +493,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     private List<SnapshotSplit> requestTableSplits(String table) throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
         FetchTableSplitsRequest requestParams =
-                new FetchTableSplitsRequest(getJobId(), sourceType.name(), sourceProperties, table);
+                new FetchTableSplitsRequest(getJobId(), sourceType.name(),
+                        sourceProperties, getFrontendAddress(), table);
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchSplits")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -537,7 +545,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      */
     private void initSourceReader() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
-        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        JobBaseConfig requestParams =
+                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/initReader")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -584,7 +593,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         // clean meta table
         StreamingJobUtils.deleteJobMeta(jobId);
         Backend backend = StreamingJobUtils.selectBackend();
-        JobBaseConfig requestParams = new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties);
+        JobBaseConfig requestParams =
+                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/close")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -601,5 +611,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         } catch (ExecutionException | InterruptedException ex) {
             log.warn("Close job error: ", ex);
         }
+    }
+
+    private String getFrontendAddress() {
+        return Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
     }
 }

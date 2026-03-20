@@ -42,8 +42,10 @@ public class JdbcPostgreSQLClient extends JdbcClient {
 
     private static final String[] supportedInnerType = new String[] {
             "int2", "int4", "int8", "smallserial", "serial",
-            "bigserial", "float4", "float8", "timestamp", "timestamptz",
-            "date", "bool", "bpchar", "varchar", "text"
+            "bigserial", "float4", "float8", "numeric",
+            "timestamp", "timestamptz", "date", "bool",
+            "bpchar", "varchar", "text",
+            "json", "jsonb", "uuid"
     };
 
     protected JdbcPostgreSQLClient(JdbcClientConfig jdbcClientConfig) {
@@ -69,8 +71,10 @@ public class JdbcPostgreSQLClient extends JdbcClient {
                     ResultSet arrayRs = null;
                     try {
                         pstmt = conn.prepareStatement(
-                                String.format("SELECT array_ndims(%s) FROM %s.%s LIMIT 1",
-                                        columnName, remoteDbName, remoteTableName));
+                                String.format("SELECT array_ndims(\"%s\") FROM \"%s\".\"%s\""
+                                                + " WHERE \"%s\" IS NOT NULL LIMIT 1",
+                                        columnName, remoteDbName, remoteTableName,
+                                        columnName));
                         arrayRs = pstmt.executeQuery();
                         if (arrayRs.next()) {
                             arrayDimensions = arrayRs.getInt(1);
@@ -170,8 +174,11 @@ public class JdbcPostgreSQLClient extends JdbcClient {
             case "cidr":
             case "inet":
             case "macaddr":
+            case "macaddr8":
             case "varbit":
             case "uuid":
+            case "xml":
+            case "hstore":
             case "json":
             case "jsonb":
                 return ScalarType.createStringType();

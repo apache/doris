@@ -46,14 +46,12 @@ namespace fs = std::filesystem;
 
 namespace doris {
 
-namespace vectorized {
 using ZoneList = std::unordered_map<std::string, cctz::time_zone>;
-}
 
 RE2 time_zone_offset_format_reg(R"(^[+-]{1}\d{2}\:\d{2}$)"); // visiting is thread-safe
 
 // for ut, make it never nullptr.
-std::unique_ptr<vectorized::ZoneList> lower_zone_cache_ = std::make_unique<vectorized::ZoneList>();
+std::unique_ptr<ZoneList> lower_zone_cache_ = std::make_unique<ZoneList>();
 
 const std::string TimezoneUtils::default_time_zone = "+08:00";
 static const char* tzdir = "/usr/share/zoneinfo"; // default value, may change by TZDIR env var
@@ -133,10 +131,12 @@ static std::string to_hour_string(int arg) {
 }
 
 void TimezoneUtils::load_offsets_to_cache() {
+    static constexpr int supported_minutes[] = {0, 30, 45};
     for (int hour = -12; hour <= +14; hour++) {
-        for (int minute = 0; minute <= 30; minute += 30) {
-            std::string offset_str = (hour >= 0 ? "+" : "") + to_hour_string(hour) + ':' +
-                                     (minute == 0 ? "00" : "30");
+        for (int minute : supported_minutes) {
+            char min_str[3];
+            snprintf(min_str, sizeof(min_str), "%02d", minute);
+            std::string offset_str = (hour >= 0 ? "+" : "") + to_hour_string(hour) + ':' + min_str;
             cctz::time_zone result;
             parse_tz_offset_string(offset_str, result);
             lower_zone_cache_->emplace(offset_str, result);
@@ -148,6 +148,9 @@ void TimezoneUtils::load_offsets_to_cache() {
     parse_tz_offset_string(offset_str, result);
     lower_zone_cache_->emplace(offset_str, result);
     offset_str = "-00:30";
+    parse_tz_offset_string(offset_str, result);
+    lower_zone_cache_->emplace(offset_str, result);
+    offset_str = "-00:45";
     parse_tz_offset_string(offset_str, result);
     lower_zone_cache_->emplace(offset_str, result);
 }
