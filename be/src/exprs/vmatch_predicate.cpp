@@ -86,6 +86,7 @@ VMatchPredicate::VMatchPredicate(const TExprNode& node) : VExpr(node) {
     _analyzer_ctx->parser_type = config.parser_type;
     _analyzer_ctx->char_filter_map = std::move(config.char_filter_map);
     _analyzer_ctx->analyzer = _analyzer;
+    _analyzer_ctx->is_lowercase = (config.lower_case == INVERTED_INDEX_PARSER_TRUE);
 }
 
 VMatchPredicate::~VMatchPredicate() = default;

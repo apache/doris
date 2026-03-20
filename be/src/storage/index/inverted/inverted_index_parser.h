@@ -120,6 +120,9 @@ struct InvertedIndexAnalyzerCtx {
     CharFilterMap char_filter_map;
     std::shared_ptr<lucene::analysis::Analyzer> analyzer;
 
+    // Whether lowercase normalization is enabled (from index lower_case property)
+    bool is_lowercase = false;
+
     // Returns true if tokenization should be performed.
     // Decision is based on parser_type (from index properties):
     // - PARSER_NONE: no tokenization (keyword/exact match)

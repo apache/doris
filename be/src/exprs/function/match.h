@@ -96,6 +96,10 @@ public:
 
     Status check(FunctionContext* context, const std::string& function_name) const;
 
+    // Returns true if fast token search path can be used instead of Lucene tokenization
+    static bool can_use_token_search(const InvertedIndexAnalyzerCtx* analyzer_ctx,
+                                     const ColumnArray::Offsets64* array_offsets);
+
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
             const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,

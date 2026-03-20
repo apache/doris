@@ -22,6 +22,7 @@
 #include "benchmark_block_bloom_filter.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"
+#include "benchmark_match.hpp"
 #include "benchmark_string.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "core/block/block.h"
