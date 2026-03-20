@@ -987,6 +987,23 @@ suite("fold_constant_string_arithmatic") {
     testFoldConst("SELECT split_by_string('a..b\$\$c||d((e))f[[g{{h^^i??j**k++l\\\\m','++')")
     testFoldConst("SELECT split_by_string('a..b\$\$c||d((e))f[[g{{h^^i??j**k++l\\\\m','\\\\')")
 
+    // split_by_string with limit
+    testFoldConst("select split_by_string('a,b,c,d', ',', 2)")
+    testFoldConst("select split_by_string('a,b,c,d', ',', 3)")
+    testFoldConst("select split_by_string('a,b,c,d', ',', -1)")
+    testFoldConst("select split_by_string('a,b,c,d', ',', 0)")
+    testFoldConst("select split_by_string('abcde', '', 3)")
+    testFoldConst("select split_by_string('a::b::c', '::', 2)")
+    testFoldConst("select split_by_string('one,two,three,', ',', 1)")
+    testFoldConst("select split_by_string('', ',', 2)")
+    // split_by_string with limit via string-to-int coercion
+    testFoldConst("select split_by_string('a,b,c,d', ',', '2')")
+    testFoldConst("select split_by_string('one,two,three,', ',', '-1')")
+    testFoldConst("select split_by_string('a,b,c', ',', '0')")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast('3' as int))")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as tinyint))")
+    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as bigint))")
+
     // split_part
     testFoldConst("select split_part('a,b,c', '', -2)")
     testFoldConst("select split_part('a,b,c', '', -1)")

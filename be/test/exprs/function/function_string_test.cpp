@@ -21,6 +21,10 @@
 #include <string>
 #include <vector>
 
+#include "core/column/column_array.h"
+#include "core/column/column_const.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/field.h"
@@ -3867,6 +3871,208 @@ TEST(function_string_test, function_unicode_normalize_invalid_mode) {
 
     Status st = check_function<DataTypeString, true>(func_name, input_types, data_set);
     EXPECT_NE(Status::OK(), st);
+}
+
+// Helper: run split_by_string with 3 args (str, delimiter, limit) on a single row
+// Returns the result column (Array<Nullable<String>>)
+static ColumnPtr run_split_by_string_3arg(const std::string& str, const std::string& delimiter,
+                                          Int32 limit_val) {
+    Block block;
+    auto str_type = std::make_shared<DataTypeString>();
+    auto int_type = std::make_shared<DataTypeInt32>();
+    auto ret_type = std::make_shared<DataTypeArray>(make_nullable(str_type));
+
+    // Build input columns with one row each
+    auto str_col = ColumnString::create();
+    str_col->insert_data(str.data(), str.size());
+    auto delim_col = ColumnString::create();
+    delim_col->insert_data(delimiter.data(), delimiter.size());
+    auto limit_col = ColumnInt32::create();
+    limit_col->insert_value(limit_val);
+    auto const_limit_col = ColumnConst::create(std::move(limit_col), 1);
+
+    block.insert({std::move(str_col), str_type, "str"});
+    block.insert({std::move(delim_col), str_type, "delim"});
+    block.insert({std::move(const_limit_col), int_type, "limit"});
+    block.insert({nullptr, ret_type, "result"});
+
+    ColumnsWithTypeAndName arguments = {block.get_by_position(0), block.get_by_position(1),
+                                        block.get_by_position(2)};
+    auto func =
+            SimpleFunctionFactory::instance().get_function("split_by_string", arguments, ret_type);
+    EXPECT_TRUE(func != nullptr);
+    auto st = func->execute(nullptr, block, {0, 1, 2}, 3, 1);
+    EXPECT_EQ(Status::OK(), st);
+
+    return block.get_by_position(3).column;
+}
+
+// Helper: run split_by_string with 2 args (str, delimiter) on a single row
+static ColumnPtr run_split_by_string_2arg(const std::string& str, const std::string& delimiter) {
+    Block block;
+    auto str_type = std::make_shared<DataTypeString>();
+    auto ret_type = std::make_shared<DataTypeArray>(make_nullable(str_type));
+
+    auto str_col = ColumnString::create();
+    str_col->insert_data(str.data(), str.size());
+    auto delim_col = ColumnString::create();
+    delim_col->insert_data(delimiter.data(), delimiter.size());
+
+    block.insert({std::move(str_col), str_type, "str"});
+    block.insert({std::move(delim_col), str_type, "delim"});
+    block.insert({nullptr, ret_type, "result"});
+
+    ColumnsWithTypeAndName arguments = {block.get_by_position(0), block.get_by_position(1)};
+    auto func =
+            SimpleFunctionFactory::instance().get_function("split_by_string", arguments, ret_type);
+    EXPECT_TRUE(func != nullptr);
+    auto st = func->execute(nullptr, block, {0, 1}, 2, 1);
+    EXPECT_EQ(Status::OK(), st);
+
+    return block.get_by_position(2).column;
+}
+
+// Helper: extract array elements as vector of strings from row 0 of an array column
+static std::vector<std::string> get_array_strings(const ColumnPtr& col) {
+    const auto* array_col = assert_cast<const ColumnArray*>(col.get());
+    const auto& offsets = array_col->get_offsets();
+    size_t start = 0;
+    size_t end = offsets[0];
+
+    std::vector<std::string> result;
+    const auto& nested = array_col->get_data();
+    // nested is ColumnNullable<ColumnString>
+    const auto* nullable_col = assert_cast<const ColumnNullable*>(&nested);
+    const auto* str_col = assert_cast<const ColumnString*>(&nullable_col->get_nested_column());
+
+    for (size_t i = start; i < end; i++) {
+        auto ref = str_col->get_data_at(i);
+        result.emplace_back(ref.data, ref.size);
+    }
+    return result;
+}
+
+TEST(function_string_test, function_split_by_string_with_limit_test) {
+    // Basic limit functionality
+    {
+        auto col = run_split_by_string_3arg("one,two,three,", ",", 2);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 2);
+        EXPECT_EQ(arr[0], "one");
+        EXPECT_EQ(arr[1], "two,three,");
+    }
+    {
+        auto col = run_split_by_string_3arg("one,two,three,", ",", 3);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 3);
+        EXPECT_EQ(arr[0], "one");
+        EXPECT_EQ(arr[1], "two");
+        EXPECT_EQ(arr[2], "three,");
+    }
+    // limit = 1: no split
+    {
+        auto col = run_split_by_string_3arg("one,two,three", ",", 1);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 1);
+        EXPECT_EQ(arr[0], "one,two,three");
+    }
+    // limit >= parts: return all
+    {
+        auto col = run_split_by_string_3arg("a,b,c", ",", 10);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 3);
+        EXPECT_EQ(arr[0], "a");
+        EXPECT_EQ(arr[1], "b");
+        EXPECT_EQ(arr[2], "c");
+    }
+    // Multi-char delimiter + limit
+    {
+        auto col = run_split_by_string_3arg("a::b::c::d", "::", 2);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 2);
+        EXPECT_EQ(arr[0], "a");
+        EXPECT_EQ(arr[1], "b::c::d");
+    }
+}
+
+TEST(function_string_test, function_split_by_string_limit_empty_delim_test) {
+    // Empty delimiter + limit: splits by character (ASCII)
+    {
+        auto col = run_split_by_string_3arg("abcde", "", 3);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 3);
+        EXPECT_EQ(arr[0], "a");
+        EXPECT_EQ(arr[1], "b");
+        EXPECT_EQ(arr[2], "cde");
+    }
+    {
+        auto col = run_split_by_string_3arg("abcde", "", 1);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 1);
+        EXPECT_EQ(arr[0], "abcde");
+    }
+    {
+        auto col = run_split_by_string_3arg("abcde", "", 10);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 5);
+        EXPECT_EQ(arr[0], "a");
+        EXPECT_EQ(arr[4], "e");
+    }
+    // Empty delimiter + limit: UTF-8
+    {
+        // "你好世" = 3 UTF-8 characters
+        std::string utf8_str = "\xe4\xbd\xa0\xe5\xa5\xbd\xe4\xb8\x96";
+        auto col = run_split_by_string_3arg(utf8_str, "", 2);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 2);
+        EXPECT_EQ(arr[0], "\xe4\xbd\xa0");             // 你
+        EXPECT_EQ(arr[1], "\xe5\xa5\xbd\xe4\xb8\x96"); // 好世
+    }
+}
+
+TEST(function_string_test, function_split_by_string_limit_edge_cases_test) {
+    // limit <= 0: behaves like no limit
+    {
+        auto col = run_split_by_string_3arg("a,b,c", ",", -1);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 3);
+        EXPECT_EQ(arr[0], "a");
+        EXPECT_EQ(arr[1], "b");
+        EXPECT_EQ(arr[2], "c");
+    }
+    {
+        auto col = run_split_by_string_3arg("a,b,c", ",", 0);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 3);
+    }
+    // Empty source string
+    {
+        auto col = run_split_by_string_3arg("", ",", 2);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 0);
+    }
+    // Consecutive delimiters + limit
+    {
+        auto col = run_split_by_string_3arg(",,,", ",", 2);
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 2);
+        EXPECT_EQ(arr[0], "");
+        EXPECT_EQ(arr[1], ",,");
+    }
+    // 2-arg version still works after refactoring
+    {
+        auto col = run_split_by_string_2arg("a,b,c", ",");
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 3);
+        EXPECT_EQ(arr[0], "a");
+        EXPECT_EQ(arr[1], "b");
+        EXPECT_EQ(arr[2], "c");
+    }
+    {
+        auto col = run_split_by_string_2arg("abcde", "");
+        auto arr = get_array_strings(col);
+        ASSERT_EQ(arr.size(), 5);
+    }
 }
 
 } // namespace doris
