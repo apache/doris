@@ -22,7 +22,6 @@
 
 #include <stddef.h>
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <memory>
 #include <vector>
 

@@ -18,7 +18,6 @@
 #include "service/http/http_client.h"
 
 #include <absl/strings/str_split.h>
-#include <glog/logging.h>
 #include <unistd.h>
 
 #include <memory>

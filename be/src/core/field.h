@@ -21,7 +21,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <cassert>

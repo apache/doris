@@ -17,7 +17,6 @@
 
 #include "core/data_type/data_type_varbinary.h"
 
-#include <glog/logging.h>
 #include <lz4/lz4.h>
 #include <streamvbyte.h>
 

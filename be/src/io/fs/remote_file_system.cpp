@@ -17,8 +17,6 @@
 
 #include "io/fs/remote_file_system.h"
 
-#include <glog/logging.h>
-
 #include <algorithm>
 
 #include "common/config.h"

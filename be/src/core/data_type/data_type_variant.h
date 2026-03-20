@@ -21,7 +21,6 @@
 #pragma once
 #include <gen_cpp/Exprs_types.h>
 #include <gen_cpp/Types_types.h>
-#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 

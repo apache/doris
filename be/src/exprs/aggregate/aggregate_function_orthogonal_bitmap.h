@@ -19,7 +19,6 @@
 
 #include <glog/logging.h>
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>

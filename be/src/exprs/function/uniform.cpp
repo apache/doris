@@ -16,9 +16,7 @@
 // under the License.
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstdint>
 #include <cstdlib>
 #include <memory>

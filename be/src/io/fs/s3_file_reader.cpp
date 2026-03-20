@@ -26,7 +26,6 @@
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <utility>

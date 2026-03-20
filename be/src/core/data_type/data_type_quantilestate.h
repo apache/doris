@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
 #include <memory>
 #include <ostream>
 #include <string>

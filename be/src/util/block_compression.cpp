@@ -20,7 +20,6 @@
 #include <bzlib.h>
 #include <gen_cpp/parquet_types.h>
 #include <gen_cpp/segment_v2.pb.h>
-#include <glog/logging.h>
 
 #include <exception>
 // Only used on x86 or x86_64
@@ -30,7 +29,6 @@
 #endif
 #include <brotli/decode.h>
 #include <glog/log_severity.h>
-#include <glog/logging.h>
 #include <lz4/lz4.h>
 #include <lz4/lz4frame.h>
 #include <lz4/lz4hc.h>

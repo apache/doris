@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
 #include "agent/topic_listener.h"
 #include "runtime/exec_env.h"
 

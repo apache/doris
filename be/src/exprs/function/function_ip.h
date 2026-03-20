@@ -19,7 +19,6 @@
 // and modified by Doris
 
 #pragma once
-#include <glog/logging.h>
 
 #include <cstddef>
 #include <memory>

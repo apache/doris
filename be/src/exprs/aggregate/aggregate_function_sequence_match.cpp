@@ -17,8 +17,6 @@
 
 #include "exprs/aggregate/aggregate_function_sequence_match.h"
 
-#include <boost/iterator/iterator_facade.hpp>
-
 #include "common/logging.h"
 #include "core/data_type/data_type.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
