@@ -2947,7 +2947,7 @@ public class SessionVariable implements Serializable, Writable {
             "Minimum estimated input rows required for bucketed hash aggregation. When estimated input "
                     + "rows are below this threshold, the data volume is too small for the 256-bucket two-level "
                     + "hash table overhead to be worthwhile. Set to 0 to disable this check. Default 100000."})
-    public long bucketedAggMinInputRows = 100000;
+    public long bucketedAggMinInputRows = 0;
 
     @VariableMgr.VarAttr(name = BUCKETED_AGG_MAX_GROUP_KEYS, needForward = true, description = {
             "bucketed hash aggregation 允许的最大估算分组数（key 数量）。当估算分组数超过此阈值时，"
