@@ -248,6 +248,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Gcd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GetVariantType;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Greatest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HammingDistance;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllCardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HllEmpty;
@@ -336,6 +337,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Lcm;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Levenshtein;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
@@ -1882,6 +1884,14 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLocate(Locate locate, C context) {
         return visitScalarFunction(locate, context);
+    }
+
+    default R visitHammingDistance(HammingDistance hammingDistance, C context) {
+        return visitScalarFunction(hammingDistance, context);
+    }
+
+    default R visitLevenshtein(Levenshtein levenshtein, C context) {
+        return visitScalarFunction(levenshtein, context);
     }
 
     default R visitLog(Log log, C context) {

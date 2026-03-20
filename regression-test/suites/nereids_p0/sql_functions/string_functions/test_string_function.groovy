@@ -256,6 +256,78 @@ suite("test_string_function") {
     qt_soundex """SELECT SOUNDEX('Wang');"""
     qt_soundex """SELECT SOUNDEX(NULL);"""
 
+    qt_levenshtein """SELECT LEVENSHTEIN('', '');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('kitten', 'sitting');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('flaw', 'lawn');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abc', 'abc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abc', '');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('', 'abc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN(NULL, 'abc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abc', NULL);"""
+    qt_levenshtein """SELECT LEVENSHTEIN('你好', '你们');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('数据库', '数据');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('abcd', 'abdc');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('你好呀', '你好');"""
+    qt_levenshtein """SELECT LEVENSHTEIN('a你b', 'a们b');"""
+
+    sql """DROP TABLE IF EXISTS string_distance_lv_test"""
+    sql """
+        CREATE TABLE IF NOT EXISTS string_distance_lv_test (
+            id int,
+            s1 VARCHAR,
+            s2 VARCHAR
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num"="1")
+    """
+    sql """
+        insert into string_distance_lv_test values
+        (1, 'kitten', 'sitting'),
+        (2, 'abc', 'abc'),
+        (3, '数据库', '数据'),
+        (4, null, 'abc'),
+        (5, '你好呀', '你好'),
+        (6, 'abcd', 'abdc'),
+        (7, '', '数据库')
+    """
+    qt_levenshtein_tbl """SELECT id, LEVENSHTEIN(s1, s2) FROM string_distance_lv_test ORDER BY id"""
+
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('', '');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abc', 'abc');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abc', 'abd');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('你好', '你们');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE(NULL, 'abc');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abc', NULL);"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('abcd', 'wxyz');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('你好吗', '你们吗');"""
+    qt_hamming_distance """SELECT HAMMING_DISTANCE('数据库', '数库据');"""
+    test{
+        sql """SELECT HAMMING_DISTANCE('abc', 'ab');"""
+        exception "hamming_distance requires strings of the same length"
+    }
+
+    sql """DROP TABLE IF EXISTS string_distance_hd_test"""
+    sql """
+        CREATE TABLE IF NOT EXISTS string_distance_hd_test (
+            id int,
+            s1 VARCHAR,
+            s2 VARCHAR
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num"="1")
+    """
+    sql """
+        insert into string_distance_hd_test values
+        (1, 'abc', 'abc'),
+        (2, 'abc', 'abd'),
+        (3, '你好', '你们'),
+        (4, null, 'abc'),
+        (5, 'abcd', 'wxyz'),
+        (6, '你好吗', '你们吗'),
+        (7, '数据库', '数库据')
+    """
+    qt_hamming_distance_tbl """SELECT id, HAMMING_DISTANCE(s1, s2) FROM string_distance_hd_test ORDER BY id"""
+
     // non-ASCII test for soundex
     qt_soundex """SELECT SOUNDEX('ApacheDoris非 ASCII 测试');"""
     test{

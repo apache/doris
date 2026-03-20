@@ -753,6 +753,64 @@ suite("string_functions_all") {
     testFoldConst("SELECT soundex('R@b-e123rt'), soundex('Robert');")
     // SOUNDEX tests with non-ASCII characters - Skipped (not supported)
 
+    // LEVENSHTEIN tests
+    qt_levenshtein_331 "SELECT levenshtein('', ''), levenshtein('kitten', 'sitting'), levenshtein('flaw', 'lawn'), levenshtein('你好', '你们'), levenshtein('数据库', '数据');"
+    testFoldConst("SELECT levenshtein('', ''), levenshtein('kitten', 'sitting'), levenshtein('flaw', 'lawn'), levenshtein('你好', '你们'), levenshtein('数据库', '数据');")
+    qt_levenshtein_332 "SELECT levenshtein('abc', 'abc'), levenshtein('abc', ''), levenshtein('', 'abc'), levenshtein(NULL, 'abc'), levenshtein('abc', NULL);"
+    testFoldConst("SELECT levenshtein('abc', 'abc'), levenshtein('abc', ''), levenshtein('', 'abc'), levenshtein(NULL, 'abc'), levenshtein('abc', NULL);")
+    qt_levenshtein_333 "SELECT levenshtein('abcd', 'abdc'), levenshtein('你好呀', '你好'), levenshtein('a你b', 'a们b');"
+    testFoldConst("SELECT levenshtein('abcd', 'abdc'), levenshtein('你好呀', '你好'), levenshtein('a你b', 'a们b');")
+    sql """DROP TABLE IF EXISTS string_distance_lv_test"""
+    sql """
+        CREATE TABLE IF NOT EXISTS string_distance_lv_test (
+            id int,
+            s1 VARCHAR,
+            s2 VARCHAR
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num"="1")
+    """
+    sql """
+        insert into string_distance_lv_test values
+        (1, 'kitten', 'sitting'),
+        (2, 'abc', 'abc'),
+        (3, '数据库', '数据'),
+        (4, null, 'abc'),
+        (5, '你好呀', '你好'),
+        (6, 'abcd', 'abdc'),
+        (7, '', '数据库')
+    """
+    qt_levenshtein_tbl "SELECT id, levenshtein(s1, s2) FROM string_distance_lv_test ORDER BY id"
+
+    // HAMMING_DISTANCE tests
+    qt_hamming_distance_333 "SELECT hamming_distance('', ''), hamming_distance('abc', 'abc'), hamming_distance('abc', 'abd'), hamming_distance('你好', '你们');"
+    testFoldConst("SELECT hamming_distance('', ''), hamming_distance('abc', 'abc'), hamming_distance('abc', 'abd'), hamming_distance('你好', '你们');")
+    qt_hamming_distance_334 "SELECT hamming_distance('abc', 'abc'), hamming_distance(NULL, 'abc'), hamming_distance('abc', NULL);"
+    testFoldConst("SELECT hamming_distance('abc', 'abc'), hamming_distance(NULL, 'abc'), hamming_distance('abc', NULL);")
+    qt_hamming_distance_335 "SELECT hamming_distance('abcd', 'wxyz'), hamming_distance('你好吗', '你们吗'), hamming_distance('数据库', '数库据');"
+    testFoldConst("SELECT hamming_distance('abcd', 'wxyz'), hamming_distance('你好吗', '你们吗'), hamming_distance('数据库', '数库据');")
+    sql """DROP TABLE IF EXISTS string_distance_hd_test"""
+    sql """
+        CREATE TABLE IF NOT EXISTS string_distance_hd_test (
+            id int,
+            s1 VARCHAR,
+            s2 VARCHAR
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES ("replication_num"="1")
+    """
+    sql """
+        insert into string_distance_hd_test values
+        (1, 'abc', 'abc'),
+        (2, 'abc', 'abd'),
+        (3, '你好', '你们'),
+        (4, null, 'abc'),
+        (5, 'abcd', 'wxyz'),
+        (6, '你好吗', '你们吗'),
+        (7, '数据库', '数库据')
+    """
+    qt_hamming_distance_tbl "SELECT id, hamming_distance(s1, s2) FROM string_distance_hd_test ORDER BY id"
+
     // SPACE tests
     qt_space_333 "SELECT space(5);"
     testFoldConst("SELECT space(5);")

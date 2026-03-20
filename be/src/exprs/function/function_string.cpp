@@ -46,6 +46,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
 struct NameStringASCII {
     static constexpr auto name = "ascii";
 };
@@ -1326,7 +1327,6 @@ using FunctionStringLocate =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringLocateImpl, NameLocate>;
 using FunctionStringFindInSet =
         FunctionBinaryToType<DataTypeString, DataTypeString, StringFindInSetImpl, NameFindInSet>;
-
 using FunctionQuote = FunctionStringToString<NameQuoteImpl, NameQuote>;
 
 using FunctionToLower = FunctionStringToString<TransferImpl<NameToLower>, NameToLower>;
