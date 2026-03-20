@@ -878,6 +878,11 @@ DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_mInt32(max_flush_thread_num_per_cpu);
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+DECLARE_mDouble(min_flush_thread_num_per_cpu);
+
+// Whether to enable adaptive flush thread adjustment
+DECLARE_mBool(enable_adaptive_flush_threads);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
