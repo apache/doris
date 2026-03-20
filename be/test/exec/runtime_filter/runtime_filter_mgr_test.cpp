@@ -104,9 +104,13 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         EXPECT_NE(producer_filter, nullptr);
 
         LocalMergeContext* local_merge_filters = nullptr;
-        EXPECT_FALSE(global_runtime_filter_mgr
-                             ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
-                             .ok());
+        // filter_id not yet registered: global mgr returns OK with nullptr
+        // (graceful skip for recursive CTE stage reset).
+        EXPECT_TRUE(global_runtime_filter_mgr
+                            ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
+                            .ok());
+        EXPECT_EQ(local_merge_filters, nullptr);
+        // local mgr always returns error (not supported)
         EXPECT_FALSE(local_runtime_filter_mgr
                              ->get_local_merge_producer_filters(filter_id, &local_merge_filters)
                              .ok());

@@ -58,6 +58,9 @@ struct LocalMergeContext {
     std::mutex mtx;
     std::shared_ptr<RuntimeFilterMerger> merger;
     std::vector<std::shared_ptr<RuntimeFilterProducer>> producers;
+    // Tracks the recursive CTE round.  When a producer from a newer round
+    // registers, the context is reset (merger recreated, old producers dropped).
+    uint32_t stage = 0;
 
     Status register_producer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                              std::shared_ptr<RuntimeFilterProducer> producer);
@@ -71,6 +74,10 @@ struct GlobalMergeContext {
     std::unordered_set<UniqueId> arrive_id;
     std::vector<PNetworkAddress> source_addrs;
     std::atomic<bool> done = false;
+
+    // for represent the round number of recursive cte
+    // if lower stage rf input to higher stage, we just discard the rf
+    uint32_t stage = 0;
 
     Status reset(QueryContext* query_ctx);
 };
@@ -104,13 +111,15 @@ public:
 
     std::string debug_string();
 
-    void remove_filters(const std::set<int32_t>& filter_ids) {
+    void remove_filter(int32_t filter_id) {
         std::lock_guard<std::mutex> l(_lock);
-        for (const auto& id : filter_ids) {
-            _consumer_map.erase(id);
-            _local_merge_map.erase(id);
-            _producer_id_set.erase(id);
-        }
+        _consumer_map.erase(filter_id);
+        // NOTE: _local_merge_map is NOT erased here.  It is reset lazily in
+        // LocalMergeContext::register_producer when a producer from a newer
+        // recursive CTE round registers.  Erasing eagerly here would race with
+        // multi-fragment REBUILD: a consumer-only fragment's remove_filter could
+        // delete the entry that the producer fragment just re-registered.
+        _producer_id_set.erase(filter_id);
     }
 
 private:
