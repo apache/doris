@@ -30,7 +30,6 @@
 
 #include "absl/strings/substitute.h"
 #include "cloud/cloud_base_compaction.h"
-#include "cloud/cloud_compaction_action.h"
 #include "cloud/cloud_cumulative_compaction.h"
 #include "cloud/cloud_full_compaction.h"
 #include "cloud/cloud_tablet.h"
@@ -168,10 +167,11 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
               << " table id: " << table_id;
     // 3. submit compaction task
     RETURN_IF_ERROR(_engine.submit_compaction_task(
-            tablet, compaction_type == PARAM_COMPACTION_BASE ? CompactionType::BASE_COMPACTION
-                    : compaction_type == PARAM_COMPACTION_CUMULATIVE
-                            ? CompactionType::CUMULATIVE_COMPACTION
-                            : CompactionType::FULL_COMPACTION));
+            tablet,
+            compaction_type == PARAM_COMPACTION_BASE         ? CompactionType::BASE_COMPACTION
+            : compaction_type == PARAM_COMPACTION_CUMULATIVE ? CompactionType::CUMULATIVE_COMPACTION
+                                                             : CompactionType::FULL_COMPACTION,
+            TriggerMethod::MANUAL));
 
     LOG(INFO) << "Manual compaction task is successfully triggered, tablet id: " << tablet_id
               << " table id: " << table_id;

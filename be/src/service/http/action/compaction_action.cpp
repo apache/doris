@@ -32,11 +32,13 @@
 #include "common/logging.h"
 #include "common/metrics/doris_metrics.h"
 #include "common/status.h"
+#include "service/backend_options.h"
 #include "service/http/http_channel.h"
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "service/http/http_status.h"
 #include "storage/compaction/base_compaction.h"
+#include "storage/compaction/compaction_task_tracker.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -46,6 +48,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_manager.h"
 #include "util/stopwatch.hpp"
+#include "util/time.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -154,8 +157,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
                 [table_id](Tablet* tablet) -> bool { return tablet->get_table_id() == table_id; });
         for (const auto& tablet : tablet_vec) {
             tablet->set_last_full_compaction_schedule_time(UnixMillis());
-            RETURN_IF_ERROR(
-                    _engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION, false));
+            RETURN_IF_ERROR(_engine.submit_compaction_task(tablet, CompactionType::FULL_COMPACTION,
+                                                           false, /*eager=*/true,
+                                                           TriggerMethod::MANUAL));
         }
     } else {
         // 2. fetch the tablet by tablet_id
@@ -168,8 +172,9 @@ Status CompactionAction::_handle_run_compaction(HttpRequest* req, std::string* j
             return Status::NotSupported("tablet should do compaction locally");
         }
         DBUG_EXECUTE_IF("CompactionAction._handle_run_compaction.submit_cumu_task", {
-            RETURN_IF_ERROR(_engine.submit_compaction_task(
-                    tablet, CompactionType::CUMULATIVE_COMPACTION, false));
+            RETURN_IF_ERROR(
+                    _engine.submit_compaction_task(tablet, CompactionType::CUMULATIVE_COMPACTION,
+                                                   false, /*eager=*/true, TriggerMethod::MANUAL));
             LOG(INFO) << "Manual debug compaction task is successfully triggered";
             *json_result =
                     R"({"status": "Success", "msg": "debug compaction task is successfully triggered. Table id: )" +
@@ -303,8 +308,33 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
         tablet->set_cumulative_compaction_policy(cumulative_compaction_policy);
     }
     Status res = Status::OK();
-    auto do_compact = [](Compaction& compaction) {
+    // Helper to register a compaction task as RUNNING in the tracker (direct execution, MANUAL trigger)
+    auto register_running_task = [&tablet](Compaction& compaction) {
+        CompactionTaskInfo info;
+        info.compaction_id = compaction.compaction_id();
+        info.backend_id = BackendOptions::get_backend_id();
+        info.table_id = tablet->table_id();
+        info.partition_id = tablet->partition_id();
+        info.tablet_id = tablet->tablet_id();
+        info.compaction_type = compaction.profile_type();
+        info.status = CompactionTaskStatus::RUNNING;
+        info.trigger_method = TriggerMethod::MANUAL;
+        info.compaction_score = tablet->get_compaction_score();
+        info.scheduled_time_ms = UnixMillis();
+        info.start_time_ms = UnixMillis();
+        info.input_rowsets_count = compaction.input_rowsets_count();
+        info.input_row_num = compaction.input_row_num();
+        info.input_data_size = compaction.input_rowsets_data_size();
+        info.input_segments_num = compaction.input_segments_num_value();
+        info.input_version_range = compaction.input_version_range_str();
+        info.is_vertical = compaction.is_vertical();
+        CompactionTaskTracker::instance()->register_task(std::move(info));
+    };
+    auto do_compact = [&register_running_task](Compaction& compaction) {
         RETURN_IF_ERROR(compaction.prepare_compact());
+        register_running_task(compaction);
+        // submit_profile_record() inside execute_compact() handles both
+        // success (complete) and failure (fail) tracker updates.
         return compaction.execute_compact();
     };
     if (compaction_type == PARAM_COMPACTION_BASE) {

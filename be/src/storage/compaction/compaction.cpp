@@ -53,6 +53,7 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
 #include "storage/compaction/collection_statistics.h"
+#include "storage/compaction/compaction_task_tracker.h"
 #include "storage/compaction/cumulative_compaction.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -157,6 +158,7 @@ Compaction::Compaction(BaseTabletSPtr tablet, const std::string& label)
         : _mem_tracker(
                   MemTrackerLimiter::create_shared(MemTrackerLimiter::Type::COMPACTION, label)),
           _tablet(std::move(tablet)),
+          _compaction_id(CompactionTaskTracker::instance()->next_compaction_id()),
           _is_vertical(config::enable_vertical_compaction),
           _allow_delete_in_cumu_compaction(config::enable_delete_when_cumu_compaction),
           _enable_vertical_compact_variant_subcolumns(
@@ -175,6 +177,44 @@ Compaction::~Compaction() {
     _output_rowset.reset();
     _cur_tablet_schema.reset();
     _rowid_conversion.reset();
+}
+
+void Compaction::submit_profile_record(bool success, int64_t start_time_ms,
+                                       const std::string& status_msg) {
+    CompletionStats stats;
+    // Fill input_version_range from input rowsets
+    if (!_input_rowsets.empty()) {
+        stats.input_version_range = fmt::format("[{}-{}]", _input_rowsets.front()->start_version(),
+                                                _input_rowsets.back()->end_version());
+    }
+    stats.end_time_ms = UnixMillis();
+    stats.merged_rows = _stats.merged_rows;
+    stats.filtered_rows = _stats.filtered_rows;
+    stats.bytes_read_from_local = _stats.bytes_read_from_local;
+    stats.bytes_read_from_remote = _stats.bytes_read_from_remote;
+    stats.peak_memory_bytes = _mem_tracker ? _mem_tracker->peak_consumption() : 0;
+
+    if (_output_rowset) {
+        stats.output_row_num = _output_rowset->num_rows();
+        stats.output_data_size = _output_rowset->data_disk_size();
+        stats.output_segments_num = _output_rowset->num_segments();
+        stats.output_version = _output_version.to_string();
+    }
+
+    auto* tracker = CompactionTaskTracker::instance();
+    if (success) {
+        tracker->complete(_compaction_id, stats);
+    } else {
+        tracker->fail(_compaction_id, stats, status_msg);
+    }
+}
+
+std::string Compaction::input_version_range_str() const {
+    if (_input_rowsets.empty()) {
+        return "";
+    }
+    return fmt::format("[{}-{}]", _input_rowsets.front()->start_version(),
+                       _input_rowsets.back()->end_version());
 }
 
 void Compaction::init_profile(const std::string& label) {
@@ -533,13 +573,18 @@ bool CompactionMixin::handle_ordered_data_compaction() {
 }
 
 Status CompactionMixin::execute_compact() {
+    int64_t profile_start_time_ms = UnixMillis();
     uint32_t checksum_before;
     uint32_t checksum_after;
     bool enable_compaction_checksum = config::enable_compaction_checksum;
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_before);
-        RETURN_IF_ERROR(checksum_task.execute());
+        auto checksum_before_st = checksum_task.execute();
+        if (!checksum_before_st.ok()) {
+            submit_profile_record(false, profile_start_time_ms, checksum_before_st.to_string());
+            return checksum_before_st;
+        }
     }
 
     auto* data_dir = tablet()->data_dir();
@@ -547,25 +592,54 @@ Status CompactionMixin::execute_compact() {
     data_dir->disks_compaction_score_increment(permits);
     data_dir->disks_compaction_num_increment(1);
 
-    auto record_compaction_stats = [&](const doris::Exception& ex) {
+    // Use a wrapper to capture the actual Status message on failure.
+    // HANDLE_EXCEPTION_IF_CATCH_EXCEPTION returns early on failure (non-OK or exception).
+    // For non-OK Status, the macro passes a default-constructed Exception with empty what().
+    // For thrown exceptions, ex.what() has the real message.
+    Status impl_status;
+    auto on_failure = [&](const doris::Exception& ex) {
         _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
         data_dir->disks_compaction_score_increment(-permits);
         data_dir->disks_compaction_num_increment(-1);
     };
 
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
-    record_compaction_stats(doris::Exception());
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(({
+                                            impl_status = execute_compact_impl(permits);
+                                            impl_status;
+                                        }),
+                                        ([&](const doris::Exception& ex) {
+                                            on_failure(ex);
+                                            // Use the captured Status message if Exception has no message
+                                            std::string msg = ex.what();
+                                            if (msg.empty() && !impl_status.ok()) {
+                                                msg = impl_status.to_string();
+                                            }
+                                            submit_profile_record(false, profile_start_time_ms,
+                                                                  msg);
+                                        }));
+    // Only reached on success
+    _tablet->compaction_count.fetch_add(1, std::memory_order_relaxed);
+    data_dir->disks_compaction_score_increment(-permits);
+    data_dir->disks_compaction_num_increment(-1);
 
     if (enable_compaction_checksum) {
         EngineChecksumTask checksum_task(_engine, _tablet->tablet_id(), _tablet->schema_hash(),
                                          _input_rowsets.back()->end_version(), &checksum_after);
-        RETURN_IF_ERROR(checksum_task.execute());
+        auto checksum_st = checksum_task.execute();
+        if (!checksum_st.ok()) {
+            submit_profile_record(false, profile_start_time_ms, checksum_st.to_string());
+            return checksum_st;
+        }
         if (checksum_before != checksum_after) {
-            return Status::InternalError(
+            auto st = Status::InternalError(
                     "compaction tablet checksum not consistent, before={}, after={}, tablet_id={}",
                     checksum_before, checksum_after, _tablet->tablet_id());
+            submit_profile_record(false, profile_start_time_ms, st.to_string());
+            return st;
         }
     }
+
+    submit_profile_record(true, profile_start_time_ms);
 
     DorisMetrics::instance()->local_compaction_read_rows_total->increment(_input_row_num);
     DorisMetrics::instance()->local_compaction_read_bytes_total->increment(
@@ -1671,22 +1745,31 @@ size_t CloudCompactionMixin::apply_txn_size_truncation_and_log(const std::string
 }
 
 Status CloudCompactionMixin::execute_compact() {
+    int64_t profile_start_time_ms = UnixMillis();
     TEST_INJECTION_POINT("Compaction::do_compaction");
     int64_t permits = get_compaction_permits();
+    Status impl_status;
     HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(
-            execute_compact_impl(permits), [&](const doris::Exception& ex) {
+            ({
+                impl_status = execute_compact_impl(permits);
+                impl_status;
+            }),
+            ([&](const doris::Exception& ex) {
                 auto st = garbage_collection();
                 if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
                     _tablet->enable_unique_key_merge_on_write() && !st.ok()) {
-                    // if compaction fail, be will try to abort compaction, and delete bitmap lock
-                    // will release if abort job successfully, but if abort failed, delete bitmap
-                    // lock will not release, in this situation, be need to send this rpc to ms
-                    // to try to release delete bitmap lock.
                     _engine.meta_mgr().remove_delete_bitmap_update_lock(
                             _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
                             _tablet->tablet_id());
                 }
-            });
+                std::string msg = ex.what();
+                if (msg.empty() && !impl_status.ok()) {
+                    msg = impl_status.to_string();
+                }
+                submit_profile_record(false, profile_start_time_ms, msg);
+            }));
+    // Only reached on success
+    submit_profile_record(true, profile_start_time_ms);
 
     DorisMetrics::instance()->remote_compaction_read_rows_total->increment(_input_row_num);
     DorisMetrics::instance()->remote_compaction_write_rows_total->increment(

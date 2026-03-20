@@ -17,32 +17,35 @@
 
 #pragma once
 
-#include <string>
+#include <cstddef>
+#include <cstdint>
+#include <vector>
 
 #include "common/status.h"
-#include "io/io_common.h"
-#include "storage/compaction/compaction.h"
+#include "information_schema/schema_scanner.h"
+#include "storage/compaction/compaction_task_tracker.h"
 
 namespace doris {
+class RuntimeState;
 
-class ColdDataCompaction final : public CompactionMixin {
+class Block;
+
+class SchemaCompactionTasksScanner : public SchemaScanner {
+    ENABLE_FACTORY_CREATOR(SchemaCompactionTasksScanner);
+
 public:
-    ColdDataCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
-    ~ColdDataCompaction() override;
+    SchemaCompactionTasksScanner();
+    ~SchemaCompactionTasksScanner() override = default;
 
-    Status prepare_compact() override;
-    Status execute_compact() override;
-    CompactionProfileType profile_type() const override { return CompactionProfileType::COLD_DATA; }
+    Status start(RuntimeState* state) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
-    std::string_view compaction_name() const override { return "cold data compaction"; }
-    ReaderType compaction_type() const override { return ReaderType::READER_COLD_DATA_COMPACTION; }
+    Status _fill_block_impl(Block* block);
 
-    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
-
-    Status pick_rowsets_to_compact();
-
-    Status modify_rowsets() override;
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
+    int64_t backend_id_ = 0;
+    size_t _tasks_idx = 0;
+    std::vector<CompactionTaskInfo> _tasks;
 };
-
 } // namespace doris

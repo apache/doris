@@ -40,11 +40,15 @@ public:
 
     int64_t get_input_rowsets_bytes() const { return _input_rowsets_total_size; }
     int64_t get_input_num_rows() const { return _input_row_num; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
 
 private:
     Status pick_rowsets_to_compact();
 
     std::string_view compaction_name() const override { return "CloudCumulativeCompaction"; }
+    int64_t input_segments_num() const override { return _input_segments; }
 
     Status modify_rowsets() override;
 
