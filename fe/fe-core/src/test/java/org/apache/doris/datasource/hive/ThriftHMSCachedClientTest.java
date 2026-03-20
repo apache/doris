@@ -23,6 +23,8 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.property.metastore.HMSBaseProperties;
 import org.apache.doris.info.TableNameInfo;
 
+import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
+import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 import org.apache.commons.pool2.impl.GenericObjectPool;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.HiveMetaStoreClient;
@@ -35,9 +37,6 @@ import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
-
-import com.aliyun.datalake.metastore.hive2.ProxyMetaStoreClient;
-import com.amazonaws.glue.catalog.metastore.AWSCatalogMetastoreClient;
 
 import java.lang.reflect.Proxy;
 import java.util.ArrayDeque;
