@@ -146,7 +146,7 @@ public class HudiExternalMetaCache extends AbstractExternalMetaCache {
     }
 
     private HoodieTableMetaClient createHoodieTableMetaClient(HudiMetaClientCacheKey key) {
-        LOG.debug("create hudi table meta client for {}.{}", key.getNameMapping().getFullLocalName());
+        LOG.debug("create hudi table meta client for {}", key.getNameMapping().getFullLocalName());
         HMSExternalTable hudiTable = findHudiTable(key.getNameMapping());
         HadoopStorageConfiguration hadoopStorageConfiguration =
                 new HadoopStorageConfiguration(hudiTable.getCatalog().getConfiguration());

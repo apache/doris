@@ -191,12 +191,21 @@ public class ExternalMetaCacheMgr {
     }
 
     public void prepareCatalog(long catalogId) {
-        Map<String, String> catalogProperties = getCatalogProperties(catalogId);
+        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
+        if (catalogProperties == null) {
+            logMissingCatalogSkip(catalogId, "prepareCatalog");
+            return;
+        }
         routeCatalogEngines(catalogId, cache -> cache.initCatalog(catalogId, catalogProperties));
     }
 
     public void prepareCatalogByEngine(long catalogId, String engine) {
-        prepareCatalogByEngine(catalogId, engine, getCatalogProperties(catalogId));
+        Map<String, String> catalogProperties = findCatalogProperties(catalogId);
+        if (catalogProperties == null) {
+            logMissingCatalogSkip(catalogId, "prepareCatalogByEngine");
+            return;
+        }
+        prepareCatalogByEngine(catalogId, engine, catalogProperties);
     }
 
     public void prepareCatalogByEngine(long catalogId, String engine, Map<String, String> catalogProperties) {
@@ -327,15 +336,22 @@ public class ExternalMetaCacheMgr {
         action.run();
     }
 
-    private Map<String, String> getCatalogProperties(long catalogId) {
+    @Nullable
+    private Map<String, String> findCatalogProperties(long catalogId) {
         CatalogIf<?> catalog = getCatalog(catalogId);
         if (catalog == null) {
-            throw new IllegalStateException(String.format("Catalog %d does not exist.", catalogId));
+            return null;
         }
         if (catalog.getProperties() == null) {
             return Maps.newHashMap();
         }
         return Maps.newHashMap(catalog.getProperties());
+    }
+
+    private void logMissingCatalogSkip(long catalogId, String operation) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("skip {} for catalog {} because catalog does not exist", operation, catalogId);
+        }
     }
 
     @Nullable
@@ -351,7 +367,15 @@ public class ExternalMetaCacheMgr {
         long catalogId = table.getCatalog().getId();
         String resolvedEngine = table.getMetaCacheEngine();
         prepareCatalogByEngine(catalogId, resolvedEngine);
-        return ((ExternalMetaCache) engine(resolvedEngine)).getSchemaValue(catalogId, key);
+        try {
+            return ((ExternalMetaCache) engine(resolvedEngine)).getSchemaValue(catalogId, key);
+        } catch (IllegalStateException e) {
+            if (getCatalog(catalogId) != null) {
+                throw e;
+            }
+            logMissingCatalogSkip(catalogId, "getSchemaCacheValue");
+            return Optional.empty();
+        }
     }
 
     public FileSystemCache getFsCache() {

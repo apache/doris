@@ -96,6 +96,35 @@ public class ExternalMetaCacheRouteResolverTest {
     }
 
     @Test
+    public void testPrepareCatalogByEngineSkipsMissingCatalog() throws Exception {
+        RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
+                "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(hive);
+        long catalogId = 10L;
+
+        mockCurrentCatalog(catalogId, null);
+
+        metaCacheMgr.prepareCatalog(catalogId);
+        metaCacheMgr.prepareCatalogByEngine(catalogId, "hive");
+
+        Assert.assertEquals(0, hive.initCatalogCalls);
+    }
+
+    @Test
+    public void testGetSchemaCacheValueReturnsEmptyWhenCatalogMissing() throws Exception {
+        MissingCatalogSchemaExternalMetaCache schemaCache = new MissingCatalogSchemaExternalMetaCache("default");
+        ExternalMetaCacheMgr metaCacheMgr = newManagerWithCaches(schemaCache);
+        long catalogId = 11L;
+
+        mockCurrentCatalog(catalogId, null);
+
+        TestingExternalTable table = new TestingExternalTable(catalogId, "default");
+        Assert.assertFalse(metaCacheMgr.getSchemaCacheValue(
+                table, new SchemaCacheKey(table.getOrBuildNameMapping())).isPresent());
+        Assert.assertEquals(1, schemaCache.entryCalls);
+    }
+
+    @Test
     public void testLifecycleRoutingOnlyTouchesSupportedEngine() throws Exception {
         RecordingExternalMetaCache hive = new RecordingExternalMetaCache(
                 "hive", Collections.singletonList("hms"), catalog -> catalog instanceof HMSExternalCatalog);
@@ -225,7 +254,25 @@ public class ExternalMetaCacheRouteResolverTest {
         }
     }
 
-    private static final class RecordingExternalMetaCache implements ExternalMetaCache {
+    private static final class TestingExternalTable extends ExternalTable {
+        private final String metaCacheEngine;
+
+        private TestingExternalTable(long catalogId, String metaCacheEngine) {
+            this.metaCacheEngine = metaCacheEngine;
+            this.catalog = new HMSExternalCatalog(catalogId, "hms", null, Collections.emptyMap(), "");
+            this.dbName = "db1";
+            this.name = "tbl1";
+            this.remoteName = "remote_tbl1";
+            this.nameMapping = new NameMapping(catalogId, "db1", "tbl1", "remote_db1", "remote_tbl1");
+        }
+
+        @Override
+        public String getMetaCacheEngine() {
+            return metaCacheEngine;
+        }
+    }
+
+    private static class RecordingExternalMetaCache implements ExternalMetaCache {
         private final String engine;
         private final List<String> aliases;
         private final Set<Long> initializedCatalogIds = ConcurrentHashMap.newKeySet();
@@ -310,6 +357,20 @@ public class ExternalMetaCacheRouteResolverTest {
 
         @Override
         public void close() {
+        }
+    }
+
+    private static final class MissingCatalogSchemaExternalMetaCache extends RecordingExternalMetaCache {
+        private int entryCalls;
+
+        private MissingCatalogSchemaExternalMetaCache(String engine) {
+            super(engine, Collections.emptyList(), catalog -> true);
+        }
+
+        @Override
+        public <K, V> MetaCacheEntry<K, V> entry(long catalogId, String entryName, Class<K> keyType, Class<V> valueType) {
+            entryCalls++;
+            throw new IllegalStateException("catalog " + catalogId + " is not initialized");
         }
     }
 }
