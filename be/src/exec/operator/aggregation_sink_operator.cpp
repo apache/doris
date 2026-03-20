@@ -59,7 +59,8 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
     _agg_data = Base::_shared_state->agg_data.get();
-    _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
+    _hash_table_size_counter =
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "HashTableSize", TUnit::UNIT, 1);
     _hash_table_memory_usage =
             ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "MemoryUsageHashTable", TUnit::BYTES, 1);
     _serialize_key_arena_memory_usage = ADD_COUNTER_WITH_LEVEL(
@@ -69,14 +70,24 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
     _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
-    _hash_table_limit_compute_timer = ADD_TIMER(Base::custom_profile(), "DoLimitComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+    _hash_table_compute_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "HashTableComputeTime", 1);
+    _hash_table_limit_compute_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "DoLimitComputeTime", 1);
+    _hash_table_emplace_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "HashTableEmplaceTime", 1);
     _hash_table_input_counter =
-            ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT, 1);
 
     _memory_usage_container = ADD_COUNTER(custom_profile(), "MemoryUsageContainer", TUnit::BYTES);
     _memory_usage_arena = ADD_COUNTER(custom_profile(), "MemoryUsageArena", TUnit::BYTES);
+
+    _mock_hash_table_compute_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "MockHashTableComputeTime", 1);
+    _mock_hash_table_emplace_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "MockHashTableEmplaceTime", 1);
+    _mock_hash_table_input_counter = ADD_COUNTER_WITH_LEVEL(
+            Base::custom_profile(), "MockHashTableInputCount", TUnit::UNIT, 1);
 
     return Status::OK();
 }
@@ -132,6 +143,13 @@ Status AggSinkLocalState::open(RuntimeState* state) {
                                                          p._align_aggregate_states);
                              }},
                    _agg_data->method_variant);
+
+        // Init mock hash table with the same key type for benchmark comparison
+        Base::_shared_state->mock_agg_data = std::make_unique<AggregatedDataVariants>();
+        RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
+                Base::_shared_state->mock_agg_data.get(),
+                get_data_types(Base::_shared_state->probe_expr_ctxs), p._is_first_phase));
+
         if (p._is_merge) {
             _executor = std::make_unique<Executor<false, true>>();
         } else {
@@ -337,6 +355,7 @@ Status AggSinkLocalState::_merge_with_serialized_key_helper(Block* block) {
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, (uint32_t)rows);
         }
+        _mock_emplace_into_hash_table(key_columns, (uint32_t)rows);
 
         if (need_do_agg) {
             for (int i = 0; i < Base::_shared_state->aggregate_evaluators.size(); ++i) {
@@ -494,8 +513,10 @@ Status AggSinkLocalState::_execute_with_serialized_key_helper(Block* block) {
                                                rows)) {
                 RETURN_IF_ERROR(do_aggregate_evaluators());
             }
+            _mock_emplace_into_hash_table(key_columns, rows);
         } else {
             _emplace_into_hash_table(_places.data(), key_columns, rows);
+            _mock_emplace_into_hash_table(key_columns, rows);
             RETURN_IF_ERROR(do_aggregate_evaluators());
 
             if (_should_limit_output && !Base::_shared_state->enable_spill) {
@@ -568,6 +589,56 @@ void AggSinkLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
                _agg_data->method_variant);
+}
+
+void AggSinkLocalState::_mock_emplace_into_hash_table(ColumnRawPtrs& key_columns,
+                                                      uint32_t num_rows) {
+    auto* mock_agg_data = Base::_shared_state->mock_agg_data.get();
+    if (!mock_agg_data) {
+        return;
+    }
+    auto& mock_arena = Base::_shared_state->mock_arena;
+    auto& p = Base::_parent->template cast<AggSinkOperatorX>();
+    size_t agg_states_size = ((p._total_size_of_aggregate_states + p._align_aggregate_states - 1) /
+                              p._align_aggregate_states) *
+                             p._align_aggregate_states;
+
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             // do nothing for mock
+                         },
+                         [&](auto& agg_method) -> void {
+                             SCOPED_TIMER(_mock_hash_table_compute_timer);
+                             using HashMethodType = std::decay_t<decltype(agg_method)>;
+                             using AggState = typename HashMethodType::State;
+                             AggState state(key_columns);
+                             agg_method.init_serialized_keys(key_columns, num_rows);
+
+                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                 HashMethodType::try_presis_key_and_origin(key, origin, mock_arena);
+                                 auto* mapped = mock_arena.aligned_alloc(
+                                         agg_states_size, p._align_aggregate_states);
+                                 auto st = _create_agg_status(mapped);
+                                 if (!st) {
+                                     throw Exception(st.code(), st.to_string());
+                                 }
+                                 ctor(key, mapped);
+                             };
+
+                             auto creator_for_null_key = [&](auto& mapped) {
+                                 mapped = mock_arena.aligned_alloc(agg_states_size,
+                                                                   p._align_aggregate_states);
+                                 auto st = _create_agg_status(mapped);
+                                 if (!st) {
+                                     throw Exception(st.code(), st.to_string());
+                                 }
+                             };
+
+                             SCOPED_TIMER(_mock_hash_table_emplace_timer);
+                             lazy_emplace_batch(agg_method, state, num_rows, creator,
+                                                creator_for_null_key, [&](uint32_t, auto&) {});
+                             COUNTER_UPDATE(_mock_hash_table_input_counter, num_rows);
+                         }},
+               mock_agg_data->method_variant);
 }
 
 bool AggSinkLocalState::_emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,

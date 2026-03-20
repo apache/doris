@@ -56,21 +56,38 @@ Status StreamingAggLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     _build_timer = ADD_TIMER(Base::custom_profile(), "BuildTime");
     _merge_timer = ADD_TIMER(Base::custom_profile(), "MergeTime");
     _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
-    _insert_values_to_column_timer = ADD_TIMER(Base::custom_profile(), "InsertValuesToColumnTime");
+    _insert_values_to_column_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "InsertValuesToColumnTime", 1);
     _deserialize_data_timer = ADD_TIMER(Base::custom_profile(), "DeserializeAndMergeTime");
-    _hash_table_compute_timer = ADD_TIMER(Base::custom_profile(), "HashTableComputeTime");
+    _hash_table_compute_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "HashTableComputeTime", 1);
     _hash_table_limit_compute_timer =
-            ADD_TIMER(Base::custom_profile(), "HashTableLimitComputeTime");
-    _hash_table_emplace_timer = ADD_TIMER(Base::custom_profile(), "HashTableEmplaceTime");
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "HashTableLimitComputeTime", 1);
+    _hash_table_emplace_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "HashTableEmplaceTime", 1);
     _hash_table_input_counter =
-            ADD_COUNTER(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT);
-    _hash_table_size_counter = ADD_COUNTER(custom_profile(), "HashTableSize", TUnit::UNIT);
+            ADD_COUNTER_WITH_LEVEL(Base::custom_profile(), "HashTableInputCount", TUnit::UNIT, 1);
+    _hash_table_size_counter =
+            ADD_COUNTER_WITH_LEVEL(custom_profile(), "HashTableSize", TUnit::UNIT, 1);
     _streaming_agg_timer = ADD_TIMER(custom_profile(), "StreamingAggTime");
     _build_timer = ADD_TIMER(custom_profile(), "BuildTime");
     _expr_timer = ADD_TIMER(Base::custom_profile(), "ExprTime");
     _get_results_timer = ADD_TIMER(custom_profile(), "GetResultsTime");
-    _hash_table_iterate_timer = ADD_TIMER(custom_profile(), "HashTableIterateTime");
-    _insert_keys_to_column_timer = ADD_TIMER(custom_profile(), "InsertKeysToColumnTime");
+    _hash_table_iterate_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "HashTableIterateTime", 1);
+    _insert_keys_to_column_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "InsertKeysToColumnTime", 1);
+
+    _mock_hash_table_compute_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "MockHashTableComputeTime", 1);
+    _mock_hash_table_emplace_timer =
+            ADD_TIMER_WITH_LEVEL(Base::custom_profile(), "MockHashTableEmplaceTime", 1);
+    _mock_hash_table_input_counter = ADD_COUNTER_WITH_LEVEL(Base::custom_profile(),
+                                                            "MockHashTableInputCount", TUnit::UNIT, 1);
+    _mock_hash_table_iterate_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "MockHashTableIterateTime", 1);
+    _mock_container_iterate_timer =
+            ADD_TIMER_WITH_LEVEL(custom_profile(), "MockContainerIterateTime", 1);
 
     return Status::OK();
 }
@@ -113,6 +130,11 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
                                                               p._align_aggregate_states);
                          }},
                _agg_data->method_variant);
+
+    // Init mock hash table with the same key type for benchmark comparison
+    _mock_agg_data = std::make_unique<AggregatedDataVariants>();
+    RETURN_IF_ERROR(init_hash_method<AggregatedDataVariants>(
+            _mock_agg_data.get(), get_data_types(_probe_expr_ctxs), p._is_first_phase));
 
     limit = p._sort_limit;
     do_sort_limit = p._do_sort_limit;
@@ -392,6 +414,7 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
         } else {
             need_agg = _emplace_into_hash_table_limit(_places.data(), in_block, key_columns, rows);
         }
+        _mock_emplace_into_hash_table(key_columns, rows);
 
         if (need_agg) {
             for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
@@ -462,6 +485,45 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
 
                         uint32_t num_rows = 0;
                         _aggregate_data_container->init_once();
+
+                        // One-time mock benchmark: compare hash table iterate vs container iterate
+                        if (!_mock_iterated) {
+                            _mock_iterated = true;
+                            // (a) Iterate mock hash table (without AggregateDataContainer)
+                            if (_mock_agg_data) {
+                                std::visit(
+                                        Overload {
+                                                [&](std::monostate&) -> void {},
+                                                [&](auto& mock_method) -> void {
+                                                    SCOPED_TIMER(
+                                                            _mock_hash_table_iterate_timer);
+                                                    auto& mock_ht = *mock_method.hash_table;
+                                                    for (auto it = mock_ht.begin();
+                                                         it != mock_ht.end(); ++it) {
+                                                        [[maybe_unused]] auto k =
+                                                                it->get_first();
+                                                        [[maybe_unused]] auto* v =
+                                                                it->get_second();
+                                                        asm volatile("" ::: "memory");
+                                                    }
+                                                }},
+                                        _mock_agg_data->method_variant);
+                            }
+                            // (b) Iterate AggregateDataContainer (full traverse)
+                            {
+                                SCOPED_TIMER(_mock_container_iterate_timer);
+                                auto mock_iter = _aggregate_data_container->begin();
+                                while (mock_iter != _aggregate_data_container->end()) {
+                                    [[maybe_unused]] auto k =
+                                            mock_iter.template get_key<KeyType>();
+                                    [[maybe_unused]] auto* v =
+                                            mock_iter.get_aggregate_data();
+                                    asm volatile("" ::: "memory");
+                                    ++mock_iter;
+                                }
+                            }
+                        }
+
                         auto& iter = _aggregate_data_container->iterator;
 
                         {
@@ -770,6 +832,56 @@ void StreamingAggLocalState::_emplace_into_hash_table(AggregateDataPtr* places,
                              COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                          }},
                _agg_data->method_variant);
+}
+
+void StreamingAggLocalState::_mock_emplace_into_hash_table(ColumnRawPtrs& key_columns,
+                                                           uint32_t num_rows) {
+    if (!_mock_agg_data) {
+        return;
+    }
+    auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
+    size_t agg_states_size = ((p._total_size_of_aggregate_states + p._align_aggregate_states - 1) /
+                              p._align_aggregate_states) *
+                             p._align_aggregate_states;
+
+    std::visit(Overload {[&](std::monostate& arg) -> void {
+                             // do nothing for mock
+                         },
+                         [&](auto& agg_method) -> void {
+                             SCOPED_TIMER(_mock_hash_table_compute_timer);
+                             using HashMethodType = std::decay_t<decltype(agg_method)>;
+                             using AggState = typename HashMethodType::State;
+                             AggState state(key_columns);
+                             agg_method.init_serialized_keys(key_columns, num_rows);
+
+                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+                                 HashMethodType::try_presis_key_and_origin(key, origin,
+                                                                           _mock_arena);
+                                 auto* mapped = _mock_arena.aligned_alloc(
+                                         agg_states_size, p._align_aggregate_states);
+                                 auto st = _create_agg_status(mapped);
+                                 if (!st) {
+                                     throw Exception(st.code(), st.to_string());
+                                 }
+                                 ctor(key, mapped);
+                             };
+
+                             auto creator_for_null_key = [&](auto& mapped) {
+                                 mapped = _mock_arena.aligned_alloc(agg_states_size,
+                                                                    p._align_aggregate_states);
+                                 auto st = _create_agg_status(mapped);
+                                 if (!st) {
+                                     throw Exception(st.code(), st.to_string());
+                                 }
+                             };
+
+                             SCOPED_TIMER(_mock_hash_table_emplace_timer);
+                             lazy_emplace_batch(agg_method, state, num_rows, creator,
+                                                creator_for_null_key,
+                                                [&](uint32_t, auto&) {});
+                             COUNTER_UPDATE(_mock_hash_table_input_counter, num_rows);
+                         }},
+               _mock_agg_data->method_variant);
 }
 
 StreamingAggOperatorX::StreamingAggOperatorX(ObjectPool* pool, int operator_id,

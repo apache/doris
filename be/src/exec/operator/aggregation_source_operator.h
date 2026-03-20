@@ -82,6 +82,11 @@ protected:
     RuntimeProfile::Counter* _memory_usage_container = nullptr;
     RuntimeProfile::Counter* _memory_usage_arena = nullptr;
 
+    // Mock benchmark timers: one-time full traverse comparison
+    RuntimeProfile::Counter* _mock_hash_table_iterate_timer = nullptr;
+    RuntimeProfile::Counter* _mock_container_iterate_timer = nullptr;
+    bool _mock_iterated = false;
+
     using vectorized_get_result =
             std::function<Status(RuntimeState* state, Block* block, bool* eos)>;
 

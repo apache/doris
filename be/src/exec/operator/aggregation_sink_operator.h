@@ -88,6 +88,7 @@ protected:
                              uint32_t num_rows);
     void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                   uint32_t num_rows);
+    void _mock_emplace_into_hash_table(ColumnRawPtrs& key_columns, uint32_t num_rows);
     bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
                                         const std::vector<int>& key_locs,
                                         ColumnRawPtrs& key_columns, uint32_t num_rows);
@@ -114,6 +115,11 @@ protected:
     RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _memory_usage_container = nullptr;
     RuntimeProfile::Counter* _memory_usage_arena = nullptr;
+
+    // Mock benchmark timers: emplace into hash table without AggregateDataContainer
+    RuntimeProfile::Counter* _mock_hash_table_compute_timer = nullptr;
+    RuntimeProfile::Counter* _mock_hash_table_emplace_timer = nullptr;
+    RuntimeProfile::Counter* _mock_hash_table_input_counter = nullptr;
 
     bool _should_limit_output = false;
 
