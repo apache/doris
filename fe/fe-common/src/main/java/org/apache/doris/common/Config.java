@@ -1670,7 +1670,7 @@ public class Config extends ConfigBase {
      * The number is determined by "start" and "end" in the dynamic partition parameters.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_dynamic_partition_num = 500;
+    public static int max_dynamic_partition_num = 20000;
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating multi partition,
@@ -2966,9 +2966,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "对于自动分区表，防止用户意外创建大量分区，每个 OLAP 表允许的分区数量为`max_auto_partition_num`。默认 2000。",
             "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
-                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
-    })
-    public static int max_auto_partition_num = 2000;
+                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 20000."})
+    public static int max_auto_partition_num = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Partition rebalance 方式下各个 BE 的 tablet 数最大差值，小于该值时，会诊断为已均衡",
