@@ -23,7 +23,6 @@
 #include <vector>
 
 #include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
 #include "vec/columns/column_string.h"
 #include "vec/core/block.h"
 

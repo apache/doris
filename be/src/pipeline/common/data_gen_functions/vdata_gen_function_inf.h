@@ -20,11 +20,11 @@
 #include <memory>
 
 #include "common/global_types.h"
-#include "runtime/descriptors.h"
 #include "vec/core/block.h"
 
 namespace doris {
 
+class TupleDescriptor;
 class RuntimeState;
 class Status;
 class TScanRangeParams;

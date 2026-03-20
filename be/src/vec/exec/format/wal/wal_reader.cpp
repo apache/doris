@@ -22,6 +22,7 @@
 #include "cpp/sync_point.h"
 #include "gutil/strings/split.h"
 #include "olap/wal/wal_manager.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "vec/data_types/data_type_string.h"
 

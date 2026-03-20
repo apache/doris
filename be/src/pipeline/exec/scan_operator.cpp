@@ -30,6 +30,7 @@
 #include "pipeline/exec/meta_scan_operator.h"
 #include "pipeline/exec/olap_scan_operator.h"
 #include "pipeline/exec/operator.h"
+#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/scan/scanner_context.h"

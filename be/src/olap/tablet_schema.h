@@ -39,7 +39,6 @@
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/options.h"
 #include "runtime/define_primitive_type.h"
-#include "runtime/descriptors.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "util/string_util.h"
 #include "vec/aggregate_functions/aggregate_function.h"

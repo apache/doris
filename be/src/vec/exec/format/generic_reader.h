@@ -25,6 +25,10 @@
 #include "util/profile_collector.h"
 #include "vec/exprs/vexpr_context.h"
 
+namespace doris {
+class SlotDescriptor;
+} // namespace doris
+
 namespace doris::vectorized {
 
 class Block;

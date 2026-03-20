@@ -17,10 +17,10 @@
 
 #pragma once
 #include "olap/wal/wal_reader.h"
-#include "runtime/descriptors.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
+class TupleDescriptor;
 namespace vectorized {
 struct ScannerCounter;
 class WalReader : public GenericReader {

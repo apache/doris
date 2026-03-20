@@ -40,7 +40,6 @@
 #include "olap/rowset/segment_v2/stream_reader.h"
 #include "olap/schema.h"
 #include "olap/tablet_schema.h"
-#include "runtime/descriptors.h"
 #include "util/once.h"
 #include "util/slice.h"
 #include "vec/columns/column.h"
@@ -56,6 +55,7 @@ class IDataType;
 
 class ShortKeyIndexDecoder;
 class Schema;
+class SlotDescriptor;
 class StorageReadOptions;
 class MemTracker;
 class PrimaryKeyIndexReader;

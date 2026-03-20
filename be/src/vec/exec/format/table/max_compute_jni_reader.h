@@ -27,10 +27,10 @@
 
 #include "common/status.h"
 #include "exec/olap_common.h"
-#include "runtime/descriptors.h"
 #include "vec/exec/format/jni_reader.h"
 
 namespace doris {
+class MaxComputeTableDescriptor;
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;

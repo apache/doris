@@ -26,7 +26,6 @@
 
 #include "common/status.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "util/bitmap.h"
 #include "vec/columns/column.h"
@@ -34,6 +33,10 @@
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/exprs/vexpr_fwd.h"
 #include "vec/sink/autoinc_buffer.h"
+
+namespace doris {
+class TupleDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

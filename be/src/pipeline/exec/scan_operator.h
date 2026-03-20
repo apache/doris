@@ -27,12 +27,17 @@
 #include "operator.h"
 #include "pipeline/common/runtime_filter_consumer.h"
 #include "pipeline/dependency.h"
-#include "runtime/descriptors.h"
 #include "runtime/types.h"
 #include "vec/exec/scan/vscan_node.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vin_predicate.h"
 #include "vec/utils/util.hpp"
+
+namespace doris {
+class DescriptorTbl;
+class SlotDescriptor;
+class TupleDescriptor;
+} // namespace doris
 
 namespace doris::vectorized {
 class ScannerDelegate;
