@@ -543,6 +543,14 @@ public class Config extends ConfigBase {
     public static boolean random_use_v3_storage_format = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "The stale threshold of checkpoint image file in cloud mode (in seconds). "
+                    + "If the image file is older than this threshold, a new checkpoint will be triggered "
+                    + "even if there are no new journals. This helps keep table version, partition version, "
+                    + "and tablet stats in the image up-to-date. If the value is less than or equal to 0, "
+                    + "this feature is disabled."})
+    public static long cloud_checkpoint_image_stale_threshold_seconds = 3600;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Wait for the internal batch to be written before returning; "
                     + "insert into and stream load use group commit by default."})
     public static boolean wait_internal_group_commit_finish = false;
