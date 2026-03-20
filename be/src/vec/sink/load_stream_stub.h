@@ -60,7 +60,6 @@
 #include "runtime/types.h"
 #include "util/countdown_latch.h"
 #include "util/debug_points.h"
-#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "vec/columns/column.h"
 #include "vec/common/allocator.h"

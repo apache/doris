@@ -22,10 +22,11 @@
 
 #include "runtime/exec_env.h"
 #include "runtime/memory/cache_policy.h"
-#include "util/runtime_profile.h"
 #include "util/time.h"
 
 namespace doris {
+
+class RuntimeProfile;
 
 // Hold the list of all caches, for prune when memory not enough or timing.
 class CacheManager {

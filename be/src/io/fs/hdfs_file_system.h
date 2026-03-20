@@ -32,9 +32,9 @@
 #include "io/fs/hdfs.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
+class RuntimeProfile;
 class THdfsParams;
 
 namespace io {
