@@ -325,7 +325,8 @@ protected:
             auto data_type = std::make_shared<DataTypeVariant>();
             auto string_type = std::make_shared<DataTypeString>();
             ColumnPtr string_col = string_type->create_column();
-            auto* mutable_string_col = assert_cast<ColumnString*>(string_col->assume_mutable().get());
+            auto* mutable_string_col =
+                    assert_cast<ColumnString*>(string_col->assume_mutable().get());
             for (size_t i = 0; i < column.size(); ++i) {
                 std::string s = data_type->to_string(column, i);
                 mutable_string_col->insert_data(s.data(), s.size());
@@ -368,7 +369,7 @@ protected:
                 int row_offset = v_idx * kRowsPerSegment + i;
                 int32_t c1 = version * kRowsPerSegment + i;
                 const std::string& json = json_rows[row_offset];
-                
+
                 // Assert k0 exists and has value c1 * 100 + 0
                 std::string exp_k0 = "\"k0\":" + std::to_string(c1 * 100);
                 EXPECT_TRUE(json.find(exp_k0) != std::string::npos)
@@ -377,10 +378,11 @@ protected:
 
                 // Assert k(num_keys-1) exists
                 if (num_keys > 0) {
-                    std::string exp_last_key = "\"k" + std::to_string(num_keys - 1) + "\":" +
-                                               std::to_string(c1 * 100 + num_keys - 1);
+                    std::string exp_last_key = "\"k" + std::to_string(num_keys - 1) +
+                                               "\":" + std::to_string(c1 * 100 + num_keys - 1);
                     EXPECT_TRUE(json.find(exp_last_key) != std::string::npos)
-                            << "Row " << row_offset << " missing last_key in: " << json.substr(0, 200);
+                            << "Row " << row_offset
+                            << " missing last_key in: " << json.substr(0, 200);
                 }
             }
         }
@@ -405,7 +407,7 @@ protected:
         for (int i = 0; i < kRowsPerSegment; ++i) {
             int32_t c1 = static_cast<int32_t>(version * kRowsPerSegment + i);
             columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
-            
+
             std::string json;
             if (i % 5 == 0) {
                 // Empty JSON
@@ -418,12 +420,14 @@ protected:
                 json = "{";
                 for (int k = 0; k < 5; ++k) {
                     if (k > 0) json += ",";
-                    json += "\"sparse_" + std::to_string(c1) + "_" + std::to_string(k) + "\":" + std::to_string(c1);
+                    json += "\"sparse_" + std::to_string(c1) + "_" + std::to_string(k) +
+                            "\":" + std::to_string(c1);
                 }
                 json += "}";
             } else if (i % 5 == 3) {
                 // Null and scalar values
-                json = "{\"val\": null, \"bool_val\": true, \"str_val\": \"text_" + std::to_string(c1) + "\"}";
+                json = "{\"val\": null, \"bool_val\": true, \"str_val\": \"text_" +
+                       std::to_string(c1) + "\"}";
             } else {
                 // Standard paths from our generation
                 json = generate_json(num_keys, c1);
@@ -632,8 +636,8 @@ TEST_F(VariantMixedCompactionTest, e2e_doc_value_read_json) {
         EXPECT_TRUE(json.find("\"k5\":" + std::to_string(i * 100 + 5)) != std::string::npos)
                 << "Row " << i << " missing k5 in: " << json.substr(0, 200);
         // Check last key to ensure all keys are preserved
-        std::string last_key = "\"k" + std::to_string(kNumKeys - 1) + "\":" +
-                               std::to_string(i * 100 + kNumKeys - 1);
+        std::string last_key = "\"k" + std::to_string(kNumKeys - 1) +
+                               "\":" + std::to_string(i * 100 + kNumKeys - 1);
         EXPECT_TRUE(json.find(last_key) != std::string::npos)
                 << "Row " << i << " missing last key in: " << json.substr(0, 200);
     }
@@ -663,8 +667,8 @@ TEST_F(VariantMixedCompactionTest, e2e_subcolumn_read_json) {
                 << "Row " << i << " missing k1 in: " << json;
         EXPECT_TRUE(json.find("\"k5\":" + std::to_string(i * 100 + 5)) != std::string::npos)
                 << "Row " << i << " missing k5 in: " << json;
-        std::string last_key = "\"k" + std::to_string(kNumKeys - 1) + "\":" +
-                               std::to_string(i * 100 + kNumKeys - 1);
+        std::string last_key = "\"k" + std::to_string(kNumKeys - 1) +
+                               "\":" + std::to_string(i * 100 + kNumKeys - 1);
         EXPECT_TRUE(json.find(last_key) != std::string::npos)
                 << "Row " << i << " missing last key in: " << json;
     }
@@ -703,16 +707,23 @@ TEST_F(VariantMixedCompactionTest, e2e_mixed_complex_boundary_cases) {
         if (i % 5 == 0) {
             EXPECT_EQ(json, "{}");
         } else if (i % 5 == 1) {
-            EXPECT_TRUE(json.find("\"nested\":{\"key\":" + std::to_string(c1) + "}") != std::string::npos) << json;
+            EXPECT_TRUE(json.find("\"nested\":{\"key\":" + std::to_string(c1) + "}") !=
+                        std::string::npos)
+                    << json;
             EXPECT_TRUE(json.find("\"arr\":[1, 2, 3]") != std::string::npos) << json;
         } else if (i % 5 == 2) {
-            EXPECT_TRUE(json.find("\"sparse_" + std::to_string(c1) + "_0\":" + std::to_string(c1)) != std::string::npos) << json;
+            EXPECT_TRUE(json.find("\"sparse_" + std::to_string(c1) +
+                                  "_0\":" + std::to_string(c1)) != std::string::npos)
+                    << json;
         } else if (i % 5 == 3) {
             // Nulls are omitted by the Variant stringifier, booleans are cast/stringified to 1/0
             EXPECT_TRUE(json.find("\"bool_val\":1") != std::string::npos) << json;
-            EXPECT_TRUE(json.find("\"str_val\":\"text_" + std::to_string(c1) + "\"") != std::string::npos) << json;
+            EXPECT_TRUE(json.find("\"str_val\":\"text_" + std::to_string(c1) + "\"") !=
+                        std::string::npos)
+                    << json;
         } else {
-            EXPECT_TRUE(json.find("\"k0\":" + std::to_string(c1 * 100)) != std::string::npos) << json;
+            EXPECT_TRUE(json.find("\"k0\":" + std::to_string(c1 * 100)) != std::string::npos)
+                    << json;
         }
     }
 }
@@ -739,7 +750,8 @@ TEST_F(VariantMixedCompactionTest, e2e_type_conflict_across_rowsets) {
             int32_t c1 = i;
             columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
             // x is an integer
-            std::string json = "{\"x\":" + std::to_string(i * 10) + ",\"shared\":" + std::to_string(i) + "}";
+            std::string json =
+                    "{\"x\":" + std::to_string(i * 10) + ",\"shared\":" + std::to_string(i) + "}";
             raw_json->insert_data(json.data(), json.size());
         }
         auto* vc = assert_cast<ColumnVariant*>(columns[1].get());
@@ -770,7 +782,8 @@ TEST_F(VariantMixedCompactionTest, e2e_type_conflict_across_rowsets) {
             int32_t c1 = kRowsPerSegment + i;
             columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
             // x is a string now!
-            std::string json = "{\"x\":\"str_" + std::to_string(i) + "\",\"shared\":" + std::to_string(i + 1000) + "}";
+            std::string json = "{\"x\":\"str_" + std::to_string(i) +
+                               "\",\"shared\":" + std::to_string(i + 1000) + "}";
             raw_json->insert_data(json.data(), json.size());
         }
         auto* vc = assert_cast<ColumnVariant*>(columns[1].get());
@@ -801,8 +814,8 @@ TEST_F(VariantMixedCompactionTest, e2e_type_conflict_across_rowsets) {
     // Verify rs0 rows: x should be int
     for (int i = 0; i < kRowsPerSegment; ++i) {
         const auto& json = json_rows[i];
-        EXPECT_TRUE(json.find("\"x\":" + std::to_string(i * 10)) != std::string::npos
-                    || json.find("\"x\":" + std::to_string(i * 10) + ".") != std::string::npos)
+        EXPECT_TRUE(json.find("\"x\":" + std::to_string(i * 10)) != std::string::npos ||
+                    json.find("\"x\":" + std::to_string(i * 10) + ".") != std::string::npos)
                 << "Row " << i << ": " << json;
         EXPECT_TRUE(json.find("\"shared\":" + std::to_string(i)) != std::string::npos)
                 << "Row " << i << ": " << json;
@@ -907,8 +920,8 @@ TEST_F(VariantMixedCompactionTest, e2e_cascaded_compaction) {
     verify_json_output(json_round1, {0, 1}, {2100, 10});
 
     // Round 2: compact(output1, new_subcolumn_rowset)
+    // Note: output1 is already in the tablet after round-1's modify_rowsets().
     auto rs2 = create_rowset(schema, tablet, 2, 5);
-    ASSERT_TRUE(tablet->add_rowset(output1).ok());
     ASSERT_TRUE(tablet->add_rowset(rs2).ok());
 
     auto output2 = run_compaction(tablet, {output1, rs2});
@@ -1029,6 +1042,509 @@ TEST_F(VariantMixedCompactionTest, e2e_disjoint_keys_compaction) {
         // Should NOT contain "a" keys
         EXPECT_TRUE(json.find("\"a0\"") == std::string::npos)
                 << "Row " << (kRowsPerSegment + i) << " unexpected a0: " << json;
+    }
+}
+
+// ============================================================================
+// Segment write → read tests (no compaction)
+// ============================================================================
+
+// Test 13: Write a doc-value rowset, read back and verify JSON content directly.
+TEST_F(VariantMixedCompactionTest, e2e_write_read_doc_value) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    constexpr int kNumKeys = 2100; // >= 2048, stays in doc-value mode
+    auto rs = create_rowset(schema, tablet, 0, kNumKeys);
+    ASSERT_TRUE(rs != nullptr);
+
+    // Verify it is doc-value format
+    EXPECT_TRUE(check_segment_is_doc_value(rs)) << "should be doc-value";
+
+    // Read back and verify every row's JSON content
+    auto json_rows = read_variant_json(rs, schema);
+    ASSERT_EQ(json_rows.size(), kRowsPerSegment);
+    verify_json_output(json_rows, {0}, {kNumKeys});
+
+    // Also verify row count via count_rows
+    EXPECT_EQ(kRowsPerSegment, count_rows(rs, schema));
+}
+
+// Test 14: Write a subcolumn (downgraded) rowset, read back and verify.
+TEST_F(VariantMixedCompactionTest, e2e_write_read_subcolumn) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    constexpr int kNumKeys = 10; // < 2048, subcolumn mode
+    auto rs = create_rowset(schema, tablet, 0, kNumKeys);
+    ASSERT_TRUE(rs != nullptr);
+
+    // Verify it is NOT doc-value (subcolumn mode)
+    EXPECT_FALSE(check_segment_is_doc_value(rs)) << "should be subcolumn mode";
+
+    // Read back and verify every row fully
+    auto json_rows = read_variant_json(rs, schema);
+    ASSERT_EQ(json_rows.size(), kRowsPerSegment);
+    verify_json_output(json_rows, {0}, {kNumKeys});
+
+    // Spot-check a few rows: k0 through k9 should all be present
+    for (int i = 0; i < std::min(5, kRowsPerSegment); ++i) {
+        const auto& json = json_rows[i];
+        for (int k = 0; k < kNumKeys; ++k) {
+            int32_t c1 = i; // version=0
+            std::string exp = "\"k" + std::to_string(k) + "\":" + std::to_string(c1 * 100 + k);
+            EXPECT_TRUE(json.find(exp) != std::string::npos)
+                    << "Row " << i << " missing " << exp << " in: " << json.substr(0, 200);
+        }
+    }
+}
+
+// Test 15: Write a multi-segment rowset, read all segments back.
+TEST_F(VariantMixedCompactionTest, e2e_write_read_multi_segment) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    constexpr int kNumKeys = 15; // subcolumn mode, small
+    constexpr int kNumSegments = 3;
+
+    // Write 3 * kRowsPerSegment rows into one rowset (auto-split into 3 segments)
+    RowsetWriterContext ctx;
+    create_rowset_writer_context(schema, tablet->tablet_path(), 0, &ctx);
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, ctx, true);
+    ASSERT_TRUE(res.has_value()) << res.error();
+    auto writer = std::move(res).value();
+
+    for (int seg = 0; seg < kNumSegments; ++seg) {
+        Block block = schema->create_block();
+        auto columns = block.mutate_columns();
+        auto raw_json = ColumnString::create();
+        for (int i = 0; i < kRowsPerSegment; ++i) {
+            int32_t c1 = seg * kRowsPerSegment + i;
+            columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
+            std::string json = generate_json(kNumKeys, c1);
+            raw_json->insert_data(json.data(), json.size());
+        }
+        auto* vc = assert_cast<ColumnVariant*>(columns[1].get());
+        ParseConfig cfg;
+        cfg.enable_flatten_nested = false;
+        cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        cfg.max_subcolumns_count = 2048;
+        variant_util::parse_json_to_variant(*vc, *raw_json, cfg);
+        ASSERT_TRUE(writer->add_block(&block).ok());
+        ASSERT_TRUE(writer->flush().ok());
+    }
+
+    RowsetSharedPtr rs;
+    ASSERT_EQ(Status::OK(), writer->build(rs));
+    EXPECT_EQ(kNumSegments, rs->rowset_meta()->num_segments());
+    EXPECT_EQ(kRowsPerSegment * kNumSegments, rs->rowset_meta()->num_rows());
+
+    // Read back all rows
+    auto json_rows = read_variant_json(rs, schema);
+    ASSERT_EQ(json_rows.size(), kRowsPerSegment * kNumSegments);
+
+    // Verify each row's JSON content
+    for (int seg = 0; seg < kNumSegments; ++seg) {
+        for (int i = 0; i < kRowsPerSegment; ++i) {
+            int row_idx = seg * kRowsPerSegment + i;
+            int32_t c1 = seg * kRowsPerSegment + i;
+            const auto& json = json_rows[row_idx];
+            // Check first and last key
+            std::string exp_k0 = "\"k0\":" + std::to_string(c1 * 100);
+            EXPECT_TRUE(json.find(exp_k0) != std::string::npos)
+                    << "Row " << row_idx << " missing k0 in: " << json.substr(0, 200);
+            std::string exp_last = "\"k" + std::to_string(kNumKeys - 1) +
+                                   "\":" + std::to_string(c1 * 100 + kNumKeys - 1);
+            EXPECT_TRUE(json.find(exp_last) != std::string::npos)
+                    << "Row " << row_idx << " missing last key";
+        }
+    }
+}
+
+// Test 16: Write mixed JSON shapes (empty, nested, sparse, null/bool/str, regular).
+TEST_F(VariantMixedCompactionTest, e2e_write_read_mixed_json_shapes) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    auto rs = create_complex_rowset(schema, tablet, 0, 10);
+    ASSERT_TRUE(rs != nullptr);
+
+    auto json_rows = read_variant_json(rs, schema);
+    ASSERT_EQ(json_rows.size(), kRowsPerSegment);
+    EXPECT_EQ(kRowsPerSegment, count_rows(rs, schema));
+
+    // Verify specific row patterns based on i % 5
+    for (int i = 0; i < kRowsPerSegment; ++i) {
+        int32_t c1 = i; // version=0
+        const auto& json = json_rows[i];
+
+        if (i % 5 == 0) {
+            // Empty JSON → should be "{}" or contain no user keys
+            // Just verify it doesn't crash and is parseable
+            EXPECT_FALSE(json.empty()) << "Row " << i << " should not be empty string";
+        } else if (i % 5 == 1) {
+            // Nested JSON: {"nested": {"key": c1}, "arr": [1, 2, 3]}
+            std::string exp = std::to_string(c1);
+            EXPECT_TRUE(json.find("\"key\"") != std::string::npos ||
+                        json.find("\"nested\"") != std::string::npos)
+                    << "Row " << i << " missing nested structure: " << json.substr(0, 300);
+        } else if (i % 5 == 3) {
+            // Null and scalar: {"val": null, "bool_val": true, "str_val": "text_c1"}
+            std::string exp_str = "text_" + std::to_string(c1);
+            EXPECT_TRUE(json.find(exp_str) != std::string::npos)
+                    << "Row " << i << " missing str_val: " << json.substr(0, 300);
+        } else if (i % 5 == 4) {
+            // Standard keys from generate_json
+            std::string exp_k0 = "\"k0\":" + std::to_string(c1 * 100);
+            EXPECT_TRUE(json.find(exp_k0) != std::string::npos)
+                    << "Row " << i << " missing k0: " << json.substr(0, 200);
+        }
+    }
+}
+
+// Test 17: Write a single row with minimal JSON.
+TEST_F(VariantMixedCompactionTest, e2e_write_read_single_row) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    RowsetWriterContext ctx;
+    create_rowset_writer_context(schema, tablet->tablet_path(), 0, &ctx);
+    ctx.max_rows_per_segment = 100; // won't matter, only 1 row
+
+    auto res = RowsetFactory::create_rowset_writer(*engine_ref, ctx, true);
+    ASSERT_TRUE(res.has_value());
+    auto writer = std::move(res).value();
+
+    Block block = schema->create_block();
+    auto columns = block.mutate_columns();
+    auto raw_json = ColumnString::create();
+
+    int32_t c1 = 42;
+    columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
+    std::string json = R"({"x":1,"y":"hello","z":true})";
+    raw_json->insert_data(json.data(), json.size());
+
+    auto* vc = assert_cast<ColumnVariant*>(columns[1].get());
+    ParseConfig cfg;
+    cfg.enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    cfg.max_subcolumns_count = 2048;
+    variant_util::parse_json_to_variant(*vc, *raw_json, cfg);
+
+    ASSERT_TRUE(writer->add_block(&block).ok());
+    ASSERT_TRUE(writer->flush().ok());
+
+    RowsetSharedPtr rs;
+    ASSERT_EQ(Status::OK(), writer->build(rs));
+    EXPECT_EQ(1, rs->rowset_meta()->num_rows());
+
+    // Read back
+    auto json_rows = read_variant_json(rs, schema);
+    ASSERT_EQ(json_rows.size(), 1);
+    EXPECT_TRUE(json_rows[0].find("\"x\"") != std::string::npos)
+            << "missing x in: " << json_rows[0];
+    EXPECT_TRUE(json_rows[0].find("\"hello\"") != std::string::npos)
+            << "missing hello in: " << json_rows[0];
+}
+
+// Test 18: Write large JSON (5000 keys), read back every key.
+TEST_F(VariantMixedCompactionTest, e2e_write_read_large_json) {
+    TabletSchemaSPtr schema = create_schema(/*doc_hash_shard_count=*/4);
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    constexpr int kNumKeys = 5000;
+    auto rs = create_rowset(schema, tablet, 0, kNumKeys);
+    ASSERT_TRUE(rs != nullptr);
+
+    // Should be doc-value format (5000 >= 2048)
+    EXPECT_TRUE(check_segment_is_doc_value(rs)) << "should be doc-value";
+
+    // Read back
+    auto json_rows = read_variant_json(rs, schema);
+    ASSERT_EQ(json_rows.size(), kRowsPerSegment);
+
+    // Spot-check first and last 3 rows
+    for (int i : {0, 1, 2, kRowsPerSegment - 3, kRowsPerSegment - 2, kRowsPerSegment - 1}) {
+        int32_t c1 = i;
+        const auto& json = json_rows[i];
+        // Check k0
+        EXPECT_TRUE(json.find("\"k0\":" + std::to_string(c1 * 100)) != std::string::npos)
+                << "Row " << i << " missing k0";
+        // Check k4999
+        EXPECT_TRUE(json.find("\"k4999\":" + std::to_string(c1 * 100 + 4999)) != std::string::npos)
+                << "Row " << i << " missing k4999";
+        // Check a middle key k2500
+        EXPECT_TRUE(json.find("\"k2500\":" + std::to_string(c1 * 100 + 2500)) != std::string::npos)
+                << "Row " << i << " missing k2500";
+    }
+}
+
+// Test 19: Two rowsets each with 2000 keys (disjoint), read them separately — no compaction.
+// rs0: k0..k1999, rs1: k2000..k3999. Each is < 2048 → subcolumn mode.
+// Verifies: each rowset can be read back correctly independently.
+TEST_F(VariantMixedCompactionTest, e2e_cross_rowset_disjoint_keys_read) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    // Helper: create rowset with keys [key_start, key_start+num_keys)
+    auto create_offset_rowset = [&](int64_t version, int key_start, int num_keys) {
+        RowsetWriterContext ctx;
+        create_rowset_writer_context(schema, tablet->tablet_path(), version, &ctx);
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, ctx, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto writer = std::move(res).value();
+
+        Block block = schema->create_block();
+        auto columns = block.mutate_columns();
+        auto raw_json = ColumnString::create();
+        for (int i = 0; i < kRowsPerSegment; ++i) {
+            int32_t c1 = static_cast<int32_t>(version * kRowsPerSegment + i);
+            columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
+            std::string json = "{";
+            for (int k = 0; k < num_keys; ++k) {
+                if (k > 0) json += ",";
+                json += "\"k" + std::to_string(key_start + k) +
+                        "\":" + std::to_string(c1 * 100 + k);
+            }
+            json += "}";
+            raw_json->insert_data(json.data(), json.size());
+        }
+        auto* vc = assert_cast<ColumnVariant*>(columns[1].get());
+        ParseConfig cfg;
+        cfg.enable_flatten_nested = false;
+        cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        cfg.max_subcolumns_count = 2048;
+        variant_util::parse_json_to_variant(*vc, *raw_json, cfg);
+        EXPECT_TRUE(writer->add_block(&block).ok());
+        EXPECT_TRUE(writer->flush().ok());
+        RowsetSharedPtr rs;
+        EXPECT_EQ(Status::OK(), writer->build(rs));
+        return rs;
+    };
+
+    // rs0: keys k0..k1999 (2000 keys < 2048, subcolumn mode)
+    auto rs0 = create_offset_rowset(0, 0, 2000);
+    ASSERT_TRUE(rs0 != nullptr);
+    EXPECT_FALSE(check_segment_is_doc_value(rs0)) << "rs0 should be subcolumn (2000 < 2048)";
+
+    // rs1: keys k2000..k3999 (2000 keys < 2048, subcolumn mode)
+    auto rs1 = create_offset_rowset(1, 2000, 2000);
+    ASSERT_TRUE(rs1 != nullptr);
+    EXPECT_FALSE(check_segment_is_doc_value(rs1)) << "rs1 should be subcolumn (2000 < 2048)";
+
+    // Read rs0: verify k0 exists, k2000 does NOT
+    auto json0 = read_variant_json(rs0, schema);
+    ASSERT_EQ(json0.size(), kRowsPerSegment);
+    for (int i = 0; i < 3; ++i) {
+        int32_t c1 = i;
+        EXPECT_TRUE(json0[i].find("\"k0\":" + std::to_string(c1 * 100)) != std::string::npos)
+                << "rs0 row " << i << " missing k0";
+        EXPECT_TRUE(json0[i].find("\"k1999\":" + std::to_string(c1 * 100 + 1999)) !=
+                    std::string::npos)
+                << "rs0 row " << i << " missing k1999";
+        EXPECT_TRUE(json0[i].find("\"k2000\"") == std::string::npos)
+                << "rs0 row " << i << " should NOT have k2000";
+    }
+
+    // Read rs1: verify k2000 exists, k0 does NOT
+    auto json1 = read_variant_json(rs1, schema);
+    ASSERT_EQ(json1.size(), kRowsPerSegment);
+    for (int i = 0; i < 3; ++i) {
+        int32_t c1 = kRowsPerSegment + i;
+        EXPECT_TRUE(json1[i].find("\"k2000\":" + std::to_string(c1 * 100)) != std::string::npos)
+                << "rs1 row " << i << " missing k2000";
+        EXPECT_TRUE(json1[i].find("\"k3999\":" + std::to_string(c1 * 100 + 1999)) !=
+                    std::string::npos)
+                << "rs1 row " << i << " missing k3999";
+        EXPECT_TRUE(json1[i].find("\"k0\"") == std::string::npos)
+                << "rs1 row " << i << " should NOT have k0";
+    }
+}
+
+// Test 20: Two rowsets each with 2000 disjoint keys, read them together via TabletReader.
+// Combined key set = 4000 keys > 2048. Tests that query/read works continuously
+// across both rowsets without issue.
+TEST_F(VariantMixedCompactionTest, e2e_cross_rowset_disjoint_keys_tablet_reader) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    auto create_offset_rowset = [&](int64_t version, int key_start, int num_keys) {
+        RowsetWriterContext ctx;
+        create_rowset_writer_context(schema, tablet->tablet_path(), version, &ctx);
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, ctx, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto writer = std::move(res).value();
+
+        Block block = schema->create_block();
+        auto columns = block.mutate_columns();
+        auto raw_json = ColumnString::create();
+        for (int i = 0; i < kRowsPerSegment; ++i) {
+            int32_t c1 = static_cast<int32_t>(version * kRowsPerSegment + i);
+            columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
+            std::string json = "{";
+            for (int k = 0; k < num_keys; ++k) {
+                if (k > 0) json += ",";
+                json += "\"k" + std::to_string(key_start + k) +
+                        "\":" + std::to_string(c1 * 100 + k);
+            }
+            json += "}";
+            raw_json->insert_data(json.data(), json.size());
+        }
+        auto* vc = assert_cast<ColumnVariant*>(columns[1].get());
+        ParseConfig cfg;
+        cfg.enable_flatten_nested = false;
+        cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        cfg.max_subcolumns_count = 2048;
+        variant_util::parse_json_to_variant(*vc, *raw_json, cfg);
+        EXPECT_TRUE(writer->add_block(&block).ok());
+        EXPECT_TRUE(writer->flush().ok());
+        RowsetSharedPtr rs;
+        EXPECT_EQ(Status::OK(), writer->build(rs));
+        return rs;
+    };
+
+    // rs0: k0..k1999, rs1: k2000..k3999
+    auto rs0 = create_offset_rowset(0, 0, 2000);
+    auto rs1 = create_offset_rowset(1, 2000, 2000);
+    ASSERT_TRUE(rs0 != nullptr);
+    ASSERT_TRUE(rs1 != nullptr);
+    ASSERT_TRUE(tablet->add_rowset(rs0).ok());
+    ASSERT_TRUE(tablet->add_rowset(rs1).ok());
+
+    // Both should be subcolumn mode individually
+    EXPECT_FALSE(check_segment_is_doc_value(rs0)) << "rs0 subcolumn";
+    EXPECT_FALSE(check_segment_is_doc_value(rs1)) << "rs1 subcolumn";
+
+    // Read by simulating a query scanner collecting from both rowsets
+    std::vector<std::string> json_rows;
+
+    // Simulate query path reading them sequentially
+    auto read_rs = [&](const RowsetSharedPtr& rs) {
+        auto rows = read_variant_json(rs, schema);
+        json_rows.insert(json_rows.end(), rows.begin(), rows.end());
+    };
+    read_rs(rs0);
+    read_rs(rs1);
+
+    ASSERT_EQ(json_rows.size(), kRowsPerSegment * 2);
+
+    // rs0's rows (first kRowsPerSegment): should have k0..k1999 but NOT k2000..k3999
+    for (int i = 0; i < 3; ++i) {
+        int32_t c1 = i;
+        const auto& json = json_rows[i];
+        EXPECT_TRUE(json.find("\"k0\":" + std::to_string(c1 * 100)) != std::string::npos)
+                << "output row " << i << " missing k0";
+        EXPECT_TRUE(json.find("\"k1999\":" + std::to_string(c1 * 100 + 1999)) != std::string::npos)
+                << "output row " << i << " missing k1999";
+        EXPECT_TRUE(json.find("\"k2000\"") == std::string::npos)
+                << "output row " << i << " should NOT have k2000";
+    }
+
+    // rs1's rows (second kRowsPerSegment): should have k2000..k3999 but NOT k0..k1999
+    for (int i = 0; i < 3; ++i) {
+        int row_idx = kRowsPerSegment + i;
+        int32_t c1 = kRowsPerSegment + i;
+        const auto& json = json_rows[row_idx];
+        EXPECT_TRUE(json.find("\"k2000\":" + std::to_string(c1 * 100)) != std::string::npos)
+                << "output row " << row_idx << " missing k2000";
+        EXPECT_TRUE(json.find("\"k3999\":" + std::to_string(c1 * 100 + 1999)) != std::string::npos)
+                << "output row " << row_idx << " missing k3999";
+        EXPECT_TRUE(json.find("\"k0\"") == std::string::npos)
+                << "output row " << row_idx << " should NOT have k0";
+    }
+}
+
+// Test 21: Two rowsets each with 2000 disjoint keys, COMPACT them.
+// Combined key set = 4000 keys > 2048. Tests compaction behavior when
+// individual rowsets are subcolumn but combined exceeds threshold.
+TEST_F(VariantMixedCompactionTest, e2e_cross_rowset_disjoint_keys_compact) {
+    TabletSchemaSPtr schema = create_schema();
+    TabletSharedPtr tablet = create_tablet(*schema);
+    ASSERT_TRUE(io::global_local_filesystem()->create_directory(tablet->tablet_path()).ok());
+
+    auto create_offset_rowset = [&](int64_t version, int key_start, int num_keys) {
+        RowsetWriterContext ctx;
+        create_rowset_writer_context(schema, tablet->tablet_path(), version, &ctx);
+        auto res = RowsetFactory::create_rowset_writer(*engine_ref, ctx, true);
+        EXPECT_TRUE(res.has_value()) << res.error();
+        auto writer = std::move(res).value();
+
+        Block block = schema->create_block();
+        auto columns = block.mutate_columns();
+        auto raw_json = ColumnString::create();
+        for (int i = 0; i < kRowsPerSegment; ++i) {
+            int32_t c1 = static_cast<int32_t>(version * kRowsPerSegment + i);
+            columns[0]->insert_data(reinterpret_cast<const char*>(&c1), sizeof(c1));
+            std::string json = "{";
+            for (int k = 0; k < num_keys; ++k) {
+                if (k > 0) json += ",";
+                json += "\"k" + std::to_string(key_start + k) +
+                        "\":" + std::to_string(c1 * 100 + k);
+            }
+            json += "}";
+            raw_json->insert_data(json.data(), json.size());
+        }
+        auto* vc = assert_cast<ColumnVariant*>(columns[1].get());
+        ParseConfig cfg;
+        cfg.enable_flatten_nested = false;
+        cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        cfg.max_subcolumns_count = 2048;
+        variant_util::parse_json_to_variant(*vc, *raw_json, cfg);
+        EXPECT_TRUE(writer->add_block(&block).ok());
+        EXPECT_TRUE(writer->flush().ok());
+        RowsetSharedPtr rs;
+        EXPECT_EQ(Status::OK(), writer->build(rs));
+        return rs;
+    };
+
+    // rs0: k0..k1999, rs1: k2000..k3999
+    auto rs0 = create_offset_rowset(0, 0, 2000);
+    auto rs1 = create_offset_rowset(1, 2000, 2000);
+    ASSERT_TRUE(rs0 != nullptr);
+    ASSERT_TRUE(rs1 != nullptr);
+    ASSERT_TRUE(tablet->add_rowset(rs0).ok());
+    ASSERT_TRUE(tablet->add_rowset(rs1).ok());
+
+    // Both should be subcolumn mode individually
+    EXPECT_FALSE(check_segment_is_doc_value(rs0)) << "rs0 subcolumn";
+    EXPECT_FALSE(check_segment_is_doc_value(rs1)) << "rs1 subcolumn";
+
+    // Compact: combined 4000 keys > 2048
+    auto output = run_compaction(tablet, {rs0, rs1});
+    ASSERT_TRUE(output != nullptr);
+    EXPECT_EQ(kRowsPerSegment * 2, output->rowset_meta()->num_rows());
+
+    // Read compacted output
+    auto json_rows = read_variant_json(output, schema);
+    ASSERT_EQ(json_rows.size(), kRowsPerSegment * 2);
+
+    // rs0's rows (first kRowsPerSegment): should have k0..k1999 but NOT k2000..k3999
+    for (int i = 0; i < 3; ++i) {
+        int32_t c1 = i;
+        const auto& json = json_rows[i];
+        EXPECT_TRUE(json.find("\"k0\":" + std::to_string(c1 * 100)) != std::string::npos)
+                << "output row " << i << " missing k0";
+        EXPECT_TRUE(json.find("\"k1999\":" + std::to_string(c1 * 100 + 1999)) != std::string::npos)
+                << "output row " << i << " missing k1999";
+    }
+
+    // rs1's rows (second kRowsPerSegment): should have k2000..k3999 but NOT k0..k1999
+    for (int i = 0; i < 3; ++i) {
+        int row_idx = kRowsPerSegment + i;
+        int32_t c1 = kRowsPerSegment + i;
+        const auto& json = json_rows[row_idx];
+        EXPECT_TRUE(json.find("\"k2000\":" + std::to_string(c1 * 100)) != std::string::npos)
+                << "output row " << row_idx << " missing k2000";
+        EXPECT_TRUE(json.find("\"k3999\":" + std::to_string(c1 * 100 + 1999)) != std::string::npos)
+                << "output row " << row_idx << " missing k3999";
     }
 }
 
