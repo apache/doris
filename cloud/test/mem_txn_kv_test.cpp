@@ -1301,7 +1301,7 @@ TEST(TxnMemKvTest, ReverseFullRangeGet) {
             std::string begin = range_begin, end = range_end;
 
             std::unique_ptr<RangeGetIterator> it;
-            do {
+            while (it == nullptr /* may be not init */ || it->more()) {
                 err = txn->get(begin, end, &it, options);
                 ASSERT_EQ(err, TxnErrorCode::TXN_OK);
 
@@ -1312,7 +1312,7 @@ TEST(TxnMemKvTest, ReverseFullRangeGet) {
                 // Get next begin key for reverse range get
                 end = it->last_key();
                 options.end_key_selector = RangeKeySelector::FIRST_GREATER_OR_EQUAL;
-            } while (it->more());
+            }
         }
 
         std::vector<std::string> actual_keys;
