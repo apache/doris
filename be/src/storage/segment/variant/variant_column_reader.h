@@ -30,13 +30,13 @@
 
 #include "core/column/column_variant.h"
 #include "core/column/subcolumn_tree.h"
+#include "nested_group_provider.h"
+#include "nested_group_reader.h"
 #include "storage/index/indexed_column_reader.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/page_handle.h"
 #include "storage/segment/variant/binary_column_reader.h"
 #include "storage/segment/variant/hierarchical_data_iterator.h"
-#include "storage/segment/variant/nested_group_provider.h"
-#include "storage/segment/variant/nested_group_reader.h"
 #include "storage/segment/variant/variant_external_meta_reader.h"
 #include "storage/segment/variant/variant_statistics.h"
 #include "storage/tablet/tablet_schema.h"
@@ -451,10 +451,6 @@ public:
                           MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
-
-    Status read_null_map(size_t* n, NullMap& null_map) override {
-        return _inner_iter->read_null_map(n, null_map);
-    }
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
