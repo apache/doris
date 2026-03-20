@@ -27,6 +27,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
+#include "storage/rowset/rowset_factory.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
@@ -94,6 +95,19 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             if (has_tablet_states) {
                 tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
+            bool enable_async_publish =
+                    _cal_delete_bitmap_req.__isset.enable_mow_async_publish &&
+                    _cal_delete_bitmap_req.enable_mow_async_publish;
+            if (enable_async_publish) {
+                int64_t db_id = partition.__isset.db_id ? partition.db_id : -1;
+                int64_t table_id = partition.__isset.table_id ? partition.table_id : -1;
+                int64_t index_id =
+                        (partition.__isset.index_ids && i < partition.index_ids.size())
+                                ? partition.index_ids[i]
+                                : -1;
+                tablet_calc_delete_bitmap_ptr->set_async_publish_info(db_id, table_id, index_id,
+                                                                      partition.partition_id);
+            }
             auto submit_st = token->submit_func([tablet_id, tablet_calc_delete_bitmap_ptr, this]() {
                 auto st = tablet_calc_delete_bitmap_ptr->handle();
                 if (st.ok()) {
@@ -142,6 +156,15 @@ void CloudTabletCalcDeleteBitmapTask::set_compaction_stats(int64_t ms_base_compa
 }
 void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
     _ms_tablet_state = tablet_state;
+}
+
+void CloudTabletCalcDeleteBitmapTask::set_async_publish_info(
+        int64_t db_id, int64_t table_id, int64_t index_id, int64_t partition_id) {
+    _enable_async_publish = true;
+    _db_id = db_id;
+    _table_id = table_id;
+    _index_id = index_id;
+    _partition_id = partition_id;
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
@@ -199,6 +222,16 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     }
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
+
+    // Async publish: if already applied, skip calc delete bitmap
+    if (_enable_async_publish) {
+        if (max_version >= _version) {
+            LOG(INFO) << "tablet already has version " << _version
+                      << ", skip calc delete bitmap, tablet_id=" << _tablet_id;
+            return Status::OK();
+        }
+    }
+
     if (_version != max_version + 1) {
         bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
                          max_version + config::publish_version_gap_logging_threshold >= _version);
@@ -282,6 +315,17 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
             return Status::InternalError("injected error");
         }
     });
+
+    // === Async publish: convert tmp rowset + local apply ===
+    if (_enable_async_publish && status.ok()) {
+        status = _handle_async_publish(tablet, _version);
+        if (!status.ok()) {
+            LOG(WARNING) << "async publish failed, tablet_id=" << _tablet_id
+                         << ", txn_id=" << _transaction_id << ", status=" << status;
+            return status;
+        }
+    }
+
     auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
     LOG(INFO) << "finish calculate delete bitmap on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
@@ -389,6 +433,33 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
             }
         }
     }
+    return Status::OK();
+}
+
+Status CloudTabletCalcDeleteBitmapTask::_handle_async_publish(
+        std::shared_ptr<CloudTablet> tablet, int64_t version) const {
+    // Step 1: Call MS convert_tmp_rowset
+    RowsetMetaSharedPtr rowset_meta;
+    RETURN_IF_ERROR(_engine.meta_mgr().convert_tmp_rowset(
+            _transaction_id, _tablet_id, version, _db_id, _table_id, _index_id, _partition_id,
+            &rowset_meta));
+
+    // Step 2: Create RowsetSharedPtr from returned rowset_meta
+    RowsetSharedPtr rowset;
+    RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, "", rowset_meta, &rowset));
+
+    // Step 3: Local apply - add rowset to tablet, update max_version
+    {
+        std::unique_lock meta_lock(tablet->get_header_lock());
+        if (tablet->max_version_unlocked() >= version) {
+            LOG(INFO) << "tablet=" << _tablet_id << " already applied version=" << version;
+            return Status::OK();
+        }
+        tablet->add_rowsets({rowset}, false /* version_overlap */, meta_lock);
+    }
+
+    LOG(INFO) << "async publish apply succeeded, tablet_id=" << _tablet_id
+              << ", txn_id=" << _transaction_id << ", version=" << version;
     return Status::OK();
 }
 

@@ -495,11 +495,15 @@ struct TCalcDeleteBitmapPartitionInfo {
     6: optional list<i64> cumulative_points
     7: optional list<i64> sub_txn_ids
     8: optional list<i64> tablet_states
+    9: optional i64 db_id
+    10: optional i64 table_id
+    11: optional list<i64> index_ids   // per-tablet, parallel to tablet_ids
 }
 
 struct TCalcDeleteBitmapRequest {
     1: required Types.TTransactionId transaction_id
     2: required list<TCalcDeleteBitmapPartitionInfo> partitions;
+    3: optional bool enable_mow_async_publish
 }
 
 struct TClearAlterTaskRequest {
