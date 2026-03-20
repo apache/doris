@@ -32,7 +32,8 @@
 
 namespace doris {
 
-std::vector<SchemaScanner::ColumnDesc> SchemaStreamConsumptionScanner::_s_stream_consumption_columns = {
+std::vector<SchemaScanner::ColumnDesc> 
+    SchemaStreamConsumptionScanner::_s_stream_consumption_columns = {
         {"DB_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"STREAM_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"STREAM_ID", TYPE_BIGINT, sizeof(int64_t), true},
@@ -40,7 +41,7 @@ std::vector<SchemaScanner::ColumnDesc> SchemaStreamConsumptionScanner::_s_stream
         {"CONSUMPTION_STATUS", TYPE_VARCHAR, sizeof(StringRef), true},
         {"LAG", TYPE_VARCHAR, sizeof(StringRef), true},
         {"LAST_CONSUMPTION_TIME", TYPE_BIGINT, sizeof(int64_t), true},
-};
+    };
 
 SchemaStreamConsumptionScanner::SchemaStreamConsumptionScanner()
         : SchemaScanner(_s_stream_consumption_columns, TSchemaTableType::SCH_STREAM_CONSUMPTION) {}
@@ -79,10 +80,10 @@ Status SchemaStreamConsumptionScanner::_get_stream_consumption_block_from_fe() {
 
     _stream_consumption_block = Block::create_unique();
     for (int i = 0; i < _s_stream_consumption_columns.size(); ++i) {
-        auto data_type =
-                DataTypeFactory::instance().create_data_type(_s_stream_consumption_columns[i].type, true);
-        _stream_consumption_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
-                                                     _s_stream_consumption_columns[i].name));
+        auto data_type = DataTypeFactory::instance().create_data_type(
+            _s_stream_consumption_columns[i].type, true);
+        _stream_consumption_block->insert(ColumnWithTypeAndName(
+            data_type->create_column(), data_type, _s_stream_consumption_columns[i].name));
     }
 
     _stream_consumption_block->reserve(_block_rows_limit);
@@ -90,14 +91,16 @@ Status SchemaStreamConsumptionScanner::_get_stream_consumption_block_from_fe() {
     if (result_data.size() > 0) {
         auto col_size = result_data[0].column_value.size();
         if (col_size != _s_stream_consumption_columns.size()) {
-            return Status::InternalError<false>("stream consumption schema is not match for FE and BE");
+            return Status::InternalError<false>(
+                "stream consumption schema is not match for FE and BE");
         }
     }
 
     for (int i = 0; i < result_data.size(); i++) {
         TRow row = result_data[i];
         for (int j = 0; j < _s_stream_consumption_columns.size(); j++) {
-            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j, _stream_consumption_block.get(),
+            RETURN_IF_ERROR(insert_block_column(row.column_value[j], j,
+                                                _stream_consumption_block.get(),
                                                 _s_stream_consumption_columns[j].type));
         }
     }
