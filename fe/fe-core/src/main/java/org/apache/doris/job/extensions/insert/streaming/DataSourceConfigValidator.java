@@ -45,7 +45,8 @@ public class DataSourceConfigValidator {
 
     // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
     private static final Set<String> ALLOW_TABLE_LEVEL_SUFFIXES = Sets.newHashSet(
-            DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX
+            DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
+            DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
     );
 
     private static final String TABLE_LEVEL_PREFIX = DataSourceConfigKeys.TABLE + ".";

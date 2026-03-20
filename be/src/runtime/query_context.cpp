@@ -36,7 +36,7 @@
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"

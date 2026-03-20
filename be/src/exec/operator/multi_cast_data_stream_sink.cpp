@@ -27,15 +27,19 @@ namespace doris {
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     auto* parent = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent);
     auto& dest_ids = parent->dests_id();
-    std::string result = "(";
+    std::string dest_list;
     for (size_t i = 0; i < dest_ids.size(); ++i) {
         if (i > 0) {
-            result += ", ";
+            dest_list += ",";
         }
-        result += fmt::format("dest_id={}", dest_ids[i]);
+        dest_list += std::to_string(dest_ids[i]);
     }
-    result += ")";
-    return fmt::format(result + operator_name_suffix, parent->operator_id());
+    if (_parent->nereids_id() == -1) {
+        return fmt::format("(id={}, dest_ids=[{}])", parent->operator_id(), dest_list);
+    } else {
+        return fmt::format("(nereids_id={}, id={}, dest_ids=[{}])", _parent->nereids_id(),
+                           parent->operator_id(), dest_list);
+    }
 }
 
 std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_shared_state() const {
@@ -52,7 +56,6 @@ std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_share
 Status MultiCastDataStreamSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _shared_state->multi_cast_data_streamer->set_sink_profile(operator_profile());
-    _shared_state->setup_shared_profile(custom_profile());
     _shared_state->multi_cast_data_streamer->set_write_dependency(_dependency);
     return Status::OK();
 }

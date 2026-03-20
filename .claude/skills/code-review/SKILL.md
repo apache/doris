@@ -34,10 +34,11 @@ Always focus on the following core invariants during review:
 ### 1.2 Review Principles
 
 - **Follow Context**: Match adjacent code's error handling, interface usage, and lock patterns unless a clearly better approach exists
-- **Reuse First**: Search for existing implementations before adding new ones; ensure good abstraction afterward
+- **Reuse First**: Search for existing implementations before adding new ones; ensure good abstraction afterward. For example, in the implementation of SQL functions in BE, we prefer to use an existing base template rather than implementing everything from scratch. The same principle applies to the implementation of other features. Common parts should be abstracted as much as possible.
 - **Code Over Docs**: When this skill conflicts with actual code, defer to code and note the mismatch
 - **Performance First**: All obviously redundant operations should be optimized away, all obvious performance optimizations must be applied, and obvious anti-patterns must be eliminated.
 - **Evidence Speaks**: All issues with code itself (not memory or environment) must be clearly identified as either having problems or not. For any erroneous situation, if it cannot be confirmed locally, you must provide the specific path or logic where the error occurs. That is, if you believe that if A then B, you must specify a clear scenario where A occurs.
+- **Review Holistically**: For any new feature or modification, you must analyze its upstream and downstream code to understand the real invocation chain. Identify all implicit assumptions and constraints throughout the flow, then verify carefully that the current change works correctly within the entire end-to-end process. Also determine whether a seemingly problematic local pattern is actually safe due to strong guarantees from upstream or downstream, or whether a conventional local implementation fails to achieve optimal performance because it does not leverage additional information available from the surrounding context.
 
 ### 1.3 Critical Checkpoints (Self-Review and Review Priority)
 

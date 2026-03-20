@@ -219,7 +219,7 @@ static void fill_variant_column_with_doc_value_only(
     VariantUtil::fill_string_column_with_test_data(column_string, num_rows, inserted);
 
     ParseConfig config;
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
     variant_util::parse_json_to_variant(*column_object, *column_string, config);
 }
@@ -1340,7 +1340,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
     }
 
     ParseConfig config;
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
 
     MutableColumnPtr root_variant =
@@ -1515,7 +1515,7 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
     strings->insert_data(row1.data(), row1.size());
 
     ParseConfig parse_cfg;
-    parse_cfg.enable_flatten_nested = false;
+    parse_cfg.deprecated_enable_flatten_nested = false;
     parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
 
     MutableColumnPtr bucket_variant =
@@ -1616,7 +1616,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
     strings->insert_data(inserted_json[1].data(), inserted_json[1].size());
 
     ParseConfig parse_cfg;
-    parse_cfg.enable_flatten_nested = false;
+    parse_cfg.deprecated_enable_flatten_nested = false;
     parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
 
     MutableColumnPtr variant_column =
@@ -2680,7 +2680,7 @@ TEST_F(VariantColumnWriterReaderTest, test_no_sub_in_sparse_column) {
     }
 
     ParseConfig config;
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     variant_util::parse_json_to_variant(*column_object, *column_string, config);
     std::cout << "column_object size: "
               << assert_cast<ColumnVariant*>(column_object.get())->debug_string() << std::endl;
@@ -2825,7 +2825,7 @@ TEST_F(VariantColumnWriterReaderTest, test_prefix_in_sub_and_sparse) {
     }
 
     ParseConfig config;
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     variant_util::parse_json_to_variant(*column_object, *column_string, config);
     std::cout << "column_object size: "
               << assert_cast<ColumnVariant*>(column_object.get())->debug_string() << std::endl;
@@ -3312,7 +3312,7 @@ TEST_F(VariantColumnWriterReaderTest, test_read_with_checksum) {
                 fill_string_column_with_test_data(column_string, size, inserted_jsonstr,
                                                   path_with_size);
                 ParseConfig config;
-                config.enable_flatten_nested = false;
+                config.deprecated_enable_flatten_nested = false;
                 variant_util::parse_json_to_variant(*column_object, *column_string, config);
             };
 

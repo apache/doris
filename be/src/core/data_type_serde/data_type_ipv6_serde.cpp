@@ -276,6 +276,11 @@ Status DataTypeIPv6SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Deserializes an IPv6 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses CastToIPv6::from_string to parse standard IPv6 notation.
+// Expected input format: standard IPv6, e.g. "::1", "2001:db8::1", "fe80::1%25eth0"
 Status DataTypeIPv6SerDe::from_olap_string(const std::string& str, Field& field,
                                            const FormatOptions& options) const {
     CastParameters params;
@@ -320,6 +325,10 @@ void DataTypeIPv6SerDe::write_one_cell_to_binary(const IColumn& src_column,
     memcpy(chars.data() + old_size + sizeof(uint8_t), data_ref.data, data_ref.size);
 }
 
+// Serializes an IPv6 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+// Uses CastToString::from_ip() to produce standard IPv6 notation.
+// Output format: standard IPv6, e.g. "::1", "2001:db8::1"
 std::string DataTypeIPv6SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_ip(field.get<TYPE_IPV6>());
 }

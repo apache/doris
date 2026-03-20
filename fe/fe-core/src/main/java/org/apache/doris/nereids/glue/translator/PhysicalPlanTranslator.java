@@ -845,11 +845,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 table instanceof JdbcExternalTable, context.getScanContext());
         jdbcScanNode.setNereidsId(jdbcScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(jdbcScan.getId(), jdbcScanNode.getId());
+
+        TableNameInfo tableNameInfo = new TableNameInfo(null, "", "");
+        TableRefInfo ref = new TableRefInfo(tableNameInfo, null, null);
+        BaseTableRefInfo tableRefInfo = new BaseTableRefInfo(ref, tableNameInfo, table);
+        tupleDescriptor.setRef(tableRefInfo);
+        if (jdbcScan.getStats() != null) {
+            jdbcScanNode.setCardinality((long) jdbcScan.getStats().getRowCount());
+        }
         Utils.execWithUncheckedException(jdbcScanNode::init);
         context.addScanNode(jdbcScanNode, jdbcScan);
         translateRuntimeFilter(jdbcScan, jdbcScanNode, context);
         DataPartition dataPartition = DataPartition.RANDOM;
-        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
+        PlanFragment planFragment = createPlanFragment(jdbcScanNode, dataPartition, jdbcScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), jdbcScan);
         return planFragment;
@@ -1349,6 +1357,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 break;
             case MIX:
                 pushAggOp = TPushAggOp.MIX;
+                break;
+            case COUNT_NULL:
+                pushAggOp = TPushAggOp.COUNT_NULL;
                 break;
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
@@ -2768,7 +2779,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         materializeNode.setLazyColumns(materialize.getLazyColumns());
         materializeNode.setLocations(materialize.getLazySlotLocations());
-        materializeNode.setIdxs(materialize.getlazyTableIdxs());
+        materializeNode.setColumnIdxsLists(materialize.getLazyBaseColumnIndices());
 
         List<Boolean> rowStoreFlags = new ArrayList<>();
         for (Relation relation : materialize.getRelations()) {

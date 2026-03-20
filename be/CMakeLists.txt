@@ -663,10 +663,17 @@ set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES} clucene-contribs-lib)
 
 if (ENABLE_PAIMON_CPP)
     if (PAIMON_FACTORY_REGISTRY_LIBS)
-        set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
-            -Wl,--whole-archive
-            ${PAIMON_FACTORY_REGISTRY_LIBS}
-            -Wl,--no-whole-archive)
+        if (APPLE)
+            foreach(lib ${PAIMON_FACTORY_REGISTRY_LIBS})
+                set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                    -Wl,-force_load,$<TARGET_FILE:${lib}>)
+            endforeach()
+        else()
+            set(DORIS_DEPENDENCIES ${DORIS_DEPENDENCIES}
+                -Wl,--whole-archive
+                ${PAIMON_FACTORY_REGISTRY_LIBS}
+                -Wl,--no-whole-archive)
+        endif()
     endif()
 
     # paimon-cpp internal dependencies (renamed with _paimon suffix)

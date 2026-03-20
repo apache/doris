@@ -22,11 +22,11 @@
 #include "exec/operator/aggregation_sink_operator.h"
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
-#include "exec/spill/spill_stream.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file.h"
+#include "exec/spill/spill_file_manager.h"
+#include "exec/spill/spill_file_writer.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr.h"
-#include "util/pretty_printer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -41,22 +41,21 @@ public:
     PartitionedAggSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~PartitionedAggSinkLocalState() override = default;
 
-    friend class PartitionedAggSinkOperatorX;
-
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    bool is_blockable() const override;
 
-    Status _execute_spill_process(RuntimeState* state, size_t size_to_revoke);
+private:
+    friend class PartitionedAggSinkOperatorX;
 
-    Status setup_in_memory_agg_op(RuntimeState* state);
+    Status _revoke_memory(RuntimeState* state);
+
+    Status _setup_in_memory_agg_op(RuntimeState* state);
 
     template <bool spilled>
-    void update_profile(RuntimeProfile* child_profile);
-
-    bool is_blockable() const override;
+    void _update_profile(RuntimeProfile* child_profile);
 
     template <typename KeyType>
     struct TmpSpillInfo {
@@ -69,14 +68,14 @@ public:
                              HashTableType& hash_table, const size_t size_to_revoke, bool eos);
 
     template <typename HashTableCtxType, typename KeyType>
-    Status _spill_partition(RuntimeState* state, HashTableCtxType& context,
-                            AggSpillPartitionSPtr& spill_partition, std::vector<KeyType>& keys,
-                            std::vector<AggregateDataPtr>& values,
+
+    Status _spill_partition(RuntimeState* state, HashTableCtxType& context, size_t partition_idx,
+                            std::vector<KeyType>& keys, std::vector<AggregateDataPtr>& values,
                             const AggregateDataPtr null_key_data, bool is_last);
 
     template <typename HashTableCtxType, typename KeyType>
-    Status to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
-                    std::vector<AggregateDataPtr>& values, const AggregateDataPtr null_key_data);
+    Status _to_block(HashTableCtxType& context, std::vector<KeyType>& keys,
+                     std::vector<AggregateDataPtr>& values, const AggregateDataPtr null_key_data);
 
     void _reset_tmp_data();
     void _clear_tmp_data();
@@ -85,17 +84,19 @@ public:
     std::unique_ptr<RuntimeState> _runtime_state;
 
     // temp structures during spilling
-    MutableColumns key_columns_;
-    MutableColumns value_columns_;
-    DataTypes value_data_types_;
-    Block block_;
-    Block key_block_;
-    Block value_block_;
+    MutableColumns _key_columns;
+    MutableColumns _value_columns;
+    DataTypes _value_data_types;
+    Block _block;
+    Block _key_block;
+    Block _value_block;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
 
     RuntimeProfile::Counter* _spill_serialize_hash_table_timer = nullptr;
+
+    std::vector<SpillFileWriterSPtr> _spill_writers;
 
     std::atomic<bool> _eos = false;
 };
@@ -139,16 +140,15 @@ public:
     }
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
 private:
     friend class PartitionedAggSinkLocalState;
     std::unique_ptr<AggSinkOperatorX> _agg_sink_operator;
-
-    size_t _spill_partition_count = 32;
+    // each operator tracks its own partition count for spilling
+    size_t _partition_count = 32;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

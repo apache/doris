@@ -50,6 +50,7 @@
 #include "exprs/vtopn_pred.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "storage/predicate/null_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
@@ -141,6 +142,7 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_init_timer);
     auto& p = _parent->cast<typename Derived::Parent>();
+    _max_pushdown_conditions_per_column = p._max_pushdown_conditions_per_column;
     RETURN_IF_ERROR(_helper.init(state, p.is_serial_operator(), p.node_id(), p.operator_id(),
                                  _filter_dependencies, p.get_name() + "_FILTER_DEPENDENCY"));
     RETURN_IF_ERROR(_init_profile());
@@ -442,7 +444,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
         return Status::OK();
     }
 
-    if (pdt == PushDownType::ACCEPTABLE && (_is_key_column(slot->col_name()))) {
+    if (pdt == PushDownType::ACCEPTABLE && _is_key_column(slot->col_name())) {
         output_expr = nullptr;
         return Status::OK();
     } else {
@@ -454,8 +456,7 @@ Status ScanLocalState<Derived>::_normalize_predicate(VExprContext* context, cons
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_bloom_filter(
+Status ScanLocalStateBase::_normalize_bloom_filter(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     std::shared_ptr<ColumnPredicate> pred = nullptr;
@@ -483,8 +484,7 @@ Status ScanLocalState<Derived>::_normalize_bloom_filter(
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_topn_filter(
+Status ScanLocalStateBase::_normalize_topn_filter(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     std::shared_ptr<ColumnPredicate> pred = nullptr;
@@ -500,18 +500,16 @@ Status ScanLocalState<Derived>::_normalize_topn_filter(
     DCHECK(root->is_topn_filter());
     *pdt = _should_push_down_topn_filter();
     if (*pdt != PushDownType::UNACCEPTABLE) {
-        auto& p = _parent->cast<typename Derived::Parent>();
         auto& tmp = _state->get_query_ctx()->get_runtime_predicate(
                 assert_cast<VTopNPred*>(root.get())->source_node_id());
         if (_push_down_topn(tmp)) {
-            pred = tmp.get_predicate(p.node_id());
+            pred = tmp.get_predicate(_parent->node_id());
         }
     }
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_bitmap_filter(
+Status ScanLocalStateBase::_normalize_bitmap_filter(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, PushDownType* pdt) {
     std::shared_ptr<ColumnPredicate> pred = nullptr;
@@ -539,10 +537,8 @@ Status ScanLocalState<Derived>::_normalize_bitmap_filter(
     return Status::OK();
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_normalize_function_filters(VExprContext* expr_ctx,
-                                                            SlotDescriptor* slot,
-                                                            PushDownType* pdt) {
+Status ScanLocalStateBase::_normalize_function_filters(VExprContext* expr_ctx, SlotDescriptor* slot,
+                                                       PushDownType* pdt) {
     auto expr = expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     bool opposite = false;
     VExpr* fn_expr = expr.get();
@@ -622,8 +618,7 @@ std::string ScanLocalState<Derived>::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-template <typename Derived>
-Status ScanLocalState<Derived>::_eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt) {
+Status ScanLocalStateBase::_eval_const_conjuncts(VExprContext* expr_ctx, PushDownType* pdt) {
     auto vexpr =
             expr_ctx->root()->is_rf_wrapper() ? expr_ctx->root()->get_impl() : expr_ctx->root();
     // Used to handle constant expressions, such as '1 = 1' _eval_const_conjuncts does not handle cases like 'colA = 1'
@@ -671,9 +666,8 @@ Status ScanLocalState<Derived>::_eval_const_conjuncts(VExprContext* expr_ctx, Pu
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_in_predicate(
+Status ScanLocalStateBase::_normalize_in_predicate(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
         PushDownType* pdt) {
@@ -705,8 +699,7 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
     auto is_in = false;
     if (hybrid_set != nullptr) {
         // runtime filter produce VDirectInPredicate
-        if (hybrid_set->size() <=
-            _parent->cast<typename Derived::Parent>()._max_pushdown_conditions_per_column) {
+        if (hybrid_set->size() <= static_cast<size_t>(_max_pushdown_conditions_per_column)) {
             iter = hybrid_set->begin();
         }
         is_in = true;
@@ -784,9 +777,8 @@ Status ScanLocalState<Derived>::_normalize_in_predicate(
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_binary_predicate(
+Status ScanLocalStateBase::_normalize_binary_predicate(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
         PushDownType* pdt) {
@@ -895,13 +887,12 @@ Status ScanLocalState<Derived>::_normalize_binary_predicate(
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
-Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
-                                                    ColumnValueRange<PrimitiveType>& temp_range,
-                                                    const Field& value,
-                                                    const ChangeFixedValueRangeFunc& func,
-                                                    const std::string& fn_name) {
+Status ScanLocalStateBase::_change_value_range(bool is_equal_op,
+                                               ColumnValueRange<PrimitiveType>& temp_range,
+                                               const Field& value,
+                                               const ChangeFixedValueRangeFunc& func,
+                                               const std::string& fn_name) {
     if constexpr (PrimitiveType == TYPE_DATE) {
         auto tmp_value = value.template get<TYPE_DATE>();
         if (is_equal_op) {
@@ -937,9 +928,8 @@ Status ScanLocalState<Derived>::_change_value_range(bool is_equal_op,
     return Status::OK();
 }
 
-template <typename Derived>
 template <PrimitiveType T>
-Status ScanLocalState<Derived>::_normalize_is_null_predicate(
+Status ScanLocalStateBase::_normalize_is_null_predicate(
         VExprContext* expr_ctx, const VExprSPtr& root, SlotDescriptor* slot,
         std::vector<std::shared_ptr<ColumnPredicate>>& predicates, ColumnValueRange<T>& range,
         PushDownType* pdt) {
@@ -1041,35 +1031,41 @@ int64_t ScanLocalState<Derived>::limit_per_scanner() {
 template <typename Derived>
 Status ScanLocalState<Derived>::_init_profile() {
     // 1. counters for scan node
-    _rows_read_counter = ADD_COUNTER(custom_profile(), "RowsRead", TUnit::UNIT);
-    _num_scanners = ADD_COUNTER(custom_profile(), "NumScanners", TUnit::UNIT);
+    _rows_read_counter = ADD_COUNTER(custom_profile(), profile::ROWS_READ, TUnit::UNIT);
+    _num_scanners = ADD_COUNTER(custom_profile(), profile::NUM_SCANNERS, TUnit::UNIT);
     //custom_profile()->AddHighWaterMarkCounter("PeakMemoryUsage", TUnit::BYTES);
 
     // 2. counters for scanners
-    _scanner_profile.reset(new RuntimeProfile("Scanner"));
+    _scanner_profile.reset(new RuntimeProfile(profile::SCANNER));
     custom_profile()->add_child(_scanner_profile.get(), true, nullptr);
 
     _newly_create_free_blocks_num =
-            ADD_COUNTER(_scanner_profile, "NewlyCreateFreeBlocksNum", TUnit::UNIT);
-    _scan_timer = ADD_TIMER(_scanner_profile, "ScannerGetBlockTime");
-    _scan_cpu_timer = ADD_TIMER(_scanner_profile, "ScannerCpuTime");
-    _filter_timer = ADD_TIMER(_scanner_profile, "ScannerFilterTime");
+            ADD_COUNTER(_scanner_profile, profile::NEWLY_CREATE_FREE_BLOCKS_NUM, TUnit::UNIT);
+    _scan_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_GET_BLOCK_TIME);
+    _scan_cpu_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_CPU_TIME);
+    _filter_timer = ADD_TIMER(_scanner_profile, profile::SCANNER_FILTER_TIME);
 
     // time of scan thread to wait for worker thread of the thread pool
-    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), "ScannerWorkerWaitTime");
+    _scanner_wait_worker_timer = ADD_TIMER(custom_profile(), profile::SCANNER_WORKER_WAIT_TIME);
 
-    _max_scan_concurrency = ADD_COUNTER(custom_profile(), "MaxScanConcurrency", TUnit::UNIT);
-    _min_scan_concurrency = ADD_COUNTER(custom_profile(), "MinScanConcurrency", TUnit::UNIT);
+    _max_scan_concurrency =
+            ADD_COUNTER(custom_profile(), profile::MAX_SCAN_CONCURRENCY, TUnit::UNIT);
+    _min_scan_concurrency =
+            ADD_COUNTER(custom_profile(), profile::MIN_SCAN_CONCURRENCY, TUnit::UNIT);
 
     _peak_running_scanner =
-            _scanner_profile->AddHighWaterMarkCounter("RunningScanner", TUnit::UNIT);
+            _scanner_profile->AddHighWaterMarkCounter(profile::RUNNING_SCANNER, TUnit::UNIT);
+
+    _condition_cache_hit_counter = ADD_COUNTER(_scanner_profile, "ConditionCacheHit", TUnit::UNIT);
+    _condition_cache_filtered_rows_counter =
+            ADD_COUNTER(_scanner_profile, "ConditionCacheFilteredRows", TUnit::UNIT);
 
     // Rows read from storage.
     // Include the rows read from doris page cache.
-    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanRows", TUnit::UNIT, 1);
+    _scan_rows = ADD_COUNTER_WITH_LEVEL(custom_profile(), profile::SCAN_ROWS, TUnit::UNIT, 1);
     // Size of data that read from storage.
     // Does not include rows that are cached by doris page cache.
-    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), "ScanBytes", TUnit::BYTES, 1);
+    _scan_bytes = ADD_COUNTER_WITH_LEVEL(custom_profile(), profile::SCAN_BYTES, TUnit::BYTES, 1);
     return Status::OK();
 }
 

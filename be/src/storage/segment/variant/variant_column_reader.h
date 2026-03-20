@@ -452,6 +452,10 @@ public:
 
     ordinal_t get_current_ordinal() const override { return _inner_iter->get_current_ordinal(); }
 
+    Status read_null_map(size_t* n, NullMap& null_map) override {
+        return _inner_iter->read_null_map(n, null_map);
+    }
+
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,

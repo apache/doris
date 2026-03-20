@@ -214,6 +214,7 @@ enum TSchemaTableType {
     SCH_LOAD_JOBS = 64;
     SCH_FILE_CACHE_INFO = 65;
     SCH_DATABASE_PROPERTIES = 66;
+    SCH_AUTHENTICATION_INTEGRATIONS = 67;
 }
 
 enum THdfsCompression {
@@ -277,6 +278,9 @@ struct TOlapTablePartition {
     11: optional i64 load_tablet_idx
     12: optional i32 total_replica_num
     13: optional i32 load_required_replica_num
+    // tablet_id -> list of backend_ids that have version gaps (lastFailedVersion >= 0)
+    // used by BE to exclude these backends from success counting in majority write
+    14: optional map<i64, list<i64>> tablet_version_gap_backends
 }
 
 struct TOlapTablePartitionParam {

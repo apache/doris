@@ -17,8 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.foundation.format.FormatOptions;
-
 public final class MaxLiteral extends LiteralExpr {
 
     public static final MaxLiteral MAX_VALUE = new MaxLiteral();
@@ -60,8 +58,4 @@ public final class MaxLiteral extends LiteralExpr {
         return null;
     }
 
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return null;
-    }
 }

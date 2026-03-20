@@ -38,6 +38,15 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
+# ===== Build Profile =====
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
+    "${DORIS_HOME}/build_profile.sh" collect "${_BP_STATE}" "$*"
+    trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 130; exit 130' INT TERM
+    trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" $?; exit $?' ERR
+fi
+# ===== End Build Profile =====
+
 # Check args
 usage() {
     echo "
@@ -651,7 +660,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
     fi
 
     echo "-- Make program: ${MAKE_PROGRAM}"
-    echo "-- Use ccache: ${CMAKE_USE_CCACHE}"
+    echo "-- Use ccache: ${CMAKE_USE_CCACHE_CXX} and ${CMAKE_USE_CCACHE_C}"
     echo "-- Extra cxx flags: ${EXTRA_CXX_FLAGS:-}"
     echo "-- Build fs benchmark tool: ${BUILD_FS_BENCHMARK}"
     echo "-- Build task executor simulator: ${BUILD_TASK_EXECUTOR_SIMULATOR}"
@@ -1087,6 +1096,10 @@ echo "***************************************"
 
 if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
     eval "${DORIS_POST_BUILD_HOOK}"
+fi
+
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    "${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 0
 fi
 
 exit 0

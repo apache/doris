@@ -22,7 +22,6 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.base.Preconditions;
@@ -237,11 +236,6 @@ public class DecimalLiteral extends NumericLiteralExpr {
                         + " and " + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
         }
-    }
-
-    @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        return value.toPlainString();
     }
 
     @Override

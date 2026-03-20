@@ -127,6 +127,8 @@ private:
     Status _replace_tablet_id(const std::string& file_name, int64_t tablet_id,
                               std::string* new_file_name);
 
+    Status _check_snapshot_path_on_broken_storage(const std::string& path);
+
     Status _check_local_snapshot_paths(const std::map<std::string, std::string>& src_to_dest_path,
                                        bool check_src);
 

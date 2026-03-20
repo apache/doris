@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.LimitPhase;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -133,25 +134,30 @@ public class LogicalLimit<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TY
     public LogicalLimit<Plan> withLimitChild(long limit, long offset, Plan child) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalTopN should have 1 child, but input is %s", children.size());
-        return new LogicalLimit<>(limit, offset, phase, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLimit<>(limit, offset, phase, child));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalLimit<>(limit, offset, phase, groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLimit<>(limit, offset, phase, groupExpression,
+                        Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalLimit<>(limit, offset, phase, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLimit<>(limit, offset, phase, groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override
     public LogicalLimit<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalLimit<>(limit, offset, phase, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalLimit<>(limit, offset, phase, children.get(0)));
     }
 
     @Override

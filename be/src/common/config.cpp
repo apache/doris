@@ -251,6 +251,8 @@ DEFINE_Int32(num_query_ctx_map_partitions, "128");
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 DEFINE_Int32(release_snapshot_worker_count, "5");
+// the count of thread to make committed rowsets visible in cloud mode
+DEFINE_Int32(cloud_make_committed_rs_visible_worker_count, "16");
 // report random wait a little time to avoid FE receiving multiple be reports at the same time.
 // do not set it to false for production environment
 DEFINE_mBool(report_random_wait, "true");
@@ -1418,6 +1420,7 @@ DEFINE_mBool(enable_be_proc_monitor, "false");
 DEFINE_mInt32(be_proc_monitor_interval_ms, "10000");
 
 DEFINE_Int32(workload_group_metrics_interval_ms, "5000");
+DEFINE_Int32(workload_policy_check_interval_ms, "500");
 
 // Ingest binlog work pool size, -1 is disable, 0 is hardware concurrency
 DEFINE_Int32(ingest_binlog_work_pool_size, "-1");
@@ -1460,9 +1463,10 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");    // 20%
-DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
-DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
+DEFINE_String(spill_storage_limit, "20%");               // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
+DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
+DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
@@ -1470,8 +1474,6 @@ DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
 DEFINE_Int64(wait_cancel_release_memory_ms, "5000");
 
 DEFINE_mBool(check_segment_when_build_rowset_meta, "false");
-
-DEFINE_mBool(force_azure_blob_global_endpoint, "false");
 
 DEFINE_mInt32(max_s3_client_retry, "10");
 DEFINE_mInt32(s3_read_base_wait_time_ms, "100");
@@ -1653,7 +1655,7 @@ DEFINE_mBool(enable_mow_verbose_log, "false");
 DEFINE_mInt32(tablet_sched_delay_time_ms, "5000");
 DEFINE_mInt32(load_trigger_compaction_version_percent, "66");
 DEFINE_mInt64(base_compaction_interval_seconds_since_last_operation, "86400");
-DEFINE_mBool(enable_compaction_pause_on_high_memory, "true");
+DEFINE_mBool(enable_compaction_pause_on_high_memory, "false");
 
 DEFINE_mBool(enable_quorum_success_write, "true");
 DEFINE_mDouble(quorum_success_max_wait_multiplier, "0.2");
@@ -1712,6 +1714,10 @@ DEFINE_mBool(enable_concurrency_stats_dump, "false");
 DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
+
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
 
 // clang-format off
 #ifdef BE_TEST
