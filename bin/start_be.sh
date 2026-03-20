@@ -254,6 +254,14 @@ if [[ -d "${DORIS_HOME}/lib/java_extensions/jindofs" ]]; then
     done
 fi
 
+# add juicefs
+# should after jars in lib/hadoop_hdfs/, or it will override the hadoop jars in lib/hadoop_hdfs
+if [[ -d "${DORIS_HOME}/lib/java_extensions/juicefs" ]]; then
+    for f in "${DORIS_HOME}/lib/java_extensions/juicefs"/*.jar; do
+        DORIS_CLASSPATH="${DORIS_CLASSPATH}:${f}"
+    done
+fi
+
 # add custom_libs to CLASSPATH
 # ATTN, custom_libs is deprecated, use plugins/java_extensions
 if [[ -d "${DORIS_HOME}/custom_lib" ]]; then

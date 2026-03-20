@@ -1592,6 +1592,9 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
+/** Paimon file system configurations **/
+DECLARE_Strings(paimon_file_system_scheme_mappings);
+
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
