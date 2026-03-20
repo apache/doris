@@ -139,6 +139,7 @@ import org.apache.doris.nereids.rules.rewrite.PushDownJoinOnAssertNumRows;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.PushDownLimitDistinctThroughUnion;
+import org.apache.doris.nereids.rules.rewrite.PushDownMatchPredicateAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownMatchProjectionAsVirtualColumn;
 import org.apache.doris.nereids.rules.rewrite.PushDownProjectThroughLimit;
 import org.apache.doris.nereids.rules.rewrite.PushDownScoreTopNIntoOlapScan;
@@ -795,6 +796,7 @@ public class Rewriter extends AbstractBatchJobExecutor {
                 topDown(new PushDownVectorTopNIntoOlapScan()),
                 topDown(new PushDownVirtualColumnsIntoOlapScan()),
                 topDown(new PushDownMatchProjectionAsVirtualColumn()),
+                topDown(new PushDownMatchPredicateAsVirtualColumn()),
                 topic("score optimize",
                         topDown(new PushDownScoreTopNIntoOlapScan(),
                                 new CheckScoreUsage())

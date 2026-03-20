@@ -219,20 +219,21 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         .orElseThrow(() -> new AnalysisException(
                                     "No SlotReference found in Match, SQL is " + match.toSql()));
 
-        Column column = slot.getOriginalColumn()
-                        .orElseThrow(() -> new AnalysisException(
-                                    "SlotReference in Match failed to get Column, SQL is " + match.toSql()));
-
-        OlapTable olapTbl = getOlapTableDirectly(slot);
-        if (olapTbl == null) {
-            throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
-        }
-
+        // Try to resolve inverted index metadata. When the slot has lost its original
+        // column/table reference (e.g., after CTE inlining or join projection remapping),
+        // we gracefully fall back to invertedIndex = null. The BE can still evaluate MATCH
+        // correctly without inverted index (slow path), or the PushDownMatchProjection rule
+        // may have already converted this to a virtual column on the OlapScan (fast path).
+        Index invertedIndex = null;
         String analyzer = match.getAnalyzer().orElse(null);
-        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
-        if (analyzer != null && invertedIndex == null) {
-            throw new AnalysisException("No inverted index found for analyzer '" + analyzer
-                    + "' on column " + column.getName());
+        Column column = slot.getOriginalColumn().orElse(null);
+        OlapTable olapTbl = getOlapTableDirectly(slot);
+        if (column != null && olapTbl != null) {
+            invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
+            if (analyzer != null && invertedIndex == null) {
+                throw new AnalysisException("No inverted index found for analyzer '" + analyzer
+                        + "' on column " + column.getName());
+            }
         }
 
         MatchPredicate.Operator op = match.op();
