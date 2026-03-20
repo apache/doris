@@ -23,6 +23,10 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExchangeNode;
 import org.apache.doris.thrift.TExplainLevel;
@@ -100,6 +104,12 @@ public class ExchangeNode extends PlanNode {
     protected void toThrift(TPlanNode msg) {
         // If this fragment has another scan node, this exchange node is serial or not should be decided by the scan
         // node.
+        // When FE-planned local shuffle is enabled, ExchangeNode's serial flag is preserved
+        // (same as BE-planned path). The ExchangeNode pipeline will have num_tasks=1 when serial,
+        // meaning only instance 0 creates a task. This is correct because FE's
+        // filterInstancesWhichCanReceiveDataFromRemote() ensures only the first instance per
+        // worker receives remote data. The deferred exchanger uses upstream_pipe->num_tasks()
+        // to get the correct sender_count.
         msg.setIsSerialOperator((isSerialOperator() || fragment.hasSerialScanNode())
                 && fragment.useSerialSource(ConnectContext.get()));
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;
@@ -165,5 +175,17 @@ public class ExchangeNode extends PlanNode {
     @Override
     public boolean hasSerialScanChildren() {
         return false;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        if (partitionType == TPartitionType.HASH_PARTITIONED) {
+            return Pair.of(this, LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE);
+        } else if (partitionType == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
+            return Pair.of(this, LocalExchangeType.BUCKET_HASH_SHUFFLE);
+        } else {
+            return Pair.of(this, LocalExchangeType.NOOP);
+        }
     }
 }

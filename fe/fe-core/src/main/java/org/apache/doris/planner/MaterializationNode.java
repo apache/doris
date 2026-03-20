@@ -20,6 +20,10 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
@@ -183,5 +187,15 @@ public class MaterializationNode extends PlanNode {
     @Override
     public boolean isSerialOperator() {
         return true;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        Pair<PlanNode, LocalExchangeType> enforceResult = enforceChild(
+                translatorContext, LocalExchangeTypeRequire.requirePassthrough(), children.get(0));
+        children = new ArrayList<>();
+        children.add(enforceResult.first);
+        return Pair.of(this, LocalExchangeType.PASSTHROUGH);
     }
 }

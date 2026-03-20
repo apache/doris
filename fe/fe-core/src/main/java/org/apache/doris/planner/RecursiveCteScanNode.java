@@ -19,6 +19,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -66,5 +70,11 @@ public class RecursiveCteScanNode extends PlanNode {
     @Override
     public boolean isSerialOperator() {
         return true;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        return Pair.of(this, LocalExchangeType.NOOP);
     }
 }

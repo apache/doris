@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <gen_cpp/Partitions_types.h>
 #include <gen_cpp/Types_types.h>
 #include <gen_cpp/types.pb.h>
 
@@ -48,6 +49,7 @@ class TPipelineFragmentParams;
 namespace pipeline {
 
 class Dependency;
+struct LocalExchangeSharedState;
 
 class PipelineFragmentContext : public TaskExecutionContext {
 public:
@@ -328,6 +330,23 @@ private:
 
     std::map<PipelineId, Pipeline*> _pip_id_to_pipeline;
     std::vector<std::unique_ptr<RuntimeFilterMgr>> _runtime_filter_mgr_map;
+
+    // Deferred exchanger creation info for FE-planned local exchanges.
+    // Exchanger sender count depends on the upstream pipeline's final num_tasks,
+    // which is only known after the full plan tree is built (child operators like
+    // serial ExchangeNode may reduce num_tasks). So we defer exchanger creation
+    // until after _build_pipelines completes.
+    struct DeferredExchangerInfo {
+        std::shared_ptr<LocalExchangeSharedState> shared_state;
+        PipelinePtr upstream_pipe;
+        TLocalPartitionType::type partition_type;
+        int num_partitions;
+        int free_blocks_limit;
+        int local_exchange_id;
+        int sink_id;
+    };
+    std::vector<DeferredExchangerInfo> _deferred_exchangers;
+    Status _create_deferred_local_exchangers();
 
     //Here are two types of runtime states:
     //    - _runtime state is at the Fragment level.

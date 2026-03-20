@@ -75,6 +75,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.nereids.trees.plans.physical.TopnFilter;
+import org.apache.doris.planner.AddLocalExchange;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.Planner;
@@ -130,6 +131,7 @@ public class NereidsPlanner extends Planner {
     private DescriptorTable descTable;
 
     private FragmentIdMapping<DistributedPlan> distributedPlans;
+    private PlanTranslatorContext planTranslatorContext;
     // The cost of optimized plan
     private double cost = 0;
     private LogicalPlanAdapter logicalPlanAdapter;
@@ -600,7 +602,8 @@ public class NereidsPlanner extends Planner {
             return;
         }
 
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        this.planTranslatorContext = new PlanTranslatorContext(cascadesContext);
+        PlanTranslatorContext planTranslatorContext = this.planTranslatorContext;
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator(planTranslatorContext,
                 statementContext.getConnectContext().getStatsErrorEstimator());
         SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
@@ -623,7 +626,8 @@ public class NereidsPlanner extends Planner {
         scanNodeList.addAll(planTranslatorContext.getScanNodes());
         physicalRelations.addAll(planTranslatorContext.getPhysicalRelations());
         descTable = planTranslatorContext.getDescTable();
-        fragments = new ArrayList<>(planTranslatorContext.getPlanFragments());
+        List<PlanFragment> planFragments = planTranslatorContext.getPlanFragments();
+        fragments = new ArrayList<>(planFragments);
 
         boolean enableQueryCache = sessionVariable.getEnableQueryCache();
         for (int seq = 0; seq < fragments.size(); seq++) {
@@ -706,6 +710,21 @@ public class NereidsPlanner extends Planner {
 
         splitFragments(physicalPlan);
         doDistribute(canUseNereidsDistributePlanner, explainLevel);
+
+        SessionVariable sessionVariable = cascadesContext.getConnectContext().getSessionVariable();
+        if (sessionVariable.isEnableLocalShufflePlanner()) {
+            addLocalExchangeAfterDistribute();
+        }
+    }
+
+    private void addLocalExchangeAfterDistribute() {
+        AddLocalExchange adder = new AddLocalExchange();
+        if (distributedPlans != null && !distributedPlans.isEmpty()) {
+            adder.addLocalExchange(distributedPlans, planTranslatorContext);
+        } else {
+            // Fallback: explain plan scenarios may not have distributedPlans
+            adder.addLocalExchange(fragments, planTranslatorContext);
+        }
     }
 
     protected void doDistribute(boolean canUseNereidsDistributePlanner, ExplainLevel explainLevel) {

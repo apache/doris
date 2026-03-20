@@ -25,7 +25,11 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TEqJoinCondition;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.THashJoinNode;
@@ -116,6 +120,10 @@ public class HashJoinNode extends JoinNodeBase {
     public void setColocate(boolean colocate, String reason) {
         isColocate = colocate;
         colocateReason = reason;
+    }
+
+    public boolean isColocate() {
+        return isColocate;
     }
 
     public Map<ExprId, SlotId> getHashOutputExprSlotIdMap() {
@@ -266,5 +274,96 @@ public class HashJoinNode extends JoinNodeBase {
 
     public List<Expr> getMarkJoinConjuncts() {
         return markJoinConjuncts;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        LocalExchangeTypeRequire probeSideRequire;
+        LocalExchangeTypeRequire buildSideRequire;
+        LocalExchangeType outputType = null;
+
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (distrMode == DistributionMode.BROADCAST) {
+            boolean probeChildSerial = isSerialChildInThrift(translatorContext, children.get(0));
+            boolean buildChildSerial = isSerialChildInThrift(translatorContext, children.get(1));
+            probeSideRequire = probeChildSerial
+                    ? LocalExchangeTypeRequire.requirePassthrough()
+                    : LocalExchangeTypeRequire.noRequire();
+            buildSideRequire = buildChildSerial
+                    ? LocalExchangeTypeRequire.requirePassToOne()
+                    : LocalExchangeTypeRequire.noRequire();
+            // For serial probe: output is PASSTHROUGH (data from single instance).
+            // For non-serial probe: propagate probe side's distribution (null → falls through to
+            // probeSideOutput.second below). This mirrors BE's ScanOperator returning
+            // BUCKET_HASH_SHUFFLE and !(hash && hash) check in need_to_local_exchange: if
+            // probe side is already hash-distributed, parent hash requirement is satisfied
+            // without inserting a redundant local exchange.
+            outputType = probeChildSerial ? LocalExchangeType.PASSTHROUGH : null;
+        } else if (AddLocalExchange.isColocated(this) || isBucketShuffle()) {
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.requireBucketHash();
+            outputType = AddLocalExchange.resolveExchangeType(
+                    LocalExchangeTypeRequire.requireBucketHash(), translatorContext, this,
+                    children.get(0));
+        } else {
+            buildSideRequire = probeSideRequire = LocalExchangeTypeRequire.requireGlobalExecutionHash();
+            outputType = LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE;
+        }
+
+        PlanNode probeSide = children.get(0);
+        Pair<PlanNode, LocalExchangeType> probeSideOutput = deriveAndEnforceChildLocalExchange(
+                translatorContext, probeSide, probeSideRequire, 0);
+        if (!probeSideRequire.satisfy(probeSideOutput.second)) {
+            LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
+                    probeSideRequire, translatorContext, this, probeSideOutput.first);
+            probeSide = new LocalExchangeNode(
+                    translatorContext.nextPlanNodeId(), probeSideOutput.first, preferType,
+                    getChildDistributeExprList(0)
+            );
+        } else {
+            probeSide = probeSideOutput.first;
+        }
+
+        PlanNode buildSide = children.get(1);
+        Pair<PlanNode, LocalExchangeType> buildSideOutput = deriveAndEnforceChildLocalExchange(
+                translatorContext, buildSide, buildSideRequire, 1);
+        if (!buildSideRequire.satisfy(buildSideOutput.second)) {
+            LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
+                    buildSideRequire, translatorContext, this, buildSideOutput.first);
+            buildSide = new LocalExchangeNode(
+                    translatorContext.nextPlanNodeId(), buildSideOutput.first, preferType,
+                    getChildDistributeExprList(1)
+            );
+        } else {
+            buildSide = buildSideOutput.first;
+        }
+
+        this.children = Lists.newArrayList(probeSide, buildSide);
+
+        if (outputType == null) {
+            outputType = probeSideOutput.second;
+        }
+        return Pair.of(this, outputType);
+    }
+
+    private boolean isSerialChildInThrift(PlanTranslatorContext translatorContext, PlanNode child) {
+        PlanFragment childFragment = child.getFragment();
+        boolean useSerialSource = childFragment != null
+                && childFragment.useSerialSource(translatorContext.getConnectContext());
+        if (!useSerialSource) {
+            return false;
+        }
+        if (child instanceof ExchangeNode) {
+            return child.isSerialOperator() || childFragment.hasSerialScanNode();
+        }
+        return child.isSerialOperator();
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return childIndex == 1;
     }
 }

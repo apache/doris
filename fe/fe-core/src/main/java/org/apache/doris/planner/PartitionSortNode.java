@@ -19,8 +19,12 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.trees.plans.PartitionTopnPhase;
 import org.apache.doris.nereids.trees.plans.WindowFuncType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPartTopNPhase;
 import org.apache.doris.thrift.TPartitionSortNode;
@@ -165,5 +169,28 @@ public class PartitionSortNode extends PlanNode {
         partitionSortNode.setPartitionInnerLimit(partitionLimit);
         partitionSortNode.setPtopnPhase(pTopNPhase);
         msg.partition_sort_node = partitionSortNode;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType;
+        if (phase == PartitionTopnPhase.TWO_PHASE_GLOBAL_PTOPN) {
+            requireChild = LocalExchangeTypeRequire.requireGlobalExecutionHash();
+            outputType = LocalExchangeType.GLOBAL_EXECUTION_HASH_SHUFFLE;
+        } else {
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        }
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceChild(translatorContext, requireChild, children.get(0));
+        this.children = Lists.newArrayList(enforceResult.first);
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }

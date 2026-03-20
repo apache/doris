@@ -18,7 +18,11 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TScanRangeLocations;
 
@@ -53,5 +57,11 @@ public class CTEScanNode extends ScanNode {
     public List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength) {
         // NO real action to be taken, just a wrapper
         return null;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        return Pair.of(this, LocalExchangeType.NOOP);
     }
 }

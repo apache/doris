@@ -22,6 +22,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TDataStreamSink;
@@ -238,5 +239,10 @@ public class DataStreamSink extends DataSink {
         tStreamSink.setTabletSinkTxnId(tabletSinkTxnId);
         result.setStreamSink(tStreamSink);
         return result;
+    }
+
+    @Override
+    public LocalExchangeTypeRequire getLocalExchangeTypeRequire() {
+        return LocalExchangeTypeRequire.noRequire();
     }
 }

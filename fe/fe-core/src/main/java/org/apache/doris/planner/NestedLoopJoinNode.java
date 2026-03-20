@@ -22,10 +22,16 @@ import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNestedLoopJoinNode;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -164,5 +170,74 @@ public class NestedLoopJoinNode extends JoinNodeBase {
     public boolean isSerialOperator() {
         return joinOp == JoinOperator.RIGHT_OUTER_JOIN || joinOp == JoinOperator.RIGHT_ANTI_JOIN
                 || joinOp == JoinOperator.RIGHT_SEMI_JOIN || joinOp == JoinOperator.FULL_OUTER_JOIN;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        boolean childUsePoolingScan = fragment.useSerialSource(translatorContext.getConnectContext())
+                && ((children.get(0) instanceof ScanNode) || (children.get(1) instanceof ScanNode));
+
+        LocalExchangeTypeRequire probeSideRequire;
+        LocalExchangeTypeRequire buildSideRequire;
+        LocalExchangeType outputType;
+        if (joinOp == JoinOperator.NULL_AWARE_LEFT_ANTI_JOIN) {
+            probeSideRequire = buildSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (isSerialOperator()) {
+            // RIGHT_OUTER/RIGHT_SEMI/RIGHT_ANTI/FULL_OUTER: probe side must be serial (1 task)
+            // to avoid duplicate unmatched rows from build side. No exchange needed for probe.
+            // BE: NestedLoopJoinProbeOperatorX returns NOOP for these join types.
+            probeSideRequire = LocalExchangeTypeRequire.noRequire();
+            buildSideRequire = childUsePoolingScan
+                    ? LocalExchangeTypeRequire.requireBroadcast()
+                    : LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        } else if (childUsePoolingScan) {
+            probeSideRequire = LocalExchangeTypeRequire.requireAdaptivePassthrough();
+            buildSideRequire = LocalExchangeTypeRequire.requireBroadcast();
+            outputType = LocalExchangeType.ADAPTIVE_PASSTHROUGH;
+        } else {
+            probeSideRequire = LocalExchangeTypeRequire.requireAdaptivePassthrough();
+            buildSideRequire = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.ADAPTIVE_PASSTHROUGH;
+        }
+
+        PlanNode probeSide = children.get(0);
+        Pair<PlanNode, LocalExchangeType> probeSideOutput = deriveAndEnforceChildLocalExchange(
+                translatorContext, probeSide, probeSideRequire, 0);
+        if (!probeSideRequire.satisfy(probeSideOutput.second)) {
+            LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
+                    probeSideRequire, translatorContext, this, probeSideOutput.first);
+            probeSide = new LocalExchangeNode(
+                    translatorContext.nextPlanNodeId(), probeSideOutput.first, preferType,
+                    getChildDistributeExprList(0)
+            );
+        } else {
+            probeSide = probeSideOutput.first;
+        }
+
+        PlanNode buildSide = children.get(1);
+        Pair<PlanNode, LocalExchangeType> buildSideOutput = deriveAndEnforceChildLocalExchange(
+                translatorContext, buildSide, buildSideRequire, 1);
+        if (!buildSideRequire.satisfy(buildSideOutput.second)) {
+            LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
+                    buildSideRequire, translatorContext, this, buildSideOutput.first);
+            buildSide = new LocalExchangeNode(
+                    translatorContext.nextPlanNodeId(), buildSideOutput.first, preferType,
+                    getChildDistributeExprList(1)
+            );
+        } else {
+            buildSide = buildSideOutput.first;
+        }
+
+        this.children = Lists.newArrayList(probeSide, buildSide);
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return childIndex == 1;
     }
 }

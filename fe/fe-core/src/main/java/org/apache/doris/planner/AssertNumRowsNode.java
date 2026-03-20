@@ -19,10 +19,16 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.AssertNumRowsElement;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TAssertNumRowsNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
+
+import com.google.common.collect.Lists;
 
 /**
  * Assert num rows node is used to determine whether the number of rows is less than desired num of rows.
@@ -80,5 +86,15 @@ public class AssertNumRowsNode extends PlanNode {
     @Override
     public boolean isSerialOperator() {
         return true;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        Pair<PlanNode, LocalExchangeType> enforceResult = enforceChild(
+                translatorContext, LocalExchangeTypeRequire.requirePassthrough(), children.get(0));
+        children = Lists.newArrayList(enforceResult.first);
+        return Pair.of(this, LocalExchangeType.PASSTHROUGH);
     }
 }

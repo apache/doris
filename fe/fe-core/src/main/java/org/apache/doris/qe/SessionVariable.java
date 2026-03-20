@@ -332,6 +332,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_LOCAL_SHUFFLE = "enable_local_shuffle";
 
+    public static final String ENABLE_LOCAL_SHUFFLE_PLANNER = "enable_local_shuffle_planner";
+
     public static final String FORCE_TO_LOCAL_SHUFFLE = "force_to_local_shuffle";
 
     public static final String ENABLE_LOCAL_MERGE_SORT = "enable_local_merge_sort";
@@ -1539,6 +1541,12 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否在 pipelineX 引擎上开启 local shuffle 优化",
                     "Whether to enable local shuffle on pipelineX engine."}, needForward = true)
     private boolean enableLocalShuffle = true;
+
+    @VariableMgr.VarAttr(
+            name = ENABLE_LOCAL_SHUFFLE_PLANNER, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
+            description = {"是否在FE规划Local Shuffle",
+                    "Whether to plan local shuffle in frontend"}, needForward = true)
+    private boolean enableLocalShufflePlanner = true;
 
     @VariableMgr.VarAttr(
                 name = FORCE_TO_LOCAL_SHUFFLE, fuzzy = false, varType = VariableAnnotation.EXPERIMENTAL,
@@ -4514,6 +4522,14 @@ public class SessionVariable implements Serializable, Writable {
         this.enableLocalShuffle = enableLocalShuffle;
     }
 
+    public boolean isEnableLocalShufflePlanner() {
+        return enableLocalShufflePlanner;
+    }
+
+    public void setEnableLocalShufflePlanner(boolean enableLocalShufflePlanner) {
+        this.enableLocalShufflePlanner = enableLocalShufflePlanner;
+    }
+
     public boolean enablePushDownNoGroupAgg() {
         return enablePushDownNoGroupAgg;
     }
@@ -5347,6 +5363,8 @@ public class SessionVariable implements Serializable, Writable {
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
+
+        tResult.setEnableLocalShufflePlanner(enableLocalShufflePlanner);
 
         return tResult;
     }

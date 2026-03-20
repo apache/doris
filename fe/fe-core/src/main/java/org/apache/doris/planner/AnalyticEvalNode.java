@@ -24,6 +24,10 @@ import org.apache.doris.analysis.AnalyticWindow;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.thrift.TAnalyticNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TPlanNode;
@@ -151,5 +155,49 @@ public class AnalyticEvalNode extends PlanNode {
     @Override
     public boolean isSerialOperator() {
         return partitionExprs.isEmpty();
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
+            PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        LocalExchangeTypeRequire requireChild;
+        LocalExchangeType outputType = null;
+        if (partitionExprs.isEmpty()) {
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        } else if (orderByElements.isEmpty()) {
+            if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireHash();
+                outputType = AddLocalExchange.resolveExchangeType(
+                        LocalExchangeTypeRequire.requireHash(), translatorContext, this,
+                        children.get(0));
+            } else {
+                // Non-colocated analytic with PARTITION BY but no ORDER BY:
+                // The parent SortNode (mergeByExchange) will insert PASSTHROUGH above us,
+                // which is what BE does natively. Don't force a hash exchange here.
+                requireChild = LocalExchangeTypeRequire.noRequire();
+                outputType = LocalExchangeType.NOOP;
+            }
+        } else if (fragment.useSerialSource(translatorContext.getConnectContext())
+                && children.get(0) instanceof ScanNode) {
+            requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            outputType = LocalExchangeType.PASSTHROUGH;
+        } else {
+            requireChild = LocalExchangeTypeRequire.noRequire();
+            outputType = LocalExchangeType.NOOP;
+        }
+
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceChild(translatorContext, requireChild, children.get(0));
+        children = Lists.newArrayList(enforceResult.first);
+        if (outputType == null) {
+            outputType = enforceResult.second;
+        }
+        return Pair.of(this, outputType);
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return true;
     }
 }

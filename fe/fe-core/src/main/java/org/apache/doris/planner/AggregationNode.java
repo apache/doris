@@ -26,7 +26,13 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
+import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.thrift.TAggregationNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -246,6 +252,10 @@ public class AggregationNode extends PlanNode {
         isColocate = colocate;
     }
 
+    public boolean isColocate() {
+        return isColocate;
+    }
+
     public void setSortByGroupKey(SortInfo sortByGroupKey) {
         this.sortByGroupKey = sortByGroupKey;
     }
@@ -256,5 +266,83 @@ public class AggregationNode extends PlanNode {
 
     public void setQueryCacheCandidate(boolean queryCacheCandidate) {
         this.queryCacheCandidate = queryCacheCandidate;
+    }
+
+    @Override
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+
+        ConnectContext connectContext = translatorContext.getConnectContext();
+        SessionVariable sessionVariable = connectContext.getSessionVariable();
+
+        LocalExchangeTypeRequire requireChild;
+        if (needsFinalize && aggInfo.getGroupingExprs().isEmpty()) {
+            requireChild = LocalExchangeTypeRequire.noRequire();
+        } else if (canUseDistinctStreamingAgg(sessionVariable)) {
+            if (needsFinalize || (aggInfo.getGroupingExprs().size() > 1 && !useStreamingPreagg)) {
+                if (AddLocalExchange.isColocated(this)) {
+                    requireChild = LocalExchangeTypeRequire.requireHash();
+                } else {
+                    requireChild = parentRequire.autoRequireHash();
+                }
+            } else if (sessionVariable.enableDistinctStreamingAggForcePassthrough) {
+                // BE's DistinctStreamingAggOperatorX always returns PASSTHROUGH for phase1
+                // (non-finalize, streaming preagg) when enable_distinct_streaming_agg_force_passthrough=true (default).
+                // The childUsePoolingScan case above is a subset of this.
+                requireChild = LocalExchangeTypeRequire.requirePassthrough();
+            } else {
+                requireChild = LocalExchangeTypeRequire.noRequire();
+            }
+        } else {
+            if (aggInfo.getGroupingExprs().isEmpty()) {
+                // Streaming pre-agg with no group key: each task aggregates its own partition
+                // independently; the finalize stage (serial) will collect the partial results.
+                // No redistribution needed — matches BE's AggSinkOperatorX which returns NOOP
+                // for !_needs_finalize && _partition_exprs.empty().
+                requireChild = LocalExchangeTypeRequire.noRequire();
+            } else if (!needsFinalize) {
+                // First-phase (serialize) agg: matches BE's StreamingAggregationOperatorX.
+                // Case 1: streaming pre-agg directly above a HashJoin probe and
+                // enable_streaming_agg_hash_join_force_passthrough=true (default) → BE returns
+                // PASSTHROUGH to split the pipeline at this boundary. Replicate this in FE.
+                // Case 2: shuffled_agg_node_ids includes this node → BE returns
+                // GLOBAL_EXECUTION_HASH_SHUFFLE(grouping_exprs). Replicate in FE.
+                // Default: NOOP — each task pre-aggregates its own partition independently.
+                if (useStreamingPreagg && children.get(0) instanceof HashJoinNode
+                        && sessionVariable.enableStreamingAggHashJoinForcePassthrough) {
+                    requireChild = LocalExchangeTypeRequire.requirePassthrough();
+                } else if (sessionVariable.getShuffledAggNodeIds().contains(this.getId().asInt())) {
+                    requireChild = LocalExchangeTypeRequire.requireHash();
+                } else {
+                    requireChild = LocalExchangeTypeRequire.noRequire();
+                }
+            } else if (AddLocalExchange.isColocated(this)) {
+                requireChild = LocalExchangeTypeRequire.requireHash();
+            } else if (hasPartitionExprs(parentRequire)) {
+                requireChild = parentRequire.autoRequireHash();
+            } else {
+                requireChild = LocalExchangeTypeRequire.noRequire();
+            }
+        }
+
+        Pair<PlanNode, LocalExchangeType> enforceResult
+                = enforceChild(translatorContext, requireChild, children.get(0));
+        children = Lists.newArrayList(enforceResult.first);
+        return Pair.of(this, enforceResult.second);
+    }
+
+    @Override
+    protected List<Expr> getSemanticPartitionExprs() {
+        return aggInfo.getGroupingExprs();
+    }
+
+    private boolean canUseDistinctStreamingAgg(SessionVariable sessionVariable) {
+        return aggInfo.getAggregateExprs().isEmpty() && sortByGroupKey == null
+                && sessionVariable.enableDistinctStreamingAggregation;
+    }
+
+    @Override
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return !useStreamingPreagg;
     }
 }

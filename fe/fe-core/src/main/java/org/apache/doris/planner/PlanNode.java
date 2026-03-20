@@ -32,6 +32,9 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
+import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
 import org.apache.doris.planner.normalize.Normalizer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TAccessPathType;
@@ -139,7 +142,8 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
 
     protected int nereidsId = -1;
 
-    private List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    protected List<List<Expr>> childrenDistributeExprLists = new ArrayList<>();
+    protected List<Expr> distributeExprLists = new ArrayList<>();
 
     protected PlanNode(PlanNodeId id, List<TupleId> tupleIds, String planNodeName) {
         this.id = id;
@@ -912,5 +916,85 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
             mergeDisplayAccessPaths.add(StringUtils.join(mergedPath, "."));
         }
         return StringUtils.join(mergeDisplayAccessPaths, ", ");
+    }
+
+    public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode parent, LocalExchangeTypeRequire parentRequire) {
+        ArrayList<PlanNode> newChildren = Lists.newArrayList();
+        for (int i = 0; i < children.size(); i++) {
+            PlanNode child = children.get(i);
+            Pair<PlanNode, LocalExchangeType> childOutput
+                    = deriveAndEnforceChildLocalExchange(translatorContext, child, parentRequire, i);
+            newChildren.add(childOutput.first);
+        }
+        this.children = newChildren;
+        return Pair.of(this, LocalExchangeType.NOOP);
+    }
+
+    protected Pair<PlanNode, LocalExchangeType> enforceChild(
+            PlanTranslatorContext translatorContext, LocalExchangeTypeRequire requireChild, PlanNode originChild) {
+        int childIndex = children.indexOf(originChild);
+        Pair<PlanNode, LocalExchangeType> childOutput = deriveAndEnforceChildLocalExchange(
+                translatorContext, originChild, requireChild, childIndex);
+        if (!requireChild.satisfy(childOutput.second)) {
+            // Mirror BE's need_to_local_exchange: if any operator at or after the current position
+            // is serial (including this node itself), skip the exchange.
+            // BE: any_of(operators[idx..end], is_serial) → return false
+            if (translatorContext.hasSerialAncestorInPipeline(this) || isSerialOperator()) {
+                return childOutput;
+            }
+            LocalExchangeType preferType = AddLocalExchange.resolveExchangeType(
+                    requireChild, translatorContext, this, childOutput.first);
+            if (childOutput.second == preferType) {
+                return childOutput;
+            }
+            List<Expr> distributeExprs = childIndex >= 0 ? getChildDistributeExprList(childIndex) : null;
+            return Pair.of(
+                    new LocalExchangeNode(translatorContext.nextPlanNodeId(), childOutput.first,
+                            preferType, distributeExprs),
+                    preferType
+            );
+        } else {
+            return childOutput;
+        }
+    }
+
+    protected Pair<PlanNode, LocalExchangeType> deriveAndEnforceChildLocalExchange(
+            PlanTranslatorContext translatorContext, PlanNode child, LocalExchangeTypeRequire requireChild,
+            int childIndex) {
+        boolean hasSerialAncestorInPipeline = translatorContext.hasSerialAncestorInPipeline(this);
+        boolean childHasSerialAncestorInPipeline = shouldResetSerialFlagForChild(childIndex)
+                ? false
+                : hasSerialAncestorInPipeline || isSerialOperator();
+        translatorContext.setHasSerialAncestorInPipeline(child, childHasSerialAncestorInPipeline);
+        return child.enforceAndDeriveLocalExchange(translatorContext, this, requireChild);
+    }
+
+    protected boolean shouldResetSerialFlagForChild(int childIndex) {
+        return false;
+    }
+
+    protected List<Expr> getChildDistributeExprList(int childIndex) {
+        if ((childrenDistributeExprLists == null || childrenDistributeExprLists.size() <= childIndex)) {
+            return null;
+        } else {
+            return childrenDistributeExprLists.get(childIndex);
+        }
+    }
+
+    public List<List<Expr>> getChildrenDistributeExprLists() {
+        return childrenDistributeExprLists;
+    }
+
+    public List<Expr> getDistributeExprLists() {
+        return distributeExprLists;
+    }
+
+    public void setDistributeExprLists(List<Expr> distributeExprLists) {
+        if (distributeExprLists == null) {
+            this.distributeExprLists = Collections.emptyList();
+        } else {
+            this.distributeExprLists = distributeExprLists;
+        }
     }
 }

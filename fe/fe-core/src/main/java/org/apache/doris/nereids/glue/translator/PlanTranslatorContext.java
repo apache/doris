@@ -114,6 +114,8 @@ public class PlanTranslatorContext {
     private final Map<ScanNode, Set<SlotId>> statsUnknownColumnsMap = Maps.newHashMap();
     private final RuntimeFilterContextV2 runtimeFilterV2Context;
 
+    private final Map<PlanNodeId, Boolean> serialAncestorInPipelineMap = Maps.newHashMap();
+
     private boolean isTopMaterializeNode = true;
 
     private final Set<SlotId> virtualColumnIds = Sets.newHashSet();
@@ -230,6 +232,14 @@ public class PlanTranslatorContext {
 
     public PlanNodeId nextPlanNodeId() {
         return nodeIdGenerator.getNextId();
+    }
+
+    public void setHasSerialAncestorInPipeline(PlanNode node, boolean hasSerialAncestorInPipeline) {
+        serialAncestorInPipelineMap.put(node.getId(), hasSerialAncestorInPipeline);
+    }
+
+    public boolean hasSerialAncestorInPipeline(PlanNode node) {
+        return serialAncestorInPipelineMap.getOrDefault(node.getId(), false);
     }
 
     public SlotDescriptor addSlotDesc(TupleDescriptor t) {
