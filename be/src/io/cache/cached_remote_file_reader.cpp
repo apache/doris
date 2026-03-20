@@ -175,13 +175,12 @@ std::pair<std::string, int> get_peer_connection_info(const std::string& file_pat
             host = tablet_info->first;
             port = tablet_info->second;
         } else {
-            LOG_EVERY_N(WARNING, 100)
-                    << "get peer connection info not found"
-                    << ", tablet_id=" << *tablet_id << ", file_path=" << file_path;
+            VLOG_DEBUG << "get peer connection info not found"
+                       << ", tablet_id=" << *tablet_id << ", file_path=" << file_path;
         }
     } else {
-        LOG_EVERY_N(WARNING, 100) << "parse tablet id from path failed"
-                                  << "tablet_id=null, file_path=" << file_path;
+        VLOG_DEBUG << "parse tablet id from path failed"
+                   << "tablet_id=null, file_path=" << file_path;
     }
 
     DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
@@ -208,9 +207,8 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
 
     if (host.empty() || port == 0) {
         g_failed_get_peer_addr_counter << 1;
-        LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader host or port is empty"
-                                  << ", host=" << host << ", port=" << port
-                                  << ", file_path=" << file_path;
+        VLOG_DEBUG << "PeerFileCacheReader host or port is empty"
+                   << ", host=" << host << ", port=" << port << ", file_path=" << file_path;
         return Status::InternalError<false>("host or port is empty");
     }
     SCOPED_RAW_TIMER(&stats.peer_read_timer);
@@ -219,9 +217,8 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
     auto st = peer_reader.fetch_blocks(empty_blocks, empty_start, Slice(buffer.get(), size), &size,
                                        file_size, io_ctx);
     if (!st.ok()) {
-        LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader read from peer failed"
-                                  << ", host=" << host << ", port=" << port
-                                  << ", error=" << st.msg();
+        VLOG_DEBUG << "PeerFileCacheReader read from peer failed"
+                   << ", host=" << host << ", port=" << port << ", error=" << st.msg();
     }
     stats.from_peer_cache = true;
     return st;
