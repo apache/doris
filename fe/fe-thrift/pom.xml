@@ -26,6 +26,23 @@ under the License.
         <artifactId>fe</artifactId>
         <relativePath>../pom.xml</relativePath>
     </parent>
+    <properties>
+        <doris.thrift.executable>${project.parent.basedir}/../thirdparty/installed/bin/thrift</doris.thrift.executable>
+        <doris.thrift.source>${project.parent.basedir}/../gensrc/thrift</doris.thrift.source>
+    </properties>
+    <profiles>
+        <profile>
+            <id>thrift-executable-override</id>
+            <activation>
+                <property>
+                    <name>env.DORIS_THIRDPARTY</name>
+                </property>
+            </activation>
+            <properties>
+                <doris.thrift.executable>${env.DORIS_THIRDPARTY}/installed/bin/thrift</doris.thrift.executable>
+            </properties>
+        </profile>
+    </profiles>
     <artifactId>fe-thrift</artifactId>
     <packaging>jar</packaging>
     <name>Doris FE Generated Thrift RPC</name>
@@ -40,7 +57,7 @@ under the License.
     </dependencies>
 
     <build>
-        <finalName>doris-fe-catalog</finalName>
+        <finalName>doris-fe-thrift</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
             <!-- Build source jar -->
@@ -55,6 +72,25 @@ under the License.
                         <id>create-source-jar</id>
                         <goals>
                             <goal>jar-no-fork</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.thrift</groupId>
+                <artifactId>thrift-maven-plugin</artifactId>
+                <version>0.10.0</version>
+                <configuration>
+                    <generator>java:fullcamel</generator>
+                    <thriftExecutable>${doris.thrift.executable}</thriftExecutable>
+                    <thriftSourceRoot>${doris.thrift.source}</thriftSourceRoot>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>thrift-sources</id>
+                        <phase>generate-sources</phase>
+                        <goals>
+                            <goal>compile</goal>
                         </goals>
                     </execution>
                 </executions>

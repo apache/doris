@@ -199,15 +199,6 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
         return 1
     }
 
-    # Build generated code
-    cd "${DORIS_HOME}/gensrc/thrift" || { echo "Failed to change directory"; exit 1; }
-    if ! make; then
-        echo "Make command failed in ${DORIS_HOME}/gensrc/thrift"
-        exit 1
-    fi
-
-    cp -rf "${DORIS_HOME}/gensrc/build/gen_java/org/apache/doris/thrift" "${FRAMEWORK_APACHE_DIR}/doris/"
-
     # Navigate to framework directory and build with retry
     cd "${DORIS_HOME}/regression-test/framework" || { echo "Failed to change directory"; exit 1; }
     
