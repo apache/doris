@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "core/column/column_fixed_length_object.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_fwd.h"
@@ -131,6 +132,82 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (shared_state.use_simple_count) {
+                            DCHECK_EQ(shared_state.aggregate_evaluators.size(), 1);
+
+                            value_data_types[0] = shared_state.aggregate_evaluators[0]
+                                                          ->function()
+                                                          ->get_serialized_type();
+                            if (mem_reuse) {
+                                value_columns[0] =
+                                        std::move(*block->get_by_position(key_size).column)
+                                                .mutate();
+                            } else {
+                                value_columns[0] = shared_state.aggregate_evaluators[0]
+                                                           ->function()
+                                                           ->create_serialize_column();
+                            }
+
+                            // Iterate aggregate_data_container for cache-friendly sequential access.
+                            shared_state.aggregate_data_container->init_once();
+                            auto& iter = shared_state.aggregate_data_container->iterator;
+
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+
+                            std::vector<UInt64> inline_counts(size);
+                            uint32_t num_rows = 0;
+                            {
+                                SCOPED_TIMER(_hash_table_iterate_timer);
+                                while (iter != shared_state.aggregate_data_container->end() &&
+                                       num_rows < state->batch_size()) {
+                                    keys[num_rows] = iter.template get_key<KeyType>();
+                                    inline_counts[num_rows] =
+                                            *reinterpret_cast<const UInt64*>(
+                                                    iter.get_aggregate_data());
+                                    ++iter;
+                                    ++num_rows;
+                                }
+                            }
+
+                            {
+                                SCOPED_TIMER(_insert_keys_to_column_timer);
+                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                            }
+
+                            // Write inline counts to serialized column
+                            // AggregateFunctionCountData = { UInt64 count }, same layout
+                            count_col.resize(num_rows);
+                            auto* col_data = count_col.get_data().data();
+                            for (uint32_t i = 0; i < num_rows; ++i) {
+                                *reinterpret_cast<UInt64*>(col_data + i * sizeof(UInt64)) =
+                                        inline_counts[i];
+                            }
+
+                            // Handle null key if present
+                            if (iter == shared_state.aggregate_data_container->end()) {
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (num_rows < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_col.resize(num_rows + 1);
+                                        *reinterpret_cast<UInt64*>(count_col.get_data().data() +
+                                                                   num_rows * sizeof(UInt64)) =
+                                                *reinterpret_cast<const UInt64*>(mapped);
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
+                            }
+                            return;
+                        }
+
                         if (shared_state.values.size() < size + 1) {
                             shared_state.values.resize(size + 1);
                         }
@@ -255,6 +332,56 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (shared_state.use_simple_count) {
+                            // Inline count: iterate aggregate_data_container for
+                            // cache-friendly sequential access.
+                            DCHECK_EQ(value_columns.size(), 1);
+                            auto& count_column = assert_cast<ColumnInt64&>(*value_columns[0]);
+
+                            shared_state.aggregate_data_container->init_once();
+                            auto& iter = shared_state.aggregate_data_container->iterator;
+
+                            uint32_t num_rows = 0;
+                            {
+                                SCOPED_TIMER(_hash_table_iterate_timer);
+                                while (iter != shared_state.aggregate_data_container->end() &&
+                                       num_rows < state->batch_size()) {
+                                    keys[num_rows] = iter.template get_key<KeyType>();
+                                    auto* agg_data = iter.get_aggregate_data();
+                                    count_column.insert_value(static_cast<Int64>(
+                                            *reinterpret_cast<const UInt64*>(agg_data)));
+                                    ++iter;
+                                    ++num_rows;
+                                }
+                            }
+                            {
+                                SCOPED_TIMER(_insert_keys_to_column_timer);
+                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                            }
+
+                            // Handle null key if present
+                            if (iter == shared_state.aggregate_data_container->end()) {
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (key_columns[0]->size() < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_column.insert_value(static_cast<Int64>(
+                                                *reinterpret_cast<const UInt64*>(mapped)));
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
+                            }
+                            return;
+                        }
+
+                        // Normal (non-simple-count) path
                         if (shared_state.values.size() < size) {
                             shared_state.values.resize(size);
                         }
