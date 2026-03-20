@@ -30,6 +30,7 @@ class SchemaClusterSnapshotPropertiesScannerTest : public testing::Test {
 };
 
 TEST_F(SchemaClusterSnapshotPropertiesScannerTest, test_get_next_block_internal) {
+    // test
     SchemaClusterSnapshotPropertiesScanner scanner;
     scanner._switch_status = cloud::SnapshotSwitchStatus::SNAPSHOT_SWITCH_ON;
     scanner._max_reserved_snapshots = 30;
