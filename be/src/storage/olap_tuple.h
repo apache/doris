@@ -55,14 +55,7 @@ public:
     Field& get_field(size_t i) { return _fields[i]; }
 
 private:
-    friend std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple);
-
     std::vector<Field> _fields;
 };
-
-inline std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple) {
-    os << tuple.debug_string();
-    return os;
-}
 
 } // namespace doris
