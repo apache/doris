@@ -107,6 +107,19 @@ if [[ -z "${FE_UT_PARALLEL}" ]]; then
 fi
 echo "Unit test parallel is: ${FE_UT_PARALLEL}"
 
+# Timeout settings for surefire forked JVM processes.
+# If a forked test JVM produces no output for FE_UT_FORK_TIMEOUT seconds,
+# surefire will send SIGQUIT (which triggers a JVM thread dump) and then
+# kill the process, marking the test as ERROR rather than hanging forever.
+# FE_UT_FORK_EXIT_TIMEOUT is the additional grace period after the kill signal
+# before surefire force-kills the process.
+if [[ -z "${FE_UT_FORK_TIMEOUT}" ]]; then
+    FE_UT_FORK_TIMEOUT=300
+fi
+if [[ -z "${FE_UT_FORK_EXIT_TIMEOUT}" ]]; then
+    FE_UT_FORK_EXIT_TIMEOUT=60
+fi
+
 if [[ "${RUN}" -eq 1 ]]; then
     echo "Run the specified class: $1"
     # eg:
@@ -114,15 +127,23 @@ if [[ "${RUN}" -eq 1 ]]; then
     # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
 
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1" \
+            -Dsurefire.forkedProcessTimeoutInSeconds="${FE_UT_FORK_TIMEOUT}" \
+            -Dsurefire.forkedProcessExitTimeoutInSeconds="${FE_UT_FORK_EXIT_TIMEOUT}"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dtest="$1" \
+            -Dsurefire.forkedProcessTimeoutInSeconds="${FE_UT_FORK_TIMEOUT}" \
+            -Dsurefire.forkedProcessExitTimeoutInSeconds="${FE_UT_FORK_EXIT_TIMEOUT}"
     fi
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true \
+            -Dsurefire.forkedProcessTimeoutInSeconds="${FE_UT_FORK_TIMEOUT}" \
+            -Dsurefire.forkedProcessExitTimeoutInSeconds="${FE_UT_FORK_EXIT_TIMEOUT}"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false \
+            -Dsurefire.forkedProcessTimeoutInSeconds="${FE_UT_FORK_TIMEOUT}" \
+            -Dsurefire.forkedProcessExitTimeoutInSeconds="${FE_UT_FORK_EXIT_TIMEOUT}"
     fi
 fi
