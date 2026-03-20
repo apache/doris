@@ -35,8 +35,10 @@ public class MTMVRelatedPartitionDescInitGenerator implements MTMVRelatedPartiti
 
     @Override
     public void apply(MTMVPartitionInfo mvPartitionInfo, Map<String, String> mvProperties,
-            RelatedPartitionDescResult lastResult, List<Column> partitionColumns) throws AnalysisException {
+            RelatedPartitionDescResult lastResult, List<Column> partitionColumns,
+                      Map<List<String>, Set<String>> queryUsedPartitionMap) throws AnalysisException {
         Set<MTMVRelatedTableIf> relatedTables = mvPartitionInfo.getPctTables();
+        // the key is related table, the value is partition items of the related table
         Map<MTMVRelatedTableIf, Map<String, PartitionItem>> items = Maps.newHashMap();
         for (MTMVRelatedTableIf relatedTable : relatedTables) {
             items.put(relatedTable,
