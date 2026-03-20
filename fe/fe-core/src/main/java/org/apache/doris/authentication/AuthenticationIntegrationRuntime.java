@@ -43,8 +43,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Runtime state is intentionally lazier than metadata state:
  * <ul>
- *   <li>CREATE/ALTER may choose eager init via {@code plugin.initialize_immediately=true}.</li>
- *   <li>Without that flag, metadata can move ahead of runtime and the integration is marked dirty.</li>
+ *   <li>CREATE/ALTER only update metadata and mark runtime state dirty when needed.</li>
  *   <li>The next authentication request reloads the plugin from the latest metadata before authenticating.</li>
  *   <li>Replay/restart only clear caches and states; plugin instances are recreated on first real use.</li>
  * </ul>

@@ -30,20 +30,6 @@ suite("test_authentication_integration_auth", "p0,auth") {
             exception "Property 'type' is required"
         }
 
-        test {
-            sql """
-                CREATE AUTHENTICATION INTEGRATION ${integrationName}
-                 PROPERTIES (
-                    'type'='ldap',
-                    'ldap.server'='ldap://127.0.0.1:389',
-                    'ldap.admin_password'='123456',
-                    'plugin.initialize_immediately'='true'
-                )
-                COMMENT 'for regression test'
-            """
-            exception "No authentication plugin factory found for type: ldap"
-        }
-
         sql """
             CREATE AUTHENTICATION INTEGRATION ${integrationName}
              PROPERTIES (
@@ -87,17 +73,6 @@ suite("test_authentication_integration_auth", "p0,auth") {
                 'secret.endpoint'='secret_alter_value'
             )
         """
-
-        test {
-            sql """
-                ALTER AUTHENTICATION INTEGRATION ${integrationName}
-                SET PROPERTIES (
-                    'ldap.server'='ldap://127.0.0.1:2389',
-                    'plugin.initialize_immediately'='true'
-                )
-            """
-            exception "No authentication plugin factory found for type: ldap"
-        }
 
         sql """ALTER AUTHENTICATION INTEGRATION ${integrationName} SET COMMENT 'updated comment'"""
 
