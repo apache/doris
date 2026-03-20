@@ -829,11 +829,12 @@ public class SchemaTable extends Table {
                             .build()))
             .put("streams",
                     new SchemaTable(SystemIdGenerator.getNextId(), "streams", TableType.SCHEMA,
-                            builder().column("STREAM_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            builder().column("DB_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                             .column("STREAM_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                             .column("STREAM_ID",  ScalarType.createType(PrimitiveType.BIGINT))
                              .column("STREAM_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("CONSUME_TYPE", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("STREAM_COMMENT", ScalarType.createStringType())
-                             .column("DB_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("BASE_TABLE_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("BASE_TABLE_DB", ScalarType.createVarchar(NAME_CHAR_LEN))
                              .column("BASE_TABLE_CTL", ScalarType.createVarchar(NAME_CHAR_LEN))
@@ -842,6 +843,16 @@ public class SchemaTable extends Table {
                              .column("IS_STALE", ScalarType.createType(PrimitiveType.BOOLEAN))
                              .column("STALE_REASON", ScalarType.createStringType())
                              .build()))
+            .put("stream_consumption",
+                    new SchemaTable(SystemIdGenerator.getNextId(), "stream_consumption", TableType.SCHEMA,
+                            builder().column("DB_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("STREAM_NAME", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("STREAM_ID", ScalarType.createType(PrimitiveType.BIGINT))
+                            .column("UNIT", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("CONSUMPTION_STATUS", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("LAG", ScalarType.createVarchar(NAME_CHAR_LEN))
+                            .column("LAST_CONSUMPTION_TIME", ScalarType.createType(PrimitiveType.BIGINT))
+                            .build()))
             .build();
 
     private boolean fetchAllFe = false;

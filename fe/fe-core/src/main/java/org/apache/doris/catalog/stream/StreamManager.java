@@ -62,7 +62,6 @@ public class StreamManager implements Writable {
         } finally {
             rwLock.writeLock().unlock();
         }
-
     }
 
     public void removeStream(BaseStream stream) {
@@ -120,34 +119,88 @@ public class StreamManager implements Writable {
                     }
                     Preconditions.checkArgument(table.get() instanceof BaseStream);
                     BaseStream stream = (BaseStream) table.get();
-                    stream.readLock();
-                    try {
-                        TRow trow = new TRow();
-                        trow.addToColumnValue(new TCell().setStringVal(stream.getName()));
-                        trow.addToColumnValue(new TCell().setStringVal(stream.getStreamType()));
-                        trow.addToColumnValue(new TCell().setStringVal(stream.getConsumeType()));
-                        trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
-                        trow.addToColumnValue(new TCell().setStringVal(stream.getDatabase().getFullName()));
-                        TableIf baseTable = stream.getBaseTableNullable();
-                        if (baseTable == null) {
-                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                            trow.addToColumnValue(new TCell().setStringVal("N/A"));
-                        } else {
-                            List<String> baseTableQualifiers = baseTable.getFullQualifiers();
-                            Preconditions.checkArgument(baseTableQualifiers.size() == 3);
-                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(2)));
-                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(1)));
-                            trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(0)));
-                            trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
+                    if (stream.readLockIfExist()) {
+                        try {
+                            TRow trow = new TRow();
+                            // DB_NAME
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getDatabase().getFullName()));
+                            // STREAM_NAME
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getName()));
+                            // STREAM_ID
+                            trow.addToColumnValue(new TCell().setLongVal(stream.getId()));
+                            // STREAM_TYPE
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getStreamType()));
+                            // CONSUME_TYPE
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getConsumeType()));
+                            // STREAM_COMMENT
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getComment()));
+                            TableIf baseTable = stream.getBaseTableNullable();
+                            if (baseTable == null) {
+                                // BASE_TABLE_NAME
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                                // BASE_TABLE_DB
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                                // BASE_TABLE_CTL
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                                // BASE_TABLE_TYPE
+                                trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                            } else {
+                                List<String> baseTableQualifiers = baseTable.getFullQualifiers();
+                                Preconditions.checkArgument(baseTableQualifiers.size() == 3);
+                                // BASE_TABLE_NAME
+                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(2)));
+                                // BASE_TABLE_DB
+                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(1)));
+                                // BASE_TABLE_CTL
+                                trow.addToColumnValue(new TCell().setStringVal(baseTableQualifiers.get(0)));
+                                // BASE_TABLE_TYPE
+                                trow.addToColumnValue(new TCell().setStringVal(baseTable.getType().name()));
+                            }
+                            // ENABLED
+                            trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
+                            // IS_STALE
+                            trow.addToColumnValue(new TCell().setBoolVal(stream.isStale()));
+                            // STALE_REASON
+                            trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason()));
+                            dataBatch.add(trow);
+                        } finally {
+                            stream.readUnlock();
                         }
-                        trow.addToColumnValue(new TCell().setBoolVal(!stream.isDisabled()));
-                        trow.addToColumnValue(new TCell().setBoolVal(stream.isStale()));
-                        trow.addToColumnValue(new TCell().setStringVal(stream.getStaleReason()));
-                        dataBatch.add(trow);
-                    } finally {
-                        stream.readUnlock();
+                    }
+                }
+            }
+        }
+    }
+
+    public void fillStreamConsumptionValuesMetadataResult(List<TRow> dataBatch) {
+        Map<Long, Set<Long>> copiedMap = new HashMap<>();
+        rwLock.readLock().lock();
+        try {
+            for (Map.Entry<Long, Set<Long>> e : dbStreamMap.entrySet()) {
+                copiedMap.put(e.getKey(), new HashSet<>(e.getValue()));
+            }
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        for (Map.Entry<Long, Set<Long>> entry : copiedMap.entrySet()) {
+            Optional<Database> db = Env.getCurrentInternalCatalog().getDb(entry.getKey());
+            if (db.isPresent()) {
+                for (Long tableId : entry.getValue()) {
+                    Optional<Table> table = db.get().getTable(tableId);
+                    if (!table.isPresent()) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.warn("invalid stream id: {}, db: {}", tableId, db.get().getFullName());
+                        }
+                        continue;
+                    }
+                    Preconditions.checkArgument(table.get() instanceof BaseStream);
+                    BaseStream stream = (BaseStream) table.get();
+                    if (stream.readLockIfExist()) {
+                        try {
+                            stream.fillStreamConsumptionInfo(dataBatch);
+                        } finally {
+                            stream.readUnlock();
+                        }
                     }
                 }
             }

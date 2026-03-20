@@ -24,6 +24,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.thrift.TRow;
 
 import com.google.common.collect.ImmutableList;
 import com.google.gson.annotations.SerializedName;
@@ -121,14 +122,6 @@ public abstract class BaseStream extends Table {
         return streamConsumeType.name();
     }
 
-    public boolean getShowInitialRows() {
-        return this.showInitialRows;
-    }
-
-    public void setShowInitialRows(boolean isShowInitialRows) {
-        this.showInitialRows = isShowInitialRows;
-    }
-
     public boolean isDisabled() {
         return disabled;
     }
@@ -157,10 +150,6 @@ public abstract class BaseStream extends Table {
         return supportedTableTypeList.contains(tableIf.getType());
     }
 
-    public String getOffsetDisplayString() {
-        return "N/A";
-    }
-
     public void getProperties(StringBuilder sb) {
         sb.append("\"").append(PropertyAnalyzer.PROPERTIES_STREAM_TYPE)
                 .append("\" = \"").append(streamConsumeType).append("\"");
@@ -172,4 +161,6 @@ public abstract class BaseStream extends Table {
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
+
+    abstract void fillStreamConsumptionInfo(List<TRow> dataBatch);
 }

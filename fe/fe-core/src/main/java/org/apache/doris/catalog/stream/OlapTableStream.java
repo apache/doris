@@ -19,11 +19,13 @@ package org.apache.doris.catalog.stream;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.rpc.RpcException;
+import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TRow;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -31,13 +33,18 @@ import com.google.gson.annotations.SerializedName;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class OlapTableStream extends BaseStream {
 
-    @SerializedName("offset")
-    private long offset;
+    @SerializedName("po")
+    private Map<Long, Long> partitionOffset;
+
+    @SerializedName("pct")
+    private Map<Long, Long> partitionConsumptionTime;
 
     // for persist
     public OlapTableStream() {
@@ -47,6 +54,9 @@ public class OlapTableStream extends BaseStream {
     public OlapTableStream(long id, String streamName, List<Column> fullSchema, TableIf baseTable) {
         super(id, streamName, fullSchema, baseTable);
         Preconditions.checkArgument(baseTable instanceof OlapTable);
+        this.partitionOffset = new HashMap<>();
+        this.partitionConsumptionTime = new HashMap<>();
+        this.baseTable = baseTable;
     }
 
     public OlapTableStream(String streamName, List<Column> fullSchema, TableIf baseTable) {
@@ -68,35 +78,16 @@ public class OlapTableStream extends BaseStream {
         return (OlapTable) baseTable;
     }
 
+    // used for init, should inside base table read lock
     @Override
     public void setProperties(Map<String, String> properties) throws AnalysisException {
         super.setProperties(properties);
         // set offset according to baseTable
-        if (showInitialRows) {
-            offset = 0;
-        } else {
-            baseTable = getBaseTableNullable();
-            if (baseTable != null) {
-                try {
-                    offset = ((OlapTable) baseTable).getVisibleVersion();
-                } catch (RpcException e) {
-                    throw new AnalysisException(e.getMessage(), e);
-                }
-            }
+        if (!showInitialRows) {
+            // set partition offset
+            ((OlapTable) baseTable).getPartitions()
+                    .forEach(p -> partitionOffset.put(p.getId(), p.getVisibleVersion()));
         }
-    }
-
-    public long getOffset() {
-        return offset;
-    }
-
-    public void setOffset(long offset) {
-        this.offset = offset;
-    }
-
-    @Override
-    public String getOffsetDisplayString() {
-        return String.valueOf(offset);
     }
 
     public static OlapTableStream read(DataInput in) throws IOException {
@@ -106,5 +97,61 @@ public class OlapTableStream extends BaseStream {
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Override
+    void fillStreamConsumptionInfo(List<TRow> dataBatch) {
+        OlapTable table = getBaseTableNullable();
+        if (table == null) {
+            return;
+        }
+        if (table.readLockIfExist()) {
+            try {
+                Map<Long, Partition> id2name = table.getPartitions().stream().collect(Collectors.toMap(
+                        p -> p.getId(),
+                        p -> p,
+                        (oldValue, newValue) -> newValue,
+                        HashMap::new
+                ));
+                for (Map.Entry<Long, Partition> entry : id2name.entrySet()) {
+                    TRow trow = new TRow();
+                    // DB_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(qualifiedDbName));
+                    // STREAM_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(name));
+                    // STREAM_ID
+                    trow.addToColumnValue(new TCell().setLongVal(id));
+                    // UNIT
+                    trow.addToColumnValue(new TCell().setStringVal(entry.getValue().getName()));
+                    if (partitionOffset.containsKey(entry.getKey())) {
+                        // CONSUMPTION_STATUS
+                        trow.addToColumnValue(new TCell()
+                                .setStringVal(String.valueOf(partitionOffset.get(entry.getKey()))));
+                        // LAG
+                        trow.addToColumnValue(new TCell()
+                                .setStringVal(String.valueOf(
+                                        entry.getValue().getVisibleVersion() - partitionOffset.get(entry.getKey()))));
+                        // LAST_CONSUMPTION_TIME
+                        if (partitionConsumptionTime.containsKey(entry.getKey())) {
+                            trow.addToColumnValue(new TCell()
+                                    .setLongVal(partitionConsumptionTime.get(entry.getKey())));
+                        } else {
+                            trow.addToColumnValue(new TCell().setLongVal(-1));
+                        }
+                    } else {
+                        // CONSUMPTION_STATUS
+                        trow.addToColumnValue(new TCell().setStringVal("N/A"));
+                        // LAG
+                        trow.addToColumnValue(new TCell().setStringVal((String.valueOf(
+                                entry.getValue().getVisibleVersion()))));
+                        // LAST_CONSUMPTION_TIME
+                        trow.addToColumnValue(new TCell().setLongVal(-1));
+                    }
+                    dataBatch.add(trow);
+                }
+            } finally {
+                table.readUnlock();
+            }
+        }
     }
 }

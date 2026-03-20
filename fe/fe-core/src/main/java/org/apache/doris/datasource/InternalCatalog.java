@@ -1021,6 +1021,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             type = "MATERIALIZED VIEW";
         } else if (table instanceof OlapTable) {
             type = "TABLE";
+        } else if (table instanceof BaseStream) {
+            type = "STREAM";
         }
         return String.format("Use 'DROP %s %s.%s'", type, dbName, table.getName());
     }

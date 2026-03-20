@@ -872,6 +872,7 @@ enum TSchemaTableName {
   DATABASE_PROPERTIES = 13,
   AUTHENTICATION_INTEGRATIONS = 14,
   STREAMS = 15,
+  STREAM_CONSUMPTION = 16,
 }
 
 struct TMetadataTableRequestParams {

@@ -70,6 +70,7 @@
 #include "information_schema/schema_schema_privileges_scanner.h"
 #include "information_schema/schema_schemata_scanner.h"
 #include "information_schema/schema_sql_block_rule_status_scanner.h"
+#include "information_schema/schema_stream_consumption_scanner.h"
 #include "information_schema/schema_streams_scanner.h"
 #include "information_schema/schema_table_options_scanner.h"
 #include "information_schema/schema_table_privileges_scanner.h"
@@ -267,6 +268,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaAuthenticationIntegrationsScanner::create_unique();
     case TSchemaTableType::SCH_STREAMS:
         return SchemaStreamsScanner::create_unique();
+    case TSchemaTableType::SCH_STREAM_CONSUMPTION:
+        return SchemaStreamConsumptionScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
