@@ -32,7 +32,6 @@
 #include <set>
 #include <sstream>
 #include <string>
-#include <vector>
 
 #include "common/logging.h"
 #include "common/status.h"

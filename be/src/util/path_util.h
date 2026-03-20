@@ -19,7 +19,6 @@
 #pragma once
 
 #include <string>
-#include <vector>
 
 namespace doris {
 namespace path_util {

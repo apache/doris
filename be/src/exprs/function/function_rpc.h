@@ -23,7 +23,6 @@
 
 #include <memory>
 #include <string>
-#include <vector>
 
 #include "common/status.h"
 #include "core/block/block.h"
