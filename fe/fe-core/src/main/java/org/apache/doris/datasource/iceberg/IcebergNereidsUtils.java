@@ -17,7 +17,9 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.UserException;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Between;
@@ -29,10 +31,12 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -40,6 +44,11 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.util.DateUtils;
 
 import org.apache.iceberg.Schema;
@@ -53,12 +62,133 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.function.BiFunction;
+import javax.annotation.Nullable;
 
 /**
- * Utility class for converting Nereids expressions to Iceberg expressions.
+ * Utility class for Iceberg + Nereids integration.
+ * Provides shared helpers for row-id injection and expression conversion.
  */
 public class IcebergNereidsUtils {
+
+    // ==================== Row-ID Injection Utilities ====================
+
+    /**
+     * Inject $row_id column into the plan for any Iceberg table scan.
+     * Used by DELETE and UPDATE commands (single-table, no ambiguity).
+     */
+    public static LogicalPlan injectRowIdColumn(LogicalPlan plan) {
+        if (hasUnboundPlan(plan)) {
+            return plan;
+        }
+        return (LogicalPlan) plan.accept(new IcebergRowIdInjector(null), null);
+    }
+
+    /**
+     * Inject $row_id column only for the specified target table.
+     * Used by MERGE INTO where source may also be an Iceberg table.
+     */
+    public static LogicalPlan injectRowIdColumn(LogicalPlan plan, IcebergExternalTable targetTable) {
+        if (hasUnboundPlan(plan)) {
+            return plan;
+        }
+        return (LogicalPlan) plan.accept(new IcebergRowIdInjector(targetTable), null);
+    }
+
+    /** Check if any slot in the list is the row-id column. */
+    public static boolean hasRowIdSlot(List<Slot> slots) {
+        return findRowIdSlot(slots).isPresent();
+    }
+
+    /** Find the row-id slot in the list, if present. */
+    public static Optional<Slot> findRowIdSlot(List<Slot> slots) {
+        for (Slot slot : slots) {
+            if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getName())) {
+                return Optional.of(slot);
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Check if any project expression is the row-id column. */
+    public static boolean hasRowIdProject(List<NamedExpression> projects) {
+        for (NamedExpression project : projects) {
+            if (project instanceof Slot
+                    && Column.ICEBERG_ROWID_COL.equalsIgnoreCase(((Slot) project).getName())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Resolve the row-id Column definition from the table's full schema. */
+    public static Column getRowIdColumn(IcebergExternalTable table) {
+        List<Column> fullSchema = table.getFullSchema();
+        if (fullSchema != null) {
+            for (Column column : fullSchema) {
+                if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(column.getName())) {
+                    return column;
+                }
+            }
+        }
+        return IcebergRowId.createHiddenColumn();
+    }
+
+    /** Check if a plan tree contains any unbound nodes or expressions. */
+    public static boolean hasUnboundPlan(Plan plan) {
+        return plan.anyMatch(node -> node instanceof Unbound || ((Plan) node).hasUnboundExpression());
+    }
+
+    /**
+     * Plan rewriter that injects the $row_id hidden column into Iceberg scans and projects.
+     *
+     * <p>When {@code targetTable} is null, injects on ALL Iceberg scans (DELETE/UPDATE).
+     * When non-null, only injects on the scan whose table ID matches (MERGE INTO).
+     */
+    private static class IcebergRowIdInjector extends DefaultPlanRewriter<Void> {
+        @Nullable
+        private final IcebergExternalTable targetTable;
+
+        IcebergRowIdInjector(@Nullable IcebergExternalTable targetTable) {
+            this.targetTable = targetTable;
+        }
+
+        @Override
+        public Plan visitLogicalFileScan(LogicalFileScan scan, Void context) {
+            if (!(scan.getTable() instanceof IcebergExternalTable)) {
+                return scan;
+            }
+            if (targetTable != null
+                    && ((IcebergExternalTable) scan.getTable()).getId() != targetTable.getId()) {
+                return scan;
+            }
+            if (hasRowIdSlot(scan.getOutput())) {
+                return scan;
+            }
+            IcebergExternalTable table = (IcebergExternalTable) scan.getTable();
+            Column rowIdColumn = getRowIdColumn(table);
+            SlotReference rowIdSlot = SlotReference.fromColumn(
+                    StatementScopeIdGenerator.newExprId(), table, rowIdColumn, scan.getQualifier());
+            List<Slot> outputs = new ArrayList<>(scan.getOutput());
+            outputs.add(rowIdSlot);
+            return scan.withCachedOutput(outputs);
+        }
+
+        @Override
+        public Plan visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
+            project = (LogicalProject<? extends Plan>) visitChildren(this, project, context);
+            Optional<Slot> rowIdSlot = findRowIdSlot(project.child().getOutput());
+            if (!rowIdSlot.isPresent() || hasRowIdProject(project.getProjects())) {
+                return project;
+            }
+            List<NamedExpression> newProjects = new ArrayList<>(project.getProjects());
+            newProjects.add((NamedExpression) rowIdSlot.get());
+            return project.withProjects(newProjects);
+        }
+    }
+
+    // ==================== Expression Conversion Utilities ====================
 
     /**
      * Convert Nereids Expression to Iceberg Expression
@@ -330,7 +460,7 @@ public class IcebergNereidsUtils {
     /**
      * Extract literal value from Nereids Literal expression
      */
-    private static Object extractNereidsLiteralValue(
+    static Object extractNereidsLiteralValue(
             Literal literal,
             Type icebergType) throws UserException {
         try {

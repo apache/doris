@@ -68,6 +68,13 @@ namespace doris {
 
 class RowGroupReader : public ProfileCollector {
 public:
+    struct IcebergRowIdParams {
+        bool enabled = false;
+        std::string file_path;
+        int32_t partition_spec_id = 0;
+        std::string partition_data_json;
+        int row_id_column_pos = -1;
+    };
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr;
     static const std::vector<int64_t> NO_DELETE;
 
@@ -194,6 +201,10 @@ public:
         _row_id_column_iterator_pair = iterator_pair;
     }
 
+    void set_iceberg_rowid_params(const IcebergRowIdParams& params) {
+        _iceberg_rowid_params = params;
+    }
+
     void set_current_row_group_idx(RowGroupIndex row_group_idx) {
         _current_row_group_idx = row_group_idx;
     }
@@ -250,6 +261,7 @@ private:
 
     Status _get_current_batch_row_id(size_t read_rows);
     Status _fill_row_id_columns(Block* block, size_t read_rows, bool is_current_row_ids);
+    Status _append_iceberg_rowid_column(Block* block, size_t read_rows, bool is_current_row_ids);
 
     io::FileReaderSPtr _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>>
@@ -295,6 +307,7 @@ private:
     std::vector<rowid_t> _current_batch_row_ids;
 
     std::unordered_map<std::string, uint32_t>* _col_name_to_block_idx = nullptr;
+    IcebergRowIdParams _iceberg_rowid_params;
 };
 #include "common/compile_check_end.h"
 
