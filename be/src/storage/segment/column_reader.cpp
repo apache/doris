@@ -728,7 +728,11 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
-        *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+        if (is_olap_string_type(_meta_type)) {
+            *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
+        } else {
+            *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
+        }
         (*iterator)->set_column_name(tablet_column ? tablet_column->name() : "");
         return Status::OK();
     } else {
@@ -914,6 +918,10 @@ Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
         RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
     }
     RETURN_IF_ERROR(_offsets_iterator->seek_to_ordinal(ord));
+    if (_read_offset_only) {
+        // In OFFSET_ONLY mode, key/value iterators are SKIP_READING, no need to seek them
+        return Status::OK();
+    }
     // here to use offset info
     ordinal_t offset = 0;
     RETURN_IF_ERROR(_offsets_iterator->_peek_one_offset(&offset));
@@ -970,12 +978,18 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
     auto val_ptr = column_map.get_values().assume_mutable();
 
     if (num_items > 0) {
-        size_t num_read = num_items;
-        bool key_has_null = false;
-        bool val_has_null = false;
-        RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, key_ptr, &key_has_null));
-        RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, val_ptr, &val_has_null));
-        DCHECK(num_read == num_items);
+        if (_read_offset_only) {
+            // OFFSET_ONLY mode: skip reading actual key/value data, fill with defaults
+            key_ptr->insert_many_defaults(num_items);
+            val_ptr->insert_many_defaults(num_items);
+        } else {
+            size_t num_read = num_items;
+            bool key_has_null = false;
+            bool val_has_null = false;
+            RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, key_ptr, &key_has_null));
+            RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, val_ptr, &val_has_null));
+            DCHECK(num_read == num_items);
+        }
 
         column_map.get_keys_ptr() = std::move(key_ptr);
         column_map.get_values_ptr() = std::move(val_ptr);
@@ -1195,21 +1209,32 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
         return Status::OK();
     }
 
+    // Check for OFFSET_ONLY mode: if "OFFSET" path is present, we only need
+    // offset data (for map_size), skip reading key/value data.
+    _check_and_set_offset_only(sub_all_access_paths);
+    if (_read_offset_only) {
+        _key_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        _val_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Map column iterator set column " << _column_name
+                   << " to OFFSET_ONLY reading mode, key/value columns set to SKIP_READING";
+        return Status::OK();
+    }
+
     TColumnAccessPaths key_all_access_paths;
     TColumnAccessPaths val_all_access_paths;
     TColumnAccessPaths key_predicate_access_paths;
     TColumnAccessPaths val_predicate_access_paths;
 
     for (auto paths : sub_all_access_paths) {
-        if (paths.data_access_path.path[0] == "*") {
+        if (paths.data_access_path.path[0] == ACCESS_ALL) {
             paths.data_access_path.path[0] = _key_iterator->column_name();
             key_all_access_paths.emplace_back(paths);
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_all_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "KEYS") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
             paths.data_access_path.path[0] = _key_iterator->column_name();
             key_all_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "VALUES") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_VALUES) {
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_all_access_paths.emplace_back(paths);
         }
@@ -1218,15 +1243,15 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     const auto need_read_values = !val_all_access_paths.empty();
 
     for (auto paths : sub_predicate_access_paths) {
-        if (paths.data_access_path.path[0] == "*") {
+        if (paths.data_access_path.path[0] == ACCESS_ALL) {
             paths.data_access_path.path[0] = _key_iterator->column_name();
             key_predicate_access_paths.emplace_back(paths);
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_predicate_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "KEYS") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
             paths.data_access_path.path[0] = _key_iterator->column_name();
             key_predicate_access_paths.emplace_back(paths);
-        } else if (paths.data_access_path.path[0] == "VALUES") {
+        } else if (paths.data_access_path.path[0] == ACCESS_MAP_VALUES) {
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_predicate_access_paths.emplace_back(paths);
         }
@@ -1567,6 +1592,10 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 Status ArrayFileColumnIterator::_seek_by_offsets(ordinal_t ord) {
+    if (_read_offset_only) {
+        // In OFFSET_ONLY mode, item iterator is SKIP_READING, no need to seek it
+        return Status::OK();
+    }
     // using offsets info
     ordinal_t offset = 0;
     RETURN_IF_ERROR(_offset_iterator->_peek_one_offset(&offset));
@@ -1610,10 +1639,16 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     auto column_items_ptr = column_array->get_data().assume_mutable();
     if (num_items > 0) {
-        size_t num_read = num_items;
-        bool items_has_null = false;
-        RETURN_IF_ERROR(_item_iterator->next_batch(&num_read, column_items_ptr, &items_has_null));
-        DCHECK(num_read == num_items);
+        if (_read_offset_only) {
+            // OFFSET_ONLY mode: skip reading actual item data, fill with defaults
+            column_items_ptr->insert_many_defaults(num_items);
+        } else {
+            size_t num_read = num_items;
+            bool items_has_null = false;
+            RETURN_IF_ERROR(
+                    _item_iterator->next_batch(&num_read, column_items_ptr, &items_has_null));
+            DCHECK(num_read == num_items);
+        }
     }
 
     if (dst->is_nullable()) {
@@ -1700,12 +1735,22 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
 
+    // Check for OFFSET_ONLY mode: if "OFFSET" path is present, we only need
+    // offset data (for array_size/length), skip reading item data.
+    _check_and_set_offset_only(sub_all_access_paths);
+    if (_read_offset_only) {
+        _item_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Array column iterator set column " << _column_name
+                   << " to OFFSET_ONLY reading mode, item column set to SKIP_READING";
+        return Status::OK();
+    }
+
     const auto no_sub_column_to_skip = sub_all_access_paths.empty();
     const auto no_predicate_sub_column = sub_predicate_access_paths.empty();
 
     if (!no_sub_column_to_skip) {
         for (auto& path : sub_all_access_paths) {
-            if (path.data_access_path.path[0] == "*") {
+            if (path.data_access_path.path[0] == ACCESS_ALL) {
                 path.data_access_path.path[0] = _item_iterator->column_name();
             }
         }
@@ -1713,7 +1758,7 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
 
     if (!no_predicate_sub_column) {
         for (auto& path : sub_predicate_access_paths) {
-            if (path.data_access_path.path[0] == "*") {
+            if (path.data_access_path.path[0] == ACCESS_ALL) {
                 path.data_access_path.path[0] = _item_iterator->column_name();
             }
         }
@@ -1724,6 +1769,46 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
         RETURN_IF_ERROR(
                 _item_iterator->set_access_paths(sub_all_access_paths, sub_predicate_access_paths));
     }
+    return Status::OK();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// StringFileColumnIterator implementation
+////////////////////////////////////////////////////////////////////////////////
+
+StringFileColumnIterator::StringFileColumnIterator(std::shared_ptr<ColumnReader> reader)
+        : FileColumnIterator(std::move(reader)) {}
+
+Status StringFileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    if (_read_offset_only) {
+        // Propagate only_read_offsets to the FileColumnIterator's options
+        auto modified_opts = opts;
+        modified_opts.only_read_offsets = true;
+        return FileColumnIterator::init(modified_opts);
+    }
+    return FileColumnIterator::init(opts);
+}
+
+Status StringFileColumnIterator::set_access_paths(
+        const TColumnAccessPaths& all_access_paths,
+        const TColumnAccessPaths& predicate_access_paths) {
+    if (all_access_paths.empty()) {
+        return Status::OK();
+    }
+
+    if (!predicate_access_paths.empty()) {
+        set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
+    }
+
+    // Strip the column name from path[0] before checking for OFFSET.
+    // Raw paths look like ["col_name", "OFFSET"]; after stripping we get ["OFFSET"].
+    auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
+    _check_and_set_offset_only(sub_all_access_paths);
+    if (_read_offset_only) {
+        DLOG(INFO) << "String column iterator set column " << _column_name
+                   << " to OFFSET_ONLY reading mode";
+    }
+
     return Status::OK();
 }
 
@@ -2001,11 +2086,14 @@ Status FileColumnIterator::_read_data_page(const OrdinalPageIndexIterator& iter)
     Slice page_body;
     PageFooterPB footer;
     _opts.type = DATA_PAGE;
+    PageDecoderOptions decoder_opts;
+    decoder_opts.only_read_offsets = _opts.only_read_offsets;
     RETURN_IF_ERROR(
             _reader->read_page(_opts, iter.page(), &handle, &page_body, &footer, _compress_codec));
     // parse data page
     auto st = ParsedPage::create(std::move(handle), page_body, footer.data_page_footer(),
-                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page);
+                                 _reader->encoding_info(), iter.page(), iter.page_index(), &_page,
+                                 decoder_opts);
     if (!st.ok()) {
         LOG(WARNING) << "failed to create ParsedPage, file=" << _opts.file_reader->path().native()
                      << ", page_offset=" << iter.page().offset << ", page_size=" << iter.page().size

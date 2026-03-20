@@ -104,6 +104,7 @@ struct ColumnIteratorOptions {
     // reader statistics
     OlapReaderStatistics* stats = nullptr; // Ref
     io::IOContext io_ctx;
+    bool only_read_offsets = false;
 
     void sanity_check() const {
         CHECK_NOTNULL(file_reader);
@@ -408,6 +409,11 @@ public:
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) {}
 
+    static constexpr const char* ACCESS_OFFSET = "OFFSET";
+    static constexpr const char* ACCESS_ALL = "*";
+    static constexpr const char* ACCESS_MAP_KEYS = "KEYS";
+    static constexpr const char* ACCESS_MAP_VALUES = "VALUES";
+
 protected:
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
@@ -418,7 +424,7 @@ protected:
 
 // This iterator is used to read column data from file
 // for scalar type
-class FileColumnIterator final : public ColumnIterator {
+class FileColumnIterator : public ColumnIterator {
 public:
     explicit FileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~FileColumnIterator() override;
@@ -508,6 +514,53 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
+// OffsetBasedColumnIterator is a mixin class for column types that support
+// OFFSET_ONLY reading mode (Array, Map, String).
+// When _read_offset_only is true, only offset information is read and the
+// actual content data (Array items, Map keys/values, String chars) is skipped.
+// This class intentionally does NOT inherit from ColumnIterator so that it can
+// be combined with FileColumnIterator via multiple inheritance without creating
+// a diamond.
+class OffsetBasedColumnIterator {
+public:
+    OffsetBasedColumnIterator() = default;
+    ~OffsetBasedColumnIterator() = default;
+
+    bool read_offset_only() const { return _read_offset_only; }
+
+protected:
+    // Checks whether any of the sub access paths contain "OFFSET" and sets
+    // _read_offset_only accordingly.
+    void _check_and_set_offset_only(const TColumnAccessPaths& sub_all_access_paths) {
+        for (const auto& path : sub_all_access_paths) {
+            if (!path.data_access_path.path.empty() &&
+                StringCaseEqual()(path.data_access_path.path[0], ColumnIterator::ACCESS_OFFSET)) {
+                _read_offset_only = true;
+                return;
+            }
+        }
+    }
+
+    bool _read_offset_only = false;
+};
+
+// StringFileColumnIterator extends FileColumnIterator with OFFSET_ONLY reading
+// support for string/binary column types. When the OFFSET path is detected in
+// set_access_paths, it sets only_read_offsets on the ColumnIteratorOptions so
+// that the BinaryPlainPageDecoder skips chars memcpy and only fills offsets.
+// Uses multiple inheritance: FileColumnIterator provides all scalar file reading
+// logic, OffsetBasedColumnIterator provides the _read_offset_only flag/helper.
+class StringFileColumnIterator final : public FileColumnIterator, public OffsetBasedColumnIterator {
+public:
+    explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
+    ~StringFileColumnIterator() override = default;
+
+    Status init(const ColumnIteratorOptions& opts) override;
+
+    Status set_access_paths(const TColumnAccessPaths& all_access_paths,
+                            const TColumnAccessPaths& predicate_access_paths) override;
+};
+
 // This iterator make offset operation write once for
 class OffsetFileColumnIterator final : public ColumnIterator {
 public:
@@ -549,7 +602,7 @@ private:
 };
 
 // This iterator is used to read map value column
-class MapFileColumnIterator final : public ColumnIterator {
+class MapFileColumnIterator final : public ColumnIterator, public OffsetBasedColumnIterator {
 public:
     explicit MapFileColumnIterator(std::shared_ptr<ColumnReader> reader,
                                    ColumnIteratorUPtr null_iterator,
@@ -630,7 +683,7 @@ private:
     std::vector<ColumnIteratorUPtr> _sub_column_iterators;
 };
 
-class ArrayFileColumnIterator final : public ColumnIterator {
+class ArrayFileColumnIterator final : public ColumnIterator, public OffsetBasedColumnIterator {
 public:
     explicit ArrayFileColumnIterator(std::shared_ptr<ColumnReader> reader,
                                      OffsetFileColumnIteratorUPtr offset_reader,
