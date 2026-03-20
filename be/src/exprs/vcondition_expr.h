@@ -27,7 +27,6 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "runtime/runtime_state.h"
 namespace doris {
 class RowDescriptor;
 class RuntimeState;

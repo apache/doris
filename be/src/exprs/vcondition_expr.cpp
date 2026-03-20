@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exprs/vcondition_expr.h"
+#include "runtime/runtime_state.h"
 
 #include <glog/logging.h>
 

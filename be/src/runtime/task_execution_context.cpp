@@ -17,6 +17,8 @@
 
 #include "runtime/task_execution_context.h"
 
+#include "runtime/runtime_state.h"
+
 #include <glog/logging.h>
 
 #include <condition_variable>

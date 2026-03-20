@@ -16,6 +16,7 @@
 // under the License.
 
 #include "exec/sink/tablet_sink_hash_partitioner.h"
+#include "runtime/runtime_state.h"
 
 #include <algorithm>
 #include <memory>

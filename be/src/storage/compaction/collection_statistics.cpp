@@ -16,6 +16,7 @@
 // under the License.
 
 #include "storage/compaction/collection_statistics.h"
+#include "runtime/runtime_state.h"
 
 #include <set>
 #include <sstream>
