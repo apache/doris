@@ -69,8 +69,8 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------PhysicalProject
 ------------------filter((date_dim.d_year <= 2001) and (date_dim.d_year >= 1999))
 --------------------PhysicalOlapScan[date_dim]
-----PhysicalCteAnchor ( cteId=CTEId#4 )
-------PhysicalCteProducer ( cteId=CTEId#4 )
+----PhysicalCteAnchor ( cteId=CTEId#6 )
+------PhysicalCteProducer ( cteId=CTEId#6 )
 --------hashAgg[GLOBAL]
 ----------PhysicalDistribute[DistributionSpecHash]
 ------------hashAgg[LOCAL]
@@ -164,9 +164,9 @@ PhysicalCteAnchor ( cteId=CTEId#0 )
 ----------------------hashAgg[LOCAL]
 ------------------------PhysicalRepeat
 --------------------------PhysicalDistribute[DistributionSpecExecutionAny]
-----------------------------PhysicalCteConsumer ( cteId=CTEId#4 )
+----------------------------PhysicalCteConsumer ( cteId=CTEId#6 )
 ----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalCteConsumer ( cteId=CTEId#4 )
+------------------PhysicalCteConsumer ( cteId=CTEId#6 )
 
 Hint log:
 Used:
