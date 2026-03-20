@@ -69,6 +69,7 @@ import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.FeNameFormat;
@@ -207,14 +208,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private TxnStateCallbackFactory callbackFactory;
-    private final Map<Long, Long> subTxnIdToTxnId = new ConcurrentHashMap<>();
+    private final ConcurrentLong2LongHashMap subTxnIdToTxnId = new ConcurrentLong2LongHashMap();
     private Map<Long, AtomicInteger> waitToCommitTxnCountMap = new ConcurrentHashMap<>();
     private Map<Long, CommitCostTimeStatistic> commitCostTimeStatisticMap = new ConcurrentHashMap<>();
 
     // tableId -> txnId
-    private Map<Long, Long> lastTxnIdMap = Maps.newConcurrentMap();
+    private ConcurrentLong2LongHashMap lastTxnIdMap = new ConcurrentLong2LongHashMap();
     // txnId -> signature
-    private Map<Long, Long> txnLastSignatureMap = Maps.newConcurrentMap();
+    private ConcurrentLong2LongHashMap txnLastSignatureMap = new ConcurrentLong2LongHashMap();
 
     private final AutoPartitionCacheManager autoPartitionCacheManager = new AutoPartitionCacheManager();
 
@@ -2587,13 +2588,11 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
     }
 
     private void cleanSubTransactions(long transactionId) {
-        Iterator<Entry<Long, Long>> iterator = subTxnIdToTxnId.entrySet().iterator();
-        while (iterator.hasNext()) {
-            Entry<Long, Long> entry = iterator.next();
-            if (entry.getValue() == transactionId) {
-                iterator.remove();
+        subTxnIdToTxnId.forEach((subTxnId, txnId) -> {
+            if (txnId == transactionId) {
+                subTxnIdToTxnId.remove(subTxnId);
             }
-        }
+        });
     }
 
     public Pair<Long, TransactionState> beginSubTxn(long txnId, long dbId, Set<Long> tableIds, String label,

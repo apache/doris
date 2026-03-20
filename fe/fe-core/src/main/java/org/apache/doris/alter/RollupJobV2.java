@@ -69,6 +69,9 @@ import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.GlobalTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
@@ -100,9 +103,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     // partition id -> (rollup tablet id -> base tablet id)
     @SerializedName(value = "partitionIdToBaseRollupTabletIdMap")
-    protected Map<Long, Map<Long, Long>> partitionIdToBaseRollupTabletIdMap = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<Map<Long, Long>> partitionIdToBaseRollupTabletIdMap = new Long2ObjectOpenHashMap<>();
     @SerializedName(value = "partitionIdToRollupIndex")
-    protected Map<Long, MaterializedIndex> partitionIdToRollupIndex = Maps.newHashMap();
+    protected Long2ObjectOpenHashMap<MaterializedIndex> partitionIdToRollupIndex = new Long2ObjectOpenHashMap<>();
 
     // rollup and base schema info
     @SerializedName(value = "baseIndexId")
@@ -172,7 +175,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
     public void addTabletIdMap(long partitionId, long rollupTabletId, long baseTabletId) {
         Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap
-                .computeIfAbsent(partitionId, k -> Maps.newHashMap());
+                .computeIfAbsent(partitionId, k -> new Long2LongOpenHashMap());
         tabletIdMap.put(rollupTabletId, baseTabletId);
     }
 

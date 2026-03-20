@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisMethod;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.AnalysisInfo.JobType;
@@ -24,8 +25,6 @@ import org.apache.doris.statistics.AnalysisInfo.JobType;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.atomic.AtomicLong;
 
 public class ColStatsMeta {
@@ -56,7 +55,7 @@ public class ColStatsMeta {
     public long tableVersion;
 
     @SerializedName("pur")
-    public ConcurrentMap<Long, Long> partitionUpdateRows = new ConcurrentHashMap<>();
+    public ConcurrentLong2LongHashMap partitionUpdateRows = new ConcurrentLong2LongHashMap();
 
     public ColStatsMeta(long updatedTime, AnalysisMethod analysisMethod, AnalysisType analysisType,
                         JobType jobType, long queriedTimes, long rowCount, long updatedRows,

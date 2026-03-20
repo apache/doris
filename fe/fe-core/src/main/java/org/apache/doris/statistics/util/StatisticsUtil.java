@@ -46,6 +46,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
@@ -119,7 +120,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.StringJoiner;
-import java.util.concurrent.ConcurrentMap;
+
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -1185,7 +1186,7 @@ public class StatisticsUtil {
         if (tableStatsStatus.partitionChanged != null && tableStatsStatus.partitionChanged.get()) {
             return true;
         }
-        ConcurrentMap<Long, Long> partitionUpdateRows = columnStatsMeta.partitionUpdateRows;
+        ConcurrentLong2LongHashMap partitionUpdateRows = columnStatsMeta.partitionUpdateRows;
         if (partitionUpdateRows == null) {
             return true;
         }

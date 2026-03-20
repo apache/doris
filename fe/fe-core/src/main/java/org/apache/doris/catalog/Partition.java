@@ -25,6 +25,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.rpc.RpcException;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -68,14 +70,14 @@ public class Partition extends MetaObject {
      * User can do query on them, show them in related 'show' stmt.
      */
     @SerializedName(value = "ivr", alternate = {"idToVisibleRollupIndex"})
-    private Map<Long, MaterializedIndex> idToVisibleRollupIndex = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<MaterializedIndex> idToVisibleRollupIndex = new Long2ObjectOpenHashMap<>();
     /**
      * Shadow indexes are indexes which are not visible to user.
      * Query will not run on these shadow indexes, and user can not see them neither.
      * But load process will load data into these shadow indexes.
      */
     @SerializedName(value = "isi", alternate = {"idToShadowIndex"})
-    private Map<Long, MaterializedIndex> idToShadowIndex = Maps.newHashMap();
+    private Long2ObjectOpenHashMap<MaterializedIndex> idToShadowIndex = new Long2ObjectOpenHashMap<>();
 
     /**
      * committed version(hash): after txn is committed, set committed version(hash)

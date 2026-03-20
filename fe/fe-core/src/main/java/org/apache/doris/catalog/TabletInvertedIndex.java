@@ -26,6 +26,8 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletMetaInfo;
 
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ListMultimap;
 import com.google.common.collect.SetMultimap;

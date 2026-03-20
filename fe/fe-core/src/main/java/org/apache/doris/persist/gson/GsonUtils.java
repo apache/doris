@@ -126,6 +126,8 @@ import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.load.CloudBrokerLoadJob;
 import org.apache.doris.cloud.load.CopyJob;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
+import org.apache.doris.common.ConcurrentLong2ObjectHashMap;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.util.RangeUtils;
@@ -220,6 +222,12 @@ import org.apache.doris.system.BrokerHbResponse;
 import org.apache.doris.system.FrontendHbResponse;
 import org.apache.doris.system.HeartbeatResponse;
 import org.apache.doris.transaction.TxnCommitAttachment;
+
+import it.unimi.dsi.fastutil.longs.Long2LongMap;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ArrayListMultimap;
@@ -651,6 +659,16 @@ public class GsonUtils {
             .registerTypeAdapterFactory(partitionItemTypeAdapterFactory)
             .registerTypeAdapter(ImmutableMap.class, new ImmutableMapDeserializer())
             .registerTypeAdapter(ImmutableList.class, new ImmutableListDeserializer())
+            .registerTypeHierarchyAdapter(ConcurrentLong2ObjectHashMap.class,
+                    new ConcurrentLong2ObjectHashMapAdapter())
+            .registerTypeAdapter(ConcurrentLong2LongHashMap.class,
+                    new ConcurrentLong2LongHashMapAdapter())
+            .registerTypeHierarchyAdapter(Long2ObjectOpenHashMap.class,
+                    new Long2ObjectOpenHashMapAdapter())
+            .registerTypeAdapter(Long2LongOpenHashMap.class,
+                    new Long2LongOpenHashMapAdapter())
+            .registerTypeAdapter(LongOpenHashSet.class,
+                    new LongOpenHashSetAdapter())
             .registerTypeAdapter(AtomicBoolean.class, new AtomicBooleanAdapter())
             .registerTypeAdapter(PartitionKey.class, new PartitionKey.PartitionKeySerializer())
             .registerTypeAdapter(Range.class, new RangeUtils.RangeSerializer()).setExclusionStrategies(
@@ -912,6 +930,173 @@ public class GsonUtils {
             final Type type2 = TypeUtils.parameterize(List.class, ((ParameterizedType) type).getActualTypeArguments());
             final List<?> list = context.deserialize(json, type2);
             return ImmutableList.copyOf(list);
+        }
+    }
+
+    /**
+     * Gson adapter for {@link ConcurrentLong2ObjectHashMap}.
+     * Serializes as {@code {"123": value1, "456": value2}} — identical to ConcurrentHashMap&lt;Long, V&gt;
+     * for backward compatibility during rolling upgrades.
+     */
+    private static class ConcurrentLong2ObjectHashMapAdapter
+            implements JsonSerializer<ConcurrentLong2ObjectHashMap<?>>,
+            JsonDeserializer<ConcurrentLong2ObjectHashMap<?>> {
+
+        @Override
+        public JsonElement serialize(ConcurrentLong2ObjectHashMap<?> src, Type typeOfSrc,
+                JsonSerializationContext context) {
+            JsonObject obj = new JsonObject();
+            for (Long2ObjectMap.Entry<?> entry : src.long2ObjectEntrySet()) {
+                obj.add(String.valueOf(entry.getLongKey()), context.serialize(entry.getValue()));
+            }
+            return obj;
+        }
+
+        @Override
+        public ConcurrentLong2ObjectHashMap<?> deserialize(JsonElement json, Type typeOfT,
+                JsonDeserializationContext context) throws JsonParseException {
+            Type valueType = Object.class;
+            if (typeOfT instanceof ParameterizedType) {
+                valueType = ((ParameterizedType) typeOfT).getActualTypeArguments()[0];
+            }
+            ConcurrentLong2ObjectHashMap<Object> map = new ConcurrentLong2ObjectHashMap<>();
+            JsonObject obj = json.getAsJsonObject();
+            for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
+                long key = Long.parseLong(entry.getKey());
+                Object value = context.deserialize(entry.getValue(), valueType);
+                map.put(key, value);
+            }
+            return map;
+        }
+    }
+
+    /**
+     * Gson adapter for {@link ConcurrentLong2LongHashMap}.
+     * Serializes as {@code {"123": 456, "789": 0}} — identical to ConcurrentHashMap&lt;Long, Long&gt;.
+     */
+    private static class ConcurrentLong2LongHashMapAdapter
+            implements JsonSerializer<ConcurrentLong2LongHashMap>,
+            JsonDeserializer<ConcurrentLong2LongHashMap> {
+
+        @Override
+        public JsonElement serialize(ConcurrentLong2LongHashMap src, Type typeOfSrc,
+                JsonSerializationContext context) {
+            JsonObject obj = new JsonObject();
+            for (Long2LongMap.Entry entry : src.long2LongEntrySet()) {
+                obj.addProperty(String.valueOf(entry.getLongKey()), entry.getLongValue());
+            }
+            return obj;
+        }
+
+        @Override
+        public ConcurrentLong2LongHashMap deserialize(JsonElement json, Type typeOfT,
+                JsonDeserializationContext context) throws JsonParseException {
+            ConcurrentLong2LongHashMap map = new ConcurrentLong2LongHashMap();
+            JsonObject obj = json.getAsJsonObject();
+            for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
+                long key = Long.parseLong(entry.getKey());
+                long value = entry.getValue().getAsLong();
+                map.put(key, value);
+            }
+            return map;
+        }
+    }
+
+    /**
+     * Gson adapter for {@link Long2ObjectOpenHashMap}.
+     * Serializes as {@code {"123": value1, "456": value2}} — identical to HashMap&lt;Long, V&gt;.
+     */
+    private static class Long2ObjectOpenHashMapAdapter
+            implements JsonSerializer<Long2ObjectOpenHashMap<?>>,
+            JsonDeserializer<Long2ObjectOpenHashMap<?>> {
+
+        @Override
+        public JsonElement serialize(Long2ObjectOpenHashMap<?> src, Type typeOfSrc,
+                JsonSerializationContext context) {
+            JsonObject obj = new JsonObject();
+            for (Long2ObjectMap.Entry<?> entry : src.long2ObjectEntrySet()) {
+                obj.add(String.valueOf(entry.getLongKey()), context.serialize(entry.getValue()));
+            }
+            return obj;
+        }
+
+        @Override
+        public Long2ObjectOpenHashMap<?> deserialize(JsonElement json, Type typeOfT,
+                JsonDeserializationContext context) throws JsonParseException {
+            Type valueType = Object.class;
+            if (typeOfT instanceof ParameterizedType) {
+                valueType = ((ParameterizedType) typeOfT).getActualTypeArguments()[0];
+            }
+            Long2ObjectOpenHashMap<Object> map = new Long2ObjectOpenHashMap<>();
+            JsonObject obj = json.getAsJsonObject();
+            for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
+                long key = Long.parseLong(entry.getKey());
+                Object value = context.deserialize(entry.getValue(), valueType);
+                map.put(key, value);
+            }
+            return map;
+        }
+    }
+
+    /**
+     * Gson adapter for {@link Long2LongOpenHashMap}.
+     * Serializes as {@code {"123": 456, "789": 0}} — identical to HashMap&lt;Long, Long&gt;.
+     */
+    private static class Long2LongOpenHashMapAdapter
+            implements JsonSerializer<Long2LongOpenHashMap>,
+            JsonDeserializer<Long2LongOpenHashMap> {
+
+        @Override
+        public JsonElement serialize(Long2LongOpenHashMap src, Type typeOfSrc,
+                JsonSerializationContext context) {
+            JsonObject obj = new JsonObject();
+            for (Long2LongMap.Entry entry : src.long2LongEntrySet()) {
+                obj.addProperty(String.valueOf(entry.getLongKey()), entry.getLongValue());
+            }
+            return obj;
+        }
+
+        @Override
+        public Long2LongOpenHashMap deserialize(JsonElement json, Type typeOfT,
+                JsonDeserializationContext context) throws JsonParseException {
+            Long2LongOpenHashMap map = new Long2LongOpenHashMap();
+            JsonObject obj = json.getAsJsonObject();
+            for (Map.Entry<String, JsonElement> entry : obj.entrySet()) {
+                long key = Long.parseLong(entry.getKey());
+                long value = entry.getValue().getAsLong();
+                map.put(key, value);
+            }
+            return map;
+        }
+    }
+
+    /**
+     * Gson adapter for {@link LongOpenHashSet}.
+     * Serializes as {@code [1, 2, 3]} — identical to HashSet&lt;Long&gt;.
+     */
+    private static class LongOpenHashSetAdapter
+            implements JsonSerializer<LongOpenHashSet>,
+            JsonDeserializer<LongOpenHashSet> {
+
+        @Override
+        public JsonElement serialize(LongOpenHashSet src, Type typeOfSrc,
+                JsonSerializationContext context) {
+            JsonArray arr = new JsonArray();
+            for (long v : src) {
+                arr.add(v);
+            }
+            return arr;
+        }
+
+        @Override
+        public LongOpenHashSet deserialize(JsonElement json, Type typeOfT,
+                JsonDeserializationContext context) throws JsonParseException {
+            JsonArray arr = json.getAsJsonArray();
+            LongOpenHashSet set = new LongOpenHashSet(arr.size());
+            for (JsonElement elem : arr) {
+                set.add(elem.getAsLong());
+            }
+            return set;
         }
     }
 

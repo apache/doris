@@ -70,6 +70,8 @@ import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
 
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -133,9 +135,9 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         this.transactionId = transactionId;
         this.label = label;
         this.deleteInfo = deleteInfo;
-        totalTablets = Sets.newHashSet();
-        finishedTablets = Sets.newHashSet();
-        quorumTablets = Sets.newHashSet();
+        totalTablets = new LongOpenHashSet();
+        finishedTablets = new LongOpenHashSet();
+        quorumTablets = new LongOpenHashSet();
         tabletDeleteInfoMap = Maps.newConcurrentMap();
         pushTasks = Sets.newHashSet();
         state = DeleteState.UN_QUORUM;

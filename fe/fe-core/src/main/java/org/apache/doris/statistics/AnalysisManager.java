@@ -32,6 +32,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.ConcurrentLong2LongHashMap;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -1370,7 +1371,7 @@ public class AnalysisManager implements Writable {
         Map<Long, Long> tabletToRows = new HashMap<>(originTabletToRows);
         int tabletCount = tabletToRows.size();
         if (tableStats.partitionUpdateRows == null) {
-            tableStats.partitionUpdateRows = new ConcurrentHashMap<>();
+            tableStats.partitionUpdateRows = new ConcurrentLong2LongHashMap();
         }
         for (Partition p : partitions) {
             MaterializedIndex baseIndex = p.getBaseIndex();
