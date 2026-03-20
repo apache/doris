@@ -22,16 +22,20 @@
 #include <sys/sysinfo.h>
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <deque>
 #include <fstream>
+#include <memory>
 #include <mutex>
 #include <random>
 #include <string>
 #include <thread>
 
 #include "common/config.h"
+#include "common/logging.h"
 
 namespace doris::cloud {
 namespace {
@@ -48,120 +52,6 @@ struct WindowSample {
 struct ProcessResourceSample {
     int64_t cpu_usage_percent {kInvalidPercent};
     int64_t memory_usage_percent {kInvalidPercent};
-};
-
-class MsStressDetector {
-public:
-    MsStressDecision update(int64_t now_ms, const MsStressMetrics& metrics) {
-        MsStressDecision decision;
-        decision.fdb_commit_latency_ns = metrics.fdb_commit_latency_ns;
-        decision.fdb_read_latency_ns = metrics.fdb_read_latency_ns;
-        decision.fdb_performance_limited_by_name = metrics.fdb_performance_limited_by_name;
-        decision.fdb_client_thread_busyness_percent = metrics.fdb_client_thread_busyness_percent;
-        decision.ms_cpu_usage_percent = metrics.ms_cpu_usage_percent;
-        decision.ms_memory_usage_percent = metrics.ms_memory_usage_percent;
-        const bool commit_latency_high =
-                metrics.fdb_commit_latency_ns != BVAR_FDB_INVALID_VALUE &&
-                metrics.fdb_commit_latency_ns >
-                        config::ms_rate_limit_fdb_commit_latency_ms * kNanosecondsPerMillisecond;
-        const bool read_latency_high =
-                metrics.fdb_read_latency_ns != BVAR_FDB_INVALID_VALUE &&
-                metrics.fdb_read_latency_ns >
-                        config::ms_rate_limit_fdb_read_latency_ms * kNanosecondsPerMillisecond;
-        decision.fdb_cluster_under_pressure = (commit_latency_high || read_latency_high) &&
-                                              metrics.fdb_performance_limited_by_name != 0;
-
-        const int64_t current_second = now_ms / 1000;
-        std::lock_guard lock(mutex_);
-        record_sample(current_second, metrics);
-
-        const double avg_busyness =
-                get_window_avg(current_second, &WindowSample::fdb_client_thread_busyness_percent,
-                               BVAR_FDB_INVALID_VALUE);
-        decision.fdb_client_thread_busyness_avg_percent = avg_busyness;
-        if (avg_busyness >= 0 &&
-            metrics.fdb_client_thread_busyness_percent != BVAR_FDB_INVALID_VALUE) {
-            decision.fdb_client_thread_under_pressure =
-                    avg_busyness > config::ms_rate_limit_fdb_client_thread_busyness_avg_percent &&
-                    metrics.fdb_client_thread_busyness_percent >
-                            config::ms_rate_limit_fdb_client_thread_busyness_instant_percent;
-        }
-
-        const double avg_cpu = get_window_avg(current_second, &WindowSample::ms_cpu_usage_percent,
-                                              kInvalidPercent);
-        const double avg_memory = get_window_avg(
-                current_second, &WindowSample::ms_memory_usage_percent, kInvalidPercent);
-        decision.ms_cpu_usage_avg_percent = avg_cpu;
-        decision.ms_memory_usage_avg_percent = avg_memory;
-        if (avg_cpu >= 0 && metrics.ms_cpu_usage_percent != kInvalidPercent) {
-            decision.ms_resource_under_pressure =
-                    metrics.ms_cpu_usage_percent > config::ms_rate_limit_cpu_usage_percent &&
-                    avg_cpu > config::ms_rate_limit_cpu_usage_percent;
-        }
-        if (avg_memory >= 0 && metrics.ms_memory_usage_percent != kInvalidPercent) {
-            decision.ms_resource_under_pressure =
-                    decision.ms_resource_under_pressure ||
-                    (metrics.ms_memory_usage_percent > config::ms_rate_limit_memory_usage_percent &&
-                     avg_memory > config::ms_rate_limit_memory_usage_percent);
-        }
-        return decision;
-    }
-
-    void reset() {
-        std::lock_guard lock(mutex_);
-        samples_.clear();
-    }
-
-private:
-    using SampleField = int64_t WindowSample::*;
-
-    void record_sample(int64_t current_second, const MsStressMetrics& metrics) {
-        WindowSample sample;
-        sample.second = current_second;
-        sample.fdb_client_thread_busyness_percent = metrics.fdb_client_thread_busyness_percent;
-        sample.ms_cpu_usage_percent = metrics.ms_cpu_usage_percent;
-        sample.ms_memory_usage_percent = metrics.ms_memory_usage_percent;
-        if (!samples_.empty() && samples_.back().second == current_second) {
-            samples_.back() = sample;
-        } else {
-            samples_.push_back(sample);
-        }
-
-        const int64_t window_start =
-                current_second - std::max<int64_t>(1, config::ms_rate_limit_window_seconds) + 1;
-        while (!samples_.empty() && samples_.front().second < window_start) {
-            samples_.pop_front();
-        }
-    }
-
-    double get_window_avg(int64_t current_second, SampleField field, int64_t invalid_value) const {
-        if (samples_.empty()) {
-            return -1;
-        }
-        const int64_t required_span =
-                std::max<int64_t>(1, config::ms_rate_limit_window_seconds) - 1;
-        if (samples_.back().second != current_second ||
-            current_second - samples_.front().second < required_span) {
-            return -1;
-        }
-
-        double sum = 0;
-        int64_t valid_count = 0;
-        for (const auto& sample : samples_) {
-            if (sample.*field == invalid_value) {
-                continue;
-            }
-            sum += sample.*field;
-            ++valid_count;
-        }
-        if (valid_count == 0) {
-            return -1;
-        }
-        return sum / valid_count;
-    }
-
-    std::mutex mutex_;
-    std::deque<WindowSample> samples_;
 };
 
 class ProcessResourceSampler {
@@ -254,8 +144,177 @@ MsStressMetrics collect_ms_stress_metrics(ProcessResourceSampler* sampler) {
     return metrics;
 }
 
+class MsStressDetector {
+public:
+    ~MsStressDetector() { stop(); }
+
+    // Compute decision from metrics and store it in latest_decision_.
+    // Called by the background thread or synchronously in tests.
+    void update(int64_t now_ms, const MsStressMetrics& metrics) {
+        auto decision = std::make_shared<MsStressDecision>();
+        decision->fdb_commit_latency_ns = metrics.fdb_commit_latency_ns;
+        decision->fdb_read_latency_ns = metrics.fdb_read_latency_ns;
+        decision->fdb_performance_limited_by_name = metrics.fdb_performance_limited_by_name;
+        decision->fdb_client_thread_busyness_percent = metrics.fdb_client_thread_busyness_percent;
+        decision->ms_cpu_usage_percent = metrics.ms_cpu_usage_percent;
+        decision->ms_memory_usage_percent = metrics.ms_memory_usage_percent;
+        const bool commit_latency_high =
+                metrics.fdb_commit_latency_ns != BVAR_FDB_INVALID_VALUE &&
+                metrics.fdb_commit_latency_ns >
+                        config::ms_rate_limit_fdb_commit_latency_ms * kNanosecondsPerMillisecond;
+        const bool read_latency_high =
+                metrics.fdb_read_latency_ns != BVAR_FDB_INVALID_VALUE &&
+                metrics.fdb_read_latency_ns >
+                        config::ms_rate_limit_fdb_read_latency_ms * kNanosecondsPerMillisecond;
+        decision->fdb_cluster_under_pressure = (commit_latency_high || read_latency_high) &&
+                                               metrics.fdb_performance_limited_by_name != 0;
+
+        const int64_t current_second = now_ms / 1000;
+        // No mutex needed: update() is only called from a single thread
+        // (background thread in production, test thread in tests).
+        record_sample(current_second, metrics);
+
+        const double avg_busyness =
+                get_window_avg(current_second, &WindowSample::fdb_client_thread_busyness_percent,
+                               BVAR_FDB_INVALID_VALUE);
+        decision->fdb_client_thread_busyness_avg_percent = avg_busyness;
+        if (avg_busyness >= 0 &&
+            metrics.fdb_client_thread_busyness_percent != BVAR_FDB_INVALID_VALUE) {
+            decision->fdb_client_thread_under_pressure =
+                    avg_busyness > config::ms_rate_limit_fdb_client_thread_busyness_avg_percent &&
+                    metrics.fdb_client_thread_busyness_percent >
+                            config::ms_rate_limit_fdb_client_thread_busyness_instant_percent;
+        }
+
+        const double avg_cpu = get_window_avg(current_second, &WindowSample::ms_cpu_usage_percent,
+                                              kInvalidPercent);
+        const double avg_memory = get_window_avg(
+                current_second, &WindowSample::ms_memory_usage_percent, kInvalidPercent);
+        decision->ms_cpu_usage_avg_percent = avg_cpu;
+        decision->ms_memory_usage_avg_percent = avg_memory;
+        if (avg_cpu >= 0 && metrics.ms_cpu_usage_percent != kInvalidPercent) {
+            decision->ms_resource_under_pressure =
+                    metrics.ms_cpu_usage_percent > config::ms_rate_limit_cpu_usage_percent &&
+                    avg_cpu > config::ms_rate_limit_cpu_usage_percent;
+        }
+        if (avg_memory >= 0 && metrics.ms_memory_usage_percent != kInvalidPercent) {
+            decision->ms_resource_under_pressure =
+                    decision->ms_resource_under_pressure ||
+                    (metrics.ms_memory_usage_percent > config::ms_rate_limit_memory_usage_percent &&
+                     avg_memory > config::ms_rate_limit_memory_usage_percent);
+        }
+        latest_decision_.store(std::move(decision));
+    }
+
+    // Lock-free read of the latest decision. Returns nullptr before first update.
+    std::shared_ptr<const MsStressDecision> get_latest_decision() const {
+        return latest_decision_.load();
+    }
+
+    void reset() { samples_.clear(); }
+
+    // Start the background thread that periodically collects metrics and updates.
+    void start() {
+        std::unique_lock lock(mtx_);
+        if (running_.load() != 0) {
+            return;
+        }
+        running_.store(1);
+        bg_thread_ = std::make_unique<std::thread>([this] {
+            pthread_setname_np(pthread_self(), "ms_stress_det");
+            LOG(INFO) << "MsStressDetector background thread started";
+            ProcessResourceSampler sampler;
+            while (running_.load() == 1) {
+                const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                            std::chrono::steady_clock::now().time_since_epoch())
+                                            .count();
+                const auto metrics = collect_ms_stress_metrics(&sampler);
+                update(now_ms, metrics);
+                std::unique_lock l(mtx_);
+                cv_.wait_for(l, std::chrono::seconds(1), [this]() { return running_.load() != 1; });
+            }
+            LOG(INFO) << "MsStressDetector background thread stopped";
+        });
+    }
+
+    void stop() {
+        {
+            std::unique_lock lock(mtx_);
+            if (running_.load() != 1) {
+                return;
+            }
+            running_.store(2);
+            cv_.notify_all();
+        }
+        if (bg_thread_ && bg_thread_->joinable()) {
+            bg_thread_->join();
+            bg_thread_.reset();
+        }
+    }
+
+private:
+    using SampleField = int64_t WindowSample::*;
+
+    void record_sample(int64_t current_second, const MsStressMetrics& metrics) {
+        WindowSample sample;
+        sample.second = current_second;
+        sample.fdb_client_thread_busyness_percent = metrics.fdb_client_thread_busyness_percent;
+        sample.ms_cpu_usage_percent = metrics.ms_cpu_usage_percent;
+        sample.ms_memory_usage_percent = metrics.ms_memory_usage_percent;
+        if (!samples_.empty() && samples_.back().second == current_second) {
+            samples_.back() = sample;
+        } else {
+            samples_.push_back(sample);
+        }
+
+        const int64_t window_start =
+                current_second - std::max<int64_t>(1, config::ms_rate_limit_window_seconds) + 1;
+        while (!samples_.empty() && samples_.front().second < window_start) {
+            samples_.pop_front();
+        }
+    }
+
+    double get_window_avg(int64_t current_second, SampleField field, int64_t invalid_value) const {
+        if (samples_.empty()) {
+            return -1;
+        }
+        const int64_t required_span =
+                std::max<int64_t>(1, config::ms_rate_limit_window_seconds) - 1;
+        if (samples_.back().second != current_second ||
+            current_second - samples_.front().second < required_span) {
+            return -1;
+        }
+
+        double sum = 0;
+        int64_t valid_count = 0;
+        for (const auto& sample : samples_) {
+            if (sample.*field == invalid_value) {
+                continue;
+            }
+            sum += sample.*field;
+            ++valid_count;
+        }
+        if (valid_count == 0) {
+            return -1;
+        }
+        return sum / valid_count;
+    }
+
+    std::atomic<std::shared_ptr<const MsStressDecision>> latest_decision_;
+    std::deque<WindowSample> samples_;
+
+    // Background thread lifecycle
+    std::atomic<int> running_ {0};
+    mutable std::mutex mtx_;
+    std::condition_variable cv_;
+    std::unique_ptr<std::thread> bg_thread_;
+};
+
 MsStressDetector& global_ms_stress_detector() {
     static MsStressDetector detector;
+    // Auto-start background thread on first access.
+    // start() is idempotent: subsequent calls are no-ops.
+    detector.start();
     return detector;
 }
 
@@ -316,12 +375,12 @@ std::string MsStressDecision::debug_string() const {
 }
 
 MsStressDecision get_ms_stress_decision() {
-    static ProcessResourceSampler sampler;
-    const auto now_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-                                std::chrono::steady_clock::now().time_since_epoch())
-                                .count();
-    const auto metrics = collect_ms_stress_metrics(&sampler);
-    auto decision = global_ms_stress_detector().update(now_ms, metrics);
+    auto decision_ptr = global_ms_stress_detector().get_latest_decision();
+    MsStressDecision decision;
+    if (decision_ptr) {
+        decision = *decision_ptr;
+    }
+    // Rate limit injection is per-request (random), so apply it here, not in the background thread.
     maybe_apply_ms_rate_limit_injection(&decision, get_ms_rate_limit_injection_random_value());
     return decision;
 }
@@ -333,11 +392,17 @@ bool check_ms_if_under_greate_stress() {
 MsStressDecision update_ms_stress_detector_for_test(int64_t now_ms, const MsStressMetrics& metrics,
                                                     bool reset,
                                                     int32_t rate_limit_injected_random_value) {
+    // Separate detector instance for tests — no background thread, synchronous updates.
     static MsStressDetector detector;
     if (reset) {
         detector.reset();
     }
-    auto decision = detector.update(now_ms, metrics);
+    detector.update(now_ms, metrics);
+    auto decision_ptr = detector.get_latest_decision();
+    MsStressDecision decision;
+    if (decision_ptr) {
+        decision = *decision_ptr;
+    }
     maybe_apply_ms_rate_limit_injection(&decision, rate_limit_injected_random_value);
     return decision;
 }
