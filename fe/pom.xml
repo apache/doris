@@ -191,6 +191,14 @@ under the License.
                         <failsOnError>true</failsOnError>
                         <linkXRef>false</linkXRef>
                         <includeTestSourceDirectory>true</includeTestSourceDirectory>
+                        <!-- Explicitly set config_loc so that checkstyle.xml can reference sibling
+                             files via ${config_loc}/suppressions.xml etc.
+                             maven-checkstyle-plugin 3.0+ sets this automatically, but older
+                             versions do not, causing "Property ${config_loc} has not been set".
+                             ${maven.multiModuleProjectDirectory} always points to the directory
+                             from which Maven was invoked (the fe/ root), so this works for all
+                             submodules regardless of nesting depth. Requires Maven 3.3.1+. -->
+                        <propertyExpansion>config_loc=${maven.multiModuleProjectDirectory}/check/checkstyle</propertyExpansion>
                         <excludes>
                             **/apache/doris/thrift/**/*,
                             **/apache/parquet/**/*
