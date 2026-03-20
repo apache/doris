@@ -30,7 +30,6 @@
 #include <string>
 #include <thread>
 #include <variant>
-#include <vector>
 
 #include "io/cache/file_cache_common.h"
 #include "util/threadpool.h"

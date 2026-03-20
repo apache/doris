@@ -26,7 +26,6 @@
 #include <functional>
 #include <optional>
 #include <string>
-#include <vector>
 
 #ifdef __APPLE__
 // ucontext is not available without _XOPEN_SOURCE

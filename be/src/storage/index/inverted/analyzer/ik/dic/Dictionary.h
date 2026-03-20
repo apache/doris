@@ -23,7 +23,6 @@
 #include <memory>
 #include <mutex>
 #include <string>
-#include <vector>
 
 #include "CLucene/LuceneThreads.h"
 #include "CLucene/_ApiHeader.h"
