@@ -24,12 +24,14 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.FileSplitter;
 import org.apache.doris.datasource.paimon.PaimonFileExternalCatalog;
+import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.apache.paimon.data.BinaryRow;
 import org.apache.paimon.io.DataFileMeta;
+import org.apache.paimon.manifest.FileSource;
 import org.apache.paimon.stats.SimpleStats;
 import org.apache.paimon.table.source.DataSplit;
 import org.apache.paimon.table.source.RawFile;
@@ -65,8 +67,9 @@ public class PaimonScanNodeTest {
 
         paimonScanNode.setSource(new PaimonSource());
 
-        DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", 64 * 1024 * 1024, 1, SimpleStats.EMPTY_STATS, 1, 1, 1,
-                Collections.emptyList(), null, null, null, null);
+        DataFileMeta dfm1 = DataFileMeta.forAppend("f1.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+                1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
         BinaryRow binaryRow1 = BinaryRow.singleColumn(1);
         DataSplit ds1 = DataSplit.builder()
                 .rawConvertible(true)
@@ -76,8 +79,9 @@ public class PaimonScanNodeTest {
                 .withDataFiles(Collections.singletonList(dfm1))
                 .build();
 
-        DataFileMeta dfm2 = DataFileMeta.forAppend("f2.parquet", 32 * 1024 * 1024, 2, SimpleStats.EMPTY_STATS, 1, 1, 1,
-                Collections.emptyList(), null, null, null, null);
+        DataFileMeta dfm2 = DataFileMeta.forAppend("f2.parquet", 32L * 1024 * 1024, 2L, SimpleStats.EMPTY_STATS,
+                1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
         BinaryRow binaryRow2 = BinaryRow.singleColumn(1);
         DataSplit ds2 = DataSplit.builder()
                 .rawConvertible(true)
@@ -106,8 +110,13 @@ public class PaimonScanNodeTest {
             java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
             field.setAccessible(true);
             field.set(spyPaimonScanNode, fileSplitter);
+
+            java.lang.reflect.Field storagePropertiesField =
+                    PaimonScanNode.class.getDeclaredField("storagePropertiesMap");
+            storagePropertiesField.setAccessible(true);
+            storagePropertiesField.set(spyPaimonScanNode, Collections.emptyMap());
         } catch (NoSuchFieldException | IllegalAccessException e) {
-            throw new RuntimeException("Failed to inject FileSplitter into PaimonScanNode test", e);
+            throw new RuntimeException("Failed to inject test fields into PaimonScanNode", e);
         }
 
         // Note: The original PaimonSource is sufficient for this test
@@ -382,6 +391,64 @@ public class PaimonScanNodeTest {
         } catch (UserException e) {
             Assert.assertTrue(e.getMessage().contains("at least one valid parameter group must be specified"));
         }
+    }
+
+    @Test
+    public void testPaimonDataSystemTableForceJniEvenWhenNativeSupported() throws UserException {
+        TupleDescriptor desc = new TupleDescriptor(new TupleId(3));
+        PaimonScanNode paimonScanNode = new PaimonScanNode(new PlanNodeId(1), desc, false, sv, ScanContext.EMPTY);
+        PaimonScanNode spyPaimonScanNode = Mockito.spy(paimonScanNode);
+
+        DataFileMeta dfm = DataFileMeta.forAppend("f1.parquet", 64L * 1024 * 1024, 1L, SimpleStats.EMPTY_STATS,
+                1L, 1L, 1L, Collections.<String>emptyList(), null, FileSource.APPEND,
+                Collections.<String>emptyList(), null, null, Collections.<String>emptyList());
+        BinaryRow binaryRow = BinaryRow.singleColumn(1);
+        DataSplit dataSplit = DataSplit.builder()
+                .rawConvertible(true)
+                .withPartition(binaryRow)
+                .withBucket(1)
+                .withBucketPath("file://b1")
+                .withDataFiles(Collections.singletonList(dfm))
+                .build();
+
+        Mockito.doReturn(Collections.singletonList(dataSplit)).when(spyPaimonScanNode).getPaimonSplitFromAPI();
+        mockNativeReader(spyPaimonScanNode);
+
+        PaimonSource source = Mockito.mock(PaimonSource.class);
+        PaimonSysExternalTable binlogTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(binlogTable.getSysTableType()).thenReturn("binlog");
+        Mockito.when(source.getExternalTable()).thenReturn(binlogTable);
+        spyPaimonScanNode.setSource(source);
+
+        long maxInitialSplitSize = 32L * 1024L * 1024L;
+        long maxSplitSize = 64L * 1024L * 1024L;
+        FileSplitter fileSplitter = new FileSplitter(maxInitialSplitSize, maxSplitSize, 0);
+        try {
+            java.lang.reflect.Field field = FileQueryScanNode.class.getDeclaredField("fileSplitter");
+            field.setAccessible(true);
+            field.set(spyPaimonScanNode, fileSplitter);
+        } catch (NoSuchFieldException | IllegalAccessException e) {
+            throw new RuntimeException("Failed to inject FileSplitter into PaimonScanNode test", e);
+        }
+
+        Mockito.when(sv.isForceJniScanner()).thenReturn(false);
+        Mockito.when(sv.getIgnoreSplitType()).thenReturn("NONE");
+        Mockito.when(sv.isEnableRuntimeFilterPartitionPrune()).thenReturn(false);
+        Mockito.when(sv.getMaxSplitSize()).thenReturn(maxSplitSize);
+
+        Assert.assertTrue(spyPaimonScanNode.shouldForceJniForSystemTable());
+        List<org.apache.doris.spi.Split> splits = spyPaimonScanNode.getSplits(1);
+        Assert.assertEquals(1, splits.size());
+        Assert.assertNotNull(((PaimonSplit) splits.get(0)).getSplit());
+
+        PaimonSysExternalTable auditLogTable = Mockito.mock(PaimonSysExternalTable.class);
+        Mockito.when(auditLogTable.getSysTableType()).thenReturn("audit_log");
+        Mockito.when(source.getExternalTable()).thenReturn(auditLogTable);
+
+        Assert.assertTrue(spyPaimonScanNode.shouldForceJniForSystemTable());
+        List<org.apache.doris.spi.Split> auditLogSplits = spyPaimonScanNode.getSplits(1);
+        Assert.assertEquals(1, auditLogSplits.size());
+        Assert.assertNotNull(((PaimonSplit) auditLogSplits.get(0)).getSplit());
     }
 
     @Test

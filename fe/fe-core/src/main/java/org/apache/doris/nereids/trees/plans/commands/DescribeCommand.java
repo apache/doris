@@ -40,7 +40,9 @@ import org.apache.doris.common.proc.ProcService;
 import org.apache.doris.common.proc.TableProcDir;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.info.PartitionNamesInfo;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.info.TableValuedFunctionRefInfo;
@@ -196,17 +198,39 @@ public class DescribeCommand extends ShowCommand {
             dbTableName.analyze(ctx);
             CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalogOrAnalysisException(dbTableName.getCtl());
             DatabaseIf db = catalog.getDbOrAnalysisException(dbTableName.getDb());
-            Pair<String, String> tableNameWithSysTableName
-                    = SysTable.getTableNameWithSysTableName(dbTableName.getTbl());
-            if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
-                TableIf table = db.getTableOrDdlException(tableNameWithSysTableName.first);
-                isTableValuedFunction = true;
-                Optional<TableValuedFunctionRefInfo> optTvfRef = table.getSysTableFunctionRef(
-                        dbTableName.getCtl(), dbTableName.getDb(), dbTableName.getTbl());
-                if (!optTvfRef.isPresent()) {
-                    throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
+            TableIf fullTable = db.getTableNullable(dbTableName.getTbl());
+            if (fullTable == null) {
+                Pair<String, String> tableNameWithSysTableName
+                        = SysTable.getTableNameWithSysTableName(dbTableName.getTbl());
+                if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
+                    TableIf table = db.getTableOrDdlException(tableNameWithSysTableName.first);
+                    Optional<SysTableResolver.SysTableDescribe> sysTableDescribeOpt =
+                            SysTableResolver.resolveForDescribe(
+                                    table, dbTableName.getCtl(), dbTableName.getDb(), dbTableName.getTbl());
+                    if (!sysTableDescribeOpt.isPresent()) {
+                        throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
+                    }
+                    SysTableResolver.SysTableDescribe sysTableDescribe = sysTableDescribeOpt.get();
+                    if (sysTableDescribe.isNative()) {
+                        ExternalTable sysTable = sysTableDescribe.getSysExternalTable();
+                        List<Column> columns = sysTable.getFullSchema();
+                        for (Column column : columns) {
+                            List<String> row = Arrays.asList(
+                                    column.getName(),
+                                    column.getOriginType().hideVersionForVersionColumn(true),
+                                    column.isAllowNull() ? "Yes" : "No",
+                                    ((Boolean) column.isKey()).toString(),
+                                    column.getDefaultValue() == null
+                                            ? FeConstants.null_string : column.getDefaultValue(),
+                                    "NONE");
+                            rows.add(row);
+                        }
+                        return new ShowResultSet(getMetaData(), rows);
+                    }
+
+                    isTableValuedFunction = true;
+                    tableValuedFunctionRefInfo = sysTableDescribe.getTvfRef();
                 }
-                tableValuedFunctionRefInfo = optTvfRef.get();
             }
         }
 
