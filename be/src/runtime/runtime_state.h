@@ -127,6 +127,11 @@ public:
                                                            : _query_options.mem_limit / 20;
     }
 
+    bool enable_adjust_conjunct_order_by_cost() const {
+        return _query_options.__isset.enable_adjust_conjunct_order_by_cost &&
+               _query_options.enable_adjust_conjunct_order_by_cost;
+    }
+
     int32_t max_column_reader_num() const {
         return _query_options.__isset.max_column_reader_num ? _query_options.max_column_reader_num
                                                             : 20000;
@@ -573,6 +578,11 @@ public:
 
     bool enable_parallel_scan() const {
         return _query_options.__isset.enable_parallel_scan && _query_options.enable_parallel_scan;
+    }
+
+    bool enable_aggregate_function_null_v2() const {
+        return _query_options.__isset.enable_aggregate_function_null_v2 &&
+               _query_options.enable_aggregate_function_null_v2;
     }
 
     bool is_read_csv_empty_line_as_null() const {

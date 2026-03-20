@@ -171,6 +171,8 @@ public:
     virtual const DataTypes& get_argument_types() const = 0;
     virtual const DataTypePtr& get_return_type() const = 0;
 
+    virtual double execute_cost() const { return 1.0; }
+
     /// Do preparations and return executable.
     /// sample_block should contain data types of arguments and values of constants, if relevant.
     virtual PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
@@ -461,6 +463,8 @@ public:
                                 uint32_t /*result*/) const override {
         return function;
     }
+
+    double execute_cost() const override { return function->execute_cost(); }
 
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         return function->open(context, scope);

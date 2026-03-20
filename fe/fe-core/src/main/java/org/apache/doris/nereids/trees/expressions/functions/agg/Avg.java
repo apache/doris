@@ -105,28 +105,16 @@ public class Avg extends NullableAggregateFunction
             }
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
             // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
-            int precision = decimalV3Type.getPrecision();
             int scale = decimalV3Type.getScale();
             if (decimalV3Type.getScale() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
                 scale = ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
-                precision = precision - decimalV3Type.getScale() + scale;
-                if (enableDecimal256) {
-                    if (precision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {
-                        precision = DecimalV3Type.MAX_DECIMAL256_PRECISION;
-                    }
-                } else {
-                    if (precision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
-                        precision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
-                    }
-                }
             }
-            decimalV3Type = DecimalV3Type.createDecimalV3Type(precision, scale);
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(
                             enableDecimal256 ? DecimalV3Type.MAX_DECIMAL256_PRECISION
                                     : DecimalV3Type.MAX_DECIMAL128_PRECISION,
-                            decimalV3Type.getScale()
-            ));
+                            scale)
+                    );
         } else {
             return signature;
         }
