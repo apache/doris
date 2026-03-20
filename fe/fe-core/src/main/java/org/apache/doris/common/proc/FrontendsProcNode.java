@@ -93,6 +93,10 @@ public class FrontendsProcNode implements ProcNodeInterface {
     }
 
     public static void getFrontendsInfo(Env env, List<List<String>> infos) {
+        getFrontendsInfo(env, infos, null);
+    }
+
+    public static void getFrontendsInfo(Env env, List<List<String>> infos, String currentConnectedFeHost) {
         InetSocketAddress master = null;
         try {
             master = env.getHaProtocol().getLeader();
@@ -109,7 +113,10 @@ public class FrontendsProcNode implements ProcNodeInterface {
         // Because the `show frontend` stmt maybe forwarded from other FE.
         // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
         String selfNode = Env.getCurrentEnv().getSelfNode().getHost();
-        if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+        if (!Strings.isNullOrEmpty(currentConnectedFeHost)) {
+            selfNode = currentConnectedFeHost;
+        } else if (ConnectContext.get() != null
+                && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
             selfNode = ConnectContext.get().getCurrentConnectedFEIp();
         }
 
