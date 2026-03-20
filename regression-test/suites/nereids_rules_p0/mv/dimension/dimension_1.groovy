@@ -44,7 +44,7 @@ suite("partition_mv_rewrite_dimension_1") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -73,7 +73,7 @@ suite("partition_mv_rewrite_dimension_1") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -112,14 +112,29 @@ suite("partition_mv_rewrite_dimension_1") {
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
-        logger.info("origin_res: " + origin_res)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt
-        logger.info("mv_origin_res: " + mv_origin_res)
+        boolean logged = false
+        def logResultMismatch = {
+            if (!logged) {
+                logger.info("origin_res: " + origin_res)
+                logger.info("mv_origin_res: " + mv_origin_res)
+                logged = true
+            }
+        }
+        if (!((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))) {
+            logResultMismatch()
+        }
         assertTrue((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))
         for (int row = 0; row < mv_origin_res.size(); row++) {
+            if (mv_origin_res[row].size() != origin_res[row].size()) {
+                logResultMismatch()
+            }
             assertTrue(mv_origin_res[row].size() == origin_res[row].size())
             for (int col = 0; col < mv_origin_res[row].size(); col++) {
+                if (mv_origin_res[row][col] != origin_res[row][col]) {
+                    logResultMismatch()
+                }
                 assertTrue(mv_origin_res[row][col] == origin_res[row][col])
             }
         }
@@ -136,8 +151,6 @@ suite("partition_mv_rewrite_dimension_1") {
         """
 
     create_async_mv(db, mv_name_1, join_direction_mv_1)
-    def job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
 
     def join_direction_sql_1 = """
         select L_SHIPDATE 
@@ -166,8 +179,6 @@ suite("partition_mv_rewrite_dimension_1") {
         """
 
     create_async_mv(db, mv_name_2, join_direction_mv_2)
-    def job_name_2 = getJobName(db, mv_name_2)
-    waitingMTMVTaskFinished(job_name_2)
 
     def join_direction_sql_3 = """
         select l_shipdaTe 
@@ -236,8 +247,6 @@ suite("partition_mv_rewrite_dimension_1") {
         logger.info("i:" + i)
         def join_filter_mv = """join_filter_mv_${i}"""
         create_async_mv(db, join_filter_mv, mv_list[i])
-        def job_name = getJobName(db, join_filter_mv)
-        waitingMTMVTaskFinished(job_name)
         def res_1 = sql """show partitions from ${join_filter_mv};"""
         logger.info("res_1:" + res_1)
         if (i == 0) {
@@ -374,8 +383,6 @@ suite("partition_mv_rewrite_dimension_1") {
         } else {
             create_async_mv(db, join_type_mv, join_type_stmt_list[i])
         }
-        def job_name = getJobName(db, join_type_mv)
-        waitingMTMVTaskFinished(job_name)
         for (int j = 0; j < join_type_stmt_list.size(); j++) {
             logger.info("j:" + j)
             if (i == j) {
@@ -403,8 +410,6 @@ suite("partition_mv_rewrite_dimension_1") {
             bitmap_union(to_bitmap(case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end)) as cnt_2 
             from orders_1
     """)
-    def agg_job_name_1 = getJobName(db, agg_mv_name_1)
-    waitingMTMVTaskFinished(agg_job_name_1)
 
     def agg_sql_1 = """select 
         count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1, 
@@ -432,8 +437,6 @@ suite("partition_mv_rewrite_dimension_1") {
             o_comment  
         """
     create_async_mv(db, agg_mv_name_2, agg_mv_stmt_2)
-    def agg_job_name_2 = getJobName(db, agg_mv_name_2)
-    waitingMTMVTaskFinished(agg_job_name_2)
     sql """analyze table ${agg_mv_name_2} with sync;"""
 
     def agg_sql_2 = """select O_shippriority, o_commenT 
@@ -465,8 +468,6 @@ suite("partition_mv_rewrite_dimension_1") {
             o_comment 
         """
     create_async_mv(db, agg_mv_name_3, agg_mv_stmt_3)
-    def agg_job_name_3 = getJobName(db, agg_mv_name_3)
-    waitingMTMVTaskFinished(agg_job_name_3)
     sql """analyze table ${agg_mv_name_3} with sync;"""
 
     def agg_sql_3 = """select o_shipprioritY, o_comment, 
@@ -518,8 +519,6 @@ suite("partition_mv_rewrite_dimension_1") {
     def view_partition_mv_stmt_1 = """
         select l_shipdatE, l_partkey, l_orderkey from lineitem_1 group by l_shipdate, l_partkey, l_orderkeY"""
     create_async_mv(db, view_partition_mv_name_1, view_partition_mv_stmt_1)
-    def view_partition_job_name_1 = getJobName(db, view_partition_mv_name_1)
-    waitingMTMVTaskFinished(view_partition_job_name_1)
 
     def view_partition_sql_1 = """select t.l_shipdate, o_orderdate, t.l_partkey 
         from (select l_shipdate, l_partkey, l_orderkey from lineitem_1 group by l_shipdate, l_partkey, l_orderkey) t
@@ -565,8 +564,6 @@ suite("partition_mv_rewrite_dimension_1") {
         where l_shipdate >= "2023-10-17"
         """
     create_async_mv(db, predicate_mv_name_1, predicate_mv_stmt_1)
-    def predicate_job_name_1 = getJobName(db, predicate_mv_name_1)
-    waitingMTMVTaskFinished(predicate_job_name_1)
 
     def predicate_sql_1 = """
         select l_shipdate, o_orderdate, l_partkeY 
@@ -613,8 +610,6 @@ suite("partition_mv_rewrite_dimension_1") {
         """
 
     create_async_mv(db, mv_name_1, single_table_mv_stmt_1)
-    job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
 
     def single_table_query_stmt_1 = """
         select l_Shipdate, l_partkey, l_suppkey 
@@ -645,8 +640,6 @@ suite("partition_mv_rewrite_dimension_1") {
         """
 
     create_async_mv(db, mv_name_1, single_table_mv_stmt_1)
-    job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
 
     // not support currently
 //    single_table_query_stmt_1 = """
@@ -686,8 +679,6 @@ suite("partition_mv_rewrite_dimension_1") {
         """
 
     create_async_mv(db, mv_name_1, single_table_mv_stmt_1)
-    job_name_1 = getJobName(db, mv_name_1)
-    waitingMTMVTaskFinished(job_name_1)
 
     single_table_query_stmt_1 = """
         select l_Shipdate, l_partkey, l_suppkey 

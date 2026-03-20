@@ -42,7 +42,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -71,7 +71,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -89,7 +89,7 @@ suite("partition_mv_rewrite_dimension_2_4") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`ps_partkey`, `ps_suppkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
+    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -137,14 +137,29 @@ suite("partition_mv_rewrite_dimension_2_4") {
     def compare_res = { def stmt ->
         sql "SET enable_materialized_view_rewrite=false"
         def origin_res = sql stmt
-        logger.info("origin_res: " + origin_res)
         sql "SET enable_materialized_view_rewrite=true"
         def mv_origin_res = sql stmt
-        logger.info("mv_origin_res: " + mv_origin_res)
+        boolean logged = false
+        def logResultMismatch = {
+            if (!logged) {
+                logger.info("origin_res: " + origin_res)
+                logger.info("mv_origin_res: " + mv_origin_res)
+                logged = true
+            }
+        }
+        if (!((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))) {
+            logResultMismatch()
+        }
         assertTrue((mv_origin_res == [] && origin_res == []) || (mv_origin_res.size() == origin_res.size()))
         for (int row = 0; row < mv_origin_res.size(); row++) {
+            if (mv_origin_res[row].size() != origin_res[row].size()) {
+                logResultMismatch()
+            }
             assertTrue(mv_origin_res[row].size() == origin_res[row].size())
             for (int col = 0; col < mv_origin_res[row].size(); col++) {
+                if (mv_origin_res[row][col] != origin_res[row][col]) {
+                    logResultMismatch()
+                }
                 assertTrue(mv_origin_res[row][col] == origin_res[row][col])
             }
         }
@@ -251,8 +266,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             left join lineitem_2_4
             on lineitem_2_4.l_orderkey = orders_2_4.o_orderkey """
     create_async_mv(db, mv_name_4, mv_stmt_4)
-    def job_name_4 = getJobName(db, mv_name_4)
-    waitingMTMVTaskFinished(job_name_4)
 
     def sql_stmt_4 = """select 
             o_totalprice, 
@@ -279,8 +292,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_shippriority, 
             o_comment  """
     create_async_mv(db, mv_name_5, mv_stmt_5)
-    def job_name_5 = getJobName(db, mv_name_5)
-    waitingMTMVTaskFinished(job_name_5)
 
     def sql_stmt_5 = """select o_orderdate, o_shippriority, o_comment
             from orders_2_4
@@ -311,8 +322,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_shippriority, 
             o_comment """
     create_async_mv(db, mv_name_6, mv_stmt_6)
-    def job_name_6 = getJobName(db, mv_name_6)
-    waitingMTMVTaskFinished(job_name_6)
 
     def sql_stmt_6 = """select  o_orderdate, o_shippriority, o_comment,
             sum(o_totalprice) as sum_total, 
@@ -444,8 +453,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             from orders_2_4 
             where o_orderdate >= '2023-10-17'"""
     create_async_mv(db, mv_name_10, mv_stmt_10)
-    def job_name_10 = getJobName(db, mv_name_10)
-    waitingMTMVTaskFinished(job_name_10)
 
     def sql_stmt_10 = """select t.sum_total from (select 
             sum(o_totalprice) as sum_total, 
@@ -472,8 +479,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_shippriority, 
             o_comment """
     create_async_mv(db, mv_name_11, mv_stmt_11)
-    def job_name_11 = getJobName(db, mv_name_11)
-    waitingMTMVTaskFinished(job_name_11)
 
     def sql_stmt_11 = """select o_orderdate, o_shippriority, o_comment
             from orders_2_4
@@ -496,8 +501,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_comment,
             o_totalprice """
     create_async_mv(db, mv_name_16, mv_stmt_16)
-    def job_name_16 = getJobName(db, mv_name_16)
-    waitingMTMVTaskFinished(job_name_16)
 
     def sql_stmt_16 = """select o_orderdate, o_shippriority, o_comment
             from orders_2_4
@@ -532,8 +535,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_comment,
             o_totalprice """
     create_async_mv(db, mv_name_12, mv_stmt_12)
-    def job_name_12 = getJobName(db, mv_name_12)
-    waitingMTMVTaskFinished(job_name_12)
 
     def sql_stmt_12 = """select t.o_orderdate, t.o_shippriority, t.o_comment, 
             t.sum_total, t.max_total, t.min_total, t.count_all 
@@ -571,8 +572,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             from orders_2_4  
             where  o_orderkey > 1 + 1  """
     create_async_mv(db, mv_name_13, mv_stmt_13)
-    def job_name_13 = getJobName(db, mv_name_13)
-    waitingMTMVTaskFinished(job_name_13)
 
     def sql_stmt_13 = """select sum(o_totalprice) + count(*) , 
             count(distinct case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end) as cnt_1,
@@ -596,8 +595,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             o_shippriority, 
             o_comment """
     create_async_mv(db, mv_name_14, mv_stmt_14)
-    def job_name_14 = getJobName(db, mv_name_14)
-    waitingMTMVTaskFinished(job_name_14)
 
     def sql_stmt_14 = """select o_orderdate + o_shippriority, o_comment 
             from orders_2_4 
@@ -627,8 +624,6 @@ suite("partition_mv_rewrite_dimension_2_4") {
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end,
             case when o_shippriority > 2 and o_orderkey IN (2) then o_custkey else null end """
     create_async_mv(db, mv_name_15, mv_stmt_15)
-    def job_name_15 = getJobName(db, mv_name_15)
-    waitingMTMVTaskFinished(job_name_15)
 
     def sql_stmt_15 = """select o_shippriority, o_comment, o_shippriority + o_custkey, 
             case when o_shippriority > 1 and o_orderkey IN (1, 3) then o_custkey else null end as cnt_1,

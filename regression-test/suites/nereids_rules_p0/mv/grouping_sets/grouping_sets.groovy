@@ -813,4 +813,3 @@ suite("materialized_view_grouping_sets") {
     order_qt_query18_after "${query18}"
     sql """ DROP MATERIALIZED VIEW IF EXISTS mv18"""
 }
-
