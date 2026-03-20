@@ -310,12 +310,19 @@ private:
         _pages.emplace_back(std::move(page));
     }
 
+    static uint64_t _collect_uncompressed_bytes(const PageFooterPB& footer) {
+        return footer.uncompressed_size() + footer.ByteSizeLong() +
+               sizeof(uint32_t) /* footer size */ + sizeof(uint32_t) /* checksum */;
+    }
+
     Status _write_data_page(Page* page);
 
 private:
     io::FileWriter* _file_writer = nullptr;
     // total size of data page list
     uint64_t _data_size;
+    // Whether to flush pages to disk immediately in finish_current_page()
+    bool _streaming_flush_enabled = false;
 
     uint64_t _raw_data_bytes {0};
     uint64_t _total_uncompressed_data_pages_size {0};

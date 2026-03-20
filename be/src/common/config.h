@@ -523,6 +523,11 @@ DECLARE_mDouble(sparse_column_compaction_threshold_percent);
 // Enable RLE batch Put optimization for compaction
 DECLARE_mBool(enable_rle_batch_put_optimization);
 
+// When enabled, ScalarColumnWriter flushes each data page to disk immediately
+// when the page is full, instead of caching all pages in memory until write_data().
+// This reduces memory consumption but may result in interleaved data pages across columns.
+DECLARE_mBool(enable_streaming_page_flush);
+
 // If enabled, segments will be flushed column by column
 DECLARE_mBool(enable_vertical_segment_writer);
 

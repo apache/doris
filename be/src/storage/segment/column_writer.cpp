@@ -477,7 +477,8 @@ ScalarColumnWriter::ScalarColumnWriter(const ColumnWriterOptions& opts,
         : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta),
           _opts(opts),
           _file_writer(file_writer),
-          _data_size(0) {
+          _data_size(0),
+          _streaming_flush_enabled(config::enable_streaming_page_flush) {
     // these opts.meta fields should be set by client
     DCHECK(opts.meta->has_column_id());
     DCHECK(opts.meta->has_unique_id());
@@ -727,6 +728,12 @@ Status ScalarColumnWriter::append_nullable(const uint8_t* null_map, const uint8_
 
 uint64_t ScalarColumnWriter::estimate_buffer_size() {
     uint64_t size = _data_size;
+    if (_streaming_flush_enabled) {
+        // In streaming mode, _data_size is 0 (pages already flushed to disk).
+        // Include the already-written bytes so callers estimating segment file
+        // size get a correct answer.
+        size += _total_compressed_data_pages_size;
+    }
     size += _page_builder->size();
     if (is_nullable()) {
         size += _null_bitmap_builder->size();
@@ -748,17 +755,20 @@ Status ScalarColumnWriter::finish() {
 }
 
 Status ScalarColumnWriter::write_data() {
-    auto offset = _file_writer->bytes_appended();
-    auto collect_uncompressed_bytes = [](const PageFooterPB& footer) {
-        return footer.uncompressed_size() + footer.ByteSizeLong() +
-               sizeof(uint32_t) /* footer size */ + sizeof(uint32_t) /* checksum */;
-    };
-    for (auto& page : _pages) {
-        _total_uncompressed_data_pages_size += collect_uncompressed_bytes(page->footer);
-        RETURN_IF_ERROR(_write_data_page(page.get()));
+    if (!_streaming_flush_enabled) {
+        // Traditional mode: flush all cached pages to disk at once
+        auto offset = _file_writer->bytes_appended();
+        for (auto& page : _pages) {
+            _total_uncompressed_data_pages_size += _collect_uncompressed_bytes(page->footer);
+            RETURN_IF_ERROR(_write_data_page(page.get()));
+        }
+        _total_compressed_data_pages_size += _file_writer->bytes_appended() - offset;
+        _pages.clear();
     }
-    _pages.clear();
-    // write column dict
+    // else: streaming mode - data pages already flushed in finish_current_page()
+
+    // write column dict (must be after all data pages regardless of mode)
+    auto dict_offset = _file_writer->bytes_appended();
     if (_encoding_info->encoding() == DICT_ENCODING) {
         OwnedSlice dict_body;
         RETURN_IF_ERROR(_page_builder->get_dictionary_page(&dict_body));
@@ -769,7 +779,7 @@ Status ScalarColumnWriter::write_data() {
         footer.set_type(DICTIONARY_PAGE);
         footer.set_uncompressed_size(cast_set<uint32_t>(dict_body.slice().get_size()));
         footer.mutable_dict_page_footer()->set_encoding(dict_word_page_encoding);
-        _total_uncompressed_data_pages_size += collect_uncompressed_bytes(footer);
+        _total_uncompressed_data_pages_size += _collect_uncompressed_bytes(footer);
 
         PagePointer dict_pp;
         RETURN_IF_ERROR(PageIO::compress_and_write_page(
@@ -777,7 +787,7 @@ Status ScalarColumnWriter::write_data() {
                 {dict_body.slice()}, footer, &dict_pp));
         dict_pp.to_proto(_opts.meta->mutable_dict_page());
     }
-    _total_compressed_data_pages_size += _file_writer->bytes_appended() - offset;
+    _total_compressed_data_pages_size += _file_writer->bytes_appended() - dict_offset;
     _page_builder.reset();
     return Status::OK();
 }
@@ -880,7 +890,16 @@ Status ScalarColumnWriter::finish_current_page() {
         page->data.emplace_back(std::move(compressed_body));
     }
 
-    _push_back_page(std::move(page));
+    if (_streaming_flush_enabled) {
+        // Streaming mode: flush page to disk immediately and release memory
+        _total_uncompressed_data_pages_size += _collect_uncompressed_bytes(page->footer);
+        auto offset_before = _file_writer->bytes_appended();
+        RETURN_IF_ERROR(_write_data_page(page.get()));
+        _total_compressed_data_pages_size += _file_writer->bytes_appended() - offset_before;
+        // page unique_ptr destroyed at scope exit -> memory freed immediately
+    } else {
+        _push_back_page(std::move(page));
+    }
     _first_rowid = _next_rowid;
     return Status::OK();
 }
