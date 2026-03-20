@@ -49,7 +49,8 @@ struct AnnIndexStats {
               engine_search_ns(TUnit::TIME_NS, 0),
               result_process_costs_ns(TUnit::TIME_NS, 0),
               engine_convert_ns(TUnit::TIME_NS, 0),
-              engine_prepare_ns(TUnit::TIME_NS, 0) {}
+              engine_prepare_ns(TUnit::TIME_NS, 0),
+              fall_back_brute_force_cnt(0) {}
 
     AnnIndexStats(const AnnIndexStats& other)
             : search_costs_ns(TUnit::TIME_NS, other.search_costs_ns.value()),
@@ -57,7 +58,8 @@ struct AnnIndexStats {
               engine_search_ns(TUnit::TIME_NS, other.engine_search_ns.value()),
               result_process_costs_ns(TUnit::TIME_NS, other.result_process_costs_ns.value()),
               engine_convert_ns(TUnit::TIME_NS, other.engine_convert_ns.value()),
-              engine_prepare_ns(TUnit::TIME_NS, other.engine_prepare_ns.value()) {}
+              engine_prepare_ns(TUnit::TIME_NS, other.engine_prepare_ns.value()),
+              fall_back_brute_force_cnt(other.fall_back_brute_force_cnt) {}
 
     AnnIndexStats& operator=(const AnnIndexStats& other) {
         if (this != &other) {
@@ -67,6 +69,7 @@ struct AnnIndexStats {
             result_process_costs_ns.set(other.result_process_costs_ns.value());
             engine_convert_ns.set(other.engine_convert_ns.value());
             engine_prepare_ns.set(other.engine_prepare_ns.value());
+            fall_back_brute_force_cnt = other.fall_back_brute_force_cnt;
         }
         return *this;
     }
@@ -77,7 +80,8 @@ struct AnnIndexStats {
     RuntimeProfile::Counter result_process_costs_ns; // time cost of processing search results
     RuntimeProfile::Counter engine_convert_ns;       // time cost of engine-side conversions
     RuntimeProfile::Counter
-            engine_prepare_ns; // time cost before engine search (allocations, setup)
+            engine_prepare_ns;         // time cost before engine search (allocations, setup)
+    int64_t fall_back_brute_force_cnt; // fallback count when ANN range search is bypassed
 };
 
 struct AnnTopNParam {

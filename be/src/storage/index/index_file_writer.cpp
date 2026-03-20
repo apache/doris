@@ -241,8 +241,7 @@ Status IndexFileWriter::finish_close() {
     if (_idx_v2_writer != nullptr && _idx_v2_writer->state() != io::FileWriter::State::CLOSED) {
         RETURN_IF_ERROR(_idx_v2_writer->close(false));
     }
-    LOG_INFO("IndexFileWriter finish_close, enable_write_index_searcher_cache: {}",
-             config::enable_write_index_searcher_cache);
+
     Status st = Status::OK();
     if (config::enable_write_index_searcher_cache) {
         st = add_into_searcher_cache();
