@@ -535,6 +535,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Translate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Trim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.TrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Truncate;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.TypeOf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Uncompress;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Unhex;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UnhexNull;
@@ -1087,6 +1088,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(TimeFormat.class, "time_format"),
             scalar(TimeToSec.class, "time_to_sec"),
             scalar(Timestamp.class, "timestamp"),
+            scalar(TypeOf.class, "typeof"),
             scalar(ToBase64.class, "to_base64"),
             scalar(ToBase64Binary.class, "to_base64_binary"),
             scalar(ToBinary.class, "to_binary", "to_hex"),

@@ -3372,7 +3372,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private Expression processCast(Expression expression, CastDataTypeContext castDataTypeContext) {
         DataType dataType = visitCastDataType(castDataTypeContext);
-        Expression cast = new Cast(expression, dataType, true);
+        Expression cast = new Cast(expression, dataType, true, castDataTypeContext.getText());
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
             if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
                 return cast;
@@ -3390,7 +3390,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
 
     private Expression processTryCast(Expression expression, CastDataTypeContext castDataTypeContext) {
         DataType dataType = visitCastDataType(castDataTypeContext);
-        Expression cast = new TryCast(expression, dataType, true);
+        Expression cast = new TryCast(expression, dataType, true, castDataTypeContext.getText());
         if (dataType.isStringLikeType() && ((CharacterType) dataType).getLen() >= 0) {
             if (dataType.isVarcharType() && ((VarcharType) dataType).isWildcardVarchar()) {
                 return cast;
