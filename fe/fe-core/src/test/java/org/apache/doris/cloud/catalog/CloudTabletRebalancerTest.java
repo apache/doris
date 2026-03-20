@@ -17,12 +17,16 @@
 
 package org.apache.doris.cloud.catalog;
 
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.metric.MetricRepo;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
+import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -297,5 +301,31 @@ public class CloudTabletRebalancerTest {
         TestRebalancer r = new TestRebalancer();
         boolean migrated = invokePrivate(r, "migrateTabletsForSmoothUpgrade", new Class<?>[] {}, new Object[] {});
         Assertions.assertFalse(migrated);
+    }
+
+    @Test
+    public void testResetCloudBalanceMetric_clearsMetricForAllClusters() throws Exception {
+        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
+        TestRebalancer r = new TestRebalancer();
+        setField(r, "cloudSystemInfoService", systemInfoService);
+
+        Map<String, List<Long>> clusterToBes = new HashMap<>();
+        clusterToBes.put("cluster-a", Collections.singletonList(1L));
+        clusterToBes.put("cluster-b", Collections.singletonList(2L));
+        setField(r, "clusterToBes", clusterToBes);
+
+        Mockito.when(systemInfoService.getClusterNameByClusterId("cluster-a")).thenReturn("compute_cluster_a");
+        Mockito.when(systemInfoService.getClusterNameByClusterId("cluster-b")).thenReturn("compute_cluster_b");
+
+        try (MockedStatic<MetricRepo> metricRepo = Mockito.mockStatic(MetricRepo.class)) {
+            invokePrivate(r, "resetCloudBalanceMetric",
+                    new Class<?>[] {CloudTabletRebalancer.StatType.class},
+                    new Object[] {CloudTabletRebalancer.StatType.PARTITION});
+
+            metricRepo.verify(() -> MetricRepo.updateClusterCloudBalanceNum(
+                    "compute_cluster_a", "cluster-a", CloudTabletRebalancer.StatType.PARTITION, 0L));
+            metricRepo.verify(() -> MetricRepo.updateClusterCloudBalanceNum(
+                    "compute_cluster_b", "cluster-b", CloudTabletRebalancer.StatType.PARTITION, 0L));
+        }
     }
 }
