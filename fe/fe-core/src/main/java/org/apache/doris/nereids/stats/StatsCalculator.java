@@ -1497,7 +1497,9 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
         //       2. Handle alias, literal in the output expression list
         for (NamedExpression outputExpression : outputExpressions) {
             ColumnStatistic columnStat = ExpressionEstimation.estimate(outputExpression, childStats);
-            if (columnStat.getHotValues() != null) {
+            Map<Literal, Float> hotValues = columnStat.getHotValues();
+            // Hot values from child cannot be propagated through aggregate: aggregation (group by, sum, etc.)
+            if (hotValues != null && !hotValues.isEmpty()) {
                 ColumnStatisticBuilder builder = new ColumnStatisticBuilder(columnStat);
                 builder.setHotValues(null);
                 columnStat = builder.build();
@@ -1622,14 +1624,12 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
             }
 
+            int maxHotValueCount = SessionVariable.getHotValueCollectCount();
             Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
-            for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
-                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getSkewValueThreshold()
-                        || ratio >= SessionVariable.getHotValueThreshold()) {
-                    resultHotValues.put(hot, ratio);
-                }
-            }
+            unionHotValues.entrySet().stream()
+                    .sorted((a, b) -> Float.compare(b.getValue(), a.getValue()))
+                    .limit(maxHotValueCount)
+                    .forEach(e -> resultHotValues.put(e.getKey(), (float) (e.getValue() / unionRowCount)));
             if (!resultHotValues.isEmpty()) {
                 colStatsBuilder.setHotValues(resultHotValues);
             }
@@ -1698,14 +1698,15 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
                 }
             }
 
-            Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
-            for (Literal hot : unionHotValues.keySet()) {
-                float ratio = (float) (unionHotValues.get(hot) / unionRowCount);
-                if (ratio * colStatsBuilder.getNdv() >= SessionVariable.getSkewValueThreshold()
-                        || ratio >= SessionVariable.getHotValueThreshold()) {
-                    resultHotValues.put(hot, ratio);
-                }
+            int maxHotValueCount = SessionVariable.getHotValueCollectCount();
+            if (maxHotValueCount <= 0) {
+                maxHotValueCount = 10;
             }
+            Map<Literal, Float> resultHotValues = new LinkedHashMap<>();
+            unionHotValues.entrySet().stream()
+                    .sorted((a, b) -> Float.compare(b.getValue(), a.getValue()))
+                    .limit(maxHotValueCount)
+                    .forEach(e -> resultHotValues.put(e.getKey(), (float) (e.getValue() / unionRowCount)));
             if (!resultHotValues.isEmpty()) {
                 colStatsBuilder.setHotValues(resultHotValues);
             }
