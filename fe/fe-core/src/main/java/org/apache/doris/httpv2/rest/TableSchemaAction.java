@@ -84,7 +84,7 @@ public class TableSchemaAction extends RestBaseController {
         columnInfo.put("column_uid", String.valueOf(column.getUniqueId()));
         columnInfo.put("type", primitiveType.toString());
         columnInfo.put("comment", column.getComment());
-        columnInfo.put("name", column.getDisplayName());
+        columnInfo.put("name", column.getName());
 
         Optional aggregationType = Optional.ofNullable(column.getAggregationType());
         columnInfo.put("aggregation_type", aggregationType.isPresent()

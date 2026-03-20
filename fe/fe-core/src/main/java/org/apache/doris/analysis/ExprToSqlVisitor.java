@@ -175,7 +175,7 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
                     && !ConnectContext.get().getState().isQuery()
                     && ConnectContext.get().getSessionVariable() != null
                     && expr.desc != null) {
-                return expr.getLabel() + "[#" + expr.desc.getId().asInt() + "]";
+                return expr.getLabel() + "[#" + expr.getSlotId().asInt() + "]";
             } else {
                 return expr.getLabel();
             }
@@ -197,7 +197,7 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
             }
             return sb.toString();
         } else {
-            return "<slot " + expr.desc.getId().asInt() + ">" + sb;
+            return "<slot " + expr.getSlotId().asInt() + ">" + sb;
         }
     }
 

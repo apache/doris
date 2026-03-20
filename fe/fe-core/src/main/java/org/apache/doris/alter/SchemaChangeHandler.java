@@ -3537,7 +3537,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 List<Column> colList = indexMeta.getSchema(true);
                 for (Column col : colList) {
                     TColumn tColumn = col.toThrift();
-                    col.setIndexFlag(tColumn, olapTable);
+                    col.setIndexFlag(tColumn, olapTable.getCopiedBfColumns());
                 }
                 List<Index> indexList = indexMeta.getIndexes();
                 int schemaVersion = indexMeta.getSchemaVersion();

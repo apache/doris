@@ -38,6 +38,11 @@ under the License.
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-type</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- Test dependencies -->
         <dependency>

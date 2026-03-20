@@ -18,8 +18,8 @@
 package org.apache.doris.fs.operations;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.URI;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.URI;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FSDataOutputStream;

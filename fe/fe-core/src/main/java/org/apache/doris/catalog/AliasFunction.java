@@ -18,11 +18,8 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -34,15 +31,10 @@ import java.util.Objects;
  * Internal representation of an alias function.
  */
 public class AliasFunction extends Function {
-    private static final Logger LOG = LogManager.getLogger(AliasFunction.class);
-
-    private static final String DIGITAL_MASKING = "digital_masking";
-
     @SerializedName("of")
     private Expr originFunction;
     @SerializedName("pm")
     private List<String> parameters = new ArrayList<>();
-    private List<String> typeDefParams = new ArrayList<>();
     @SerializedName("sv")
     private Map<String, String> sessionVariables;
 
@@ -62,7 +54,7 @@ public class AliasFunction extends Function {
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
             boolean hasVarArgs, List<String> parameters, Expr originFunction, Map<String, String> sessionVariables) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
-        aliasFunction.setBinaryType(TFunctionBinaryType.JAVA_UDF);
+        aliasFunction.setBinaryType(Function.BinaryType.JAVA_UDF);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;

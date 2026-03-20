@@ -25,7 +25,7 @@ import org.junit.Test;
 import java.net.URISyntaxException;
 
 public class URITest {
-    private void check(java.net.URI javaURI, URI myURI) {
+    private void check(java.net.URI javaURI, org.apache.doris.common.URI myURI) {
         Assert.assertEquals(javaURI.getAuthority(), myURI.getAuthority());
         Assert.assertEquals(javaURI.getPath(), myURI.getPath());
         Assert.assertEquals(javaURI.getHost(), myURI.getHost());
@@ -40,7 +40,7 @@ public class URITest {
     public void testNormal() throws UserException, URISyntaxException {
         String str1 = "foo://username:password@example.com:8042/over/there/index.dtb?type=animal&name=narwhal#nose";
         java.net.URI javaURI1 = new java.net.URI(str1);
-        URI myURI1 = URI.create(str1);
+        org.apache.doris.common.URI myURI1 = org.apache.doris.common.URI.create(str1);
         check(javaURI1, myURI1);
         Assert.assertEquals(myURI1.getUserName(), "username");
         Assert.assertEquals(myURI1.getPassWord(), "password");
@@ -48,51 +48,51 @@ public class URITest {
 
         String str2 = "foo://example.com/over/there/index.dtb#nose";
         java.net.URI javaURI2 = new java.net.URI(str2);
-        URI myURI2 = URI.create(str2);
+        org.apache.doris.common.URI myURI2 = org.apache.doris.common.URI.create(str2);
         check(javaURI2, myURI2);
         Assert.assertEquals(myURI2.getFragment(), "nose");
 
         String str3 = "foo://example.com/over/there/index.dtb?type=animal";
         java.net.URI javaURI3 = new java.net.URI(str3);
-        URI myURI3 = URI.create(str3);
+        org.apache.doris.common.URI myURI3 = org.apache.doris.common.URI.create(str3);
         check(javaURI3, myURI3);
         Assert.assertEquals(myURI3.getQueryMap().get("type"), "animal");
 
         String str4 = "foo://:password@example.com/over/there/index.dtb?type=animal";
         java.net.URI javaURI4 = new java.net.URI(str4);
-        URI myURI4 = URI.create(str4);
+        org.apache.doris.common.URI myURI4 = org.apache.doris.common.URI.create(str4);
         check(javaURI4, myURI4);
         Assert.assertEquals(myURI4.getQueryMap().get("type"), "animal");
 
         String str5 = "foo://password@example.com/over/there/index.dtb?type=animal";
         java.net.URI javaURI5 = new java.net.URI(str5);
-        URI myURI5 = URI.create(str5);
+        org.apache.doris.common.URI myURI5 = org.apache.doris.common.URI.create(str5);
         check(javaURI5, myURI5);
         Assert.assertEquals(myURI5.getQueryMap().get("type"), "animal");
 
         String str6 = "foo://example.com";
         java.net.URI javaURI6 = new java.net.URI(str6);
-        URI myURI6 = URI.create(str6);
+        org.apache.doris.common.URI myURI6 = org.apache.doris.common.URI.create(str6);
         check(javaURI6, myURI6);
 
         String str7 = "example.com";
         java.net.URI javaURI7 = new java.net.URI(str7);
-        URI myURI7 = URI.create(str7);
+        org.apache.doris.common.URI myURI7 = org.apache.doris.common.URI.create(str7);
         check(javaURI7, myURI7);
 
         String str8 = "example.com";
         java.net.URI javaURI8 = new java.net.URI(str8);
-        URI myURI8 = URI.create(str8);
+        org.apache.doris.common.URI myURI8 = org.apache.doris.common.URI.create(str8);
         check(javaURI8, myURI8);
 
-        URI myURI9 = URI.create("hdfs://ip:12/test/test/data/{20220131,20220201}/*");
+        org.apache.doris.common.URI myURI9 = org.apache.doris.common.URI.create("hdfs://ip:12/test/test/data/{20220131,20220201}/*");
         Assert.assertEquals(myURI9.getScheme(), "hdfs");
         Assert.assertEquals(myURI9.getPath(), "/test/test/data/{20220131,20220201}/*");
         Assert.assertEquals(myURI9.getHost(), "ip");
         Assert.assertEquals(myURI9.getPort(), 12);
         Assert.assertEquals(myURI9.getAuthority(), "ip:12");
 
-        URI myURI10 = URI.create("hdfs");
+        org.apache.doris.common.URI myURI10 = org.apache.doris.common.URI.create("hdfs");
         Assert.assertEquals(myURI10.getPath(), "hdfs");
     }
 }

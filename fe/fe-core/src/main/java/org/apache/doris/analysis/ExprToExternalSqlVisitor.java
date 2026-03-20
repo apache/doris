@@ -68,7 +68,7 @@ public class ExprToExternalSqlVisitor extends ExprToSqlVisitor {
                 return expr.getCol();
             }
         } else {
-            return "<slot " + expr.desc.getId().asInt() + ">";
+            return "<slot " + expr.getSlotId().asInt() + ">";
         }
     }
 

@@ -17,15 +17,13 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.URI;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.common.util.URI;
-import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.thrift.TFunctionBinaryType;
+import org.apache.doris.persist.gson.GsonUtilsBase;
 
 import com.google.common.base.Joiner;
-import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.io.output.NullOutputStream;
 
@@ -50,6 +48,17 @@ public class Function implements Writable {
         ALWAYS_NULLABLE,
         // like 'count', the output column is always not nullable
         ALWAYS_NOT_NULLABLE
+    }
+
+    public enum BinaryType {
+        BUILTIN,
+        HIVE,
+        NATIVE,
+        IR,
+        RPC,
+        JAVA_UDF,
+        AGG_STATE,
+        PYTHON_UDF
     }
 
     // Function id, every function has a unique id. Now all built-in functions' id is 0
@@ -79,7 +88,7 @@ public class Function implements Writable {
     @SerializedName("l")
     private URI location;
     @SerializedName("bt")
-    private TFunctionBinaryType binaryType;
+    private BinaryType binaryType;
 
     @SerializedName("nm")
     protected NullableMode nullableMode = NullableMode.DEPEND_ON_ARGUMENT;
@@ -119,12 +128,12 @@ public class Function implements Writable {
     }
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType, boolean hasVarArgs,
-            TFunctionBinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
+            Function.BinaryType binaryType, boolean userVisible, boolean vectorized, NullableMode mode) {
         this.id = id;
         this.name = name;
         this.hasVarArgs = hasVarArgs;
-        if (argTypes.size() > 0) {
-            this.argTypes = argTypes.toArray(new Type[argTypes.size()]);
+        if (!argTypes.isEmpty()) {
+            this.argTypes = argTypes.toArray(new Type[0]);
         } else {
             this.argTypes = new Type[0];
         }
@@ -137,7 +146,7 @@ public class Function implements Writable {
 
     public Function(long id, FunctionName name, List<Type> argTypes, Type retType,
             boolean hasVarArgs, boolean vectorized, NullableMode mode) {
-        this(id, name, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, true, vectorized, mode);
+        this(id, name, argTypes, retType, hasVarArgs, BinaryType.BUILTIN, true, vectorized, mode);
     }
 
     public Function(Function other) {
@@ -195,7 +204,7 @@ public class Function implements Writable {
     }
 
     public void setArgs(List<Type> argTypes) {
-        this.argTypes = argTypes.toArray(new Type[argTypes.size()]);
+        this.argTypes = argTypes.toArray(new Type[0]);
     }
 
     // Returns the number of arguments to this function.
@@ -215,11 +224,11 @@ public class Function implements Writable {
         this.name = name;
     }
 
-    public TFunctionBinaryType getBinaryType() {
+    public Function.BinaryType getBinaryType() {
         return binaryType;
     }
 
-    public void setBinaryType(TFunctionBinaryType type) {
+    public void setBinaryType(Function.BinaryType type) {
         binaryType = type;
     }
 
@@ -233,14 +242,6 @@ public class Function implements Writable {
 
     public void setUserVisible(boolean userVisible) {
         this.userVisible = userVisible;
-    }
-
-    public Type getVarArgsType() {
-        if (!hasVarArgs) {
-            return Type.INVALID;
-        }
-        Preconditions.checkState(argTypes.length > 0);
-        return argTypes[argTypes.length - 1];
     }
 
     public void setHasVarArgs(boolean v) {
@@ -330,11 +331,11 @@ public class Function implements Writable {
 
     @Override
     public void write(DataOutput output) throws IOException {
-        Text.writeString(output, GsonUtils.GSON.toJson(this));
+        Text.writeString(output, GsonUtilsBase.GSON.toJson(this));
     }
 
     public static Function read(DataInput input) throws IOException {
-        return GsonUtils.GSON.fromJson(Text.readString(input), Function.class);
+        return GsonUtilsBase.GSON.fromJson(Text.readString(input), Function.class);
     }
 
     public void setNullableMode(NullableMode nullableMode) {

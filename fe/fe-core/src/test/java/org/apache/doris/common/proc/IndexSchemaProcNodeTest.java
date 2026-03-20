@@ -48,7 +48,7 @@ public class IndexSchemaProcNodeTest {
         IndexSchemaProcNode indexSchemaProcNode = new IndexSchemaProcNode(columnList, null);
         ProcResult procResult = indexSchemaProcNode.fetchResult();
         Assert.assertEquals(2, procResult.getRows().size());
-        Assert.assertTrue(procResult.getRows().get(1).contains(column2.getDisplayName()));
+        Assert.assertTrue(procResult.getRows().get(1).contains(column2.getName()));
         Assert.assertFalse(procResult.getRows().get(1).contains(column2.getName()));
         Assert.assertEquals("The column size should be 6", 6, procResult.getColumnNames().size());
         Assert.assertEquals("The row size should be 6", 6, procResult.getRows().get(1).size());

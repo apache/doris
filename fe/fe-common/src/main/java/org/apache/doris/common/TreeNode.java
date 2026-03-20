@@ -43,10 +43,6 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
         children.add(n);
     }
 
-    public void addChildren(List<? extends NodeType> n) {
-        children.addAll(n);
-    }
-
     public boolean hasChild(int i) {
         return children.size() > i;
     }
@@ -57,28 +53,6 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
 
     public ArrayList<NodeType> getChildren() {
         return children;
-    }
-
-    public void clearChildren() {
-        children.clear();
-    }
-
-    public void removeNode(int i) {
-        if (children != null && i >= 0 && i < children.size()) {
-            children.remove(i);
-        }
-    }
-
-    /**
-     * Count the total number of nodes in this tree. Leaf node will return 1.
-     * Non-leaf node will include all its children.
-     */
-    public int numNodes() {
-        int numNodes = 1;
-        for (NodeType child : children) {
-            numNodes += child.numNodes();
-        }
-        return numNodes;
     }
 
     /**
@@ -208,46 +182,6 @@ public class TreeNode<NodeType extends TreeNode<NodeType>> {
             }
         }
         return false;
-    }
-
-    public boolean containsSubclass(Class cl) {
-        if (cl.isAssignableFrom(this.getClass())) {
-            return true;
-        }
-        for (NodeType child : children) {
-            if (child.containsSubclass(cl)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Return 'this' or first child that is exactly of class 'cl'.
-     * Looks for matching children via depth-first, left-to-right traversal.
-     */
-    public <C extends NodeType> C findFirstOf(Class<C> cl) {
-        if (this.getClass().equals(cl)) {
-            return (C) this;
-        }
-        for (NodeType child : children) {
-            NodeType result = child.findFirstOf(cl);
-            if (result != null) {
-                return (C) result;
-            }
-        }
-        return null;
-    }
-
-    public interface ThrowingConsumer<T> {
-        void accept(T t) throws AnalysisException;
-    }
-
-    public void foreach(ThrowingConsumer<TreeNode<NodeType>> func) throws AnalysisException {
-        func.accept(this);
-        for (NodeType child : getChildren()) {
-            child.foreach(func);
-        }
     }
 
     /** anyMatch */

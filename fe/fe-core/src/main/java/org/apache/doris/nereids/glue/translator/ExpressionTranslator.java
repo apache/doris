@@ -38,9 +38,11 @@ import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SearchPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TryCastExpr;
+import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function;
+import org.apache.doris.catalog.Function.BinaryType;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.FunctionName;
 import org.apache.doris.catalog.FunctionSignature;
@@ -109,8 +111,6 @@ import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunctio
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.thrift.TDictFunction;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -475,7 +475,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 function.hasVarArguments(),
                 null, "", "", null, "",
                 null, "", null, false,
-                isAnalyticFunction, false, TFunctionBinaryType.BUILTIN,
+                isAnalyticFunction, BinaryType.BUILTIN,
                 true, true, nullableMode
         );
 
@@ -612,13 +612,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(dictGet.getName()), argTypes, signature.returnType.toCatalogDataType(),
-                dictGet.hasVarArguments(), "", TFunctionBinaryType.BUILTIN, true, true,
+                dictGet.hasVarArguments(), "", Function.BinaryType.BUILTIN, true, true,
                 NullableMode.ALWAYS_NOT_NULLABLE);
 
         // set special fields
-        TDictFunction dictFunction = new TDictFunction();
-        dictFunction.setDictionaryId(dictionary.getId());
-        dictFunction.setVersionId(dictionary.getVersion());
+        org.apache.doris.catalog.ScalarFunction.DictFunction dictFunction
+                = new org.apache.doris.catalog.ScalarFunction.DictFunction(
+                        dictionary.getId(), dictionary.getVersion());
         catalogFunction.setDictFunction(dictFunction);
 
         // create catalog FunctionCallExpr without analyze again
@@ -639,13 +639,13 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(dictGetMany.getName()), argTypes, signature.returnType.toCatalogDataType(),
-                dictGetMany.hasVarArguments(), "", TFunctionBinaryType.BUILTIN, true, true,
+                dictGetMany.hasVarArguments(), "", Function.BinaryType.BUILTIN, true, true,
                 NullableMode.ALWAYS_NOT_NULLABLE);
 
         // set special fields
-        TDictFunction dictFunction = new TDictFunction();
-        dictFunction.setDictionaryId(dictionary.getId());
-        dictFunction.setVersionId(dictionary.getVersion());
+        org.apache.doris.catalog.ScalarFunction.DictFunction dictFunction
+                = new org.apache.doris.catalog.ScalarFunction.DictFunction(
+                        dictionary.getId(), dictionary.getVersion());
         catalogFunction.setDictFunction(dictFunction);
 
         // create catalog FunctionCallExpr without analyze again
@@ -703,7 +703,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
-                "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
+                "", Function.BinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), function.nullable());
@@ -748,7 +748,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         org.apache.doris.catalog.ScalarFunction catalogFunction = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(function.getName()), argTypes,
                 function.getDataType().toCatalogDataType(), function.hasVarArguments(),
-                "", TFunctionBinaryType.BUILTIN, true, true, nullableMode);
+                "", Function.BinaryType.BUILTIN, true, true, nullableMode);
 
         // create catalog FunctionCallExpr without analyze again
         return new FunctionCallExpr(catalogFunction, new FunctionParams(false, arguments), function.nullable());
@@ -814,11 +814,10 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         List<Type> arguments = Arrays.asList(aggFunction.getArgs());
         org.apache.doris.catalog.ScalarFunction fn = new org.apache.doris.catalog.ScalarFunction(
                 new FunctionName(name), arguments,
-                Expr.createAggStateType(aggFunction.getFunctionName().getFunction(),
-                        argTypes, argNullables, returnNullable),
+                new AggStateType(aggFunction.getFunctionName().getFunction(), returnNullable, argTypes, argNullables),
                 aggFunction.hasVarArgs(), aggFunction.isUserVisible());
         fn.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
-        fn.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        fn.setBinaryType(Function.BinaryType.AGG_STATE);
         return new FunctionCallExpr(fn, new FunctionParams(fnCall.getChildren()), false);
     }
 
@@ -836,7 +835,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Function aggFunction = fnCall.getFn();
         aggFunction.setName(new FunctionName(name));
         aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
-        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setBinaryType(Function.BinaryType.AGG_STATE);
         return fnCall;
     }
 
@@ -854,7 +853,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         Function aggFunction = fnCall.getFn();
         aggFunction.setName(new FunctionName(name));
         aggFunction.setArgs(Arrays.asList(fnCall.getChildren().get(0).getType()));
-        aggFunction.setBinaryType(TFunctionBinaryType.AGG_STATE);
+        aggFunction.setBinaryType(Function.BinaryType.AGG_STATE);
         aggFunction.setNullableMode(NullableMode.ALWAYS_NOT_NULLABLE);
         aggFunction.setReturnType(fnCall.getChildren().get(0).getType());
         fnCall.setType(fnCall.getChildren().get(0).getType());
@@ -900,8 +899,8 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 new FunctionName(function.getName()),
                 argTypes,
                 function.getDataType().toCatalogDataType(), function.getIntermediateTypes().toCatalogDataType(),
-                function.hasVarArguments(), null, "", "", null, "", null, "", null, false, false, false,
-                TFunctionBinaryType.BUILTIN, true, true,
+                function.hasVarArguments(), null, "", "", null, "", null, "", null, false, false,
+                BinaryType.BUILTIN, true, true,
                 function.nullable() ? NullableMode.ALWAYS_NULLABLE : NullableMode.ALWAYS_NOT_NULLABLE);
 
         return new FunctionCallExpr(catalogFunction,
