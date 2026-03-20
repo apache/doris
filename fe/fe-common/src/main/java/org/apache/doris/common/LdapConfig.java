@@ -175,4 +175,10 @@ public class LdapConfig extends ConfigBase {
     public static String getConnectionURL(String hostPortInAccessibleFormat) {
         return ((LdapConfig.ldap_use_ssl ? "ldaps" : "ldap") + "://" + hostPortInAccessibleFormat);
     }
+
+    /**
+     * Flag to enable login with empty pass.
+     */
+    @ConfigBase.ConfField
+    public static boolean ldap_allow_empty_pass = true;
 }
