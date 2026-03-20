@@ -182,8 +182,26 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(replica.getLastSuccessVersion());
                         tabletInfo.add(replica.getLastFailedVersion());
                         tabletInfo.add(TimeUtils.longToTimeString(replica.getLastFailedTimestamp()));
-                        tabletInfo.add(replica.getDataSize());
-                        tabletInfo.add(replica.getRemoteDataSize());
+                        long localDataSize = replica.getDataSize();
+                        long remoteDataSize = replica.getRemoteDataSize();
+                        // In cloud mode, FE replica dataSize may hold remote bytes while remoteDataSize is 0.
+                        // Keep the output semantic consistent with backend_tablets.
+                        if (Config.isCloudMode()) {
+                            if (remoteDataSize == 0 && localDataSize > 0) {
+                                remoteDataSize = localDataSize;
+                                localDataSize = 0;
+                            } else if (remoteDataSize == 0 && localDataSize == 0) {
+                                // For some cloud stats paths, data_size may be 0 while
+                                // index/segment sizes are already available.
+                                long derivedRemoteSize =
+                                        replica.getLocalInvertedIndexSize() + replica.getLocalSegmentSize();
+                                if (derivedRemoteSize > 0) {
+                                    remoteDataSize = derivedRemoteSize;
+                                }
+                            }
+                        }
+                        tabletInfo.add(localDataSize);
+                        tabletInfo.add(remoteDataSize);
                         tabletInfo.add(replica.getRowCount());
                         tabletInfo.add(replica.getState());
 

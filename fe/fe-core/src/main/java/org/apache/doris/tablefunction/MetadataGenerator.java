@@ -44,6 +44,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
@@ -1768,11 +1769,19 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setStringVal("")); // NODEGROUP (not available)
                     trow.addToColumnValue(new TCell().setStringVal("")); // TABLESPACE_NAME (not available)
 
-                    Pair<Double, String> sizePair = DebugUtil.getByteUint(partition.getDataSize(false));
+                    long localDataSize = partition.getDataSize(false);
+                    long remoteDataSize = partition.getRemoteDataSize();
+                    // In cloud mode, FE replica dataSize may hold remote bytes while remoteDataSize is 0.
+                    // Keep the output semantic consistent with backend_tablets.
+                    if (Config.isCloudMode() && remoteDataSize == 0 && localDataSize > 0) {
+                        remoteDataSize = localDataSize;
+                        localDataSize = 0;
+                    }
+                    Pair<Double, String> sizePair = DebugUtil.getByteUint(localDataSize);
                     String readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize));  // LOCAL_DATA_SIZE
-                    sizePair = DebugUtil.getByteUint(partition.getRemoteDataSize());
+                    sizePair = DebugUtil.getByteUint(remoteDataSize);
                     readableDateSize = DebugUtil.DECIMAL_FORMAT_SCALE_3.format(sizePair.first) + " "
                             + sizePair.second;
                     trow.addToColumnValue(new TCell().setStringVal(readableDateSize)); // REMOTE_DATA_SIZE
