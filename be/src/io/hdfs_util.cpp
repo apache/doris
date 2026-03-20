@@ -22,7 +22,6 @@
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/cloud.pb.h>
 
-#include <ostream>
 #include <thread>
 
 #include "common/logging.h"

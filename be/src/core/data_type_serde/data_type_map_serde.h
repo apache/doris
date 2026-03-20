@@ -20,8 +20,6 @@
 #include <glog/logging.h>
 #include <stdint.h>
 
-#include <ostream>
-
 #include "common/status.h"
 #include "core/data_type_serde/data_type_serde.h"
 

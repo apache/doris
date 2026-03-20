@@ -21,7 +21,6 @@
 #include <stddef.h>
 
 #include <cstdint>
-#include <ostream>
 #include <regex>
 #include <string>
 #include <unordered_set>

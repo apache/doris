@@ -28,7 +28,6 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <cstdlib>
-#include <ostream>
 #include <string>
 
 #include "common/status.h"

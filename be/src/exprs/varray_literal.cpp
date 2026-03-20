@@ -21,7 +21,6 @@
 #include <glog/logging.h>
 
 #include <memory>
-#include <ostream>
 #include <vector>
 
 #include "core/column/column.h"

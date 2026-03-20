@@ -21,7 +21,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <ostream>
 #include <utility>
 
 #include "common/status.h"
