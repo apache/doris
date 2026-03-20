@@ -814,26 +814,29 @@ class ModuleUDFLoader(UDFLoader):
 
     # Class-level lock dictionary for thread-safe module imports
     # Using RLock allows the same thread to acquire the lock multiple times
-    # Key: (location, module_name) tuple to avoid conflicts between different locations
-    _import_locks: Dict[Tuple[str, str], threading.RLock] = {}
+
+    # Key for _import_locks: module_name only (not location)
+    # sys.modules is a global dict keyed by module name. 
+    # we need to ensure that imports with the same module name 
+    # do not interfere with each other across different threads,
+    # even if they come from different file paths.
+    _import_locks: Dict[str, threading.Lock] = {}
     _import_locks_lock = threading.Lock()
+
+    # Key for _module_cache: (location, module_name) tuple to avoid conflicts between different locations
     _module_cache: Dict[Tuple[str, str], Any] = {}
     _module_cache_lock = threading.Lock()
 
     @classmethod
-    def _get_import_lock(cls, location: str, module_name: str) -> threading.RLock:
+    def _get_import_lock(cls, module_name: str) -> threading.Lock:
         """
-        Get or create a reentrant lock for the given location and module name.
+        Get or create a reentrant lock for the given module name.
 
         Uses double-checked locking pattern for optimal performance:
         - Fast path: return existing lock without acquiring global lock
         - Slow path: create new lock under global lock protection
-
-        Args:
-            location: The directory path where the module is located
-            module_name: The full module name to import
         """
-        cache_key = (location, module_name)
+        cache_key = module_name
 
         # Fast path: check without lock (read-only, safe for most cases)
         if cache_key in cls._import_locks:
@@ -843,7 +846,7 @@ class ModuleUDFLoader(UDFLoader):
         with cls._import_locks_lock:
             # Double-check: another thread might have created it while we waited
             if cache_key not in cls._import_locks:
-                cls._import_locks[cache_key] = threading.RLock()
+                cls._import_locks[cache_key] = threading.Lock()
             return cls._import_locks[cache_key]
 
     def load(self) -> AdaptivePythonUDF:
@@ -920,8 +923,8 @@ class ModuleUDFLoader(UDFLoader):
         """
         cache_key = (location, full_module_name)
 
-        # Use a per-(location, module) lock to prevent race conditions during import
-        import_lock = ModuleUDFLoader._get_import_lock(location, full_module_name)
+        # Use a per-module lock to prevent race conditions during import
+        import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
 
         with import_lock:
             # Fast path: check location-aware cache first
@@ -2540,8 +2543,8 @@ class FlightServer(flight.FlightServerBase):
         # This ensures no concurrent _get_or_import_module is in progress
         # for this (location, module_name) pair.
         for key in keys_to_remove:
-            loc, module_name = key
-            import_lock = ModuleUDFLoader._get_import_lock(loc, module_name)
+            _, module_name = key
+            import_lock = ModuleUDFLoader._get_import_lock(module_name)
 
             with import_lock:
                 with ModuleUDFLoader._module_cache_lock:
