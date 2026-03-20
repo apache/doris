@@ -17,7 +17,16 @@
 
 package org.apache.doris.master;
 
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -104,11 +113,23 @@ public class Checkpoint extends MasterDaemon {
             storage = new Storage(imageDir);
             // get max image version
             imageVersion = storage.getLatestImageSeq();
+            long latestImageCreateTime = storage.getLatestImageCreateTime();
             // get max finalized journal id
             checkPointVersion = editLog.getFinalizedJournalId();
-            LOG.info("last checkpoint journal id: {}, current finalized journal id: {}",
-                    imageVersion, checkPointVersion);
-            if (imageVersion >= checkPointVersion) {
+            LOG.info("last checkpoint journal id: {}, create timestamp: {}. current finalized journal id: {}",
+                    imageVersion, latestImageCreateTime, checkPointVersion);
+            if (imageVersion < checkPointVersion) {
+                LOG.info("Trigger checkpoint since last checkpoint journal id: {} is less than "
+                        + "current finalized journal id: {}", imageVersion, checkPointVersion);
+            } else if (Config.isCloudMode() && Config.cloud_checkpoint_image_stale_threshold_seconds > 0
+                    && latestImageCreateTime > 0 && ((System.currentTimeMillis() - latestImageCreateTime)
+                    >= Config.cloud_checkpoint_image_stale_threshold_seconds * 1000L)) {
+                // No new finalized journals beyond the latest image.
+                // But in cloud mode, we may still want to force a checkpoint if the latest image file is expired.
+                // This helps that image can keep the newer table version, partition version, tablet stats.
+                LOG.info("Trigger checkpoint in cloud mode because latest image is expired. "
+                        + "latestImageSeq: {}, latestImageCreateTime: {}", imageVersion, latestImageCreateTime);
+            } else {
                 return;
             }
         } catch (Throwable e) {
@@ -146,6 +167,7 @@ public class Checkpoint extends MasterDaemon {
                                 checkPointVersion, env.getReplayedJournalId()));
             }
             env.postProcessAfterMetadataReplayed(false);
+            postProcessCloudMetadata();
             latestImageFilePath = env.saveImage();
             replayedJournalId = env.getReplayedJournalId();
 
@@ -394,5 +416,101 @@ public class Checkpoint extends MasterDaemon {
 
     public ReentrantReadWriteLock getLock() {
         return lock;
+    }
+
+    private void postProcessCloudMetadata() {
+        if (Config.isNotCloudMode()) {
+            return;
+        }
+        Env servingEnv = Env.getServingEnv();
+        if (servingEnv == null) {
+            LOG.warn("serving env is null, skip process cloud metadata for checkpoint");
+            return;
+        }
+        long start = System.currentTimeMillis();
+        for (Database db : env.getInternalCatalog().getDbs()) {
+            Database servingDb = servingEnv.getInternalCatalog().getDbNullable(db.getId());
+            if (servingDb == null) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("serving db is null. dbId: {}, dbName: {}", db.getId(), db.getFullName());
+                }
+                continue;
+            }
+
+            for (Table table : db.getTables()) {
+                Table servingTable = servingDb.getTableNullable(table.getId());
+                if (servingTable == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("serving table is null. dbId: {}, table: {}", db.getId(), table);
+                    }
+                    continue;
+                }
+                if (!(table instanceof OlapTable) || !(servingTable instanceof OlapTable)) {
+                    continue;
+                }
+                OlapTable olapTable = (OlapTable) table;
+                OlapTable servingOlapTable = (OlapTable) servingTable;
+
+                List<Partition> partitions = olapTable.getAllPartitions();
+                for (Partition partition : partitions) {
+                    Partition servingPartition = servingOlapTable.getPartition(partition.getId());
+                    if (servingPartition == null) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("serving partition is null. tableId: {}, partitionId: {}", table.getId(),
+                                    partition.getId());
+                        }
+                        continue;
+                    }
+                    // set tablet stats
+                    setTabletStats(table.getId(), partition, servingPartition);
+                }
+            }
+        }
+        LOG.info("post process cloud metadata for checkpoint finished. cost {} ms", System.currentTimeMillis() - start);
+    }
+
+    private void setTabletStats(long tableId, Partition partition, Partition servingPartition) {
+        for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
+            MaterializedIndex servingIndex = servingPartition.getIndex(index.getId());
+            if (servingIndex == null) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("serving index is null. tableId: {}, partitionId: {}, indexId: {}", tableId,
+                            partition.getId(), index.getId());
+                }
+                continue;
+            }
+            for (Tablet tablet : index.getTablets()) {
+                Tablet servingTablet = servingIndex.getTablet(tablet.getId());
+                if (servingTablet == null) {
+                    if (LOG.isDebugEnabled()) {
+                        LOG.debug("serving tablet is null. tableId: {}, partitionId: {}, indexId: {}, tabletId: {}",
+                                tableId, partition.getId(), index.getId(), tablet.getId());
+                    }
+                    continue;
+                }
+                for (Replica replica : tablet.getReplicas()) {
+                    Replica servingReplica = servingTablet.getReplicaById(replica.getId());
+                    if (servingReplica == null) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("serving replica is null. tableId: {}, partitionId: {}, indexId: {}, "
+                                            + "tabletId: {}, replicaId: {}", tableId, partition.getId(), index.getId(),
+                                    tablet.getId(), replica.getId());
+                        }
+                        continue;
+                    }
+                    replica.setDataSize(servingReplica.getDataSize());
+                    replica.setRowsetCount(servingReplica.getRowsetCount());
+                    replica.setSegmentCount(servingReplica.getSegmentCount());
+                    replica.setRowCount(servingReplica.getRowCount());
+                    replica.setLocalInvertedIndexSize(servingReplica.getLocalInvertedIndexSize());
+                    replica.setLocalSegmentSize(servingReplica.getLocalSegmentSize());
+                    // set last get stats time and stats interval index
+                    CloudReplica cloudReplica = (CloudReplica) replica;
+                    CloudReplica servingCloudReplica = (CloudReplica) servingReplica;
+                    cloudReplica.setStatsIntervalIndex(servingCloudReplica.getStatsIntervalIndex());
+                    cloudReplica.setLastGetTabletStatsTime(servingCloudReplica.getLastGetTabletStatsTime());
+                }
+            }
+        }
     }
 }

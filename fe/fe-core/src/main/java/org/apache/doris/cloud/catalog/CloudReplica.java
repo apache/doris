@@ -74,6 +74,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     // last time to get tablet stats
     @Getter
     @Setter
+    @SerializedName(value = "gst")
     long lastGetTabletStatsTime = 0;
     /**
      * The index of {@link org.apache.doris.catalog.CloudTabletStatMgr#DEFAULT_INTERVAL_LADDER_MS} array.
@@ -84,6 +85,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
      */
     @Getter
     @Setter
+    @SerializedName(value = "sii")
     int statsIntervalIndex = 0;
 
     private static final Random rand = new Random();
