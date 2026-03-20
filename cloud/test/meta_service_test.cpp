@@ -11404,8 +11404,8 @@ TEST(MetaServiceTest, RestoreJobTest) {
         // check delete bitmap
         {
             TxnErrorCode err = (store_version == 0 || store_version == 1 || store_version == 3)
-                               ? TxnErrorCode::TXN_OK
-                               : TxnErrorCode::TXN_KEY_NOT_FOUND;
+                                       ? TxnErrorCode::TXN_OK
+                                       : TxnErrorCode::TXN_KEY_NOT_FOUND;
             std::string bitmap_key =
                     meta_delete_bitmap_key({instance_id, tablet_id, rs_meta->rowset_id_v2(), 1, 1});
             ASSERT_EQ(txn->get(bitmap_key, &val), err);
