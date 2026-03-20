@@ -67,23 +67,6 @@ void TabletReader::ReaderParams::check_validation() const {
     }
 }
 
-std::string TabletReader::ReaderParams::to_string() const {
-    std::stringstream ss;
-    ss << "tablet=" << tablet->tablet_id() << " reader_type=" << int(reader_type)
-       << " aggregation=" << aggregation << " version=" << version
-       << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
-
-    for (const auto& key : start_key) {
-        ss << " keys=" << key;
-    }
-
-    for (const auto& key : end_key) {
-        ss << " end_keys=" << key;
-    }
-
-    return ss.str();
-}
-
 Status TabletReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
 
