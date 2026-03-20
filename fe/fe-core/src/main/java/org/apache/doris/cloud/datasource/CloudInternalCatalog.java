@@ -889,6 +889,13 @@ public class CloudInternalCatalog extends InternalCatalog {
             }
         }
 
+        if (!(partitions.get(0) instanceof CloudPartition)) {
+            Partition p = partitions.get(0);
+            LOG.warn("partition is not CloudPartition, skip drop cloud partition. partitionIds={}, "
+                    + "actualClass={}, partitionName={}, partitionId={}",
+                    partitionIds, p.getClass().getName(), p.getName(), p.getId());
+            return;
+        }
         CloudPartition partition0 = (CloudPartition) partitions.get(0);
 
         int tryCnt = 0;
