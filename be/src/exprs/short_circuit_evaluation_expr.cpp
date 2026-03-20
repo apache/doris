@@ -36,6 +36,7 @@
 #include "core/field.h"
 #include "exprs/short_circuit_util.h"
 #include "exprs/vexpr.h"
+#include "runtime/runtime_state.h"
 
 namespace doris {
 

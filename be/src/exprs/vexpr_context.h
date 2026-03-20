@@ -34,7 +34,6 @@
 #include "exec/runtime_filter/runtime_filter_selectivity.h"
 #include "exprs/function_context.h"
 #include "exprs/vexpr_fwd.h"
-#include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/inverted/inverted_index_reader.h"

@@ -21,6 +21,8 @@
 
 #include <condition_variable>
 
+#include "runtime/runtime_state.h"
+
 namespace doris {
 void TaskExecutionContext::ref_task_execution_ctx() {
     ++_has_task_execution_ctx_ref_count;

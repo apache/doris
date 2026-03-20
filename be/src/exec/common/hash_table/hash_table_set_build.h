@@ -17,9 +17,10 @@
 
 #include "core/column/column.h"
 #include "exec/operator/set_sink_operator.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
+
+class RuntimeState;
 #include "common/compile_check_begin.h"
 constexpr size_t CHECK_FRECUENCY = 65536;
 template <class HashTableContext, bool is_intersect>

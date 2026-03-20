@@ -23,10 +23,11 @@
 #include "exec/sink/vrow_distribution.h"
 #include "exec/sink/vtablet_block_convertor.h"
 #include "exec/sink/vtablet_finder.h"
-#include "runtime/runtime_state.h"
 #include "storage/tablet_info.h"
 
 namespace doris {
+
+class RuntimeState;
 #include "common/compile_check_begin.h"
 class TabletSinkHashPartitioner final : public PartitionerBase {
 public:
