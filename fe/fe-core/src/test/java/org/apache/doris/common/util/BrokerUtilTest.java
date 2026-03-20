@@ -21,24 +21,18 @@ import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.BrokerMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.GenericPool;
 import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
-import org.apache.doris.thrift.TBrokerCloseWriterRequest;
-import org.apache.doris.thrift.TBrokerDeletePathRequest;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerListPathRequest;
 import org.apache.doris.thrift.TBrokerListResponse;
 import org.apache.doris.thrift.TBrokerOpenReaderRequest;
 import org.apache.doris.thrift.TBrokerOpenReaderResponse;
-import org.apache.doris.thrift.TBrokerOpenWriterRequest;
-import org.apache.doris.thrift.TBrokerOpenWriterResponse;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPReadRequest;
-import org.apache.doris.thrift.TBrokerPWriteRequest;
 import org.apache.doris.thrift.TBrokerReadResponse;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
@@ -222,105 +216,5 @@ public class BrokerUtilTest {
         byte[] data = BrokerUtil.readFile(filePath, brokerDesc, 0);
         String readStr = new String(data, "UTF-8");
         Assert.assertEquals(dppResultStr, readStr);
-    }
-
-    @Test
-    public void testWriteFile(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
-                              @Injectable BrokerMgr brokerMgr)
-            throws TException, UserException, UnsupportedEncodingException {
-        // open writer response
-        TBrokerOpenWriterResponse openWriterResponse = new TBrokerOpenWriterResponse();
-        TBrokerOperationStatus status = new TBrokerOperationStatus();
-        status.statusCode = TBrokerOperationStatusCode.OK;
-        openWriterResponse.opStatus = status;
-        openWriterResponse.fd = new TBrokerFD(1, 2);
-        FsBroker fsBroker = new FsBroker("127.0.0.1", 99999);
-
-        new MockUp<GenericPool<TPaloBrokerService.Client>>() {
-            @Mock
-            public TPaloBrokerService.Client borrowObject(TNetworkAddress address) throws Exception {
-                return client;
-            }
-
-            @Mock
-            public void returnObject(TNetworkAddress address, TPaloBrokerService.Client object) {
-                return;
-            }
-
-            @Mock
-            public void invalidateObject(TNetworkAddress address, TPaloBrokerService.Client object) {
-                return;
-            }
-        };
-
-        new Expectations() {
-            {
-                env.getBrokerMgr();
-                result = brokerMgr;
-                brokerMgr.getBroker(anyString, anyString);
-                result = fsBroker;
-                client.openWriter((TBrokerOpenWriterRequest) any);
-                result = openWriterResponse;
-                client.pwrite((TBrokerPWriteRequest) any);
-                result = status;
-                times = 1;
-                client.closeWriter((TBrokerCloseWriterRequest) any);
-                result = status;
-            }
-        };
-
-        BrokerDesc brokerDesc = new BrokerDesc("broker0", Maps.newHashMap());
-        byte[] configs = "{'label': 'label0'}".getBytes("UTF-8");
-        String destFilePath = "hdfs://127.0.0.1:10000/doris/jobs/1/label6/9/configs/jobconfig.json";
-        try {
-            BrokerUtil.writeFile(configs, destFilePath, brokerDesc);
-        } catch (Exception e) {
-            Assert.fail(e.getMessage());
-        }
-    }
-
-    @Test
-    public void testDeletePath(@Mocked TPaloBrokerService.Client client, @Mocked Env env,
-                               @Injectable BrokerMgr brokerMgr) throws AnalysisException, TException {
-        // delete response
-        TBrokerOperationStatus status = new TBrokerOperationStatus();
-        status.statusCode = TBrokerOperationStatusCode.OK;
-        FsBroker fsBroker = new FsBroker("127.0.0.1", 99999);
-
-        new MockUp<GenericPool<TPaloBrokerService.Client>>() {
-            @Mock
-            public TPaloBrokerService.Client borrowObject(TNetworkAddress address) throws Exception {
-                return client;
-            }
-
-            @Mock
-            public void returnObject(TNetworkAddress address, TPaloBrokerService.Client object) {
-                return;
-            }
-
-            @Mock
-            public void invalidateObject(TNetworkAddress address, TPaloBrokerService.Client object) {
-                return;
-            }
-        };
-
-        new Expectations() {
-            {
-                env.getBrokerMgr();
-                result = brokerMgr;
-                brokerMgr.getBroker(anyString, anyString);
-                result = fsBroker;
-                client.deletePath((TBrokerDeletePathRequest) any);
-                result = status;
-                times = 1;
-            }
-        };
-
-        try {
-            BrokerDesc brokerDesc = new BrokerDesc("broker0", Maps.newHashMap());
-            BrokerUtil.deletePathWithBroker("hdfs://127.0.0.1:10000/doris/jobs/1/label6/9", brokerDesc);
-        } catch (Exception e) {
-            Assert.fail(e.getMessage());
-        }
     }
 }

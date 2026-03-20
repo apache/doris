@@ -62,8 +62,8 @@ import java.util.concurrent.TimeoutException;
 public class FetchRemoteTabletSchemaUtil {
     private static final Logger LOG = LogManager.getLogger(FetchRemoteTabletSchemaUtil.class);
 
-    private List<Tablet> remoteTablets;
-    private List<Column> tableColumns;
+    private final List<Tablet> remoteTablets;
+    private final List<Column> tableColumns;
 
     public FetchRemoteTabletSchemaUtil(List<Tablet> tablets) {
         this.remoteTablets = tablets;
@@ -110,17 +110,13 @@ public class FetchRemoteTabletSchemaUtil {
         typeMap.put("QUANTILE_STATE", Type.QUANTILE_STATE);
     }
 
-    public static Type getTypeFromTypeName(String typeName, int precision, int scale) {
+    private static Type getTypeFromTypeName(String typeName, int precision, int scale) {
         Type res = typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
         if (res.isScalarType() && (res.isDecimalV3() || res.isDecimalV2())) {
             // set precision and scale
             res = ScalarType.createType(res.getPrimitiveType(), 0, precision, scale);
         }
         return res;
-    }
-
-    public static Type getTypeFromTypeName(String typeName) {
-        return typeMap.getOrDefault(typeName, Type.UNSUPPORTED);
     }
 
     public List<Column> fetch() {

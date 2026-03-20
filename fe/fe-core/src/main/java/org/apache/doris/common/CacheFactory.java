@@ -93,18 +93,6 @@ public class CacheFactory {
         return builder.build(cacheLoader);
     }
 
-    // Build cache with async removal listener. Use with caution if listener may trigger nested operations
-    public <K, V> LoadingCache<K, V> buildCacheWithAsyncRemovalListener(CacheLoader<K, V> cacheLoader,
-            RemovalListener<K, V> removalListener,
-            ExecutorService executor) {
-        Caffeine<Object, Object> builder = buildWithParams();
-        builder.executor(executor);
-        if (removalListener != null) {
-            builder.removalListener(removalListener);
-        }
-        return builder.build(cacheLoader);
-    }
-
     // Build an async loading cache
     public <K, V> AsyncLoadingCache<K, V> buildAsyncCache(AsyncCacheLoader<K, V> cacheLoader,
             ExecutorService executor) {

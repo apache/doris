@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import java.util.Collection;
 import java.util.Set;
 
-public class IdGeneratorUtil {
+public class BufferSizeUtil {
 
     public static long getBufferSizeForCreateTable(CreateTableInfo createTableInfo, ReplicaAllocation replicaAlloc)
             throws DdlException {

@@ -44,9 +44,9 @@ public class TopicPublisherThread extends MasterDaemon {
 
     private static final Logger LOG = LogManager.getLogger(TopicPublisherThread.class);
 
-    private SystemInfoService clusterInfoService;
+    private final SystemInfoService clusterInfoService;
 
-    private ExecutorService executor = ThreadPoolManager
+    private final ExecutorService executor = ThreadPoolManager
             .newDaemonFixedThreadPool(6, 256, "topic-publish-thread", true);
 
     public TopicPublisherThread(String name, long intervalMs,

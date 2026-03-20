@@ -15,31 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.publish;
+package org.apache.doris.common;
 
-import org.apache.doris.system.Backend;
+/**
+ * Thrown for authorization errors encountered when accessing Catalog objects.
+ */
+public class AuthorizationException extends UserException {
 
-// Helper class for Listener.
-public abstract class Listeners {
-    private static Listener NO_OP_LISTENER;
+    public ErrorCode errorCode = ErrorCode.ERR_COMMON_ERROR;
 
-    // Helper to return a no operation listener.
-    public static Listener noOpListener() {
-        if (NO_OP_LISTENER == null) {
-            NO_OP_LISTENER = new Listener() {
-                @Override
-                public void onResponse(Backend node) {
-                }
-
-                @Override
-                public void onFailure(Backend node, Throwable t) {
-                }
-            };
-        }
-        return NO_OP_LISTENER;
-    }
-
-    public static Listener nullToNoOpListener(Listener listener) {
-        return listener == null ? noOpListener() : listener;
+    public AuthorizationException(String msg) {
+        super(msg);
     }
 }
