@@ -227,8 +227,9 @@ Status VParquetTransformer::_parse_schema() {
     } else {
         for (size_t i = 0; i < _output_vexpr_ctxs.size(); i++) {
             std::shared_ptr<arrow::DataType> type;
-            RETURN_IF_ERROR(convert_to_arrow_type(_output_vexpr_ctxs[i]->root()->data_type(), &type,
-                                                  _state->timezone()));
+            RETURN_IF_ERROR(convert_to_arrow_type(
+                    _output_vexpr_ctxs[i]->root()->data_type(), &type, _state->timezone(),
+                    _arrow_properties->support_deprecated_int96_timestamps()));
             if (!_parquet_schemas.empty()) {
                 std::shared_ptr<arrow::Field> field =
                         arrow::field(_parquet_schemas[i].schema_column_name, type,

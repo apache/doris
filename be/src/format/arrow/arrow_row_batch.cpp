@@ -49,8 +49,8 @@
 namespace doris {
 
 Status convert_to_arrow_type(const DataTypePtr& origin_type,
-                             std::shared_ptr<arrow::DataType>* result,
-                             const std::string& timezone) {
+                             std::shared_ptr<arrow::DataType>* result, const std::string& timezone,
+                             bool enable_int96_timestamps) {
     auto type = get_serialized_type(origin_type);
     switch (type->get_primitive_type()) {
     case TYPE_NULL:
@@ -97,15 +97,19 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_DATEV2:
         *result = std::make_shared<arrow::Date32Type>();
         break;
-    // TODO: maybe need to distinguish TYPE_DATETIME and TYPE_TIMESTAMPTZ
     case TYPE_TIMESTAMPTZ:
     case TYPE_DATETIMEV2:
-        if (type->get_scale() > 3) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
-        } else if (type->get_scale() > 0) {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI, timezone);
+        if (enable_int96_timestamps) {
+            // https://github.com/apache/doris/pull/60946 in arrow patch, must need timeunit to be NANO to write int96
+            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::NANO, timezone);
         } else {
-            *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND, timezone);
+            if (type->get_scale() > 3) {
+                *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MICRO, timezone);
+            } else if (type->get_scale() > 0) {
+                *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::MILLI, timezone);
+            } else {
+                *result = std::make_shared<arrow::TimestampType>(arrow::TimeUnit::SECOND, timezone);
+            }
         }
         break;
     case TYPE_DECIMALV2:
@@ -123,7 +127,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
     case TYPE_ARRAY: {
         const auto* type_arr = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone,
+                                              enable_int96_timestamps));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
@@ -131,8 +136,10 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         const auto* type_map = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
-        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone,
+                                              enable_int96_timestamps));
+        RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_value_type(), &val_type, timezone,
+                                              enable_int96_timestamps));
         *result = std::make_shared<arrow::MapType>(key_type, val_type);
         break;
     }
@@ -141,8 +148,8 @@ Status convert_to_arrow_type(const DataTypePtr& origin_type,
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
-            RETURN_IF_ERROR(
-                    convert_to_arrow_type(type_struct->get_element(i), &field_type, timezone));
+            RETURN_IF_ERROR(convert_to_arrow_type(type_struct->get_element(i), &field_type,
+                                                  timezone, enable_int96_timestamps));
             fields.push_back(
                     std::make_shared<arrow::Field>(type_struct->get_element_name(i), field_type,
                                                    type_struct->get_element(i)->is_nullable()));

@@ -88,8 +88,10 @@ Status VHivePartitionWriter::open(RuntimeState* state, RuntimeProfile* operator_
                                          to_string(_hive_compress_type));
         }
         }
-        ParquetFileOptions parquet_options = {parquet_compression_type,
-                                              TParquetVersion::PARQUET_1_0, false, true};
+        ParquetFileOptions parquet_options = {.compression_type = parquet_compression_type,
+                                              .parquet_version = TParquetVersion::PARQUET_1_0,
+                                              .parquet_disable_dictionary = false,
+                                              .enable_int96_timestamps = true};
         _file_format_transformer = std::make_unique<VParquetTransformer>(
                 state, _file_writer.get(), _write_output_expr_ctxs, _write_column_names, false,
                 parquet_options);

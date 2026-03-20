@@ -24,6 +24,7 @@
 #include <gen_cpp/PlanNodes_types.h>
 #include <glog/logging.h>
 
+#include <memory>
 #include <ostream>
 #include <utility>
 
@@ -135,13 +136,17 @@ Status VFileResultWriter::_create_file_writer(const std::string& file_name) {
                 _header_type, _header, _file_opts->column_separator, _file_opts->line_delimiter,
                 _file_opts->with_bom, _file_opts->compression_type));
         break;
-    case TFileFormatType::FORMAT_PARQUET:
-        _vfile_writer.reset(new VParquetTransformer(
+    case TFileFormatType::FORMAT_PARQUET: {
+        ParquetFileOptions parquet_options = {
+                .compression_type = _file_opts->parquet_commpression_type,
+                .parquet_version = _file_opts->parquet_version,
+                .parquet_disable_dictionary = _file_opts->parquert_disable_dictionary,
+                .enable_int96_timestamps = _file_opts->enable_int96_timestamps};
+        _vfile_writer = std::make_unique<VParquetTransformer>(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->parquet_schemas,
-                _output_object_data,
-                {_file_opts->parquet_commpression_type, _file_opts->parquet_version,
-                 _file_opts->parquert_disable_dictionary, _file_opts->enable_int96_timestamps}));
+                _output_object_data, parquet_options);
         break;
+    }
     case TFileFormatType::FORMAT_ORC:
         _vfile_writer.reset(new VOrcTransformer(
                 _state, _file_writer_impl.get(), _vec_output_expr_ctxs, _file_opts->orc_schema, {},

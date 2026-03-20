@@ -368,12 +368,24 @@ Status DataTypeDateTimeV2SerDe::write_column_to_arrow(const IColumn& column,
             DateV2Value<DateTimeV2ValueType> datetime_val = col_data[i];
             datetime_val.unix_timestamp(&timestamp, real_ctz);
 
-            if (_scale > 3) {
+            switch (timestamp_type->unit()) {
+            case arrow::TimeUnit::NANO: {
                 uint32_t microsecond = datetime_val.microsecond();
-                timestamp = (timestamp * 1000000) + microsecond;
-            } else if (_scale > 0) {
+                timestamp = (timestamp * 1000000000LL) + (microsecond * 1000LL);
+                break;
+            }
+            case arrow::TimeUnit::MICRO: {
+                uint32_t microsecond = datetime_val.microsecond();
+                timestamp = (timestamp * 1000000LL) + microsecond;
+                break;
+            }
+            case arrow::TimeUnit::MILLI: {
                 uint32_t millisecond = datetime_val.microsecond() / 1000;
-                timestamp = (timestamp * 1000) + millisecond;
+                timestamp = (timestamp * 1000LL) + millisecond;
+                break;
+            }
+            default:
+                break;
             }
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
                                              array_builder->type()->name()));

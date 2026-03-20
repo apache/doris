@@ -208,12 +208,24 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
             const auto& tz = col_data[i];
             tz.unix_timestamp(&timestamp, UTC);
 
-            if (_scale > 3) {
+            switch (timestamp_type->unit()) {
+            case arrow::TimeUnit::NANO: {
                 uint32_t microsecond = tz.microsecond();
-                timestamp = (timestamp * 1000000) + microsecond;
-            } else if (_scale > 0) {
+                timestamp = (timestamp * 1000000000LL) + (microsecond * 1000LL);
+                break;
+            }
+            case arrow::TimeUnit::MICRO: {
+                uint32_t microsecond = tz.microsecond();
+                timestamp = (timestamp * 1000000LL) + microsecond;
+                break;
+            }
+            case arrow::TimeUnit::MILLI: {
                 uint32_t millisecond = tz.microsecond() / 1000;
-                timestamp = (timestamp * 1000) + millisecond;
+                timestamp = (timestamp * 1000LL) + millisecond;
+                break;
+            }
+            default:
+                break;
             }
             RETURN_IF_ERROR(checkArrowStatus(timestamp_builder.Append(timestamp), column.get_name(),
                                              array_builder->type()->name()));
