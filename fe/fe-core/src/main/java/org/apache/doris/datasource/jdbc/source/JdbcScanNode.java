@@ -257,7 +257,7 @@ public class JdbcScanNode extends FileQueryScanNode {
         List<Expr> pushDownConjuncts = new ArrayList<>();
         for (Expr p : conjunctsList) {
             if (shouldPushDownConjunct(jdbcType, p)) {
-                List<Expr> individualConjuncts = p.getConjuncts();
+                List<Expr> individualConjuncts = getConjuncts(p);
                 for (Expr individualConjunct : individualConjuncts) {
                     Expr newp = JdbcFunctionPushDownRule.processFunctions(jdbcType, individualConjunct, errors,
                             functionRules);
@@ -270,6 +270,30 @@ public class JdbcScanNode extends FileQueryScanNode {
             }
         }
         return pushDownConjuncts;
+    }
+
+
+    /**
+     * Gather conjuncts from this expr and return them in a list.
+     * A conjunct is an expr that returns a boolean, e.g., Predicates, function calls,
+     * SlotRefs, etc. Hence, this method is placed here and not in Predicate.
+     */
+    private List<Expr> getConjuncts(Expr root) {
+        List<Expr> list = Lists.newArrayList();
+        if (root instanceof CompoundPredicate
+                && ((CompoundPredicate) root).getOp() == CompoundPredicate.Operator.AND) {
+            // TODO: we have to convert CompoundPredicate.AND to two expr trees for
+            // conjuncts because NULLs are handled differently for CompoundPredicate.AND
+            // and conjunct evaluation.  This is not optimal for jitted exprs because it
+            // will result in two functions instead of one. Create a new CompoundPredicate
+            // Operator (i.e. CONJUNCT_AND) with the right NULL semantics and use that
+            // instead
+            list.addAll(getConjuncts(root.getChild(0)));
+            list.addAll(getConjuncts(root.getChild(1)));
+        } else {
+            list.add(root);
+        }
+        return list;
     }
 
     private void createJdbcColumns() {

@@ -101,13 +101,13 @@ public class DynamicPartitionUtil {
                 && (timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString()))) {
             ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
                     + TimeUnit.HOUR + " when type of partition column "
-                    + partitionColumn.getDisplayName() + " is " + PrimitiveType.DATE + " or " + PrimitiveType.DATEV2);
+                    + partitionColumn.getName() + " is " + PrimitiveType.DATE + " or " + PrimitiveType.DATEV2);
         } else if (PrimitiveType.getIntegerTypes().contains(partitionColumn.getDataType())
                 && timeUnit.equalsIgnoreCase(TimeUnit.HOUR.toString())) {
             // The partition column's type is INT, not support HOUR
             ErrorReport.reportDdlException(DynamicPartitionProperty.TIME_UNIT + " could not be "
                     + TimeUnit.HOUR.toString() + " when type of partition column "
-                    + partitionColumn.getDisplayName() + " is Integer");
+                    + partitionColumn.getName() + " is Integer");
         }
     }
 

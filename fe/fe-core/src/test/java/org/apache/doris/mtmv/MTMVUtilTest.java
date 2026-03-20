@@ -32,7 +32,7 @@ import java.util.Optional;
 public class MTMVUtilTest {
     @Test
     public void testGetExprTimeSec() throws AnalysisException {
-        LiteralExpr expr = new DateLiteral("2020-01-01");
+        LiteralExpr expr = new DateLiteral(2020, 1, 1);
         long exprTimeSec = MTMVUtil.getExprTimeSec(expr, Optional.empty());
         Assert.assertEquals(1577808000L, exprTimeSec);
 

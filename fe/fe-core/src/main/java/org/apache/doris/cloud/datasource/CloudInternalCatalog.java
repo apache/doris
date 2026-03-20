@@ -344,7 +344,7 @@ public class CloudInternalCatalog extends InternalCatalog {
         schemaBuilder.setSortColNum(dataSortInfo.getColNum());
         for (int i = 0; i < schemaColumns.size(); i++) {
             Column column = schemaColumns.get(i);
-            schemaBuilder.addColumn(column.toPb(bfColumns, indexes));
+            schemaBuilder.addColumn(column.toPb(bfColumns));
         }
 
         Map<Integer, Column> columnMap = Maps.newHashMap();

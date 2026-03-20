@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.thrift.TAggregateFunction;
+import org.apache.doris.thrift.TDictFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
 import org.apache.doris.thrift.TFunctionName;
@@ -52,20 +53,23 @@ public class FunctionToThriftConverter {
             Boolean[] realArgTypeNullables) {
         TFunction tfn = toThriftBase(fn, realReturnType, realArgTypes, realArgTypeNullables);
         tfn.setScalarFn(new TScalarFunction());
-        if (fn.getBinaryType() == TFunctionBinaryType.JAVA_UDF || fn.getBinaryType() == TFunctionBinaryType.RPC
-                || fn.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.JAVA_UDF || fn.getBinaryType() == Function.BinaryType.RPC
+                || fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             tfn.getScalarFn().setSymbol(fn.getSymbolName());
         } else {
             tfn.getScalarFn().setSymbol("");
         }
-        if (fn.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             if (!Strings.isNullOrEmpty(fn.getFunctionCode())) {
                 tfn.setFunctionCode(fn.getFunctionCode());
             }
             tfn.setRuntimeVersion(fn.getRuntimeVersion());
         }
         if (fn.getDictFunction() != null) {
-            tfn.setDictFunction(fn.getDictFunction());
+            TDictFunction tDictFunction = new TDictFunction();
+            tDictFunction.setDictionaryId(fn.getDictFunction().getId());
+            tDictFunction.setVersionId(fn.getDictFunction().getVersion());
+            tfn.setDictFunction(tDictFunction);
         }
         return tfn;
     }
@@ -105,7 +109,7 @@ public class FunctionToThriftConverter {
         tfn.setAggregateFn(aggFn);
 
         // Set runtime_version and function_code for Python UDAF
-        if (fn.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
             if (!Strings.isNullOrEmpty(fn.getFunctionCode())) {
                 tfn.setFunctionCode(fn.getFunctionCode());
             }
@@ -123,7 +127,7 @@ public class FunctionToThriftConverter {
         tName.setDbName(fn.getFunctionName().getDb());
         tName.setFunctionName(fn.getFunctionName().getFunction());
         tfn.setName(tName);
-        tfn.setBinaryType(fn.getBinaryType());
+        tfn.setBinaryType(TFunctionBinaryType.valueOf(fn.getBinaryType().name()));
         if (fn.getLocation() != null) {
             tfn.setHdfsLocation(fn.getLocation().getLocation());
         }

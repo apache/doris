@@ -3209,7 +3209,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
                 //     continue;
                 // }
                 TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, this);
+                col.setIndexFlag(tColumn, this.getCopiedBfColumns());
                 if (columnsDesc != null) {
                     columnsDesc.add(tColumn);
                 }
@@ -3230,7 +3230,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         if (selectedIndexId != -1) {
             for (Column col : this.getSchemaByIndexId(selectedIndexId, true)) {
                 TColumn tColumn = col.toThrift();
-                col.setIndexFlag(tColumn, this);
+                col.setIndexFlag(tColumn, this.getCopiedBfColumns());
                 if (columnsDesc != null) {
                     columnsDesc.add(tColumn);
                 }

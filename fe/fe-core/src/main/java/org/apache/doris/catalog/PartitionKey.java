@@ -379,7 +379,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         int i = 0;
         for (LiteralExpr expr : keys) {
             Object value = null;
-            if (expr == MaxLiteral.MAX_VALUE || expr.isNullLiteral()) {
+            if (expr == MaxLiteral.MAX_VALUE || expr instanceof NullLiteral) {
                 value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
                 sb.append(value);
             } else {
@@ -428,7 +428,7 @@ public class PartitionKey implements Comparable<PartitionKey>, Writable {
         int i = 0;
         for (LiteralExpr expr : keys) {
             Object value = null;
-            if (expr == MaxLiteral.MAX_VALUE || expr.isNullLiteral()) {
+            if (expr == MaxLiteral.MAX_VALUE || expr instanceof NullLiteral) {
                 value = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
             } else {
                 value = expr.getRealValue();

@@ -66,10 +66,20 @@ public class PlanNodeTest {
         Assertions.assertEquals(1, pointQueryProjectList.size());
 
         Set<SlotId> slotIds = new HashSet<>();
-        Expr.extractSlots(pointQueryProjectList.get(0), slotIds);
+        extractSlots(pointQueryProjectList.get(0), slotIds);
         Assertions.assertEquals(Sets.newHashSet(scanSlotA.getId(), scanSlotB.getId()), slotIds);
         Assertions.assertFalse(slotIds.contains(projectedSlotA.getId()));
         Assertions.assertFalse(slotIds.contains(projectedExprSlot.getId()));
+    }
+
+    static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
+        if (root instanceof SlotRef) {
+            slotIdSet.add(((SlotRef) root).getDesc().getId());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            extractSlots(child, slotIdSet);
+        }
     }
 
     private static SlotDescriptor createColumnSlot(TupleDescriptor tupleDescriptor, int slotId,

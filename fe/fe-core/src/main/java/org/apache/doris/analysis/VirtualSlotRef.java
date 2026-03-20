@@ -38,9 +38,4 @@ public class VirtualSlotRef extends SlotRef {
     public Expr clone() {
         return new VirtualSlotRef(this);
     }
-
-    @Override
-    public String getExprName() {
-        return super.getExprName();
-    }
 }
