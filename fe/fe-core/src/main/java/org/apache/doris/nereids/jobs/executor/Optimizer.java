@@ -21,8 +21,16 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.jobs.rewrite.RewriteJob;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.analysis.CheckAfterRewrite;
+import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.ColumnPruning;
+import org.apache.doris.nereids.rules.rewrite.MergeProjectable;
+import org.apache.doris.nereids.rules.rewrite.PushDownExpressionsInHashCondition;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.util.MoreFieldsThread;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -50,18 +58,20 @@ public class Optimizer {
             // init memo
             cascadesContext.toMemo();
             // stats derive
-            cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression ->
-                    cascadesContext.pushJob(
+            cascadesContext.getMemo().getRoot().getLogicalExpressions()
+                    .forEach(groupExpression -> cascadesContext.pushJob(
                             new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
             cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
             if (cascadesContext.getStatementContext().isDpHyp() || isDpHyp(cascadesContext)) {
                 // RightNow, dp hyper can only order 64 join operators
                 dpHypOptimize();
+                cascadesContext.getStatementContext().setDpHyp(false);
+                cascadesContext.getStatementContext().setAfterDpHyper(true);
             }
-            // Cascades optimize
             cascadesContext.pushJob(
                     new OptimizeGroupJob(cascadesContext.getMemo().getRoot(), cascadesContext.getCurrentJobContext()));
             cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+
             return null;
         });
     }
@@ -95,9 +105,50 @@ public class Optimizer {
     }
 
     private void dpHypOptimize() {
+        Plan oldRewrittenPlan = cascadesContext.getRewritePlan();
         Group root = cascadesContext.getMemo().getRoot();
         // Due to EnsureProjectOnTopJoin, root group can't be Join Group, so DPHyp doesn't change the root group
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+
+        // 1) copy out logical plan from memo
+        Plan plan = cascadesContext.getMemo().copyOutBestLogicalPlan();
+
+        // 2) run PushDownExpressionsInHashCondition as a plan rewrite on a temporary context
+        org.apache.doris.nereids.CascadesContext tempCtx = CascadesContext.newCurrentTreeContext(cascadesContext);
+        tempCtx.setRewritePlan(plan);
+        RewriteJob pushDownRewrite = AbstractBatchJobExecutor.topDown(new PushDownExpressionsInHashCondition(),
+                new MergeProjectable());
+        RewriteJob columnPrune = AbstractBatchJobExecutor.custom(RuleType.COLUMN_PRUNING, ColumnPruning::new);
+        RewriteJob adjustNullable = AbstractBatchJobExecutor.custom(RuleType.ADJUST_NULLABLE,
+                () -> new AdjustNullable(false));
+        RewriteJob checkAfterRewrite = AbstractBatchJobExecutor.bottomUp(new CheckAfterRewrite());
+        AbstractBatchJobExecutor executor = new AbstractBatchJobExecutor(tempCtx) {
+            @Override
+            public java.util.List<org.apache.doris.nereids.jobs.rewrite.RewriteJob> getJobs() {
+                return com.google.common.collect.ImmutableList.of(pushDownRewrite, columnPrune, adjustNullable,
+                        checkAfterRewrite);
+            }
+        };
+        boolean oldFeDebugValue = tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug;
+        try {
+            tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug = false;
+            executor.execute();
+        } finally {
+            tempCtx.getStatementContext().getConnectContext().getSessionVariable().feDebug = oldFeDebugValue;
+        }
+
+        // 3) copy rewritten plan into the main cascades context and rebuild memo
+        Plan rewritten = tempCtx.getRewritePlan();
+        cascadesContext.releaseMemo();
+        cascadesContext.setRewritePlan(rewritten);
+        // init memo
+        cascadesContext.toMemo();
+        cascadesContext.setRewritePlan(oldRewrittenPlan);
+
+        // stats derive
+        cascadesContext.getMemo().getRoot().getLogicalExpressions().forEach(groupExpression -> cascadesContext.pushJob(
+                new DeriveStatsJob(groupExpression, cascadesContext.getCurrentJobContext())));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 

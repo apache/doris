@@ -247,6 +247,57 @@ public class RuleSet {
             .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())
             .build();
 
+    public static final List<Rule> DPHYPER_IMPLEMENTATION_RULES = planRuleFactories()
+            .add(new LogicalCTEProducerToPhysicalCTEProducer())
+            .add(new LogicalCTEConsumerToPhysicalCTEConsumer())
+            .add(new LogicalCTEAnchorToPhysicalCTEAnchor())
+            .add(new LogicalRepeatToPhysicalRepeat())
+            .add(new LogicalFilterToPhysicalFilter())
+            .add(new LogicalJoinToHashJoin())
+            .add(new LogicalJoinToNestedLoopJoin())
+            .add(new LogicalOlapScanToPhysicalOlapScan())
+            .add(new LogicalDeferMaterializeOlapScanToPhysicalDeferMaterializeOlapScan())
+            .add(new LogicalSchemaScanToPhysicalSchemaScan())
+            .add(new LogicalHudiScanToPhysicalHudiScan())
+            .add(new LogicalFileScanToPhysicalFileScan())
+            .add(new LogicalJdbcScanToPhysicalJdbcScan())
+            .add(new LogicalOdbcScanToPhysicalOdbcScan())
+            .add(new LogicalEsScanToPhysicalEsScan())
+            .add(new LogicalWorkTableReferenceToPhysicalWorkTableReference())
+            .add(new LogicalProjectToPhysicalProject())
+            .add(new LogicalLimitToPhysicalLimit())
+            .add(new LogicalWindowToPhysicalWindow())
+            .add(new LogicalSortToPhysicalQuickSort())
+            .add(new LogicalTopNToPhysicalTopN())
+            .add(new LogicalDeferMaterializeTopNToPhysicalDeferMaterializeTopN())
+            .add(new LogicalPartitionTopNToPhysicalPartitionTopN())
+            .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
+            .add(new LogicalOneRowRelationToPhysicalOneRowRelation())
+            .add(new LogicalEmptyRelationToPhysicalEmptyRelation())
+            .add(new LogicalTVFRelationToPhysicalTVFRelation())
+            .add(SplitAggWithoutDistinct.INSTANCE)
+            .add(SplitAggMultiPhase.INSTANCE)
+            .add(SplitAggMultiPhaseWithoutGbyKey.INSTANCE)
+            .add(new LogicalRecursiveUnionToPhysicalRecursiveUnion())
+            .add(new LogicalRecursiveUnionProducerToPhysicalRecursiveUnionProducer())
+            .add(new LogicalRecursiveUnionAnchorToPhysicalRecursiveUnionAnchor())
+            .add(new LogicalUnionToPhysicalUnion())
+            .add(new LogicalExceptToPhysicalExcept())
+            .add(new LogicalIntersectToPhysicalIntersect())
+            .add(new LogicalGenerateToPhysicalGenerate())
+            .add(new LogicalOlapTableSinkToPhysicalOlapTableSink())
+            .add(new LogicalHiveTableSinkToPhysicalHiveTableSink())
+            .add(new LogicalIcebergTableSinkToPhysicalIcebergTableSink())
+            .add(new LogicalMaxComputeTableSinkToPhysicalMaxComputeTableSink())
+            .add(new LogicalJdbcTableSinkToPhysicalJdbcTableSink())
+            .add(new LogicalFileSinkToPhysicalFileSink())
+            .add(new LogicalResultSinkToPhysicalResultSink())
+            .add(new LogicalDeferMaterializeResultSinkToPhysicalDeferMaterializeResultSink())
+            .add(new LogicalDictionarySinkToPhysicalDictionarySink())
+            .add(new LogicalBlackholeSinkToPhysicalBlackholeSink())
+            .add(new LogicalTVFTableSinkToPhysicalTVFTableSink())
+            .build();
+
     // left-zig-zag tree is used when column stats are not available.
     public static final List<Rule> LEFT_ZIG_ZAG_TREE_JOIN_REORDER = planRuleFactories()
             .add(JoinCommute.LEFT_ZIG_ZAG)
@@ -313,8 +364,24 @@ public class RuleSet {
             .add(JoinCommute.BUSHY.build())
             .build();
 
+    public static final List<Rule> AFTER_DPHYP_REORDER_RULES = ImmutableList.<Rule>builder()
+            .addAll(planRuleFactories()
+                    .add(PushDownProjectThroughInnerOuterJoin.INSTANCE)
+                    .add(PushDownProjectThroughSemiJoin.INSTANCE)
+                    .build())
+            .add(new AggregateStrategies().buildRules().toArray(new Rule[0]))
+            .addAll(EXPLORATION_RULES)
+            .addAll(new PushDownTopNThroughJoin().buildRules())
+            .addAll(new PushDownLimitDistinctThroughJoin().buildRules())
+            .addAll(new PushDownTopNDistinctThroughJoin().buildRules())
+            .build();
+
     public List<Rule> getDPHypReorderRules() {
         return DPHYP_REORDER_RULES;
+    }
+
+    public List<Rule> getAfterDPHypReorderRules() {
+        return AFTER_DPHYP_REORDER_RULES;
     }
 
     public List<Rule> getZigZagTreeJoinReorder() {
@@ -331,6 +398,10 @@ public class RuleSet {
 
     public List<Rule> getImplementationRules() {
         return IMPLEMENTATION_RULES;
+    }
+
+    public List<Rule> getDphyperImplementationRules() {
+        return DPHYPER_IMPLEMENTATION_RULES;
     }
 
     public List<Rule> getMaterializedViewInRBORules() {

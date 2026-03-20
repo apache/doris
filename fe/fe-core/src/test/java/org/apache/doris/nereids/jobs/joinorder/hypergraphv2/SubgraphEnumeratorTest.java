@@ -15,12 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.joinorder.hypergraph;
+package org.apache.doris.nereids.jobs.joinorder.hypergraphv2;
 
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmapSubsetIterator;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.edge.Edge;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.Counter;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmap;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.bitmap.LongBitmapSubsetIterator;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.edge.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.receiver.Counter;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.util.HyperGraphBuilder;
 
@@ -44,7 +44,7 @@ public class SubgraphEnumeratorTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
-                .build();
+                .buildv2();
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
@@ -67,7 +67,7 @@ public class SubgraphEnumeratorTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 1, 2)
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
-                .build();
+                .buildv2();
         long fullSet = LongBitmap.newBitmapBetween(0, 4);
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
@@ -82,7 +82,7 @@ public class SubgraphEnumeratorTest {
         int edgeNum = 40;
         long fullSet = LongBitmap.newBitmapBetween(0, tableNum);
         for (int i = 0; i < 10; i++) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWithv2(tableNum, edgeNum);
             Counter counter = new Counter();
             SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
             subgraphEnumerator.enumerate();
@@ -95,7 +95,7 @@ public class SubgraphEnumeratorTest {
     void testTime() {
         int tableNum = 20;
         int edgeNum = 21;
-        HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
+        HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWithv2(tableNum, edgeNum);
 
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
@@ -107,7 +107,7 @@ public class SubgraphEnumeratorTest {
     }
 
     private int countAndCheck(long bitmap, HyperGraph hyperGraph, HashMap<Long, Integer> counter,
-            HashMap<Long, Integer> cache) {
+                              HashMap<Long, Integer> cache) {
         if (cache.containsKey(bitmap)) {
             return cache.get(bitmap);
         }

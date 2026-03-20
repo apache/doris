@@ -25,18 +25,26 @@ import org.apache.doris.nereids.hint.DistributeHint;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.trees.expressions.Add;
+import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Statistics;
 import org.apache.doris.statistics.StatisticsCacheKey;
@@ -69,8 +77,13 @@ public class HyperGraphBuilder {
             JoinType.INNER_JOIN,
             JoinType.LEFT_OUTER_JOIN,
             JoinType.RIGHT_OUTER_JOIN,
-            JoinType.FULL_OUTER_JOIN
-    );
+            JoinType.FULL_OUTER_JOIN,
+            JoinType.LEFT_SEMI_JOIN,
+            JoinType.RIGHT_SEMI_JOIN,
+            JoinType.LEFT_ANTI_JOIN,
+            JoinType.RIGHT_ANTI_JOIN,
+            JoinType.CROSS_JOIN,
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
 
     private ImmutableList<JoinType> leftFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
@@ -79,8 +92,7 @@ public class HyperGraphBuilder {
             JoinType.FULL_OUTER_JOIN,
             JoinType.LEFT_SEMI_JOIN,
             JoinType.LEFT_ANTI_JOIN,
-            JoinType.NULL_AWARE_LEFT_ANTI_JOIN
-    );
+            JoinType.NULL_AWARE_LEFT_ANTI_JOIN);
 
     private ImmutableList<JoinType> rightFullJoinTypes = ImmutableList.of(
             JoinType.INNER_JOIN,
@@ -88,10 +100,14 @@ public class HyperGraphBuilder {
             JoinType.RIGHT_OUTER_JOIN,
             JoinType.FULL_OUTER_JOIN,
             JoinType.RIGHT_SEMI_JOIN,
-            JoinType.RIGHT_ANTI_JOIN
-    );
+            JoinType.RIGHT_ANTI_JOIN);
 
-    public HyperGraphBuilder() {}
+    // limit the number of CROSS_JOIN nodes to avoid data explosion during tests
+    private int crossJoinCount = 0;
+    private final int maxCrossJoins = 2;
+
+    public HyperGraphBuilder() {
+    }
 
     public HyperGraphBuilder(Set<JoinType> validJoinType) {
         fullJoinTypes = fullJoinTypes.stream()
@@ -111,6 +127,12 @@ public class HyperGraphBuilder {
         return buildHyperGraph(plan);
     }
 
+    public org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph buildv2() {
+        assert plans.size() == 1 : "there are cross join";
+        Plan plan = plans.values().iterator().next();
+        return buildHyperGraphv2(plan);
+    }
+
     public Plan buildPlan() {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
@@ -120,7 +142,13 @@ public class HyperGraphBuilder {
     public Plan buildJoinPlan() {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
-        return buildPlanWithJoinType(plan, new BitSet(), false);
+        crossJoinCount = 0;
+        Plan result = buildPlanWithJoinType(plan, new BitSet(), false);
+        // limit final output columns to at most 10
+        if (result.getOutput().size() > 10) {
+            return new LogicalProject(result.getOutput().subList(0, 10), result);
+        }
+        return result;
     }
 
     public Plan randomBuildPlanWith(int tableNum, int edgeNum) {
@@ -133,11 +161,22 @@ public class HyperGraphBuilder {
         return this.build();
     }
 
+    public org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph randomBuildWithv2(int tableNum,
+            int edgeNum) {
+        randomBuildInit(tableNum, edgeNum);
+        return this.buildv2();
+    }
+
     public Plan buildJoinPlanWithJoinHint(int tableNum, int edgeNum) {
         randomBuildInit(tableNum, edgeNum);
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
-        return buildPlanWithJoinType(plan, new BitSet(), true);
+        crossJoinCount = 0;
+        Plan result = buildPlanWithJoinType(plan, new BitSet(), true);
+        if (result.getOutput().size() > 10) {
+            return new LogicalProject(result.getOutput().subList(0, 10), result);
+        }
+        return result;
     }
 
     private void randomBuildInit(int tableNum, int edgeNum) {
@@ -146,9 +185,10 @@ public class HyperGraphBuilder {
         Preconditions.checkArgument(edgeNum <= tableNum * (tableNum - 1) / 2,
                 "The edges are redundant with %s tables %s edges", tableNum, edgeNum);
 
+        // Each test table has 10 rows (values in 1..10) to increase join match probability.
         int[] tableRowCounts = new int[tableNum];
-        for (int i = 1; i <= tableNum; i++) {
-            tableRowCounts[i - 1] = i;
+        for (int i = 0; i < tableNum; i++) {
+            tableRowCounts[i] = 5;
         }
         this.init(tableRowCounts);
 
@@ -186,7 +226,7 @@ public class HyperGraphBuilder {
             this.rowCounts.add(rowCounts[i]);
             BitSet bitSet = new BitSet();
             bitSet.set(i);
-            LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(i, String.valueOf(i), 0);
+            LogicalOlapScan scan = PlanConstructor.newDpHyperLogicalOlapScan(i, String.valueOf(i), 0);
             plans.put(bitSet, scan);
             tables.add(scan);
             List<Integer> schema = new ArrayList<>();
@@ -266,22 +306,83 @@ public class HyperGraphBuilder {
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) plan;
         BitSet leftSchema = findPlanSchema(join.left());
         BitSet rightSchema = findPlanSchema(join.right());
-        JoinType joinType;
+        // Determine base candidate list guided by ancestor requirements (original logic)
+        ImmutableList<JoinType> baseCandidates;
         if (isSubset(requireTable, leftSchema)) {
-            int index = (int) (Math.random() * leftFullJoinTypes.size());
-            joinType = leftFullJoinTypes.get(index);
+            baseCandidates = leftFullJoinTypes;
         } else if (isSubset(requireTable, rightSchema)) {
-            int index = (int) (Math.random() * rightFullJoinTypes.size());
-            joinType = rightFullJoinTypes.get(index);
+            baseCandidates = rightFullJoinTypes;
         } else {
-            int index = (int) (Math.random() * fullJoinTypes.size());
-            joinType = fullJoinTypes.get(index);
+            baseCandidates = fullJoinTypes;
         }
-        Set<Slot> requireSlots = join.getExpressions().stream()
+
+        // Compute effective requirement: ancestor requirements + this join's referenced tables
+        BitSet effectiveRequire = new BitSet();
+        effectiveRequire.or(requireTable);
+        final Set<Slot> requireSlots = join.getExpressions().stream()
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(Collectors.toSet());
         for (int i = 0; i < tables.size(); i++) {
             if (tables.get(i).getOutput().stream().anyMatch(slot -> requireSlots.contains(slot))) {
+                effectiveRequire.set(i);
+            }
+        }
+
+        // Determine whether effective requirements include tables from left/right subtree
+        boolean needLeft = false;
+        boolean needRight = false;
+        for (int i = leftSchema.nextSetBit(0); i >= 0; i = leftSchema.nextSetBit(i + 1)) {
+            if (effectiveRequire.get(i)) {
+                needLeft = true;
+                break;
+            }
+        }
+        for (int i = rightSchema.nextSetBit(0); i >= 0; i = rightSchema.nextSetBit(i + 1)) {
+            if (effectiveRequire.get(i)) {
+                needRight = true;
+                break;
+            }
+        }
+        final boolean fNeedLeft = needLeft;
+        final boolean fNeedRight = needRight;
+        // Filter out join types that would drop required outputs
+        List<JoinType> filtered = baseCandidates.stream().filter(jt -> {
+            if (fNeedLeft && fNeedRight) {
+                return !jt.isSemiOrAntiJoin();
+            } else if (fNeedLeft) {
+                // must keep left outputs -> forbid join types that drop left
+                return !jt.isRightSemiOrAntiJoin();
+            } else if (fNeedRight) {
+                // must keep right outputs -> forbid join types that drop right
+                return !jt.isLeftSemiOrAntiJoin();
+            }
+            return true;
+        }).collect(Collectors.toList());
+
+        if (filtered.isEmpty()) {
+            baseCandidates = ImmutableList.of(JoinType.INNER_JOIN);
+        } else {
+            baseCandidates = ImmutableList.copyOf(filtered);
+        }
+
+        // enforce max cross join cap
+        List<JoinType> candidatesList = new ArrayList<>(baseCandidates);
+        if (crossJoinCount >= maxCrossJoins) {
+            candidatesList.removeIf(jt -> jt == JoinType.CROSS_JOIN);
+        }
+        if (candidatesList.isEmpty()) {
+            candidatesList.add(JoinType.INNER_JOIN);
+        }
+        int index = (int) (Math.random() * candidatesList.size());
+        JoinType joinType = candidatesList.get(index);
+        if (joinType == JoinType.CROSS_JOIN) {
+            crossJoinCount++;
+        }
+        final Set<Slot> requireSlots2 = join.getExpressions().stream()
+                .flatMap(expr -> expr.getInputSlots().stream())
+                .collect(Collectors.toSet());
+        for (int i = 0; i < tables.size(); i++) {
+            if (tables.get(i).getOutput().stream().anyMatch(slot -> requireSlots2.contains(slot))) {
                 requireTable.set(i);
             }
         }
@@ -290,17 +391,36 @@ public class HyperGraphBuilder {
         Plan right = buildPlanWithJoinType(join.right(), requireTable, withJoinHint);
         Set<Slot> outputs = Stream.concat(left.getOutput().stream(), right.getOutput().stream())
                 .collect(Collectors.toSet());
-        assert outputs.containsAll(requireSlots);
+        assert outputs.containsAll(requireSlots2);
+
+        // ensure hash/other conjuncts satisfy requirement:
+        // - if chosen joinType is not CROSS_JOIN, there must be at least one equality in hashJoinConjuncts
+        // - if joinType is CROSS_JOIN, remove any equality conditions
+        List<Expression> finalHash = new ArrayList<>(join.getHashJoinConjuncts());
+        List<Expression> finalOther = new ArrayList<>(join.getOtherJoinConjuncts());
+        if (joinType == JoinType.CROSS_JOIN) {
+            // CROSS JOIN should not have any join conditions
+            finalHash.clear();
+            finalOther.clear();
+        } else {
+            // For non-CROSS joins, ensure there's at least one join condition (hash or other).
+            if (finalHash.isEmpty() && finalOther.isEmpty()) {
+                Slot lslot = left.getOutput().get(0);
+                Slot rslot = right.getOutput().get(0);
+                finalHash.add(new EqualTo(lslot, rslot));
+            }
+        }
+
         if (withJoinHint) {
             DistributeType[] values = DistributeType.values();
             Random random = new Random();
             int randomIndex = random.nextInt(values.length);
             DistributeType hint = values[randomIndex];
-            Plan hintJoin = ((LogicalJoin) join.withChildren(left, right)).withJoinTypeAndContext(joinType, null);
-            ((LogicalJoin) hintJoin).setHint(new DistributeHint(hint));
+            LogicalJoin hintJoin = new LogicalJoin(joinType, finalHash, finalOther, left, right, null);
+            hintJoin.setHint(new DistributeHint(hint));
             return hintJoin;
         }
-        return ((LogicalJoin) join.withChildren(left, right)).withJoinTypeAndContext(joinType, null);
+        return new LogicalJoin(joinType, finalHash, finalOther, left, right, null);
     }
 
     private Optional<BitSet> findPlan(BitSet bitSet) {
@@ -348,14 +468,27 @@ public class HyperGraphBuilder {
         return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
     }
 
-    public static HyperGraph buildHyperGraphFromPlan(Plan plan) {
+    private org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph buildHyperGraphv2(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
         if (cascadesContext.getMemo() == null) {
             MemoTestUtils.initMemoAndValidState(cascadesContext);
         }
-        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
+        injectRowcount(cascadesContext.getMemo().getRoot());
+        return org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph.builderForDPhyper(
+                cascadesContext.getMemo().getRoot(), cascadesContext).build();
+    }
+
+    public static org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph buildHyperGraphFromPlan(Plan plan) {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
+                plan);
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (cascadesContext.getMemo() == null) {
+            MemoTestUtils.initMemoAndValidState(cascadesContext);
+        }
+        return org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph.builderForDPhyper(
+                cascadesContext.getMemo().getRoot(), cascadesContext).build();
     }
 
     private void injectRowcount(Group group) {
@@ -383,8 +516,102 @@ public class HyperGraphBuilder {
 
     private void constructJoin(int node1, int node2, BitSet key) {
         LogicalJoin join = (LogicalJoin) plans.get(key);
-        Expression condition = makeCondition(node1, node2, key);
-        plans.put(key, attachCondition(condition, join));
+        // generate up to two hash and up to two other conditions (most often 1 each)
+        java.util.List<Expression> conditions = makeConditions(node1, node2, key);
+        // Ensure INNER_JOIN has at least one equality (hash) condition for v2 builds
+        if (join.getJoinType() == JoinType.INNER_JOIN) {
+            boolean hasHash = false;
+            for (Expression e : conditions) {
+                if (e instanceof EqualPredicate) {
+                    hasHash = true;
+                    break;
+                }
+            }
+            if (!hasHash) {
+                Plan plan = plans.get(key);
+                // pick first two outputs as the two sides
+                Slot lslot = plan.getOutput().get(0);
+                Slot rslot = plan.getOutput().get(1);
+                conditions.add(new EqualTo(lslot, rslot));
+            }
+        }
+        // Ensure CROSS_JOIN has no conditions
+        if (join.getJoinType() == JoinType.CROSS_JOIN) {
+            conditions.removeIf(e -> true); // clear all conditions
+        }
+        // Normalize hash equalities so left-side slots come from left child
+        // and right-side slots come from right child. If possible, swap sides;
+        // otherwise try to extract a pair of slots (one from left, one from right)
+        // to form a binary equality. If not possible, demote the expression to
+        // other-conditions (it will be attached as a non-hash conjunct).
+        java.util.List<Expression> normalized = new ArrayList<>();
+        Set<Slot> leftSlots = new HashSet<>(join.left().getOutput());
+        Set<Slot> rightSlots = new HashSet<>(join.right().getOutput());
+        for (Expression expr : conditions) {
+            if (expr instanceof EqualPredicate) {
+                Expression leftExpr = ((EqualPredicate) expr).left();
+                Expression rightExpr = ((EqualPredicate) expr).right();
+                Set<Slot> leftInputs = leftExpr.getInputSlots();
+                Set<Slot> rightInputs = rightExpr.getInputSlots();
+                // already correct
+                if (leftSlots.containsAll(leftInputs) && rightSlots.containsAll(rightInputs)) {
+                    normalized.add(expr);
+                    continue;
+                }
+                // try swapping sides
+                if (leftSlots.containsAll(rightInputs) && rightSlots.containsAll(leftInputs)) {
+                    normalized.add(new EqualTo(rightExpr, leftExpr));
+                    continue;
+                }
+                // try to extract a simple left-slot and right-slot from the inputs
+                Slot pickLeft = null;
+                Slot pickRight = null;
+                for (Slot s : leftInputs) {
+                    if (leftSlots.contains(s)) {
+                        pickLeft = s;
+                        break;
+                    }
+                }
+                if (pickLeft == null) {
+                    for (Slot s : rightInputs) {
+                        if (leftSlots.contains(s)) {
+                            pickLeft = s;
+                            break;
+                        }
+                    }
+                }
+                for (Slot s : rightInputs) {
+                    if (rightSlots.contains(s)) {
+                        pickRight = s;
+                        break;
+                    }
+                }
+                if (pickRight == null) {
+                    for (Slot s : leftInputs) {
+                        if (rightSlots.contains(s)) {
+                            pickRight = s;
+                            break;
+                        }
+                    }
+                }
+                if (pickLeft != null && pickRight != null) {
+                    normalized.add(new EqualTo(pickLeft, pickRight));
+                } else {
+                    // cannot normalize into a clean hash equality between left/right,
+                    // demote to non-hash condition so it won't violate left/right side rule
+                    // (it will be placed into otherConjuncts by attachCondition)
+                    normalized.add(expr); // keep it, attachCondition will place it accordingly
+                }
+            } else {
+                normalized.add(expr);
+            }
+        }
+        conditions = normalized;
+        LogicalJoin current = join;
+        for (Expression condition : conditions) {
+            current = attachCondition(condition, current);
+        }
+        plans.put(key, current);
     }
 
     private LogicalJoin attachCondition(Expression condition, LogicalJoin join) {
@@ -392,19 +619,101 @@ public class HyperGraphBuilder {
         Set<Slot> leftSlots = new HashSet<>(left.getOutput());
         Plan right = join.right();
         Set<Slot> rightSlots = new HashSet<>(right.getOutput());
-        List<Expression> conditions = new ArrayList<>(join.getExpressions());
+        List<Expression> hashConjuncts = new ArrayList<>(join.getHashJoinConjuncts());
+        List<Expression> otherConjuncts = new ArrayList<>(join.getOtherJoinConjuncts());
         Set<Slot> inputs = condition.getInputSlots();
         if (leftSlots.containsAll(inputs)) {
-            left = attachCondition(condition, (LogicalJoin) left);
+            if (left instanceof LogicalJoin) {
+                left = attachCondition(condition, (LogicalJoin) left);
+            } else {
+                if (otherConjuncts.size() < 2) {
+                    otherConjuncts.add(condition);
+                }
+            }
         } else if (rightSlots.containsAll(inputs)) {
-            right = attachCondition(condition, (LogicalJoin) right);
+            if (right instanceof LogicalJoin) {
+                right = attachCondition(condition, (LogicalJoin) right);
+            } else {
+                if (otherConjuncts.size() < 2) {
+                    otherConjuncts.add(condition);
+                }
+            }
         } else {
-            conditions.add(condition);
+            if (condition instanceof EqualPredicate) {
+                // Ensure equality is between left and right child slots.
+                EqualPredicate eq = (EqualPredicate) condition;
+                Expression lExpr = eq.left();
+                Expression rExpr = eq.right();
+                Set<Slot> lInputs = lExpr.getInputSlots();
+                Set<Slot> rInputs = rExpr.getInputSlots();
+                boolean lFromLeft = leftSlots.containsAll(lInputs) && !lInputs.isEmpty();
+                boolean rFromRight = rightSlots.containsAll(rInputs) && !rInputs.isEmpty();
+                boolean swapped = false;
+                if (lFromLeft && rFromRight) {
+                    // good
+                } else if (leftSlots.containsAll(rInputs) && rightSlots.containsAll(lInputs)) {
+                    // sides are swapped
+                    Expression tmpL = rExpr;
+                    Expression tmpR = lExpr;
+                    lExpr = tmpL;
+                    rExpr = tmpR;
+                    lInputs = lExpr.getInputSlots();
+                    rInputs = rExpr.getInputSlots();
+                    swapped = true;
+                }
+
+                if (!(leftSlots.containsAll(lInputs) && rightSlots.containsAll(rInputs) && !lInputs.isEmpty()
+                        && !rInputs.isEmpty())) {
+                    // try to extract one slot from left and one from right to form a simple equality
+                    Slot pickLeft = null;
+                    Slot pickRight = null;
+                    for (Slot s : condition.getInputSlots()) {
+                        if (pickLeft == null && leftSlots.contains(s)) {
+                            pickLeft = s;
+                        }
+                        if (pickRight == null && rightSlots.contains(s)) {
+                            pickRight = s;
+                        }
+                        if (pickLeft != null && pickRight != null) {
+                            break;
+                        }
+                    }
+                    if (pickLeft != null && pickRight != null) {
+                        if (hashConjuncts.size() < 2) {
+                            hashConjuncts.add(new EqualTo(pickLeft, pickRight));
+                        }
+                    } else {
+                        // cannot form a valid left-right equality, treat as other conjunct
+                        if (otherConjuncts.size() < 2) {
+                            otherConjuncts.add(condition);
+                        }
+                    }
+                } else {
+                    if (hashConjuncts.size() < 2) {
+                        // preserve original or swapped equality
+                        if (swapped) {
+                            hashConjuncts.add(new EqualTo(lExpr, rExpr));
+                        } else {
+                            hashConjuncts.add(condition);
+                        }
+                    }
+                }
+            } else {
+                if (otherConjuncts.size() < 2) {
+                    otherConjuncts.add(condition);
+                }
+            }
         }
-        return new LogicalJoin<>(join.getJoinType(), conditions, left, right, null);
+        return new LogicalJoin<>(join.getJoinType(), hashConjuncts, otherConjuncts, left, right, null);
     }
 
-    private Expression makeCondition(int node1, int node2, BitSet bitSet) {
+    /**
+     * Generate a small set of join conditions for the pair of tables.
+     * - At most two hash (equality) conditions
+     * - At most two other conditions
+     * - Most of the time produce only one of each
+     */
+    private java.util.List<Expression> makeConditions(int node1, int node2, BitSet bitSet) {
         Plan plan = plans.get(bitSet);
         List<Integer> schema = schemas.get(bitSet);
         int size = schema.size();
@@ -412,8 +721,6 @@ public class HyperGraphBuilder {
         int rightIndex = -1;
         for (int i = 0; i < size; i++) {
             if (schema.get(i) == node1) {
-                // Each table has two column: id and name.
-                // Therefore, offset = numberOfTables * 2
                 leftIndex = i * 2;
             }
             if (schema.get(i) == node2) {
@@ -421,9 +728,113 @@ public class HyperGraphBuilder {
             }
         }
         assert leftIndex != -1 && rightIndex != -1;
-        EqualTo hashConjunts =
-                new EqualTo(plan.getOutput().get(leftIndex), plan.getOutput().get(rightIndex));
-        return hashConjunts;
+
+        java.util.Random rand = new java.util.Random();
+        java.util.List<Integer> leftCandidates = new java.util.ArrayList<>();
+        java.util.List<Integer> rightCandidates = new java.util.ArrayList<>();
+        for (int i = 0; i < size; i++) {
+            if (schema.get(i) == node1) {
+                leftCandidates.add(i * 2);
+                leftCandidates.add(i * 2 + 1);
+            }
+            if (schema.get(i) == node2) {
+                rightCandidates.add(i * 2);
+                rightCandidates.add(i * 2 + 1);
+            }
+        }
+
+        // Decide counts: make it very likely to have exactly 1 hash and 1 other condition
+        int hashRoll = rand.nextInt(100);
+        int hashCount;
+        if (hashRoll < 90) {
+            hashCount = 1; // most
+        } else if (hashRoll < 98) {
+            hashCount = 2; // some
+        } else {
+            hashCount = 0; // rare
+        }
+        int otherRoll = rand.nextInt(100);
+        int otherCount;
+        if (otherRoll < 90) {
+            otherCount = 1; // most
+        } else if (otherRoll < 98) {
+            otherCount = 2; // some
+        } else {
+            otherCount = 0; // rare
+        }
+        hashCount = Math.min(hashCount, 2);
+        otherCount = Math.min(otherCount, 2);
+
+        java.util.List<Expression> conditions = new java.util.ArrayList<>();
+
+        // build hash (equality) conditions
+        for (int h = 0; h < hashCount; h++) {
+            // With ~25% probability generate a multi-table equality involving 3-5 tables
+            if (rand.nextInt(4) == 0 && size >= 3) {
+                // choose k distinct table positions (indices into schema list)
+                int maxTables = Math.min(5, size);
+                int k = 3 + rand.nextInt(Math.max(1, maxTables - 2)); // 3..maxTables
+                List<Integer> indices = new ArrayList<>();
+                for (int ii = 0; ii < size; ii++) {
+                    indices.add(ii);
+                }
+                java.util.Collections.shuffle(indices, rand);
+                List<Integer> chosen = indices.subList(0, k);
+                // left side: slot from first chosen table
+                int firstIdx = chosen.get(0);
+                int lPos = firstIdx * 2 + rand.nextInt(2);
+                // right side: sum of slots from the other chosen tables
+                Expression acc = null;
+                for (int t = 1; t < chosen.size(); t++) {
+                    int idx = chosen.get(t);
+                    int pos = idx * 2 + rand.nextInt(2);
+                    Expression slotExpr = plan.getOutput().get(pos);
+                    if (acc == null) {
+                        acc = slotExpr;
+                    } else {
+                        acc = new Add(acc, slotExpr);
+                    }
+                }
+                if (acc == null) {
+                    // fallback to binary equality
+                    int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos), plan.getOutput().get(rPos)));
+                } else {
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos), acc));
+                }
+            } else {
+                int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
+                int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                // with some probability use arithmetic on right side
+                if (rand.nextInt(100) < 30) {
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos),
+                            new Add(plan.getOutput().get(rPos), Literal.of(1))));
+                } else {
+                    conditions.add(new EqualTo(plan.getOutput().get(lPos), plan.getOutput().get(rPos)));
+                }
+            }
+        }
+
+        // build other (non-equality) conditions
+        for (int o = 0; o < otherCount; o++) {
+            int choice = rand.nextInt(3);
+            if (choice == 0) {
+                // single-table predicate on left
+                int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
+                conditions.add(new GreaterThan(plan.getOutput().get(lPos), Literal.of(1)));
+            } else if (choice == 1) {
+                int lPos = leftCandidates.get(rand.nextInt(leftCandidates.size()));
+                int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                conditions.add(new GreaterThan(new Add(plan.getOutput().get(lPos), Literal.of(1)),
+                        plan.getOutput().get(rPos)));
+            } else {
+                // another single-table predicate on right
+                int rPos = rightCandidates.get(rand.nextInt(rightCandidates.size()));
+                conditions.add(new GreaterThan(plan.getOutput().get(rPos), Literal.of(0)));
+            }
+        }
+
+        return conditions;
     }
 
     public Set<List<String>> evaluate(Plan plan) {
@@ -435,8 +846,7 @@ public class HyperGraphBuilder {
         }
         List<Slot> keySet = res.keySet().stream()
                 .sorted(
-                        (slot1, slot2) ->
-                                String.CASE_INSENSITIVE_ORDER.compare(slot1.toString(), slot2.toString()))
+                        (slot1, slot2) -> String.CASE_INSENSITIVE_ORDER.compare(slot1.toString(), slot2.toString()))
                 .collect(Collectors.toList());
         Set<List<String>> tuples = new HashSet<>();
         tuples.add(keySet.stream().map(s -> s.toString()).collect(Collectors.toList()));
@@ -461,8 +871,47 @@ public class HyperGraphBuilder {
             if (plan instanceof LogicalOlapScan || plan instanceof PhysicalOlapScan) {
                 return evaluateScan(plan);
             }
+
+            if (plan instanceof LogicalProject) {
+                LogicalProject lp = (LogicalProject) plan;
+                Map<Slot, List<Integer>> child = evaluate((Plan) lp.child(0));
+                List<NamedExpression> projects = lp.getProjects();
+                Map<Slot, List<Integer>> outputs = new HashMap<>();
+                int rc = child.isEmpty() ? 0 : getTableRC(child);
+                for (NamedExpression proj : projects) {
+                    outputs.put(proj.toSlot(), new ArrayList<>());
+                }
+                for (int i = 0; i < rc; i++) {
+                    for (NamedExpression proj : projects) {
+                        Integer v = evalExprOnSingle(proj, i, child);
+                        outputs.get(proj.toSlot()).add(v);
+                    }
+                }
+                return outputs;
+            }
+
+            if (plan instanceof PhysicalProject) {
+                PhysicalProject pp = (PhysicalProject) plan;
+                Map<Slot, List<Integer>> child = evaluate((Plan) pp.child(0));
+                List<NamedExpression> projects = pp.getProjects();
+                Map<Slot, List<Integer>> outputs = new HashMap<>();
+                int rc = child.isEmpty() ? 0 : getTableRC(child);
+                for (NamedExpression proj : projects) {
+                    outputs.put(proj.toSlot(), new ArrayList<>());
+                }
+                for (int i = 0; i < rc; i++) {
+                    for (NamedExpression proj : projects) {
+                        Integer v = evalExprOnSingle(proj, i, child);
+                        outputs.get(proj.toSlot()).add(v);
+                    }
+                }
+                return outputs;
+            }
             if (plan instanceof LogicalJoin || plan instanceof AbstractPhysicalJoin) {
                 return evaluateJoin(plan);
+            }
+            if (plan instanceof PhysicalStorageLayerAggregate) {
+                return evaluate(((PhysicalStorageLayerAggregate) plan).getRelation());
             }
             assert plan.children().size() == 1;
             return evaluate(plan.child(0));
@@ -481,7 +930,13 @@ public class HyperGraphBuilder {
             for (Slot slot : plan.getOutput()) {
                 rows.put(slot, new ArrayList<>());
                 for (int i = 0; i < rowCount; i++) {
-                    rows.get(slot).add(i);
+                    // produce values in range 1..rowCount, but include one NULL deterministically
+                    // (first row is NULL) to exercise NULL-handling without explosion
+                    if (i == 0) {
+                        rows.get(slot).add(null);
+                    } else {
+                        rows.get(slot).add(i + 0); // values 2..rowCount
+                    }
                 }
             }
             return rows;
@@ -504,6 +959,8 @@ public class HyperGraphBuilder {
             }
 
             List<Pair<Integer, Integer>> matchPair = new ArrayList<>();
+            // Track left rows that have at least one UNKNOWN (null) comparison
+            Set<Integer> leftHasUnknown = new HashSet<>();
             for (int i = 0; i < getTableRC(left); i++) {
                 for (int j = 0; j < getTableRC(right); j++) {
                     int leftIndex = i;
@@ -512,25 +969,27 @@ public class HyperGraphBuilder {
                     for (Expression expr : expressions) {
                         Boolean res = evaluateExpr(joinType, expr, left, leftIndex, right, rightIndex);
                         if (res == null) {
-                            matched = null;
+                            // For Null-Aware Left Anti Join, record unknown per-left-row
+                            if (joinType.isNullAwareLeftAntiJoin()) {
+                                leftHasUnknown.add(leftIndex);
+                                matched = false; // treat unknown as non-match for pair
+                                break;
+                            } else {
+                                matched = false;
+                                break;
+                            }
                         } else if (res == false) {
                             matched = false;
                             break;
                         }
                     }
-                    if (matched == null) {
-                        // NAAJ return nothing when right has null
-                        for (int i1 = 0; i1 < getTableRC(left); i1++) {
-                            for (int j1 = 0; j1 < getTableRC(right); j1++) {
-                                matchPair.add(Pair.of(i1, j1));
-                            }
-                        }
-                        return calJoin(joinType, left, right, matchPair);
-                    }
                     if (matched) {
                         matchPair.add(Pair.of(i, j));
                     }
                 }
+            }
+            if (joinType.isNullAwareLeftAntiJoin()) {
+                return calLNAAJ(left, right, matchPair, leftHasUnknown);
             }
             return calJoin(joinType, left, right, matchPair);
 
@@ -558,10 +1017,8 @@ public class HyperGraphBuilder {
                 case RIGHT_ANTI_JOIN:
                     return calLAJ(right, left,
                             matchPair.stream().map(p -> Pair.of(p.second, p.first)).collect(Collectors.toList()));
-                case NULL_AWARE_LEFT_ANTI_JOIN:
-                    return calLNAAJ(left, right, matchPair);
                 case CROSS_JOIN:
-                    return calFOJ(left, right, matchPair);
+                    return calCJ(left, right);
                 default:
                     assert false;
             }
@@ -584,6 +1041,33 @@ public class HyperGraphBuilder {
                 }
                 for (Slot slot : right.keySet()) {
                     outputs.get(slot).add(right.get(slot).get(p.second));
+                }
+            }
+            return outputs;
+        }
+
+        /**
+         * Calculate Cross Join (Cartesian product) of left and right.
+         */
+        Map<Slot, List<Integer>> calCJ(Map<Slot, List<Integer>> left,
+                Map<Slot, List<Integer>> right) {
+            Map<Slot, List<Integer>> outputs = new HashMap<>();
+            for (Slot slot : left.keySet()) {
+                outputs.put(slot, new ArrayList<>());
+            }
+            for (Slot slot : right.keySet()) {
+                outputs.put(slot, new ArrayList<>());
+            }
+            int leftRC = getTableRC(left);
+            int rightRC = getTableRC(right);
+            for (int i = 0; i < leftRC; i++) {
+                for (int j = 0; j < rightRC; j++) {
+                    for (Slot slot : left.keySet()) {
+                        outputs.get(slot).add(left.get(slot).get(i));
+                    }
+                    for (Slot slot : right.keySet()) {
+                        outputs.get(slot).add(right.get(slot).get(j));
+                    }
                 }
             }
             return outputs;
@@ -673,12 +1157,65 @@ public class HyperGraphBuilder {
         }
 
         Map<Slot, List<Integer>> calLNAAJ(Map<Slot, List<Integer>> left,
-                Map<Slot, List<Integer>> right, List<Pair<Integer, Integer>> matchPair) {
-            return calLAJ(left, right, matchPair);
+                Map<Slot, List<Integer>> right, List<Pair<Integer, Integer>> matchPair,
+                Set<Integer> leftHasUnknown) {
+            Map<Slot, List<Integer>> outputs = new HashMap<>();
+            for (Slot slot : left.keySet()) {
+                outputs.put(slot, new ArrayList<>());
+            }
+            Set<Integer> leftMatched = matchPair.stream().map(p -> p.first).collect(Collectors.toSet());
+            int leftRC = getTableRC(left);
+            for (int i = 0; i < leftRC; i++) {
+                // include left row only when it has no matches and no unknowns
+                if (leftMatched.contains(i)) {
+                    continue;
+                }
+                if (leftHasUnknown.contains(i)) {
+                    continue;
+                }
+                for (Slot slot : left.keySet()) {
+                    outputs.get(slot).add(left.get(slot).get(i));
+                }
+            }
+            return outputs;
         }
 
         Boolean evaluateExpr(JoinType joinType, Expression expr, Map<Slot, List<Integer>> left, int leftIndex,
                 Map<Slot, List<Integer>> right, int rightIndex) {
+            // Use a dedicated recursive method to avoid lambda self-reference issues
+            // Evaluate EqualTo/Gt operands using evalExprRecursive
+            if (expr instanceof EqualTo) {
+                EqualTo eq = (EqualTo) expr;
+                Integer lv = evalExprRecursive(eq.left(), leftIndex, rightIndex, left, right);
+                Integer rv = evalExprRecursive(eq.right(), leftIndex, rightIndex, left, right);
+                Boolean res;
+                if (lv == null || rv == null) {
+                    res = null;
+                } else {
+                    res = lv.equals(rv);
+                }
+                if (joinType.isNullAwareLeftAntiJoin()) {
+                    if (lv == null) {
+                        res = Boolean.TRUE;
+                    }
+                    if (rv == null) {
+                        res = null;
+                    }
+                }
+                return res;
+            }
+
+            if (expr instanceof GreaterThan) {
+                GreaterThan gt = (GreaterThan) expr;
+                Integer lv = evalExprRecursive(gt.left(), leftIndex, rightIndex, left, right);
+                Integer rv = evalExprRecursive(gt.right(), leftIndex, rightIndex, left, right);
+                if (lv == null || rv == null) {
+                    return null;
+                }
+                return lv > rv;
+            }
+
+            // fallback: previous slot-based behaviour for binary slot comparisons
             List<Slot> slots = Lists.newArrayList(expr.getInputSlots());
             Preconditions.checkArgument(slots.size() == 2);
             Integer lv;
@@ -701,6 +1238,82 @@ public class HyperGraphBuilder {
                 res = null;
             }
             return res;
+        }
+
+        private Integer evalExprRecursive(Expression e, int leftIndex, int rightIndex,
+                Map<Slot, List<Integer>> left, Map<Slot, List<Integer>> right) {
+            if (e instanceof Slot) {
+                Slot s = (Slot) e;
+                if (left.containsKey(s)) {
+                    return left.get(s).get(leftIndex);
+                } else {
+                    return right.get(s).get(rightIndex);
+                }
+            }
+            if (e instanceof org.apache.doris.nereids.trees.expressions.literal.Literal) {
+                Object val = ((org.apache.doris.nereids.trees.expressions.literal.Literal) e).getValue();
+                if (val == null) {
+                    return null;
+                }
+                if (val instanceof Number) {
+                    return ((Number) val).intValue();
+                }
+                try {
+                    return Integer.parseInt(String.valueOf(val));
+                } catch (Exception ex) {
+                    return null;
+                }
+            }
+            if (e instanceof Add) {
+                Add add = (Add) e;
+                Integer a = evalExprRecursive(add.left(), leftIndex, rightIndex, left, right);
+                Integer b = evalExprRecursive(add.right(), leftIndex, rightIndex, left, right);
+                if (a == null || b == null) {
+                    return null;
+                }
+                return a + b;
+            }
+            return null;
+        }
+
+        private Integer evalExprOnSingle(Expression e, int rowIndex, Map<Slot, List<Integer>> child) {
+            if (e instanceof NamedExpression) {
+                NamedExpression ne = (NamedExpression) e;
+                if (!ne.children().isEmpty()) {
+                    return evalExprOnSingle(ne.child(0), rowIndex, child);
+                }
+            }
+            if (e instanceof Slot) {
+                Slot s = (Slot) e;
+                if (child.containsKey(s)) {
+                    return child.get(s).get(rowIndex);
+                }
+                return null;
+            }
+            if (e instanceof org.apache.doris.nereids.trees.expressions.literal.Literal) {
+                Object val = ((org.apache.doris.nereids.trees.expressions.literal.Literal) e).getValue();
+                if (val == null) {
+                    return null;
+                }
+                if (val instanceof Number) {
+                    return ((Number) val).intValue();
+                }
+                try {
+                    return Integer.parseInt(String.valueOf(val));
+                } catch (Exception ex) {
+                    return null;
+                }
+            }
+            if (e instanceof Add) {
+                Add add = (Add) e;
+                Integer a = evalExprOnSingle(add.left(), rowIndex, child);
+                Integer b = evalExprOnSingle(add.right(), rowIndex, child);
+                if (a == null || b == null) {
+                    return null;
+                }
+                return a + b;
+            }
+            return null;
         }
     }
 

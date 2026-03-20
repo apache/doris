@@ -75,7 +75,7 @@ public class PruneOlapScanPartition implements RewriteRuleFactory {
                         return prunePartition(scan, table, null, ctx).first;
                     }).toRule(RuleType.OLAP_SCAN_PARTITION_PRUNE),
                 logicalFilter(logicalOlapScan()
-                    .whenNot(LogicalOlapScan::isPartitionPruned))
+                    .when(scan -> !scan.isPartitionPruned() && scan.getTable().isPartitionedTable()))
                     .thenApply(ctx -> {
                         // Case2: sql with filter condition, e.g. SELECT * FROM tbl (${tabletID}) WHERE part_column='x'
                         LogicalFilter<LogicalOlapScan> filter = ctx.root;
