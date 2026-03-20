@@ -305,6 +305,7 @@ file_changed_cloud_p0() {
             [[ "${af}" == 'contrib'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
+            [[ "${af}" == 'fs_brokers/cdc_client'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
@@ -340,6 +341,7 @@ file_changed_regression_p0() {
             [[ "${af}" == 'contrib'* ]] ||
             [[ "${af}" == 'fe'* ]] ||
             [[ "${af}" == 'fe_plugins'* ]] ||
+            [[ "${af}" == 'fs_brokers/cdc_client'* ]] ||
             [[ "${af}" == 'gensrc'* ]] ||
             [[ "${af}" == 'regression-test'* ]] ||
             [[ "${af}" == 'thirdparty'* ]] ||
