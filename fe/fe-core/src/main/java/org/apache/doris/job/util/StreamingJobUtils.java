@@ -336,7 +336,7 @@ public class StreamingJobUtils {
             String targetTableName = properties.getOrDefault(
                     DataSourceConfigKeys.TABLE + "." + table + "."
                             + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
-                    table);
+                    table).trim();
 
             // Validate and apply exclude_columns for this table
             Set<String> excludeColumns = parseExcludeColumns(properties, table);
