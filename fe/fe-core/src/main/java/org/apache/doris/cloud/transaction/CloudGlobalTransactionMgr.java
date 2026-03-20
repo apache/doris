@@ -745,8 +745,6 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
         boolean txnOperated = false;
         TransactionState txnState = null;
-        TxnStateChangeCallback cb = null;
-        long callbackId = 0L;
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         try {
@@ -757,28 +755,10 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                         "test delete bitmap update lock timeout, transactionId:" + transactionId);
             }
         } finally {
-            if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
-                RLTaskTxnCommitAttachment rlTaskTxnCommitAttachment = (RLTaskTxnCommitAttachment) txnCommitAttachment;
-                callbackId = rlTaskTxnCommitAttachment.getJobId();
-            } else if (txnCommitAttachment != null
-                        && txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
-                StreamingTaskTxnCommitAttachment streamingTaskTxnCommitAttachment =
-                        (StreamingTaskTxnCommitAttachment) txnCommitAttachment;
-                callbackId = streamingTaskTxnCommitAttachment.getJobId();
-            } else if (txnState != null) {
-                callbackId = txnState.getCallbackId();
-            }
+            // Use TxnUtil to execute callbacks (common logic for one-phase and two-phase commit)
+            TxnUtil.executeCommitCallbacks(transactionId, txnCommitAttachment, txnState,
+                    callbackFactory, false, txnOperated);
 
-            cb = callbackFactory.getCallback(callbackId);
-            if (cb != null) {
-                LOG.info("commitTxn, run txn callback, transactionId:{} callbackId:{}, txnState:{}",
-                        transactionId, callbackId, txnState);
-                cb.afterCommitted(txnState, txnOperated);
-                // do not exectue afterVisible if commit txn fail in cloud mode
-                if (txnOperated) {
-                    cb.afterVisible(txnState, txnOperated);
-                }
-            }
             long costTime = stopWatch.getTime();
             if (MetricRepo.isInit) {
                 MetricRepo.HISTO_COMMIT_TO_MS_LATENCY.update(costTime);
@@ -1986,21 +1966,51 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throw new UserException(InternalErrorCode.INTERNAL_ERR, "debug point FE.mow.commit.exception");
         }
 
+        checkCommitInfo(commitTxnRequest);
+
+        CommitTxnResponse response = null;
+        int retryTime = 0;
+
         try {
-            MetaServiceProxy proxy = new MetaServiceProxy();
-            CommitTxnResponse response = proxy.commitTxn(commitTxnRequest);
-            if (response == null) {
-                throw new UserException("commit txn failed, response is null. txnId=" + transactionId);
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("two-phase commit retryTime:{}, commitTxnRequest:{}", retryTime, commitTxnRequest);
+                }
+                MetaServiceProxy proxy = new MetaServiceProxy();
+                response = proxy.commitTxn(commitTxnRequest);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("two-phase commit retryTime:{}, commitTxnResponse:{}", retryTime, response);
+                }
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                // sleep random [20, 200] ms, avoid txn conflict
+                LOG.info("two-phase commit KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", transactionId, retryTime);
+                backoff();
+                retryTime++;
             }
-            if (response.getStatus() != null && response.getStatus().getCode() != MetaServiceCode.OK) {
-                throw new UserException("commit txn failed, txnId=" + transactionId + ", code="
-                        + response.getStatus().getCode() + ", msg=" + response.getStatus().getMsg());
-            }
-            return response;
+
+            Preconditions.checkNotNull(response);
+            Preconditions.checkNotNull(response.getStatus());
         } catch (Exception e) {
-            LOG.error("failed to commit txn to MS, txnId={}", transactionId, e);
-            throw new UserException("failed to commit txn to MS: " + e.getMessage(), e);
+            LOG.error("two-phase commit failed, transactionId:{}, retryTime:{}", transactionId, retryTime, e);
+            throw new UserException("two-phase commit failed, errMsg:" + e.getMessage());
         }
+
+        if (response.getStatus().getCode() != MetaServiceCode.OK
+                && response.getStatus().getCode() != MetaServiceCode.TXN_ALREADY_VISIBLE) {
+            LOG.warn("two-phase commit failed, transactionId:{}, retryTime:{}, response:{}",
+                    transactionId, retryTime, response);
+            StringBuilder internalMsgBuilder = new StringBuilder("two-phase commit failed, transactionId:");
+            internalMsgBuilder.append(transactionId);
+            internalMsgBuilder.append(", code:");
+            internalMsgBuilder.append(response.getStatus().getCode());
+            internalMsgBuilder.append(", msg:");
+            internalMsgBuilder.append(response.getStatus().getMsg());
+            throw new UserException("internal error, " + internalMsgBuilder.toString());
+        }
+
+        return response;
     }
 
     /**
@@ -2711,12 +2721,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      * backoff policy implement by sleep random ms in [20ms, 200ms]
      */
     private void backoff() {
-        int randomMillis = 20 + (int) (Math.random() * (200 - 20));
-        try {
-            Thread.sleep(randomMillis);
-        } catch (InterruptedException e) {
-            LOG.info("InterruptedException: ", e);
-        }
+        TxnUtil.backoff();
     }
 
     @Override

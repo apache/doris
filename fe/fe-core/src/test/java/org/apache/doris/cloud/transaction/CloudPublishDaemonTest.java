@@ -28,10 +28,10 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TxnStateCallbackFactory;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -92,7 +92,10 @@ public class CloudPublishDaemonTest {
             }
         };
 
-        daemon = new CloudPublishDaemon(committedTxnManager);
+        // Create TxnStateCallbackFactory for CloudPublishDaemon
+        TxnStateCallbackFactory callbackFactory = new TxnStateCallbackFactory();
+
+        daemon = new CloudPublishDaemon(committedTxnManager, callbackFactory);
     }
 
     private CommittedTxnEntry buildEntry(long txnId, long backendId1, long tabletId1) {
@@ -190,7 +193,11 @@ public class CloudPublishDaemonTest {
         daemon.runAfterCatalogReady();
 
         // Give thread pool a moment
-        try { Thread.sleep(200); } catch (InterruptedException ignored) {}
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException ignored) {
+            // ignored
+        }
 
         Assert.assertEquals("commitTxn should not be called", 0, commitTxnCalls.get());
         Assert.assertTrue("txn should still be in committed set", committedTxnManager.contains(TXN_ID_1));
@@ -254,52 +261,60 @@ public class CloudPublishDaemonTest {
      */
     @Test
     public void testLightweightPublishRetry() throws Exception {
-        AtomicInteger commitTxnCalls = new AtomicInteger(0);
-        CountDownLatch secondCall = new CountDownLatch(1);
-        new MockUp<MetaServiceProxy>() {
-            @Mock
-            public CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request) {
-                int call = commitTxnCalls.incrementAndGet();
-                if (call == 1) {
-                    // First call fails
+        // Set retry times to 1 so that KV_TXN_CONFLICT will exhaust retries immediately
+        int originalRetryTimes = Config.meta_service_rpc_retry_times;
+        Config.meta_service_rpc_retry_times = 1;
+
+        try {
+            AtomicInteger commitTxnCalls = new AtomicInteger(0);
+            CountDownLatch secondCall = new CountDownLatch(1);
+            new MockUp<MetaServiceProxy>() {
+                @Mock
+                public CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request) {
+                    int call = commitTxnCalls.incrementAndGet();
+                    if (call == 1) {
+                        // First call fails with non-conflict error (won't be retried)
+                        return CommitTxnResponse.newBuilder()
+                                .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                        .setCode(MetaServiceCode.KV_TXN_CONFLICT)
+                                        .setMsg("conflict"))
+                                .build();
+                    }
+                    // Second call succeeds
+                    secondCall.countDown();
                     return CommitTxnResponse.newBuilder()
                             .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                    .setCode(MetaServiceCode.KV_TXN_CONFLICT)
-                                    .setMsg("conflict"))
+                                    .setCode(MetaServiceCode.OK).setMsg("OK"))
                             .build();
                 }
-                // Second call succeeds
-                secondCall.countDown();
-                return CommitTxnResponse.newBuilder()
-                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
-                                .setCode(MetaServiceCode.OK).setMsg("OK"))
-                        .build();
-            }
-        };
+            };
 
-        CommittedTxnEntry entry = buildEntry(TXN_ID_1, BACKEND_ID_1, TABLET_ID_1);
-        committedTxnManager.addCommittedTxn(entry);
+            CommittedTxnEntry entry = buildEntry(TXN_ID_1, BACKEND_ID_1, TABLET_ID_1);
+            committedTxnManager.addCommittedTxn(entry);
 
-        // Dispatch and mark finished
-        daemon.runAfterCatalogReady();
-        daemon.getTxnCalcTasks().get(TXN_ID_1).get(BACKEND_ID_1).setIsFinished(true);
+            // Dispatch and mark finished
+            daemon.runAfterCatalogReady();
+            daemon.getTxnCalcTasks().get(TXN_ID_1).get(BACKEND_ID_1).setIsFinished(true);
 
-        // First attempt - lightweight publish fails
-        daemon.runAfterCatalogReady();
-        Thread.sleep(300);
+            // First attempt - lightweight publish fails
+            daemon.runAfterCatalogReady();
+            Thread.sleep(300);
 
-        // Txn should still be in committed set (publish failed)
-        Assert.assertTrue("txn should still be committed after failed publish",
-                committedTxnManager.contains(TXN_ID_1));
+            // Txn should still be in committed set (publish failed)
+            Assert.assertTrue("txn should still be committed after failed publish",
+                    committedTxnManager.contains(TXN_ID_1));
 
-        // Second attempt - should retry and succeed
-        daemon.runAfterCatalogReady();
-        boolean ok = secondCall.await(5, TimeUnit.SECONDS);
-        Assert.assertTrue("second publish call should happen", ok);
+            // Second attempt - should retry and succeed
+            daemon.runAfterCatalogReady();
+            boolean ok = secondCall.await(5, TimeUnit.SECONDS);
+            Assert.assertTrue("second publish call should happen", ok);
 
-        Thread.sleep(200);
-        Assert.assertFalse("txn should be removed after successful publish",
-                committedTxnManager.contains(TXN_ID_1));
+            Thread.sleep(200);
+            Assert.assertFalse("txn should be removed after successful publish",
+                    committedTxnManager.contains(TXN_ID_1));
+        } finally {
+            Config.meta_service_rpc_retry_times = originalRetryTimes;
+        }
     }
 
     /**

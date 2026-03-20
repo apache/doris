@@ -35,6 +35,9 @@ import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.thrift.TCalcDeleteBitmapPartitionInfo;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TxnCommitAttachment;
+import org.apache.doris.transaction.TxnStateCallbackFactory;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
@@ -66,6 +69,7 @@ public class CloudPublishDaemon extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(CloudPublishDaemon.class);
 
     private final CommittedTxnManager committedTxnManager;
+    private final TxnStateCallbackFactory callbackFactory;
 
     // txnId -> Map<backendId, CalcDeleteBitmapTask>
     // Tracks sent CalcDeleteBitmapTasks per transaction
@@ -78,9 +82,11 @@ public class CloudPublishDaemon extends MasterDaemon {
     // Thread pool for lightweight publish execution
     private static ArrayList<ExecutorService> publishExecutors;
 
-    public CloudPublishDaemon(CommittedTxnManager committedTxnManager) {
+    public CloudPublishDaemon(CommittedTxnManager committedTxnManager,
+                              TxnStateCallbackFactory callbackFactory) {
         super("CLOUD_PUBLISH_DAEMON", Config.cloud_publish_interval_ms);
         this.committedTxnManager = committedTxnManager;
+        this.callbackFactory = callbackFactory;
         initPublishExecutors();
     }
 
@@ -262,6 +268,7 @@ public class CloudPublishDaemon extends MasterDaemon {
     private void executeLightweightPublish(CommittedTxnEntry entry) throws RpcException {
         long txnId = entry.getTxnId();
         long dbId = entry.getDbId();
+        TxnCommitAttachment txnCommitAttachment = entry.getTxnCommitAttachment();
 
         CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder();
         builder.setDbId(dbId)
@@ -270,13 +277,55 @@ public class CloudPublishDaemon extends MasterDaemon {
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setIsLightweightPublish(true);
 
-        CommitTxnResponse response = MetaServiceProxy.getInstance().commitTxn(builder.build());
-        MetaServiceCode code = response.getStatus().getCode();
+        CommitTxnRequest commitTxnRequest = builder.build();
+        CommitTxnResponse response = null;
+        int retryTime = 0;
 
+        try {
+            while (retryTime < Config.metaServiceRpcRetryTimes()) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("lightweight publish retryTime:{}, txnId:{}", retryTime, txnId);
+                }
+                MetaServiceProxy proxy = new MetaServiceProxy();
+                response = proxy.commitTxn(commitTxnRequest);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("lightweight publish retryTime:{}, response code:{}", retryTime,
+                            response.getStatus().getCode());
+                }
+                if (response.getStatus().getCode() != MetaServiceCode.KV_TXN_CONFLICT) {
+                    break;
+                }
+                // sleep random [20, 200] ms, avoid txn conflict
+                LOG.info("lightweight publish KV_TXN_CONFLICT, transactionId:{}, retryTime:{}", txnId, retryTime);
+                TxnUtil.backoff();
+                retryTime++;
+            }
+
+            if (response == null || response.getStatus() == null) {
+                throw new RpcException("", "lightweight publish failed for txn " + txnId + ", response is null");
+            }
+        } catch (Exception e) {
+            LOG.error("lightweight publish failed, transactionId:{}, retryTime:{}", txnId, retryTime, e);
+            throw new RpcException("", "lightweight publish failed for txn " + txnId + ": " + e.getMessage());
+        }
+
+        MetaServiceCode code = response.getStatus().getCode();
         if (code != MetaServiceCode.OK && code != MetaServiceCode.TXN_ALREADY_VISIBLE) {
             throw new RpcException("", "lightweight publish failed for txn " + txnId
                     + ", code=" + code + ", msg=" + response.getStatus().getMsg());
         }
+
+        // Execute common after-commit operations (update stats, produce events)
+        TxnUtil.afterCommitCommon(response);
+
+        // Execute callback handling using common utility
+        // For lightweight publish (two-phase), txnOperated is always true since RPC succeeded
+        // Parse TransactionState from response for callback
+        TransactionState txnState = null;
+        if (response.hasTxnInfo()) {
+            txnState = TxnUtil.transactionStateFromPb(response.getTxnInfo());
+        }
+        TxnUtil.executeCommitCallbacks(txnId, txnCommitAttachment, txnState, callbackFactory, true, true);
 
         // Success: clean up tracking, remove from committed set, wake up import thread
         Map<Long, CalcDeleteBitmapTask> tasks = txnCalcTasks.remove(txnId);

@@ -1956,7 +1956,7 @@ public class Env {
                         (org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr)
                         getGlobalTransactionMgr();
                 cloudPublishDaemon = new org.apache.doris.cloud.transaction.CloudPublishDaemon(
-                        cloudTxnMgr.getCommittedTxnManager());
+                        cloudTxnMgr.getCommittedTxnManager(), cloudTxnMgr.getCallbackFactory());
                 cloudPublishDaemon.start();
             }
             // Start txn cleaner
