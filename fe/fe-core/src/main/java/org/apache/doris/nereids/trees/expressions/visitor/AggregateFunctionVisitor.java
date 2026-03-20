@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CountByEnum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Covar;
 import org.apache.doris.nereids.trees.expressions.functions.agg.CovarSamp;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Entropy;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayIntersect;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupArrayUnion;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupBitAnd;
@@ -186,6 +187,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitCovarSamp(CovarSamp covarSamp, C context) {
         return visitNullableAggregateFunction(covarSamp, context);
+    }
+
+    default R visitEntropy(Entropy entropy, C context) {
+        return visitNullableAggregateFunction(entropy, context);
     }
 
     default R visitMultiDistinctCount(MultiDistinctCount multiDistinctCount, C context) {
