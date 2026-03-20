@@ -703,25 +703,30 @@ void OlapScanner::update_realtime_counters() {
                 stats.compressed_bytes_read);
     } else {
         _state->get_query_ctx()->resource_ctx()->io_context()->update_scan_bytes_from_local_storage(
-                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local);
         _state->get_query_ctx()
                 ->resource_ctx()
                 ->io_context()
                 ->update_scan_bytes_from_remote_storage(
-                        stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+                        stats.file_cache_stats.bytes_read_from_remote);
 
         DorisMetrics::instance()->query_scan_bytes_from_local->increment(
-                stats.file_cache_stats.bytes_read_from_local - _bytes_read_from_local);
+                stats.file_cache_stats.bytes_read_from_local);
         DorisMetrics::instance()->query_scan_bytes_from_remote->increment(
-                stats.file_cache_stats.bytes_read_from_remote - _bytes_read_from_remote);
+                stats.file_cache_stats.bytes_read_from_remote);
+    }
+
+    if (config::is_cloud_mode() && config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
+        _state->get_query_ctx()->resource_ctx()->io_context()->update_bytes_write_into_cache(
+                stats.file_cache_stats.bytes_write_into_cache);
     }
 
     _tablet_reader->mutable_stats()->compressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->uncompressed_bytes_read = 0;
     _tablet_reader->mutable_stats()->raw_rows_read = 0;
-
-    _bytes_read_from_local = _tablet_reader->stats().file_cache_stats.bytes_read_from_local;
-    _bytes_read_from_remote = _tablet_reader->stats().file_cache_stats.bytes_read_from_remote;
+    _tablet_reader->mutable_stats()->file_cache_stats = {};
 }
 
 void OlapScanner::_collect_profile_before_close() {
