@@ -1217,6 +1217,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         //type key column do not allow light schema change.
         if (newColumn.isKey()) {
+            // add last key column to base index is light schema change. mow is an exception.
             if (LOG.isDebugEnabled()) {
                 LOG.debug("newColumn: {}, isKey()==true", newColumn);
             }
@@ -1309,9 +1310,14 @@ public class SchemaChangeHandler extends AlterHandler {
             if (targetIndexId == -1L) {
                 // add to base index
                 List<Column> modIndexSchema = indexSchemaMap.get(baseIndexId);
-                checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, true,
-                        baseIndexNewColumnUniqueId);
+                int posIndex = checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, true,
+                                                baseIndexNewColumnUniqueId);
                 // no specified target index. return
+                if (posIndex >= olapTable.getIndexMetaByIndexId(baseIndexId).getShortKeyColumnCount()
+                        && Config.enable_light_add_key) {
+                    // Adding a key to base index afer short key columns is allowed.
+                    return olapTable.getEnableLightSchemaChange();
+                }
                 return lightSchemaChange;
             } else {
                 // add to rollup index
@@ -1342,10 +1348,15 @@ public class SchemaChangeHandler extends AlterHandler {
             int baseIndexNewColumnUniqueId = olapTable.getEnableLightSchemaChange()
                     ? baseIndexColUniqueIdSupplier.getAsInt() : Column.COLUMN_UNIQUE_ID_INIT_VALUE;
             List<Column> modIndexSchema = indexSchemaMap.get(baseIndexId);
-            checkAndAddColumn(modIndexSchema, newColumn, columnPos, newColNameSet, true, baseIndexNewColumnUniqueId);
+            int posIndex = checkAndAddColumn(modIndexSchema, newColumn, columnPos,
+                                             newColNameSet, true, baseIndexNewColumnUniqueId);
 
             if (targetIndexId == -1L) {
-                // no specified target index. return
+                if (posIndex >= olapTable.getIndexMetaByIndexId(baseIndexId).getShortKeyColumnCount()
+                        && Config.enable_light_add_key) {
+                    // Adding a key to base index afer short key columns is allowed.
+                    return olapTable.getEnableLightSchemaChange();
+                }
                 return lightSchemaChange;
             }
 
@@ -1368,11 +1379,12 @@ public class SchemaChangeHandler extends AlterHandler {
      *      ADD COLUMN k1 int to rollup2
      * So that k1 will be added to base index 'twice', and we just ignore this repeat adding.
      */
-    private void checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
+    private int checkAndAddColumn(List<Column> modIndexSchema, Column newColumn, ColumnPosition columnPos,
                                    Set<String> newColNameSet, boolean isBaseIndex, int newColumnUniqueId)
             throws DdlException {
         int posIndex = -1;
         int lastVisibleIdx = -1;
+        int keyNum = -1;
         String newColName = newColumn.getName();
         boolean hasPos = (columnPos != null && !columnPos.isFirst());
         for (int i = 0; i < modIndexSchema.size(); i++) {
@@ -1390,7 +1402,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
 
                 // column already exist, return
-                return;
+                return -1;
             }
             if (col.isVisible()) {
                 lastVisibleIdx = i;
@@ -1401,11 +1413,10 @@ public class SchemaChangeHandler extends AlterHandler {
                 if (col.getName().equalsIgnoreCase(columnPos.getLastCol())) {
                     posIndex = i;
                 }
-            } else {
-                // save the last Key position
-                if (col.isKey()) {
-                    posIndex = i;
-                }
+            }
+            // save the last Key position
+            if (col.isKey()) {
+                keyNum = i;
             }
         }
 
@@ -1423,21 +1434,24 @@ public class SchemaChangeHandler extends AlterHandler {
         // newColumn may add to baseIndex or rollups, so we need copy before change UniqueId
         Column toAddColumn = new Column(newColumn);
         toAddColumn.setUniqueId(newColumnUniqueId);
-        if (hasPos) {
-            modIndexSchema.add(posIndex + 1, toAddColumn);
-        } else if (toAddColumn.isKey()) {
-            // key
-            modIndexSchema.add(posIndex + 1, toAddColumn);
-        } else if (lastVisibleIdx != -1 && lastVisibleIdx < modIndexSchema.size() - 1) {
-            // has hidden columns
-            modIndexSchema.add(lastVisibleIdx + 1, toAddColumn);
-        } else {
-            // value
-            modIndexSchema.add(toAddColumn);
+        if (!hasPos) {
+            if (toAddColumn.isKey()) {
+                posIndex = keyNum;
+                // key
+            } else if (lastVisibleIdx != -1 && lastVisibleIdx < modIndexSchema.size() - 1) {
+                // has hidden columns
+                posIndex = lastVisibleIdx;
+            } else {
+                // value
+                posIndex = modIndexSchema.size() - 1;
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("newColumn setUniqueId({}), modIndexSchema:{}", newColumnUniqueId, modIndexSchema);
         }
+        modIndexSchema.add(posIndex + 1, toAddColumn);
+
+        return posIndex + 1;
     }
 
     private void checkIndexExists(OlapTable olapTable, String targetIndexName) throws DdlException {

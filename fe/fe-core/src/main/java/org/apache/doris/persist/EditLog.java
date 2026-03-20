@@ -315,6 +315,10 @@ public class EditLog {
                 LOG.debug("replay journal op code: {}, log id: {}", opCode, logId);
             }
         }
+        if (DebugPointUtil.isEnable("Editlog.skipLoadJournal")) {
+            LOG.warn("DebugPointUtil is enabled, skip load journal, opCode: {}, logId: {}", opCode, logId);
+            return;
+        }
         try {
             switch (opCode) {
                 case OperationType.OP_SAVE_NEXTID: {

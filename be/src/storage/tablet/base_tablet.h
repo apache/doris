@@ -76,6 +76,13 @@ public:
     CompressKind compress_kind() const { return _tablet_meta->tablet_schema()->compress_kind(); }
     KeysType keys_type() const { return _tablet_meta->tablet_schema()->keys_type(); }
     size_t num_key_columns() const { return _tablet_meta->tablet_schema()->num_key_columns(); }
+
+    // FE may have a different schema than BE, so we need to use the max version schema
+    size_t num_key_columns(const TabletSchema& tablet_schema) const {
+        // max version implies max key columns.
+        return std::max(tablet_schema.num_key_columns(), num_key_columns());
+    }
+
     int64_t ttl_seconds() const { return _tablet_meta->ttl_seconds(); }
     // currently used by schema change, inverted index building, and cooldown
     std::timed_mutex& get_schema_change_lock() { return _schema_change_lock; }
