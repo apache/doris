@@ -18,6 +18,7 @@
 suite("test_variant_modify_doc_materialization_min_rows", "p0") {
     def tableName = "test_variant_modify_doc_min_rows"
 
+    sql """ set default_variant_max_subcolumns_count = 0 """
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
     // Step 1: Create table with variant_doc_materialization_min_rows=10

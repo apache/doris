@@ -117,8 +117,8 @@ std::string Rowset::get_rowset_info_str() {
 
 const TabletSchemaSPtr& Rowset::tablet_schema() const {
 #ifdef BE_TEST
-    // for mocking tablet schema
-    return _schema;
+    // for mocking tablet schema, but still respect updates via set_tablet_schema()
+    return _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : _schema;
 #endif
     return _rowset_meta->tablet_schema() ? _rowset_meta->tablet_schema() : _schema;
 }

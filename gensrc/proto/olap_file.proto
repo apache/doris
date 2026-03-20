@@ -391,6 +391,8 @@ message ColumnPB {
     // Number of buckets used to store doc map in variant doc mode.
     optional int32 variant_doc_hash_shard_count = 33 [default = 64];
     optional bool variant_enable_nested_group = 34 [default = false];
+    // deprecated: variant_doc_mode_path_threshold is removed, threshold is hardcoded to 2048
+    // optional int64 variant_doc_mode_path_threshold = 35 [default = 2048];
 }
 
 // Dictionary of Schema info, to reduce TabletSchemaCloudPB fdb kv size

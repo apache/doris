@@ -61,6 +61,8 @@ public class VariantType extends ScalarType {
     @SerializedName(value = "variantDocShardCount")
     private final int variantDocShardCount;
 
+
+
     @SerializedName(value = "enableNestedGroup")
     private final boolean enableNestedGroup;
 
@@ -168,11 +170,15 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_enable_doc_mode\" = \"")
                                     .append(String.valueOf(enableVariantDocMode)).append("\"");
             sb.append(",");
+            sb.append("\"variant_max_subcolumns_count\" = \"")
+                                        .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
+            sb.append(",");
             sb.append("\"variant_doc_materialization_min_rows\" = \"")
                                         .append(String.valueOf(variantDocMaterializationMinRows)).append("\"");
             sb.append(",");
             sb.append("\"variant_doc_hash_shard_count\" = \"")
                                         .append(String.valueOf(variantDocShardCount)).append("\"");
+
         } else {
             sb.append("\"variant_max_subcolumns_count\" = \"")
                                     .append(String.valueOf(variantMaxSubcolumnsCount)).append("\"");
@@ -183,8 +189,9 @@ public class VariantType extends ScalarType {
             sb.append("\"variant_max_sparse_column_statistics_size\" = \"")
                                         .append(String.valueOf(variantMaxSparseColumnStatisticsSize)).append("\"");
             sb.append(",");
+            // Output at least 1 for backward compatibility: old data without this parameter defaults to 0
             sb.append("\"variant_sparse_hash_shard_count\" = \"")
-                                        .append(String.valueOf(variantSparseHashShardCount)).append("\"");
+                                        .append(String.valueOf(Math.max(1, variantSparseHashShardCount))).append("\"");
         }
         sb.append(")>");
         return sb.toString();
@@ -263,6 +270,7 @@ public class VariantType extends ScalarType {
     public long getvariantDocMaterializationMinRows() {
         return variantDocMaterializationMinRows;
     }
+
 
     public int getVariantDocShardCount() {
         return variantDocShardCount;

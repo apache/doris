@@ -894,6 +894,12 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             if (source_stats->has_nested_group) {
                 (*uid_to_variant_extended_info)[column->unique_id()].has_nested_group = true;
             }
+
+            // 6. detect actual segment storage format for doc-mode columns
+            if (column->variant_enable_doc_mode() &&
+                source_stats->has_doc_value_column_non_null_size()) {
+                (*uid_to_variant_extended_info)[column->unique_id()].has_doc_value_segments = true;
+            }
         }
     }
     return Status::OK();
@@ -1217,13 +1223,28 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
         if (column->variant_enable_doc_mode()) {
-            const int bucket_num = std::max(1, column->variant_doc_hash_shard_count());
-            for (int b = 0; b < bucket_num; ++b) {
-                TabletColumn doc_value_bucket_column = create_doc_value_column(*column, b);
-                doc_value_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
-                doc_value_bucket_column.set_is_nullable(false);
-                output_schema->append_column(doc_value_bucket_column);
+            const auto& info = uid_to_variant_extended_info[column->unique_id()];
+
+            if (info.has_doc_value_segments) {
+                // At least one segment has doc-value data (all-doc or mixed).
+                // Output doc-value bucket columns.
+                // For mixed case, a new SubcolumnToDocCompactIterator will
+                // convert subcolumn data to doc-value format at read time.
+                const int bucket_num = std::max(1, column->variant_doc_hash_shard_count());
+                for (int b = 0; b < bucket_num; ++b) {
+                    TabletColumn doc_value_bucket_column = create_doc_value_column(*column, b);
+                    doc_value_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
+                    doc_value_bucket_column.set_is_nullable(false);
+                    output_schema->append_column(doc_value_bucket_column);
+                }
+                continue;
             }
+            // All segments were downgraded to subcolumn mode (path < threshold).
+            // All subcolumns are materialized, use get_compaction_subcolumns_from_data_types.
+            get_compaction_subcolumns_from_data_types(
+                    uid_to_paths_set_info[column->unique_id()], column, target,
+                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
+                    output_schema);
             continue;
         }
 
@@ -1820,10 +1841,12 @@ private:
     size_t num_dimensions_to_keep;
 };
 
+/// Parse JSON to ParseResult only (no insertion into ColumnVariant).
+/// Handles empty strings and parse failures with fallback to string root.
 template <typename ParserImpl>
-void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
-                                JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
-    auto& column_variant = assert_cast<ColumnVariant&>(column);
+static ParseResult parse_json_to_result(const char* src, size_t length,
+                                        JSONDataParser<ParserImpl>* parser,
+                                        const ParseConfig& config) {
     std::optional<ParseResult> result;
     /// Treat empty string as an empty object
     /// for better CAST from String to Object.
@@ -1843,7 +1866,14 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         Field field = Field::create_field<TYPE_STRING>(String(src, length));
         result = ParseResult {{root_path}, {field}};
     }
-    auto& [paths, values] = *result;
+    return std::move(*result);
+}
+
+/// Insert a pre-parsed ParseResult into ColumnVariant using the specified parse mode.
+static void insert_parse_result_into_variant(IColumn& column, ParseResult&& result,
+                                             const ParseConfig& config) {
+    auto& column_variant = assert_cast<ColumnVariant&>(column);
+    auto& [paths, values] = result;
     assert(paths.size() == values.size());
     size_t old_num_rows = column_variant.rows();
     if (config.deprecated_enable_flatten_nested) {
@@ -1978,6 +2008,14 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
 #endif
 }
 
+/// Original combined parse+insert function, now delegates to the two-step functions.
+template <typename ParserImpl>
+void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
+                                JSONDataParser<ParserImpl>* parser, const ParseConfig& config) {
+    auto result = parse_json_to_result(src, length, parser, config);
+    insert_parse_result_into_variant(column, std::move(result), config);
+}
+
 // exposed interfaces
 void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* parser,
                            const ParseConfig& config) {
@@ -1992,9 +2030,56 @@ void parse_json_to_variant(IColumn& column, const StringRef& json, JsonParser* p
 void parse_json_to_variant(IColumn& column, const ColumnString& raw_json_column,
                            const ParseConfig& config) {
     auto parser = parsers_pool.get([] { return new JsonParser(); });
-    for (size_t i = 0; i < raw_json_column.size(); ++i) {
-        StringRef raw_json = raw_json_column.get_data_at(i);
-        parse_json_to_variant_impl(column, raw_json.data, raw_json.size, parser.get(), config);
+
+    if (config.parse_to == ParseConfig::ParseTo::OnlyDocValueColumn) {
+        // Doc mode: sample first rows to decide whether to use subcolumns or docvalue.
+        // If the batch has few unique paths (< threshold), subcolumn mode is more efficient.
+        constexpr size_t DOC_MODE_SAMPLE_SIZE = 512;
+        const size_t total = raw_json_column.size();
+        const size_t sample_end = std::min(DOC_MODE_SAMPLE_SIZE, total);
+
+        // Phase 1: Parse sample rows, buffer ParseResults and collect unique paths
+        std::vector<ParseResult> sampled_results;
+        sampled_results.reserve(sample_end);
+        phmap::flat_hash_set<std::string> unique_paths;
+        for (size_t i = 0; i < sample_end; ++i) {
+            StringRef raw_json = raw_json_column.get_data_at(i);
+            auto result = parse_json_to_result(raw_json.data, raw_json.size, parser.get(), config);
+            for (const auto& p : result.paths) {
+                if (!p.empty()) {
+                    unique_paths.insert(p.get_path());
+                }
+            }
+            sampled_results.push_back(std::move(result));
+        }
+
+        // Phase 2: Decide parse mode based on unique path count
+        // If the number of unique paths is within the max subcolumns limit,
+        // subcolumn mode is more efficient than doc-value mode.
+        ParseConfig actual_config = config;
+        if (unique_paths.size() < static_cast<size_t>(config.max_subcolumns_count)) {
+            actual_config.parse_to = ParseConfig::ParseTo::OnlySubcolumns;
+        }
+        unique_paths.clear(); // free path set memory
+
+        // Phase 3: Insert buffered sample rows with chosen mode, then free buffer
+        for (auto& result : sampled_results) {
+            insert_parse_result_into_variant(column, std::move(result), actual_config);
+        }
+        sampled_results.clear(); // free ParseResult buffer
+
+        // Phase 4: Parse remaining rows one by one with chosen mode
+        for (size_t i = sample_end; i < total; ++i) {
+            StringRef raw_json = raw_json_column.get_data_at(i);
+            parse_json_to_variant_impl(column, raw_json.data, raw_json.size, parser.get(),
+                                       actual_config);
+        }
+    } else {
+        // Non-doc mode: original path unchanged
+        for (size_t i = 0; i < raw_json_column.size(); ++i) {
+            StringRef raw_json = raw_json_column.get_data_at(i);
+            parse_json_to_variant_impl(column, raw_json.data, raw_json.size, parser.get(), config);
+        }
     }
     column.finalize();
 }
@@ -2170,6 +2255,7 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
         }
 
         configs[i].parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+        configs[i].max_subcolumns_count = column.variant_max_subcolumns_count();
     }
 
     RETURN_IF_ERROR(parse_and_materialize_variant_columns(block, variant_column_pos, configs));

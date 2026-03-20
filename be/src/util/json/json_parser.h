@@ -106,6 +106,7 @@ struct ParseConfig {
         OnlyDocValueColumn = 1,
     };
     ParseTo parse_to = ParseTo::OnlySubcolumns;
+    int32_t max_subcolumns_count = 0;
 };
 /// Result of parsing of a document.
 /// Contains all paths extracted from document

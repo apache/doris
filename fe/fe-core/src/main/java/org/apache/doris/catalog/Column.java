@@ -1343,6 +1343,7 @@ public class Column implements GsonPostProcessable {
         return type.isVariantType() ? ((ScalarType) type).getVariantDocShardCount() : 128;
     }
 
+
     public boolean getVariantEnableNestedGroup() {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
     }

@@ -25,6 +25,7 @@ suite("predefine_schema_change_doc_value", "p0"){
         sql """ set default_variant_doc_materialization_min_rows = 10000 """
     }
     sql """ set default_variant_enable_doc_mode = true """
+    sql """ set default_variant_max_subcolumns_count = 0 """
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """CREATE TABLE ${tableName} (
         `id` bigint NULL,

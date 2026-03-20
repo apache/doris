@@ -1067,6 +1067,7 @@ public class ScalarType extends Type {
         return 128;
     }
 
+
     public boolean getVariantEnableNestedGroup() {
         if (this instanceof VariantType) {
             return ((VariantType) this).getEnableNestedGroup();

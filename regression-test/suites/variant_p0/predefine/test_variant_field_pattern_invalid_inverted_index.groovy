@@ -19,6 +19,7 @@ suite("test_variant_field_pattern_invalid_inverted_index", "p0") {
     def tableName = "test_variant_field_pattern_invalid_inverted_index"
 
     sql " set default_variant_enable_doc_mode = true"
+    sql """ set default_variant_max_subcolumns_count = 0 """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
     test {

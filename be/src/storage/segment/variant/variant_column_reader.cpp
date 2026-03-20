@@ -51,6 +51,7 @@
 #include "storage/segment/variant/nested_group_path.h"
 #include "storage/segment/variant/sparse_column_merge_iterator.h"
 #include "storage/segment/variant/variant_doc_snpashot_compact_iterator.h"
+#include "storage/segment/variant/variant_subcolumn_to_doc_iterator.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/debug_points.h"
 #include "util/json/path_in_data.h"
@@ -370,12 +371,54 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
         // case 3: doc snapshot column
         if (rel.find(DOC_VALUE_COLUMN_PATH) != std::string::npos) {
-            CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE);
-            size_t bucket = rel.rfind('b');
-            uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket + 1)));
-            plan->kind = ReadKind::DOC_COMPACT;
+            size_t bucket_pos = rel.rfind('b');
+            uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket_pos + 1)));
+
+            if (_binary_column_reader &&
+                _binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_DOC_VALUE) {
+                // This segment has doc-value data: use direct doc compact reader
+                plan->kind = ReadKind::DOC_COMPACT;
+                plan->type = DataTypeFactory::instance().create_data_type(target_col);
+                plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
+                return Status::OK();
+            }
+
+            // This segment has subcolumn-only data (downgraded):
+            // collect leaf subcolumns that belong to this bucket
+            plan->kind = ReadKind::SUBCOLUMN_TO_DOC;
             plan->type = DataTypeFactory::instance().create_data_type(target_col);
-            plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
+            // Get the total bucket count from the parent variant column
+            // target_col is a doc-bucket child column; parent carries the shard count
+            uint32_t total_buckets = 1;
+            if (opts && opts->tablet_schema) {
+                int32_t parent_uid = target_col.parent_unique_id();
+                for (size_t ci = 0; ci < opts->tablet_schema->num_columns(); ++ci) {
+                    const auto& col = opts->tablet_schema->column(ci);
+                    if (col.unique_id() == parent_uid) {
+                        total_buckets = std::max(1, col.variant_doc_hash_shard_count());
+                        break;
+                    }
+                }
+            }
+            // If we can get bucket_num from the column that created this path
+            // The parent column should carry the shard count
+            const auto& leaves = _subcolumns_meta_info->get_leaves();
+            for (const auto& leaf : leaves) {
+                const std::string& path = leaf->path.get_path();
+                if (path.empty()) continue;
+                StringRef path_ref {path.data(), path.size()};
+                if (variant_util::variant_binary_shard_of(path_ref, total_buckets) ==
+                    bucket_value) {
+                    std::shared_ptr<ColumnReader> reader;
+                    RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
+                            col_uid, leaf->path, &reader, opts->stats, leaf.get()));
+                    if (!reader) {
+                        return Status::NotFound("subcolumn reader not found for path: {}", path);
+                    }
+                    plan->subcolumn_entries_for_doc.push_back(
+                            {path, std::move(reader), leaf->data.file_column_type});
+                }
+            }
             return Status::OK();
         }
 
@@ -940,6 +983,15 @@ Status VariantColumnReader::_create_iterator_from_plan(
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR(plan.binary_column_reader->new_iterator(&inner_iter, nullptr));
         *iterator = std::make_unique<VariantDocValueCompactIterator>(std::move(inner_iter));
+        return Status::OK();
+    }
+    case ReadKind::SUBCOLUMN_TO_DOC: {
+        std::vector<SubcolumnToDocCompactIterator::LeafEntry> entries;
+        entries.reserve(plan.subcolumn_entries_for_doc.size());
+        for (const auto& e : plan.subcolumn_entries_for_doc) {
+            entries.push_back({e.path, e.reader, nullptr, e.type});
+        }
+        *iterator = std::make_unique<SubcolumnToDocCompactIterator>(std::move(entries));
         return Status::OK();
     }
     case ReadKind::HIERARCHICAL_DOC: {

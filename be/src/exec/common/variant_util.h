@@ -80,6 +80,10 @@ struct VariantExtendedInfo {
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
     bool has_nested_group = false;      // whether this variant column has nested group
+    // For doc-mode columns: true if at least one segment actually stores doc-value data.
+    // When all segments are downgraded (path < threshold), this stays false and
+    // compaction uses the all-materialized subcolumn schema instead.
+    bool has_doc_value_segments = false;
 };
 
 /// Returns number of dimensions in Array type. 0 if type is not array.

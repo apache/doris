@@ -221,7 +221,12 @@ static void fill_variant_column_with_doc_value_only(
     ParseConfig config;
     config.deprecated_enable_flatten_nested = false;
     config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
-    variant_util::parse_json_to_variant(*column_object, *column_string, config);
+    // Use single-row API to bypass batch sampling logic, ensuring doc-value-only output
+    for (size_t i = 0; i < column_string->size(); ++i) {
+        StringRef ref = column_string->get_data_at(i);
+        variant_util::parse_json_to_variant(*column_object, ref, nullptr, config);
+    }
+    column_object->finalize();
 }
 
 // DOC_COMPACT reads only one doc bucket column (e.g. "__DORIS_VARIANT_DOC_VALUE__.b0"), so it
@@ -1345,11 +1350,19 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
 
     MutableColumnPtr root_variant =
             ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
-    variant_util::parse_json_to_variant(*root_variant, *full_strings, config);
+    for (size_t i = 0; i < full_strings->size(); ++i) {
+        StringRef ref = full_strings->get_data_at(i);
+        variant_util::parse_json_to_variant(*root_variant, ref, nullptr, config);
+    }
+    root_variant->finalize();
 
     MutableColumnPtr bucket_variant =
             ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
-    variant_util::parse_json_to_variant(*bucket_variant, *bucket_strings, config);
+    for (size_t i = 0; i < bucket_strings->size(); ++i) {
+        StringRef ref = bucket_strings->get_data_at(i);
+        variant_util::parse_json_to_variant(*bucket_variant, ref, nullptr, config);
+    }
+    bucket_variant->finalize();
 
     // 6. append and write
     {
@@ -1520,7 +1533,11 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
 
     MutableColumnPtr bucket_variant =
             ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
-    variant_util::parse_json_to_variant(*bucket_variant, *strings, parse_cfg);
+    for (size_t i = 0; i < strings->size(); ++i) {
+        StringRef ref = strings->get_data_at(i);
+        variant_util::parse_json_to_variant(*bucket_variant, ref, nullptr, parse_cfg);
+    }
+    bucket_variant->finalize();
 
     auto bucket_data = std::make_unique<VariantColumnData>();
     bucket_data->column_data = bucket_variant.get();
@@ -1621,7 +1638,11 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
 
     MutableColumnPtr variant_column =
             ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
-    variant_util::parse_json_to_variant(*variant_column, *strings, parse_cfg);
+    for (size_t i = 0; i < strings->size(); ++i) {
+        StringRef ref = strings->get_data_at(i);
+        variant_util::parse_json_to_variant(*variant_column, ref, nullptr, parse_cfg);
+    }
+    variant_column->finalize();
 
     auto variant_data = std::make_unique<VariantColumnData>();
     variant_data->column_data = variant_column.get();

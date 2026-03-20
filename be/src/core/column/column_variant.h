@@ -637,6 +637,11 @@ public:
     // doc snapshot mode: only root column, and doc snapshot column is not empty
     bool is_doc_mode() const;
 
+    // Convert all existing subcolumn data into doc_value_column entries.
+    // After conversion: subcolumns.size()==1 (root only), all data in doc_value_column.
+    // Used when merging ColumnVariant with different structures (subcolumn vs doc_value).
+    void convert_subcolumns_to_doc_value();
+
     void try_get_from_doc_value_column(size_t n, Field& res) const;
 
     void insert_to_doc_value_column(const Field& field);
