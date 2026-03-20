@@ -118,7 +118,12 @@ public class Daemon extends Thread {
             try {
                 runOneCycle();
             } catch (Throwable e) {
-                LOG.error("daemon thread got exception. name: {}", getName(), e);
+                String errMsg = e.getMessage();
+                if (errMsg != null && errMsg.contains("No backend available")) {
+                    LOG.warn("daemon thread got exception. name: {}, error: {}", getName(), errMsg);
+                } else {
+                    LOG.error("daemon thread got exception. name: {}", getName(), e);
+                }
             }
 
             try {
