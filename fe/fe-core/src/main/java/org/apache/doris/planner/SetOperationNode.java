@@ -23,7 +23,6 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeType;
 import org.apache.doris.planner.LocalExchangeNode.LocalExchangeTypeRequire;
-import org.apache.doris.planner.LocalExchangeNode.NoRequire;
 import org.apache.doris.thrift.TExceptNode;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExpr;
@@ -204,7 +203,17 @@ public abstract class SetOperationNode extends PlanNode {
             PlanNode parent, LocalExchangeTypeRequire parentRequire) {
         if (this instanceof UnionNode) {
             ArrayList<PlanNode> newChildren = Lists.newArrayList();
-            NoRequire requireChild = LocalExchangeTypeRequire.noRequire();
+            // Propagate parent's hash requirement to children when parent requires hash distribution.
+            // Matches BE's UnionSinkOperatorX which returns GLOBAL_HASH(_distribute_exprs) whenever
+            // _followed_by_shuffled_operator=true, regardless of whether _distribute_exprs is empty.
+            boolean canPropagateHash = parentRequire.preferType().isHashShuffle();
+            LocalExchangeTypeRequire requireChild = canPropagateHash
+                    ? parentRequire : LocalExchangeTypeRequire.noRequire();
+            LocalExchangeType outputType = canPropagateHash
+                    ? AddLocalExchange.resolveExchangeType(requireChild, translatorContext, this,
+                            children.isEmpty() ? null : children.get(0))
+                    : LocalExchangeType.NOOP;
+
             for (int i = 0; i < children.size(); i++) {
                 PlanNode child = children.get(i);
                 Pair<PlanNode, LocalExchangeType> childOutput
@@ -222,7 +231,7 @@ public abstract class SetOperationNode extends PlanNode {
             }
 
             this.children = newChildren;
-            return Pair.of(this, LocalExchangeType.NOOP);
+            return Pair.of(this, outputType);
         } else {
             LocalExchangeTypeRequire requireChild;
             LocalExchangeType outputType;

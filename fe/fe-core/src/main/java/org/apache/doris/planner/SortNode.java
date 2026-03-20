@@ -268,6 +268,12 @@ public class SortNode extends PlanNode {
                 requireChild = parentRequire.autoRequireHash();
             }
         } else if (mergeByexchange) {
+            // BE: SortSink._merge_by_exchange=true → required_data_distribution() = PASSTHROUGH.
+            // FE: use requirePassthrough via enforceChild. If child already returns PASSTHROUGH
+            // (e.g. TableFunctionNode), enforceChild dedup skips inserting a redundant exchange —
+            // this is semantically correct since Sort(mergeByexchange=true) is parallel and TF can
+            // share the same pipeline stage. BE inserts 2 PASSthrough due to per-operator-boundary
+            // pipeline splitting (a known diff, not a correctness issue).
             requireChild = LocalExchangeTypeRequire.requirePassthrough();
             outputType = LocalExchangeType.PASSTHROUGH;
         } else if (fragment.useSerialSource(translatorContext.getConnectContext())

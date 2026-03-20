@@ -158,6 +158,11 @@ public class AnalyticEvalNode extends PlanNode {
     }
 
     @Override
+    protected List<Expr> getSemanticPartitionExprs() {
+        return partitionExprs;
+    }
+
+    @Override
     public Pair<PlanNode, LocalExchangeType> enforceAndDeriveLocalExchange(PlanTranslatorContext translatorContext,
             PlanNode parent, LocalExchangeTypeRequire parentRequire) {
         LocalExchangeTypeRequire requireChild;

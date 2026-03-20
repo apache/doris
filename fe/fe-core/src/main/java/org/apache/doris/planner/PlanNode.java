@@ -982,6 +982,33 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
         }
     }
 
+    /**
+     * Returns the operator's own semantically-defined partition expressions
+     * (e.g. GROUP BY exprs for aggregation, PARTITION BY exprs for analytic).
+     * Corresponds to BE's fallback path: tnode.agg_node.grouping_exprs /
+     * tnode.analytic_node.partition_exprs when _followed_by_shuffled_operator=false.
+     * Override in subclasses that have intrinsic partition keys.
+     */
+    protected List<Expr> getSemanticPartitionExprs() {
+        return null;
+    }
+
+    /**
+     * Returns true if there are effective (non-empty) partition expressions,
+     * mirroring BE's _partition_exprs logic:
+     *   _followed_by_shuffled_operator=true  → distribute_expr_lists[0] (child distribute key)
+     *   _followed_by_shuffled_operator=false → semantic partition exprs (grouping / partition by)
+     * parentRequire.preferType().isHashShuffle() corresponds to _followed_by_shuffled_operator=true.
+     */
+    protected boolean hasPartitionExprs(LocalExchangeTypeRequire parentRequire) {
+        if (parentRequire.preferType().isHashShuffle()) {
+            List<Expr> childExprs = getChildDistributeExprList(0);
+            return childExprs != null && !childExprs.isEmpty();
+        }
+        List<Expr> semanticExprs = getSemanticPartitionExprs();
+        return semanticExprs != null && !semanticExprs.isEmpty();
+    }
+
     public List<List<Expr>> getChildrenDistributeExprLists() {
         return childrenDistributeExprLists;
     }

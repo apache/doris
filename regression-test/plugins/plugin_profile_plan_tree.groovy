@@ -252,7 +252,23 @@ Suite.metaClass.profile_plan_tree_from_id = { String queryId ->
     conn.setConnectTimeout(5000)
     conn.setReadTimeout(15000)
     def profileText = conn.getInputStream().getText()
-    return suite.profile_plan_tree(profileText)
+    def tree = suite.profile_plan_tree(profileText)
+    return tree.split('\n').findAll { !it.startsWith('      | ') }.join('\n')
 }
 
-logger.info("Added 'profile_plan_tree' and 'profile_plan_tree_from_id' to Suite")
+// ---------------------------------------------------------------------------
+// profile_plan_tree_from_sql(testSql) → formatted String
+//   Executes the SQL with profiling enabled and SQL cache disabled,
+//   waits for the profile to be collected, then returns the operator tree.
+// ---------------------------------------------------------------------------
+Suite.metaClass.profile_plan_tree_from_sql = { String testSql ->
+    Suite suite = delegate as Suite
+    suite.sql "set enable_profile=true;"
+    suite.sql "set enable_sql_cache=false;"
+    suite.sql testSql
+    def qid = suite.sql("select last_query_id()")[0][0] as String
+    Thread.sleep(1500)
+    return suite.profile_plan_tree_from_id(qid)
+}
+
+logger.info("Added 'profile_plan_tree', 'profile_plan_tree_from_id' and 'profile_plan_tree_from_sql' to Suite")
