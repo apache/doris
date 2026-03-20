@@ -45,6 +45,10 @@ private:
     Status pick_rowsets_to_compact();
 
     std::string_view compaction_name() const override { return "CloudCumulativeCompaction"; }
+    CompactionProfileType profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
+    int64_t input_segments_num() const override { return _input_segments; }
 
     Status modify_rowsets() override;
 

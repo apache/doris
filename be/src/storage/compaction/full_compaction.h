@@ -44,6 +44,7 @@ private:
     Status modify_rowsets() override;
 
     std::string_view compaction_name() const override { return "full compaction"; }
+    CompactionProfileType profile_type() const override { return CompactionProfileType::FULL; }
 
     ReaderType compaction_type() const override { return ReaderType::READER_FULL_COMPACTION; }
 

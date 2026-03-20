@@ -35,6 +35,7 @@
 #include "common/status.h"
 #include "io/io_common.h"
 #include "runtime/runtime_profile.h"
+#include "storage/compaction/compaction_profile_mgr.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
 #include "storage/rowid_conversion.h"
@@ -74,6 +75,8 @@ public:
 
     virtual ReaderType compaction_type() const = 0;
     virtual std::string_view compaction_name() const = 0;
+    virtual CompactionProfileType profile_type() const = 0;
+    virtual int64_t input_segments_num() const { return _input_num_segments; }
 
     // the difference between index change compmaction and other compaction.
     // 1. delete predicate should be kept when input is cumu rowset.
@@ -110,6 +113,9 @@ protected:
 
     virtual Status update_delete_bitmap() = 0;
 
+    void submit_profile_record(bool success, int64_t start_time_ms,
+                               const std::string& status_msg = "");
+
     // the root tracker for this compaction
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
@@ -121,6 +127,7 @@ protected:
     int64_t _input_rowsets_total_size {0};
     int64_t _input_row_num {0};
     int64_t _input_num_segments {0};
+    int64_t _compaction_id {0};
 
     int64_t _local_read_bytes_total {};
     int64_t _remote_read_bytes_total {};

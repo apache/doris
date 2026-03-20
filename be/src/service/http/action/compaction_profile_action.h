@@ -17,32 +17,19 @@
 
 #pragma once
 
-#include <string>
-
-#include "common/status.h"
-#include "io/io_common.h"
-#include "storage/compaction/compaction.h"
+#include "service/http/http_handler_with_auth.h"
 
 namespace doris {
+class HttpRequest;
+class ExecEnv;
 
-class ColdDataCompaction final : public CompactionMixin {
+class CompactionProfileAction : public HttpHandlerWithAuth {
 public:
-    ColdDataCompaction(StorageEngine& engine, const TabletSharedPtr& tablet);
-    ~ColdDataCompaction() override;
+    CompactionProfileAction(ExecEnv* exec_env, TPrivilegeHier::type hier,
+                            TPrivilegeType::type ptype);
+    ~CompactionProfileAction() override = default;
 
-    Status prepare_compact() override;
-    Status execute_compact() override;
-
-private:
-    std::string_view compaction_name() const override { return "cold data compaction"; }
-    CompactionProfileType profile_type() const override { return CompactionProfileType::COLD_DATA; }
-    ReaderType compaction_type() const override { return ReaderType::READER_COLD_DATA_COMPACTION; }
-
-    Status construct_output_rowset_writer(RowsetWriterContext& ctx) override;
-
-    Status pick_rowsets_to_compact();
-
-    Status modify_rowsets() override;
+    void handle(HttpRequest* req) override;
 };
 
 } // namespace doris
