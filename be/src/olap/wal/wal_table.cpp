@@ -30,6 +30,7 @@
 #include "io/fs/stream_load_pipe.h"
 #include "olap/wal/wal_manager.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/path_util.h"
 #include "util/thrift_rpc_helper.h"

@@ -54,7 +54,6 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gutil/ref_counted.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
 #include "runtime/types.h"

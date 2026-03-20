@@ -26,10 +26,11 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "http/action/http_stream.h"
 #include "olap/wal/wal_info.h"
-#include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
+
+class ExecEnv;
 class WalTable {
 public:
     WalTable(ExecEnv* exec_env, int64_t db_id, int64_t table_id);

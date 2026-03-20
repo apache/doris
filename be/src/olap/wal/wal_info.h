@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
-#include "runtime/exec_env.h"
 
 namespace doris {
 class WalInfo {

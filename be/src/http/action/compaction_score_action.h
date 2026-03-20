@@ -28,8 +28,10 @@
 #include "http/http_handler_with_auth.h"
 #include "http/http_request.h"
 #include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
+
 namespace doris {
+
+class ExecEnv;
 
 struct CompactionScoreResult {
     int64_t tablet_id;

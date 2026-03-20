@@ -21,6 +21,7 @@
 
 #include "http/http_channel.h"
 #include "runtime/client_cache.h"
+#include "runtime/exec_env.h"
 #include "util/thrift_rpc_helper.h"
 #include "utils.h"
 

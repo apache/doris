@@ -30,7 +30,6 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/object_pool.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/query_statistics.h"
 #include "runtime/runtime_filter_mgr.h"
@@ -42,6 +41,8 @@
 #include "workload_group/workload_group.h"
 
 namespace doris {
+
+class ExecEnv;
 
 namespace pipeline {
 class PipelineFragmentContext;

@@ -24,7 +24,6 @@
 
 #include "common/status.h"
 #include "olap/tablet.h"
-#include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/stopwatch.hpp"
 #include "vec/core/block.h"

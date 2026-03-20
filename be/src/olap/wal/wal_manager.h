@@ -38,12 +38,14 @@
 #include "olap/wal/wal_reader.h"
 #include "olap/wal/wal_table.h"
 #include "olap/wal/wal_writer.h"
-#include "runtime/exec_env.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 
 namespace doris {
+
+class ExecEnv;
+
 class WalManager {
     ENABLE_FACTORY_CREATOR(WalManager);
     struct ScanWalInfo {

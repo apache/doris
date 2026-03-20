@@ -49,6 +49,7 @@
 #include "http/http_status.h"
 #include "olap/tablet_fwd.h"
 #include "olap/tablet_manager.h"
+#include "runtime/exec_env.h"
 #include "util/stopwatch.hpp"
 
 namespace doris {

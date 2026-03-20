@@ -31,7 +31,6 @@
 
 #include "common/status.h"
 #include "olap/wal/wal_manager.h"
-#include "runtime/exec_env.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
 #include "vec/sink/writer/vwal_writer.h"
