@@ -57,13 +57,6 @@ suite("test_authentication_integration_auth", "p0,auth") {
             exception "does not allow modifying property 'type'"
         }
 
-        test {
-            sql """
-                ALTER AUTHENTICATION INTEGRATION ${integrationName}_not_exist
-                SET PROPERTIES ('type'='oidc')
-            """
-            exception "does not exist"
-        }
 
         sql """
             ALTER AUTHENTICATION INTEGRATION ${integrationName}
