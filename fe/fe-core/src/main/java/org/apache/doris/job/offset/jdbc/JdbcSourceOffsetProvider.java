@@ -116,7 +116,8 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
             nextOffset.setSplits(snapshotSplits);
             return nextOffset;
         } else if (currentOffset != null && currentOffset.snapshotSplit()) {
-            // snapshot to binlog
+            // initial mode: snapshot to binlog
+            // snapshot-only mode must be intercepted by hasReachedEnd() before reaching here
             BinlogSplit binlogSplit = new BinlogSplit();
             binlogSplit.setFinishedSplits(finishedSplits);
             nextOffset.setSplits(Collections.singletonList(binlogSplit));
@@ -243,6 +244,9 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
 
         if (currentOffset.snapshotSplit()) {
+            if (isSnapshotOnlyMode() && remainingSplits.isEmpty()) {
+                return false;
+            }
             return true;
         }
 
@@ -372,14 +376,21 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                     List<SnapshotSplit> lastSnapshotSplits =
                             recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
                     if (this.remainingSplits.isEmpty()) {
-                        currentOffset = new JdbcOffset();
                         if (!lastSnapshotSplits.isEmpty()) {
+                            currentOffset = new JdbcOffset();
                             currentOffset.setSplits(lastSnapshotSplits);
-                        } else {
-                            // when snapshot to binlog phase fe restarts
+                        } else if (!isSnapshotOnlyMode()) {
+                            // initial mode: rebuild binlog split for snapshot-to-binlog transition
+                            currentOffset = new JdbcOffset();
                             BinlogSplit binlogSplit = new BinlogSplit();
                             binlogSplit.setFinishedSplits(finishedSplits);
                             currentOffset.setSplits(Collections.singletonList(binlogSplit));
+                        } else {
+                            // snapshot-only completed: leave currentOffset as null,
+                            // hasReachedEnd() detects completion via finishedSplits
+                            log.info("Replaying offset provider for job {}: snapshot-only mode completed,"
+                                    + " finishedSplits={}, skip currentOffset restoration",
+                                    getJobId(), finishedSplits.size());
                         }
                     }
                 }
@@ -535,7 +546,20 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         if (startMode == null) {
             return false;
         }
-        return DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startMode);
+        return DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startMode)
+                || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startMode);
+    }
+
+    private boolean isSnapshotOnlyMode() {
+        String offset = sourceProperties.get(DataSourceConfigKeys.OFFSET);
+        return DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset);
+    }
+
+    @Override
+    public boolean hasReachedEnd() {
+        return isSnapshotOnlyMode()
+                && CollectionUtils.isNotEmpty(finishedSplits)
+                && remainingSplits.isEmpty();
     }
 
     /**

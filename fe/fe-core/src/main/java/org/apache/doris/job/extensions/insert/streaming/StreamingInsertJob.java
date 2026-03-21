@@ -623,6 +623,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
 
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
+            if (offsetProvider.hasReachedEnd()) {
+                // offset provider has reached a natural end, mark job as finished
+                log.info("Streaming insert job {} source data fully consumed, marking job as FINISHED", getJobId());
+                updateJobStatus(JobStatus.FINISHED);
+                return;
+            }
             AbstractStreamingTask nextTask = createStreamingTask();
             this.runningStreamTask = nextTask;
             log.info("Streaming insert job {} create next streaming insert task {} after task {} success",
@@ -1253,6 +1259,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider != null) {
             offsetProvider.replayIfNeed(this);
         }
+    }
+
+    public boolean hasReachedEnd() {
+        return offsetProvider != null && offsetProvider.hasReachedEnd();
     }
 
     /**
