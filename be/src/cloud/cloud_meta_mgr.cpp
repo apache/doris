@@ -52,6 +52,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/bvar_utils.h"
 #include "cpp/sync_point.h"
 #include "io/fs/obj_storage_client.h"
 #include "load/stream_load/stream_load_context.h"
@@ -162,6 +163,11 @@ bvar::Window<bvar::Adder<uint64_t>> g_cloud_ms_rpc_timeout_count_window(
 bvar::LatencyRecorder g_cloud_be_mow_get_dbm_lock_backoff_sleep_time(
         "cloud_be_mow_get_dbm_lock_backoff_sleep_time");
 bvar::Adder<uint64_t> g_cloud_version_hole_filled_count("cloud_version_hole_filled_count");
+// Counts RPC retries per operation and reason. Each retry re-sends the full payload,
+// causing read/write amplification proportional to retry_count * request_size.
+// Dimensions: {op, reason} where reason is one of: kv_txn_conflict, rpc_timeout, rpc_error
+mBvarInt64Adder g_cloud_meta_mgr_rpc_retry_amplification("cloud_meta_mgr_rpc_retry_amplification",
+                                                         {"op", "reason"});
 
 class MetaServiceProxy {
 public:
@@ -441,6 +447,18 @@ Status retry_rpc(std::string_view op_name, const Request& req, Response* res,
             (retry_times > config::meta_service_conflict_error_retry_times &&
              res->status().code() == MetaServiceCode::KV_TXN_CONFLICT)) {
             break;
+        }
+
+        // Each retry re-sends the full RPC payload, causing read/write amplification.
+        {
+            std::string_view reason = "rpc_error";
+            if (res->status().code() == MetaServiceCode::KV_TXN_CONFLICT) {
+                reason = "kv_txn_conflict";
+            } else if (error_code == brpc::ERPCTIMEDOUT) {
+                reason = "rpc_timeout";
+            }
+            g_cloud_meta_mgr_rpc_retry_amplification.put(
+                    {std::string(op_name), std::string(reason)}, 1);
         }
 
         duration_ms = retry_times <= 100 ? u(rng) : u2(rng);
