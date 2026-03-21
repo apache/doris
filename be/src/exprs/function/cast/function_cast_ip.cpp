@@ -76,4 +76,3 @@ WrapperType create_ip_wrapper(FunctionContext* context, const DataTypePtr& from_
 }
 
 } // namespace doris::CastWrapper
-
