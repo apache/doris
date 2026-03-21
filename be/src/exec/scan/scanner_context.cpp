@@ -64,12 +64,12 @@ MemShareArbitrator::MemShareArbitrator(const TUniqueId& qid, int64_t query_mem_l
 }
 
 void MemShareArbitrator::register_scan_node() {
-    total_scanner_mem_bytes.fetch_add(DEFAULT_SCANNER_MEM_BYTES);
+    total_mem_bytes.fetch_add(DEFAULT_SCANNER_MEM_BYTES);
 }
 
 int64_t MemShareArbitrator::update_mem_bytes(int64_t old_value, int64_t new_value) {
     int64_t diff = new_value - old_value;
-    int64_t total = total_scanner_mem_bytes.fetch_add(diff) + diff;
+    int64_t total = total_mem_bytes.fetch_add(diff) + diff;
     if (new_value == 0) return 0;
     if (total <= 0) return mem_limit;
     // Proportional sharing: allocate based on this context's share of total usage

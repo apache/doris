@@ -62,7 +62,7 @@ struct MemShareArbitrator {
     TUniqueId query_id;
     int64_t query_mem_limit = 0;
     int64_t mem_limit = 0;
-    std::atomic<int64_t> total_scanner_mem_bytes = 0;
+    std::atomic<int64_t> total_mem_bytes = 0;
 
     MemShareArbitrator(const TUniqueId& qid, int64_t query_mem_limit, double max_scan_ratio);
 

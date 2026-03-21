@@ -883,8 +883,8 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_basic) {
     ASSERT_EQ(arbitrator->query_id.hi, 1);
     ASSERT_EQ(arbitrator->query_id.lo, 2);
     ASSERT_EQ(arbitrator->query_mem_limit, query_mem_limit);
-    ASSERT_EQ(arbitrator->scan_mem_limit, static_cast<int64_t>(query_mem_limit * max_scan_ratio));
-    ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 0);
+    ASSERT_EQ(arbitrator->mem_limit, static_cast<int64_t>(query_mem_limit * max_scan_ratio));
+    ASSERT_EQ(arbitrator->total_mem_bytes.load(), 0);
 }
 
 TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_register_scan_node) {
@@ -897,10 +897,10 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_register_scan_node) {
     auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
     arbitrator->register_scan_node();
-    ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 64 * 1024 * 1024);
+    ASSERT_EQ(arbitrator->total_mem_bytes.load(), 64 * 1024 * 1024);
 
     arbitrator->register_scan_node();
-    ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 128 * 1024 * 1024);
+    ASSERT_EQ(arbitrator->total_mem_bytes.load(), 128 * 1024 * 1024);
 }
 
 TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_update_mem_bytes) {
@@ -913,12 +913,12 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_update_mem_bytes) {
     auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
     int64_t new_limit = arbitrator->update_mem_bytes(0, 100 * 1024 * 1024);
-    ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 100 * 1024 * 1024);
+    ASSERT_EQ(arbitrator->total_mem_bytes.load(), 100 * 1024 * 1024);
     ASSERT_GT(new_limit, 0);
 
     new_limit = arbitrator->update_mem_bytes(100 * 1024 * 1024, 0);
     ASSERT_EQ(new_limit, 0);
-    ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 0);
+    ASSERT_EQ(arbitrator->total_mem_bytes.load(), 0);
 }
 
 TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_proportional_sharing) {
@@ -934,7 +934,7 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_proportional_sharing) {
     int64_t limit2 = arbitrator->update_mem_bytes(0, 300 * 1024 * 1024);
 
     ASSERT_LT(limit2, limit1);
-    ASSERT_EQ(arbitrator->total_scanner_mem_bytes.load(), 500 * 1024 * 1024);
+    ASSERT_EQ(arbitrator->total_mem_bytes.load(), 500 * 1024 * 1024);
 }
 
 TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_zero_ratio) {
@@ -946,7 +946,7 @@ TEST_F(ScannerContextTest, scanner_mem_share_arbitrator_zero_ratio) {
 
     auto arbitrator = MemShareArbitrator::create_shared(query_id, query_mem_limit, max_scan_ratio);
 
-    ASSERT_GE(arbitrator->scan_mem_limit, 1);
+    ASSERT_GE(arbitrator->mem_limit, 1);
 }
 
 // ==================== MemLimiter Tests ====================
@@ -1185,7 +1185,7 @@ TEST_F(ScannerContextTest, scanner_context_adjust_scan_mem_limit) {
     scanner_context->_adjust_scan_mem_limit(old_mem, new_mem);
 
     limiter->update_open_tasks_count(1);
-    ASSERT_GT(arbitrator->total_scanner_mem_bytes.load(), 0);
+    ASSERT_GT(arbitrator->total_mem_bytes.load(), 0);
 }
 
 TEST_F(ScannerContextTest, scanner_context_reestimated_block_mem_bytes) {
