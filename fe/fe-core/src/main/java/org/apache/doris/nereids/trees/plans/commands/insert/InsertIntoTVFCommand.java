@@ -23,6 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -176,7 +177,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             throws Exception {
         String filePath = props.get("file_path");
         // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
-        String parentDir = extractParentDirectory(filePath);
+        String parentDir = BrokerUtil.extractParentDirectory(filePath);
         LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
 
         // Copy props for building StorageProperties (exclude write-specific params)
@@ -197,13 +198,5 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             throw new UserException("Failed to delete existing files in "
                     + parentDir + ": " + deleteStatus.getErrMsg());
         }
-    }
-
-    private static String extractParentDirectory(String prefixPath) {
-        int lastSlash = prefixPath.lastIndexOf('/');
-        if (lastSlash >= 0) {
-            return prefixPath.substring(0, lastSlash + 1);
-        }
-        return prefixPath;
     }
 }

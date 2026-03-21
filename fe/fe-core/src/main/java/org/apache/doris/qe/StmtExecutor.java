@@ -57,6 +57,7 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
@@ -109,8 +110,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -1369,8 +1372,16 @@ public class StmtExecutor {
         }
 
         coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
+        OutFileClause outFileClause = null;
+        if (isOutfileQuery) {
+            outFileClause = queryStmt.getOutFileClause();
+            Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
+        }
 
         try {
+            if (outFileClause != null) {
+                deleteExistingOutfileFilesInFe(outFileClause);
+            }
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
@@ -1404,8 +1415,8 @@ public class StmtExecutor {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
                                     getReturnTypes(queryStmt));
                         } else {
-                            if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
-                                outfileWriteSuccess(queryStmt.getOutFileClause());
+                            if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
+                                outfileWriteSuccess(outFileClause);
                             }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
@@ -1545,6 +1556,31 @@ public class StmtExecutor {
             }
             throw new AnalysisException(errMsg);
         }
+    }
+
+    private void deleteExistingOutfileFilesInFe(OutFileClause outFileClause) throws UserException {
+        // Handle directory cleanup once in FE so parallel outfile writers never race on deletion.
+        if (!outFileClause.shouldDeleteExistingFiles()) {
+            return;
+        }
+        Preconditions.checkState(outFileClause.getBrokerDesc() != null,
+                "delete_existing_files requires a remote outfile sink");
+        Preconditions.checkState(outFileClause.getBrokerDesc().storageType() != StorageType.LOCAL,
+                "delete_existing_files is not supported for local outfile sinks");
+        BrokerUtil.deleteParentDirectoryWithFileSystem(outFileClause.getFilePath(), outFileClause.getBrokerDesc());
+        clearDeleteExistingFilesInPlan();
+    }
+
+    private void clearDeleteExistingFilesInPlan() {
+        ResultFileSink resultFileSink = null;
+        for (PlanFragment fragment : planner.getFragments()) {
+            if (fragment.getSink() instanceof ResultFileSink) {
+                Preconditions.checkState(resultFileSink == null, "OUTFILE query should have only one ResultFileSink");
+                resultFileSink = (ResultFileSink) fragment.getSink();
+            }
+        }
+        Preconditions.checkState(resultFileSink != null, "OUTFILE query must have ResultFileSink");
+        resultFileSink.setDeleteExistingFiles(false);
     }
 
     public static void syncLoadForTablets(List<List<Backend>> backendsList, List<Long> allTabletIds) {

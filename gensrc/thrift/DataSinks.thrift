@@ -132,7 +132,7 @@ struct TResultFileSinkOptions {
     14: optional TParquetVersion parquet_version
     15: optional string orc_schema
 
-    16: optional bool delete_existing_files;
+    16: optional bool delete_existing_files; // deprecated: FE now handles outfile cleanup and clears this flag before BE execution; kept for compatibility with older FE
     17: optional string file_suffix;
     18: optional bool with_bom;
 
@@ -480,7 +480,7 @@ struct TTVFTableSink {
     7: optional string column_separator
     8: optional string line_delimiter
     9: optional i64 max_file_size_bytes
-    10: optional bool delete_existing_files
+    10: optional bool delete_existing_files // deprecated: FE handles TVF cleanup before execution and always sends false
     11: optional map<string, string> hadoop_config
     12: optional PlanNodes.TFileCompressType compression_type
     13: optional i64 backend_id              // local TVF: specify BE

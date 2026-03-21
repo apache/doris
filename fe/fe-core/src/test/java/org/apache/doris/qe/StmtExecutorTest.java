@@ -24,6 +24,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.planner.PlanFragment;
+import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.ConnectContext.ConnectType;
 import org.apache.doris.utframe.TestWithFeService;
@@ -35,6 +38,8 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -275,5 +280,25 @@ public class StmtExecutorTest extends TestWithFeService {
 
         StmtExecutor executor = new StmtExecutor(mockCtx, stmt, false);
         executor.sendBinaryResultRow(resultSet);
+    }
+
+    @Test
+    public void testClearDeleteExistingFilesInPlan() throws Exception {
+        Planner planner = Mockito.mock(Planner.class);
+        PlanFragment fragment = Mockito.mock(PlanFragment.class);
+        ResultFileSink resultFileSink = Mockito.mock(ResultFileSink.class);
+        Mockito.when(fragment.getSink()).thenReturn(resultFileSink);
+        Mockito.when(planner.getFragments()).thenReturn(Lists.newArrayList(fragment));
+
+        StmtExecutor executor = new StmtExecutor(connectContext, "");
+        Field plannerField = StmtExecutor.class.getDeclaredField("planner");
+        plannerField.setAccessible(true);
+        plannerField.set(executor, planner);
+
+        Method clearMethod = StmtExecutor.class.getDeclaredMethod("clearDeleteExistingFilesInPlan");
+        clearMethod.setAccessible(true);
+        clearMethod.invoke(executor);
+
+        Mockito.verify(resultFileSink).setDeleteExistingFiles(false);
     }
 }
