@@ -27,6 +27,8 @@ namespace doris::cloud {
 
 class Recycler;
 class Checker;
+struct RecyclerThreadPoolGroup;
+class TxnLazyCommitter;
 
 class RecyclerServiceImpl : public cloud::RecyclerService {
 public:
@@ -62,5 +64,15 @@ private:
 
 extern int reset_s3_rate_limiter(S3RateLimitType type, size_t max_speed, size_t max_burst,
                                  size_t limit);
+
+void recycle_copy_jobs(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                       MetaServiceCode& code, std::string& msg,
+                       RecyclerThreadPoolGroup thread_pool_group,
+                       std::shared_ptr<TxnLazyCommitter> txn_lazy_committer);
+void recycle_job_info(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                      std::string_view key, MetaServiceCode& code, std::string& msg);
+void check_meta(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
+                const std::string& host, const std::string& port, const std::string& user,
+                const std::string& password, std::string& msg);
 
 } // namespace doris::cloud
