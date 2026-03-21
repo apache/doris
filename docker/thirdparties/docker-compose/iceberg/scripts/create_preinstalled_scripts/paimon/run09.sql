@@ -141,4 +141,5 @@ INSERT INTO test_paimon_time_travel_db.tbl_time_travel_expired_tag VALUES
 CALL sys.create_tag(table => 'test_paimon_time_travel_db.tbl_time_travel_expired_tag', tag => 't_exp_3', snapshot => 3);
 
 -- expire snapshots so tag points to expired snapshot file
+ ALTER TABLE test_paimon_time_travel_db.tbl_time_travel_expired_tag SET TBLPROPERTIES ('snapshot.num-retained.min' = '1');
 CALL sys.expire_snapshots(table => 'test_paimon_time_travel_db.tbl_time_travel_expired_tag', retain_max => 1);
