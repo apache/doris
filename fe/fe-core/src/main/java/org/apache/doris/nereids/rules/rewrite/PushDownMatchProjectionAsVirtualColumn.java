@@ -52,11 +52,18 @@ import java.util.function.Function;
  */
 public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactory {
 
-    private boolean canPushDown(LogicalOlapScan scan) {
-        boolean dupTblOrMOW = scan.getTable().getKeysType() == KeysType.DUP_KEYS
+    /**
+     * Check whether a MATCH expression can be pushed down as virtual column on the given scan.
+     * Only DUP_KEYS tables and Merge-on-Write unique tables support virtual column evaluation.
+     */
+    static boolean canPushDownMatch(LogicalOlapScan scan) {
+        return scan.getTable().getKeysType() == KeysType.DUP_KEYS
                 || (scan.getTable().getTableProperty() != null
                     && scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite());
-        return dupTblOrMOW;
+    }
+
+    private boolean canPushDown(LogicalOlapScan scan) {
+        return canPushDownMatch(scan);
     }
 
     @Override
