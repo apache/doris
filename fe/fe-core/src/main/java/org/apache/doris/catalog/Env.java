@@ -4114,7 +4114,7 @@ public class Env {
             }
             // There MUST BE 2 space in front of each column description line
             // sqlalchemy requires this to parse SHOW CREATE TABLE stmt.
-            if (table.isManagedTable()) {
+            if (table instanceof OlapTable) {
                 sb.append("  ").append(
                         column.toSql(((OlapTable) table).getKeysType() == KeysType.UNIQUE_KEYS, true));
             } else {
@@ -5947,9 +5947,6 @@ public class Env {
                 expr.collect(SlotRef.class, slots);
                 for (SlotRef slot : slots) {
                     String name = slot.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
-                    if (slot.getColumn() != null) {
-                        name = slot.getColumn().getName();
-                    }
                     if (!isReplay && name.equals(colName)) {
                         throw new DdlException("Column[" + colName + "] have materialized view index");
                     }

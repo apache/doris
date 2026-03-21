@@ -18,13 +18,11 @@
 package org.apache.doris.nereids.rules.expression.rules;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprId;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
@@ -146,7 +144,7 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
 
     /** foldByBE */
     public static Expression foldByBE(ExpressionMatchingContext<Expression> context) {
-        IdGenerator<ExprId> idGenerator = ExprId.createGenerator();
+        Integer idGenerator = 0;
 
         Expression root = context.expr;
         Map<String, Expression> constMap = Maps.newHashMap();
@@ -202,10 +200,10 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
     }
 
     private static void collectConst(Expression expr, Map<String, Expression> constMap,
-            Map<String, TExpr> tExprMap, IdGenerator<ExprId> idGenerator) {
+            Map<String, TExpr> tExprMap, Integer id) {
         if (expr.isConstant() && !expr.isLiteral() && !expr.anyMatch(e -> shouldSkipFold((Expression) e))) {
-            String id = idGenerator.getNextId().toString();
-            constMap.put(id, expr);
+            id++;
+            constMap.put(String.valueOf(id), expr);
             Expr staleExpr;
             try {
                 staleExpr = ExpressionTranslator.translate(expr, null);
@@ -218,11 +216,11 @@ public class FoldConstantRuleOnBE implements ExpressionPatternRuleFactory {
                 LOG.warn("expression {} translate to legacy expr failed. ", expr);
                 return;
             }
-            tExprMap.put(id, ExprToThriftVisitor.treeToThrift(staleExpr));
+            tExprMap.put(String.valueOf(id), ExprToThriftVisitor.treeToThrift(staleExpr));
         } else {
             for (int i = 0; i < expr.children().size(); i++) {
                 final Expression child = expr.children().get(i);
-                collectConst(child, constMap, tExprMap, idGenerator);
+                collectConst(child, constMap, tExprMap, id);
             }
         }
     }

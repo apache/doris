@@ -2209,11 +2209,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Expr> conjuncts = inputPlanNode.getConjuncts();
         Set<SlotId> requiredSlotIdSet = Sets.newHashSet();
         for (Expr expr : allProjectionExprs) {
-            Expr.extractSlots(expr, requiredSlotIdSet);
+            extractSlots(expr, requiredSlotIdSet);
         }
         Set<SlotId> requiredByProjectSlotIdSet = Sets.newHashSet(requiredSlotIdSet);
         for (Expr expr : conjuncts) {
-            Expr.extractSlots(expr, requiredSlotIdSet);
+            extractSlots(expr, requiredSlotIdSet);
         }
         // For hash join node, use vSrcToOutputSMap to describe the expression calculation, use
         // vIntermediateTupleDescList as input, and set vOutputTupleDesc as the final output.
@@ -2231,13 +2231,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 Set<SlotId> requiredOtherConjunctsSlotIdSet = Sets.newHashSet();
                 List<Expr> otherConjuncts = ((HashJoinNode) joinNode).getOtherJoinConjuncts();
                 for (Expr expr : otherConjuncts) {
-                    Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
+                    extractSlots(expr, requiredOtherConjunctsSlotIdSet);
                 }
                 if (!((HashJoinNode) joinNode).getEqJoinConjuncts().isEmpty()
                         && !((HashJoinNode) joinNode).getMarkJoinConjuncts().isEmpty()) {
                     List<Expr> markConjuncts = ((HashJoinNode) joinNode).getMarkJoinConjuncts();
                     for (Expr expr : markConjuncts) {
-                        Expr.extractSlots(expr, requiredOtherConjunctsSlotIdSet);
+                        extractSlots(expr, requiredOtherConjunctsSlotIdSet);
                     }
                 }
                 requiredOtherConjunctsSlotIdSet.forEach(e -> requiredExprIds.add(context.findExprId(e)));
@@ -2268,7 +2268,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // slots used by expandConjuncts must be added to TableFunctionNode's output slot ids
             List<Expr> expandConjuncts = tableFunctionNode.getExpandConjuncts();
             for (Expr expr : expandConjuncts) {
-                Expr.extractSlots(expr, requiredSlotIdSet);
+                extractSlots(expr, requiredSlotIdSet);
             }
             tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
@@ -2298,6 +2298,16 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             }
         }
         return inputFragment;
+    }
+
+    private static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
+        if (root instanceof SlotRef) {
+            slotIdSet.add(((SlotRef) root).getDesc().getId());
+            return;
+        }
+        for (Expr child : root.getChildren()) {
+            extractSlots(child, slotIdSet);
+        }
     }
 
     @Override
@@ -2549,7 +2559,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 TopnFilter filter = context.getTopnFilterContext().getTopnFilter(topN);
                 List<Pair<Integer, Integer>> targets = new ArrayList<>();
                 for (Entry<ScanNode, Expr> entry : filter.legacyTargets.entrySet()) {
-                    Set<SlotRef> inputSlots = entry.getValue().getInputSlotRef();
+                    Set<SlotRef> inputSlots = getInputSlotRef(entry.getValue());
                     if (inputSlots.size() != 1) {
                         LOG.warn("topn filter targets error: " + inputSlots);
                     } else {
@@ -2597,6 +2607,19 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         updateLegacyPlanIdToPhysicalPlan(inputFragment.getPlanRoot(), topN);
         return inputFragment;
+    }
+
+    private Set<SlotRef> getInputSlotRef(Expr root) {
+        Set<SlotRef> slots = new HashSet<>();
+        if (root instanceof SlotRef) {
+            slots.add((SlotRef) root);
+            return slots;
+        } else {
+            for (Expr expr : root.getChildren()) {
+                slots.addAll(getInputSlotRef(expr));
+            }
+        }
+        return slots;
     }
 
     @Override

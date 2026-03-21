@@ -131,7 +131,7 @@ public class PartitionInfo {
             if (index  != 0) {
                 sb.append(", ");
             }
-            sb.append(c.getDisplayName());
+            sb.append(c.getName());
             index++;
         }
         return sb.toString();

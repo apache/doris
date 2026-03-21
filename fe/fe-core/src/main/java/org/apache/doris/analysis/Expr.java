@@ -20,7 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -38,7 +37,6 @@ import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -181,16 +179,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         }
     }
 
-    public static void extractSlots(Expr root, Set<SlotId> slotIdSet) {
-        if (root instanceof SlotRef) {
-            slotIdSet.add(((SlotRef) root).getDesc().getId());
-            return;
-        }
-        for (Expr child : root.getChildren()) {
-            extractSlots(child, slotIdSet);
-        }
-    }
-
     /**
      * Accept a visitor and dispatch to the appropriate typed {@code visitXxx} method.
      * Each concrete subclass must override this to call the correct visitor method.
@@ -250,29 +238,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     }
 
     /**
-     * Gather conjuncts from this expr and return them in a list.
-     * A conjunct is an expr that returns a boolean, e.g., Predicates, function calls,
-     * SlotRefs, etc. Hence, this method is placed here and not in Predicate.
-     */
-    public List<Expr> getConjuncts() {
-        List<Expr> list = Lists.newArrayList();
-        if (this instanceof CompoundPredicate
-                && ((CompoundPredicate) this).getOp() == CompoundPredicate.Operator.AND) {
-            // TODO: we have to convert CompoundPredicate.AND to two expr trees for
-            // conjuncts because NULLs are handled differently for CompoundPredicate.AND
-            // and conjunct evaluation.  This is not optimal for jitted exprs because it
-            // will result in two functions instead of one. Create a new CompoundPredicate
-            // Operator (i.e. CONJUNCT_AND) with the right NULL semantics and use that
-            // instead
-            list.addAll((getChild(0)).getConjuncts());
-            list.addAll((getChild(1)).getConjuncts());
-        } else {
-            list.add(this);
-        }
-        return list;
-    }
-
-    /**
      * Create a deep copy of 'this'. If sMap is non-null,
      * use it to substitute 'this' or its subnodes.
      * <p/>
@@ -286,10 +251,10 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
                 }
             }
         }
-        Expr result = (Expr) this.clone();
+        Expr result = this.clone();
         result.children = Lists.newArrayList();
         for (Expr child : children) {
-            result.children.add(((Expr) child).clone(sMap));
+            result.children.add(child.clone(sMap));
         }
         return result;
     }
@@ -306,6 +271,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return true;
     }
 
+    @Deprecated
     public Map<Long, Set<String>> getTableIdToColumnNames() {
         Map<Long, Set<String>> tableIdToColumnNames = new HashMap<Long, Set<String>>();
         getTableIdToColumnNames(tableIdToColumnNames);
@@ -362,31 +328,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return MoreObjects.toStringHelper(this.getClass()).add("type", type).toString();
     }
 
-    /**
-     * If 'this' is a SlotRef or a Cast that wraps a SlotRef, returns that SlotRef.
-     * Otherwise returns null.
-     */
-    public SlotRef unwrapSlotRef() {
-        if (this instanceof SlotRef) {
-            return (SlotRef) this;
-        } else if (this instanceof CastExpr && getChild(0) instanceof SlotRef) {
-            return (SlotRef) getChild(0);
-        } else {
-            return null;
-        }
-    }
-
-    /**
-     * Returns the first child if this Expr is a CastExpr. Otherwise, returns 'this'.
-     */
-    public Expr unwrapExpr(boolean implicitOnly) {
-        if (this instanceof CastExpr
-                && (!implicitOnly || ((CastExpr) this).isImplicit())) {
-            return children.get(0);
-        }
-        return this;
-    }
-
     public String getStringValue() {
         return "";
     }
@@ -396,11 +337,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
      */
     public boolean isNullable() {
         return nullable;
-    }
-
-    public static AggStateType createAggStateType(String name, List<Type> typeList,
-            List<Boolean> nullableList, boolean resultNullable) {
-        return new AggStateType(name, resultNullable, typeList, nullableList);
     }
 
     // This is only for transactional insert operation,
@@ -413,22 +349,5 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         } else {
             return this instanceof LiteralExpr;
         }
-    }
-
-    public boolean isNullLiteral() {
-        return this instanceof NullLiteral;
-    }
-
-    public Set<SlotRef> getInputSlotRef() {
-        Set<SlotRef> slots = new HashSet<>();
-        if (this instanceof SlotRef) {
-            slots.add((SlotRef) this);
-            return slots;
-        } else {
-            for (Expr expr : children) {
-                slots.addAll(expr.getInputSlotRef());
-            }
-        }
-        return slots;
     }
 }

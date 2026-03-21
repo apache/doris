@@ -418,7 +418,7 @@ public class OlapTableSink extends DataSink {
                 if (column.getName().startsWith(Column.SHADOW_NAME_PREFIX)) {
                     tColumn.setColumnName(column.getNonShadowName());
                 }
-                column.setIndexFlag(tColumn, table);
+                column.setIndexFlag(tColumn, table.getCopiedBfColumns());
                 columnsDesc.add(tColumn);
             }
             List<Index> indexes = indexMeta.getIndexes();
@@ -704,7 +704,7 @@ public class OlapTableSink extends DataSink {
                 List<TExprNode> tExprNodes = new ArrayList<>();
                 for (int i = 0; i < partColNum; i++) {
                     LiteralExpr literalExpr = partitionKey.getKeys().get(i);
-                    if (literalExpr.isNullLiteral()) {
+                    if (literalExpr instanceof NullLiteral) {
                         tExprNodes.add(ExprToThriftVisitor.treeToThrift(
                                 NullLiteral.create(literalExpr.getType())).getNodes().get(0));
                     } else {

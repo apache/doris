@@ -21,6 +21,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.InPredicate;
@@ -300,7 +301,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 return ColumnRanges.createFailure();
             }
 
-            if (!(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
+            if (!(unwrapCast(inPredicate.getChild(0)) instanceof SlotRef)) {
                 // If child(0) of the in predicate is not a SlotRef,
                 // then other children of in predicate should not be used as a condition for partition prune.
                 return ColumnRanges.createFailure();
@@ -337,6 +338,16 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         } else {
             return ColumnRanges.create(result);
         }
+    }
+
+    /**
+     * Returns the first child if this Expr is a CastExpr. Otherwise, returns 'this'.
+     */
+    private static Expr unwrapCast(Expr root) {
+        if (root instanceof CastExpr) {
+            return root.getChild(0);
+        }
+        return root;
     }
 
     private PartitionColumnFilter createPartitionFilter(SlotDescriptor desc, List<Expr> conjuncts,
@@ -395,7 +406,7 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
                 if (!inPredicate.isLiteralChildren() || inPredicate.isNotIn()) {
                     continue;
                 }
-                if (!(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
+                if (!(unwrapCast(inPredicate.getChild(0)) instanceof SlotRef)) {
                     // If child(0) of the in predicate is not a SlotRef,
                     // then other children of in predicate should not be used as a condition for partition prune.
                     continue;

@@ -57,7 +57,7 @@ import java.util.TimeZone;
 
 public class TrinoConnectorPredicateConverter {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorPredicateConverter.class);
-    private static final String EPOCH_DATE = "1970-01-01";
+    private static final DateLiteral EPOCH_DATE = new DateLiteral(1970, 1, 1);
     private static final String GMT = "GMT";
     private final Map<String, ColumnHandle> trinoConnectorColumnHandleMap;
 
@@ -278,7 +278,7 @@ public class TrinoConnectorPredicateConverter {
             case "VarcharType":
                 return Slices.utf8Slice((String) literalExpr.getRealValue());
             case "DateType":
-                return ((DateLiteral) literalExpr).daynr() - new DateLiteral(EPOCH_DATE).daynr();
+                return ((DateLiteral) literalExpr).daynr() - EPOCH_DATE.daynr();
             case "ShortTimestampType": {
                 DateLiteral dateLiteral = (DateLiteral) literalExpr;
                 return dateLiteral.unixTimestamp(TimeZone.getTimeZone(GMT)) * 1000

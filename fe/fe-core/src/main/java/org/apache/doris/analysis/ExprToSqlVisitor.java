@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.util.ToSqlContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 
@@ -175,30 +174,15 @@ public class ExprToSqlVisitor extends ExprVisitor<String, ToSqlParams> {
                     && ConnectContext.get().getState().isNereids()
                     && !ConnectContext.get().getState().isQuery()
                     && ConnectContext.get().getSessionVariable() != null
-                    && expr.desc != null) {
-                return expr.getLabel() + "[#" + expr.desc.getId().asInt() + "]";
+                    && expr.getSlotId() != null) {
+                return expr.getLabel() + "[#" + expr.getSlotId().asInt() + "]";
             } else {
                 return expr.getLabel();
             }
-        } else if (expr.desc == null) {
+        } else if (expr.getSlotId() == null) {
             return "`" + expr.getCol() + "`";
-        } else if (expr.desc.getSourceExprs() != null) {
-            if (!context.disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
-                if (expr.desc.getId().asInt() != 1) {
-                    sb.append("<slot ").append(expr.desc.getId().asInt()).append(">");
-                }
-            }
-            for (Expr srcExpr : expr.desc.getSourceExprs()) {
-                if (!context.disableTableName) {
-                    sb.append(" ");
-                }
-                sb.append(context.disableTableName
-                        ? srcExpr.accept(INSTANCE, ToSqlParams.WITHOUT_TABLE)
-                        : srcExpr.accept(this, context));
-            }
-            return sb.toString();
         } else {
-            return "<slot " + expr.desc.getId().asInt() + ">" + sb;
+            return "<slot " + expr.getSlotId().asInt() + ">" + sb;
         }
     }
 

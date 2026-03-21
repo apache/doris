@@ -18,6 +18,7 @@
 package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BinaryPredicate;
+import org.apache.doris.analysis.CastExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.LiteralExpr;
@@ -202,7 +203,7 @@ public class PointQueryExecutor implements CoordInterface {
             BinaryPredicate predicate = (BinaryPredicate) expr;
             Expr left = predicate.getChild(0);
             Expr right = predicate.getChild(1);
-            SlotRef columnSlot = left.unwrapSlotRef();
+            SlotRef columnSlot = unwrapSlotRef(left);
             columnExpr.put(columnSlot.getColumnName(), right);
         }
         // add key tuple in keys order
@@ -210,6 +211,21 @@ public class PointQueryExecutor implements CoordInterface {
             kBuilder.addKeyColumnRep(columnExpr.get(column.getName()).getStringValue());
         }
         requestBuilder.addKeyTuples(kBuilder);
+    }
+
+
+    /**
+     * If 'this' is a SlotRef or a Cast that wraps a SlotRef, returns that SlotRef.
+     * Otherwise returns null.
+     */
+    public SlotRef unwrapSlotRef(Expr root) {
+        if (root instanceof SlotRef) {
+            return (SlotRef) root;
+        } else if (root instanceof CastExpr && root.getChild(0) instanceof SlotRef) {
+            return (SlotRef) root.getChild(0);
+        } else {
+            return null;
+        }
     }
 
     @Override

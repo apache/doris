@@ -17,8 +17,7 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.common.util.URI;
-import org.apache.doris.thrift.TFunctionBinaryType;
+import org.apache.doris.common.URI;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -77,7 +76,7 @@ public class AggregateFunction extends Function {
             URI location, String updateFnSymbol, String initFnSymbol,
             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
             String removeFnSymbol, String finalizeFnSymbol, boolean ignoresDistinct,
-            boolean isAnalyticFn, boolean returnsNonNullOnEmpty, TFunctionBinaryType binaryType,
+            boolean isAnalyticFn, Function.BinaryType binaryType,
             boolean userVisible, boolean vectorized, NullableMode nullableMode) {
         // only `count` is always not nullable, other aggregate function is always nullable
         super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, vectorized, nullableMode);
@@ -99,8 +98,17 @@ public class AggregateFunction extends Function {
         if (other == null) {
             return;
         }
-        isAnalyticFn = other.isAnalyticFn;
-        isAggregateFn = other.isAggregateFn;
+        this.isAnalyticFn = other.isAnalyticFn;
+        this.isAggregateFn = other.isAggregateFn;
+        this.updateFnSymbol = other.updateFnSymbol;
+        this.initFnSymbol = other.initFnSymbol;
+        this.serializeFnSymbol = other.serializeFnSymbol;
+        this.mergeFnSymbol = other.mergeFnSymbol;
+        this.getValueFnSymbol = other.getValueFnSymbol;
+        this.removeFnSymbol = other.removeFnSymbol;
+        this.finalizeFnSymbol = other.finalizeFnSymbol;
+        this.intermediateType = other.intermediateType;
+        this.symbolName = other.symbolName;
     }
 
     @Override
@@ -129,7 +137,7 @@ public class AggregateFunction extends Function {
     }
 
     public static class AggregateFunctionBuilder {
-        TFunctionBinaryType binaryType;
+        Function.BinaryType binaryType;
         FunctionName name;
         Type[] argTypes;
         Type retType;
@@ -145,12 +153,12 @@ public class AggregateFunction extends Function {
         String getValueFnSymbol;
         String symbolName;
 
-        private AggregateFunctionBuilder(TFunctionBinaryType binaryType) {
+        private AggregateFunctionBuilder(Function.BinaryType binaryType) {
             this.binaryType = binaryType;
         }
 
         public static AggregateFunctionBuilder createUdfBuilder() {
-            return new AggregateFunctionBuilder(TFunctionBinaryType.JAVA_UDF);
+            return new AggregateFunctionBuilder(Function.BinaryType.JAVA_UDF);
         }
 
         public AggregateFunctionBuilder name(FunctionName name) {
@@ -215,11 +223,6 @@ public class AggregateFunction extends Function {
 
         public AggregateFunctionBuilder removeFnSymbol(String symbol) {
             this.removeFnSymbol = symbol;
-            return this;
-        }
-
-        public AggregateFunctionBuilder binaryType(TFunctionBinaryType binaryType) {
-            this.binaryType = binaryType;
             return this;
         }
 
@@ -289,34 +292,6 @@ public class AggregateFunction extends Function {
      */
     public Type getIntermediateType() {
         return intermediateType;
-    }
-
-    public void setUpdateFnSymbol(String fn) {
-        updateFnSymbol = fn;
-    }
-
-    public void setInitFnSymbol(String fn) {
-        initFnSymbol = fn;
-    }
-
-    public void setSerializeFnSymbol(String fn) {
-        serializeFnSymbol = fn;
-    }
-
-    public void setMergeFnSymbol(String fn) {
-        mergeFnSymbol = fn;
-    }
-
-    public void setGetValueFnSymbol(String fn) {
-        getValueFnSymbol = fn;
-    }
-
-    public void setRemoveFnSymbol(String fn) {
-        removeFnSymbol = fn;
-    }
-
-    public void setFinalizeFnSymbol(String fn) {
-        finalizeFnSymbol = fn;
     }
 
     public void setSymbolName(String fn) {

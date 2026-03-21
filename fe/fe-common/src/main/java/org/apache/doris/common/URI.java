@@ -15,9 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.common.util;
-
-import org.apache.doris.common.AnalysisException;
+package org.apache.doris.common;
 
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
