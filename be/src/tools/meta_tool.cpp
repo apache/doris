@@ -30,6 +30,7 @@
 #include <sstream>
 #include <string>
 
+#include "common/logging.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
 #include "core/column/column.h"
@@ -46,6 +47,7 @@
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
 #include "runtime/exec_env.h"
+#include "runtime/memory/cache_manager.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/data_dir.h"
 #include "storage/olap_common.h"
@@ -53,9 +55,11 @@
 #include "storage/segment/column_reader.h"
 #include "storage/segment/encoding_info.h"
 #include "storage/storage_engine.h"
+#include "storage/tablet/tablet_column_object_pool.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_meta_manager.h"
 #include "storage/tablet/tablet_schema.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "storage/types.h"
 #include "util/coding.h"
 
@@ -95,7 +99,7 @@ std::string get_usage(const std::string& progname) {
     ss << "./meta_tool --operation=delete_meta "
           "--root_path=/path/to/storage/path --tablet_id=tabletid "
           "--schema_hash=schemahash\n";
-    ss << "./meta_tool --operation=delete_meta --tablet_file=file_path\n";
+    ss << "./meta_tool --operation=batch_delete_meta --tablet_file=file_path\n";
     ss << "./meta_tool --operation=show_meta --pb_meta_path=path\n";
     ss << "./meta_tool --operation=show_segment_footer --file=/path/to/segment/file\n";
     ss << "./meta_tool --operation=show_segment_data --file=/path/to/segment/file\n";
@@ -123,9 +127,13 @@ void get_meta(DataDir* data_dir) {
     std::string value;
     Status s =
             TabletMetaManager::get_json_meta(data_dir, FLAGS_tablet_id, FLAGS_schema_hash, &value);
-    if (s.is<doris::ErrorCode::META_KEY_NOT_FOUND>()) {
-        std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
-                  << ", schema_hash:" << FLAGS_schema_hash << std::endl;
+    if (!s.ok()) {
+        if (s.is<doris::ErrorCode::META_KEY_NOT_FOUND>()) {
+            std::cout << "no tablet meta for tablet_id:" << FLAGS_tablet_id
+                      << ", schema_hash:" << FLAGS_schema_hash << std::endl;
+        } else {
+            std::cout << "get meta failed: " << s.to_string() << std::endl;
+        }
         return;
     }
     std::cout << value << std::endl;
@@ -168,8 +176,8 @@ Status init_data_dir(StorageEngine& engine, const std::string& dir, std::unique_
     }
     res = p->init();
     if (!res.ok()) {
-        std::cout << "data_dir load failed" << std::endl;
-        return Status::InternalError("data_dir load failed");
+        std::cout << "data_dir load failed: " << res.to_string() << std::endl;
+        return res;
     }
 
     p.swap(*ret);
@@ -899,6 +907,32 @@ void show_segment_data(const std::string& file_name) {
     }
 }
 
+void init_common_components() {
+    // 初始化日志到当前目录的 meta_tool.log
+    if (doris::config::sys_log_dir == "") {
+        doris::config::sys_log_dir = ".";
+    }
+    if (doris::config::sys_log_level == "") {
+        doris::config::sys_log_level = "INFO";
+    }
+    if (doris::config::sys_log_roll_mode == "") {
+        doris::config::sys_log_roll_mode = "SIZE-MB-1024";
+    }
+    FLAGS_log_dir = doris::config::sys_log_dir;
+    if (!doris::init_glog("meta_tool")) {
+        fprintf(stderr, "init glog failed.\n");
+    }
+
+    doris::ExecEnv::GetInstance()->init_mem_tracker();
+    doris::ExecEnv::GetInstance()->set_cache_manager(doris::CacheManager::create_global_instance());
+    doris::ExecEnv::GetInstance()->set_tablet_schema_cache(
+            doris::TabletSchemaCache::create_global_schema_cache(
+                    doris::config::tablet_schema_cache_capacity));
+    doris::ExecEnv::GetInstance()->set_tablet_column_object_pool(
+            doris::TabletColumnObjectPool::create_global_column_cache(
+                    doris::config::tablet_schema_cache_capacity));
+}
+
 int main(int argc, char** argv) {
     SCOPED_INIT_THREAD_CONTEXT();
     std::string usage = get_usage(argv[0]);
@@ -906,6 +940,7 @@ int main(int argc, char** argv) {
     google::ParseCommandLineFlags(&argc, &argv, true);
 
     if (FLAGS_operation == "show_meta") {
+        init_common_components();
         show_meta();
     } else if (FLAGS_operation == "batch_delete_meta") {
         std::string tablet_file;
@@ -917,18 +952,21 @@ int main(int argc, char** argv) {
             return -1;
         }
 
+        init_common_components();
         batch_delete_meta(tablet_file);
     } else if (FLAGS_operation == "show_segment_footer") {
         if (FLAGS_file == "") {
             std::cout << "no file flag for show dict" << std::endl;
             return -1;
         }
+        init_common_components();
         show_segment_footer(FLAGS_file);
     } else if (FLAGS_operation == "show_segment_data") {
         if (FLAGS_file == "") {
             std::cout << "no file flag for show_segment_data" << std::endl;
             return -1;
         }
+        init_common_components();
         show_segment_data(FLAGS_file);
     } else {
         // operations that need root path should be written here
@@ -937,6 +975,25 @@ int main(int argc, char** argv) {
             std::cout << "invalid operation:" << FLAGS_operation << std::endl;
             return -1;
         }
+
+        if (getenv("DORIS_HOME") == nullptr) {
+            fprintf(stderr, "you need set DORIS_HOME environment variable.\n");
+            exit(-1);
+        }
+
+        std::string conffile = std::string(getenv("DORIS_HOME")) + "/conf/be.conf";
+        if (!doris::config::init(conffile.c_str(), true, true, true)) {
+            fprintf(stderr, "error read config file. \n");
+            return -1;
+        }
+
+        std::string custom_conffile = doris::config::custom_config_dir + "/be_custom.conf";
+        if (!doris::config::init(custom_conffile.c_str(), true, false, false)) {
+            fprintf(stderr, "error read custom config file. \n");
+            return -1;
+        }
+
+        init_common_components();
 
         StorageEngine engine(doris::EngineOptions {});
         std::unique_ptr<DataDir> data_dir;

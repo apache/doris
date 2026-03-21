@@ -332,13 +332,8 @@ public:
             segment_v2::InvertedIndexQueryCache* inverted_index_query_cache) {
         _inverted_index_query_cache = inverted_index_query_cache;
     }
-    void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
     void set_process_profile(ProcessProfile* pp) { this->_process_profile = pp; }
-    void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
     void set_delete_bitmap_agg_cache(DeleteBitmapAggCache* c) { _delete_bitmap_agg_cache = c; }
-    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
-        this->_tablet_column_object_pool = c;
-    }
     void set_storage_page_cache(StoragePageCache* c) { this->_storage_page_cache = c; }
     void set_segment_loader(SegmentLoader* sl) { this->_segment_loader = sl; }
     void set_routine_load_task_executor(RoutineLoadTaskExecutor* r) {
@@ -363,6 +358,15 @@ public:
         _file_cache_open_fd_cache = std::move(fd_cache);
     }
 #endif
+    // WARN: The following setter methods are intended for use in test code and
+    // offline tools (like meta_tool) ONLY. They should NOT be called in the
+    // production environment to avoid thread safety issues and undefined behaviors.
+    void set_cache_manager(CacheManager* cm) { this->_cache_manager = cm; }
+    void set_tablet_schema_cache(TabletSchemaCache* c) { this->_tablet_schema_cache = c; }
+    void set_tablet_column_object_pool(TabletColumnObjectPool* c) {
+        this->_tablet_column_object_pool = c;
+    }
+
     LoadStreamMapPool* load_stream_map_pool() { return _load_stream_map_pool.get(); }
 
     DeltaWriterV2Pool* delta_writer_v2_pool() { return _delta_writer_v2_pool.get(); }
