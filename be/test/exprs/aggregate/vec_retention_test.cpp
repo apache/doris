@@ -36,12 +36,10 @@
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory);
 
@@ -114,22 +112,22 @@ TEST_F(VRetentionTest, testSample) {
     const int batch_size = 4;
 
     auto column_event1 = ColumnUInt8::create();
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event2 = ColumnUInt8::create();
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnUInt8::create();
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -164,22 +162,22 @@ TEST_F(VRetentionTest, testNoMerge) {
     const int batch_size = 4;
 
     auto column_event1 = ColumnUInt8::create();
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event2 = ColumnUInt8::create();
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnUInt8::create();
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -207,16 +205,16 @@ TEST_F(VRetentionTest, testSerialize) {
     const int batch_size = 2;
 
     auto column_event1 = ColumnUInt8::create();
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event1->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_event2 = ColumnUInt8::create();
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event3 = ColumnUInt8::create();
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event3->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -253,16 +251,16 @@ TEST_F(VRetentionTest, testSerialize) {
     }
 
     auto column_event4 = ColumnUInt8::create();
-    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event4->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event4->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     auto column_event5 = ColumnUInt8::create();
-    column_event5->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event5->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+    column_event5->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event5->insert(Field::create_field<TYPE_BOOLEAN>(1));
 
     auto column_event6 = ColumnUInt8::create();
-    column_event6->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
-    column_event6->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+    column_event6->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event6->insert(Field::create_field<TYPE_BOOLEAN>(0));
 
     std::unique_ptr<char[]> memory3(new char[agg_function->size_of_data()]);
     AggregateDataPtr place3 = memory3.get();
@@ -294,4 +292,4 @@ TEST_F(VRetentionTest, testSerialize) {
     agg_function->destroy(place2);
     agg_function->destroy(place3);
 }
-} // namespace doris::vectorized
+} // namespace doris

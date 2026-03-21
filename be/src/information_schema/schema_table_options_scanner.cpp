@@ -103,12 +103,12 @@ Status SchemaTableOptionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     }
     std::vector<TRow> result_data = result.data_batch;
 
-    _tableoptions_block = vectorized::Block::create_unique();
+    _tableoptions_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                _s_tbls_columns[i].type, true);
-        _tableoptions_block->insert(vectorized::ColumnWithTypeAndName(
-                data_type->create_column(), data_type, _s_tbls_columns[i].name));
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
+        _tableoptions_block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                          _s_tbls_columns[i].name));
     }
     _tableoptions_block->reserve(_block_rows_limit);
     if (result_data.size() > 0) {
@@ -139,7 +139,7 @@ bool SchemaTableOptionsScanner::check_and_mark_eos(bool* eos) const {
     return false;
 }
 
-Status SchemaTableOptionsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaTableOptionsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -162,7 +162,7 @@ Status SchemaTableOptionsScanner::get_next_block_internal(vectorized::Block* blo
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    MutableBlock mblock = MutableBlock::build_mutable_block(block);
     RETURN_IF_ERROR(mblock.add_rows(_tableoptions_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 

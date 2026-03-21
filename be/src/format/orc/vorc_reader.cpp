@@ -104,7 +104,7 @@ enum class FileCachePolicy : uint8_t;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 static constexpr uint32_t MAX_DICT_CODE_PREDICATE_TO_REWRITE = std::numeric_limits<uint32_t>::max();
@@ -1369,7 +1369,7 @@ Status OrcReader::_fill_missing_columns(
             // no default column, fill with null
             auto mutable_column = block->get_by_position((*_col_name_to_block_idx)[kv.first])
                                           .column->assume_mutable();
-            auto* nullable_column = static_cast<vectorized::ColumnNullable*>(mutable_column.get());
+            auto* nullable_column = static_cast<ColumnNullable*>(mutable_column.get());
             nullable_column->insert_many_defaults(rows);
         } else {
             // fill with default value
@@ -2945,7 +2945,7 @@ Status OrcReader::_rewrite_dict_conjuncts(std::vector<int32_t>& dict_codes, int 
             for (int& dict_code : dict_codes) {
                 hybrid_set->insert(&dict_code);
             }
-            root = vectorized::VDirectInPredicate::create_shared(node, hybrid_set);
+            root = VDirectInPredicate::create_shared(node, hybrid_set);
         }
         {
             SlotDescriptor* slot = nullptr;
@@ -3270,4 +3270,4 @@ void OrcReader::_execute_filter_position_delete_rowids(IColumn::Filter& filter) 
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

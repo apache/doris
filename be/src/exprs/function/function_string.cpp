@@ -44,7 +44,7 @@
 #include "util/string_search.hpp"
 #include "util/url_coding.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct NameStringASCII {
     static constexpr auto name = "ascii";
@@ -1450,4 +1450,4 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionOverlay::name, "insert");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

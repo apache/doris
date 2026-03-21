@@ -23,7 +23,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& factory) {
@@ -40,5 +40,5 @@ void register_aggregate_function_bool_union(AggregateFunctionSimpleFactory& fact
     factory.register_alias("bool_and", "booland_agg");
     factory.register_alias("bool_xor", "boolxor_agg");
 }
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

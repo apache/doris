@@ -21,7 +21,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exec/pipeline/dependency.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class AggSharedStateTest : public testing::Test {
 protected:
@@ -29,7 +29,7 @@ protected:
         _shared_state = std::make_shared<AggSharedState>();
 
         // Setup test data
-        auto int_type = std::make_shared<vectorized::DataTypeInt32>();
+        auto int_type = std::make_shared<DataTypeInt32>();
         _shared_state->limit_columns.push_back(int_type->create_column());
 
         // Setup order directions (ascending)
@@ -38,15 +38,15 @@ protected:
 
         // Create test column
         _test_column = int_type->create_column();
-        auto* col_data = reinterpret_cast<vectorized::ColumnInt32*>(_test_column.get());
+        auto* col_data = reinterpret_cast<ColumnInt32*>(_test_column.get());
 
         // Insert test values: 5, 3, 1, -2, -1, 0
-        col_data->insert(vectorized::Field::create_field<TYPE_INT>(5));
-        col_data->insert(vectorized::Field::create_field<TYPE_INT>(3));
-        col_data->insert(vectorized::Field::create_field<TYPE_INT>(1));
-        col_data->insert(vectorized::Field::create_field<TYPE_INT>(-1));
-        col_data->insert(vectorized::Field::create_field<TYPE_INT>(0));
-        col_data->insert(vectorized::Field::create_field<TYPE_INT>(2));
+        col_data->insert(Field::create_field<TYPE_INT>(5));
+        col_data->insert(Field::create_field<TYPE_INT>(3));
+        col_data->insert(Field::create_field<TYPE_INT>(1));
+        col_data->insert(Field::create_field<TYPE_INT>(-1));
+        col_data->insert(Field::create_field<TYPE_INT>(0));
+        col_data->insert(Field::create_field<TYPE_INT>(2));
 
         _key_columns.push_back(_test_column.get());
         // prepare the heap data first [5, 3, 1, -2]
@@ -65,8 +65,8 @@ protected:
     }
 
     std::shared_ptr<AggSharedState> _shared_state;
-    vectorized::MutableColumnPtr _test_column;
-    vectorized::ColumnRawPtrs _key_columns;
+    MutableColumnPtr _test_column;
+    ColumnRawPtrs _key_columns;
 };
 
 TEST_F(AggSharedStateTest, TestRefreshTopLimit) {
@@ -92,4 +92,4 @@ TEST_F(AggSharedStateTest, TestRefreshTopLimit) {
     EXPECT_EQ(_shared_state->limit_heap.top()._row_id, 3); // -1 should be the top value
 }
 
-} // namespace doris::pipeline
+} // namespace doris

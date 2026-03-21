@@ -394,15 +394,12 @@ public:
   *
   * See example in "cow_columns.cpp".
   */
-namespace vectorized {
 class IColumn;
 class Field;
-} // namespace vectorized
 template <typename Base, typename Derived>
 class COWHelper : public Base {
 public:
-    static_assert(std::is_base_of_v<doris::vectorized::IColumn, Base>,
-                  "COWHelper only use in IColumn");
+    static_assert(std::is_base_of_v<doris::IColumn, Base>, "COWHelper only use in IColumn");
     using Ptr = typename Base::template immutable_ptr<Derived>;
     using MutablePtr = typename Base::template mutable_ptr<Derived>;
 
@@ -426,7 +423,7 @@ public:
                                  const typename Base::Selector& selector) const override {
         this->template append_data_by_selector_impl<Derived>(res, selector);
     }
-    void insert_duplicate_fields(const vectorized::Field& x, const size_t n) override {
+    void insert_duplicate_fields(const Field& x, const size_t n) override {
         this->template insert_impl<Derived>(x, n);
     }
 
@@ -436,7 +433,7 @@ public:
         this->template append_data_by_selector_impl<Derived>(res, selector, begin, end);
     }
 
-    void insert_from_multi_column(const std::vector<const vectorized::IColumn*>& srcs,
+    void insert_from_multi_column(const std::vector<const IColumn*>& srcs,
                                   const std::vector<size_t>& positions) override {
         this->template insert_from_multi_column_impl<Derived>(srcs, positions);
     }

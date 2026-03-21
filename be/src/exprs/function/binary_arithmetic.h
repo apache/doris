@@ -32,7 +32,7 @@
 #include "exprs/function/cast_type_to_either.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 template <typename Impl>
 struct PlusMinusIntegralImpl {
@@ -674,4 +674,4 @@ private:
     }
 };
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

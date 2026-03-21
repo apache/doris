@@ -39,7 +39,7 @@
 #include "core/string_view.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Field DataTypeVarbinary::get_default() const {
@@ -136,4 +136,4 @@ FieldWithDataType DataTypeVarbinary::get_field_with_data_type(const IColumn& col
                               .base_scalar_type_id = get_primitive_type()};
 }
 
-} // namespace doris::vectorized
+} // namespace doris

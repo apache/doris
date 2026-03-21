@@ -23,7 +23,7 @@
 
 #include "core/string_ref.h"
 
-namespace doris::vectorized::time_format_type {
+namespace doris::time_format_type {
 #include "common/compile_check_begin.h"
 // Used to optimize commonly used date formats.
 
@@ -340,4 +340,4 @@ inline FormatImplVariant string_to_impl(const std::string& format) {
     }
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::time_format_type
+} // namespace doris::time_format_type

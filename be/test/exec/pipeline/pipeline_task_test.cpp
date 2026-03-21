@@ -31,7 +31,7 @@
 #include "testutil/mock/mock_thread_mem_tracker_mgr.h"
 #include "testutil/mock/mock_workload_group_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 static void empty_function(RuntimeState*, Status*) {}
 
@@ -884,9 +884,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL) {
     }
     {
         task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
-                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
         task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
-                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
     }
     {
         // Reserve failed and but not enable spill disk, so that the query will continue to run.
@@ -1061,9 +1061,9 @@ TEST_F(PipelineTaskTest, TEST_RESERVE_MEMORY_FAIL_SPILLABLE) {
     }
     {
         task->_operators.front()->cast<DummyOperator>()._revocable_mem_size =
-                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
         task->_sink->cast<DummySinkOperatorX>()._revocable_mem_size =
-                vectorized::SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
+                SpillStream::MIN_SPILL_WRITE_BATCH_MEM + 1;
     }
     {
         // Reserve failed and enable spill disk, so that the query be paused.
@@ -1188,4 +1188,4 @@ TEST_F(PipelineTaskTest, TEST_INJECT_SHARED_STATE) {
     }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

@@ -55,7 +55,7 @@ namespace doris {
 
 class FromBlockConverter {
 public:
-    FromBlockConverter(const vectorized::Block& block, const std::shared_ptr<arrow::Schema>& schema,
+    FromBlockConverter(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
                        arrow::MemoryPool* pool, const cctz::time_zone& timezone_obj)
             : _block(block),
               _schema(schema),
@@ -68,15 +68,15 @@ public:
     Status convert(std::shared_ptr<arrow::RecordBatch>* out);
 
 private:
-    const vectorized::Block& _block;
+    const Block& _block;
     const std::shared_ptr<arrow::Schema>& _schema;
     arrow::MemoryPool* _pool;
 
     size_t _cur_field_idx;
     size_t _cur_start;
     size_t _cur_rows;
-    vectorized::ColumnPtr _cur_col;
-    vectorized::DataTypePtr _cur_type;
+    ColumnPtr _cur_col;
+    DataTypePtr _cur_type;
     arrow::ArrayBuilder* _cur_builder = nullptr;
 
     const cctz::time_zone& _timezone_obj;
@@ -127,7 +127,7 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     return Status::OK();
 }
 
-Status convert_to_arrow_batch(const vectorized::Block& block,
+Status convert_to_arrow_batch(const Block& block,
                               const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
                               std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {

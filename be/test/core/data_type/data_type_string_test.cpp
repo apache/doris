@@ -43,7 +43,7 @@
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 static std::string test_result_dir;
 
@@ -405,4 +405,4 @@ TEST_F(DataTypeStringTest, GetFieldWithDataTypeTest) {
     EXPECT_EQ(nullable_dt->get_field_with_data_type(*nullable_column, 1).field, Field());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

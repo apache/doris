@@ -224,9 +224,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (ready()) {
         return Status::OK();
     }
-    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
     for (const auto& spill_path : spill_store_paths) {
-        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+        spill_store_map.emplace(spill_path.path, std::make_unique<SpillDataDir>(
                                                          spill_path.path, spill_path.capacity_bytes,
                                                          spill_path.storage_medium));
     }
@@ -237,7 +237,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
-    set_stream_mgr(new doris::vectorized::VDataStreamMgr());
+    set_stream_mgr(new doris::VDataStreamMgr());
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
@@ -306,7 +306,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_file_cache_factory(cache_paths);
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
-    _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
+    _pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>(); // before query
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();
@@ -346,11 +346,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _cdc_client_mgr = new CdcClientMgr();
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
-    _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
+    _delta_writer_v2_pool = std::make_unique<DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_unique(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
-    _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
+    _spill_stream_mgr = new SpillStreamManager(std::move(spill_store_map));
     _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
@@ -444,7 +444,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
-    _dict_factory = new doris::vectorized::DictionaryFactory();
+    _dict_factory = new doris::DictionaryFactory();
     _s_ready = true;
 
     init_simdjson_parser();
@@ -464,7 +464,7 @@ Status ExecEnv::_create_internal_workload_group() {
 }
 
 void ExecEnv::_init_runtime_filter_timer_queue() {
-    _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
+    _runtime_filter_timer_queue = new doris::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
 }
 
@@ -668,8 +668,8 @@ Status ExecEnv::init_mem_env() {
               << ", origin config value: " << config::condition_cache_limit;
 
     // init orc memory pool
-    _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
-    _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
+    _orc_memory_pool = new doris::ORCMemoryPool();
+    _arrow_memory_pool = new doris::ArrowMemoryPool();
 
     _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
     LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";

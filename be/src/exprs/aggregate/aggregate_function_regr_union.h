@@ -29,7 +29,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T,
@@ -356,6 +356,6 @@ public:
         }
     }
 };
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

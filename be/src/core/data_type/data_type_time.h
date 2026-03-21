@@ -34,7 +34,7 @@
 #include "core/data_type_serde/data_type_time_serde.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 class BufferWritable;
 class IColumn;
 
@@ -73,4 +73,4 @@ public:
 private:
     UInt32 _scale;
 };
-} // namespace doris::vectorized
+} // namespace doris

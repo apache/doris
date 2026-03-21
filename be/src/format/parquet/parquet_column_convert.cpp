@@ -26,7 +26,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
 
-namespace doris::vectorized::parquet {
+namespace doris::parquet {
 #include "common/compile_check_begin.h"
 const cctz::time_zone ConvertParams::utc0 = cctz::utc_time_zone();
 
@@ -299,4 +299,4 @@ std::unique_ptr<PhysicalToLogicalConverter> PhysicalToLogicalConverter::get_conv
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized::parquet
+} // namespace doris::parquet

@@ -46,7 +46,7 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
 
 class Arena;
 /** A column of map values.
@@ -249,4 +249,4 @@ private:
     ColumnMap(const ColumnMap&) = default;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

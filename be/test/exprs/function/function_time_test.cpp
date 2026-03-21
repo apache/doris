@@ -33,7 +33,7 @@
 #include "exprs/function/function_test_util.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST(VTimestampFunctionsTest, day_of_week_test) {
@@ -2555,4 +2555,4 @@ TEST(VTimestampFunctionsTest, add_union_functions_cover_all) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

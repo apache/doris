@@ -93,8 +93,8 @@ TEST_F(RuntimeFilterMgrTest, TestRuntimeFilterMgr) {
         EXPECT_TRUE(local_runtime_filter_mgr
                             ->register_producer_filter(ctx.get(), desc, &producer_filter)
                             .ok());
-        auto mocked_dependency = std::make_shared<pipeline::CountedFinishDependency>(
-                0, 0, "MOCKED_FINISH_DEPENDENCY");
+        auto mocked_dependency =
+                std::make_shared<CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
         producer_filter->latch_dependency(mocked_dependency);
         EXPECT_NE(producer_filter, nullptr);
         // Register in local mgr twice

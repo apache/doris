@@ -35,9 +35,7 @@
 namespace doris {
 class TUniqueId;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace io {
 
@@ -102,7 +100,7 @@ public:
      */
     std::string reset_capacity(const std::string& path, int64_t new_capacity);
 
-    void get_cache_stats_block(vectorized::Block* block);
+    void get_cache_stats_block(Block* block);
 
     // Get all cache instances for inspection
     const std::vector<std::unique_ptr<BlockFileCache>>& get_caches() const { return _caches; }

@@ -46,7 +46,7 @@
 #include "exprs/function/function_unary_arithmetic.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AcosName {
     static constexpr auto name = "acos";
@@ -992,4 +992,4 @@ void register_function_math(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsNan>();
     factory.register_function<FunctionIsInf>();
 }
-} // namespace doris::vectorized
+} // namespace doris

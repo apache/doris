@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_nullable.h"
 #include "core/string_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status ByteArrayPlainDecoder::skip_values(size_t num_values) {
     for (int i = 0; i < num_values; ++i) {
@@ -107,4 +107,4 @@ Status ByteArrayPlainDecoder::_decode_values(MutableColumnPtr& doris_column, Dat
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

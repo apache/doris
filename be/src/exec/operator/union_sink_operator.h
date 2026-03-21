@@ -46,14 +46,14 @@ public:
     using Parent = UnionSinkOperatorX;
 
 private:
-    std::unique_ptr<vectorized::Block> _output_block;
+    std::unique_ptr<Block> _output_block;
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
-    vectorized::VExprContextSPtrs _const_expr;
+    VExprContextSPtrs _const_expr;
 
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
 
     /// Index of current row in child_row_block_.
     int _child_row_idx;
@@ -85,7 +85,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     std::shared_ptr<BasicSharedState> create_shared_state() const override {
         if (_cur_child_id > 0) {
@@ -120,10 +120,10 @@ private:
 
     /// Const exprs materialized by this node. These exprs don't refer to any children.
     /// Only materialized by the first fragment instance to avoid duplication.
-    vectorized::VExprContextSPtrs _const_expr;
+    VExprContextSPtrs _const_expr;
 
     /// Exprs materialized by this node. The i-th result expr list refers to the i-th child.
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
     /// Index of the first non-passthrough child; i.e. a child that needs materialization.
     /// 0 when all children are materialized, '_children.size()' when no children are
     /// materialized.
@@ -139,29 +139,29 @@ private:
         return child_idx < _first_materialized_child_idx;
     }
     Status materialize_child_block(RuntimeState* state, int child_id,
-                                   vectorized::Block* input_block,
-                                   vectorized::Block* output_block) {
+                                   Block* input_block,
+                                   Block* output_block) {
         DCHECK_LT(child_id, _child_size);
         DCHECK(!is_child_passthrough(child_id));
         if (input_block->rows() > 0) {
-            vectorized::MutableBlock mblock =
-                    vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
+            MutableBlock mblock =
+                    VectorizedUtils::build_mutable_mem_reuse_block(output_block,
                                                                                row_descriptor());
-            vectorized::Block res;
+            Block res;
             RETURN_IF_ERROR(materialize_block(state, input_block, child_id, &res));
             RETURN_IF_ERROR(mblock.merge(res));
         }
         return Status::OK();
     }
 
-    Status materialize_block(RuntimeState* state, vectorized::Block* src_block, int child_idx,
-                             vectorized::Block* res_block) {
+    Status materialize_block(RuntimeState* state, Block* src_block, int child_idx,
+                             Block* res_block) {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state._expr_timer);
         const auto& child_exprs = local_state._child_expr;
-        vectorized::ColumnsWithTypeAndName colunms;
+        ColumnsWithTypeAndName colunms;
         for (size_t i = 0; i < child_exprs.size(); ++i) {
-            vectorized::ColumnWithTypeAndName result_data;
+            ColumnWithTypeAndName result_data;
             RETURN_IF_ERROR(child_exprs[i]->execute(src_block, result_data));
             colunms.emplace_back(result_data);
         }

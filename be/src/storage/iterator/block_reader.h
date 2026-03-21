@@ -38,8 +38,6 @@ class ColumnPredicate;
 class FunctionFilter;
 class RuntimeProfile;
 
-namespace vectorized {
-
 class BlockReader final : public TabletReader {
 public:
     ~BlockReader() override;
@@ -121,5 +119,4 @@ private:
     Arena _arena;
 };
 
-} // namespace vectorized
 } // namespace doris

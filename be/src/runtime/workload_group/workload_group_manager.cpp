@@ -246,7 +246,7 @@ void WorkloadGroupMgr::refresh_workload_group_memory_state() {
     }
 }
 
-void WorkloadGroupMgr::get_wg_resource_usage(vectorized::Block* block) {
+void WorkloadGroupMgr::get_wg_resource_usage(Block* block) {
     int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
     int cpu_num = CpuInfo::num_cores();
     cpu_num = cpu_num <= 0 ? 1 : cpu_num;

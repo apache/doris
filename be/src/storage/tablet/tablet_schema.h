@@ -151,11 +151,11 @@ public:
     void set_is_on_update_current_timestamp(bool is_on_update_current_timestamp) {
         _is_on_update_current_timestamp = is_on_update_current_timestamp;
     }
-    void set_path_info(const vectorized::PathInData& path);
+    void set_path_info(const PathInData& path);
     FieldAggregationMethod aggregation() const { return _aggregation; }
-    vectorized::AggregateFunctionPtr get_aggregate_function_union(
-            vectorized::DataTypePtr type, int current_be_exec_version) const;
-    vectorized::AggregateFunctionPtr get_aggregate_function(std::string suffix,
+    AggregateFunctionPtr get_aggregate_function_union(
+            DataTypePtr type, int current_be_exec_version) const;
+    AggregateFunctionPtr get_aggregate_function(std::string suffix,
                                                             int current_be_exec_version) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
@@ -191,7 +191,7 @@ public:
     bool get_result_is_nullable() const { return _result_is_nullable; }
     int get_be_exec_version() const { return _be_exec_version; }
     bool has_path_info() const { return _column_path != nullptr && !_column_path->empty(); }
-    const vectorized::PathInDataPtr& path_info_ptr() const { return _column_path; }
+    const PathInDataPtr& path_info_ptr() const { return _column_path; }
     // If it is an extracted column from variant column
     bool is_extracted_column() const {
         return _column_path != nullptr && !_column_path->empty() && _parent_col_unique_id > 0;
@@ -205,7 +205,7 @@ public:
     int32_t parent_unique_id() const { return _parent_col_unique_id; }
     void set_parent_unique_id(int32_t col_unique_id) { _parent_col_unique_id = col_unique_id; }
     void set_is_bf_column(bool is_bf_column) { _is_bf_column = is_bf_column; }
-    std::shared_ptr<const vectorized::IDataType> get_vec_type() const;
+    std::shared_ptr<const IDataType> get_vec_type() const;
 
     Status check_valid() const {
         if (type() != FieldType::OLAP_FIELD_TYPE_ARRAY &&
@@ -325,7 +325,7 @@ private:
 
     // The extracted sub-columns from "variant" contain the following information:
     int32_t _parent_col_unique_id = -1;     // "variant" -> col_unique_id
-    vectorized::PathInDataPtr _column_path; // the path of the sub-columns themselves
+    PathInDataPtr _column_path; // the path of the sub-columns themselves
     PatternTypePB _pattern_type = PatternTypePB::MATCH_NAME_GLOB;
 
     VariantParams _variant;
@@ -447,7 +447,7 @@ public:
     int64_t mem_size() const { return get_metadata_size(); }
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
-    int32_t field_index(const vectorized::PathInData& path) const;
+    int32_t field_index(const PathInData& path) const;
     int32_t field_index(int32_t col_unique_id) const;
     const TabletColumn& column(size_t ordinal) const;
     Result<const TabletColumn*> column(const std::string& field_name) const;
@@ -581,10 +581,10 @@ public:
     // If schema version is not set, it should be -1
     int32_t schema_version() const { return _schema_version; }
     void clear_columns();
-    vectorized::Block create_block(
+    Block create_block(
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
-    vectorized::Block create_block() const;
+    Block create_block() const;
     void set_schema_version(int32_t version) { _schema_version = version; }
     void set_auto_increment_column(const std::string& auto_increment_column) {
         _auto_increment_column = auto_increment_column;
@@ -668,7 +668,7 @@ public:
         return str;
     }
 
-    vectorized::Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
+    Block create_block_by_cids(const std::vector<uint32_t>& cids) const;
 
     std::shared_ptr<TabletSchema> copy_without_variant_extracted_columns();
     InvertedIndexStorageFormatPB get_inverted_index_storage_format() const {
@@ -739,7 +739,7 @@ public:
         _binary_plain_encoding_default_impl = impl;
     }
 
-    void add_pruned_columns_data_type(int32_t col_unique_id, vectorized::DataTypePtr data_type) {
+    void add_pruned_columns_data_type(int32_t col_unique_id, DataTypePtr data_type) {
         _pruned_columns_data_type[col_unique_id] = std::move(data_type);
     }
 
@@ -760,7 +760,7 @@ private:
     std::vector<TabletIndexPtr> _indexes;
     std::unordered_map<StringRef, int32_t, StringRefHash> _field_name_to_index;
     std::unordered_map<int32_t, int32_t> _field_uniqueid_to_index;
-    std::unordered_map<vectorized::PathInDataRef, int32_t, vectorized::PathInDataRef::Hash>
+    std::unordered_map<PathInDataRef, int32_t, PathInDataRef::Hash>
             _field_path_to_index;
 
     // index_type/col_unique_id/suffix -> idxs in _indexes
@@ -817,7 +817,7 @@ private:
     bool _enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
-    std::map<int32_t, vectorized::DataTypePtr> _pruned_columns_data_type;
+    std::map<int32_t, DataTypePtr> _pruned_columns_data_type;
 
     // value: extracted path set and sparse path set
     std::unordered_map<int32_t, PathsSetInfo> _path_set_info_map;

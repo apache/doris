@@ -29,7 +29,7 @@
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -266,8 +266,7 @@ template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
-                                                 int64_t start, int64_t end,
-                                                 vectorized::Arena& arena,
+                                                 int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -578,7 +577,7 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
 }
 
 template <PrimitiveType T>
-std::string DataTypeDateSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeDateSerDe<T>::to_olap_string(const Field& field) const {
     char buf[64];
     char* pos = field.get<T>().to_string(buf);
     return std::string(buf, pos - buf - 1);
@@ -689,4 +688,4 @@ DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal
 template Status
 DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
-} // namespace doris::vectorized
+} // namespace doris

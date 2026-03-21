@@ -31,19 +31,15 @@
 
 namespace doris {
 
-namespace pipeline {
 class OlapScanLocalState;
-}
 
-namespace vectorized {
 class Scanner;
-}
 
-using ScannerSPtr = std::shared_ptr<vectorized::Scanner>;
+using ScannerSPtr = std::shared_ptr<Scanner>;
 
 class ParallelScannerBuilder {
 public:
-    ParallelScannerBuilder(pipeline::OlapScanLocalState* parent,
+    ParallelScannerBuilder(OlapScanLocalState* parent,
                            const std::vector<TabletWithVersion>& tablets,
                            std::vector<TabletReadSource>& read_sources,
                            const std::shared_ptr<RuntimeProfile>& profile,
@@ -77,11 +73,11 @@ private:
     // Build scanners so that each segment is handled by its own scanner.
     Status _build_scanners_by_segment(std::list<ScannerSPtr>& scanners);
 
-    std::shared_ptr<vectorized::OlapScanner> _build_scanner(
-            BaseTabletSPtr tablet, int64_t version, const std::vector<OlapScanRange*>& key_ranges,
-            TabletReadSource&& read_source);
+    std::shared_ptr<OlapScanner> _build_scanner(BaseTabletSPtr tablet, int64_t version,
+                                                const std::vector<OlapScanRange*>& key_ranges,
+                                                TabletReadSource&& read_source);
 
-    pipeline::OlapScanLocalState* _parent;
+    OlapScanLocalState* _parent;
 
     /// Max scanners count limit to build
     size_t _max_scanners_count {16};

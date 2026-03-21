@@ -48,7 +48,7 @@ struct IOContext;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <bool IN_COLLECTION, bool OFFSET_INDEX>
@@ -740,4 +740,4 @@ template class ColumnChunkReader<false, true>;
 template class ColumnChunkReader<false, false>;
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

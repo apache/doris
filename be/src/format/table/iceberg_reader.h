@@ -53,7 +53,6 @@ class TupleDescriptor;
 namespace io {
 struct IOContext;
 } // namespace io
-namespace vectorized {
 template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
@@ -250,6 +249,5 @@ private:
     static const std::string ICEBERG_ORC_ATTRIBUTE;
 };
 
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

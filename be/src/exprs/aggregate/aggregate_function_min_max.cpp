@@ -28,7 +28,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 /// min, max
 template <template <typename> class Data>
@@ -176,4 +176,4 @@ void register_aggregate_function_minmax(AggregateFunctionSimpleFactory& factory)
     factory.register_alias("any", "any_value");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

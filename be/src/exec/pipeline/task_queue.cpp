@@ -26,7 +26,7 @@
 #include "exec/pipeline/pipeline_task.h"
 #include "runtime/workload_group/workload_group.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 PipelineTaskSPtr SubTaskQueue::try_take(bool is_steal) {
@@ -213,4 +213,4 @@ void MultiCoreTaskQueue::update_statistics(PipelineTask* task, int64_t time_spen
     }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

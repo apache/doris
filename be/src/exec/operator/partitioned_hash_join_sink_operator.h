@@ -34,8 +34,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
-
 class PartitionedHashJoinSinkOperatorX;
 
 class PartitionedHashJoinSinkLocalState
@@ -62,16 +60,14 @@ protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
-    Status _spill_to_disk(uint32_t partition_index,
-                          const vectorized::SpillStreamSPtr& spilling_stream);
+    Status _spill_to_disk(uint32_t partition_index, const SpillStreamSPtr& spilling_stream);
 
-    Status _partition_block(RuntimeState* state, vectorized::Block* in_block, size_t begin,
-                            size_t end);
+    Status _partition_block(RuntimeState* state, Block* in_block, size_t begin, size_t end);
 
     Status _revoke_unpartitioned_block(RuntimeState* state,
                                        const std::shared_ptr<SpillContext>& spill_context);
 
-    Status _execute_spill_unpartitioned_block(RuntimeState* state, vectorized::Block&& build_block);
+    Status _execute_spill_unpartitioned_block(RuntimeState* state, Block&& build_block);
 
     Status _finish_spilling();
 
@@ -86,7 +82,7 @@ protected:
 
     bool _child_eos {false};
 
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<PartitionerBase> _partitioner;
 
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     std::shared_ptr<Dependency> _finish_dependency;
@@ -114,7 +110,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     bool should_dry_run(RuntimeState* state) override { return false; }
 
@@ -177,9 +173,8 @@ private:
     const TPlanNode _tnode;
     const DescriptorTbl _descriptor_tbl;
     const uint32_t _partition_count;
-    std::unique_ptr<vectorized::PartitionerBase> _partitioner;
+    std::unique_ptr<PartitionerBase> _partitioner;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

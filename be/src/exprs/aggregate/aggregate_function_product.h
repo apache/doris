@@ -32,7 +32,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 
 template <PrimitiveType T>
 struct AggregateFunctionProductData {
@@ -210,7 +209,6 @@ private:
     typename PrimitiveTypeTraits<TResult>::CppType multiplier;
 };
 
-} // namespace vectorized
 } // namespace doris
 
 #include "common/compile_check_end.h"

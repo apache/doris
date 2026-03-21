@@ -29,7 +29,7 @@
 #include "core/value/bitmap_value.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // binary: const flag| row num | real saved num | size array | bitmap array
 // <size array>:   bitmap1 size | bitmap2 size | ...
@@ -173,4 +173,4 @@ void DataTypeBitMap::deserialize_as_stream(BitmapValue& value, BufferReadable& b
     buf.read_binary(ref);
     value.deserialize(ref.data);
 }
-} // namespace doris::vectorized
+} // namespace doris

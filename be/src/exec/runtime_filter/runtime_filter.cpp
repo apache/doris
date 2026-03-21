@@ -75,8 +75,8 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
 
 Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
                                       const TQueryOptions* options) {
-    vectorized::VExprContextSPtr build_ctx;
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+    VExprContextSPtr build_ctx;
+    RETURN_IF_ERROR(VExpr::create_expr_tree(desc->src_expr, build_ctx));
 
     RuntimeFilterParams params;
     params.filter_id = desc->filter_id;
@@ -109,9 +109,8 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
         if (!desc->__isset.bitmap_target_expr) {
             return Status::InternalError("Unknown bitmap filter target expr.");
         }
-        vectorized::VExprContextSPtr bitmap_target_ctx;
-        RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
+        VExprContextSPtr bitmap_target_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->bitmap_target_expr, bitmap_target_ctx));
         params.column_return_type = bitmap_target_ctx->root()->data_type()->get_primitive_type();
 
         if (desc->__isset.bitmap_filter_not_in) {

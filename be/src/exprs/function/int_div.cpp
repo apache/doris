@@ -25,7 +25,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionIntDiv : public IFunction {
@@ -208,4 +208,4 @@ void register_function_int_div(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIntDiv<DivideIntegralImpl<TYPE_LARGEINT>>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

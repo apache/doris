@@ -47,9 +47,7 @@
 #include "util/once.h"
 #include "util/slice.h"
 namespace doris {
-namespace vectorized {
 class IDataType;
-}
 
 class ShortKeyIndexDecoder;
 class Schema;
@@ -147,7 +145,7 @@ public:
     Status read_key_by_rowid(uint32_t row_id, std::string* key);
 
     Status seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot, uint32_t row_id,
-                                  vectorized::MutableColumnPtr& result,
+                                  MutableColumnPtr& result,
                                   StorageReadOptions& storage_read_options,
                                   std::unique_ptr<ColumnIterator>& iterator_hint);
 
@@ -180,18 +178,17 @@ public:
     // When `read_options` is provided, the decision (e.g. flat-leaf vs hierarchical) can depend
     // on the reader type and tablet schema; when it is nullptr, we treat it as a query reader.
     // nullptr will be returned if storage type does not contain such column.
-    std::shared_ptr<const vectorized::IDataType> get_data_type_of(
-            const TabletColumn& column, const StorageReadOptions& read_options);
+    std::shared_ptr<const IDataType> get_data_type_of(const TabletColumn& column,
+                                                      const StorageReadOptions& read_options);
 
     // If column in segment is the same type in schema, then it is safe to apply predicate.
     bool can_apply_predicate_safely(
             int cid, const Schema& schema,
-            const std::map<std::string, vectorized::DataTypePtr>& target_cast_type_for_variants,
+            const std::map<std::string, DataTypePtr>& target_cast_type_for_variants,
             const StorageReadOptions& read_options) {
-        const doris::Field* col = schema.column(cid);
+        const doris::StorageField* col = schema.column(cid);
         DCHECK(col != nullptr) << "Column not found in schema for cid=" << cid;
-        vectorized::DataTypePtr storage_column_type =
-                get_data_type_of(col->get_desc(), read_options);
+        DataTypePtr storage_column_type = get_data_type_of(col->get_desc(), read_options);
         if (storage_column_type == nullptr || col->type() != FieldType::OLAP_FIELD_TYPE_VARIANT ||
             !target_cast_type_for_variants.contains(col->name())) {
             // Default column iterator or not variant column
@@ -279,7 +276,7 @@ private:
 
     // Init from ColumnMetaPB in SegmentFooterPB
     // map column unique id ---> it's inner data type
-    std::map<int32_t, std::shared_ptr<const vectorized::IDataType>> _file_column_types;
+    std::map<int32_t, std::shared_ptr<const IDataType>> _file_column_types;
 
     // used to guarantee that short key index will be loaded at most once in a thread-safe way
     DorisCallOnce<Status> _load_index_once;

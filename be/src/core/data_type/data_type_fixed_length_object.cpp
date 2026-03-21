@@ -29,7 +29,7 @@
 #include "core/column/column.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 char* DataTypeFixedLengthObject::serialize(const IColumn& column, char* buf,
@@ -228,4 +228,4 @@ Status DataTypeFixedLengthObject::check_column(const IColumn& column) const {
     return check_column_non_nested_type<ColumnType>(column);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

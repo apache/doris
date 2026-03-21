@@ -31,7 +31,7 @@
 #include "exprs/function/cast_type_to_either.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <PrimitiveType Type>
 struct MultiplyIntegralImpl {
@@ -900,4 +900,4 @@ void register_function_multiply(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMultiply<MultiplyIntegralImpl<TYPE_DOUBLE>>>();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

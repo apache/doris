@@ -41,7 +41,7 @@
 
 namespace doris {
 
-using CacheResult = std::vector<vectorized::BlockUPtr>;
+using CacheResult = std::vector<BlockUPtr>;
 // A handle for mid-result from query lru cache.
 // The handle will automatically release the cache entry when it is destroyed.
 // So the caller need to make sure the handle is valid in lifecycle.

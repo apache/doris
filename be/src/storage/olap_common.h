@@ -116,7 +116,7 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-// Define all data types supported by Field.
+// Define all data types supported by StorageField.
 // If new filed_type is defined, not only new TypeInfo may need be defined,
 // but also some functions like get_type_info in types.cpp need to be changed.
 enum class FieldType {
@@ -163,10 +163,10 @@ enum class FieldType {
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
 };
 
-// Define all aggregation methods supported by Field
+// Define all aggregation methods supported by StorageField
 // Note that in practice, not all types can use all the following aggregation methods
 // For example, it is meaningless to use SUM for the string type (but it will not cause the program to crash)
-// The implementation of the Field class does not perform such checks, and should be constrained when creating the table
+// The implementation of the StorageField class does not perform such checks, and should be constrained when creating the table
 enum class FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_NONE = 0,
     OLAP_FIELD_AGGREGATION_SUM = 1,
@@ -281,7 +281,7 @@ struct Vertex {
     Vertex(int64_t v) : value(v) {}
 };
 
-class Field;
+class StorageField;
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {

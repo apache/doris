@@ -44,7 +44,7 @@
 #include "util/debug_points.h"
 #include "util/thrift_rpc_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 std::pair<VExprContextSPtrs, VExprSPtrs> VRowDistribution::_get_partition_function() {
@@ -378,7 +378,7 @@ Status VRowDistribution::_deal_missing_map(const Block& input_block, Block* bloc
     col_strs.resize(part_col_num);
     col_null_maps.reserve(part_col_num);
 
-    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto format_options = DataTypeSerDe::get_default_format_options();
     format_options.timezone = &_state->timezone_obj();
 
     for (int i = 0; i < part_col_num; ++i) {
@@ -592,4 +592,4 @@ void VRowDistribution::_reset_find_tablets(int64_t rows) {
     _tablet_indexes.assign(rows, 0);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

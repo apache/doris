@@ -26,9 +26,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaFilesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaFilesScanner);
@@ -38,7 +36,7 @@ public:
     ~SchemaFilesScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
     int _db_index;
     int _table_index;

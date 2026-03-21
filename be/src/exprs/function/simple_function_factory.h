@@ -27,7 +27,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class SimpleFunctionFactory;
 
@@ -365,4 +365,4 @@ public:
         return instance;
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

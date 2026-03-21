@@ -72,7 +72,7 @@ class FunctionContext;
 #pragma GCC diagnostic ignored "-Wcast-user-defined"
 #endif
 
-namespace doris::vectorized {
+namespace doris {
 struct DayCeil;
 struct DayFloor;
 struct HourCeil;
@@ -993,7 +993,7 @@ void register_function_datetime_floor_ceil(SimpleFunctionFactory& factory) {
 }
 #undef FLOOR
 #undef CEIL
-} // namespace doris::vectorized
+} // namespace doris
 
 #if defined(__GNUC__) && (__GNUC__ >= 15)
 #pragma GCC diagnostic pop

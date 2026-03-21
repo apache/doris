@@ -19,7 +19,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class ExchangerBase;
 class ShuffleExchanger;
@@ -78,7 +78,7 @@ public:
     RowDescriptor& row_descriptor() override { return _child->row_descriptor(); }
     const RowDescriptor& row_desc() const override { return _child->row_desc(); }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -88,4 +88,4 @@ private:
     ExchangeType _exchange_type;
 };
 
-} // namespace doris::pipeline
+} // namespace doris

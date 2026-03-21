@@ -30,9 +30,9 @@
 #include "runtime/runtime_profile.h"
 #include "util/defer_op.h"
 
-namespace doris::vectorized {
+namespace doris {
 
-Scanner::Scanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
                  RuntimeProfile* profile)
         : _state(state),
           _local_state(local_state),
@@ -76,7 +76,7 @@ Status Scanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
     return Status::OK();
 }
 
-Status Scanner::get_block_after_projects(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status Scanner::get_block_after_projects(RuntimeState* state, Block* block, bool* eos) {
     auto& row_descriptor = _local_state->_parent->row_descriptor();
     if (_output_row_descriptor) {
         if (_alreay_eos) {
@@ -177,7 +177,7 @@ Status Scanner::_filter_output_block(Block* block) {
     return st;
 }
 
-Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Block* output_block) {
+Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     SCOPED_RAW_TIMER(&_per_scanner_timer);
     SCOPED_RAW_TIMER(&_projection_timer);
 
@@ -185,7 +185,7 @@ Status Scanner::_do_projections(vectorized::Block* origin_block, vectorized::Blo
     if (rows == 0) {
         return Status::OK();
     }
-    vectorized::Block input_block = *origin_block;
+    Block input_block = *origin_block;
 
     std::vector<int> result_column_ids;
     for (auto& projections : _intermediate_projections) {
@@ -266,4 +266,4 @@ void Scanner::update_scan_cpu_timer() {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

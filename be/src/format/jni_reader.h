@@ -34,12 +34,10 @@ namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class JniReader : public GenericReader {
 public:
@@ -119,4 +117,4 @@ protected:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

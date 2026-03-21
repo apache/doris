@@ -22,7 +22,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_format_reader.h"
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // By holding a parquet/orc reader, used to read the parquet/orc table of hive.
@@ -104,4 +104,4 @@ private:
             const FieldDescriptor* field_desc, const TupleDescriptor* tuple_descriptor);
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

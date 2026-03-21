@@ -34,7 +34,7 @@ class RuntimeState;
 class TExprNode;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class Block;
 class VExprContext;
@@ -140,4 +140,4 @@ public:
     inline static const std::string NAME = "coalesce";
 };
 
-} // namespace doris::vectorized
+} // namespace doris

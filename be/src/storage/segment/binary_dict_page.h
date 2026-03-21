@@ -121,7 +121,7 @@ private:
     // query for dict item -> dict id
     phmap::flat_hash_map<Slice, uint32_t, HashOfSlice> _dictionary;
     // TODO(zc): rethink about this arena
-    vectorized::Arena _arena;
+    Arena _arena;
     faststring _buffer;
     faststring _first_value;
     uint64_t _raw_data_size = 0;
@@ -138,10 +138,10 @@ public:
 
     Status seek_to_position_in_page(size_t pos) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst) override;
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     size_t count() const override { return _data_page_decoder->count(); }
 

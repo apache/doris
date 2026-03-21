@@ -24,7 +24,7 @@
 #include "util/jsonb_writer.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 class AggStateSerdeTest : public ::testing::Test {
 public:
     void SetUp() override {}
@@ -387,4 +387,4 @@ TEST_F(AggStateSerdeTest, serializeOneCellToHiveText2) {
     }
     std::cout << "test serialize/deserialize_one_cell_from_hive_text2 success" << std::endl;
 }
-} // namespace doris::vectorized
+} // namespace doris

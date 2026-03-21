@@ -35,12 +35,10 @@
 
 namespace doris {
 class TFileRangeDesc;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class TableFormatReader : public GenericReader {
 public:
@@ -425,4 +423,4 @@ struct ColumnIdResult {
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

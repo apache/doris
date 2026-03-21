@@ -52,7 +52,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-namespace vectorized {
 class VExprContext;
 
 class ParquetReadLinesTest : public testing::Test {
@@ -167,8 +166,8 @@ static void read_parquet_lines(std::vector<std::string> numeric_types,
                 ColumnWithTypeAndName(std::move(data_column), data_type, slot_desc->col_name()));
     }
 
-    auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_VARCHAR, false);
+    auto data_type =
+            DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_VARCHAR, false);
     block->insert(ColumnWithTypeAndName(data_type->create_column()->assume_mutable(), data_type,
                                         "row_id"));
 
@@ -336,5 +335,4 @@ TEST_F(ParquetReadLinesTest, test4) {
     read_parquet_lines(numeric_types, types, read_lines, block_dump);
 }
 
-} // namespace vectorized
 } // namespace doris

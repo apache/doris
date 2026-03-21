@@ -47,7 +47,7 @@
 #include "util/defer_op.h"
 #include "util/json/path_in_data.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionVariantElement : public IFunction {
 public:
@@ -64,8 +64,7 @@ public:
     ColumnNumbers get_arguments_that_are_always_constant() const override { return {1}; }
 
     DataTypes get_variadic_argument_types_impl() const override {
-        return {std::make_shared<vectorized::DataTypeVariant>(),
-                std::make_shared<DataTypeString>()};
+        return {std::make_shared<DataTypeVariant>(), std::make_shared<DataTypeString>()};
     }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
@@ -157,9 +156,8 @@ private:
         for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
             size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
             size_t end = src_sparse_data_offsets[ssize_t(i)];
-            size_t lower_bound_index =
-                    vectorized::ColumnVariant::find_path_lower_bound_in_sparse_data(
-                            prefix_ref, src_sparse_data_paths, start, end);
+            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+                    prefix_ref, src_sparse_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
                 std::string_view path(path_ref.data, path_ref.size);
@@ -219,9 +217,8 @@ private:
         for (size_t i = 0; i != src_doc_value_data_offsets.size(); ++i) {
             size_t start = src_doc_value_data_offsets[ssize_t(i) - 1];
             size_t end = src_doc_value_data_offsets[ssize_t(i)];
-            size_t lower_bound_index =
-                    vectorized::ColumnVariant::find_path_lower_bound_in_sparse_data(
-                            prefix_ref, src_doc_value_data_paths, start, end);
+            size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+                    prefix_ref, src_doc_value_data_paths, start, end);
             for (; lower_bound_index != end; ++lower_bound_index) {
                 auto path_ref = src_doc_value_data_paths.get_data_at(lower_bound_index);
                 std::string_view nested_path(path_ref.data, path_ref.size);
@@ -397,4 +394,4 @@ void register_function_variant_element(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionVariantElement>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

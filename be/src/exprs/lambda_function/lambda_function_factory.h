@@ -22,7 +22,7 @@
 
 #include "exprs/lambda_function/lambda_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class LambdaFunctionFactory;
 
@@ -66,4 +66,4 @@ public:
         return instance;
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

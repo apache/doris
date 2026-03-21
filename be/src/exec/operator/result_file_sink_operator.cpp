@@ -27,12 +27,12 @@
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 ResultFileSinkLocalState::ResultFileSinkLocalState(DataSinkOperatorXBase* parent,
                                                    RuntimeState* state)
-        : AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>(parent, state) {}
+        : AsyncWriterSink<VFileResultWriter, ResultFileSinkOperatorX>(parent, state) {}
 
 ResultFileSinkOperatorX::ResultFileSinkOperatorX(int operator_id, const RowDescriptor& row_desc,
                                                  const std::vector<TExpr>& t_output_expr)
@@ -69,18 +69,18 @@ Status ResultFileSinkOperatorX::init(const TDataSink& tsink) {
     _header = sink.header;
 
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 
 Status ResultFileSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultFileSinkLocalState>::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
     if (state->query_options().enable_parallel_outfile) {
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
                 state->query_id(), _buf_size, &_sender, state, false, nullptr));
     }
-    return vectorized::VExpr::open(_output_vexpr_ctxs, state);
+    return VExpr::open(_output_vexpr_ctxs, state);
 }
 
 Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -101,7 +101,7 @@ Status ResultFileSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& i
     _sender->set_dependency(state->fragment_instance_id(), _dependency->shared_from_this());
 
     // create writer
-    _writer.reset(new (std::nothrow) vectorized::VFileResultWriter(
+    _writer.reset(new (std::nothrow) VFileResultWriter(
             p._file_opts.get(), p._storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,
             _sender, nullptr, state->return_object_data_as_binary(), p._output_row_descriptor,
             _async_writer_dependency, _finish_dependency));
@@ -142,7 +142,7 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
     return Base::close(state, exec_status);
 }
 
-Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block, bool eos) {
+Status ResultFileSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -150,4 +150,4 @@ Status ResultFileSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

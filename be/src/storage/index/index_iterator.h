@@ -29,7 +29,7 @@
 #include "storage/index/index_reader.h"
 #include "storage/index/inverted/inverted_index_query_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 struct AnnTopNParam;
 }
 

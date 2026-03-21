@@ -30,7 +30,7 @@
 #include "util/io_helper.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Two part of binary: <size array> | <hll data array>
 // first: const flag| row num | real_saved_num | hll1 size | hll2 size | ...
@@ -192,4 +192,4 @@ void DataTypeHLL::deserialize_as_stream(HyperLogLog& value, BufferReadable& buf)
     buf.read_binary(str);
     value.deserialize(Slice(str));
 }
-} // namespace doris::vectorized
+} // namespace doris

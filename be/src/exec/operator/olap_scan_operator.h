@@ -28,11 +28,11 @@
 #include "runtime/runtime_profile.h"
 #include "storage/tablet/tablet_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 class OlapScanner;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class OlapScanOperatorX;
@@ -63,7 +63,7 @@ public:
     Status open(RuntimeState* state) override;
 
 private:
-    friend class vectorized::OlapScanner;
+    friend class OlapScanner;
 
     Status _sync_cloud_tablets(RuntimeState* state);
     void set_scan_ranges(RuntimeState* state,
@@ -72,8 +72,7 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
     bool _is_key_column(const std::string& col_name) override;
 
-    Status _should_push_down_function_filter(vectorized::VectorizedFnCall* fn_call,
-                                             vectorized::VExprContext* expr_ctx,
+    Status _should_push_down_function_filter(VectorizedFnCall* fn_call, VExprContext* expr_ctx,
                                              StringRef* constant_str,
                                              doris::FunctionContext** fn_ctx,
                                              PushDownType& pdt) override;
@@ -87,8 +86,7 @@ private:
         return PushDownType::ACCEPTABLE;
     }
 
-    PushDownType _should_push_down_is_null_predicate(
-            vectorized::VectorizedFnCall* fn_call) const override {
+    PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
                        ? PushDownType::ACCEPTABLE
@@ -98,14 +96,14 @@ private:
         return PushDownType::ACCEPTABLE;
     }
     PushDownType _should_push_down_binary_predicate(
-            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            vectorized::Field& constant_val, const std::set<std::string> fn_name) const override;
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+            const std::set<std::string> fn_name) const override;
 
     bool _should_push_down_common_expr() override;
 
     bool _storage_no_merge() override;
 
-    bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
+    bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
         }
@@ -117,7 +115,7 @@ private:
         return _is_key_column(predicate.get_col_name(_parent->node_id()));
     }
 
-    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
     Status _build_key_ranges_and_filters();
 
@@ -313,10 +311,10 @@ private:
     std::vector<TabletWithVersion> _tablets;
     std::vector<TabletReadSource> _read_sources;
 
-    std::map<SlotId, vectorized::VExprContextSPtr> _slot_id_to_virtual_column_expr;
+    std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;
     std::map<SlotId, size_t> _slot_id_to_index_in_block;
     // this map is needed for scanner opening.
-    std::map<SlotId, vectorized::DataTypePtr> _slot_id_to_col_type;
+    std::map<SlotId, DataTypePtr> _slot_id_to_col_type;
 };
 
 class OlapScanOperatorX final : public ScanOperatorX<OlapScanLocalState> {
@@ -341,4 +339,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

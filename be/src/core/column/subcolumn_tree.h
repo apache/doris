@@ -29,7 +29,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/thread_context.h"
 #include "util/json/path_in_data.h"
-namespace doris::vectorized {
+namespace doris {
 // Tree that represents paths in document with additional data in nodes.
 // IsShared mean this object shared above multiple tasks, need swtich to subcolumns_tree_tracker
 template <typename NodeData, bool IsShared>
@@ -300,7 +300,7 @@ public:
     Node* get_mutable_root() const { return root.get(); }
 
     static void get_leaves_of_node(const Node* node, std::vector<const Node*>& nodes,
-                                   vectorized::PathsInData& paths) {
+                                   PathsInData& paths) {
         if (node->is_scalar()) {
             nodes.push_back(node);
             paths.push_back(node->path);
@@ -368,4 +368,4 @@ private:
     Nodes leaves;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

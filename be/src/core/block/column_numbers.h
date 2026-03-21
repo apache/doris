@@ -23,7 +23,7 @@
 #include <cstdint>
 #include <vector>
 
-namespace doris::vectorized {
+namespace doris {
 
 using ColumnNumbers = std::vector<uint32_t>;
 }

@@ -46,7 +46,7 @@ bool IndexColumnWriter::check_support_ann_index(const TabletColumn& column) {
 }
 
 // create index writer
-Status IndexColumnWriter::create(const Field* field, std::unique_ptr<IndexColumnWriter>* res,
+Status IndexColumnWriter::create(const StorageField* field, std::unique_ptr<IndexColumnWriter>* res,
                                  IndexFileWriter* index_file_writer,
                                  const TabletIndex* index_meta) {
     const auto* typeinfo = field->type_info();

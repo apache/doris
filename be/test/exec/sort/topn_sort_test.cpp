@@ -39,7 +39,7 @@
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct TopNSorterTest : public testing::Test {
     void SetUp() override {
@@ -104,4 +104,4 @@ TEST_F(TopNSorterTest, test_topn_sorter2) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

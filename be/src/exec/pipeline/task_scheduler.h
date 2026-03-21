@@ -40,7 +40,7 @@ class ExecEnv;
 class ThreadPool;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class HybridTaskScheduler;
 class TaskScheduler {
@@ -101,4 +101,4 @@ private:
     TaskScheduler _blocking_scheduler;
     TaskScheduler _simple_scheduler;
 };
-} // namespace doris::pipeline
+} // namespace doris

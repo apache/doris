@@ -47,7 +47,7 @@
 
 namespace doris {
 
-Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
+Status convert_to_arrow_type(const DataTypePtr& origin_type,
                              std::shared_ptr<arrow::DataType>* result,
                              const std::string& timezone) {
     auto type = get_serialized_type(origin_type);
@@ -120,16 +120,16 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
         *result = arrow::boolean();
         break;
     case TYPE_ARRAY: {
-        const auto* type_arr = assert_cast<const vectorized::DataTypeArray*>(
-                vectorized::remove_nullable(type).get());
+        const auto* type_arr = assert_cast<const DataTypeArray*>(
+                remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> item_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_arr->get_nested_type(), &item_type, timezone));
         *result = std::make_shared<arrow::ListType>(item_type);
         break;
     }
     case TYPE_MAP: {
-        const auto* type_map = assert_cast<const vectorized::DataTypeMap*>(
-                vectorized::remove_nullable(type).get());
+        const auto* type_map = assert_cast<const DataTypeMap*>(
+                remove_nullable(type).get());
         std::shared_ptr<arrow::DataType> key_type;
         std::shared_ptr<arrow::DataType> val_type;
         RETURN_IF_ERROR(convert_to_arrow_type(type_map->get_key_type(), &key_type, timezone));
@@ -138,8 +138,8 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
         break;
     }
     case TYPE_STRUCT: {
-        const auto* type_struct = assert_cast<const vectorized::DataTypeStruct*>(
-                vectorized::remove_nullable(type).get());
+        const auto* type_struct = assert_cast<const DataTypeStruct*>(
+                remove_nullable(type).get());
         std::vector<std::shared_ptr<arrow::Field>> fields;
         for (size_t i = 0; i < type_struct->get_elements().size(); i++) {
             std::shared_ptr<arrow::DataType> field_type;
@@ -173,7 +173,7 @@ Status convert_to_arrow_type(const vectorized::DataTypePtr& origin_type,
     return Status::OK();
 }
 
-Status get_arrow_schema_from_block(const vectorized::Block& block,
+Status get_arrow_schema_from_block(const Block& block,
                                    std::shared_ptr<arrow::Schema>* result,
                                    const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;
@@ -187,7 +187,7 @@ Status get_arrow_schema_from_block(const vectorized::Block& block,
     return Status::OK();
 }
 
-Status get_arrow_schema_from_expr_ctxs(const vectorized::VExprContextSPtrs& output_vexpr_ctxs,
+Status get_arrow_schema_from_expr_ctxs(const VExprContextSPtrs& output_vexpr_ctxs,
                                        std::shared_ptr<arrow::Schema>* result,
                                        const std::string& timezone) {
     std::vector<std::shared_ptr<arrow::Field>> fields;

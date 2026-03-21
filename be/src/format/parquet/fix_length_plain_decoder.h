@@ -24,11 +24,11 @@
 #include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ColumnSelectVector;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class FixLengthPlainDecoder final : public Decoder {
@@ -84,4 +84,4 @@ public:
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -740,7 +740,7 @@ TEST(BitmapValueTest, to_array) {
             return;
         }
 
-        vectorized::PaddedPODArray<int64_t> data;
+        PaddedPODArray<int64_t> data;
         bitmap.to_array(data);
 
         for (size_t i = 0; i != size; ++i) {

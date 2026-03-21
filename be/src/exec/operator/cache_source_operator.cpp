@@ -28,7 +28,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 Status CacheSourceLocalState::init(RuntimeState* state, LocalStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
@@ -118,7 +117,7 @@ std::string CacheSourceLocalState::debug_string(int indentation_level) const {
     return fmt::to_string(debug_string_buffer);
 }
 
-Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status CacheSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
 
@@ -140,7 +139,7 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             }
         });
 
-        std::unique_ptr<vectorized::Block> output_block;
+        std::unique_ptr<Block> output_block;
         int child_idx = 0;
         RETURN_IF_ERROR(local_state._shared_state->data_queue.get_block_from_queue(&output_block,
                                                                                    &child_idx));
@@ -156,8 +155,7 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             if (need_clone_empty) {
                 *block = output_block->clone_empty();
             }
-            RETURN_IF_ERROR(
-                    vectorized::MutableBlock::build_mutable_block(block).merge(*output_block));
+            RETURN_IF_ERROR(MutableBlock::build_mutable_block(block).merge(*output_block));
             local_state._current_query_cache_rows += output_block->rows();
             auto mem_consume = output_block->allocated_bytes();
             local_state._current_query_cache_bytes += mem_consume;
@@ -180,8 +178,7 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
             if (need_clone_empty) {
                 *block = hit_cache_block->clone_empty();
             }
-            RETURN_IF_ERROR(
-                    vectorized::MutableBlock::build_mutable_block(block).merge(*hit_cache_block));
+            RETURN_IF_ERROR(MutableBlock::build_mutable_block(block).merge(*hit_cache_block));
             if (!local_state._hit_cache_column_orders.empty()) {
                 auto datas = block->get_columns_with_type_and_name();
                 block->clear();
@@ -198,5 +195,4 @@ Status CacheSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* b
     return Status::OK();
 }
 
-} // namespace pipeline
 } // namespace doris

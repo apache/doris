@@ -40,7 +40,7 @@ namespace doris {
 Status CollectionStatistics::collect(
         RuntimeState* state, const std::vector<RowSetSplits>& rs_splits,
         const TabletSchemaSPtr& tablet_schema,
-        const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx) {
+        const VExprContextSPtrs& common_expr_ctxs_push_down, io::IOContext* io_ctx) {
     std::unordered_map<std::wstring, CollectInfo> collect_infos;
     RETURN_IF_ERROR(
             extract_collect_info(state, common_expr_ctxs_push_down, tablet_schema, &collect_infos));
@@ -110,7 +110,7 @@ Status CollectionStatistics::collect(
 }
 
 Status CollectionStatistics::extract_collect_info(
-        RuntimeState* state, const vectorized::VExprContextSPtrs& common_expr_ctxs_push_down,
+        RuntimeState* state, const VExprContextSPtrs& common_expr_ctxs_push_down,
         const TabletSchemaSPtr& tablet_schema, CollectInfoMap* collect_infos) {
     DCHECK(collect_infos != nullptr);
 
@@ -124,7 +124,7 @@ Status CollectionStatistics::extract_collect_info(
             continue;
         }
 
-        std::stack<vectorized::VExprSPtr> stack;
+        std::stack<VExprSPtr> stack;
         stack.emplace(root_expr);
 
         while (!stack.empty()) {

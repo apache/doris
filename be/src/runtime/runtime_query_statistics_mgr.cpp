@@ -493,7 +493,7 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
     }
 }
 
-void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
+void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(Block* block) {
     std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
     int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
 

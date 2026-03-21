@@ -57,12 +57,10 @@
 class SipHash;
 
 namespace doris {
-namespace vectorized {
 class Arena;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 #ifdef NDEBUG
 #define ENABLE_CHECK_CONSISTENCY (void)/* Nothing */
@@ -228,7 +226,7 @@ public:
 
             size_t get_dimensions() const { return num_dimensions; }
 
-            void remove_nullable() { type = doris::vectorized::remove_nullable(type); }
+            void remove_nullable() { type = doris::remove_nullable(type); }
 
             const DataTypeSerDeSPtr& get_serde() const { return least_common_type_serder; }
 
@@ -406,9 +404,8 @@ public:
 
     // use sparse_subcolumns_schema to record sparse column's path info and type
     static MutableColumnPtr create_binary_column_fn() {
-        return vectorized::ColumnMap::create(vectorized::ColumnString::create(),
-                                             vectorized::ColumnString::create(),
-                                             vectorized::ColumnArray::ColumnOffsets::create());
+        return ColumnMap::create(ColumnString::create(), ColumnString::create(),
+                                 ColumnArray::ColumnOffsets::create());
     }
 
     static const DataTypePtr& get_binary_column_type() {
@@ -673,4 +670,4 @@ private:
     bool is_visible_root_value(size_t nrow) const;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

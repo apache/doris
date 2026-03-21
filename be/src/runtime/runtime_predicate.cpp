@@ -27,7 +27,7 @@
 #include "storage/predicate/column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 RuntimePredicate::RuntimePredicate(const TTopnFilterDesc& desc)
         : _nulls_first(desc.null_first), _is_asc(desc.is_asc) {
@@ -126,4 +126,4 @@ Status RuntimePredicate::update(const Field& value) {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

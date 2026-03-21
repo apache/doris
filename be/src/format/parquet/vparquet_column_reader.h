@@ -44,7 +44,7 @@ namespace doris::io {
 struct IOContext;
 } // namespace doris::io
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct FieldSchema;
 template <typename T>
@@ -476,7 +476,7 @@ public:
 
         if (real_column_size > 0) {
             if (doris_column->is_nullable()) {
-                auto* nullable_column = static_cast<vectorized::ColumnNullable*>(data_column.get());
+                auto* nullable_column = static_cast<ColumnNullable*>(data_column.get());
                 nullable_column->insert_many_defaults(real_column_size);
             } else {
                 // For non-nullable columns, insert appropriate default values
@@ -535,4 +535,4 @@ public:
 
 #include "common/compile_check_end.h"
 
-}; // namespace doris::vectorized
+}; // namespace doris

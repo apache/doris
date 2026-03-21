@@ -43,7 +43,7 @@
 #include "util/jsonb_writer.h"
 #include "util/uid_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class NativeReaderWriterTest : public ::testing::Test {};
 
@@ -1346,4 +1346,4 @@ TEST_F(NativeReaderWriterTest, round_trip_all_types_single_row) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

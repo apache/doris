@@ -46,7 +46,7 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Arena;
@@ -339,5 +339,5 @@ const Type* check_and_get_column_with_const(const IColumn& column) {
     return check_and_get_column<Type>(column);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

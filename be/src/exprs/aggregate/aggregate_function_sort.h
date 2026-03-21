@@ -38,14 +38,12 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctionSortData {
     const SortDescription sort_desc;
@@ -211,6 +209,6 @@ AggregateFunctionPtr transform_to_sort_agg_function(const AggregateFunctionPtr& 
                                                     const DataTypes& arguments,
                                                     const SortDescription& sort_desc,
                                                     RuntimeState* state);
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

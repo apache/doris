@@ -32,7 +32,7 @@ class TabletSchema;
 class TupleDescriptor;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 // use jsonb codec to store row format
 class JsonbSerializeUtil {
 public:
@@ -52,4 +52,4 @@ public:
                                  Block& dst, const std::vector<std::string>& default_values,
                                  const std::unordered_set<int>& include_cids);
 };
-} // namespace doris::vectorized
+} // namespace doris

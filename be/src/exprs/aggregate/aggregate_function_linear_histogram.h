@@ -33,7 +33,7 @@
 // TODO: support datetime
 // TODO: support foreach
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -257,6 +257,6 @@ private:
     UInt32 scale;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -51,7 +51,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // Combines multiple arrays into a single array
 // array_zip(['d', 'o', 'r', 'i', 's'], [1, 2, 3, 4, 5]) -> [('d', 1), ('o', 2), ('r', 3), ('i', 4), ('s', 5)]
@@ -137,4 +137,4 @@ void register_function_array_zip(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayZip>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

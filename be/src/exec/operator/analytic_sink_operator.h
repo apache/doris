@@ -25,7 +25,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace pipeline {
 class AnalyticSinkOperatorX;
 
 struct BoundaryPose {
@@ -96,9 +95,9 @@ private:
         return _current_row_position + _have_removed_rows -
                _input_block_first_row_positions[_output_block_index];
     }
-    void _output_current_block(vectorized::Block* block);
+    void _output_current_block(Block* block);
     void _reset_state_for_next_partition();
-    void _refresh_buffer_and_dependency_state(vectorized::Block* block);
+    void _refresh_buffer_and_dependency_state(Block* block);
 
     void _create_agg_status();
     void _reset_agg_status();
@@ -109,18 +108,17 @@ private:
     void _find_next_partition_ends();
     void _update_order_by_range();
     void _find_next_order_by_ends();
-    int64_t find_first_not_equal(vectorized::IColumn* reference_column,
-                                 vectorized::IColumn* compared_column, int64_t target,
-                                 int64_t start, int64_t end);
+    int64_t find_first_not_equal(IColumn* reference_column, IColumn* compared_column,
+                                 int64_t target, int64_t start, int64_t end);
 
-    std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
-    vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
-    vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
-    vectorized::VExprContextSPtrs _range_between_expr_ctxs;
-    std::vector<std::vector<vectorized::MutableColumnPtr>> _agg_input_columns;
-    std::vector<vectorized::MutableColumnPtr> _partition_by_columns;
-    std::vector<vectorized::MutableColumnPtr> _order_by_columns;
-    std::vector<vectorized::MutableColumnPtr> _range_result_columns;
+    std::vector<VExprContextSPtrs> _agg_expr_ctxs;
+    VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    VExprContextSPtrs _order_by_eq_expr_ctxs;
+    VExprContextSPtrs _range_between_expr_ctxs;
+    std::vector<std::vector<MutableColumnPtr>> _agg_input_columns;
+    std::vector<MutableColumnPtr> _partition_by_columns;
+    std::vector<MutableColumnPtr> _order_by_columns;
+    std::vector<MutableColumnPtr> _range_result_columns;
     size_t _partition_exprs_size = 0;
     size_t _order_by_exprs_size = 0;
     BoundaryPose _partition_by_pose;
@@ -132,8 +130,8 @@ private:
 
     size_t _agg_functions_size = 0;
     bool _agg_functions_created = false;
-    vectorized::AggregateDataPtr _fn_place_ptr = nullptr;
-    std::vector<vectorized::AggFnEvaluator*> _agg_functions;
+    AggregateDataPtr _fn_place_ptr = nullptr;
+    std::vector<AggFnEvaluator*> _agg_functions;
     std::vector<size_t> _offsets_of_aggregate_states;
     std::vector<bool> _result_column_nullable_flags;
     std::vector<bool> _result_column_could_resize;
@@ -151,13 +149,13 @@ private:
     bool _need_more_data = false;
     int64_t _current_row_position = 0;
     int64_t _output_block_index = 0;
-    std::vector<vectorized::MutableColumnPtr> _result_window_columns;
+    std::vector<MutableColumnPtr> _result_window_columns;
 
     int64_t _rows_start_offset = 0;
     int64_t _rows_end_offset = 0;
     int64_t _input_total_rows = 0;
     bool _input_eos = false;
-    std::vector<vectorized::Block> _input_blocks;
+    std::vector<Block> _input_blocks;
     std::vector<int64_t> _input_block_first_row_positions;
     int64_t _removed_block_index = 0;
     int64_t _have_removed_rows = 0;
@@ -212,7 +210,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_partition_by_eq_expr_ctxs.empty()) {
             return {ExchangeType::PASSTHROUGH};
@@ -230,19 +228,19 @@ public:
 
 private:
     friend class AnalyticSinkLocalState;
-    Status _insert_range_column(vectorized::Block* block, const vectorized::VExprContextSPtr& expr,
-                                vectorized::IColumn* dst_column, size_t length);
-    Status _add_input_block(doris::RuntimeState* state, vectorized::Block* input_block);
+    Status _insert_range_column(Block* block, const VExprContextSPtr& expr, IColumn* dst_column,
+                                size_t length);
+    Status _add_input_block(doris::RuntimeState* state, Block* input_block);
 
     ObjectPool* _pool = nullptr;
-    std::vector<vectorized::VExprContextSPtrs> _agg_expr_ctxs;
-    vectorized::VExprContextSPtrs _partition_by_eq_expr_ctxs;
-    vectorized::VExprContextSPtrs _order_by_eq_expr_ctxs;
-    vectorized::VExprContextSPtrs _range_between_expr_ctxs;
+    std::vector<VExprContextSPtrs> _agg_expr_ctxs;
+    VExprContextSPtrs _partition_by_eq_expr_ctxs;
+    VExprContextSPtrs _order_by_eq_expr_ctxs;
+    VExprContextSPtrs _range_between_expr_ctxs;
 
     size_t _agg_functions_size = 0;
     std::vector<size_t> _num_agg_input;
-    std::vector<vectorized::AggFnEvaluator*> _agg_functions;
+    std::vector<AggFnEvaluator*> _agg_functions;
 
     TupleId _intermediate_tuple_id;
     TupleId _output_tuple_id;
@@ -268,6 +266,5 @@ private:
     std::vector<bool> _change_to_nullable_flags;
 };
 
-} // namespace pipeline
 } // namespace doris
 #include "common/compile_check_end.h"

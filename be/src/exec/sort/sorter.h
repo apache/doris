@@ -43,7 +43,7 @@ class ObjectPool;
 class RowDescriptor;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 using MergeSorterQueue = SortingQueueBatch<MergeSortCursor>;
 
@@ -65,7 +65,7 @@ public:
 
     Status build_merge_tree(const SortDescription& sort_description);
 
-    Status merge_sort_read(doris::vectorized::Block* block, int batch_size, bool* eos);
+    Status merge_sort_read(doris::Block* block, int batch_size, bool* eos);
 
     size_t data_size() const {
         size_t size = _unsorted_block->bytes();
@@ -85,7 +85,7 @@ public:
     void ignore_offset() { _offset = 0; }
 
 private:
-    void _merge_sort_read_impl(int batch_size, doris::vectorized::Block* block, bool* eos);
+    void _merge_sort_read_impl(int batch_size, doris::Block* block, bool* eos);
 
     std::unique_ptr<Block> _unsorted_block;
     MergeSorterQueue _queue;
@@ -142,7 +142,7 @@ public:
     const SortDescription& get_sort_description() const { return _sort_description; }
     virtual Field get_top_value() { return Field {PrimitiveType::TYPE_NULL}; }
 
-    virtual Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
+    virtual Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
                                              int batch_size, bool* eos);
     virtual void reset() {}
 
@@ -191,8 +191,8 @@ public:
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) const override;
 
-    Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
-                                     int batch_size, bool* eos) override;
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
+                                     bool* eos) override;
     void reset() override;
 
     void set_max_buffered_block_bytes(size_t max_buffered_block_bytes) {
@@ -224,4 +224,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -34,7 +34,6 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 
 VDataStreamMgr::VDataStreamMgr() {
     // TODO: metric
@@ -256,5 +255,4 @@ void VDataStreamMgr::cancel(const TUniqueId& fragment_instance_id, Status exec_s
     }
 }
 
-} // namespace vectorized
 } // namespace doris

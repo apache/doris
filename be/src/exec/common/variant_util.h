@@ -63,7 +63,7 @@ using JsonParser = JSONDataParser<SimdJSONParser>;
 
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";
 const std::string DOC_VALUE_COLUMN_PATH = "__DORIS_VARIANT_DOC_VALUE__";
-namespace doris::vectorized::variant_util {
+namespace doris::variant_util {
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
@@ -71,7 +71,7 @@ struct VariantExtendedInfo {
     PathToNoneNullValues path_to_none_null_values; // key: path, value: number of none null values
     std::unordered_set<std::string> sparse_paths;  // sparse paths in this variant column
     std::unordered_set<std::string> typed_paths;   // typed paths in this variant column
-    std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>
+    std::unordered_set<PathInData, PathInData::Hash>
             nested_paths;               // nested paths in this variant column
     PathToDataTypes path_to_data_types; // key: path, value: data types
     bool has_nested_group = false;      // whether this variant column has nested group
@@ -93,10 +93,10 @@ struct ExtraInfo {
     // -1 indicates it's not a Frontend generated column
     int32_t unique_id = -1;
     int32_t parent_unique_id = -1;
-    vectorized::PathInData path_info;
+    PathInData path_info;
 };
 
-TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
+TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info);
 
 // check if the tuple_paths has ambiguous paths
@@ -130,8 +130,8 @@ void inherit_column_attributes(const TabletColumn& source, TabletColumn& target,
 bool is_bf_supported_by_fe_for_variant_subcolumn(FieldType type);
 
 // get sorted subcolumns of variant
-vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
-        const vectorized::ColumnVariant::Subcolumns& subcolumns);
+ColumnVariant::Subcolumns get_sorted_subcolumns(
+        const ColumnVariant::Subcolumns& subcolumns);
 
 bool has_schema_index_diff(const TabletSchema* new_schema, const TabletSchema* old_schema,
                            int32_t new_col_idx, int32_t old_col_idx);
@@ -221,7 +221,7 @@ public:
                                                TabletSchema::PathsSetInfo& paths_set_info);
 
     static Status get_compaction_nested_columns(
-            const std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>&
+            const std::unordered_set<PathInData, PathInData::Hash>&
                     nested_paths,
             const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
             TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info);
@@ -252,4 +252,4 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
         const ColumnVariant& variant);
 
-} // namespace  doris::vectorized::variant_util
+} // namespace  doris::variant_util

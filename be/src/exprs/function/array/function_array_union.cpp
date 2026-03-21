@@ -26,7 +26,7 @@
 #include "exprs/function/array/function_array_set.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 struct NameArrayUnion {
@@ -75,4 +75,4 @@ void register_function_array_union(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayUnion>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

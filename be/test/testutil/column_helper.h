@@ -28,7 +28,7 @@
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/define_primitive_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 struct ColumnHelper {
 public:
     template <typename DataType>
@@ -164,4 +164,4 @@ public:
         return ColumnWithTypeAndName(column, data_type, "column");
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

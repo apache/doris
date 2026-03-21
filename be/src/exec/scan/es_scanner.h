@@ -37,20 +37,18 @@ class RuntimeProfile;
 class RuntimeState;
 class TupleDescriptor;
 
-namespace vectorized {
 class Block;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class EsScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(EsScanner);
 
 public:
-    EsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
-              TupleId tuple_id, const std::map<std::string, std::string>& properties,
+    EsScanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit, TupleId tuple_id,
+              const std::map<std::string, std::string>& properties,
               const std::map<std::string, std::string>& docvalue_context, bool doc_value_mode,
               RuntimeProfile* profile);
 
@@ -62,7 +60,7 @@ protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 
 private:
-    Status _get_next(std::vector<vectorized::MutableColumnPtr>& columns);
+    Status _get_next(std::vector<MutableColumnPtr>& columns);
     bool _es_eof;
 
     const std::map<std::string, std::string>& _properties;
@@ -79,4 +77,4 @@ private:
     const std::map<std::string, std::string>& _docvalue_context;
     bool _doc_value_mode;
 };
-} // namespace doris::vectorized
+} // namespace doris

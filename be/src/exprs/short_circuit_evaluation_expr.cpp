@@ -37,7 +37,7 @@
 #include "exprs/short_circuit_util.h"
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // For short-circuit execution, we need to distinguish between three types of indices:
 // 1. self_index: The index of the current column (the 'i' in for(int i=0; i<size; i++),
@@ -506,4 +506,4 @@ Status ShortCircuitCoalesceExpr::execute_column(VExprContext* context, const Blo
     result_column = dispatch_fill_columns(columns_and_selectors, count);
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

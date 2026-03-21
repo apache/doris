@@ -23,7 +23,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class PartitionerBase {
@@ -154,4 +154,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

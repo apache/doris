@@ -41,7 +41,7 @@
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 static std::string test_result_dir;
 static DataTypeFloat32 dt_float32;
@@ -464,4 +464,4 @@ TEST_F(DataTypeNumberTest, GetFieldWithDataTypeTest) {
               Field::create_field<TYPE_TINYINT>(1));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

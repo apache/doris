@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status TVFTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -29,4 +29,4 @@ Status TVFTableSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

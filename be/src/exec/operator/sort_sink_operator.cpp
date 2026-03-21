@@ -24,7 +24,7 @@
 #include "exec/sort/topn_sorter.h"
 #include "runtime/query_context.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status SortSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -47,19 +47,19 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
-        _shared_state->sorter = vectorized::HeapSorter::create_shared(
+        _shared_state->sorter = HeapSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child->row_desc());
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
-        _shared_state->sorter = vectorized::TopNSorter::create_shared(
+        _shared_state->sorter = TopNSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child->row_desc(), state, custom_profile());
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
-        auto sorter = vectorized::FullSorter::create_shared(
+        auto sorter = FullSorter::create_shared(
                 _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
                 p._child->row_desc(), state, custom_profile());
         if (p._max_buffered_bytes > 0) {
@@ -125,7 +125,7 @@ Status SortSinkOperatorX::prepare(RuntimeState* state) {
     return _vsort_exec_exprs.open(state);
 }
 
-Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in_block, bool eos) {
+Status SortSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
@@ -144,7 +144,7 @@ Status SortSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* in
             SCOPED_TIMER(local_state._update_runtime_predicate_timer);
             auto& predicate = state->get_query_ctx()->get_runtime_predicate(_node_id);
             if (predicate.enable()) {
-                vectorized::Field new_top = local_state._shared_state->sorter->get_top_value();
+                Field new_top = local_state._shared_state->sorter->get_top_value();
                 if (!new_top.is_null() && new_top != local_state.old_top) {
                     auto* query_ctx = state->get_query_ctx();
                     RETURN_IF_ERROR(query_ctx->get_runtime_predicate(_node_id).update(new_top));
@@ -180,7 +180,7 @@ Status SortSinkOperatorX::prepare_for_spill(RuntimeState* state) {
 }
 
 Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,
-                                                    doris::vectorized::Block* block, int batch_size,
+                                                    doris::Block* block, int batch_size,
                                                     bool* eos) {
     auto& local_state = get_local_state(state);
     return local_state._shared_state->sorter->merge_sort_read_for_spill(state, block, batch_size,
@@ -191,4 +191,4 @@ void SortSinkOperatorX::reset(RuntimeState* state) {
     local_state._shared_state->sorter->reset();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

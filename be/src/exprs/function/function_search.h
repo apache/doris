@@ -36,7 +36,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/operator_boolean_query.h"
 
 CL_NS_USE(index)
-namespace doris::vectorized {
+namespace doris {
 
 using namespace doris::segment_v2;
 
@@ -46,7 +46,7 @@ struct FieldReaderBinding {
     std::string logical_field_name;
     std::string stored_field_name;
     std::wstring stored_field_wstr;
-    vectorized::DataTypePtr column_type;
+    DataTypePtr column_type;
     InvertedIndexQueryType query_type;
     InvertedIndexReaderPtr inverted_reader;
     std::shared_ptr<lucene::index::IndexReader> lucene_reader;
@@ -58,8 +58,7 @@ struct FieldReaderBinding {
 class FieldReaderResolver {
 public:
     FieldReaderResolver(
-            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-                    data_type_with_names,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             const std::unordered_map<std::string, IndexIterator*>& iterators,
             std::shared_ptr<IndexQueryContext> context,
             const std::vector<TSearchFieldBinding>& field_bindings = {})
@@ -113,8 +112,7 @@ private:
         return stored_field_name + "#" + std::to_string(static_cast<int>(query_type));
     }
 
-    const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-            _data_type_with_names;
+    const std::unordered_map<std::string, IndexFieldNameAndTypePair>& _data_type_with_names;
     const std::unordered_map<std::string, IndexIterator*>& _iterators;
     std::shared_ptr<IndexQueryContext> _context;
     std::vector<TSearchFieldBinding> _field_bindings;
@@ -159,22 +157,20 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<IndexIterator*> iterators, uint32_t num_rows,
             const InvertedIndexAnalyzerCtx* /*analyzer_ctx*/,
             InvertedIndexResultBitmap& bitmap_result) const override;
 
     Status evaluate_inverted_index_with_search_param(
             const TSearchParam& search_param,
-            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-                    data_type_with_names,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
             InvertedIndexResultBitmap& bitmap_result, bool enable_cache = true) const;
 
     Status evaluate_inverted_index_with_search_param(
             const TSearchParam& search_param,
-            const std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair>&
-                    data_type_with_names,
+            const std::unordered_map<std::string, IndexFieldNameAndTypePair>& data_type_with_names,
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
             InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
             const IndexExecContext* index_exec_ctx,
@@ -218,4 +214,4 @@ public:
                             int32_t minimum_should_match) const;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

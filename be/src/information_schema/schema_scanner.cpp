@@ -103,7 +103,7 @@ Status SchemaScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaScanner::get_next_block(RuntimeState* state, vectorized::Block* block, bool* eos) {
+Status SchemaScanner::get_next_block(RuntimeState* state, Block* block, bool* eos) {
     if (_data_block == nullptr) {
         return Status::InternalError("No data left!");
     }
@@ -136,7 +136,7 @@ Status SchemaScanner::get_next_block_async(RuntimeState* state) {
                 SCOPED_ATTACH_TASK(state);
                 _async_thread_running = true;
                 if (!_opened) {
-                    _data_block = vectorized::Block::create_unique();
+                    _data_block = Block::create_unique();
                     _init_block(_data_block.get());
                     _scanner_status.update(start(state));
                     _opened = true;
@@ -270,24 +270,23 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
     }
 }
 
-void SchemaScanner::_init_block(vectorized::Block* src_block) {
+void SchemaScanner::_init_block(Block* src_block) {
     const std::vector<SchemaScanner::ColumnDesc>& columns_desc(get_column_desc());
     for (int i = 0; i < columns_desc.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                columns_desc[i].type, true);
-        src_block->insert(vectorized::ColumnWithTypeAndName(data_type->create_column(), data_type,
-                                                            columns_desc[i].name));
+        auto data_type = DataTypeFactory::instance().create_data_type(columns_desc[i].type, true);
+        src_block->insert(
+                ColumnWithTypeAndName(data_type->create_column(), data_type, columns_desc[i].name));
     }
 }
 
-Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_t pos,
+Status SchemaScanner::fill_dest_column_for_range(Block* block, size_t pos,
                                                  const std::vector<void*>& datas) {
     const ColumnDesc& col_desc = _columns[pos];
-    vectorized::MutableColumnPtr column_ptr;
+    MutableColumnPtr column_ptr;
     column_ptr = std::move(*block->get_by_position(pos).column).assume_mutable();
-    vectorized::IColumn* col_ptr = column_ptr.get();
+    IColumn* col_ptr = column_ptr.get();
 
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
+    auto* nullable_column = reinterpret_cast<ColumnNullable*>(col_ptr);
 
     // Resize in advance to improve insertion efficiency.
     size_t fill_num = datas.size();
@@ -304,121 +303,118 @@ Status SchemaScanner::fill_dest_column_for_range(vectorized::Block* block, size_
         switch (col_desc.type) {
         case TYPE_HLL: {
             auto* hll_slot = reinterpret_cast<HyperLogLog*>(data);
-            assert_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(*hll_slot);
+            assert_cast<ColumnHLL*>(col_ptr)->get_data().emplace_back(*hll_slot);
             break;
         }
         case TYPE_VARCHAR:
         case TYPE_CHAR:
         case TYPE_STRING: {
             auto* str_slot = reinterpret_cast<StringRef*>(data);
-            assert_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data,
-                                                                         str_slot->size);
+            assert_cast<ColumnString*>(col_ptr)->insert_data(str_slot->data, str_slot->size);
             break;
         }
 
         case TYPE_BOOLEAN: {
             uint8_t num = *reinterpret_cast<bool*>(data);
-            assert_cast<vectorized::ColumnBool*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnBool*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_TINYINT: {
             int8_t num = *reinterpret_cast<int8_t*>(data);
-            assert_cast<vectorized::ColumnInt8*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnInt8*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_SMALLINT: {
             int16_t num = *reinterpret_cast<int16_t*>(data);
-            assert_cast<vectorized::ColumnInt16*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnInt16*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_INT: {
             int32_t num = *reinterpret_cast<int32_t*>(data);
-            assert_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnInt32*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_BIGINT: {
             int64_t num = *reinterpret_cast<int64_t*>(data);
-            assert_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnInt64*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_LARGEINT: {
             __int128 num;
             memcpy(&num, data, sizeof(__int128));
-            assert_cast<vectorized::ColumnInt128*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnInt128*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_FLOAT: {
             float num = *reinterpret_cast<float*>(data);
-            assert_cast<vectorized::ColumnFloat32*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnFloat32*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_DOUBLE: {
             double num = *reinterpret_cast<double*>(data);
-            assert_cast<vectorized::ColumnFloat64*>(col_ptr)->insert_value(num);
+            assert_cast<ColumnFloat64*>(col_ptr)->insert_value(num);
             break;
         }
 
         case TYPE_DATE: {
-            assert_cast<vectorized::ColumnDate*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(data), 0);
+            assert_cast<ColumnDate*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);
             break;
         }
 
         case TYPE_DATEV2: {
-            assert_cast<vectorized::ColumnDateV2*>(col_ptr)->insert_value(
+            assert_cast<ColumnDateV2*>(col_ptr)->insert_value(
                     *reinterpret_cast<DateV2Value<DateV2ValueType>*>(data));
             break;
         }
 
         case TYPE_DATETIME: {
-            assert_cast<vectorized::ColumnDateTime*>(col_ptr)->insert_data(
-                    reinterpret_cast<char*>(data), 0);
+            assert_cast<ColumnDateTime*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);
             break;
         }
 
         case TYPE_DATETIMEV2: {
-            assert_cast<vectorized::ColumnDateTimeV2*>(col_ptr)->insert_value(
+            assert_cast<ColumnDateTimeV2*>(col_ptr)->insert_value(
                     *reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(data));
             break;
         }
 
         case TYPE_TIMESTAMPTZ: {
-            assert_cast<vectorized::ColumnTimeStampTz*>(col_ptr)->insert_value(
+            assert_cast<ColumnTimeStampTz*>(col_ptr)->insert_value(
                     *reinterpret_cast<TimestampTzValue*>(data));
             break;
         }
 
         case TYPE_DECIMALV2: {
-            const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
-            assert_cast<vectorized::ColumnDecimal128V2*>(col_ptr)->insert_data(
+            const Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
+            assert_cast<ColumnDecimal128V2*>(col_ptr)->insert_data(
                     reinterpret_cast<const char*>(&num), 0);
             break;
         }
         case TYPE_DECIMAL128I: {
-            const vectorized::Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
-            assert_cast<vectorized::ColumnDecimal128V3*>(col_ptr)->insert_data(
+            const Int128 num = (reinterpret_cast<PackedInt128*>(data))->value;
+            assert_cast<ColumnDecimal128V3*>(col_ptr)->insert_data(
                     reinterpret_cast<const char*>(&num), 0);
             break;
         }
 
         case TYPE_DECIMAL32: {
             const int32_t num = *reinterpret_cast<int32_t*>(data);
-            assert_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
-                    reinterpret_cast<const char*>(&num), 0);
+            assert_cast<ColumnDecimal32*>(col_ptr)->insert_data(reinterpret_cast<const char*>(&num),
+                                                                0);
             break;
         }
 
         case TYPE_DECIMAL64: {
             const int64_t num = *reinterpret_cast<int64_t*>(data);
-            assert_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
-                    reinterpret_cast<const char*>(&num), 0);
+            assert_cast<ColumnDecimal64*>(col_ptr)->insert_data(reinterpret_cast<const char*>(&num),
+                                                                0);
             break;
         }
 
@@ -442,34 +438,34 @@ std::string SchemaScanner::get_db_from_full_name(const std::string& full_name) {
     return full_name;
 }
 
-Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized::Block* block,
+Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* block,
                                           PrimitiveType type) {
-    vectorized::MutableColumnPtr mutable_col_ptr;
+    MutableColumnPtr mutable_col_ptr;
     mutable_col_ptr = std::move(*block->get_by_position(col_index).column).assume_mutable();
-    auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(mutable_col_ptr.get());
-    vectorized::IColumn* col_ptr = &nullable_column->get_nested_column();
+    auto* nullable_column = reinterpret_cast<ColumnNullable*>(mutable_col_ptr.get());
+    IColumn* col_ptr = &nullable_column->get_nested_column();
 
     switch (type) {
     case TYPE_BIGINT: {
-        reinterpret_cast<vectorized::ColumnInt64*>(col_ptr)->insert_value(cell.longVal);
+        reinterpret_cast<ColumnInt64*>(col_ptr)->insert_value(cell.longVal);
         break;
     }
 
     case TYPE_INT: {
-        reinterpret_cast<vectorized::ColumnInt32*>(col_ptr)->insert_value(cell.intVal);
+        reinterpret_cast<ColumnInt32*>(col_ptr)->insert_value(cell.intVal);
         break;
     }
 
     case TYPE_BOOLEAN: {
-        reinterpret_cast<vectorized::ColumnUInt8*>(col_ptr)->insert_value(cell.boolVal);
+        reinterpret_cast<ColumnUInt8*>(col_ptr)->insert_value(cell.boolVal);
         break;
     }
 
     case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(cell.stringVal.data(),
-                                                                          cell.stringVal.size());
+        reinterpret_cast<ColumnString*>(col_ptr)->insert_data(cell.stringVal.data(),
+                                                              cell.stringVal.size());
         break;
     }
 
@@ -479,8 +475,7 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, vectorized:
         src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
         datas[0] = src;
         auto data = datas[0];
-        reinterpret_cast<vectorized::ColumnDateTime*>(col_ptr)->insert_data(
-                reinterpret_cast<char*>(data), 0);
+        reinterpret_cast<ColumnDateTime*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);
         break;
     }
     default: {

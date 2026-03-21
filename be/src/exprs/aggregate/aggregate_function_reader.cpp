@@ -29,7 +29,7 @@
 #include "exprs/aggregate/aggregate_function_sum.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // auto spread at nullable condition, null value do not participate aggregate
@@ -83,4 +83,4 @@ void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFact
                       create_aggregate_function_last_non_null_value<false>, true);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

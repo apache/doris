@@ -978,34 +978,34 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
     // Array 1: ["apple", null, "cherry"]
     // Array 2: ["banana"]
     // Array 3: [null, "date"]
-    vectorized::Array a1, a2, a3;
-    a1.push_back(vectorized::Field::create_field<TYPE_STRING>("apple"));
-    a1.push_back(vectorized::Field()); // null element
-    a1.push_back(vectorized::Field::create_field<TYPE_STRING>("cherry"));
+    Array a1, a2, a3;
+    a1.push_back(Field::create_field<TYPE_STRING>("apple"));
+    a1.push_back(Field()); // null element
+    a1.push_back(Field::create_field<TYPE_STRING>("cherry"));
 
-    a2.push_back(vectorized::Field::create_field<TYPE_STRING>("banana"));
+    a2.push_back(Field::create_field<TYPE_STRING>("banana"));
 
-    a3.push_back(vectorized::Field()); // null element
-    a3.push_back(vectorized::Field::create_field<TYPE_STRING>("date"));
+    a3.push_back(Field()); // null element
+    a3.push_back(Field::create_field<TYPE_STRING>("date"));
 
     // Construct array type: DataTypeArray(DataTypeNullable(DataTypeString))
-    vectorized::DataTypePtr inner_string_type = std::make_shared<vectorized::DataTypeNullable>(
-            std::make_shared<vectorized::DataTypeString>());
-    vectorized::DataTypePtr array_type =
-            std::make_shared<vectorized::DataTypeArray>(inner_string_type);
-    vectorized::MutableColumnPtr col = array_type->create_column();
-    col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a1));
-    col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a2));
-    col->insert(vectorized::Field::create_field<TYPE_ARRAY>(a3));
-    vectorized::ColumnPtr column_array = std::move(col);
-    vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
+    DataTypePtr inner_string_type = std::make_shared<DataTypeNullable>(
+            std::make_shared<DataTypeString>());
+    DataTypePtr array_type =
+            std::make_shared<DataTypeArray>(inner_string_type);
+    MutableColumnPtr col = array_type->create_column();
+    col->insert(Field::create_field<TYPE_ARRAY>(a1));
+    col->insert(Field::create_field<TYPE_ARRAY>(a2));
+    col->insert(Field::create_field<TYPE_ARRAY>(a3));
+    ColumnPtr column_array = std::move(col);
+    ColumnWithTypeAndName type_and_name(column_array, array_type, "arr1");
 
     // Put the array column into the Block
-    vectorized::Block block;
+    Block block;
     block.insert(type_and_name);
 
     // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
-    vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+    OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
     convertor.set_source_content(&block, 0, block.rows());
     auto [st, accessor] = convertor.convert_column_data(0);
     EXPECT_EQ(st, Status::OK());
@@ -1107,37 +1107,37 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
     // Construct numeric arrays (reference inverted_index_array_test.cpp)
     // Array 1: [42, 100]
     // Array 2: [200, 300, 400]
-    vectorized::DataTypePtr inner_int_type = std::make_shared<vectorized::DataTypeInt32>();
-    vectorized::DataTypePtr array_type =
-            std::make_shared<vectorized::DataTypeArray>(inner_int_type);
-    vectorized::MutableColumnPtr col = array_type->create_column();
+    DataTypePtr inner_int_type = std::make_shared<DataTypeInt32>();
+    DataTypePtr array_type =
+            std::make_shared<DataTypeArray>(inner_int_type);
+    MutableColumnPtr col = array_type->create_column();
 
     // Array 1: [42, 100]
     {
-        vectorized::Array arr;
-        arr.push_back(vectorized::Field::create_field<TYPE_INT>(42));
-        arr.push_back(vectorized::Field::create_field<TYPE_INT>(100));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+        Array arr;
+        arr.push_back(Field::create_field<TYPE_INT>(42));
+        arr.push_back(Field::create_field<TYPE_INT>(100));
+        col->insert(Field::create_field<TYPE_ARRAY>(arr));
     }
 
     // Array 2: [200, 300, 400]
     {
-        vectorized::Array arr;
-        arr.push_back(vectorized::Field::create_field<TYPE_INT>(200));
-        arr.push_back(vectorized::Field::create_field<TYPE_INT>(300));
-        arr.push_back(vectorized::Field::create_field<TYPE_INT>(400));
-        col->insert(vectorized::Field::create_field<TYPE_ARRAY>(arr));
+        Array arr;
+        arr.push_back(Field::create_field<TYPE_INT>(200));
+        arr.push_back(Field::create_field<TYPE_INT>(300));
+        arr.push_back(Field::create_field<TYPE_INT>(400));
+        col->insert(Field::create_field<TYPE_ARRAY>(arr));
     }
 
-    vectorized::ColumnPtr column_array = std::move(col);
-    vectorized::ColumnWithTypeAndName type_and_name(column_array, array_type, "arr_num");
+    ColumnPtr column_array = std::move(col);
+    ColumnWithTypeAndName type_and_name(column_array, array_type, "arr_num");
 
     // Put the array column into the Block
-    vectorized::Block block;
+    Block block;
     block.insert(type_and_name);
 
     // Use OlapBlockDataConvertor to convert (reference inverted_index_array_test.cpp)
-    vectorized::OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
+    OlapBlockDataConvertor convertor(tablet_schema.get(), {0});
     convertor.set_source_content(&block, 0, block.rows());
     auto [st, accessor] = convertor.convert_column_data(0);
     EXPECT_EQ(st, Status::OK());

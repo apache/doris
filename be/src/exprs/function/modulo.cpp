@@ -35,7 +35,7 @@
 #include "exprs/function/cast_type_to_either.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename A, typename B>
 inline void throw_if_division_leads_to_FPE(A a, B b) {
@@ -938,4 +938,4 @@ void register_function_modulo(SimpleFunctionFactory& factory) {
     factory.register_alias("mod", "fmod");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

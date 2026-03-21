@@ -19,7 +19,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename LocalStateType>
 class JoinBuildSinkOperatorX;
@@ -72,4 +72,4 @@ protected:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

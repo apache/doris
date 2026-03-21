@@ -20,7 +20,7 @@
 
 #include "core/data_type/data_type_number.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnHelperTest, test) {
     EXPECT_TRUE(ColumnHelper::column_equal(
@@ -36,4 +36,4 @@ TEST(ColumnHelperTest, test) {
             ColumnHelper::create_column<DataTypeInt32>({1, 2, 3, 4, 5})));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

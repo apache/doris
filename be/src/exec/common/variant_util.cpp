@@ -100,7 +100,7 @@
 #include "util/json/path_in_data.h"
 #include "util/json/simd_json_parser.h"
 
-namespace doris::vectorized::variant_util {
+namespace doris::variant_util {
 #include "common/compile_check_begin.h"
 
 size_t get_number_of_dimensions(const IDataType& type) {
@@ -196,8 +196,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
     return Status::OK();
 }
 
-void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
-                        TabletColumn& column, const ExtraInfo& ext_info) {
+void get_column_by_type(const DataTypePtr& data_type, const std::string& name, TabletColumn& column,
+                        const ExtraInfo& ext_info) {
     column.set_name(name);
     column.set_type(data_type->get_storage_field_type());
     if (ext_info.unique_id >= 0) {
@@ -253,7 +253,7 @@ void get_column_by_type(const vectorized::DataTypePtr& data_type, const std::str
                            data_type->get_name(), name);
 }
 
-TabletColumn get_column_by_type(const vectorized::DataTypePtr& data_type, const std::string& name,
+TabletColumn get_column_by_type(const DataTypePtr& data_type, const std::string& name,
                                 const ExtraInfo& ext_info) {
     TabletColumn result;
     get_column_by_type(data_type, name, result, ext_info);
@@ -545,10 +545,9 @@ Status get_least_common_schema(const std::vector<TabletSchemaSPtr>& schemas,
 }
 
 // sort by paths in lexicographical order
-vectorized::ColumnVariant::Subcolumns get_sorted_subcolumns(
-        const vectorized::ColumnVariant::Subcolumns& subcolumns) {
+ColumnVariant::Subcolumns get_sorted_subcolumns(const ColumnVariant::Subcolumns& subcolumns) {
     // sort by paths in lexicographical order
-    vectorized::ColumnVariant::Subcolumns sorted = subcolumns;
+    ColumnVariant::Subcolumns sorted = subcolumns;
     std::sort(sorted.begin(), sorted.end(), [](const auto& lhsItem, const auto& rhsItem) {
         return lhsItem->path < rhsItem->path;
     });
@@ -900,8 +899,7 @@ Status VariantCompactionUtil::get_compaction_typed_columns(
 }
 
 Status VariantCompactionUtil::get_compaction_nested_columns(
-        const std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>&
-                nested_paths,
+        const std::unordered_set<PathInData, PathInData::Hash>& nested_paths,
         const PathToDataTypes& path_to_data_types, const TabletColumnPtr parent_column,
         TabletSchemaSPtr& output_schema, TabletSchema::PathsSetInfo& paths_set_info) {
     const auto& parent_indexes = output_schema->inverted_indexs(parent_column->unique_id());
@@ -914,7 +912,7 @@ Status VariantCompactionUtil::get_compaction_nested_columns(
         get_least_supertype_jsonb(find_data_types->second, &data_type);
 
         const std::string& column_name = parent_column->name_lower_case() + "." + path.get_path();
-        vectorized::PathInDataBuilder full_path_builder;
+        PathInDataBuilder full_path_builder;
         auto full_path = full_path_builder.append(parent_column->name_lower_case(), false)
                                  .append(path.get_parts(), false)
                                  .build();
@@ -1405,8 +1403,8 @@ TabletSchemaSPtr VariantCompactionUtil::calculate_variant_extended_schema(
                     }
                     const std::string& column_name =
                             column->name_lower_case() + "." + entry->path.get_path();
-                    const vectorized::DataTypePtr& data_type = entry->data.file_column_type;
-                    vectorized::PathInDataBuilder full_path_builder;
+                    const DataTypePtr& data_type = entry->data.file_column_type;
+                    PathInDataBuilder full_path_builder;
                     auto full_path = full_path_builder.append(column->name_lower_case(), false)
                                              .append(entry->path.get_parts(), false)
                                              .build();
@@ -2026,4 +2024,4 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::variant_util
+} // namespace doris::variant_util

@@ -26,7 +26,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 Status RuntimeFilterConsumer::_apply_ready_expr(
-        std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
+        std::vector<VRuntimeFilterPtr>& push_exprs) {
     _check_state({State::READY});
     _set_state(State::APPLIED);
 
@@ -44,7 +44,7 @@ Status RuntimeFilterConsumer::_apply_ready_expr(
     return Status::OK();
 }
 
-Status RuntimeFilterConsumer::acquire_expr(std::vector<vectorized::VRuntimeFilterPtr>& push_exprs) {
+Status RuntimeFilterConsumer::acquire_expr(std::vector<VRuntimeFilterPtr>& push_exprs) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
     if (_rf_state == State::READY) {
         RETURN_IF_ERROR(_apply_ready_expr(push_exprs));
@@ -66,20 +66,20 @@ void RuntimeFilterConsumer::signal(RuntimeFilter* other) {
     }
 }
 
-std::shared_ptr<pipeline::RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
-        std::shared_ptr<pipeline::Dependency> dependencies) {
+std::shared_ptr<RuntimeFilterTimer> RuntimeFilterConsumer::create_filter_timer(
+        std::shared_ptr<Dependency> dependencies) {
     std::unique_lock<std::recursive_mutex> l(_rmtx);
-    auto timer = std::make_shared<pipeline::RuntimeFilterTimer>(_registration_time,
+    auto timer = std::make_shared<RuntimeFilterTimer>(_registration_time,
                                                                 _rf_wait_time_ms, dependencies);
     _filter_timer.push_back(timer);
     return timer;
 }
 
-Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFilterPtr>& container,
+Status RuntimeFilterConsumer::_get_push_exprs(std::vector<VRuntimeFilterPtr>& container,
                                               const TExpr& probe_expr) {
     // TODO: `VExprContextSPtr` is not need, we should just create an expr.
-    vectorized::VExprContextSPtr probe_ctx;
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, probe_ctx));
+    VExprContextSPtr probe_ctx;
+    RETURN_IF_ERROR(VExpr::create_expr_tree(probe_expr, probe_ctx));
 
     auto real_filter_type = _wrapper->get_real_type();
     bool null_aware = _wrapper->contain_null();
@@ -102,9 +102,9 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         node.in_predicate.__set_is_not_in(false);
         node.__set_opcode(TExprOpcode::FILTER_IN);
         node.__set_is_nullable(false);
-        auto in_pred = vectorized::VDirectInPredicate::create_shared(node, _wrapper->hybrid_set());
+        auto in_pred = VDirectInPredicate::create_shared(node, _wrapper->hybrid_set());
         in_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+        auto wrapper = VRuntimeFilterWrapper::create_shared(
                 node, in_pred, get_in_list_ignore_thredhold(_wrapper->hybrid_set()->size()),
                 null_aware, _wrapper->filter_id());
         container.push_back(wrapper);
@@ -112,67 +112,67 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
     }
     case RuntimeFilterType::MIN_FILTER: {
         // create min filter
-        vectorized::VExprSPtr min_pred;
+        VExprSPtr min_pred;
         TExprNode min_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->data_type(), TExprOpcode::GE,
                                               min_pred, &min_pred_node, null_aware));
-        vectorized::VExprSPtr min_literal;
+        VExprSPtr min_literal;
         RETURN_IF_ERROR(create_literal(probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_min(), min_literal));
         min_pred->add_child(probe_ctx->root());
         min_pred->add_child(min_literal);
         DCHECK(null_aware == false) << "only min predicate do not support null aware";
-        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+        container.push_back(VRuntimeFilterWrapper::create_shared(
                 min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id()));
         break;
     }
     case RuntimeFilterType::MAX_FILTER: {
-        vectorized::VExprSPtr max_pred;
+        VExprSPtr max_pred;
         // create max filter
         TExprNode max_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->data_type(), TExprOpcode::LE,
                                               max_pred, &max_pred_node, null_aware));
-        vectorized::VExprSPtr max_literal;
+        VExprSPtr max_literal;
         RETURN_IF_ERROR(create_literal(probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_max(), max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
         DCHECK(null_aware == false) << "only max predicate do not support null aware";
-        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+        container.push_back(VRuntimeFilterWrapper::create_shared(
                 max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id()));
         break;
     }
     case RuntimeFilterType::MINMAX_FILTER: {
-        vectorized::VExprSPtr max_pred;
+        VExprSPtr max_pred;
         // create max filter
         TExprNode max_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(probe_ctx->root()->data_type(), TExprOpcode::LE,
                                               max_pred, &max_pred_node, null_aware));
-        vectorized::VExprSPtr max_literal;
+        VExprSPtr max_literal;
         RETURN_IF_ERROR(create_literal(probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_max(), max_literal));
         max_pred->add_child(probe_ctx->root());
         max_pred->add_child(max_literal);
-        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+        container.push_back(VRuntimeFilterWrapper::create_shared(
                 max_pred_node, max_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id()));
 
-        vectorized::VExprContextSPtr new_probe_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(probe_expr, new_probe_ctx));
+        VExprContextSPtr new_probe_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(probe_expr, new_probe_ctx));
 
         // create min filter
-        vectorized::VExprSPtr min_pred;
+        VExprSPtr min_pred;
         TExprNode min_pred_node;
         RETURN_IF_ERROR(create_vbin_predicate(new_probe_ctx->root()->data_type(), TExprOpcode::GE,
                                               min_pred, &min_pred_node, null_aware));
-        vectorized::VExprSPtr min_literal;
+        VExprSPtr min_literal;
         RETURN_IF_ERROR(create_literal(new_probe_ctx->root()->data_type(),
                                        _wrapper->minmax_func()->get_min(), min_literal));
         min_pred->add_child(new_probe_ctx->root());
         min_pred->add_child(min_literal);
-        container.push_back(vectorized::VRuntimeFilterWrapper::create_shared(
+        container.push_back(VRuntimeFilterWrapper::create_shared(
                 min_pred_node, min_pred, get_comparison_ignore_thredhold(), null_aware,
                 _wrapper->filter_id()));
         break;
@@ -186,10 +186,10 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         node.__set_node_type(TExprNodeType::BLOOM_PRED);
         node.__set_opcode(TExprOpcode::RT_FILTER);
         node.__set_is_nullable(false);
-        auto bloom_pred = vectorized::VBloomPredicate::create_shared(node);
+        auto bloom_pred = VBloomPredicate::create_shared(node);
         bloom_pred->set_filter(_wrapper->bloom_filter_func());
         bloom_pred->add_child(probe_ctx->root());
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+        auto wrapper = VRuntimeFilterWrapper::create_shared(
                 node, bloom_pred, get_bloom_filter_ignore_thredhold(), null_aware,
                 _wrapper->filter_id());
         container.push_back(wrapper);
@@ -204,11 +204,11 @@ Status RuntimeFilterConsumer::_get_push_exprs(std::vector<vectorized::VRuntimeFi
         node.__set_node_type(TExprNodeType::BITMAP_PRED);
         node.__set_opcode(TExprOpcode::RT_FILTER);
         node.__set_is_nullable(false);
-        auto bitmap_pred = vectorized::VBitmapPredicate::create_shared(node);
+        auto bitmap_pred = VBitmapPredicate::create_shared(node);
         bitmap_pred->set_filter(_wrapper->bitmap_filter_func());
         bitmap_pred->add_child(probe_ctx->root());
         DCHECK(null_aware == false) << "bitmap predicate do not support null aware";
-        auto wrapper = vectorized::VRuntimeFilterWrapper::create_shared(
+        auto wrapper = VRuntimeFilterWrapper::create_shared(
                 node, bitmap_pred, 0, null_aware, _wrapper->filter_id());
         container.push_back(wrapper);
         break;

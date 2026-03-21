@@ -422,7 +422,7 @@ public:
                 InvertedIndexQueryParam<PT>::create_unique();
 
         CPP_TYPE cpp_val;
-        if constexpr (std::is_same_v<ValueType, doris::vectorized::Field>) {
+        if constexpr (std::is_same_v<ValueType, doris::Field>) {
             auto field_val = value->template get<PT>();
             cpp_val = static_cast<CPP_TYPE>(field_val);
         } else {
@@ -436,12 +436,12 @@ public:
     }
 
     static Status create_query_value(
-            const PrimitiveType& primitiveType, const doris::vectorized::Field* value,
+            const PrimitiveType& primitiveType, const doris::Field* value,
             std::unique_ptr<InvertedIndexQueryParamFactory>& result_param) {
         switch (primitiveType) {
 #define M(TYPE)                                                                         \
     case TYPE: {                                                                        \
-        return create_query_value<TYPE, doris::vectorized::Field>(value, result_param); \
+        return create_query_value<TYPE, doris::Field>(value, result_param); \
     }
             M(PrimitiveType::TYPE_BOOLEAN)
             M(PrimitiveType::TYPE_TINYINT)

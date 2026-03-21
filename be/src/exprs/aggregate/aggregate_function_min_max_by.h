@@ -28,7 +28,7 @@
 #include "exprs/aggregate/aggregate_function_min_max.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct MaxMinValueBase {
@@ -360,6 +360,6 @@ AggregateFunctionPtr create_aggregate_function_min_max_by(const String& name,
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

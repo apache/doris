@@ -46,12 +46,8 @@ class RuntimeState;
 class TupleDescriptor;
 class WorkloadGroup;
 
-namespace pipeline {
 class ScanLocalStateBase;
 class Dependency;
-} // namespace pipeline
-
-namespace vectorized {
 
 class Scanner;
 class ScannerDelegate;
@@ -85,7 +81,7 @@ private:
 
 public:
     std::weak_ptr<ScannerDelegate> scanner;
-    std::list<std::pair<vectorized::BlockUPtr, size_t>> cached_blocks;
+    std::list<std::pair<BlockUPtr, size_t>> cached_blocks;
     bool is_first_schedule = true;
     // Use weak_ptr to avoid circular references and potential memory leaks with SplitRunner.
     // ScannerContext only needs to observe the lifetime of SplitRunner without owning it.
@@ -119,11 +115,11 @@ class ScannerContext : public std::enable_shared_from_this<ScannerContext>,
     friend class ScannerScheduler;
 
 public:
-    ScannerContext(RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
+    ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
                    const TupleDescriptor* output_tuple_desc,
                    const RowDescriptor* output_row_descriptor,
-                   const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners,
-                   int64_t limit_, std::shared_ptr<pipeline::Dependency> dependency
+                   const std::list<std::shared_ptr<ScannerDelegate>>& scanners, int64_t limit_,
+                   std::shared_ptr<Dependency> dependency
 #ifdef BE_TEST
                    ,
                    int num_parallel_instances
@@ -133,8 +129,8 @@ public:
     ~ScannerContext() override;
     Status init();
 
-    vectorized::BlockUPtr get_free_block(bool force);
-    void return_free_block(vectorized::BlockUPtr block);
+    BlockUPtr get_free_block(bool force);
+    void return_free_block(BlockUPtr block);
     void clear_free_blocks();
     inline void inc_block_usage(size_t usage) { _block_memory_usage += usage; }
 
@@ -145,7 +141,7 @@ public:
 
     // Get next block from blocks queue. Called by ScanNode/ScanOperator
     // Set eos to true if there is no more data to read.
-    Status get_block_from_queue(RuntimeState* state, vectorized::Block* block, bool* eos, int id);
+    Status get_block_from_queue(RuntimeState* state, Block* block, bool* eos, int id);
 
     [[nodiscard]] Status validate_block_schema(Block* block);
 
@@ -184,7 +180,7 @@ public:
 
     int32_t low_memory_mode_scanners() const { return 4; }
 
-    pipeline::ScanLocalStateBase* local_state() const { return _local_state; }
+    ScanLocalStateBase* local_state() const { return _local_state; }
 
     // the unique id of this context
     std::string ctx_id;
@@ -210,7 +206,7 @@ protected:
     void _set_scanner_done();
 
     RuntimeState* _state = nullptr;
-    pipeline::ScanLocalStateBase* _local_state = nullptr;
+    ScanLocalStateBase* _local_state = nullptr;
 
     // the comment of same fields in VScanNode
     const TupleDescriptor* _output_tuple_desc = nullptr;
@@ -224,7 +220,7 @@ protected:
     std::atomic_bool _is_finished = false;
 
     // Lazy-allocated blocks for all scanners to share, for memory reuse.
-    moodycamel::ConcurrentQueue<vectorized::BlockUPtr> _free_blocks;
+    moodycamel::ConcurrentQueue<BlockUPtr> _free_blocks;
 
     int _batch_size;
     // The limit from SQL's limit clause
@@ -245,8 +241,8 @@ protected:
     RuntimeProfile::Counter* _newly_create_free_blocks_num = nullptr;
     RuntimeProfile::Counter* _scale_up_scanners_counter = nullptr;
     std::shared_ptr<ResourceContext> _resource_ctx;
-    std::shared_ptr<pipeline::Dependency> _dependency = nullptr;
-    std::shared_ptr<doris::vectorized::TaskHandle> _task_handle;
+    std::shared_ptr<Dependency> _dependency = nullptr;
+    std::shared_ptr<doris::TaskHandle> _task_handle;
 
     std::atomic<int64_t> _block_memory_usage = 0;
 
@@ -270,5 +266,4 @@ protected:
     // TODO: Add implementation of runtime_info_feed_back
     // adaptive scan concurrency related end
 };
-} // namespace vectorized
 } // namespace doris

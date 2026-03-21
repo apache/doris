@@ -22,7 +22,7 @@
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper_cross.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 NestedLoopJoinBuildSinkLocalState::NestedLoopJoinBuildSinkLocalState(DataSinkOperatorXBase* parent,
@@ -77,7 +77,7 @@ Status NestedLoopJoinBuildSinkOperatorX::init(const TPlanNode& tnode, RuntimeSta
     for (size_t i = 0; i < _runtime_filter_descs.size(); i++) {
         filter_src_exprs.push_back(_runtime_filter_descs[i].src_expr);
     }
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(filter_src_exprs, _filter_src_expr_ctxs));
     return Status::OK();
 }
 
@@ -90,12 +90,11 @@ Status NestedLoopJoinBuildSinkOperatorX::prepare(RuntimeState* state) {
         auto tuple_idx = _row_descriptor.get_tuple_idx(build_tuple_desc->id());
         RETURN_IF_INVALID_TUPLE_IDX(build_tuple_desc->id(), tuple_idx);
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_filter_src_expr_ctxs, state, _child->row_desc()));
-    return vectorized::VExpr::open(_filter_src_expr_ctxs, state);
+    RETURN_IF_ERROR(VExpr::prepare(_filter_src_expr_ctxs, state, _child->row_desc()));
+    return VExpr::open(_filter_src_expr_ctxs, state);
 }
 
-Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vectorized::Block* block,
-                                              bool eos) {
+Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
@@ -107,7 +106,7 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
         local_state._shared_state->build_blocks.emplace_back(std::move(*block));
         if (_match_all_build || _is_right_semi_anti) {
             local_state._shared_state->build_side_visited_flags.emplace_back(
-                    vectorized::ColumnUInt8::create(rows, 0));
+                    ColumnUInt8::create(rows, 0));
         }
     }
 
@@ -125,4 +124,4 @@ Status NestedLoopJoinBuildSinkOperatorX::sink(doris::RuntimeState* state, vector
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

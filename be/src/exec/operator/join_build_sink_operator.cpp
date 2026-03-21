@@ -22,7 +22,7 @@
 #include "exec/operator/operator.h"
 #include "exec/operator/partitioned_hash_join_sink_operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename SharedStateArg, typename Derived>
 Status JoinBuildSinkLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
@@ -125,4 +125,4 @@ template class JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState>;
 template class JoinBuildSinkLocalState<PartitionedHashJoinSharedState,
                                        PartitionedHashJoinSinkLocalState>;
 
-} // namespace doris::pipeline
+} // namespace doris

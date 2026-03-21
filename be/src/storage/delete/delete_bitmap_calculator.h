@@ -51,7 +51,7 @@ public:
     };
 
     MergeIndexDeleteBitmapCalculatorContext(std::unique_ptr<segment_v2::IndexedColumnIterator> iter,
-                                            vectorized::DataTypePtr index_type, int32_t segment_id,
+                                            DataTypePtr index_type, int32_t segment_id,
                                             size_t num_rows, size_t batch_max_size = 1024)
             : _iter(std::move(iter)),
               _index_type(index_type),
@@ -68,8 +68,8 @@ private:
     Status _next_batch(uint32_t row_id);
 
     std::unique_ptr<segment_v2::IndexedColumnIterator> _iter;
-    vectorized::DataTypePtr _index_type;
-    vectorized::MutableColumnPtr _index_column;
+    DataTypePtr _index_type;
+    MutableColumnPtr _index_column;
     size_t _block_size {0};
     size_t _cur_pos {0};
     uint32_t _cur_row_id {0};

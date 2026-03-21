@@ -44,13 +44,9 @@ class QueryContext;
 class IOThrottle;
 class ResourceContext;
 
-namespace vectorized {
 class ScannerScheduler;
-}
 
-namespace pipeline {
 class TaskScheduler;
-} // namespace pipeline
 
 class WorkloadGroup;
 struct WorkloadGroupInfo;
@@ -166,9 +162,9 @@ public:
 
     Status upsert_task_scheduler(WorkloadGroupInfo* tg_info);
 
-    virtual void get_query_scheduler(doris::pipeline::TaskScheduler** exec_sched,
-                                     vectorized::ScannerScheduler** scan_sched,
-                                     vectorized::ScannerScheduler** remote_scan_sched);
+    virtual void get_query_scheduler(doris::TaskScheduler** exec_sched,
+                                     ScannerScheduler** scan_sched,
+                                     ScannerScheduler** remote_scan_sched);
 
     void try_stop_schedulers();
 
@@ -249,9 +245,9 @@ private:
     // but also some global background threadpool which not owned by WorkloadGroup,
     // so it should be shared ptr;
     std::shared_ptr<CgroupCpuCtl> _cgroup_cpu_ctl {nullptr};
-    std::unique_ptr<doris::pipeline::TaskScheduler> _task_sched {nullptr};
-    std::unique_ptr<vectorized::ScannerScheduler> _scan_task_sched {nullptr};
-    std::unique_ptr<vectorized::ScannerScheduler> _remote_scan_task_sched {nullptr};
+    std::unique_ptr<doris::TaskScheduler> _task_sched {nullptr};
+    std::unique_ptr<ScannerScheduler> _scan_task_sched {nullptr};
+    std::unique_ptr<ScannerScheduler> _remote_scan_task_sched {nullptr};
     std::unique_ptr<ThreadPool> _memtable_flush_pool {nullptr};
 
     std::map<std::string, std::shared_ptr<IOThrottle>> _scan_io_throttle_map;

@@ -40,8 +40,8 @@ namespace doris::segment_v2 {
 class MockVectorIndex : public VectorIndex {
 public:
     MockVectorIndex() { _dimension = 4; } // Set dimension for test
-    MOCK_METHOD(doris::Status, train, (vectorized::Int64 n, const float* vec), (override));
-    MOCK_METHOD(doris::Status, add, (vectorized::Int64 n, const float* vec), (override));
+    MOCK_METHOD(doris::Status, train, (Int64 n, const float* vec), (override));
+    MOCK_METHOD(doris::Status, add, (Int64 n, const float* vec), (override));
     MOCK_METHOD(doris::Status, ann_topn_search,
                 (const float* query_vec, int k, const segment_v2::IndexSearchParameters& params,
                  segment_v2::IndexSearchResult& result),
@@ -515,7 +515,7 @@ TEST_F(AnnIndexWriterTest, TestCreateFromIndexColumnWriter) {
     tablet_schema->append_column(array_column);
 
     // Get field for array column
-    std::unique_ptr<Field> field(FieldFactory::create(array_column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(array_column));
     ASSERT_NE(field.get(), nullptr);
 
     auto fs_dir = std::make_shared<DorisRAMFSDirectory>();

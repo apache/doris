@@ -35,7 +35,7 @@
 namespace doris {
 namespace pipeline {
 
-void MaterializationSharedState::get_block(vectorized::Block* block) {
+void MaterializationSharedState::get_block(Block* block) {
     for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
         if (i != rowid_to_block_loc) {
             block->insert(origin_block.get_by_position(i));
@@ -62,9 +62,9 @@ Status MaterializationSharedState::merge_multi_response() {
         // Keeping block_maps across iterations would leave stale entries from the previous
         // relation and miss entries for the current one, causing the
         // "backend_id not found in block_maps" error.
-        std::unordered_map<int64_t, std::pair<vectorized::Block, int>> block_maps;
+        std::unordered_map<int64_t, std::pair<Block, int>> block_maps;
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
-            vectorized::Block partial_block;
+            Block partial_block;
             size_t uncompressed_size = 0;
             int64_t uncompressed_time = 0;
             DCHECK(rpc_struct.response.blocks_size() > i);
@@ -140,26 +140,26 @@ void MaterializationSharedState::_update_profile_info(int64_t backend_id,
     update_profile_info_key(RowIdStorageReader::InitReaderAvgTimeProfile);
     update_profile_info_key(RowIdStorageReader::GetBlockAvgTimeProfile);
     update_profile_info_key(RowIdStorageReader::FileReadLinesProfile);
-    update_profile_info_key(vectorized::FileScanner::FileReadBytesProfile);
-    update_profile_info_key(vectorized::FileScanner::FileReadTimeProfile);
+    update_profile_info_key(FileScanner::FileReadBytesProfile);
+    update_profile_info_key(FileScanner::FileReadTimeProfile);
 }
 
-Status MaterializationSharedState::create_muiltget_result(const vectorized::Columns& columns,
+Status MaterializationSharedState::create_muiltget_result(const Columns& columns,
                                                           bool child_eos, bool gc_id_map) {
     const auto rows = columns.empty() ? 0 : columns[0]->size();
     block_order_results.resize(columns.size());
 
     for (int i = 0; i < columns.size(); ++i) {
         const uint8_t* null_map = nullptr;
-        const vectorized::ColumnString* column_rowid = nullptr;
+        const ColumnString* column_rowid = nullptr;
         auto& column = columns[i];
 
-        if (auto column_ptr = check_and_get_column<vectorized::ColumnNullable>(*column)) {
+        if (auto column_ptr = check_and_get_column<ColumnNullable>(*column)) {
             null_map = column_ptr->get_null_map_data().data();
-            column_rowid = assert_cast<const vectorized::ColumnString*>(
+            column_rowid = assert_cast<const ColumnString*>(
                     column_ptr->get_nested_column_ptr().get());
         } else {
-            column_rowid = assert_cast<const vectorized::ColumnString*>(column.get());
+            column_rowid = assert_cast<const ColumnString*>(column.get());
         }
 
         auto& block_order = block_order_results[i];
@@ -225,7 +225,7 @@ Status MaterializationSharedState::init_multi_requests(
             state->desc_tbl().get_tuple_descriptor(materialization_node.intermediate_tuple_id);
     const auto& slots = tuple_desc->slots();
     response_blocks =
-            std::vector<vectorized::MutableBlock>(materialization_node.column_descs_lists.size());
+            std::vector<MutableBlock>(materialization_node.column_descs_lists.size());
 
     for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
         auto request_block_desc = multi_get_request.add_request_block_descs();
@@ -249,7 +249,7 @@ Status MaterializationSharedState::init_multi_requests(
             slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
             slots_res.emplace_back(slots[slot_loc_item]);
         }
-        response_blocks[i] = vectorized::MutableBlock(vectorized::Block(slots_res, 10));
+        response_blocks[i] = MutableBlock(Block(slots_res, 10));
     }
 
     // Initialize the stubs and requests for each BE
@@ -279,14 +279,14 @@ Status MaterializationOperator::init(const doris::TPlanNode& tnode, doris::Runti
     _gc_id_map = tnode.materialization_node.gc_id_map;
     // Create result_expr_ctx_lists_ from thrift exprs.
     auto& fetch_expr_lists = tnode.materialization_node.fetch_expr_lists;
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(fetch_expr_lists, _rowid_exprs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(fetch_expr_lists, _rowid_exprs));
     return Status::OK();
 }
 
 Status MaterializationOperator::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(Base::prepare(state));
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_rowid_exprs, state));
+    RETURN_IF_ERROR(VExpr::prepare(_rowid_exprs, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::open(_rowid_exprs, state));
     return Status::OK();
 }
 
@@ -296,7 +296,7 @@ bool MaterializationOperator::need_more_input_data(RuntimeState* state) const {
            !local_state._materialization_state.eos;
 }
 
-Status MaterializationOperator::pull(RuntimeState* state, vectorized::Block* output_block,
+Status MaterializationOperator::pull(RuntimeState* state, Block* output_block,
                                      bool* eos) const {
     auto& local_state = get_local_state(state);
     output_block->clear();
@@ -321,7 +321,7 @@ Status MaterializationOperator::pull(RuntimeState* state, vectorized::Block* out
     return Status::OK();
 }
 
-Status MaterializationOperator::push(RuntimeState* state, vectorized::Block* in_block,
+Status MaterializationOperator::push(RuntimeState* state, Block* in_block,
                                      bool eos) const {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
@@ -332,7 +332,7 @@ Status MaterializationOperator::push(RuntimeState* state, vectorized::Block* in_
 
     if (in_block->rows() > 0 || eos) {
         // execute the rowid exprs
-        vectorized::Columns columns;
+        Columns columns;
         if (in_block->rows() != 0) {
             local_state._materialization_state.rowid_locs.resize(_rowid_exprs.size());
             for (int i = 0; i < _rowid_exprs.size(); ++i) {

@@ -19,7 +19,7 @@
 
 #include "glog/logging.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // A static piece of memory for 0-size allocations, so as to return
 // an aligned non-null pointer.  Note the correct value for DebugAllocator
@@ -72,4 +72,4 @@ void ArrowAllocator::release_unused() {
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -38,9 +38,7 @@ namespace doris {
 namespace segment_v2 {
 class InvertedIndexIterator;
 } // namespace segment_v2
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 
 class NullPredicate final : public ColumnPredicate {
 public:
@@ -64,14 +62,13 @@ public:
 
     PredicateType type() const override;
 
-    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    IndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override;
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
+                    uint32_t num_rows, roaring::Roaring* bitmap) const override;
 
-    void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_or(const IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override;
 
-    void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_and(const IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override;
 
     bool evaluate_and(const segment_v2::ZoneMap& zone_map) const override {
@@ -82,7 +79,7 @@ public:
         }
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         if (!(*statistic->get_stat_func)(statistic, column_id())) {
             return true;
         }
@@ -93,9 +90,9 @@ public:
         }
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
-        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        ParquetPredicate::PageIndexStat* stat = nullptr;
         if (!(statistic->get_stat_func)(&stat, column_id())) {
             row_ranges->add(statistic->row_group_range);
             return true;
@@ -132,11 +129,10 @@ public:
 
     bool can_do_bloom_filter(bool ngram) const override { return _is_null && !ngram; }
 
-    void evaluate_vec(const vectorized::IColumn& column, uint16_t size, bool* flags) const override;
+    void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override;
 
 private:
-    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
-                             uint16_t size) const override;
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override;
 
     bool _is_null; //true for null, false for not null
 };

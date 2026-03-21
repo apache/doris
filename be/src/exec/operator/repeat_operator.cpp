@@ -30,12 +30,10 @@ namespace doris {
 class RuntimeState;
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 RepeatLocalState::RepeatLocalState(RuntimeState* state, OperatorXBase* parent)
-        : Base(state, parent),
-          _child_block(vectorized::Block::create_unique()),
-          _repeat_id_idx(0) {}
+        : Base(state, parent), _child_block(Block::create_unique()), _repeat_id_idx(0) {}
 
 Status RepeatLocalState::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
@@ -61,7 +59,7 @@ Status RepeatLocalState::init(RuntimeState* state, LocalStateInfo& info) {
 
 Status RepeatOperatorX::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(OperatorXBase::init(tnode, state));
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(tnode.repeat_node.exprs, _expr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(tnode.repeat_node.exprs, _expr_ctxs));
     for (const auto& slot_idx : _grouping_list) {
         if (slot_idx.size() < _repeat_id_list_size) {
             return Status::InternalError(
@@ -82,8 +80,8 @@ Status RepeatOperatorX::prepare(RuntimeState* state) {
     for (const auto& slot_desc : output_tuple_desc->slots()) {
         _output_slots.push_back(slot_desc);
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_expr_ctxs, state, _child->row_desc()));
-    RETURN_IF_ERROR(vectorized::VExpr::open(_expr_ctxs, state));
+    RETURN_IF_ERROR(VExpr::prepare(_expr_ctxs, state, _child->row_desc()));
+    RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
     return Status::OK();
 }
 
@@ -106,8 +104,8 @@ bool RepeatOperatorX::need_more_input_data(RuntimeState* state) const {
     return !local_state._child_block->rows() && !local_state._child_eos;
 }
 
-Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int repeat_id_idx,
-                                            vectorized::Block* output_block) {
+Status RepeatLocalState::get_repeated_block(Block* input_block, int repeat_id_idx,
+                                            Block* output_block) {
     auto& p = _parent->cast<RepeatOperatorX>();
     DCHECK(input_block != nullptr);
     DCHECK_EQ(output_block->rows(), 0);
@@ -115,8 +113,7 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
     size_t input_column_size = input_block->columns();
     size_t output_column_size = p._output_slots.size();
     DCHECK_LT(input_column_size, output_column_size);
-    auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(output_block,
-                                                                              p._output_slots);
+    auto m_block = VectorizedUtils::build_mutable_mem_reuse_block(output_block, p._output_slots);
     auto& output_columns = m_block.mutable_columns();
     /* Fill all slots according to child, for example:select tc1,tc2,sum(tc3) from t1 group by grouping sets((tc1),(tc2));
      * insert into t1 values(1,2,1),(1,3,1),(2,1,1),(3,1,1);
@@ -126,16 +123,15 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
      */
     size_t cur_col = 0;
     for (size_t i = 0; i < input_column_size; i++) {
-        const vectorized::ColumnWithTypeAndName& src_column = input_block->get_by_position(i);
+        const ColumnWithTypeAndName& src_column = input_block->get_by_position(i);
         const auto slot_id = p._output_slots[cur_col]->id();
         const bool is_repeat_slot = p._all_slot_ids.contains(slot_id);
         const bool is_set_null_slot = !p._slot_id_set_list[repeat_id_idx].contains(slot_id);
         const auto row_size = src_column.column->size();
-        vectorized::ColumnPtr src = src_column.column;
+        ColumnPtr src = src_column.column;
         if (is_repeat_slot) {
             DCHECK(p._output_slots[cur_col]->is_nullable());
-            auto* nullable_column =
-                    assert_cast<vectorized::ColumnNullable*>(output_columns[cur_col].get());
+            auto* nullable_column = assert_cast<ColumnNullable*>(output_columns[cur_col].get());
             if (is_set_null_slot) {
                 // is_set_null_slot = true, output all null
                 nullable_column->insert_many_defaults(row_size);
@@ -164,22 +160,21 @@ Status RepeatLocalState::get_repeated_block(vectorized::Block* input_block, int 
 }
 
 Status RepeatLocalState::add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
-                                                vectorized::MutableColumns& columns,
-                                                int repeat_id_idx) {
+                                                MutableColumns& columns, int repeat_id_idx) {
     auto& p = _parent->cast<RepeatOperatorX>();
     for (auto slot_idx = 0; slot_idx < p._grouping_list.size(); slot_idx++) {
         DCHECK_LT(slot_idx, p._output_slots.size());
         int64_t val = p._grouping_list[slot_idx][repeat_id_idx];
         auto* column_ptr = columns[cur_col].get();
         DCHECK(!p._output_slots[cur_col]->is_nullable());
-        auto* col = assert_cast<vectorized::ColumnInt64*>(column_ptr);
+        auto* col = assert_cast<ColumnInt64*>(column_ptr);
         col->insert_many_vals(val, rows);
         cur_col++;
     }
     return Status::OK();
 }
 
-Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block, bool eos) const {
+Status RepeatOperatorX::push(RuntimeState* state, Block* input_block, bool eos) const {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state._evaluate_input_timer);
     local_state._child_eos = eos;
@@ -188,10 +183,10 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     DCHECK(!intermediate_block || intermediate_block->rows() == 0);
     if (input_block->rows() > 0) {
         SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-        intermediate_block = vectorized::Block::create_unique();
+        intermediate_block = Block::create_unique();
 
         for (auto& expr : expr_ctxs) {
-            vectorized::ColumnWithTypeAndName result_data;
+            ColumnWithTypeAndName result_data;
             RETURN_IF_ERROR(expr->execute(input_block, result_data));
             result_data.column = result_data.column->convert_to_full_column_if_const();
             intermediate_block->insert(result_data);
@@ -202,8 +197,7 @@ Status RepeatOperatorX::push(RuntimeState* state, vectorized::Block* input_block
     return Status::OK();
 }
 
-Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                             bool* eos) const {
+Status RepeatOperatorX::pull(doris::RuntimeState* state, Block* output_block, bool* eos) const {
     auto& local_state = get_local_state(state);
     auto& _repeat_id_idx = local_state._repeat_id_idx;
     auto& _child_block = *local_state._child_block;
@@ -236,8 +230,8 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
                 _repeat_id_idx = 0;
             }
         } else if (local_state._expr_ctxs.empty()) {
-            auto m_block = vectorized::VectorizedUtils::build_mutable_mem_reuse_block(
-                    output_block, _output_slots);
+            auto m_block =
+                    VectorizedUtils::build_mutable_mem_reuse_block(output_block, _output_slots);
             auto rows = _child_block.rows();
             auto& columns = m_block.mutable_columns();
 
@@ -256,8 +250,8 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
 
     {
         SCOPED_TIMER(local_state._filter_timer);
-        RETURN_IF_ERROR(vectorized::VExprContext::filter_block(local_state._conjuncts, output_block,
-                                                               output_block->columns()));
+        RETURN_IF_ERROR(VExprContext::filter_block(local_state._conjuncts, output_block,
+                                                   output_block->columns()));
     }
 
     *eos = _child_eos && _child_block.rows() == 0;
@@ -266,4 +260,4 @@ Status RepeatOperatorX::pull(doris::RuntimeState* state, vectorized::Block* outp
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

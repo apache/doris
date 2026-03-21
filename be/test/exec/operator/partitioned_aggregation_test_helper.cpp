@@ -32,7 +32,7 @@
 #include "testutil/creators.h"
 #include "testutil/mock/mock_operators.h"
 
-namespace doris::pipeline {
+namespace doris {
 TPlanNode PartitionedAggregationTestHelper::create_test_plan_node() {
     TPlanNode tnode;
     tnode.node_id = 0;
@@ -230,4 +230,4 @@ PartitionedAggSinkLocalState* PartitionedAggregationTestHelper::create_sink_loca
     state->emplace_sink_local_state(sink_operator->operator_id(), std::move(local_state_uptr));
     return local_state;
 }
-} // namespace doris::pipeline
+} // namespace doris

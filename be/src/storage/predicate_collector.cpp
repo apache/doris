@@ -33,16 +33,15 @@
 namespace doris {
 
 using namespace segment_v2;
-using namespace vectorized;
 
-vectorized::VSlotRef* PredicateCollector::find_slot_ref(const vectorized::VExprSPtr& expr) const {
+VSlotRef* PredicateCollector::find_slot_ref(const VExprSPtr& expr) const {
     if (!expr) {
         return nullptr;
     }
 
     auto cur = VExpr::expr_without_cast(expr);
     if (cur->node_type() == TExprNodeType::SLOT_REF) {
-        return static_cast<vectorized::VSlotRef*>(cur.get());
+        return static_cast<VSlotRef*>(cur.get());
     }
 
     for (const auto& ch : cur->children()) {
@@ -64,7 +63,7 @@ std::string PredicateCollector::build_field_name(int32_t col_unique_id,
 }
 
 Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
-                                        const vectorized::VExprSPtr& expr,
+                                        const VExprSPtr& expr,
                                         CollectInfoMap* collect_infos) {
     DCHECK(collect_infos != nullptr);
 
@@ -137,7 +136,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
 }
 
 Status SearchPredicateCollector::collect(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
-                                         const vectorized::VExprSPtr& expr,
+                                         const VExprSPtr& expr,
                                          CollectInfoMap* collect_infos) {
     DCHECK(collect_infos != nullptr);
 

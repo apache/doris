@@ -40,7 +40,7 @@
 #include "core/types.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 static std::string test_result_dir;
 
@@ -759,4 +759,4 @@ TEST_F(DataTypeDecimalTest, GetFieldWithDataTypeTest) {
               field_decimal128v3_1);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

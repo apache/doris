@@ -55,23 +55,23 @@ public:
     virtual ~PredicateCollector() = default;
 
     virtual Status collect(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
-                           const vectorized::VExprSPtr& expr, CollectInfoMap* collect_infos) = 0;
+                           const VExprSPtr& expr, CollectInfoMap* collect_infos) = 0;
 
 protected:
-    vectorized::VSlotRef* find_slot_ref(const vectorized::VExprSPtr& expr) const;
+    VSlotRef* find_slot_ref(const VExprSPtr& expr) const;
     std::string build_field_name(int32_t col_unique_id, const std::string& suffix_path) const;
 };
 
 class MatchPredicateCollector : public PredicateCollector {
 public:
     Status collect(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
-                   const vectorized::VExprSPtr& expr, CollectInfoMap* collect_infos) override;
+                   const VExprSPtr& expr, CollectInfoMap* collect_infos) override;
 };
 
 class SearchPredicateCollector : public PredicateCollector {
 public:
     Status collect(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
-                   const vectorized::VExprSPtr& expr, CollectInfoMap* collect_infos) override;
+                   const VExprSPtr& expr, CollectInfoMap* collect_infos) override;
 
 private:
     enum class ClauseTypeCategory { NON_TOKENIZED, TOKENIZED, COMPOUND };

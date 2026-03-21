@@ -31,7 +31,7 @@
 #include "core/column/columns_common.h"
 #include "core/typeid_cast.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 ColumnPtr squash_const(const ColumnPtr& col) {
@@ -165,4 +165,4 @@ void default_preprocess_parameter_columns(ColumnPtr* columns, const bool* col_co
         }
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

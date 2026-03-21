@@ -59,7 +59,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // construct a map
 // map(key1, value2, key2, value2) -> {key1: value2, key2: value2}
@@ -912,4 +912,4 @@ void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDeduplicateMap>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

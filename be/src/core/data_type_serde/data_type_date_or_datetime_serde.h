@@ -32,7 +32,7 @@
 #include "core/string_ref.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 class Arena;
 
 template <PrimitiveType T = PrimitiveType::TYPE_DATE>
@@ -113,10 +113,10 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
 
 protected:
     template <bool is_date>
@@ -145,4 +145,4 @@ public:
     Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                   int64_t end, const cctz::time_zone& ctz) const override;
 };
-} // namespace doris::vectorized
+} // namespace doris

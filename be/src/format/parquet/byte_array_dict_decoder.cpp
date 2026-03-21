@@ -27,7 +27,7 @@
 #include "util/coding.h"
 #include "util/rle_encoding.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status ByteArrayDictDecoder::set_dict(DorisUniqueBufferPtr<uint8_t>& dict, int32_t length,
                                       size_t num_values) {
@@ -153,4 +153,4 @@ Status ByteArrayDictDecoder::_decode_values(MutableColumnPtr& doris_column, Data
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

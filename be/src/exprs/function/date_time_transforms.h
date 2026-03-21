@@ -57,7 +57,7 @@
 #pragma GCC diagnostic ignored "-Wcast-user-defined"
 #endif
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 #define TIME_FUNCTION_IMPL(CLASS, UNIT, FUNCTION)                                       \
@@ -389,7 +389,7 @@ struct DateFormatImpl {
 
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<typename PrimitiveTypeTraits<PType>::DataType>(),
-                std::make_shared<vectorized::DataTypeString>()};
+                std::make_shared<DataTypeString>()};
     }
 };
 
@@ -401,7 +401,7 @@ struct FromUnixTimeImpl {
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
             return {std::make_shared<DataTypeInt64>(),
-                    std::make_shared<vectorized::DataTypeString>()};
+                    std::make_shared<DataTypeString>()};
         } else {
             return {std::make_shared<DataTypeInt64>()};
         }
@@ -470,7 +470,7 @@ struct FromUnixTimeDecimalImpl {
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
             return {std::make_shared<DataTypeDecimal64>(),
-                    std::make_shared<vectorized::DataTypeString>()};
+                    std::make_shared<DataTypeString>()};
         } else {
             return {std::make_shared<DataTypeDecimal64>()};
         }
@@ -537,7 +537,7 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionTimeFormat>(); }
     DataTypes get_variadic_argument_types_impl() const override {
         return {std::make_shared<typename PrimitiveTypeTraits<ArgPType>::DataType>(),
-                std::make_shared<vectorized::DataTypeString>()};
+                std::make_shared<DataTypeString>()};
     }
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
@@ -730,7 +730,7 @@ struct MicrosecondFromUnixtimeImpl {
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris
 
 #if defined(__GNUC__) && (__GNUC__ >= 15)
 #pragma GCC diagnostic pop

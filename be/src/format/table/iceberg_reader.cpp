@@ -68,12 +68,10 @@ class TupleDescriptor;
 namespace io {
 struct IOContext;
 } // namespace io
-namespace vectorized {
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
 
 IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader,
@@ -873,4 +871,4 @@ Status IcebergTableReader::read_deletion_vector(const std::string& data_file_pat
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,7 @@
 
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type) {
     switch (type->get_primitive_type()) {
@@ -71,6 +71,6 @@ std::unique_ptr<MaxMinValueBase> create_max_min_value(const DataTypePtr& type) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

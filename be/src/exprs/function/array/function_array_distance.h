@@ -37,7 +37,7 @@
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class L1Distance {
 public:
@@ -207,4 +207,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

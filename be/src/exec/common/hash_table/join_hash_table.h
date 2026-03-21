@@ -198,8 +198,7 @@ public:
     }
 
     template <int JoinOpType, bool is_mark_join>
-    bool iterate_map(vectorized::ColumnOffset32& build_idxs,
-                     vectorized::ColumnFilterHelper* mark_column_helper) const {
+    bool iterate_map(ColumnOffset32& build_idxs, ColumnFilterHelper* mark_column_helper) const {
         const auto batch_size = max_batch_size;
         const auto elem_num = visited.size();
         int count = 0;

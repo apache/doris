@@ -22,7 +22,7 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(FunctionTestTemplate, two_args_template) {
     std::string func_name = "atan2";
@@ -55,4 +55,4 @@ TEST(FunctionTestTemplate, three_args_template) {
 
     check_function_all_arg_comb<DataTypeString, true>(func_name, input_types, data_set);
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -23,7 +23,6 @@
 #include "exec/scan/task_executor/listenable_future.h"
 
 namespace doris {
-namespace vectorized {
 
 class SplitRunner {
 public:
@@ -37,5 +36,4 @@ public:
     virtual bool is_auto_reschedule() const { return true; }
 };
 
-} // namespace vectorized
 } // namespace doris

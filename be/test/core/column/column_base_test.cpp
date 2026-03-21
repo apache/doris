@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnBaseTest, TestCompare_internal) {
     auto column_data1 = ColumnHelper::create_nullable_column<DataTypeInt64>(
@@ -87,4 +87,4 @@ TEST(ColumnBaseTest, TestCompare_internal2) {
     EXPECT_EQ(cmp_res.size(), 1);
     EXPECT_EQ(cmp_res[0], 1);
 }
-} // namespace doris::vectorized
+} // namespace doris

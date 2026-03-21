@@ -29,7 +29,7 @@
 #include "common/logging.h"
 #include "core/string_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class SpaceSavingTest : public testing::Test {
 public:
@@ -297,4 +297,4 @@ TEST_F(SpaceSavingTest, test_space_saving_string_keys) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

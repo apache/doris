@@ -26,7 +26,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_aggregate_function_linear_histogram(AggregateFunctionSimpleFactory& factory);
 
@@ -287,7 +287,7 @@ public:
     }
 
 private:
-    vectorized::Arena _agg_arena_pool;
+    Arena _agg_arena_pool;
 };
 
 TEST_F(AggLinearHistogramTest, test_empty) {
@@ -335,4 +335,4 @@ TEST_F(AggLinearHistogramTest, test_with_data) {
     test_agg_linear_histogram<DataTypeDecimal256>(5, 0.5, 0.25);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

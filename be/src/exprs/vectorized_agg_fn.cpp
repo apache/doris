@@ -49,14 +49,12 @@ static constexpr int64_t BE_VERSION_THAT_SUPPORT_NULLABLE_CHECK = 8;
 
 namespace doris {
 class RowDescriptor;
-namespace vectorized {
 class Arena;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <class FunctionType>
@@ -386,7 +384,7 @@ AggFnEvaluator::AggFnEvaluator(AggFnEvaluator& evaluator, RuntimeState* state)
 }
 
 Status AggFnEvaluator::check_agg_fn_output(uint32_t key_size,
-                                           const std::vector<vectorized::AggFnEvaluator*>& agg_fn,
+                                           const std::vector<AggFnEvaluator*>& agg_fn,
                                            const RowDescriptor& output_row_desc) {
     auto name_and_types = VectorizedUtils::create_name_and_data_types(output_row_desc);
     for (uint32_t i = key_size, j = 0; i < name_and_types.size(); i++, j++) {
@@ -412,4 +410,4 @@ bool AggFnEvaluator::is_blockable() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

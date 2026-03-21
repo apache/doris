@@ -34,7 +34,7 @@
 #include "util/slice.h"
 #include "util/string_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 static bool is_group_node(const tparquet::SchemaElement& schema) {
@@ -715,4 +715,4 @@ uint64_t FieldSchema::get_max_column_id() const {
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

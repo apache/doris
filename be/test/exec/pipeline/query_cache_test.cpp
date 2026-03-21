@@ -25,8 +25,7 @@
 #include "core/data_type/data_type_number.h"
 #include "testutil/column_helper.h"
 
-namespace doris::pipeline {
-using namespace vectorized;
+namespace doris {
 class QueryCacheTest : public testing::Test {
 public:
     void SetUp() override {}
@@ -288,4 +287,4 @@ TEST_F(QueryCacheTest, insert_and_lookup) {
 
 // ./run-be-ut.sh --run --filter=DataQueueTest.*
 
-} // namespace doris::pipeline
+} // namespace doris

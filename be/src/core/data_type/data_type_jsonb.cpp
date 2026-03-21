@@ -30,12 +30,10 @@
 #include "util/jsonb_utils.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Field DataTypeJsonb::get_default() const {
     std::string default_json = "null";
@@ -92,4 +90,4 @@ FieldWithDataType DataTypeJsonb::get_field_with_data_type(const IColumn& column,
                               .base_scalar_type_id = get_primitive_type()};
 }
 
-} // namespace doris::vectorized
+} // namespace doris

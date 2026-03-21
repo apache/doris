@@ -21,7 +21,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
@@ -43,4 +43,4 @@ void register_aggregate_function_approx_count_distinct(AggregateFunctionSimpleFa
     factory.register_alias("approx_count_distinct", "ndv");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

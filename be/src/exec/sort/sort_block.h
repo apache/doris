@@ -45,14 +45,14 @@
 #include "exec/sort/sort_description.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 /// Sort one block by `description`. If limit != 0, then the partial sort of the first `limit` rows is produced.
 void sort_block(Block& src_block, Block& dest_block, const SortDescription& description,
@@ -523,4 +523,4 @@ private:
     const int _direction;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

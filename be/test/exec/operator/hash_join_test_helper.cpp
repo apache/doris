@@ -31,7 +31,7 @@
 #include "testutil/creators.h"
 #include "testutil/mock/mock_operators.h"
 
-namespace doris::pipeline {
+namespace doris {
 TPlanNode HashJoinTestHelper::create_test_plan_node(
         const TJoinOp::type& join_op_type, const std::vector<TPrimitiveType::type>& key_types,
         const std::vector<bool>& left_keys_nullable, const std::vector<bool>& right_keys_nullable,
@@ -627,4 +627,4 @@ HashJoinTestHelper::create_operators(const TPlanNode& tnode) {
     return {std::move(probe_operator), std::move(sink_operator)};
 }
 
-} // namespace doris::pipeline
+} // namespace doris

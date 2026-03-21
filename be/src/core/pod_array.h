@@ -43,7 +43,7 @@
 
 #include "core/pod_array_fwd.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 /** For zero argument, result is zero.
   * For arguments with most significand bit set, result is zero.
@@ -693,5 +693,5 @@ void swap(PODArray<T, initial_bytes, TAllocator, pad_right_, pad_left_>& lhs,
     lhs.swap(rhs);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_avoid_end.h"

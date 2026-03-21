@@ -43,7 +43,7 @@
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 static std::string test_result_dir;
 
@@ -342,4 +342,4 @@ TEST_F(DataTypeJsonbTest, get_field) {
                       JsonbField(jsonb_value.value(), cast_set<Int32>(jsonb_value.size()))));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

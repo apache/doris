@@ -21,7 +21,7 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
 
-namespace doris::vectorized::CastWrapper {
+namespace doris::CastWrapper {
 
 // shared implementation for casting from variant to arbitrary non-nullable target type
 inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
@@ -163,4 +163,4 @@ WrapperType create_cast_from_variant_wrapper(const DataTypeVariant& from_type,
     };
 }
 
-} // namespace doris::vectorized::CastWrapper
+} // namespace doris::CastWrapper

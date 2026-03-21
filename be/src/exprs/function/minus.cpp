@@ -21,7 +21,7 @@
 #include "exprs/function/binary_arithmetic.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <PrimitiveType TypeA, PrimitiveType TypeB>
 struct MinusDecimalImpl {
@@ -115,4 +115,4 @@ void register_function_minus(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionPlusMinus<PlusMinusIntegralImpl<MinusImpl<TYPE_FLOAT>>>>();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

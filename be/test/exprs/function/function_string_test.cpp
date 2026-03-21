@@ -28,7 +28,7 @@
 #include "exprs/function/function_test_util.h"
 #include "util/encryption_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST(function_string_test, function_string_substr_test) {
@@ -3854,4 +3854,4 @@ TEST(function_string_test, function_unicode_normalize_invalid_mode) {
     EXPECT_NE(Status::OK(), st);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -433,7 +433,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_path_set_info_inverted_indexs) {
     typed_extracted_col1.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     typed_extracted_col1.set_parent_unique_id(9001);
 
-    vectorized::PathInData typed_path1("variant_col.user.name", true);
+    PathInData typed_path1("variant_col.user.name", true);
     typed_extracted_col1.set_path_info(typed_path1);
 
     auto typed_indexes = schema.inverted_indexs(typed_extracted_col1);
@@ -447,7 +447,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_path_set_info_inverted_indexs) {
     typed_extracted_col2.set_type(FieldType::OLAP_FIELD_TYPE_INT);
     typed_extracted_col2.set_parent_unique_id(9001);
 
-    vectorized::PathInData typed_path2("variant_col.user.age", true);
+    PathInData typed_path2("variant_col.user.age", true);
     typed_extracted_col2.set_path_info(typed_path2);
 
     auto typed_indexes2 = schema.inverted_indexs(typed_extracted_col2);
@@ -462,7 +462,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_path_set_info_inverted_indexs) {
     subcolumn_extracted_col1.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     subcolumn_extracted_col1.set_parent_unique_id(9001);
 
-    vectorized::PathInData subcolumn_path1("variant_col.product.id");
+    PathInData subcolumn_path1("variant_col.product.id");
     subcolumn_extracted_col1.set_path_info(subcolumn_path1);
 
     auto subcolumn_indexes = schema.inverted_indexs(subcolumn_extracted_col1);
@@ -476,7 +476,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_path_set_info_inverted_indexs) {
     non_existing_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     non_existing_col.set_parent_unique_id(9001);
 
-    vectorized::PathInData non_existing_path("variant_col.non.existing");
+    PathInData non_existing_path("variant_col.non.existing");
     non_existing_col.set_path_info(non_existing_path);
 
     auto no_indexes = schema.inverted_indexs(non_existing_col);
@@ -488,7 +488,7 @@ TEST_F(TabletSchemaTest, test_tablet_schema_path_set_info_inverted_indexs) {
     wrong_parent_col.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
     wrong_parent_col.set_parent_unique_id(9999); // Non-existing parent
 
-    vectorized::PathInData wrong_parent_path("wrong_variant.some.path");
+    PathInData wrong_parent_path("wrong_variant.some.path");
     wrong_parent_col.set_path_info(wrong_parent_path);
 
     auto no_indexes_wrong_parent = schema.inverted_indexs(wrong_parent_col);

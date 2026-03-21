@@ -60,7 +60,7 @@ class OffsetIndex;
 class RowGroup;
 } // namespace tparquet
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // TODO: we need to determine it by test.
 
@@ -279,4 +279,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

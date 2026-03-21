@@ -74,7 +74,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct BitmapEmpty {
@@ -1309,4 +1309,4 @@ void register_function_bitmap(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBitmapToArray>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

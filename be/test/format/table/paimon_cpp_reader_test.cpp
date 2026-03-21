@@ -26,7 +26,7 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class PaimonCppReaderTest : public testing::Test {
 protected:
@@ -93,4 +93,4 @@ TEST_F(PaimonCppReaderTest, InitReaderFailsWithoutPaimonSplit) {
     EXPECT_NE(status.to_string().find("missing paimon_split"), std::string::npos);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

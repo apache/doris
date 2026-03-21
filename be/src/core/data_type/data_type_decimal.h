@@ -52,13 +52,11 @@ namespace doris {
 class DecimalV2Value;
 class PColumnMeta;
 
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -484,4 +482,4 @@ typename PrimitiveTypeTraits<T>::CppType min_decimal_value(UInt32 precision) {
                     (UInt32)(max_decimal_precision<T>() - precision)));
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

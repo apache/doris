@@ -19,7 +19,7 @@
 
 #include "process_hash_table_probe_impl.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 INSTANTIATION_FOR(TJoinOp::ASOF_LEFT_OUTER_JOIN);
 

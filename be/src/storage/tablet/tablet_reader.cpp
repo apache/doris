@@ -223,13 +223,12 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     }
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    return vectorized::variant_util::get_column_by_type(
-            cast_type, orig.name(),
-            {
-                    .unique_id = orig.unique_id(),
-                    .parent_unique_id = orig.parent_unique_id(),
-                    .path_info = *orig.path_info_ptr(),
-            });
+    return variant_util::get_column_by_type(cast_type, orig.name(),
+                                            {
+                                                    .unique_id = orig.unique_id(),
+                                                    .parent_unique_id = orig.parent_unique_id(),
+                                                    .path_info = *orig.path_info_ptr(),
+                                            });
 }
 
 Status TabletReader::_init_params(const ReaderParams& read_params) {
@@ -556,7 +555,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
 Status TabletReader::init_reader_params_and_create_block(
         TabletSharedPtr tablet, ReaderType reader_type,
         const std::vector<RowsetSharedPtr>& input_rowsets,
-        TabletReader::ReaderParams* reader_params, vectorized::Block* block) {
+        TabletReader::ReaderParams* reader_params, Block* block) {
     reader_params->tablet = tablet;
     reader_params->reader_type = reader_type;
     reader_params->version =

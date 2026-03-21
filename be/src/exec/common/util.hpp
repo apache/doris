@@ -29,7 +29,7 @@
 #include "runtime/descriptors.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 class VectorizedUtils {
 public:
     static Block create_empty_columnswithtypename(const RowDescriptor& row_desc) {
@@ -300,7 +300,7 @@ T read_from_json(const std::string& json_str) {
     return params;
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 namespace apache::thrift {
 template <typename ThriftStruct>

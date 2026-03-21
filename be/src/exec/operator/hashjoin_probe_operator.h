@@ -58,12 +58,12 @@ public:
     Status close(RuntimeState* state) override;
 
     void prepare_for_next();
-    Status filter_data_and_build_output(RuntimeState* state, vectorized::Block* output_block,
-                                        bool* eos, vectorized::Block* temp_block,
+    Status filter_data_and_build_output(RuntimeState* state, Block* output_block,
+                                        bool* eos, Block* temp_block,
                                         bool check_rows_count = true);
 
     bool has_null_in_build_side() { return _shared_state->_has_null_in_build_side; }
-    const std::shared_ptr<vectorized::Block>& build_block() const {
+    const std::shared_ptr<Block>& build_block() const {
         return _shared_state->build_block;
     }
     bool empty_right_table_shortcut() const {
@@ -73,9 +73,9 @@ public:
 
 private:
     void _prepare_probe_block();
-    bool _need_probe_null_map(vectorized::Block& block, const std::vector<int>& res_col_ids);
-    std::vector<uint16_t> _convert_block_to_null(vectorized::Block& block);
-    Status _extract_join_column(vectorized::Block& block, const std::vector<int>& res_col_ids);
+    bool _need_probe_null_map(Block& block, const std::vector<int>& res_col_ids);
+    std::vector<uint16_t> _convert_block_to_null(Block& block);
+    Status _extract_join_column(Block& block, const std::vector<int>& res_col_ids);
     friend class HashJoinProbeOperatorX;
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;
@@ -90,23 +90,23 @@ private:
     // For mark join, last probe index of null mark
     int _last_probe_null_mark;
 
-    vectorized::Block _probe_block;
-    vectorized::ColumnRawPtrs _probe_columns;
+    Block _probe_block;
+    ColumnRawPtrs _probe_columns;
     // other expr
-    vectorized::VExprContextSPtrs _other_join_conjuncts;
+    VExprContextSPtrs _other_join_conjuncts;
 
-    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+    VExprContextSPtrs _mark_join_conjuncts;
 
-    std::vector<vectorized::ColumnPtr> _key_columns_holder;
+    std::vector<ColumnPtr> _key_columns_holder;
 
     // probe expr
-    vectorized::VExprContextSPtrs _probe_expr_ctxs;
+    VExprContextSPtrs _probe_expr_ctxs;
     std::vector<uint16_t> _probe_column_disguise_null;
     std::vector<uint16_t> _probe_column_convert_to_null;
 
     bool _need_null_map_for_probe = false;
     bool _has_set_need_null_map_for_probe = false;
-    vectorized::ColumnUInt8::MutablePtr _null_map_column;
+    ColumnUInt8::MutablePtr _null_map_column;
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants =
             std::make_unique<HashTableCtxVariants>();
 
@@ -134,8 +134,8 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
-    Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
+    Status push(RuntimeState* state, Block* input_block, bool eos) const override;
+    Status pull(doris::RuntimeState* state, Block* output_block,
                 bool* eos) const override;
 
     bool need_more_input_data(RuntimeState* state) const override;
@@ -185,7 +185,7 @@ public:
     }
 
 private:
-    Status _do_evaluate(vectorized::Block& block, vectorized::VExprContextSPtrs& exprs,
+    Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
                         std::vector<int>& res_col_ids) const;
     friend class HashJoinProbeLocalState;
@@ -196,21 +196,21 @@ private:
 
     const bool _is_broadcast_join;
     // other expr
-    vectorized::VExprContextSPtrs _other_join_conjuncts;
+    VExprContextSPtrs _other_join_conjuncts;
 
-    vectorized::VExprContextSPtrs _mark_join_conjuncts;
+    VExprContextSPtrs _mark_join_conjuncts;
     // mark the build hash table whether it needs to store null value
     std::vector<bool> _serialize_null_into_key;
 
     // probe expr
-    vectorized::VExprContextSPtrs _probe_expr_ctxs;
+    VExprContextSPtrs _probe_expr_ctxs;
 
     // ASOF JOIN: probe-side expression extracted from MATCH_CONDITION's left child
     // Prepared against probe child's row_desc directly
-    vectorized::VExprContextSPtr _asof_probe_expr;
+    VExprContextSPtr _asof_probe_expr;
 
-    vectorized::DataTypes _right_table_data_types;
-    vectorized::DataTypes _left_table_data_types;
+    DataTypes _right_table_data_types;
+    DataTypes _left_table_data_types;
     std::vector<SlotId> _hash_output_slot_ids;
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;

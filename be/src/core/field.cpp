@@ -33,7 +33,7 @@
 #include "util/io_helper.h"
 #include "util/var_int.h"
 
-namespace doris::vectorized {
+namespace doris {
 class BufferReadable;
 class BufferWritable;
 
@@ -1019,4 +1019,4 @@ DECLARE_FUNCTION(TYPE_TIMEV2)
 DECLARE_FUNCTION(TYPE_UINT32)
 DECLARE_FUNCTION(TYPE_UINT64)
 #undef DECLARE_FUNCTION
-} // namespace doris::vectorized
+} // namespace doris

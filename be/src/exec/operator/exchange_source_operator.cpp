@@ -31,7 +31,7 @@
 #include "runtime/runtime_state.h"
 #include "util/defer_op.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 ExchangeLocalState::ExchangeLocalState(RuntimeState* state, OperatorXBase* parent)
         : Base(state, parent), num_rows_skipped(0), is_ready(false) {}
@@ -143,7 +143,7 @@ Status ExchangeSourceOperatorX::prepare(RuntimeState* state) {
     return Status::OK();
 }
 
-Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
+Status ExchangeSourceOperatorX::get_block(RuntimeState* state, Block* block,
                                           bool* eos) {
     auto& local_state = get_local_state(state);
     Defer is_eos([&]() {
@@ -166,7 +166,7 @@ Status ExchangeSourceOperatorX::get_block(RuntimeState* state, vectorized::Block
     }
     {
         SCOPED_TIMER(local_state.filter_timer);
-        RETURN_IF_ERROR(doris::vectorized::VExprContext::filter_block(local_state.conjuncts(),
+        RETURN_IF_ERROR(doris::VExprContext::filter_block(local_state.conjuncts(),
                                                                       block, block->columns()));
     }
 
@@ -224,4 +224,4 @@ Status ExchangeSourceOperatorX::close(RuntimeState* state) {
     _is_closed = true;
     return OperatorX<ExchangeLocalState>::close(state);
 }
-} // namespace doris::pipeline
+} // namespace doris

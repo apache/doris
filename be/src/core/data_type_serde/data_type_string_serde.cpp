@@ -23,7 +23,7 @@
 #include "util/jsonb_utils.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::serialize_column_to_json(const IColumn& column,
@@ -317,7 +317,7 @@ Status DataTypeStringSerDeBase<ColumnType>::read_column_from_arrow(
 template <typename ColumnType>
 Status DataTypeStringSerDeBase<ColumnType>::write_column_to_orc(
         const std::string& timezone, const IColumn& column, const NullMap* null_map,
-        orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end, vectorized::Arena& arena,
+        orc::ColumnVectorBatch* orc_col_batch, int64_t start, int64_t end, Arena& arena,
         const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
@@ -436,8 +436,7 @@ void DataTypeStringSerDeBase<ColumnType>::to_string(const IColumn& column, size_
 }
 
 template <typename ColumnType>
-std::string DataTypeStringSerDeBase<ColumnType>::to_olap_string(
-        const vectorized::Field& field) const {
+std::string DataTypeStringSerDeBase<ColumnType>::to_olap_string(const Field& field) const {
     return field.get<TYPE_STRING>();
 }
 
@@ -477,4 +476,4 @@ template class DataTypeStringSerDeBase<ColumnString>;
 template class DataTypeStringSerDeBase<ColumnString64>;
 template class DataTypeStringSerDeBase<ColumnFixedLengthObject>;
 
-} // namespace doris::vectorized
+} // namespace doris

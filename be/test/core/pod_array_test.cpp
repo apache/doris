@@ -30,7 +30,7 @@ namespace doris {
 
 TEST(PODArrayTest, PODArrayBasicMove) {
     static constexpr size_t initial_bytes = 32;
-    using Array = vectorized::PODArray<
+    using Array = PODArray<
             uint64_t, initial_bytes,
             AllocatorWithStackMemory<Allocator<false, false, false, DefaultMemoryAllocator, false>,
                                      initial_bytes>>;
@@ -145,7 +145,7 @@ TEST(PODArrayTest, PODArrayBasicMove) {
 
 TEST(PODArrayTest, PODArrayBasicSwap) {
     static constexpr size_t initial_bytes = 32;
-    using Array = vectorized::PODArray<
+    using Array = PODArray<
             uint64_t, initial_bytes,
             AllocatorWithStackMemory<Allocator<false, false, false, DefaultMemoryAllocator, false>,
                                      initial_bytes>>;
@@ -389,7 +389,7 @@ TEST(PODArrayTest, PODArrayBasicSwap) {
 
 TEST(PODArrayTest, PODArrayBasicSwapMoveConstructor) {
     static constexpr size_t initial_bytes = 32;
-    using Array = vectorized::PODArray<
+    using Array = PODArray<
             uint64_t, initial_bytes,
             AllocatorWithStackMemory<Allocator<false, false, false, DefaultMemoryAllocator, false>,
                                      initial_bytes>>;
@@ -441,7 +441,7 @@ TEST(PODArrayTest, PODArrayBasicSwapMoveConstructor) {
 TEST(PODArrayTest, PODArrayInsert) {
     {
         std::string str = "test_string_abacaba";
-        vectorized::PODArray<char> chars;
+        PODArray<char> chars;
         chars.insert(chars.end(), str.begin(), str.end());
         EXPECT_EQ(str, std::string(chars.data(), chars.size()));
 
@@ -467,8 +467,8 @@ TEST(PODArrayTest, PODArrayInsert) {
         EXPECT_EQ(str, std::string(chars.data(), chars.size()));
     }
     {
-        vectorized::PODArray<uint64_t> values;
-        vectorized::PODArray<uint64_t> values_to_insert;
+        PODArray<uint64_t> values;
+        PODArray<uint64_t> values_to_insert;
 
         for (size_t i = 0; i < 120; ++i) {
             values.emplace_back(i);
@@ -496,29 +496,29 @@ TEST(PODArrayTest, PODArrayInsert) {
 // TEST(PODArrayTest, PODArrayInsertFromItself)
 // {
 //     {
-//         vectorized::PaddedPODArray<UInt64> array { 1 };
+//         PaddedPODArray<UInt64> array { 1 };
 
 //         for (size_t i = 0; i < 3; ++i)
 //             array.insertFromItself(array.begin(), array.end());
 
-//         vectorized::PaddedPODArray<UInt64> expected {1,1,1,1,1,1,1,1};
+//         PaddedPODArray<UInt64> expected {1,1,1,1,1,1,1,1};
 //         ASSERT_EQ(array,expected);
 //     }
 // }
 
 TEST(PODArrayTest, PODArrayAssign) {
     {
-        vectorized::PaddedPODArray<uint64_t> array;
+        PaddedPODArray<uint64_t> array;
         array.push_back(1);
         array.push_back(2);
 
         array.assign({1, 2, 3});
 
         ASSERT_EQ(array.size(), 3);
-        ASSERT_EQ(array, vectorized::PaddedPODArray<uint64_t>({1, 2, 3}));
+        ASSERT_EQ(array, PaddedPODArray<uint64_t>({1, 2, 3}));
     }
     {
-        vectorized::PaddedPODArray<uint64_t> array;
+        PaddedPODArray<uint64_t> array;
         array.push_back(1);
         array.push_back(2);
 
@@ -527,7 +527,7 @@ TEST(PODArrayTest, PODArrayAssign) {
         ASSERT_TRUE(array.empty());
     }
     {
-        vectorized::PaddedPODArray<uint64_t> array;
+        PaddedPODArray<uint64_t> array;
         array.assign({});
 
         ASSERT_TRUE(array.empty());
@@ -538,7 +538,7 @@ TEST(PODArrayTest, PODNoOverallocation) {
     /// Check that PaddedPODArray allocates for smaller number of elements than the power of two due to padding.
     /// NOTE: It's Ok to change these numbers if you will modify initial size or padding.
 
-    vectorized::PaddedPODArray<char> chars;
+    PaddedPODArray<char> chars;
     std::vector<size_t> capacities;
 
     size_t prev_capacity = 0;
@@ -561,7 +561,7 @@ struct ItemWithSize {
 
 TEST(PODArrayTest, PODInsertElementSizeNotMultipleOfLeftPadding) {
     using ItemWith24Size = ItemWithSize<24>;
-    vectorized::PaddedPODArray<ItemWith24Size> arr1_initially_empty;
+    PaddedPODArray<ItemWith24Size> arr1_initially_empty;
 
     size_t items_to_insert_size = 120000;
 
@@ -571,7 +571,7 @@ TEST(PODArrayTest, PODInsertElementSizeNotMultipleOfLeftPadding) {
 
     EXPECT_EQ(arr1_initially_empty.size(), items_to_insert_size);
 
-    vectorized::PaddedPODArray<ItemWith24Size> arr2_initially_nonempty;
+    PaddedPODArray<ItemWith24Size> arr2_initially_nonempty;
 
     for (size_t test = 0; test < items_to_insert_size; ++test) {
         arr2_initially_nonempty.emplace_back();
@@ -582,8 +582,8 @@ TEST(PODArrayTest, PODInsertElementSizeNotMultipleOfLeftPadding) {
 
 TEST(PODArrayTest, PODErase) {
     {
-        vectorized::PaddedPODArray<uint64_t> items {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        vectorized::PaddedPODArray<uint64_t> expected;
+        PaddedPODArray<uint64_t> items {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        PaddedPODArray<uint64_t> expected;
         expected = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 
         items.erase(items.begin(), items.begin());
@@ -593,8 +593,8 @@ TEST(PODArrayTest, PODErase) {
         EXPECT_EQ(items, expected);
     }
     {
-        vectorized::PaddedPODArray<uint64_t> actual {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        vectorized::PaddedPODArray<uint64_t> expected;
+        PaddedPODArray<uint64_t> actual {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        PaddedPODArray<uint64_t> expected;
 
         expected = {0, 1, 4, 5, 6, 7, 8, 9};
         actual.erase(actual.begin() + 2, actual.begin() + 4);
@@ -625,8 +625,8 @@ TEST(PODArrayTest, PODErase) {
         EXPECT_EQ(actual, expected);
     }
     {
-        vectorized::PaddedPODArray<uint64_t> actual {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
-        vectorized::PaddedPODArray<uint64_t> expected;
+        PaddedPODArray<uint64_t> actual {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
+        PaddedPODArray<uint64_t> expected;
 
         expected = {1, 2, 3, 4, 5, 6, 7, 8, 9};
         actual.erase(actual.begin());

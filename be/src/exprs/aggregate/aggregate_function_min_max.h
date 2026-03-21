@@ -50,16 +50,14 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 /// For numeric values.
 template <PrimitiveType T>
@@ -923,6 +921,6 @@ template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         const String& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr = {});
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

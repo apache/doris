@@ -20,7 +20,7 @@
 #include "exprs/aggregate/aggregate_function_min_max_by.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory) {
@@ -29,4 +29,4 @@ void register_aggregate_function_min_by(AggregateFunctionSimpleFactory& factory)
                                                            AggregateFunctionMinByData>);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

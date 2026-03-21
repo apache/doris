@@ -24,7 +24,7 @@
 #include "exec/operator/operator.h"
 #include "exec/operator/partitioned_hash_join_probe_operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename SharedStateArg, typename Derived>
 Status JoinProbeLocalState<SharedStateArg, Derived>::init(RuntimeState* state,
@@ -64,17 +64,17 @@ void JoinProbeLocalState<SharedStateArg, Derived>::_construct_mutable_join_block
     if (p._is_mark_join) {
         _mark_column_id = _join_block.columns() - 1;
 #ifndef NDEBUG
-        const auto& mark_column = assert_cast<const vectorized::ColumnNullable&>(
+        const auto& mark_column = assert_cast<const ColumnNullable&>(
                 *_join_block.get_by_position(_mark_column_id).column);
         auto& nested_column = mark_column.get_nested_column();
-        DCHECK(check_and_get_column<vectorized::ColumnUInt8>(nested_column) != nullptr);
+        DCHECK(check_and_get_column<ColumnUInt8>(nested_column) != nullptr);
 #endif
     }
 }
 
 template <typename SharedStateArg, typename Derived>
-Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(
-        vectorized::Block* origin_block, vectorized::Block* output_block) {
+Status JoinProbeLocalState<SharedStateArg, Derived>::_build_output_block(Block* origin_block,
+                                                                         Block* output_block) {
     if (!output_block->mem_reuse()) {
         output_block->swap(origin_block->clone_empty());
     }
@@ -143,4 +143,4 @@ template class JoinProbeLocalState<PartitionedHashJoinSharedState,
                                    PartitionedHashJoinProbeLocalState>;
 template class JoinProbeOperatorX<PartitionedHashJoinProbeLocalState>;
 
-} // namespace doris::pipeline
+} // namespace doris

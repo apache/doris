@@ -276,7 +276,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             }
 
             // 3. Init Block
-            vectorized::Block block;
+            Block block;
 
             // 4. Read data from broker and write into cur_tablet
             VLOG_NOTICE << "start to convert etl file to delta.";
@@ -418,7 +418,7 @@ Status PushBrokerReader::init() {
     return Status::OK();
 }
 
-Status PushBrokerReader::next(vectorized::Block* block) {
+Status PushBrokerReader::next(Block* block) {
     if (!_ready || block == nullptr) {
         return Status::Error<INVALID_ARGUMENT>("PushBrokerReader not ready or block is nullptr");
     }
@@ -447,7 +447,7 @@ Status PushBrokerReader::_init_src_block() {
     _src_block.clear();
     int idx = 0;
     for (auto& slot : _src_slot_descs) {
-        vectorized::DataTypePtr data_type;
+        DataTypePtr data_type;
         auto it = _name_to_col_type.find(slot->col_name());
         if (it == _name_to_col_type.end()) {
             // not exist in file, using type from _input_tuple_desc
@@ -461,8 +461,8 @@ Status PushBrokerReader::_init_src_block() {
                                                                       : it->second->get_name(),
                                         slot->col_name());
         }
-        vectorized::MutableColumnPtr data_column = data_type->create_column();
-        _src_block.insert(vectorized::ColumnWithTypeAndName(std::move(data_column), data_type,
+        MutableColumnPtr data_column = data_type->create_column();
+        _src_block.insert(ColumnWithTypeAndName(std::move(data_column), data_type,
                                                             slot->col_name()));
         _src_block_name_to_idx.emplace(slot->col_name(), idx++);
     }
@@ -485,31 +485,31 @@ Status PushBrokerReader::_cast_to_input_block() {
         auto& arg = _src_block_ptr->get_by_position(idx);
         // bitmap convert：src -> to_base64 -> bitmap_from_base64
         if (slot_desc->type()->get_primitive_type() == TYPE_BITMAP) {
-            auto base64_return_type = vectorized::DataTypeFactory::instance().create_data_type(
+            auto base64_return_type = DataTypeFactory::instance().create_data_type(
                     PrimitiveType::TYPE_STRING, slot_desc->is_nullable());
-            auto func_to_base64 = vectorized::SimpleFunctionFactory::instance().get_function(
+            auto func_to_base64 = SimpleFunctionFactory::instance().get_function(
                     "to_base64", {arg}, base64_return_type);
             RETURN_IF_ERROR(func_to_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
                                                     arg.column->size()));
             _src_block_ptr->get_by_position(idx).type = std::move(base64_return_type);
             auto& arg_base64 = _src_block_ptr->get_by_position(idx);
             auto func_bitmap_from_base64 =
-                    vectorized::SimpleFunctionFactory::instance().get_function(
+                    SimpleFunctionFactory::instance().get_function(
                             "bitmap_from_base64", {arg_base64}, return_type);
             RETURN_IF_ERROR(func_bitmap_from_base64->execute(nullptr, *_src_block_ptr, {idx}, idx,
                                                              arg_base64.column->size()));
             _src_block_ptr->get_by_position(idx).type = std::move(return_type);
         } else {
-            vectorized::ColumnsWithTypeAndName arguments {
+            ColumnsWithTypeAndName arguments {
                     arg,
-                    {vectorized::DataTypeString().create_column_const(
+                    {DataTypeString().create_column_const(
                              arg.column->size(),
-                             vectorized::Field::create_field<TYPE_STRING>(
+                             Field::create_field<TYPE_STRING>(
                                      is_decimal(return_type->get_primitive_type())
                                              ? "Decimal"
                                              : remove_nullable(return_type)->get_family_name())),
-                     std::make_shared<vectorized::DataTypeString>(), ""}};
-            auto func_cast = vectorized::SimpleFunctionFactory::instance().get_function(
+                     std::make_shared<DataTypeString>(), ""}};
+            auto func_cast = SimpleFunctionFactory::instance().get_function(
                     "CAST", arguments, return_type);
             RETURN_IF_ERROR(
                     func_cast->execute(nullptr, *_src_block_ptr, {idx}, idx, arg.column->size()));
@@ -519,16 +519,16 @@ Status PushBrokerReader::_cast_to_input_block() {
     return Status::OK();
 }
 
-Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
+Status PushBrokerReader::_convert_to_output_block(Block* block) {
     block->clear();
 
     int ctx_idx = 0;
     size_t rows = _src_block.rows();
-    auto filter_column = vectorized::ColumnUInt8::create(rows, 1);
+    auto filter_column = ColumnUInt8::create(rows, 1);
 
     for (auto* slot_desc : _dest_tuple_desc->slots()) {
         int dest_index = ctx_idx++;
-        vectorized::ColumnPtr column_ptr;
+        ColumnPtr column_ptr;
 
         auto& ctx = _dest_expr_ctxs[dest_index];
         // PT1 => dest primitive type
@@ -547,16 +547,16 @@ Status PushBrokerReader::_convert_to_output_block(vectorized::Block* block) {
             column_ptr = make_nullable(column_ptr);
         }
         block->insert(dest_index,
-                      vectorized::ColumnWithTypeAndName(column_ptr, slot_desc->get_data_type_ptr(),
+                      ColumnWithTypeAndName(column_ptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name()));
     }
     _src_block.clear();
 
     size_t dest_size = block->columns();
-    block->insert(vectorized::ColumnWithTypeAndName(std::move(filter_column),
-                                                    std::make_shared<vectorized::DataTypeUInt8>(),
+    block->insert(ColumnWithTypeAndName(std::move(filter_column),
+                                                    std::make_shared<DataTypeUInt8>(),
                                                     "filter column"));
-    RETURN_IF_ERROR(vectorized::Block::filter_block(block, dest_size, dest_size));
+    RETURN_IF_ERROR(Block::filter_block(block, dest_size, dest_size));
     return Status::OK();
 }
 
@@ -596,7 +596,7 @@ Status PushBrokerReader::_init_expr_ctxes() {
     if (!_pre_filter_texprs.empty()) {
         DCHECK(_pre_filter_texprs.size() == 1);
         RETURN_IF_ERROR(
-                vectorized::VExpr::create_expr_tree(_pre_filter_texprs[0], _pre_filter_ctx_ptr));
+                VExpr::create_expr_tree(_pre_filter_texprs[0], _pre_filter_ctx_ptr));
         RETURN_IF_ERROR(_pre_filter_ctx_ptr->prepare(_runtime_state.get(), *_row_desc));
         RETURN_IF_ERROR(_pre_filter_ctx_ptr->open(_runtime_state.get()));
     }
@@ -614,8 +614,8 @@ Status PushBrokerReader::_init_expr_ctxes() {
                                          slot_desc->col_name());
         }
 
-        vectorized::VExprContextSPtr ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(it->second, ctx));
+        VExprContextSPtr ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(it->second, ctx));
         RETURN_IF_ERROR(ctx->prepare(_runtime_state.get(), *_row_desc.get()));
         RETURN_IF_ERROR(ctx->open(_runtime_state.get()));
         _dest_expr_ctxs.emplace_back(ctx);
@@ -647,8 +647,8 @@ Status PushBrokerReader::_get_next_reader() {
     Status init_status;
     switch (_file_params.format_type) {
     case TFileFormatType::FORMAT_PARQUET: {
-        std::unique_ptr<vectorized::ParquetReader> parquet_reader =
-                vectorized::ParquetReader::create_unique(
+        std::unique_ptr<ParquetReader> parquet_reader =
+                ParquetReader::create_unique(
                         _runtime_profile, _file_params, range,
                         _runtime_state->query_options().batch_size,
                         const_cast<cctz::time_zone*>(&_runtime_state->timezone_obj()),
@@ -658,7 +658,7 @@ Status PushBrokerReader::_get_next_reader() {
                 _all_col_names, &_col_name_to_block_idx, _push_down_exprs, _slot_id_to_predicates,
                 _real_tuple_desc, _default_val_row_desc.get(), _col_name_to_slot_id,
                 &_not_single_slot_filter_conjuncts, &_slot_id_to_filter_conjuncts,
-                vectorized::TableSchemaChangeHelper::ConstNode::get_instance(), false);
+                TableSchemaChangeHelper::ConstNode::get_instance(), false);
         _cur_reader = std::move(parquet_reader);
         if (!init_status.ok()) {
             return Status::InternalError("failed to init reader for file {}, err: {}", range.path,
@@ -666,7 +666,7 @@ Status PushBrokerReader::_get_next_reader() {
         }
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
-        std::unordered_map<std::string, vectorized::VExprContextSPtr> missing_columns;
+        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
         RETURN_IF_ERROR(_cur_reader->get_columns(&_name_to_col_type, &_missing_cols));
         RETURN_IF_ERROR(_cur_reader->set_fill_columns(partition_columns, missing_columns));
         break;

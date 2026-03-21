@@ -20,7 +20,7 @@
 #include "core/data_type/data_type_array.h"
 #include "exprs/function/cast/cast_base.h"
 
-namespace doris::vectorized::CastWrapper {
+namespace doris::CastWrapper {
 #include "common/compile_check_begin.h"
 WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& from_type_untyped,
                                  const DataTypeArray& to_type) {
@@ -92,4 +92,4 @@ WrapperType create_array_wrapper(FunctionContext* context, const DataTypePtr& fr
     };
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized::CastWrapper
+} // namespace doris::CastWrapper

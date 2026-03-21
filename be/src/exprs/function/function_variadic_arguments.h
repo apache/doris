@@ -27,7 +27,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename ToDataType, typename Impl>
 class FunctionVariadicArgumentsBase : public IFunction {
@@ -79,4 +79,4 @@ public:
         return Status::OK();
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

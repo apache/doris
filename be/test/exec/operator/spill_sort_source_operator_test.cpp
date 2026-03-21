@@ -32,7 +32,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class SpillSortSourceOperatorTest : public testing::Test {
 protected:
     void SetUp() override { _helper.SetUp(); }
@@ -123,17 +123,16 @@ TEST_F(SpillSortSourceOperatorTest, GetBlock) {
     st = local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     const auto rows = input_block.rows();
 
     inner_source_operator->block = input_block;
 
-    vectorized::Block block;
+    Block block;
     bool eos = false;
     st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
     ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
@@ -215,7 +214,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
 
     // Prepare stored streams
     for (size_t i = 0; i != 4; ++i) {
-        vectorized::SpillStreamSPtr spill_stream;
+        SpillStreamSPtr spill_stream;
         st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
@@ -230,11 +229,9 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
             data2.emplace_back(j);
         }
 
-        auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(data);
+        auto input_block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-        input_block.insert(
-                vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-                        data2));
+        input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(data2));
 
         st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
         ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
@@ -242,10 +239,10 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
         shared_state->sorted_streams.emplace_back(std::move(spill_stream));
     }
 
-    std::unique_ptr<vectorized::MutableBlock> mutable_block;
+    std::unique_ptr<MutableBlock> mutable_block;
     bool eos = false;
     while (!eos) {
-        vectorized::Block block;
+        Block block;
         shared_state->spill_block_batch_row_count = 100;
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
@@ -254,7 +251,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill) {
         }
 
         if (!mutable_block) {
-            mutable_block = vectorized::MutableBlock::create_unique(std::move(block));
+            mutable_block = MutableBlock::create_unique(std::move(block));
         } else {
             st = mutable_block->merge(std::move(block));
             ASSERT_TRUE(st.ok()) << "merge failed: " << st.to_string();
@@ -361,7 +358,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
 
     // Prepare stored streams
     for (size_t i = 0; i != 4; ++i) {
-        vectorized::SpillStreamSPtr spill_stream;
+        SpillStreamSPtr spill_stream;
         st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
@@ -376,11 +373,9 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
             data2.emplace_back(j);
         }
 
-        auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(data);
+        auto input_block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-        input_block.insert(
-                vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-                        data2));
+        input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(data2));
 
         st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
         ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
@@ -393,10 +388,10 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
     query_options.__isset.spill_sort_mem_limit = true;
     _helper.runtime_state->set_query_options(query_options);
 
-    std::unique_ptr<vectorized::MutableBlock> mutable_block;
+    std::unique_ptr<MutableBlock> mutable_block;
     bool eos = false;
     while (!eos) {
-        vectorized::Block block;
+        Block block;
         shared_state->spill_block_batch_row_count = 100;
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_block failed: " << st.to_string();
@@ -405,7 +400,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpill2) {
         }
 
         if (!mutable_block) {
-            mutable_block = vectorized::MutableBlock::create_unique(std::move(block));
+            mutable_block = MutableBlock::create_unique(std::move(block));
         } else {
             st = mutable_block->merge(std::move(block));
             ASSERT_TRUE(st.ok()) << "merge failed: " << st.to_string();
@@ -508,7 +503,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
 
     // Prepare stored streams
     for (size_t i = 0; i != 4; ++i) {
-        vectorized::SpillStreamSPtr spill_stream;
+        SpillStreamSPtr spill_stream;
         st = ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
                 _helper.runtime_state.get(), spill_stream,
                 print_id(_helper.runtime_state->query_id()), sink_operator->get_name(),
@@ -523,11 +518,9 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
             data2.emplace_back(j);
         }
 
-        auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(data);
+        auto input_block = ColumnHelper::create_block<DataTypeInt32>(data);
 
-        input_block.insert(
-                vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-                        data2));
+        input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(data2));
 
         st = spill_stream->spill_block(_helper.runtime_state.get(), input_block, true);
         ASSERT_TRUE(st.ok()) << "spill_block failed: " << st.to_string();
@@ -537,10 +530,10 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
 
     SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::read_next_block");
 
-    std::unique_ptr<vectorized::MutableBlock> mutable_block;
+    std::unique_ptr<MutableBlock> mutable_block;
     bool eos = false;
     while (!eos && st.ok()) {
-        vectorized::Block block;
+        Block block;
         shared_state->spill_block_batch_row_count = 100;
         st = source_operator->get_block(_helper.runtime_state.get(), &block, &eos);
         if (!st.ok()) {
@@ -552,7 +545,7 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
         }
 
         if (!mutable_block) {
-            mutable_block = vectorized::MutableBlock::create_unique(std::move(block));
+            mutable_block = MutableBlock::create_unique(std::move(block));
         } else {
             st = mutable_block->merge(std::move(block));
             ASSERT_TRUE(st.ok()) << "merge failed: " << st.to_string();
@@ -568,4 +561,4 @@ TEST_F(SpillSortSourceOperatorTest, GetBlockWithSpillError) {
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

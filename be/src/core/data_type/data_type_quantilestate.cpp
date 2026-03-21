@@ -26,7 +26,7 @@
 #include "util/io_helper.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // binary: const flag | row num | read saved num | <size array> | <quantilestate array>
 // <size array>:  quantilestate1 size | quantilestate2 size | ...
@@ -176,4 +176,4 @@ void DataTypeQuantileState::deserialize_as_stream(QuantileState& value, BufferRe
     value.deserialize(ref.to_slice());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

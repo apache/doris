@@ -62,12 +62,12 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/json/path_in_data.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_avoid_begin.h"
 
 using ReadSource = TabletReadSource;
 
-OlapScanner::OlapScanner(pipeline::ScanLocalStateBase* parent, OlapScanner::Params&& params)
+OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& params)
         : Scanner(params.state, parent, params.limit, params.profile),
           _key_ranges(std::move(params.key_ranges)),
           _tablet_reader_params({.tablet = std::move(params.tablet),
@@ -128,7 +128,7 @@ static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
 }
 
 Status OlapScanner::prepare() {
-    auto* local_state = static_cast<pipeline::OlapScanLocalState*>(_local_state);
+    auto* local_state = static_cast<OlapScanLocalState*>(_local_state);
     auto& tablet = _tablet_reader_params.tablet;
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
     DBUG_EXECUTE_IF("CloudTablet.capture_rs_readers.return.e-230", {
@@ -268,9 +268,8 @@ Status OlapScanner::prepare() {
 
         // Initialize tablet_reader_params
         RETURN_IF_ERROR(_init_tablet_reader_params(
-                local_state->_parent->cast<pipeline::OlapScanOperatorX>()._slot_id_to_slot_desc,
-                _key_ranges, local_state->_slot_id_to_predicates,
-                local_state->_push_down_functions));
+                local_state->_parent->cast<OlapScanOperatorX>()._slot_id_to_slot_desc, _key_ranges,
+                local_state->_slot_id_to_predicates, local_state->_push_down_functions));
     }
 
     // add read columns in profile
@@ -308,7 +307,7 @@ Status OlapScanner::prepare() {
 
 Status OlapScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::_open_impl(state));
-    SCOPED_TIMER(_local_state->cast<pipeline::OlapScanLocalState>()._reader_init_timer);
+    SCOPED_TIMER(_local_state->cast<OlapScanLocalState>()._reader_init_timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
     if (!res.ok()) {
@@ -366,11 +365,9 @@ Status OlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.vir_cid_to_idx_in_block = _vir_cid_to_idx_in_block;
     _tablet_reader_params.vir_col_idx_to_type = _vir_col_idx_to_type;
     _tablet_reader_params.score_runtime = _score_runtime;
-    _tablet_reader_params.output_columns =
-            ((pipeline::OlapScanLocalState*)_local_state)->_output_column_ids;
+    _tablet_reader_params.output_columns = ((OlapScanLocalState*)_local_state)->_output_column_ids;
     _tablet_reader_params.ann_topn_runtime = _ann_topn_runtime;
-    for (const auto& ele :
-         ((pipeline::OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
+    for (const auto& ele : ((OlapScanLocalState*)_local_state)->_cast_types_for_variants) {
         _tablet_reader_params.target_cast_type_for_variants[ele.first] = ele.second;
     };
     auto& tablet_schema = _tablet_reader_params.tablet_schema;
@@ -454,7 +451,7 @@ Status OlapScanner::_init_tablet_reader_params(
     DBUG_EXECUTE_IF("NewOlapScanner::_init_tablet_reader_params.block", DBUG_BLOCK);
 
     if (!_state->skip_storage_engine_merge()) {
-        auto* olap_scan_local_state = (pipeline::OlapScanLocalState*)_local_state;
+        auto* olap_scan_local_state = (OlapScanLocalState*)_local_state;
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
         // order by table keys optimization for topn
         // will only read head/tail of data file since it's already sorted by keys
@@ -522,7 +519,7 @@ Status OlapScanner::_init_variant_columns() {
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id(),
-                    assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
+                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()))
                             .variant_max_subcolumns_count());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
@@ -643,8 +640,7 @@ Status OlapScanner::close(RuntimeState* state) {
 }
 
 void OlapScanner::update_realtime_counters() {
-    pipeline::OlapScanLocalState* local_state =
-            static_cast<pipeline::OlapScanLocalState*>(_local_state);
+    OlapScanLocalState* local_state = static_cast<OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_read_uncompressed_counter, stats.uncompressed_bytes_read);
@@ -704,7 +700,7 @@ void OlapScanner::_collect_profile_before_close() {
     // Update counters for OlapScanner
     // Update counters from tablet reader's stats
     auto& stats = _tablet_reader->stats();
-    auto* local_state = (pipeline::OlapScanLocalState*)_local_state;
+    auto* local_state = (OlapScanLocalState*)_local_state;
     COUNTER_UPDATE(local_state->_io_timer, stats.io_ns);
     COUNTER_UPDATE(local_state->_read_compressed_counter, stats.compressed_bytes_read);
     COUNTER_UPDATE(local_state->_scan_bytes, stats.uncompressed_bytes_read);
@@ -918,4 +914,4 @@ void OlapScanner::_collect_profile_before_close() {
 }
 
 #include "common/compile_check_avoid_end.h"
-} // namespace doris::vectorized
+} // namespace doris

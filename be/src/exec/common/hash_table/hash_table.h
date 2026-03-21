@@ -48,10 +48,10 @@
 #include "common/compile_check_begin.h"
 struct HashTableNoState {
     /// Serialization, in binary and text form.
-    void write(doris::vectorized::BufferWritable&) const {}
+    void write(doris::BufferWritable&) const {}
 
     // /// Deserialization, in binary and text form.
-    void read(doris::vectorized::BufferReadable&) {}
+    void read(doris::BufferReadable&) {}
 };
 
 /// These functions can be overloaded for custom types.
@@ -197,10 +197,10 @@ struct HashTableCell {
     void set_mapped(const value_type& /*value*/) {}
 
     /// Serialization, in binary and text form.
-    void write(doris::vectorized::BufferWritable& wb) const { wb.write_binary(key); }
+    void write(doris::BufferWritable& wb) const { wb.write_binary(key); }
 
     /// Deserialization, in binary and text form.
-    void read(doris::vectorized::BufferReadable& rb) { rb.read_binary(key); }
+    void read(doris::BufferReadable& rb) { rb.read_binary(key); }
 };
 
 template <typename Key, typename Hash, typename State>
@@ -225,17 +225,17 @@ void insert_set_mapped(MappedType* dest, const ValueType& src) {
     *dest = src.second;
 }
 
-static doris::vectorized::Int32 double_resize_threshold = doris::config::double_resize_threshold;
+static doris::Int32 double_resize_threshold = doris::config::double_resize_threshold;
 
 /** Determines the size of the hash table, and when and how much it should be resized.
   */
 template <size_t initial_size_degree = 10>
 struct HashTableGrower {
     /// The state of this structure is enough to get the buffer size of the hash table.
-    doris::vectorized::UInt8 size_degree = initial_size_degree;
-    doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
+    doris::UInt8 size_degree = initial_size_degree;
+    doris::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
-    doris::vectorized::Int32 max_fill_rate = doris::config::max_fill_rate;
+    doris::Int32 max_fill_rate = doris::config::max_fill_rate;
 
     /// The size of the hash table in the cells.
     size_t buf_size() const { return 1ULL << size_degree; }
@@ -293,15 +293,15 @@ template <size_t initial_size_degree = 8>
 class alignas(64) HashTableGrowerWithPrecalculation {
     /// The state of this structure is enough to get the buffer size of the hash table.
 
-    doris::vectorized::UInt8 size_degree_ = initial_size_degree;
+    doris::UInt8 size_degree_ = initial_size_degree;
     size_t precalculated_mask = (1ULL << initial_size_degree) - 1;
     size_t precalculated_max_fill = 1ULL << (initial_size_degree - 1);
-    doris::vectorized::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
+    doris::Int64 double_grow_degree = doris::config::hash_table_double_grow_degree;
 
 public:
-    doris::vectorized::UInt8 size_degree() const { return size_degree_; }
+    doris::UInt8 size_degree() const { return size_degree_; }
 
-    void increase_size_degree(doris::vectorized::UInt8 delta) {
+    void increase_size_degree(doris::UInt8 delta) {
         size_degree_ += delta;
         DCHECK(size_degree_ <= 64);
         precalculated_mask = (1ULL << size_degree_) - 1;
@@ -946,7 +946,7 @@ public:
         return !buf[place_value].is_zero(*this);
     }
 
-    void write(doris::vectorized::BufferWritable& wb) const {
+    void write(doris::BufferWritable& wb) const {
         Cell::State::write(wb);
         wb.write_var_uint(m_size);
 
@@ -956,14 +956,14 @@ public:
             if (!ptr->is_zero(*this)) ptr->write(wb);
     }
 
-    void read(doris::vectorized::BufferReadable& rb) {
+    void read(doris::BufferReadable& rb) {
         Cell::State::read(rb);
 
         destroy_elements();
         this->clear_get_has_zero();
         m_size = 0;
 
-        doris::vectorized::UInt64 new_size = 0;
+        doris::UInt64 new_size = 0;
         rb.read_var_uint(new_size);
 
         free();

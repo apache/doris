@@ -23,7 +23,7 @@
 #include "exec/operator/operator.h"
 #include "exec/runtime_filter/runtime_filter_producer_helper_cross.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class NestedLoopJoinBuildSinkOperatorX;
@@ -41,12 +41,12 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
 
-    vectorized::Blocks& build_blocks() { return _shared_state->build_blocks; }
+    Blocks& build_blocks() { return _shared_state->build_blocks; }
 
 private:
     friend class NestedLoopJoinBuildSinkOperatorX;
 
-    vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
+    VExprContextSPtrs _filter_src_expr_ctxs;
     std::shared_ptr<RuntimeFilterProducerHelperCross> _runtime_filter_producer_helper;
 };
 
@@ -65,7 +65,7 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
@@ -78,11 +78,11 @@ public:
 private:
     friend class NestedLoopJoinBuildSinkLocalState;
 
-    vectorized::VExprContextSPtrs _filter_src_expr_ctxs;
+    VExprContextSPtrs _filter_src_expr_ctxs;
 
     const bool _is_output_left_side_only;
     RowDescriptor _row_descriptor;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

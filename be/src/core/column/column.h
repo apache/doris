@@ -42,7 +42,7 @@ namespace doris {
 class SipHash;
 }
 
-namespace doris::vectorized {
+namespace doris {
 
 class Arena;
 class ColumnSorter;
@@ -795,13 +795,13 @@ bool is_column_const(const IColumn& column);
 
 /// True if column's an ColumnNullable instance. It's just a syntax sugar for type check.
 bool is_column_nullable(const IColumn& column);
-} // namespace doris::vectorized
+} // namespace doris
 
 // Wrap `ColumnPtr` because `ColumnPtr` can't be used in forward declaration.
 namespace doris {
 struct ColumnPtrWrapper {
-    vectorized::ColumnPtr column_ptr;
+    ColumnPtr column_ptr;
 
-    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(std::move(col)) {}
+    ColumnPtrWrapper(ColumnPtr col) : column_ptr(std::move(col)) {}
 };
 } // namespace doris

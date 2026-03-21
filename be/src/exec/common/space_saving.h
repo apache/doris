@@ -27,7 +27,7 @@
 #include "core/string_buffer.hpp"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename TKey>
 struct SpaceSavingArena {
@@ -339,4 +339,4 @@ private:
     size_t removed_keys = 0;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

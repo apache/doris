@@ -48,9 +48,7 @@
 #include "storage/tablet/tablet_manager.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 #include "common/compile_check_begin.h"
 
@@ -202,7 +200,7 @@ Status SchemaColumnDataSizesScanner::_get_all_column_data_sizes() {
     return Status::OK();
 }
 
-Status SchemaColumnDataSizesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaColumnDataSizesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -218,7 +216,7 @@ Status SchemaColumnDataSizesScanner::get_next_block_internal(vectorized::Block* 
     return _fill_block_impl(block);
 }
 
-Status SchemaColumnDataSizesScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaColumnDataSizesScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     size_t fill_num = std::min(1000UL, _column_data_sizes.size() - _column_data_sizes_idx);
     size_t fill_idx_begin = _column_data_sizes_idx;

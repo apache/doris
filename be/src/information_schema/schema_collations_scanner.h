@@ -25,9 +25,7 @@
 #include "information_schema/schema_scanner.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaCollationsScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaCollationsScanner);
@@ -36,7 +34,7 @@ public:
     SchemaCollationsScanner();
     ~SchemaCollationsScanner() override;
 
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
     struct CollationStruct {
@@ -48,7 +46,7 @@ private:
         int64_t sortlen;
     };
 
-    Status _fill_block_impl(vectorized::Block* block);
+    Status _fill_block_impl(Block* block);
 
     static std::vector<SchemaScanner::ColumnDesc> _s_cols_columns;
     static CollationStruct _s_collations[];

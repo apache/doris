@@ -25,7 +25,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 void RuntimeFilterProducerHelper::_init_expr(
-        const vectorized::VExprContextSPtrs& build_expr_ctxs,
+        const VExprContextSPtrs& build_expr_ctxs,
         const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
     _filter_expr_contexts.resize(runtime_filter_descs.size());
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
@@ -34,7 +34,7 @@ void RuntimeFilterProducerHelper::_init_expr(
 }
 
 Status RuntimeFilterProducerHelper::init(
-        RuntimeState* state, const vectorized::VExprContextSPtrs& build_expr_ctxs,
+        RuntimeState* state, const VExprContextSPtrs& build_expr_ctxs,
         const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) {
     _producers.resize(runtime_filter_descs.size());
     for (size_t i = 0; i < runtime_filter_descs.size(); i++) {
@@ -47,7 +47,7 @@ Status RuntimeFilterProducerHelper::init(
 
 Status RuntimeFilterProducerHelper::send_filter_size(
         RuntimeState* state, uint64_t hash_table_size,
-        const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) {
+        const std::shared_ptr<CountedFinishDependency>& dependency) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
     }
@@ -69,7 +69,7 @@ Status RuntimeFilterProducerHelper::_init_filters(RuntimeState* state,
     return Status::OK();
 }
 
-Status RuntimeFilterProducerHelper::_insert(const vectorized::Block* block, size_t start) {
+Status RuntimeFilterProducerHelper::_insert(const Block* block, size_t start) {
     SCOPED_TIMER(_runtime_filter_compute_timer.get());
     for (int i = 0; i < _producers.size(); i++) {
         auto filter = _producers[i];
@@ -90,7 +90,7 @@ Status RuntimeFilterProducerHelper::_publish(RuntimeState* state) {
 }
 
 Status RuntimeFilterProducerHelper::build(
-        RuntimeState* state, const vectorized::Block* block, bool use_shared_table,
+        RuntimeState* state, const Block* block, bool use_shared_table,
         std::map<int, std::shared_ptr<RuntimeFilterWrapper>>& runtime_filters) {
     if (_skip_runtime_filters_process) {
         return Status::OK();
@@ -132,7 +132,7 @@ Status RuntimeFilterProducerHelper::publish(RuntimeState* state) {
 
 Status RuntimeFilterProducerHelper::skip_process(RuntimeState* state) {
     auto mocked_dependency =
-            std::make_shared<pipeline::CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
+            std::make_shared<CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
     RETURN_IF_ERROR(send_filter_size(state, 0, mocked_dependency));
 
     for (const auto& filter : _producers) {

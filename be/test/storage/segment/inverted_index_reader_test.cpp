@@ -134,10 +134,10 @@ public:
                 std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
                                                   seg_id, format, std::move(file_writer));
 
-        // Get c2 column Field
+        // Get c2 column StorageField
         const TabletColumn& column = tablet_schema->column(1);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
@@ -188,10 +188,10 @@ public:
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
-        // Get c2 column Field
+        // Get c2 column StorageField
         const TabletColumn& column = tablet_schema->column(1);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
@@ -256,10 +256,10 @@ public:
                 fs, *index_path_prefix, std::string {rowset_id}, seg_id,
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
-        // Get c1 column Field
+        // Get c1 column StorageField
         const TabletColumn& column = tablet_schema->column(0);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
@@ -2545,7 +2545,7 @@ public:
         double_schema->append_column(double_column);
 
         const TabletColumn& column = double_schema->column(0);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         std::unique_ptr<IndexColumnWriter> column_writer;
@@ -3017,7 +3017,7 @@ public:
                                                   seg_id, format, std::move(file_writer));
 
         const TabletColumn& column = tablet_schema->column(col_id);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         std::unique_ptr<IndexColumnWriter> column_writer;
@@ -3498,7 +3498,7 @@ public:
                 InvertedIndexStorageFormatPB::V2, std::move(file_writer));
 
         const TabletColumn& test_column = tablet_schema->column(0);
-        std::unique_ptr<Field> field(FieldFactory::create(test_column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(test_column));
         ASSERT_NE(field.get(), nullptr);
 
         std::unique_ptr<IndexColumnWriter> column_writer;

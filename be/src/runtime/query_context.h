@@ -131,7 +131,7 @@ public:
     void cancel_all_pipeline_context(const Status& reason, int fragment_id = -1);
     std::string print_all_pipeline_context();
     void set_pipeline_context(const int fragment_id,
-                              std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx);
+                              std::shared_ptr<PipelineFragmentContext> pip_ctx);
     void cancel(Status new_status, int fragment_id = -1);
 
     [[nodiscard]] Status exec_status() { return _exec_status.status(); }
@@ -146,7 +146,7 @@ public:
         return _runtime_predicates.contains(source_node_id);
     }
 
-    vectorized::RuntimePredicate& get_runtime_predicate(int source_node_id) {
+    RuntimePredicate& get_runtime_predicate(int source_node_id) {
         DCHECK(has_runtime_predicate(source_node_id));
         return _runtime_predicates.find(source_node_id)->second;
     }
@@ -208,18 +208,18 @@ public:
 
     TUniqueId query_id() const { return _query_id; }
 
-    vectorized::ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
+    ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
-    vectorized::ScannerScheduler* get_remote_scan_scheduler() {
+    ScannerScheduler* get_remote_scan_scheduler() {
         return _remote_scan_task_scheduler;
     }
 
-    pipeline::Dependency* get_execution_dependency() { return _execution_dependency.get(); }
-    pipeline::Dependency* get_memory_sufficient_dependency() {
+    Dependency* get_execution_dependency() { return _execution_dependency.get(); }
+    Dependency* get_memory_sufficient_dependency() {
         return _memory_sufficient_dependency.get();
     }
 
-    doris::pipeline::TaskScheduler* get_pipe_exec_scheduler();
+    doris::TaskScheduler* get_pipe_exec_scheduler();
 
     void set_merge_controller_handler(
             std::shared_ptr<RuntimeFilterMergeControllerEntity>& handler) {
@@ -317,7 +317,7 @@ private:
     void _init_resource_context();
     void _init_query_mem_tracker();
 
-    std::unordered_map<int, vectorized::RuntimePredicate> _runtime_predicates;
+    std::unordered_map<int, RuntimePredicate> _runtime_predicates;
 
     std::unique_ptr<RuntimeFilterMgr> _runtime_filter_mgr;
     const TQueryOptions _query_options;
@@ -326,19 +326,19 @@ private:
     // to report the real message if failed.
     AtomicStatus _exec_status;
 
-    doris::pipeline::TaskScheduler* _task_scheduler = nullptr;
-    vectorized::ScannerScheduler* _scan_task_scheduler = nullptr;
-    vectorized::ScannerScheduler* _remote_scan_task_scheduler = nullptr;
+    doris::TaskScheduler* _task_scheduler = nullptr;
+    ScannerScheduler* _scan_task_scheduler = nullptr;
+    ScannerScheduler* _remote_scan_task_scheduler = nullptr;
     // This dependency indicates if the 2nd phase RPC received from FE.
-    std::unique_ptr<pipeline::Dependency> _execution_dependency;
+    std::unique_ptr<Dependency> _execution_dependency;
     // This dependency indicates if memory is sufficient to execute.
-    std::unique_ptr<pipeline::Dependency> _memory_sufficient_dependency;
+    std::unique_ptr<Dependency> _memory_sufficient_dependency;
 
     // This shared ptr is never used. It is just a reference to hold the object.
     // There is a weak ptr in runtime filter manager to reference this object.
     std::shared_ptr<RuntimeFilterMergeControllerEntity> _merge_controller_handler;
 
-    std::map<int, std::weak_ptr<pipeline::PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
+    std::map<int, std::weak_ptr<PipelineFragmentContext>> _fragment_id_to_pipeline_ctx;
     std::mutex _pipeline_map_write_lock;
 
     std::mutex _profile_mutex;

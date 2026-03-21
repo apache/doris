@@ -46,7 +46,7 @@
 // size, reserve, resize, empty, byte_size, allocated_bytes, clone_resized,
 // get_shrinked_column, filter, filter_by_selector, serialize_vec, deserialize_vec, get_max_row_byte_size
 //
-namespace doris::vectorized {
+namespace doris {
 
 static bool gen_check_data_in_assert = true;
 
@@ -1927,7 +1927,7 @@ public:
     //   get_permutation
     // this function helps check permutation result with sort & limit
     //  by given ColumnValueGetter which how to generate a column value
-    void assert_column_permutations(vectorized::IColumn& column, DataTypePtr dataType) {
+    void assert_column_permutations(IColumn& column, DataTypePtr dataType) {
         IColumn::Permutation actual_permutation;
         IColumn::Permutation expected_permutation;
 
@@ -2485,7 +2485,7 @@ public:
         }
     }
 
-    void assert_column_permutations2(vectorized::IColumn& column, DataTypePtr dataType) {
+    void assert_column_permutations2(IColumn& column, DataTypePtr dataType) {
         IColumn::Permutation actual_permutation;
         IColumn::Permutation expected_permutation;
 
@@ -3941,4 +3941,4 @@ auto assert_byte_size_with_file_callback = [](const MutableColumns& load_cols,
     test_func(false);
 };
 
-} // namespace doris::vectorized
+} // namespace doris

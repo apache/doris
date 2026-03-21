@@ -48,20 +48,20 @@
 #include "util/time.h"
 #include "util/uid_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using namespace std::chrono_literals;
 #include "common/compile_check_begin.h"
-ScannerContext::ScannerContext(
-        RuntimeState* state, pipeline::ScanLocalStateBase* local_state,
-        const TupleDescriptor* output_tuple_desc, const RowDescriptor* output_row_descriptor,
-        const std::list<std::shared_ptr<vectorized::ScannerDelegate>>& scanners, int64_t limit_,
-        std::shared_ptr<pipeline::Dependency> dependency
+ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_state,
+                               const TupleDescriptor* output_tuple_desc,
+                               const RowDescriptor* output_row_descriptor,
+                               const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
+                               int64_t limit_, std::shared_ptr<Dependency> dependency
 #ifdef BE_TEST
-        ,
-        int num_parallel_instances
+                               ,
+                               int num_parallel_instances
 #endif
-        )
+                               )
         : HasTaskExecutionCtx(state),
           _state(state),
           _local_state(local_state),
@@ -123,7 +123,7 @@ Status ScannerContext::init() {
     if (auto* task_executor_scheduler =
                 dynamic_cast<TaskExecutorSimplifiedScanScheduler*>(_scanner_scheduler)) {
         std::shared_ptr<TaskExecutor> task_executor = task_executor_scheduler->task_executor();
-        vectorized::TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
+        TaskId task_id(fmt::format("{}-{}", print_id(_state->query_id()), ctx_id));
         _task_handle = DORIS_TRY(task_executor->create_task(
                 task_id, []() { return 0.0; },
                 config::task_executor_initial_max_concurrency_per_task > 0
@@ -179,7 +179,7 @@ Status ScannerContext::init() {
 ScannerContext::~ScannerContext() {
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_resource_ctx->memory_context()->mem_tracker());
     _tasks_queue.clear();
-    vectorized::BlockUPtr block;
+    BlockUPtr block;
     while (_free_blocks.try_dequeue(block)) {
         // do nothing
     }
@@ -194,8 +194,8 @@ ScannerContext::~ScannerContext() {
     }
 }
 
-vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
-    vectorized::BlockUPtr block = nullptr;
+BlockUPtr ScannerContext::get_free_block(bool force) {
+    BlockUPtr block = nullptr;
     if (_free_blocks.try_dequeue(block)) {
         DCHECK(block->mem_reuse());
         _block_memory_usage -= block->allocated_bytes();
@@ -204,12 +204,12 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool force) {
         // The caller of get_free_block will increase the memory usage
     } else if (_block_memory_usage < _max_bytes_in_queue || force) {
         _newly_create_free_blocks_num->update(1);
-        block = vectorized::Block::create_unique(_output_tuple_desc->slots(), 0);
+        block = Block::create_unique(_output_tuple_desc->slots(), 0);
     }
     return block;
 }
 
-void ScannerContext::return_free_block(vectorized::BlockUPtr block) {
+void ScannerContext::return_free_block(BlockUPtr block) {
     // If under low memory mode, should not return the freeblock, it will occupy too much memory.
     if (!_local_state->low_memory_mode() && block->mem_reuse() &&
         _block_memory_usage < _max_bytes_in_queue) {
@@ -261,8 +261,7 @@ void ScannerContext::push_back_scan_task(std::shared_ptr<ScanTask> scan_task) {
     _dependency->set_ready();
 }
 
-Status ScannerContext::get_block_from_queue(RuntimeState* state, vectorized::Block* block,
-                                            bool* eos, int id) {
+Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, bool* eos, int id) {
     if (state->is_cancelled()) {
         _set_scanner_done();
         return state->cancel_reason();
@@ -615,4 +614,4 @@ bool ScannerContext::low_memory_mode() const {
     return _local_state->low_memory_mode();
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

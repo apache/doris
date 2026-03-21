@@ -42,7 +42,7 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
 class Arena;
 
 /** Column, that is just group of few another columns.
@@ -205,4 +205,4 @@ public:
     struct less;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

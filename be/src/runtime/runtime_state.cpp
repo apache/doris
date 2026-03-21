@@ -437,7 +437,7 @@ void RuntimeState::resize_op_id_to_local_state(int operator_size) {
 }
 
 void RuntimeState::emplace_local_state(
-        int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
+        int id, std::unique_ptr<doris::PipelineXLocalStateBase> state) {
     id = -id;
     DCHECK_LT(id, _op_id_to_local_state.size())
             << state->parent()->get_name() << " node id = " << state->parent()->node_id();
@@ -445,7 +445,7 @@ void RuntimeState::emplace_local_state(
     _op_id_to_local_state[id] = std::move(state);
 }
 
-doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
+doris::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
     id = -id;
     return _op_id_to_local_state[id].get();
 }
@@ -463,12 +463,12 @@ Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
 };
 
 void RuntimeState::emplace_sink_local_state(
-        int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
+        int id, std::unique_ptr<doris::PipelineXSinkLocalStateBase> state) {
     DCHECK(!_sink_local_state) << " id=" << id << " state: " << state->debug_string(0);
     _sink_local_state = std::move(state);
 }
 
-doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state() {
+doris::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state() {
     return _sink_local_state.get();
 }
 

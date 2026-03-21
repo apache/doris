@@ -91,10 +91,10 @@ DateV2Value<DateTimeV2ValueType> timestamp_from_datetime_v2(const std::string& d
 }
 
 TimestampTzValue timestamptz_from_string(const std::string& date_str) {
-    vectorized::CastParameters params;
+    CastParameters params;
     TimestampTzValue value;
     auto tz = cctz::utc_time_zone();
-    if (!vectorized::CastToTimstampTz::from_string(StringRef(date_str), value, params, &tz, 6)) {
+    if (!CastToTimstampTz::from_string(StringRef(date_str), value, params, &tz, 6)) {
         throw Exception(Status::InternalError("parse to timestamptz failed, value: {}", date_str));
     }
     return value;

@@ -46,7 +46,7 @@
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using namespace parquet_utils;
 
@@ -878,4 +878,4 @@ Status ParquetMetadataReader::close() {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris
