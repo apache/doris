@@ -1101,6 +1101,7 @@ DECLARE_mInt32(merged_hdfs_min_io_size);
 DECLARE_mInt32(orc_natural_read_size_mb);
 DECLARE_mInt64(big_column_size_buffer);
 DECLARE_mInt64(small_column_size_buffer);
+DECLARE_mInt64(column_writer_page_flush_threshold);
 
 DECLARE_mInt32(runtime_filter_sampling_frequency);
 DECLARE_mInt32(execution_max_rpc_timeout_sec);

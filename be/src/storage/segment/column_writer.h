@@ -311,6 +311,7 @@ private:
     }
 
     Status _write_data_page(Page* page);
+    Status _flush_pages_if_needed();
 
 private:
     io::FileWriter* _file_writer = nullptr;
