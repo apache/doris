@@ -70,12 +70,20 @@ class VExprContext;
 //
 // NOTE: if you are not sure if you can use it, please don't use this function.
 inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
-    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    auto cmp_cids = std::min(lhs.field_count(), rhs.field_count());
     for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
-        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
-        if (res != 0) {
-            return res;
+        const auto& lf = lhs.field(cid);
+        const auto& rf = rhs.field(cid);
+        // Handle nulls: null < non-null
+        if (lf.is_null() != rf.is_null()) {
+            return lf.is_null() ? -1 : 1;
         }
+        if (lf.is_null()) {
+            continue; // both null
+        }
+        auto cmp = lf <=> rf;
+        if (cmp < 0) return -1;
+        if (cmp > 0) return 1;
     }
     return 0;
 }
@@ -193,8 +201,6 @@ public:
         std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
 
         void check_validation() const;
-
-        std::string to_string() const;
 
         int64_t batch_size = -1;
 

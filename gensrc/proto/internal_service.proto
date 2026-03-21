@@ -353,6 +353,11 @@ message PFetchArrowFlightSchemaResult {
 
 message KeyTuple {
     repeated string key_column_rep = 1;
+    // Each entry is a serialized TExprNode (Thrift binary protocol) representing
+    // a literal value for the corresponding key column. When present, BE uses
+    // DataType::get_field(TExprNode) to extract typed Field values directly,
+    // avoiding the string-parsing path used by key_column_rep.
+    repeated bytes key_column_literals = 2;
 }
 
 message UUID {

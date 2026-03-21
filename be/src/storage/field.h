@@ -27,7 +27,6 @@
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
-#include "storage/row_cursor_cell.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
@@ -70,68 +69,10 @@ public:
 
     virtual void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
 
-    void set_long_text_buf(char** buf) { _long_text_buf = buf; }
-
-    virtual size_t get_variable_len() const { return 0; }
-
     virtual StorageField* clone() const {
         auto* local = new StorageField(_desc);
         this->clone(local);
         return local;
-    }
-
-    // Only compare column content, without considering nullptr condition.
-    // RETURNS:
-    //      0 means equal,
-    //      -1 means left less than right,
-    //      1 means left bigger than right
-    int compare(const void* left, const void* right) const { return _type_info->cmp(left, right); }
-
-    // Compare two types of cell.
-    // This function differs compare in that this function compare cell which
-    // will consider the condition which cell may be nullptr. While compare only
-    // compare column content without considering nullptr condition.
-    // Only compare column content, without considering nullptr condition.
-    // RETURNS:
-    //      0 means equal,
-    //      -1 means left less than right,
-    //      1 means left bigger than right
-    template <typename LhsCellType, typename RhsCellType>
-    int compare_cell(const LhsCellType& lhs, const RhsCellType& rhs) const {
-        bool l_null = lhs.is_null();
-        bool r_null = rhs.is_null();
-        if (l_null != r_null) {
-            return l_null ? -1 : 1;
-        }
-        return l_null ? 0 : _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
-    }
-
-    // deep copy source cell' content to destination cell.
-    // For string type, this will allocate data form arena,
-    // and copy source's content.
-    template <typename DstCellType, typename SrcCellType>
-    void deep_copy(DstCellType* dst, const SrcCellType& src, Arena& arena) const {
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
-        }
-        _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
-    }
-
-    // used by init scan key stored in string format
-    // value_string should end with '\0'
-    Status from_string(char* buf, const std::string& value_string, const int precision = 0,
-                       const int scale = 0) const {
-        if (type() == FieldType::OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
-            auto slice = reinterpret_cast<Slice*>(buf);
-            if (slice->size < value_string.size()) {
-                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
-                slice->data = *_long_text_buf;
-                slice->size = value_string.size();
-            }
-        }
-        return _type_info->from_string(buf, value_string, precision, scale);
     }
 
     FieldType type() const { return _type_info->type(); }
@@ -173,20 +114,6 @@ protected:
     // its number of subfields is a variable, so the actual length of
     // a struct field is not fixed.
     size_t _length;
-    // Since the length of the STRING type cannot be determined,
-    // only dynamic memory can be used. Arena cannot realize realloc.
-    // The schema information is shared globally. Therefore,
-    // dynamic memory can only be managed in thread local mode.
-    // The memory will be created and released in rowcursor.
-    char** _long_text_buf = nullptr;
-
-    char* allocate_string_value(Arena& arena) const {
-        char* type_value = arena.alloc(sizeof(Slice));
-        auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = _length;
-        slice->data = arena.alloc(slice->size);
-        return type_value;
-    }
 
     void clone(StorageField* other) const {
         other->_type_info = clone_type_info(this->_type_info.get());
@@ -225,35 +152,21 @@ private:
 class MapField : public StorageField {
 public:
     MapField(const TabletColumn& column) : StorageField(column) {}
-
-    size_t get_variable_len() const override { return _length; }
 };
 
 class StructField : public StorageField {
 public:
     StructField(const TabletColumn& column) : StorageField(column) {}
-
-    size_t get_variable_len() const override {
-        size_t variable_len = _length;
-        for (size_t i = 0; i < get_sub_field_count(); i++) {
-            variable_len += get_sub_field(i)->get_variable_len();
-        }
-        return variable_len;
-    }
 };
 
 class ArrayField : public StorageField {
 public:
     ArrayField(const TabletColumn& column) : StorageField(column) {}
-
-    size_t get_variable_len() const override { return _length; }
 };
 
 class CharField : public StorageField {
 public:
     CharField(const TabletColumn& column) : StorageField(column) {}
-
-    size_t get_variable_len() const override { return _length; }
 
     CharField* clone() const override {
         auto* local = new CharField(_desc);
@@ -271,8 +184,6 @@ public:
 class VarcharField : public StorageField {
 public:
     VarcharField(const TabletColumn& column) : StorageField(column) {}
-
-    size_t get_variable_len() const override { return _length - OLAP_VARCHAR_MAX_BYTES; }
 
     VarcharField* clone() const override {
         auto* local = new VarcharField(_desc);

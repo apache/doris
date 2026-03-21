@@ -52,11 +52,6 @@ void common_test(typename TypeTraits<field_type>::CppType src_val) {
         type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
-    {
-        typename TypeTraits<field_type>::CppType dst_val;
-        type->direct_copy((char*)&dst_val, (char*)&src_val);
-        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
-    }
     // test min
     {
         typename TypeTraits<field_type>::CppType dst_val;
@@ -86,12 +81,6 @@ void test_char(Slice src_val) {
         Slice dst_val(buf, sizeof(buf));
         Arena pool;
         type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
-        EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
-    }
-    {
-        char buf[64];
-        Slice dst_val(buf, sizeof(buf));
-        type->direct_copy((char*)&dst_val, (char*)&src_val);
         EXPECT_EQ(0, type->cmp((char*)&src_val, (char*)&dst_val));
     }
     // test min
@@ -168,13 +157,6 @@ void common_test_array(CollectionValue src_val) {
         CollectionValue dst_val;
         Arena pool;
         array_type->deep_copy((char*)&dst_val, (char*)&src_val, pool);
-        EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
-    }
-    { // test direct copy
-        bool null_signs[50];
-        uint8_t data[50];
-        CollectionValue dst_val(data, sizeof(null_signs), null_signs);
-        array_type->direct_copy((char*)&dst_val, (char*)&src_val);
         EXPECT_EQ(0, array_type->cmp((char*)&src_val, (char*)&dst_val));
     }
 }

@@ -17,71 +17,45 @@
 
 #pragma once
 
-#include <string>
 #include <vector>
+
+#include "core/field.h"
 
 namespace doris {
 
 class OlapTuple {
 public:
     OlapTuple() {}
-    OlapTuple(const std::vector<std::string>& values)
-            : _values(values), _nulls(values.size(), false) {}
 
-    void add_null() {
-        _values.push_back("");
-        _nulls.push_back(true);
+    void add_null() { _fields.emplace_back(PrimitiveType::TYPE_NULL); }
+
+    void add_field(Field f) { _fields.push_back(std::move(f)); }
+
+    size_t size() const { return _fields.size(); }
+
+    // Return debug string for profile/logging only.
+    // NOTE: this output may be inaccurate for decimal types because OlapTuple
+    // does not carry decimal scale metadata and falls back to scale=0.
+    std::string debug_string() const {
+        std::string result;
+        for (size_t i = 0; i < _fields.size(); ++i) {
+            if (i > 0) {
+                result.append(",");
+            }
+            if (_fields[i].is_null()) {
+                result.append("null");
+            } else {
+                result.append(_fields[i].to_debug_string(0));
+            }
+        }
+        return result;
     }
 
-    void add_value(const std::string& value, bool is_null = false) {
-        _values.push_back(value);
-        _nulls.push_back(is_null);
-    }
-
-    size_t size() const { return _values.size(); }
-
-    void reserve(size_t size) {
-        _values.reserve(size);
-        _nulls.reserve(size);
-    }
-
-    void set_value(size_t i, const std::string& value, bool is_null = false) {
-        _values[i] = value;
-        _nulls[i] = is_null;
-    }
-
-    bool is_null(size_t i) const { return _nulls[i]; }
-    const std::string& get_value(size_t i) const { return _values[i]; }
-    const std::vector<std::string>& values() const { return _values; }
-
-    void reset() {
-        _values.clear();
-        _nulls.clear();
-    }
-
-    std::string operator[](size_t index) const { return _values[index]; }
+    const Field& get_field(size_t i) const { return _fields[i]; }
+    Field& get_field(size_t i) { return _fields[i]; }
 
 private:
-    friend std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple);
-
-    std::vector<std::string> _values;
-    std::vector<bool> _nulls;
+    std::vector<Field> _fields;
 };
-
-inline std::ostream& operator<<(std::ostream& os, const OlapTuple& tuple) {
-    for (int i = 0; i < tuple._values.size(); ++i) {
-        if (i > 0) {
-            os << ",";
-        }
-        if (tuple._nulls[i]) {
-            os << "null(";
-        }
-        os << tuple._values[i];
-        if (tuple._nulls[i]) {
-            os << ")";
-        }
-    }
-    return os;
-}
 
 } // namespace doris

@@ -24,6 +24,7 @@
 #include <thread>
 
 #include "common/status.h"
+#include "core/field.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/block_file_cache_factory.h"
@@ -39,6 +40,7 @@
 #include "storage/rowset/rowset_id_generator.h"
 #include "storage/segment/segment.h"
 #include "storage/segment/segment_writer.h"
+#include "storage/segment/test_segment_writer.h"
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/tablet/tablet_schema_helper.h"
@@ -217,27 +219,20 @@ public:
                 InvertedIndexStorageFormatPB::V2, std::move(idx_file_writer));
 
         SegmentWriterOptions opts;
-        SegmentWriter writer(file_writer.get(), segment_id, schema, nullptr, nullptr, opts,
-                             index_file_writer.get());
+        TestSegmentWriter writer(file_writer.get(), segment_id, schema, nullptr, nullptr, opts,
+                                 index_file_writer.get());
         st = writer.init();
         EXPECT_TRUE(st.ok());
 
         // Write rows
         RowCursor row;
-        auto olap_st = row._init(schema, schema->num_columns());
+        auto olap_st = row.init(schema, schema->num_columns());
         EXPECT_EQ(Status::OK(), olap_st);
 
         // Write one row: (1, "hello")
         {
-            RowCursorCell cell0 = row.cell(0);
-            *(int32_t*)cell0.mutable_cell_ptr() = 1;
-            cell0.set_not_null();
-
-            RowCursorCell cell1 = row.cell(1);
-            Slice value("hello");
-            reinterpret_cast<Slice*>(cell1.mutable_cell_ptr())->data = value.data;
-            reinterpret_cast<Slice*>(cell1.mutable_cell_ptr())->size = value.size;
-            cell1.set_not_null();
+            row.mutable_field(0) = Field::create_field<TYPE_INT>(int32_t(1));
+            row.mutable_field(1) = Field::create_field<TYPE_STRING>(String("hello"));
 
             st = writer.append_row(row);
             EXPECT_TRUE(st.ok());
