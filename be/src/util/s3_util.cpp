@@ -372,7 +372,7 @@ std::shared_ptr<io::ObjStorageClient> S3ClientFactory::_create_azure_client(
     return std::make_shared<io::AzureObjStorageClient>(std::move(containerClient),
                                                        std::move(tls_debug_context));
 #else
-    LOG_FATAL("BE is not compiled with azure support, export BUILD_AZURE=ON before building");
+    LOG(WARNING) << "BE is not compiled with azure support, export BUILD_AZURE=ON before building";
     return nullptr;
 #endif
 }
