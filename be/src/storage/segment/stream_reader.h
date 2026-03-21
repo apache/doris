@@ -22,6 +22,7 @@
 #include "core/column/column.h"
 #include "core/column/subcolumn_tree.h"
 #include "core/data_type/data_type.h"
+#include "storage/segment/column_reader.h"
 
 namespace doris::segment_v2 {
 
