@@ -16,7 +16,7 @@
 // under the License.
 
 #include "core/data_type/data_type_number.h"
-#include "exprs/function/cast/cast_to_basic_number_common.h"
+#include "exprs/function/cast/cast_to_float.h"
 
 namespace doris::CastWrapper {
 
