@@ -20,7 +20,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exec/schema_scanner.h"
+#include "information_schema/schema_scanner.h"
 
 namespace doris {
 class RuntimeState;

@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "storage/index/inverted/query_v2/block_wand/block_wand.h"
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
