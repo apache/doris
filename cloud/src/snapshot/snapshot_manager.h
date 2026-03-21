@@ -52,6 +52,9 @@ public:
     virtual void clone_instance(const CloneInstanceRequest& request,
                                 CloneInstanceResponse* response);
 
+    // Manually trigger snapshot compact for an instance.
+    virtual std::pair<MetaServiceCode, std::string> compact_snapshot(std::string_view instance_id);
+
     virtual std::pair<MetaServiceCode, std::string> set_multi_version_status(
             std::string_view instance_id, MultiVersionStatus multi_version_status);
 
