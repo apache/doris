@@ -65,12 +65,12 @@ public class RegrSlope extends AggregateFunction
     public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
         DataType arg0Type = left().getDataType();
         DataType arg1Type = right().getDataType();
-        if ((!arg0Type.isNumericType() && !arg0Type.isNullType())
-                || arg0Type.isOnlyMetricType()) {
-            throw new AnalysisException("regr_slope requires numeric for first parameter: " + toSql());
-        } else if ((!arg1Type.isNumericType() && !arg1Type.isNullType())
-                || arg1Type.isOnlyMetricType()) {
-            throw new AnalysisException("regr_slope requires numeric for second parameter: " + toSql());
+        if (!arg0Type.isNumericType() && !arg0Type.isBooleanType()
+                && !arg0Type.isNullType() && !arg0Type.isStringLikeType()) {
+            throw new AnalysisException("regr_slope(y, x): y must be numeric, boolean or string type: " + toSql());
+        } else if (!arg1Type.isNumericType() && !arg1Type.isBooleanType()
+                && !arg1Type.isNullType() && !arg1Type.isStringLikeType()) {
+            throw new AnalysisException("regr_slope(y, x): x must be numeric, boolean or string type: " + toSql());
         }
     }
 

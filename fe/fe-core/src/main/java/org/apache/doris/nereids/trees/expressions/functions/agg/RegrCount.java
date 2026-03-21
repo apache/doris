@@ -20,10 +20,11 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 
@@ -32,57 +33,53 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**
- * AggregateFunction 'regr_intercept'.
- */
-public class RegrIntercept extends AggregateFunction
-        implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
+/** regr_count agg function. */
+public class RegrCount extends NotNullableAggregateFunction
+        implements BinaryExpression, ExplicitlyCastableSignature {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
-    );
+            FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE));
 
-    /**
-     * Constructor with 2 arguments.
-     */
-    public RegrIntercept(Expression arg1, Expression arg2) {
-        this(false, arg1, arg2);
+    public RegrCount(Expression arg0, Expression arg1) {
+        this(false, arg0, arg1);
     }
 
-    /**
-     * Constructor with distinct flag and 2 arguments.
-     */
-    public RegrIntercept(boolean distinct, Expression arg1, Expression arg2) {
-        super("regr_intercept", distinct, arg1, arg2);
+    public RegrCount(boolean distinct, Expression arg0, Expression arg1) {
+        super("regr_count", distinct, arg0, arg1);
     }
 
-    /** constructor for withChildren and reuse signature */
-    private RegrIntercept(AggregateFunctionParams functionParams) {
+    public RegrCount(AggregateFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
-        DataType arg0Type = left().getDataType();
-        DataType arg1Type = right().getDataType();
-        if (!arg0Type.isNumericType() && !arg0Type.isBooleanType()
-                && !arg0Type.isNullType() && !arg0Type.isStringLikeType()) {
-            throw new AnalysisException("regr_intercept(y, x): y must be numeric, boolean or string type: " + toSql());
-        } else if (!arg1Type.isNumericType() && !arg1Type.isBooleanType()
-                && !arg1Type.isNullType() && !arg1Type.isStringLikeType()) {
-            throw new AnalysisException("regr_intercept(y, x): x must be numeric, boolean or string type: " + toSql());
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType yType = left().getDataType();
+        DataType xType = right().getDataType();
+        if (!yType.isNumericType() && !yType.isBooleanType()
+                && !yType.isNullType() && !yType.isStringLikeType()) {
+            throw new AnalysisException("regr_count(y, x): y must be numeric, boolean or string type: " + toSql());
+        }
+        if (!xType.isNumericType() && !xType.isBooleanType()
+                && !xType.isNullType() && !xType.isStringLikeType()) {
+            throw new AnalysisException("regr_count(y, x): x must be numeric, boolean or string type: " + toSql());
         }
     }
 
     @Override
-    public RegrIntercept withDistinctAndChildren(boolean distinct, List<Expression> children) {
+    public RegrCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new RegrIntercept(getFunctionParams(distinct, children));
+        return new RegrCount(getFunctionParams(distinct, children));
+    }
+
+    @Override
+    public Expression resultForEmptyInput() {
+        return new BigIntLiteral(0);
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitRegrIntercept(this, context);
+        return visitor.visitRegrCount(this, context);
     }
 
     @Override

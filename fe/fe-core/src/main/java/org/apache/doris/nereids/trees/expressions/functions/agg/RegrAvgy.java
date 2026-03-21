@@ -32,57 +32,48 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-/**
- * AggregateFunction 'regr_intercept'.
- */
-public class RegrIntercept extends AggregateFunction
+/** regr_avgy agg function. */
+public class RegrAvgy extends AggregateFunction
         implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE)
-    );
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, DoubleType.INSTANCE));
 
-    /**
-     * Constructor with 2 arguments.
-     */
-    public RegrIntercept(Expression arg1, Expression arg2) {
-        this(false, arg1, arg2);
+    public RegrAvgy(Expression arg0, Expression arg1) {
+        this(false, arg0, arg1);
     }
 
-    /**
-     * Constructor with distinct flag and 2 arguments.
-     */
-    public RegrIntercept(boolean distinct, Expression arg1, Expression arg2) {
-        super("regr_intercept", distinct, arg1, arg2);
+    public RegrAvgy(boolean distinct, Expression arg0, Expression arg1) {
+        super("regr_avgy", distinct, arg0, arg1);
     }
 
-    /** constructor for withChildren and reuse signature */
-    private RegrIntercept(AggregateFunctionParams functionParams) {
+    public RegrAvgy(AggregateFunctionParams functionParams) {
         super(functionParams);
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() throws AnalysisException {
-        DataType arg0Type = left().getDataType();
-        DataType arg1Type = right().getDataType();
-        if (!arg0Type.isNumericType() && !arg0Type.isBooleanType()
-                && !arg0Type.isNullType() && !arg0Type.isStringLikeType()) {
-            throw new AnalysisException("regr_intercept(y, x): y must be numeric, boolean or string type: " + toSql());
-        } else if (!arg1Type.isNumericType() && !arg1Type.isBooleanType()
-                && !arg1Type.isNullType() && !arg1Type.isStringLikeType()) {
-            throw new AnalysisException("regr_intercept(y, x): x must be numeric, boolean or string type: " + toSql());
+    public void checkLegalityBeforeTypeCoercion() {
+        DataType yType = left().getDataType();
+        DataType xType = right().getDataType();
+        if (!yType.isNumericType() && !yType.isBooleanType()
+                && !yType.isNullType() && !yType.isStringLikeType()) {
+            throw new AnalysisException("regr_avgy(y, x): y must be numeric, boolean or string type: " + toSql());
+        }
+        if (!xType.isNumericType() && !xType.isBooleanType()
+                && !xType.isNullType() && !xType.isStringLikeType()) {
+            throw new AnalysisException("regr_avgy(y, x): x must be numeric, boolean or string type: " + toSql());
         }
     }
 
     @Override
-    public RegrIntercept withDistinctAndChildren(boolean distinct, List<Expression> children) {
+    public RegrAvgy withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() == 2);
-        return new RegrIntercept(getFunctionParams(distinct, children));
+        return new RegrAvgy(getFunctionParams(distinct, children));
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitRegrIntercept(this, context);
+        return visitor.visitRegrAvgy(this, context);
     }
 
     @Override

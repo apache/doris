@@ -2,10 +2,10 @@
 -- !empty --
 \N
 
--- !sxy_ref --
+-- !sxx_ref --
 1	0	0
-2	4	4
-3	1	1
+2	2	2
+3	0.5	0.5
 5	0	0
 
 -- !single_row --
@@ -15,20 +15,35 @@
 \N
 
 -- !non_nullable_y --
-4
+2
 
 -- !non_nullable_x --
-4
+2
 
 -- !non_nullable_xy --
-4
+2
 
 -- !literal_1 --
 0
 
 -- !literal_2 --
-0
+2
 
 -- !literal_3 --
 0
+
+-- !sql_string_1 --
+0
+
+-- !sql_string_2 --
+0
+
+-- !sql_bool_1 --
+0
+
+-- !sql_null_1 --
+\N
+
+-- !sql_null_2 --
+\N
 
