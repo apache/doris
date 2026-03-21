@@ -25,6 +25,7 @@ import org.eclipse.jetty.ee10.webapp.WebAppContext;
 import org.eclipse.jetty.ee10.websocket.server.config.JettyWebSocketServletContainerInitializer;
 import org.eclipse.jetty.server.HttpConfiguration;
 import org.eclipse.jetty.server.HttpConnectionFactory;
+import org.eclipse.jetty.server.SecureRequestCustomizer;
 import org.eclipse.jetty.server.ServerConnector;
 import org.springframework.boot.web.embedded.jetty.ConfigurableJettyWebServerFactory;
 import org.springframework.boot.web.embedded.jetty.JettyServletWebServerFactory;
@@ -68,12 +69,22 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
         });
 
         if (Config.enable_https) {
-            ((JettyServletWebServerFactory) factory).setConfigurations(
+            if (!(factory instanceof JettyServletWebServerFactory)) {
+                LOG.warn("Unexpected WebServerFactory type {}, skipping HTTPS configuration",
+                        factory.getClass().getName());
+                return;
+            }
+            JettyServletWebServerFactory jettyFactory = (JettyServletWebServerFactory) factory;
+            jettyFactory.setConfigurations(
                     Collections.singletonList(new HttpToHttpsJettyConfig())
             );
 
             factory.addServerCustomizers(server -> {
                 if (server.getConnectors() != null && server.getConnectors().length > 0) {
+                    if (!(server.getConnectors()[0] instanceof ServerConnector)) {
+                        LOG.warn("First connector is not a ServerConnector, cannot configure SNI");
+                        return;
+                    }
                     ServerConnector existingConnector = (ServerConnector) server.getConnectors()[0];
                     HttpConnectionFactory httpFactory =
                             existingConnector.getConnectionFactory(HttpConnectionFactory.class);
@@ -81,6 +92,18 @@ public class WebServerFactoryCustomizerConfig implements WebServerFactoryCustomi
                         HttpConfiguration httpConfig = httpFactory.getHttpConfiguration();
                         httpConfig.setSecurePort(Config.https_port);
                         httpConfig.setSecureScheme("https");
+
+                        // Disable SNI host checking to allow IP-based connections
+                        // Safe because checkFromValidFe() validates only registered FE nodes can connect
+                        SecureRequestCustomizer secureCustomizer =
+                                httpConfig.getCustomizer(SecureRequestCustomizer.class);
+                        if (secureCustomizer == null) {
+                            secureCustomizer = new SecureRequestCustomizer();
+                            httpConfig.addCustomizer(secureCustomizer);
+                        }
+                        secureCustomizer.setSniHostCheck(false);
+                        secureCustomizer.setSniRequired(false);
+                        LOG.info("Disabled SNI host checking for IP-based HTTPS connections");
                     }
                 }
             });

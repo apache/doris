@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.rest.manager;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.InternalHttpsUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.httpv2.entity.ResponseBody;
 import org.apache.doris.persist.gson.GsonUtils;
@@ -51,7 +52,7 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /*
- * used to forward http requests from manager to be.
+ * Used for internal HTTP(S) communication between FE nodes and from manager to BE.
  */
 public class HttpUtils {
     private static final Logger LOG = LogManager.getLogger(HttpUtils.class);
@@ -60,8 +61,9 @@ public class HttpUtils {
     static final int DEFAULT_TIME_OUT_MS = 2000;
 
     static List<Pair<String, Integer>> getFeList() {
+        int port = Config.enable_https ? Config.https_port : Config.http_port;
         return Env.getCurrentEnv().getFrontends(null)
-                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), Config.http_port))
+                .stream().filter(Frontend::isAlive).map(fe -> Pair.of(fe.getHost(), port))
                 .collect(Collectors.toList());
     }
 
@@ -71,7 +73,7 @@ public class HttpUtils {
     }
 
     static String concatUrl(Pair<String, Integer> ipPort, String path, Map<String, String> arguments) {
-        StringBuilder url = new StringBuilder("http://")
+        StringBuilder url = new StringBuilder(Config.enable_https ? "https://" : "http://")
                 .append(ipPort.first).append(":").append(ipPort.second).append(path);
         boolean isFirst = true;
         for (Map.Entry<String, String> entry : arguments.entrySet()) {
@@ -130,8 +132,11 @@ public class HttpUtils {
     }
 
     private static String executeRequest(HttpRequestBase request) throws IOException {
-        CloseableHttpClient client = getHttpClient();
-        return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+        try (CloseableHttpClient client = Config.enable_https
+                ? InternalHttpsUtils.createValidatedHttpClient()
+                : HttpClientBuilder.create().build()) {
+            return client.execute(request, httpResponse -> EntityUtils.toString(httpResponse.getEntity()));
+        }
     }
 
     static String parseResponse(String response) {

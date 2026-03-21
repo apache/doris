@@ -195,7 +195,7 @@ public class QueryProfileAction extends RestBaseController {
         // add node information
         for (List<String> query : queries) {
             query.set(1, NetUtils.getHostPortInAccessibleFormat(Env.getCurrentEnv().getSelfNode().getHost(),
-                    Config.http_port));
+                    Config.enable_https ? Config.https_port : Config.http_port));
         }
 
         if (!Strings.isNullOrEmpty(search)) {
