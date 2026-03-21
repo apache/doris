@@ -79,10 +79,13 @@ import io.trino.util.EmbedVersion;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -96,7 +99,6 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     private static final Logger LOG = LogManager.getLogger(TrinoConnectorExternalCatalog.class);
     private static final String TRINO_CONNECTOR_PROPERTIES_PREFIX = "trino.";
     public static final String TRINO_CONNECTOR_NAME = "trino.connector.name";
-
     private static final List<String> TRINO_CONNECTOR_REQUIRED_PROPERTIES = ImmutableList.of(
             TRINO_CONNECTOR_NAME
     );
@@ -117,11 +119,129 @@ public class TrinoConnectorExternalCatalog extends ExternalCatalog {
     @Override
     public void onClose() {
         super.onClose();
-        if (connector != null) {
-            try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(
-                    connector.getClass().getClassLoader())) {
-                connector.shutdown();
+        ClassLoader connectorClassLoader = null;
+        try {
+            if (connector != null) {
+                connectorClassLoader = connector.getClass().getClassLoader();
+                try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(connectorClassLoader)) {
+                    connector.shutdown();
+                }
             }
+        } finally {
+            if (connectorClassLoader != null) {
+                closeFileSystemsInClassLoader(connectorClassLoader);
+                stopThreadsForClassLoader(connectorClassLoader);
+                removeShutdownHooksForClassLoader(connectorClassLoader);
+            }
+        }
+    }
+
+    private void stopThreadsForClassLoader(ClassLoader targetClassLoader) {
+        try {
+            ThreadGroup root = Thread.currentThread().getThreadGroup();
+            while (root.getParent() != null) {
+                root = root.getParent();
+            }
+            Thread[] threads = new Thread[root.activeCount() + 100];
+            int count = root.enumerate(threads);
+
+            List<Thread> leakedThreads = new ArrayList<>();
+            for (int i = 0; i < count; i++) {
+                Thread t = threads[i];
+                if (t == null) {
+                    continue;
+                }
+                ClassLoader cl = t.getContextClassLoader();
+                if (cl == targetClassLoader || isHdfsClassLoader(cl)) {
+                    leakedThreads.add(t);
+                }
+            }
+
+            if (leakedThreads.isEmpty()) {
+                return;
+            }
+
+            LOG.info("Trino catalog {} cleaning up {} leaked threads", name, leakedThreads.size());
+
+            for (Thread t : leakedThreads) {
+                try {
+                    t.interrupt();
+                    t.setContextClassLoader(null);
+                } catch (Exception e) {
+                    LOG.warn("Failed to stop thread {} for catalog {}", t.getName(), name, e);
+                }
+            }
+
+            LOG.info("Trino catalog {} thread cleanup complete", name);
+        } catch (Exception e) {
+            LOG.warn("Failed to stop threads for trino catalog {}", name, e);
+        }
+    }
+
+    private static boolean isHdfsClassLoader(ClassLoader cl) {
+        return cl != null && "io.trino.filesystem.manager.HdfsClassLoader".equals(cl.getClass().getName());
+    }
+
+    private void closeFileSystemsInClassLoader(ClassLoader targetClassLoader) {
+        try (ThreadContextClassLoader ignored = new ThreadContextClassLoader(targetClassLoader)) {
+            Class<?> fileSystemClass = Class.forName("org.apache.hadoop.fs.FileSystem", true, targetClassLoader);
+            Method closeAllMethod = fileSystemClass.getMethod("closeAll");
+            closeAllMethod.invoke(null);
+            LOG.info("Trino catalog {} closed all FileSystems in classloader", name);
+        } catch (Exception e) {
+            LOG.warn("Failed to close FileSystems for trino catalog {}", name, e);
+        }
+    }
+
+    /**
+     * Remove JVM shutdown hooks whose contextClassLoader is the given classloader.
+     *
+     * When Trino creates an HDFS-based connector, the isolated HdfsClassLoader loads its own copy
+     * of Hadoop's ShutdownHookManager, which registers a JVM shutdown hook Thread. This Thread's
+     * contextClassLoader references the HdfsClassLoader, making it a GC root that prevents the
+     * classloader (and all ~4000 classes it loaded) from being garbage collected after catalog drop.
+     *
+     * This method reflectively accesses {@code java.lang.ApplicationShutdownHooks.hooks} to find
+     * and remove hooks associated with the connector's classloader.
+     */
+    private void removeShutdownHooksForClassLoader(ClassLoader targetClassLoader) {
+        try {
+            Class<?> hooksClass = Class.forName("java.lang.ApplicationShutdownHooks");
+            Field hooksField = hooksClass.getDeclaredField("hooks");
+            hooksField.setAccessible(true);
+
+            List<Thread> toRemove = new ArrayList<>();
+            synchronized (hooksClass) {
+                IdentityHashMap<Thread, Thread> hooks = (IdentityHashMap<Thread, Thread>) hooksField.get(null);
+                if (hooks == null) {
+                    return;
+                }
+
+                for (Thread hook : hooks.keySet()) {
+                    ClassLoader hookClassLoader = hook.getContextClassLoader();
+                    if (isHdfsClassLoader(hookClassLoader)) {
+                        toRemove.add(hook);
+                    }
+                }
+            }
+
+            int removed = 0;
+            for (Thread hook : toRemove) {
+                try {
+                    if (Runtime.getRuntime().removeShutdownHook(hook)) {
+                        removed++;
+                    }
+                } catch (IllegalStateException e) {
+                    // JVM is shutting down, stop trying
+                    break;
+                }
+            }
+            if (removed > 0 || !toRemove.isEmpty()) {
+                LOG.info("Trino catalog {} shutdown-hook cleanup: found={}, removed={}", name, toRemove.size(),
+                        removed);
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to clean up shutdown hooks for trino catalog {}", name, e);
         }
     }
 

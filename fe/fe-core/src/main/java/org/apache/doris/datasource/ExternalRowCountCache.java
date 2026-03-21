@@ -134,6 +134,16 @@ public class ExternalRowCountCache {
     }
 
     /**
+     * Invalidate all cached row counts for tables belonging to the given catalog.
+     * Should be called when a catalog is dropped or its cache is invalidated,
+     * to prevent stale entries from triggering endless refresh attempts.
+     */
+    public void invalidateCatalog(long catalogId) {
+        rowCountCache.synchronous().asMap().keySet()
+                .removeIf(key -> key.getCatalogId() == catalogId);
+    }
+
+    /**
      * Get cached row count for the given table if present. Return -1 if cached not loaded.
      * This method will not trigger async loading if cache is missing.
      * @return Cached row count or -1 if not exist

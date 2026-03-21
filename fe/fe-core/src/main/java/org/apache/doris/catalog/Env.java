@@ -711,7 +711,9 @@ public class Env {
         this.lock = new MonitoredReentrantLock(true);
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
-        this.publishVersionDaemon = new PublishVersionDaemon();
+        if (!isCheckpointCatalog) {
+            this.publishVersionDaemon = new PublishVersionDaemon();
+        }
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInfoCollector = new PartitionInfoCollector();
@@ -6981,19 +6983,31 @@ public class Env {
         // inverted index
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         Collection<Partition> allPartitions = olapTable.getAllPartitions();
+        int tabletCount = 0;
         for (Partition partition : allPartitions) {
             for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                 for (Tablet tablet : index.getTablets()) {
                     invertedIndex.deleteTablet(tablet.getId());
+                    tabletCount++;
                 }
             }
         }
+        LOG.info("onEraseOlapTable table[{}-{}] isReplay={}, partitions={}, tablets={}, invertedIndexSize={}",
+                olapTable.getId(), olapTable.getName(), isReplay,
+                allPartitions.size(), tabletCount, invertedIndex.getTabletMetaMap().size());
 
         // TODO: does checkpoint need update colocate index ?
         // colocation
         Env.getCurrentColocateIndex().removeTable(olapTable.getId());
 
         getInternalCatalog().eraseTableDropBackendReplicas(olapTable, isReplay);
+
+        // clean up alter jobs for this table to avoid holding OlapTable references
+        long erasedTableId = olapTable.getId();
+        getMaterializedViewHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == erasedTableId);
+        getSchemaChangeHandler().getAlterJobsV2().values()
+                .removeIf(job -> job.getTableId() == erasedTableId);
     }
 
     public void onErasePartition(Partition partition) {

@@ -99,4 +99,47 @@ public class ExternalRowCountCacheTest {
         }
         Assertions.assertEquals(3, counter.get());
     }
+
+    @Test
+    public void testInvalidateCatalog() throws Exception {
+        ThreadPoolExecutor executor = ThreadPoolManager.newDaemonFixedThreadPool(
+                1, Integer.MAX_VALUE, "TEST", true);
+
+        new MockUp<ExternalRowCountCache.RowCountCacheLoader>() {
+            @Mock
+            protected Optional<Long> doLoad(ExternalRowCountCache.RowCountKey rowCountKey) {
+                return Optional.of(100L);
+            }
+        };
+        ExternalRowCountCache cache = new ExternalRowCountCache(executor);
+
+        // Load entries for two different catalogs
+        long catalogId1 = 10;
+        long catalogId2 = 20;
+        cache.getCachedRowCount(catalogId1, 1, 101);
+        cache.getCachedRowCount(catalogId1, 1, 102);
+        cache.getCachedRowCount(catalogId2, 2, 201);
+
+        // Wait for async loads to complete
+        for (int i = 0; i < 60; i++) {
+            if (cache.getCachedRowCount(catalogId1, 1, 101) == 100
+                    && cache.getCachedRowCount(catalogId1, 1, 102) == 100
+                    && cache.getCachedRowCount(catalogId2, 2, 201) == 100) {
+                break;
+            }
+            Thread.sleep(1000);
+        }
+        Assertions.assertEquals(100, cache.getCachedRowCount(catalogId1, 1, 101));
+        Assertions.assertEquals(100, cache.getCachedRowCount(catalogId1, 1, 102));
+        Assertions.assertEquals(100, cache.getCachedRowCount(catalogId2, 2, 201));
+
+        // Invalidate catalog1
+        cache.invalidateCatalog(catalogId1);
+
+        // Catalog1 entries should be gone
+        Assertions.assertEquals(-1, cache.getCachedRowCountIfPresent(catalogId1, 1, 101));
+        Assertions.assertEquals(-1, cache.getCachedRowCountIfPresent(catalogId1, 1, 102));
+        // Catalog2 entries should still exist
+        Assertions.assertEquals(100, cache.getCachedRowCountIfPresent(catalogId2, 2, 201));
+    }
 }
