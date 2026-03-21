@@ -46,7 +46,6 @@
 #include "exprs/function/function_agg_state.h"
 #include "exprs/function/function_fake.h"
 #include "exprs/function/function_java_udf.h"
-#include "exprs/function/function_python_udf.h"
 #include "exprs/function/function_rpc.h"
 #include "exprs/function/simple_function_factory.h"
 #include "exprs/function_context.h"

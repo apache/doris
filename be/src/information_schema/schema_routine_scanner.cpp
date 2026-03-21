@@ -20,9 +20,9 @@
 #include "core/block/block.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_ref.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
+#include "util/client_cache.h"
 #include "util/thrift_rpc_helper.h"
 
 namespace doris {
