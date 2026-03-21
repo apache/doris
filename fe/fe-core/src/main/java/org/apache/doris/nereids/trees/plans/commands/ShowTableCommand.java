@@ -42,12 +42,15 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 
 /**
  * ShowTableCommand
@@ -148,36 +151,63 @@ public class ShowTableCommand extends ShowCommand {
         if (likePattern != null) {
             matcher = PatternMatcherWrapper.createMysqlPattern(likePattern, isShowTablesCaseSensitive());
         }
-        for (TableIf tbl : dbIf.getTables()) {
-            if (type.equals(PlanType.SHOW_VIEWS) && (tbl.getEngine() == null
-                    || !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName()))) {
-                continue;
-            }
-            if (matcher != null && !matcher.match(tbl.getName())) {
-                continue;
-            }
-            if (tbl.isTemporary()) {
-                continue;
-            }
-            // check tbl privs
-            if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), catalog, dbIf.getFullName(), tbl.getName(),
-                            PrivPredicate.SHOW)) {
-                continue;
-            }
-            if (isVerbose) {
-                String storageFormat = "NONE";
-                String invertedIndexFileStorageFormat = "NONE";
-                if (tbl instanceof OlapTable) {
-                    storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
-                    invertedIndexFileStorageFormat = ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
+        if (type.equals(PlanType.SHOW_STREAMS)) {
+            // show streams
+            Set<Long> streamIds = Env.getCurrentEnv().getStreamManager().getStreamIds(dbIf);
+            for (Long streamId : streamIds) {
+                Optional<TableIf> table = dbIf.getTable(streamId);
+                if (!table.isPresent()) {
+                    continue;
                 }
-                rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
-                        invertedIndexFileStorageFormat));
-            } else {
-                rows.add(Lists.newArrayList(tbl.getName()));
+                if (matcher != null && !matcher.match(table.get().getName())) {
+                    continue;
+                }
+                if (table.get().isTemporary()) {
+                    continue;
+                }
+                // check tbl privs
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), catalog, dbIf.getFullName(), table.get().getName(),
+                                PrivPredicate.SHOW)) {
+                    continue;
+                }
+                Preconditions.checkArgument(table.get().getType().equals(TableIf.TableType.STREAM));
+                rows.add(Lists.newArrayList(table.get().getName()));
+            }
+        } else {
+            for (TableIf tbl : dbIf.getTables()) {
+                if (type.equals(PlanType.SHOW_VIEWS) && (tbl.getEngine() == null
+                        || !tbl.getEngine().equals(TableIf.TableType.VIEW.toEngineName()))) {
+                    continue;
+                }
+                if (matcher != null && !matcher.match(tbl.getName())) {
+                    continue;
+                }
+                if (tbl.isTemporary()) {
+                    continue;
+                }
+                // check tbl privs
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkTblPriv(ConnectContext.get(), catalog, dbIf.getFullName(), tbl.getName(),
+                                PrivPredicate.SHOW)) {
+                    continue;
+                }
+                if (isVerbose) {
+                    String storageFormat = "NONE";
+                    String invertedIndexFileStorageFormat = "NONE";
+                    if (tbl instanceof OlapTable) {
+                        storageFormat = ((OlapTable) tbl).getStorageFormat().toString();
+                        invertedIndexFileStorageFormat =
+                                ((OlapTable) tbl).getInvertedIndexFileStorageFormat().toString();
+                    }
+                    rows.add(Lists.newArrayList(tbl.getName(), tbl.getMysqlType(), storageFormat,
+                            invertedIndexFileStorageFormat));
+                } else {
+                    rows.add(Lists.newArrayList(tbl.getName()));
+                }
             }
         }
+
         // sort by table name
         rows.sort(Comparator.comparing(x -> x.get(0)));
         return new ShowResultSet(getMetaData(), rows);

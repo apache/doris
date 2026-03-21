@@ -122,6 +122,7 @@ public class DropMaterializedViewTest {
                 isMaterializedView,
                 false,
                 false,
+                false,
                 false);
     }
 

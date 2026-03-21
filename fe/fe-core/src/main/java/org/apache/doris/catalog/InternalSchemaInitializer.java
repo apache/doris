@@ -553,7 +553,7 @@ public class InternalSchemaInitializer extends Thread {
             try {
                 Env.getCurrentEnv().getInternalCatalog()
                         .dropTable(StatisticConstants.DB_NAME, StatisticConstants.TABLE_STATISTIC_TBL_NAME,
-                                false, false, true, false, true);
+                                false, false, false, true, false, true);
             } catch (Exception e) {
                 LOG.warn("Failed to drop outdated table", e);
             }

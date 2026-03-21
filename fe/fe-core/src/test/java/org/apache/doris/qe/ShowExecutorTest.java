@@ -322,6 +322,15 @@ public class ShowExecutorTest {
     }
 
     @Test
+    public void testShowStream() throws Exception {
+        ShowTableCommand command = new ShowTableCommand("testDb",
+                null, false, PlanType.SHOW_STREAMS);
+        ShowResultSet resultSet = command.doRun(ctx, new StmtExecutor(ctx, ""));
+
+        Assert.assertFalse(resultSet.next());
+    }
+
+    @Test
     public void testShowTableFromCatalog() throws Exception {
         ShowTableCommand command = new ShowTableCommand("testDb",
                 "internal", false, PlanType.SHOW_TABLES);

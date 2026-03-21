@@ -52,8 +52,8 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-            boolean mustTemporary, boolean force) throws DdlException {
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         throw new NotSupportedException("iceberg catalog with dlf type not supports 'drop table'");
     }
 
