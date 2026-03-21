@@ -149,15 +149,19 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                                                            ->create_serialize_column();
                             }
 
-                            std::vector<UInt64> inline_counts(size);
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
                             uint32_t num_rows = 0;
                             {
                                 SCOPED_TIMER(_hash_table_iterate_timer);
                                 auto& it = agg_method.begin;
                                 while (it != agg_method.end && num_rows < state->batch_size()) {
                                     keys[num_rows] = it.get_first();
-                                    inline_counts[num_rows] =
+                                    auto inline_count =
                                             reinterpret_cast<const UInt64&>(it.get_second());
+                                    count_col.insert_data(
+                                            reinterpret_cast<const char*>(&inline_count),
+                                            sizeof(UInt64));
                                     ++it;
                                     ++num_rows;
                                 }
@@ -166,17 +170,6 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                             {
                                 SCOPED_TIMER(_insert_keys_to_column_timer);
                                 agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                            }
-
-                            // Write inline counts to serialized column
-                            // AggregateFunctionCountData = { UInt64 count }, same layout as inline
-                            auto& count_col =
-                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
-                            count_col.resize(num_rows);
-                            auto* col_data = count_col.get_data().data();
-                            for (uint32_t i = 0; i < num_rows; ++i) {
-                                *reinterpret_cast<UInt64*>(col_data + i * sizeof(UInt64)) =
-                                        inline_counts[i];
                             }
 
                             // Handle null key if present

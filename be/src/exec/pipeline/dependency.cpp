@@ -277,36 +277,39 @@ bool AggSharedState::do_limit_filter(Block* block, size_t num_rows,
 
 Status AggSharedState::reset_hash_table() {
     return std::visit(
-            Overload {[&](std::monostate& arg) -> Status {
-                          return Status::InternalError("Uninited hash table");
-                      },
-                      [&](auto& agg_method) {
-                          auto& hash_table = *agg_method.hash_table;
-                          using HashTableType = std::decay_t<decltype(hash_table)>;
+            Overload {
+                    [&](std::monostate& arg) -> Status {
+                        return Status::InternalError("Uninited hash table");
+                    },
+                    [&](auto& agg_method) {
+                        auto& hash_table = *agg_method.hash_table;
+                        using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                          agg_method.arena.clear();
-                          agg_method.inited_iterator = false;
+                        agg_method.arena.clear();
+                        agg_method.inited_iterator = false;
 
-                          hash_table.for_each_mapped([&](auto& mapped) {
-                              if (mapped) {
-                                  _destroy_agg_status(mapped);
-                                  mapped = nullptr;
-                              }
-                          });
+                        if (!use_simple_count) {
+                            hash_table.for_each_mapped([&](auto& mapped) {
+                                if (mapped) {
+                                    _destroy_agg_status(mapped);
+                                    mapped = nullptr;
+                                }
+                            });
 
-                          if (hash_table.has_null_key_data()) {
-                              _destroy_agg_status(
-                                      hash_table.template get_null_key_data<AggregateDataPtr>());
-                          }
+                            if (hash_table.has_null_key_data()) {
+                                _destroy_agg_status(
+                                        hash_table.template get_null_key_data<AggregateDataPtr>());
+                            }
 
-                          aggregate_data_container.reset(new AggregateDataContainer(
-                                  sizeof(typename HashTableType::key_type),
-                                  ((total_size_of_aggregate_states + align_aggregate_states - 1) /
-                                   align_aggregate_states) *
-                                          align_aggregate_states));
-                          agg_method.hash_table.reset(new HashTableType());
-                          return Status::OK();
-                      }},
+                            aggregate_data_container.reset(new AggregateDataContainer(
+                                    sizeof(typename HashTableType::key_type),
+                                    ((total_size_of_aggregate_states + align_aggregate_states - 1) /
+                                     align_aggregate_states) *
+                                            align_aggregate_states));
+                        }
+                        agg_method.hash_table.reset(new HashTableType());
+                        return Status::OK();
+                    }},
             agg_data->method_variant);
 }
 

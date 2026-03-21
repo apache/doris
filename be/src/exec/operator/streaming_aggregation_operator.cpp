@@ -103,7 +103,7 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     // StreamingAgg only operates in update + serialize mode: input is raw data, output is serialized intermediate state.
     // The serialization format of count is UInt64 itself, so it can be inlined into the hash table mapped slot.
     if (_aggregate_evaluators.size() == 1 &&
-        _aggregate_evaluators[0]->function()->is_simple_count() && limit == -1) {
+        _aggregate_evaluators[0]->function()->is_simple_count() && p._sort_limit == -1) {
         _use_simple_count = true;
 #ifndef NDEBUG
         // Randomly enable/disable in debug mode to verify correctness of multi-phase agg promotion/demotion.
@@ -496,15 +496,19 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                                                            ->create_serialize_column();
                             }
 
-                            std::vector<UInt64> inline_counts(size);
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
                             uint32_t num_rows = 0;
                             {
                                 SCOPED_TIMER(_hash_table_iterate_timer);
                                 auto& it = agg_method.begin;
                                 while (it != agg_method.end && num_rows < state->batch_size()) {
                                     keys[num_rows] = it.get_first();
-                                    inline_counts[num_rows] =
+                                    auto inline_count =
                                             reinterpret_cast<const UInt64&>(it.get_second());
+                                    count_col.insert_data(
+                                            reinterpret_cast<const char*>(&inline_count),
+                                            sizeof(UInt64));
                                     ++it;
                                     ++num_rows;
                                 }
@@ -513,16 +517,6 @@ Status StreamingAggLocalState::_get_results_with_serialized_key(RuntimeState* st
                             {
                                 SCOPED_TIMER(_insert_keys_to_column_timer);
                                 agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                            }
-
-                            // Write inline counts to serialized column
-                            auto& count_col =
-                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
-                            count_col.resize(num_rows);
-                            auto* col_data = count_col.get_data().data();
-                            for (uint32_t i = 0; i < num_rows; ++i) {
-                                *reinterpret_cast<UInt64*>(col_data + i * sizeof(UInt64)) =
-                                        inline_counts[i];
                             }
 
                             // Handle null key if present
