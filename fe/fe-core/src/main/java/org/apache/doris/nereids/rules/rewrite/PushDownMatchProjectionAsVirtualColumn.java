@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -51,8 +52,18 @@ import java.util.function.Function;
  */
 public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactory {
 
+    /**
+     * Check whether a MATCH expression can be pushed down as virtual column on the given scan.
+     * Only DUP_KEYS tables and Merge-on-Write unique tables support virtual column evaluation.
+     */
+    static boolean canPushDownMatch(LogicalOlapScan scan) {
+        return scan.getTable().getKeysType() == KeysType.DUP_KEYS
+                || (scan.getTable().getTableProperty() != null
+                    && scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite());
+    }
+
     private boolean canPushDown(LogicalOlapScan scan) {
-        return MatchPushDownHelper.canPushDownMatch(scan);
+        return canPushDownMatch(scan);
     }
 
     @Override

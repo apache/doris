@@ -73,7 +73,7 @@ import java.util.stream.Collectors;
 public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory {
 
     private boolean canPushDown(LogicalOlapScan scan) {
-        return MatchPushDownHelper.canPushDownMatch(scan);
+        return PushDownMatchProjectionAsVirtualColumn.canPushDownMatch(scan);
     }
 
     @Override
