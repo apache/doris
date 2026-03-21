@@ -44,10 +44,6 @@ public class JsonUtil {
             .configure(MapperFeature.REQUIRE_SETTERS_FOR_GETTERS, true).setTimeZone(TimeZone.getDefault())
             .setDateFormat(new SimpleDateFormat("yyyy-MM-dd HH:mm:ss"));
 
-    public static JsonNode toJsonNode(Object obj) {
-        return objectMapper.valueToTree(obj);
-    }
-
     public static JsonNode readTree(String str) {
         try {
             return objectMapper.readTree(str);

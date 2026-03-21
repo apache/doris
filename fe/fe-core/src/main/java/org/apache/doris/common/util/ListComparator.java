@@ -28,7 +28,6 @@ import java.util.List;
 public class ListComparator<T extends List<Comparable>> implements Comparator<T> {
 
     OrderByPair[] orderByPairs;
-    boolean isDesc;
     int indicesLen;
 
     public ListComparator(int...indices) {
