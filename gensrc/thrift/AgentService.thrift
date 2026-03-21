@@ -241,6 +241,7 @@ struct TDropTabletReq {
     2: optional Types.TSchemaHash schema_hash
     3: optional Types.TReplicaId replica_id = 0
     4: optional bool is_drop_table_or_partition = false
+    5: optional bool is_force = false
 }
 
 struct TAlterTabletReq {

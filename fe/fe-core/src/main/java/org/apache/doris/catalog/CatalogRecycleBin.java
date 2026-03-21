@@ -287,8 +287,26 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
     private boolean isExpire(long id, long currentTimeMs) {
         long latency = currentTimeMs - idToRecycleTime.get(id);
+        long totalExpireMs = Config.catalog_trash_expire_second * 1000L + getBackendTrashExpireMs();
         return (Config.catalog_trash_ignore_min_erase_latency || latency > minEraseLatency)
-                && latency > Config.catalog_trash_expire_second * 1000L;
+                && latency > totalExpireMs;
+    }
+
+    private long getBackendTrashExpireMs() {
+        int expireSec = Env.getCurrentSystemInfo().getMinTrashExpireTimeSec();
+        if (expireSec <= 0) {
+            return 0;
+        }
+        return expireSec * 1000L;
+    }
+
+    private boolean isFEViewExpire(long id, long currentTimeMs) {
+        Long recycleTime = idToRecycleTime.get(id);
+        if (recycleTime == null) {
+            return true;
+        }
+        long latency = currentTimeMs - recycleTime;
+        return latency > Config.catalog_trash_expire_second * 1000L;
     }
 
     private void eraseDatabase(long currentTimeMs, int keepNum) {
@@ -406,7 +424,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             Table table = tableInfo.getTable();
             if (table.isManagedTable()) {
-                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false, true);
             }
             iterator.remove();
             idToRecycleTime.remove(table.getId());
@@ -469,7 +487,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                     }
                     Table table = tableInfo.getTable();
                     if (table.isManagedTable()) {
-                        Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false);
+                        Env.getCurrentEnv().onEraseOlapTable(tableInfo.dbId, (OlapTable) table, false, true);
                     }
 
                     idToRecycleTime.remove(tableId);
@@ -527,7 +545,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 }
                 Table table = tableInfo.getTable();
                 if (table.isManagedTable()) {
-                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false, true);
                 }
 
                 idToTable.remove(tableId);
@@ -1226,7 +1244,7 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 long dbId = tableInfo.getDbId();
                 Table table = tableInfo.getTable();
                 if (table.getType() == TableType.OLAP || table.getType() == TableType.MATERIALIZED_VIEW) {
-                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false);
+                    Env.getCurrentEnv().onEraseOlapTable(dbId, (OlapTable) table, false, true);
                 }
 
                 idToTable.remove(tableId);
@@ -1406,8 +1424,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
         readLock();
         try {
             Map<Long, Pair<Long, Long>> dbToDataSize = new HashMap<>();
+            long currentTimeMs = System.currentTimeMillis();
             List<List<String>> tableInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecycleTableInfo> entry : idToTable.entrySet()) {
+                if (isFEViewExpire(entry.getKey(), currentTimeMs)) {
+                    continue;
+                }
                 List<String> info = Lists.newArrayList();
                 info.add("Table");
                 RecycleTableInfo tableInfo = entry.getValue();
@@ -1449,6 +1471,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             List<List<String>> partitionInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecyclePartitionInfo> entry : idToPartition.entrySet()) {
+                if (isFEViewExpire(entry.getKey(), currentTimeMs)) {
+                    continue;
+                }
                 List<String> info = Lists.newArrayList();
                 info.add("Partition");
                 RecyclePartitionInfo partitionInfo = entry.getValue();
@@ -1490,6 +1515,9 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
 
             List<List<String>> dbInfos = Lists.newArrayList();
             for (Map.Entry<Long, RecycleDatabaseInfo> entry : idToDatabase.entrySet()) {
+                if (isFEViewExpire(entry.getKey(), currentTimeMs)) {
+                    continue;
+                }
                 List<String> info = Lists.newArrayList();
                 info.add("Database");
                 RecycleDatabaseInfo dbInfo = entry.getValue();

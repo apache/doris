@@ -224,6 +224,9 @@ public:
 
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
+    void set_force_deleted(bool is_force) { _is_force_deleted = is_force; }
+    bool is_force_deleted() const { return _is_force_deleted; }
+
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
     void set_last_cumu_compaction_failure_time(int64_t millis) {
         _last_cumu_compaction_failure_millis = millis;
@@ -573,6 +576,8 @@ private:
 
     // if this tablet is broken, set to true. default is false
     std::atomic<bool> _is_bad;
+    // if this tablet should be force deleted (skip trash), set to true
+    std::atomic<bool> _is_force_deleted {false};
     // timestamp of last cumu compaction failure
     std::atomic<int64_t> _last_cumu_compaction_failure_millis;
     // timestamp of last base compaction failure

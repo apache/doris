@@ -145,6 +145,8 @@ public class Backend implements Writable {
     // The physical memory available for use by BE.
     @SerializedName("beMemory")
     private long beMemory = 0;
+    // BE trash_file_expire_time_sec config value
+    private volatile int trashFileExpireTimeSec = 0;
     // from config::pipeline_executor_size , default equal cpuCores
     @SerializedName("pipelineExecutorSize")
     private int pipelineExecutorSize = 1;
@@ -509,6 +511,10 @@ public class Backend implements Writable {
 
     public long getBeMemory() {
         return beMemory;
+    }
+
+    public int getTrashFileExpireTimeSec() {
+        return trashFileExpireTimeSec;
     }
 
     public int getPipelineExecutorSize() {
@@ -910,6 +916,9 @@ public class Backend implements Writable {
             if (this.beMemory != hbResponse.getBeMemory()) {
                 isChanged = true;
                 this.beMemory = hbResponse.getBeMemory();
+            }
+            if (this.trashFileExpireTimeSec != hbResponse.getTrashFileExpireTimeSec()) {
+                this.trashFileExpireTimeSec = hbResponse.getTrashFileExpireTimeSec();
             }
 
             this.lastUpdateMs = hbResponse.getHbTime();

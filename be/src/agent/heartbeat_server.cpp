@@ -95,6 +95,8 @@ void HeartbeatServer::heartbeat(THeartbeatResult& heartbeat_result,
         heartbeat_result.backend_info.__set_fragment_last_active_time(
                 get_fragment_last_active_time());
         heartbeat_result.backend_info.__set_be_mem(MemInfo::physical_mem());
+        heartbeat_result.backend_info.__set_trash_file_expire_time_sec(
+                config::trash_file_expire_time_sec);
     }
     watch.stop();
     if (watch.elapsed_time() > 1000L * 1000L * 1000L) {

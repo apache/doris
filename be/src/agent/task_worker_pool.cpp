@@ -1828,9 +1828,9 @@ void drop_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     Status status;
     auto dropped_tablet = engine.tablet_manager()->get_tablet(drop_tablet_req.tablet_id, false);
     if (dropped_tablet != nullptr) {
-        status = engine.tablet_manager()->drop_tablet(drop_tablet_req.tablet_id,
-                                                      drop_tablet_req.replica_id,
-                                                      drop_tablet_req.is_drop_table_or_partition);
+        status = engine.tablet_manager()->drop_tablet(
+                drop_tablet_req.tablet_id, drop_tablet_req.replica_id,
+                drop_tablet_req.is_drop_table_or_partition, drop_tablet_req.is_force);
     } else {
         status = Status::NotFound("could not find tablet {}", drop_tablet_req.tablet_id);
     }

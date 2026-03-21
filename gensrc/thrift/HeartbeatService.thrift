@@ -62,6 +62,7 @@ struct TBackendInfo {
     8: optional bool is_shutdown
     9: optional Types.TPort arrow_flight_sql_port
     10: optional i64 be_mem // The physical memory available for use by BE.
+    11: optional i32 trash_file_expire_time_sec
     // For cloud
     1000: optional i64 fragment_executing_count
     1001: optional i64 fragment_last_active_time
