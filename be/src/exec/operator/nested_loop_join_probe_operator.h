@@ -30,7 +30,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 class NestedLoopJoinProbeOperatorX;
 class NestedLoopJoinProbeLocalState final
@@ -237,6 +236,5 @@ private:
     const bool _old_version_flag;
 };
 
-} // namespace pipeline
 } // namespace doris
 #include "common/compile_check_end.h"

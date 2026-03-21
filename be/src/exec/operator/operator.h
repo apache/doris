@@ -48,11 +48,9 @@ namespace doris {
 class RowDescriptor;
 class RuntimeState;
 class TDataSink;
-namespace vectorized {
 class AsyncResultWriter;
 class ScoreRuntime;
 class AnnTopNRuntime;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris {

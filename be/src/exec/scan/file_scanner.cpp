@@ -89,9 +89,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace doris {
-namespace vectorized {
 class ShardedKVCache;
-} // namespace vectorized
 } // namespace doris
 
 namespace doris {

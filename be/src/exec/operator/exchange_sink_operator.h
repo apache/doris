@@ -35,7 +35,6 @@ namespace doris {
 class RuntimeState;
 class TDataSink;
 
-namespace pipeline {
 
 class ExchangeSinkLocalState MOCK_REMOVE(final) : public PipelineXSinkLocalState<> {
     ENABLE_FACTORY_CREATOR(ExchangeSinkLocalState);
@@ -286,6 +285,5 @@ private:
     const std::vector<TUniqueId>& _fragment_instance_ids;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

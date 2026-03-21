@@ -52,11 +52,9 @@
 #include "util/string_util.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
 class PathInData;
 class IDataType;
-} // namespace vectorized
 
 #include "common/compile_check_begin.h"
 

@@ -26,7 +26,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 class HashJoinProbeLocalState;
 
@@ -223,6 +222,5 @@ private:
     size_t _right_col_idx;
 };
 
-} // namespace pipeline
 } // namespace doris
 #include "common/compile_check_end.h"

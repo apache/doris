@@ -46,7 +46,6 @@ enum class FieldType;
 namespace segment_v2 {
 struct VariantStatisticsPB;
 } // namespace segment_v2
-namespace vectorized {
 class Block;
 class IColumn;
 struct ColumnWithTypeAndName;
@@ -58,7 +57,6 @@ template <typename T>
 class ColumnStr;
 using ColumnString = ColumnStr<UInt32>;
 using JsonParser = JSONDataParser<SimdJSONParser>;
-} // namespace vectorized
 } // namespace doris
 
 const std::string SPARSE_COLUMN_PATH = "__DORIS_VARIANT_SPARSE__";

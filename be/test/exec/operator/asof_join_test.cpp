@@ -27,7 +27,6 @@
 #include "core/value/timestamptz_value.h"
 
 namespace doris {
-using namespace vectorized;
 static ColumnPtr make_int32_column(const std::vector<int32_t>& values) {
     auto col = ColumnInt32::create();
     for (auto v : values) {

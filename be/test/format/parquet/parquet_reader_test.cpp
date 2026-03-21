@@ -50,7 +50,6 @@
 #include "util/timezone_utils.h"
 
 namespace doris {
-namespace vectorized {
 class VExprContext;
 
 class ParquetReaderTest : public testing::Test {
@@ -474,5 +473,4 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     EXPECT_EQ(StringView(string_column->get_data_at(1)).dump_hex(), "0xFEDCBA9876543210");
     EXPECT_EQ(StringView(string_column->get_data_at(2)).dump_hex(), "0x00");
 }
-} // namespace vectorized
 } // namespace doris

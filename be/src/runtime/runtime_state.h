@@ -845,7 +845,6 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
-    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 

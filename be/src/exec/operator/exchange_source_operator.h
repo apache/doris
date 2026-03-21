@@ -26,10 +26,8 @@ namespace doris {
 class ExecNode;
 } // namespace doris
 
-namespace vectorized {
 class VDataStreamRecvr;
 class Block;
-} // namespace vectorized
 
 namespace doris {
 

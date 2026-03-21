@@ -43,7 +43,6 @@
 
 namespace doris::segment_v2 {
 
-using namespace vectorized;
 
 namespace {
 

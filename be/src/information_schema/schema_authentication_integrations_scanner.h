@@ -26,9 +26,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaAuthenticationIntegrationsScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaAuthenticationIntegrationsScanner);

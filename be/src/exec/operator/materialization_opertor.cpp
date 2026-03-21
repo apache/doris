@@ -33,7 +33,6 @@
 #include "util/brpc_closure.h"
 
 namespace doris {
-namespace pipeline {
 
 void MaterializationSharedState::get_block(Block* block) {
     for (int i = 0, j = 0, rowid_to_block_loc = rowid_locs[j]; i < origin_block.columns(); i++) {
@@ -385,5 +384,4 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block,
     return Status::OK();
 }
 
-} // namespace pipeline
 } // namespace doris

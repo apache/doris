@@ -45,11 +45,9 @@
 
 namespace doris {
 
-namespace pipeline {
 class PipelineFragmentContext;
 class PipelineTask;
 class Dependency;
-} // namespace pipeline
 
 struct ReportStatusRequest {
     const Status status;

@@ -61,10 +61,8 @@ namespace doris {
 class ObjectPool;
 class MatchPredicate;
 
-namespace vectorized {
 class VExpr;
 class VExprContext;
-} // namespace vectorized
 struct RowLocation;
 
 namespace segment_v2 {

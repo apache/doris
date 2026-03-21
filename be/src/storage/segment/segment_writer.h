@@ -39,11 +39,9 @@
 #include "util/slice.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
 class IOlapColumnDataAccessor;
 class OlapBlockDataConvertor;
-} // namespace vectorized
 
 // TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
 const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *

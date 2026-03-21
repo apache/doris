@@ -49,10 +49,8 @@ class TupleDescriptor;
 namespace io {
 struct IOContext;
 } // namespace io
-namespace vectorized {
 class Block;
 class FieldDescriptor;
-} // namespace vectorized
 } // namespace doris
 namespace tparquet {
 class ColumnMetaData;

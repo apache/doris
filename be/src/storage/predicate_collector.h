@@ -30,9 +30,7 @@
 
 namespace doris {
 
-namespace vectorized {
 class VSlotRef;
-} // namespace vectorized
 
 class TabletIndex;
 class TabletSchema;

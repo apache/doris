@@ -24,9 +24,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaRoutinesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaRoutinesScanner);

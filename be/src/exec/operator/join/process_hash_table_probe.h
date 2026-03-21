@@ -25,12 +25,9 @@
 #include "core/custom_allocator.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
 class MutableBlock;
 struct HashJoinProbeContext;
-} // namespace vectorized
-namespace pipeline {
 
 class HashJoinProbeLocalState;
 class HashJoinProbeOperatorX;
@@ -148,5 +145,4 @@ struct ProcessHashTableProbe {
     DorisVector<int8_t> mark_join_flags;
 };
 
-} // namespace pipeline
 } // namespace doris
