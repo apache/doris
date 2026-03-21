@@ -435,6 +435,7 @@ public:
     void append_column(TabletColumn column, ColumnType col_type = ColumnType::NORMAL);
     void append_index(TabletIndex&& index);
     void remove_index(int64_t index_id);
+    void reorder_indexes_by(const TabletSchemaSPtr& reference_schema);
     void clear_index();
     // Must make sure the row column is always the last column
     void add_row_column();

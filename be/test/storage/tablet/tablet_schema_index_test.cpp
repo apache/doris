@@ -237,4 +237,62 @@ TEST_F(TabletSchemaIndexTest, TestIsSameExceptIdWithSameId) {
     EXPECT_TRUE(index1.is_same_except_id(&index2));
 }
 
+TEST_F(TabletSchemaIndexTest, TestReorderIndexesBy) {
+    // Simulate the build index scenario: indexes appended in different order
+    // than the tablet schema should still be reordered to match.
+    auto rowset_schema = std::make_shared<TabletSchema>();
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    // Tablet schema has indexes in order: idx_a(1), idx_ch2(2), idx_ch3(3)
+    tablet_schema->append_index(create_test_index(1, IndexType::INVERTED, {10}));
+    tablet_schema->append_index(create_test_index(2, IndexType::INVERTED, {20}));
+    tablet_schema->append_index(create_test_index(3, IndexType::INVERTED, {20}));
+
+    // Rowset schema has indexes in REVERSED order due to sequential build index:
+    // idx_a(1), idx_ch3(3), idx_ch2(2)
+    rowset_schema->append_index(create_test_index(1, IndexType::INVERTED, {10}));
+    rowset_schema->append_index(create_test_index(3, IndexType::INVERTED, {20}));
+    rowset_schema->append_index(create_test_index(2, IndexType::INVERTED, {20}));
+
+    // Verify initial order is different
+    auto before = rowset_schema->inverted_indexes();
+    ASSERT_EQ(before.size(), 3);
+    EXPECT_EQ(before[0]->index_id(), 1);
+    EXPECT_EQ(before[1]->index_id(), 3);
+    EXPECT_EQ(before[2]->index_id(), 2);
+
+    // Reorder to match tablet schema
+    rowset_schema->reorder_indexes_by(tablet_schema);
+
+    // Verify order now matches tablet schema: 1, 2, 3
+    auto after = rowset_schema->inverted_indexes();
+    ASSERT_EQ(after.size(), 3);
+    EXPECT_EQ(after[0]->index_id(), 1);
+    EXPECT_EQ(after[1]->index_id(), 2);
+    EXPECT_EQ(after[2]->index_id(), 3);
+}
+
+TEST_F(TabletSchemaIndexTest, TestReorderIndexesByWithExtraIndexes) {
+    // Rowset has an index not in tablet schema (stale index).
+    // It should be placed at the end after reordering.
+    auto rowset_schema = std::make_shared<TabletSchema>();
+    auto tablet_schema = std::make_shared<TabletSchema>();
+
+    tablet_schema->append_index(create_test_index(2, IndexType::INVERTED, {20}));
+    tablet_schema->append_index(create_test_index(3, IndexType::INVERTED, {20}));
+
+    // Rowset has stale idx 99, then 3, then 2
+    rowset_schema->append_index(create_test_index(99, IndexType::INVERTED, {20}));
+    rowset_schema->append_index(create_test_index(3, IndexType::INVERTED, {20}));
+    rowset_schema->append_index(create_test_index(2, IndexType::INVERTED, {20}));
+
+    rowset_schema->reorder_indexes_by(tablet_schema);
+
+    auto after = rowset_schema->inverted_indexes();
+    ASSERT_EQ(after.size(), 3);
+    EXPECT_EQ(after[0]->index_id(), 2);
+    EXPECT_EQ(after[1]->index_id(), 3);
+    EXPECT_EQ(after[2]->index_id(), 99); // stale at end
+}
+
 } // namespace doris
