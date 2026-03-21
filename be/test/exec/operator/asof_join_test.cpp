@@ -22,9 +22,9 @@
 #include <utility>
 #include <vector>
 
-#include "pipeline/common/join_utils.h"
 #include "core/column/column_vector.h"
 #include "core/value/timestamptz_value.h"
+#include "exec/common/join_utils.h"
 
 namespace doris {
 static ColumnPtr make_int32_column(const std::vector<int32_t>& values) {
