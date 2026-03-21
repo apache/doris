@@ -301,6 +301,156 @@ public class PushDownMatchPredicateAsVirtualColumnTest implements MemoPatternMat
     }
 
     /**
+     * Pattern 1R: Filter -> Join -> right(Project -> OlapScan)
+     * MATCH references a column from the right side of the join.
+     */
+    @Test
+    void testPattern1RightSideFilterJoinProjectScan() {
+        // Left side: plain scan
+        LogicalOlapScan leftScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        Slot leftIdSlot = leftScan.getOutput().get(0);
+
+        // Right side: scan with Project[id, CAST(name) as fn]
+        LogicalOlapScan rightScan = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        List<Slot> rightSlots = rightScan.getOutput();
+        Slot rightIdSlot = rightSlots.get(0);
+        Slot rightNameSlot = rightSlots.get(1);
+
+        Cast castExpr = new Cast(rightNameSlot, StringType.INSTANCE);
+        Alias fnAlias = new Alias(castExpr, "fn");
+        LogicalProject<LogicalOlapScan> rightProject = new LogicalProject<>(
+                ImmutableList.of(rightIdSlot, fnAlias), rightScan);
+
+        // Join: RIGHT_OUTER — project on right side
+        LogicalJoin<LogicalOlapScan, LogicalProject<LogicalOlapScan>> join = new LogicalJoin<>(
+                JoinType.RIGHT_OUTER_JOIN, leftScan, rightProject, new JoinReorderContext());
+
+        // Filter: fn MATCH_ANY 'hello' OR leftId IS NOT NULL
+        Slot fnSlot = fnAlias.toSlot();
+        MatchAny matchExpr = new MatchAny(fnSlot, new StringLiteral("hello"));
+        Or orPredicate = new Or(matchExpr, new Not(new IsNull(leftIdSlot)));
+        LogicalFilter<?> filter = new LogicalFilter<>(ImmutableSet.of(orPredicate), join);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), filter)
+                .applyTopDown(new PushDownMatchPredicateAsVirtualColumn())
+                .getPlan();
+
+        // Verify plan structure: Filter -> Join -> left(unchanged), right(Project -> OlapScan with VC)
+        Assertions.assertInstanceOf(LogicalFilter.class, root);
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) root;
+        LogicalJoin<?, ?> resJoin = (LogicalJoin<?, ?>) resFilter.child();
+
+        // Left side unchanged
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resJoin.left());
+
+        // Right side has virtual column
+        Assertions.assertInstanceOf(LogicalProject.class, resJoin.right());
+        LogicalProject<?> resProject = (LogicalProject<?>) resJoin.right();
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resProject.child());
+        LogicalOlapScan resScan = (LogicalOlapScan) resProject.child();
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+        Alias vcAlias = (Alias) resScan.getVirtualColumns().get(0);
+        Assertions.assertInstanceOf(MatchAny.class, vcAlias.child());
+        Assertions.assertInstanceOf(Cast.class, ((MatchAny) vcAlias.child()).left());
+
+        // Filter predicate replaced MATCH with slot reference
+        Expression resPredicate = resFilter.getConjuncts().iterator().next();
+        Assertions.assertInstanceOf(Or.class, resPredicate);
+        Assertions.assertInstanceOf(SlotReference.class, ((Or) resPredicate).child(0));
+    }
+
+    /**
+     * Pattern 2R: Filter -> Join -> right(Project -> Filter -> OlapScan)
+     */
+    @Test
+    void testPattern2RightSideFilterJoinProjectFilterScan() {
+        LogicalOlapScan leftScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        Slot leftIdSlot = leftScan.getOutput().get(0);
+
+        LogicalOlapScan rightScan = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        List<Slot> rightSlots = rightScan.getOutput();
+        Slot rightIdSlot = rightSlots.get(0);
+        Slot rightNameSlot = rightSlots.get(1);
+
+        // Inner filter on right scan
+        GreaterThan innerPred = new GreaterThan(rightIdSlot, new IntegerLiteral(0));
+        LogicalFilter<LogicalOlapScan> innerFilter = new LogicalFilter<>(
+                ImmutableSet.of(innerPred), rightScan);
+
+        Cast castExpr = new Cast(rightNameSlot, StringType.INSTANCE);
+        Alias fnAlias = new Alias(castExpr, "fn");
+        LogicalProject<LogicalFilter<LogicalOlapScan>> rightProject = new LogicalProject<>(
+                ImmutableList.of(rightIdSlot, fnAlias), innerFilter);
+
+        LogicalJoin<?, ?> join = new LogicalJoin<>(
+                JoinType.RIGHT_OUTER_JOIN, leftScan, rightProject, new JoinReorderContext());
+
+        Slot fnSlot = fnAlias.toSlot();
+        MatchAny matchExpr = new MatchAny(fnSlot, new StringLiteral("hello"));
+        Or orPredicate = new Or(matchExpr, new Not(new IsNull(leftIdSlot)));
+        LogicalFilter<?> outerFilter = new LogicalFilter<>(ImmutableSet.of(orPredicate), join);
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), outerFilter)
+                .applyTopDown(new PushDownMatchPredicateAsVirtualColumn())
+                .getPlan();
+
+        // Verify right side: Project -> Filter -> OlapScan with VC
+        LogicalFilter<?> resFilter = (LogicalFilter<?>) root;
+        LogicalJoin<?, ?> resJoin = (LogicalJoin<?, ?>) resFilter.child();
+        LogicalProject<?> resProject = (LogicalProject<?>) resJoin.right();
+        Assertions.assertInstanceOf(LogicalFilter.class, resProject.child());
+        LogicalFilter<?> resInnerFilter = (LogicalFilter<?>) resProject.child();
+        LogicalOlapScan resScan = (LogicalOlapScan) resInnerFilter.child();
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+        Assertions.assertEquals(ImmutableSet.of(innerPred), resInnerFilter.getConjuncts());
+    }
+
+    /**
+     * Pattern 3R: Join(otherPredicates) -> right(Project -> OlapScan)
+     */
+    @Test
+    void testPattern3RightSideJoinOtherPredicatesProjectScan() {
+        LogicalOlapScan leftScan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        Slot leftIdSlot = leftScan.getOutput().get(0);
+
+        LogicalOlapScan rightScan = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        List<Slot> rightSlots = rightScan.getOutput();
+        Slot rightIdSlot = rightSlots.get(0);
+        Slot rightNameSlot = rightSlots.get(1);
+
+        Cast castExpr = new Cast(rightNameSlot, StringType.INSTANCE);
+        Alias fnAlias = new Alias(castExpr, "fn");
+        LogicalProject<LogicalOlapScan> rightProject = new LogicalProject<>(
+                ImmutableList.of(rightIdSlot, fnAlias), rightScan);
+
+        Slot fnSlot = fnAlias.toSlot();
+        MatchAny matchExpr = new MatchAny(fnSlot, new StringLiteral("hello"));
+        Or orOther = new Or(matchExpr, new Not(new IsNull(leftIdSlot)));
+
+        LogicalJoin<LogicalOlapScan, LogicalProject<LogicalOlapScan>> join = new LogicalJoin<>(
+                JoinType.RIGHT_OUTER_JOIN,
+                ImmutableList.of(),
+                ImmutableList.of(orOther),
+                leftScan, rightProject, new JoinReorderContext());
+
+        Plan root = PlanChecker.from(MemoTestUtils.createConnectContext(), join)
+                .applyTopDown(new PushDownMatchPredicateAsVirtualColumn())
+                .getPlan();
+
+        // Verify right side has virtual column
+        Assertions.assertInstanceOf(LogicalJoin.class, root);
+        LogicalJoin<?, ?> resJoin = (LogicalJoin<?, ?>) root;
+        Assertions.assertInstanceOf(LogicalOlapScan.class, resJoin.left());
+        LogicalProject<?> resProject = (LogicalProject<?>) resJoin.right();
+        LogicalOlapScan resScan = (LogicalOlapScan) resProject.child();
+        Assertions.assertEquals(1, resScan.getVirtualColumns().size());
+
+        List<Expression> resOther = resJoin.getOtherJoinConjuncts();
+        Assertions.assertEquals(1, resOther.size());
+        Assertions.assertInstanceOf(SlotReference.class, ((Or) resOther.get(0)).child(0));
+    }
+
+    /**
      * Pattern 3: Join(otherPredicates has MATCH) -> Project -> OlapScan
      */
     @Test

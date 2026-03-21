@@ -51,24 +51,7 @@ import java.util.stream.Collectors;
  * 3. Creates a virtual column on the OlapScan with the MATCH on the original expression
  * 4. Replaces the MATCH in the predicate with the virtual column's boolean slot
  *
- * Before:
- *   Filter(fn MATCH_ANY 'hello' OR l.col IS NOT NULL)
- *     └── Join[LEFT_OUTER]
- *           └── Project[objectId, CAST(col) as fn]
- *                 └── OlapScan[table]
- *           └── ...
- *
- * After:
- *   Filter(__match_vc OR l.col IS NOT NULL)
- *     └── Join[LEFT_OUTER]
- *           └── Project[objectId, fn, __match_vc]
- *                 └── OlapScan[table, virtualColumns=[(CAST(col) MATCH_ANY 'hello')]]
- *           └── ...
- *
- * NOTE: Currently only handles MATCH on the left side of a join. If the MATCH references
- * a column from the right side (e.g., RIGHT JOIN with Project on the right), this rule
- * will not trigger. This is acceptable for the primary use case (CTE + LEFT JOIN with
- * the main table on the left side).
+ * Handles both left-side and right-side Project→OlapScan in joins.
  */
 public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory {
 
@@ -79,101 +62,128 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
     @Override
     public List<Rule> buildRules() {
         return ImmutableList.of(
-                // Pattern 1: Filter -> Join -> Project -> OlapScan
+                // Pattern 1L: Filter -> Join -> left(Project -> OlapScan)
                 logicalFilter(logicalJoin(
                         logicalProject(logicalOlapScan().when(this::canPushDown)), any()))
                         .when(filter -> hasMatchInSet(filter.getConjuncts()))
-                        .then(this::handleFilterProjectScan)
+                        .then(filter -> handleFilterSide(filter, true, false))
                         .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN),
 
-                // Pattern 2: Filter -> Join -> Project -> Filter -> OlapScan
+                // Pattern 1R: Filter -> Join -> right(Project -> OlapScan)
+                logicalFilter(logicalJoin(
+                        any(), logicalProject(logicalOlapScan().when(this::canPushDown))))
+                        .when(filter -> hasMatchInSet(filter.getConjuncts()))
+                        .then(filter -> handleFilterSide(filter, false, false))
+                        .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN),
+
+                // Pattern 2L: Filter -> Join -> left(Project -> Filter -> OlapScan)
                 logicalFilter(logicalJoin(
                         logicalProject(logicalFilter(logicalOlapScan().when(this::canPushDown))), any()))
                         .when(filter -> hasMatchInSet(filter.getConjuncts()))
-                        .then(this::handleFilterProjectFilterScan)
+                        .then(filter -> handleFilterSide(filter, true, true))
                         .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN),
 
-                // Pattern 3: Join(otherPredicates has MATCH) -> Project -> OlapScan
+                // Pattern 2R: Filter -> Join -> right(Project -> Filter -> OlapScan)
+                logicalFilter(logicalJoin(
+                        any(), logicalProject(logicalFilter(logicalOlapScan().when(this::canPushDown)))))
+                        .when(filter -> hasMatchInSet(filter.getConjuncts()))
+                        .then(filter -> handleFilterSide(filter, false, true))
+                        .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN),
+
+                // Pattern 3L: Join(otherPredicates) -> left(Project -> OlapScan)
                 logicalJoin(
                         logicalProject(logicalOlapScan().when(this::canPushDown)), any())
                         .when(join -> hasMatchInList(join.getOtherJoinConjuncts()))
-                        .then(this::handleJoinProjectScan)
+                        .then(join -> handleJoinSide(join, true, false))
                         .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN),
 
-                // Pattern 4: Join(otherPredicates has MATCH) -> Project -> Filter -> OlapScan
+                // Pattern 3R: Join(otherPredicates) -> right(Project -> OlapScan)
+                logicalJoin(
+                        any(), logicalProject(logicalOlapScan().when(this::canPushDown)))
+                        .when(join -> hasMatchInList(join.getOtherJoinConjuncts()))
+                        .then(join -> handleJoinSide(join, false, false))
+                        .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN),
+
+                // Pattern 4L: Join(otherPredicates) -> left(Project -> Filter -> OlapScan)
                 logicalJoin(
                         logicalProject(logicalFilter(logicalOlapScan().when(this::canPushDown))), any())
                         .when(join -> hasMatchInList(join.getOtherJoinConjuncts()))
-                        .then(this::handleJoinProjectFilterScan)
+                        .then(join -> handleJoinSide(join, true, true))
+                        .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN),
+
+                // Pattern 4R: Join(otherPredicates) -> right(Project -> Filter -> OlapScan)
+                logicalJoin(
+                        any(), logicalProject(logicalFilter(logicalOlapScan().when(this::canPushDown))))
+                        .when(join -> hasMatchInList(join.getOtherJoinConjuncts()))
+                        .then(join -> handleJoinSide(join, false, true))
                         .toRule(RuleType.PUSH_DOWN_MATCH_PREDICATE_AS_VIRTUAL_COLUMN)
         );
     }
 
-    private Plan handleFilterProjectScan(LogicalFilter<LogicalJoin<LogicalProject<LogicalOlapScan>, Plan>> filter) {
-        LogicalJoin<LogicalProject<LogicalOlapScan>, Plan> join = filter.child();
-        LogicalProject<LogicalOlapScan> project = join.left();
-        LogicalOlapScan scan = project.child();
-        return doHandleFilter(filter, join, project, scan, newScan -> newScan);
+    private Plan handleFilterSide(LogicalFilter<?> filter, boolean isLeft, boolean hasInnerFilter) {
+        LogicalJoin<?, ?> join = (LogicalJoin<?, ?>) filter.child();
+        Plan side = isLeft ? join.left() : join.right();
+        LogicalProject<?> project = (LogicalProject<?>) side;
+
+        LogicalOlapScan scan;
+        ScanRebuilder rebuilder;
+        if (hasInnerFilter) {
+            LogicalFilter<?> scanFilter = (LogicalFilter<?>) project.child();
+            scan = (LogicalOlapScan) scanFilter.child();
+            rebuilder = newScan -> scanFilter.withChildren(ImmutableList.of(newScan));
+        } else {
+            scan = (LogicalOlapScan) project.child();
+            rebuilder = newScan -> newScan;
+        }
+
+        Set<Slot> projectOutputSlots = ImmutableSet.copyOf(project.getOutput());
+        List<Expression> predicateList = new ArrayList<>(filter.getConjuncts());
+        PushDownResult result = buildVirtualColumnsFromList(predicateList, project, scan, projectOutputSlots);
+        if (result == null) {
+            return null;
+        }
+
+        LogicalProject<?> newProject = (LogicalProject<?>) project.withProjectsAndChild(
+                result.newProjections, rebuilder.rebuild(result.newScan));
+        Plan newJoin = isLeft
+                ? join.withChildren(newProject, join.right())
+                : join.withChildren(join.left(), newProject);
+        return filter.withConjunctsAndChild(ImmutableSet.copyOf(result.newPredicateList), newJoin);
     }
 
-    private Plan handleFilterProjectFilterScan(
-            LogicalFilter<LogicalJoin<LogicalProject<LogicalFilter<LogicalOlapScan>>, Plan>> filter) {
-        LogicalJoin<LogicalProject<LogicalFilter<LogicalOlapScan>>, Plan> join = filter.child();
-        LogicalProject<LogicalFilter<LogicalOlapScan>> project = join.left();
-        LogicalFilter<LogicalOlapScan> scanFilter = project.child();
-        LogicalOlapScan scan = scanFilter.child();
-        return doHandleFilter(filter, join, project, scan,
-                newScan -> scanFilter.withChildren(ImmutableList.of(newScan)));
-    }
+    private Plan handleJoinSide(LogicalJoin<?, ?> join, boolean isLeft, boolean hasInnerFilter) {
+        Plan side = isLeft ? join.left() : join.right();
+        LogicalProject<?> project = (LogicalProject<?>) side;
 
-    private Plan handleJoinProjectScan(LogicalJoin<LogicalProject<LogicalOlapScan>, Plan> join) {
-        LogicalProject<LogicalOlapScan> project = join.left();
-        LogicalOlapScan scan = project.child();
-        return doHandleJoin(join, project, scan, newScan -> newScan);
-    }
+        LogicalOlapScan scan;
+        ScanRebuilder rebuilder;
+        if (hasInnerFilter) {
+            LogicalFilter<?> scanFilter = (LogicalFilter<?>) project.child();
+            scan = (LogicalOlapScan) scanFilter.child();
+            rebuilder = newScan -> scanFilter.withChildren(ImmutableList.of(newScan));
+        } else {
+            scan = (LogicalOlapScan) project.child();
+            rebuilder = newScan -> newScan;
+        }
 
-    private Plan handleJoinProjectFilterScan(
-            LogicalJoin<LogicalProject<LogicalFilter<LogicalOlapScan>>, Plan> join) {
-        LogicalProject<LogicalFilter<LogicalOlapScan>> project = join.left();
-        LogicalFilter<LogicalOlapScan> scanFilter = project.child();
-        LogicalOlapScan scan = scanFilter.child();
-        return doHandleJoin(join, project, scan,
-                newScan -> scanFilter.withChildren(ImmutableList.of(newScan)));
+        Set<Slot> projectOutputSlots = ImmutableSet.copyOf(project.getOutput());
+        List<Expression> otherConjuncts = join.getOtherJoinConjuncts();
+        PushDownResult result = buildVirtualColumnsFromList(otherConjuncts, project, scan, projectOutputSlots);
+        if (result == null) {
+            return null;
+        }
+
+        LogicalProject<?> newProject = (LogicalProject<?>) project.withProjectsAndChild(
+                result.newProjections, rebuilder.rebuild(result.newScan));
+        Plan newLeft = isLeft ? newProject : join.left();
+        Plan newRight = isLeft ? join.right() : newProject;
+        return join.withJoinConjuncts(join.getHashJoinConjuncts(),
+                result.newPredicateList, join.getJoinReorderContext())
+                .withChildren(newLeft, newRight);
     }
 
     private interface ScanRebuilder {
         Plan rebuild(LogicalOlapScan newScan);
-    }
-
-    private Plan doHandleFilter(LogicalFilter<?> filter, LogicalJoin<?, ?> join,
-            LogicalProject<?> project, LogicalOlapScan scan, ScanRebuilder rebuilder) {
-        Set<Slot> leftOutputSlots = ImmutableSet.copyOf(project.getOutput());
-        List<Expression> predicateList = new ArrayList<>(filter.getConjuncts());
-        PushDownResult result = buildVirtualColumnsFromList(predicateList, project, scan, leftOutputSlots);
-        if (result == null) {
-            return null;
-        }
-
-        LogicalProject<?> newProject = (LogicalProject<?>) project.withProjectsAndChild(
-                result.newProjections, rebuilder.rebuild(result.newScan));
-        Plan newJoin = join.withChildren(newProject, join.right());
-        return filter.withConjunctsAndChild(ImmutableSet.copyOf(result.newPredicateList), newJoin);
-    }
-
-    private Plan doHandleJoin(LogicalJoin<?, ?> join, LogicalProject<?> project,
-            LogicalOlapScan scan, ScanRebuilder rebuilder) {
-        Set<Slot> leftOutputSlots = ImmutableSet.copyOf(project.getOutput());
-        List<Expression> otherConjuncts = join.getOtherJoinConjuncts();
-        PushDownResult result = buildVirtualColumnsFromList(otherConjuncts, project, scan, leftOutputSlots);
-        if (result == null) {
-            return null;
-        }
-
-        LogicalProject<?> newProject = (LogicalProject<?>) project.withProjectsAndChild(
-                result.newProjections, rebuilder.rebuild(result.newScan));
-        return join.withJoinConjuncts(join.getHashJoinConjuncts(),
-                result.newPredicateList, join.getJoinReorderContext())
-                .withChildren(newProject, join.right());
     }
 
     private boolean hasMatchInSet(Set<Expression> conjuncts) {
@@ -197,12 +207,12 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
     }
 
     private PushDownResult buildVirtualColumnsFromList(List<Expression> predicates,
-            LogicalProject<?> project, LogicalOlapScan scan, Set<Slot> leftOutputSlots) {
+            LogicalProject<?> project, LogicalOlapScan scan, Set<Slot> projectOutputSlots) {
         Map<Match, Alias> matchToVirtualColumn = new HashMap<>();
         Map<Match, Slot> matchToVirtualSlot = new HashMap<>();
 
         for (Expression predicate : predicates) {
-            collectMatchesNeedingPushDown(predicate, project, leftOutputSlots,
+            collectMatchesNeedingPushDown(predicate, project, projectOutputSlots,
                     matchToVirtualColumn, matchToVirtualSlot);
         }
 
@@ -227,7 +237,7 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
     }
 
     private void collectMatchesNeedingPushDown(Expression expr,
-            LogicalProject<?> project, Set<Slot> leftOutputSlots,
+            LogicalProject<?> project, Set<Slot> projectOutputSlots,
             Map<Match, Alias> matchToVirtualColumn, Map<Match, Slot> matchToVirtualSlot) {
         if (expr instanceof Match) {
             Match match = (Match) expr;
@@ -240,8 +250,8 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
                 return;
             }
 
-            // All slots must come from the left side of the join
-            if (!matchSlots.stream().allMatch(leftOutputSlots::contains)) {
+            // All slots must come from the project side
+            if (!matchSlots.stream().allMatch(projectOutputSlots::contains)) {
                 return;
             }
 
@@ -270,7 +280,7 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
         }
 
         for (Expression child : expr.children()) {
-            collectMatchesNeedingPushDown(child, project, leftOutputSlots,
+            collectMatchesNeedingPushDown(child, project, projectOutputSlots,
                     matchToVirtualColumn, matchToVirtualSlot);
         }
     }
