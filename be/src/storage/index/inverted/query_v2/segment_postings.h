@@ -23,6 +23,7 @@
 #include "CLucene/index/DocRange.h"
 #include "storage/index/inverted/inverted_index_common.h"
 #include "storage/index/inverted/query_v2/doc_set.h"
+#include "storage/index/inverted/similarity/similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 
