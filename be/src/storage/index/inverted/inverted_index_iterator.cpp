@@ -149,6 +149,36 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const InvertedIndexRe
     return Status::OK();
 }
 
+// When multiple candidates of the preferred type exist, pick the one with
+// the smallest index_id so that the choice is deterministic regardless of
+// the order indexes appear in the rowset schema.  Different segments may
+// have different index orderings (e.g. after sequential BUILD INDEX
+// operations), and relying on iteration order would cause inconsistent
+// query results across segments.
+static const ReaderEntry* pick_preferred(const std::vector<const ReaderEntry*>& candidates,
+                                         InvertedIndexReaderType preferred_type) {
+    const ReaderEntry* best = nullptr;
+    for (const auto* entry : candidates) {
+        if (entry->type == preferred_type) {
+            if (best == nullptr || entry->reader->get_index_id() < best->reader->get_index_id()) {
+                best = entry;
+            }
+        }
+    }
+    return best;
+}
+
+static const ReaderEntry* pick_smallest_index_id(
+        const std::vector<const ReaderEntry*>& candidates) {
+    const ReaderEntry* best = candidates.front();
+    for (const auto* entry : candidates) {
+        if (entry->reader->get_index_id() < best->reader->get_index_id()) {
+            best = entry;
+        }
+    }
+    return best;
+}
+
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_text(
         const AnalyzerMatchResult& match, InvertedIndexQueryType query_type,
         const std::string& analyzer_key) {
@@ -167,24 +197,20 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_text(
 
     // MATCH queries prefer FULLTEXT
     if (is_match_query(query_type)) {
-        for (const auto* entry : match.candidates) {
-            if (entry->type == InvertedIndexReaderType::FULLTEXT) {
-                return entry->reader;
-            }
+        if (auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::FULLTEXT)) {
+            return best->reader;
         }
     }
 
     // EQUAL queries prefer STRING_TYPE for exact match
     if (is_equal_query(query_type)) {
-        for (const auto* entry : match.candidates) {
-            if (entry->type == InvertedIndexReaderType::STRING_TYPE) {
-                return entry->reader;
-            }
+        if (auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::STRING_TYPE)) {
+            return best->reader;
         }
     }
 
-    // Default: return first candidate
-    return match.candidates.front()->reader;
+    // Default: smallest index_id for deterministic selection
+    return pick_smallest_index_id(match.candidates)->reader;
 }
 
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_numeric(
@@ -196,27 +222,21 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_numeric(
 
     // RANGE queries prefer BKD
     if (is_range_query(query_type)) {
-        for (const auto* entry : match.candidates) {
-            if (entry->type == InvertedIndexReaderType::BKD) {
-                return entry->reader;
-            }
+        if (const auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::BKD)) {
+            return best->reader;
         }
     }
 
-    // Fallback priority: BKD > STRING_TYPE > others
-    for (const auto* entry : match.candidates) {
-        if (entry->type == InvertedIndexReaderType::BKD) {
-            return entry->reader;
-        }
+    // Fallback priority: BKD > STRING_TYPE > smallest index_id
+    if (const auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::BKD)) {
+        return best->reader;
     }
-    for (const auto* entry : match.candidates) {
-        if (entry->type == InvertedIndexReaderType::STRING_TYPE) {
-            return entry->reader;
-        }
+    if (const auto* best = pick_preferred(match.candidates, InvertedIndexReaderType::STRING_TYPE)) {
+        return best->reader;
     }
 
-    // Last resort: first available
-    return match.candidates.front()->reader;
+    // Last resort: smallest index_id for deterministic selection
+    return pick_smallest_index_id(match.candidates)->reader;
 }
 
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
@@ -257,12 +277,12 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         return select_for_numeric(match, query_type);
     }
 
-    // Default: return first candidate or error
+    // Default: return deterministic candidate or error
     if (match.empty()) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(
                 "No available inverted index readers for column type."));
     }
-    return match.candidates.front()->reader;
+    return pick_smallest_index_id(match.candidates)->reader;
 }
 
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
@@ -287,7 +307,7 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
         return entry.reader;
     }
 
-    // Match and return first candidate
+    // Match and return deterministic candidate
     auto match = AnalyzerKeyMatcher::match(normalized_key, _reader_entries, _key_to_entries);
 
     if (match.empty()) {
@@ -299,7 +319,7 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
                 "No available inverted index readers."));
     }
 
-    return match.candidates.front()->reader;
+    return pick_smallest_index_id(match.candidates)->reader;
 }
 
 IndexReaderPtr InvertedIndexIterator::get_reader(IndexReaderType type) const {

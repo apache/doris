@@ -1105,48 +1105,6 @@ void TabletSchema::remove_index(int64_t index_id) {
     }
 }
 
-void TabletSchema::reorder_indexes_by(const TabletSchemaSPtr& reference_schema) {
-    // Build a position map from the reference schema's index ordering.
-    // Indexes present in the reference schema are sorted to match its order;
-    // indexes not in the reference schema are placed at the end, preserving
-    // their relative order.
-    std::unordered_map<int64_t, size_t> ref_order;
-    const auto& ref_indexes = reference_schema->inverted_indexes();
-    for (size_t i = 0; i < ref_indexes.size(); ++i) {
-        ref_order[ref_indexes[i]->index_id()] = i;
-    }
-
-    std::stable_sort(_indexes.begin(), _indexes.end(),
-                     [&ref_order](const TabletIndexPtr& a, const TabletIndexPtr& b) {
-                         auto it_a = ref_order.find(a->index_id());
-                         auto it_b = ref_order.find(b->index_id());
-                         size_t pos_a = (it_a != ref_order.end())
-                                                ? it_a->second
-                                                : std::numeric_limits<size_t>::max();
-                         size_t pos_b = (it_b != ref_order.end())
-                                                ? it_b->second
-                                                : std::numeric_limits<size_t>::max();
-                         return pos_a < pos_b;
-                     });
-
-    // Rebuild the lookup caches after reordering.
-    _col_id_suffix_to_index.clear();
-    _index_by_unique_id_with_pattern.clear();
-    for (size_t new_pos = 0; new_pos < _indexes.size(); ++new_pos) {
-        const auto& index = _indexes[new_pos];
-        for (int32_t col_uid : index->col_unique_ids()) {
-            if (auto field_pattern = index->field_pattern(); !field_pattern.empty()) {
-                auto& pattern_to_index_map = _index_by_unique_id_with_pattern[col_uid];
-                pattern_to_index_map[field_pattern].emplace_back(index);
-            } else {
-                IndexKey key =
-                        std::make_tuple(index->index_type(), col_uid, index->get_index_suffix());
-                _col_id_suffix_to_index[key].push_back(new_pos);
-            }
-        }
-    }
-}
-
 void TabletSchema::clear_columns() {
     _field_path_to_index.clear();
     _field_name_to_index.clear();

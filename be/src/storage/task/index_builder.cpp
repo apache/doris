@@ -227,17 +227,6 @@ Status IndexBuilder::update_inverted_index_info() {
 
                 output_rs_tablet_schema->append_index(std::move(index));
             }
-
-            // Reorder indexes in the output rowset schema to match the tablet
-            // schema's index order. The select_best_reader in the search function
-            // returns the first matching candidate, so index order in the rowset
-            // schema determines which index is used for queries like REGEXP.
-            // Without reordering, successive build index operations append indexes
-            // in execution order (e.g., [ch3, ch2]) which may differ from the
-            // tablet schema order (e.g., [ch2, ch3]), causing different segments
-            // to select different indexes for the same query.
-            const auto& tablet_schema = _tablet->tablet_schema();
-            output_rs_tablet_schema->reorder_indexes_by(tablet_schema);
         }
         // construct input rowset reader
         RowsetReaderSharedPtr input_rs_reader;
