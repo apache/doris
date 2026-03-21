@@ -49,6 +49,7 @@
 #include "storage/index/inverted/query_v2/bit_set_query/bit_set_query.h"
 #include "storage/index/inverted/query_v2/boolean_query/boolean_query_builder.h"
 #include "storage/index/inverted/query_v2/boolean_query/operator.h"
+#include "storage/index/inverted/query_v2/collect/doc_set_collector.h"
 #include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 #include "storage/index/inverted/query_v2/phrase_query/multi_phrase_query.h"
 #include "storage/index/inverted/query_v2/phrase_query/phrase_query.h"

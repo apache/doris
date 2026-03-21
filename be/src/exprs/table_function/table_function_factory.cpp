@@ -25,7 +25,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/object_pool.h"
 #include "exec/common/util.hpp"
-#include "exprs/table_function/python_udtf_function.h"
 #include "exprs/table_function/table_function.h"
 #include "exprs/table_function/udf_table_function.h"
 #include "exprs/table_function/vexplode.h"
