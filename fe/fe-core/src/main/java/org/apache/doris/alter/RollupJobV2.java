@@ -402,9 +402,13 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
 
         tbl.readLock();
         String vaultId = tbl.getStorageVaultId();
+        AgentBatchTask newRollupBatchTask = new AgentBatchTask();
         try {
             long expiration = (createTimeMs + timeoutMs) / 1000;
             Preconditions.checkState(tbl.getState() == OlapTableState.ROLLUP);
+            if (!baseTabletsHaveReadyReplicaQuorum(tbl)) {
+                return;
+            }
             // Create object pool per MaterializedIndex
             Map<Long, Map<Object, Object>> indexObjectPoolMap = Maps.newHashMap();
             for (Map.Entry<Long, MaterializedIndex> entry : this.partitionIdToRollupIndex.entrySet()) {
@@ -491,7 +495,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 rollupReplica.getId(), rollupSchemaHash, baseSchemaHash, visibleVersion, jobId,
                                 JobType.ROLLUP, defineExprs, descTable, tbl.getSchemaByIndexId(baseIndexId, true),
                                 objectPool, whereClause, expiration, vaultId, queryOptions, queryGlobals);
-                        rollupBatchTask.addTask(rollupTask);
+                        newRollupBatchTask.addTask(rollupTask);
                     }
                 }
             }
@@ -499,12 +503,56 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
             tbl.readUnlock();
         }
 
+        rollupBatchTask = newRollupBatchTask;
         AgentTaskQueue.addBatchTask(rollupBatchTask);
         AgentTaskExecutor.submit(rollupBatchTask);
         setJobState(JobState.RUNNING);
 
         // DO NOT write edit log here, tasks will be send again if FE restart or master changed.
         LOG.info("transfer rollup job {} state to {}", jobId, this.jobState);
+    }
+
+    private boolean baseTabletsHaveReadyReplicaQuorum(OlapTable tbl) throws AlterCancelException {
+        for (Map.Entry<Long, MaterializedIndex> entry : partitionIdToRollupIndex.entrySet()) {
+            long partitionId = entry.getKey();
+            Partition partition = tbl.getPartition(partitionId);
+            Preconditions.checkNotNull(partition, partitionId);
+            long visibleVersion = partition.getVisibleVersion();
+            int requiredReadyReplicaNum = tbl.getPartitionInfo()
+                    .getReplicaAllocation(partitionId).getTotalReplicaNum() / 2 + 1;
+            MaterializedIndex baseIndex = partition.getIndex(baseIndexId);
+            Preconditions.checkNotNull(baseIndex, baseIndexId);
+            Map<Long, Long> tabletIdMap = partitionIdToBaseRollupTabletIdMap.get(partitionId);
+            Preconditions.checkNotNull(tabletIdMap, "base tablet map does not exist for partition " + partitionId);
+            for (Tablet rollupTablet : entry.getValue().getTablets()) {
+                Long baseTabletId = tabletIdMap.get(rollupTablet.getId());
+                Preconditions.checkNotNull(baseTabletId,
+                        "base tablet does not exist for rollup tablet " + rollupTablet.getId());
+                Tablet baseTablet = baseIndex.getTablet(baseTabletId);
+                Preconditions.checkNotNull(baseTablet, baseTabletId);
+                int readyReplicaNum = 0;
+                for (Replica rollupReplica : rollupTablet.getReplicas()) {
+                    long backendId = rollupReplica.getBackendIdWithoutException();
+                    Replica baseReplica = baseTablet.getReplicaByBackendId(backendId);
+                    Preconditions.checkNotNull(baseReplica,
+                            "base replica does not exist on backend " + backendId + " for base tablet "
+                                    + baseTabletId);
+                    if (isReplicaVersionComplete(baseReplica, visibleVersion)) {
+                        readyReplicaNum++;
+                    }
+                }
+                if (readyReplicaNum < requiredReadyReplicaNum) {
+                    ensureBaseTabletCatchUpPossible(tbl, partition, baseTablet, visibleVersion);
+                    LOG.info("wait base tablet {} to have enough ready replicas before sending rollup tasks, "
+                                    + "job: {}, partition: {}, rollup tablet: {}, readyReplicaNum: {}, "
+                                    + "requiredReadyReplicaNum: {}, visibleVersion: {}",
+                            baseTabletId, jobId, partitionId, rollupTablet.getId(), readyReplicaNum,
+                            requiredReadyReplicaNum, visibleVersion);
+                    return false;
+                }
+            }
+        }
+        return true;
     }
 
     /**

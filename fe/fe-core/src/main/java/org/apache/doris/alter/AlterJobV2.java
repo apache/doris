@@ -22,7 +22,10 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
+import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
@@ -301,6 +304,23 @@ public abstract class AlterJobV2 implements Writable {
             maxFailedTimes = Config.schema_change_max_retry_time;
         }
         return maxFailedTimes;
+    }
+
+    protected boolean isReplicaVersionComplete(Replica replica, long visibleVersion) {
+        return replica.getLastFailedVersion() < 0 && replica.checkVersionCatchUp(visibleVersion, false);
+    }
+
+    protected void ensureBaseTabletCatchUpPossible(OlapTable tbl, Partition partition, Tablet baseTablet,
+            long visibleVersion) throws AlterCancelException {
+        Tablet.TabletHealth tabletHealth = baseTablet.getHealth(Env.getCurrentSystemInfo(), visibleVersion,
+                tbl.getPartitionInfo().getReplicaAllocation(partition.getId()),
+                Env.getCurrentSystemInfo().getAllBackendIds(true));
+        if (tabletHealth.status == Tablet.TabletStatus.UNRECOVERABLE) {
+            throw new AlterCancelException(String.format(
+                    "base tablet %d is unrecoverable while waiting it to catch up version %d",
+                    baseTablet.getId(),
+                    visibleVersion));
+        }
     }
 
     /**
