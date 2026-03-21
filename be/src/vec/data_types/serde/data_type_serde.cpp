@@ -137,6 +137,12 @@ void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWrita
                            "Data type {} to_string_batch not implement.", get_name());
 }
 
+std::string DataTypeSerDe::to_olap_string(const vectorized::Field& value) const {
+    throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
+                           "Data type {} to_olap_string not implement.", get_name());
+    return "";
+}
+
 bool DataTypeSerDe::write_column_to_mysql_text(const IColumn& column, BufferWritable& bw,
                                                int64_t row_idx,
                                                const FormatOptions& options) const {

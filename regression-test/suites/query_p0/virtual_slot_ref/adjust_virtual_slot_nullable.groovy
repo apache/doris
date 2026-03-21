@@ -51,7 +51,7 @@ suite("adjust_virtual_slot_nullable") {
             NOT (
                     day(t2.c_date) IN (1, 3)
                 AND
-                    day(t2.c_date) IN (2, 3, 3)
+                    day(t2.c_date) = t2.c_int
                 );
     """
 

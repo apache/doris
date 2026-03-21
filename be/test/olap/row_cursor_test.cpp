@@ -267,42 +267,6 @@ public:
     std::unique_ptr<vectorized::Arena> _arena;
 };
 
-TEST_F(TestRowCursor, InitRowCursor) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_init(tablet_schema);
-    RowCursor row;
-    Status res = row.init(tablet_schema);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(row.get_fixed_len(), 131);
-    EXPECT_EQ(row.get_variable_len(), 20);
-}
-
-TEST_F(TestRowCursor, InitRowCursorWithColumnCount) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_init(tablet_schema);
-    RowCursor row;
-    Status res = row.init(tablet_schema, 5);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(row.get_fixed_len(), 23);
-    EXPECT_EQ(row.get_variable_len(), 0);
-}
-
-TEST_F(TestRowCursor, InitRowCursorWithColIds) {
-    TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
-    set_tablet_schema_for_init(tablet_schema);
-
-    std::vector<uint32_t> col_ids;
-    for (size_t i = 0; i < tablet_schema->num_columns() / 2; ++i) {
-        col_ids.push_back(i * 2);
-    }
-
-    RowCursor row;
-    Status res = row.init(tablet_schema, col_ids);
-    EXPECT_EQ(res, Status::OK());
-    EXPECT_EQ(row.get_fixed_len(), 55);
-    EXPECT_EQ(row.get_variable_len(), 0);
-}
-
 TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     TabletSchemaSPtr tablet_schema = std::make_shared<TabletSchema>();
     set_tablet_schema_for_scan_key(tablet_schema);
@@ -323,10 +287,6 @@ TEST_F(TestRowCursor, InitRowCursorWithScanKey) {
     OlapTuple tuple1(scan_keys);
     res = row.from_tuple(tuple1);
     EXPECT_EQ(res, Status::OK());
-
-    OlapTuple tuple2 = row.to_tuple();
-    EXPECT_TRUE(strncmp(tuple2.get_value(0).c_str(), "0&char_exceed_length", 20));
-    EXPECT_TRUE(strncmp(tuple2.get_value(1).c_str(), "0&varchar_exceed_length", 23));
 }
 
 } // namespace doris

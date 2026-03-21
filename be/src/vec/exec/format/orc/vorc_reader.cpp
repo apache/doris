@@ -1431,6 +1431,9 @@ void OrcReader::_init_file_description() {
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }
+    if (_scan_range.__isset.file_cache_admission) {
+        _file_description.file_cache_admission = _scan_range.file_cache_admission;
+    }
 }
 
 DataTypePtr OrcReader::convert_to_doris_type(const orc::Type* orc_type) {

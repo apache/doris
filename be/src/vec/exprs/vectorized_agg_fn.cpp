@@ -217,6 +217,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
+                     .enable_aggregate_function_null_v2 =
+                             state->enable_aggregate_function_null_v2(),
                      .column_names = std::move(column_names)});
         } else {
             _function = AggregateFunctionSimpleFactory::instance().get(
@@ -224,6 +226,8 @@ Status AggFnEvaluator::prepare(RuntimeState* state, const RowDescriptor& desc,
                     state->be_exec_version(),
                     {.is_window_function = _is_window_function,
                      .is_foreach = is_foreach,
+                     .enable_aggregate_function_null_v2 =
+                             state->enable_aggregate_function_null_v2(),
                      .column_names = std::move(column_names)});
         }
     }
@@ -282,13 +286,6 @@ Status AggFnEvaluator::execute_batch_add_selected(Block* block, size_t offset,
                                                   AggregateDataPtr* places, Arena& arena) {
     RETURN_IF_ERROR(_calc_argument_columns(block));
     _function->add_batch_selected(block->rows(), places, offset, _agg_columns.data(), arena);
-    return Status::OK();
-}
-
-Status AggFnEvaluator::streaming_agg_serialize(Block* block, BufferWritable& buf,
-                                               const size_t num_rows, Arena& arena) {
-    RETURN_IF_ERROR(_calc_argument_columns(block));
-    _function->streaming_agg_serialize(_agg_columns.data(), buf, num_rows, arena);
     return Status::OK();
 }
 

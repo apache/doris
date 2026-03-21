@@ -2130,13 +2130,13 @@ public class Config extends ConfigBase {
      * Max data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int max_be_exec_version = 8;
+    public static int max_be_exec_version = 10;
 
     /**
      * Min data version of backends serialize block.
      */
     @ConfField(mutable = false)
-    public static int min_be_exec_version = 0;
+    public static int min_be_exec_version = 8;
 
     /**
      * Data version of backends serialize block.
@@ -3751,6 +3751,16 @@ public class Config extends ConfigBase {
         "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"
     })
     public static int first_error_msg_max_length = 256;
+
+    @ConfField(mutable = false, description = {
+        "Whether to enable file cache admission control(Blocklist and Allowlist)"
+    })
+    public static boolean enable_file_cache_admission_control = false;
+
+    @ConfField(mutable = false, description = {
+        "Directory path for storing admission rules JSON files"
+    })
+    public static String file_cache_admission_control_json_dir = "";
 
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";

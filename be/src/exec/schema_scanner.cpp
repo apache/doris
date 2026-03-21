@@ -40,6 +40,7 @@
 #include "exec/schema_scanner/schema_columns_scanner.h"
 #include "exec/schema_scanner/schema_dummy_scanner.h"
 #include "exec/schema_scanner/schema_encryption_keys_scanner.h"
+#include "exec/schema_scanner/schema_file_cache_info_scanner.h"
 #include "exec/schema_scanner/schema_file_cache_statistics.h"
 #include "exec/schema_scanner/schema_files_scanner.h"
 #include "exec/schema_scanner/schema_load_job_scanner.h"
@@ -262,6 +263,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaColumnDataSizesScanner::create_unique();
     case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
         return SchemaAuthenticationIntegrationsScanner::create_unique();
+    case TSchemaTableType::SCH_FILE_CACHE_INFO:
+        return SchemaFileCacheInfoScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

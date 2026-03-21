@@ -71,7 +71,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalIntersect
 ----PhysicalProject[AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] AS `k`]
-------filter((AND[($_random_8_$ >= 0.1),($_random_8_$ <= 0.5)] = TRUE))
+------filter(($_random_8_$ <= 0.5) and ($_random_8_$ >= 0.1))
 --------PhysicalOneRowRelation[random() AS `$_random_8_$`]
 ----PhysicalOneRowRelation[TRUE AS `true`]
 
@@ -79,7 +79,7 @@ PhysicalResultSink
 PhysicalResultSink
 --PhysicalIntersect
 ----PhysicalProject[AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] AS `k`]
-------filter((AND[((cast(id as DOUBLE) + $_random_9_$) >= 0.1),((cast(id as DOUBLE) + $_random_9_$) <= 0.5)] = TRUE))
+------filter(((cast(id as DOUBLE) + $_random_9_$) <= 0.5) and ((cast(id as DOUBLE) + $_random_9_$) >= 0.1))
 --------PhysicalProject[random() AS `$_random_9_$`, t1.id]
 ----------PhysicalOlapScan[t1]
 ----PhysicalOneRowRelation[TRUE AS `true`]

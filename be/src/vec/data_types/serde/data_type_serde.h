@@ -300,6 +300,8 @@ public:
     virtual void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                            const FormatOptions& options) const;
 
+    virtual std::string to_olap_string(const vectorized::Field& field) const;
+
     // All types can override this function
     // When this function is called, column should be of the corresponding type
     // everytime call this, should insert new cell to the end of column

@@ -75,6 +75,8 @@ public:
                                int64_t start, int64_t end, vectorized::Arena& arena,
                                const FormatOptions& options) const override;
 
+    std::string to_olap_string(const vectorized::Field& field) const override;
+
 private:
     const UInt32 _scale = 6;
 };

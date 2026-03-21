@@ -423,6 +423,8 @@ struct TQueryOptions {
 
   179: optional bool enable_parquet_filter_by_bloom_filter = true;
 
+  183: optional bool enable_aggregate_function_null_v2 = false;
+
   186: optional bool enable_streaming_agg_hash_join_force_passthrough;
 
   187: optional bool enable_distinct_streaming_agg_force_passthrough;

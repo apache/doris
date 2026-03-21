@@ -56,13 +56,31 @@ template <PrimitiveType T>
 struct AggregateFunctionAvgData {
     using ResultType = typename PrimitiveTypeTraits<T>::CppType;
     static constexpr PrimitiveType ResultPType = T;
-    typename PrimitiveTypeTraits<T>::CppType sum {};
+    ResultType sum {};
     UInt64 count = 0;
 
-    AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) {
-        sum = src.sum;
-        count = src.count;
-        return *this;
+    AggregateFunctionAvgData& operator=(const AggregateFunctionAvgData<T>& src) = default;
+
+    template <typename ResultT>
+    ResultT result(ResultType multiplier) const {
+        if (!count) {
+            // null is handled in AggregationNode::_get_without_key_result
+            return static_cast<ResultT>(sum);
+        }
+        // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
+        if constexpr (T == TYPE_DECIMALV2 && IsDecimalV2<ResultT>) {
+            DecimalV2Value decimal_val_count(count, 0);
+            DecimalV2Value decimal_val_sum(sum * multiplier);
+            DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
+            return cal_ret;
+        } else {
+            if constexpr (T == TYPE_DECIMAL256) {
+                return static_cast<ResultT>(sum * multiplier /
+                                            typename PrimitiveTypeTraits<T>::CppType(count));
+            } else {
+                return static_cast<ResultT>(sum * multiplier) / static_cast<ResultT>(count);
+            }
+        }
     }
 
     template <typename ResultT>
@@ -78,19 +96,7 @@ struct AggregateFunctionAvgData {
             // null is handled in AggregationNode::_get_without_key_result
             return static_cast<ResultT>(sum);
         }
-        // to keep the same result with row vesion; see AggregateFunctions::decimalv2_avg_get_value
-        if constexpr (T == TYPE_DECIMALV2 && IsDecimalV2<ResultT>) {
-            DecimalV2Value decimal_val_count(count, 0);
-            DecimalV2Value decimal_val_sum(sum);
-            DecimalV2Value cal_ret = decimal_val_sum / decimal_val_count;
-            return cal_ret;
-        } else {
-            if constexpr (T == TYPE_DECIMAL256) {
-                return static_cast<ResultT>(sum / typename PrimitiveTypeTraits<T>::CppType(count));
-            } else {
-                return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
-            }
-        }
+        return static_cast<ResultT>(sum) / static_cast<ResultT>(count);
     }
 
     void write(BufferWritable& buf) const {
@@ -129,17 +135,29 @@ public:
     // an implicit cast to float.
 
     using DataType = typename Data::ResultType;
+
+    // consistent with fe/fe-common/src/main/java/org/apache/doris/catalog/ScalarType.java
+    static constexpr uint32_t DEFAULT_MIN_AVG_DECIMAL128_SCALE = 4;
+
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, TResult, Data>>(
                       argument_types_),
-              scale(get_decimal_scale(*argument_types_[0])) {}
+              output_scale(std::max(DEFAULT_MIN_AVG_DECIMAL128_SCALE,
+                                    get_decimal_scale(*argument_types_[0]))) {
+        if constexpr (is_decimal(T)) {
+            multiplier = ResultType(ResultDataType::get_scale_multiplier(
+                    output_scale - get_decimal_scale(*argument_types_[0])));
+        }
+    }
 
     String get_name() const override { return "avg"; }
 
     DataTypePtr get_return_type() const override {
         if constexpr (is_decimal(T)) {
-            return std::make_shared<ResultDataType>(ResultDataType::max_precision(), scale);
+            return std::make_shared<ResultDataType>(
+                    ResultDataType::max_precision(),
+                    std::max(DEFAULT_MIN_AVG_DECIMAL128_SCALE, output_scale));
         } else {
             return std::make_shared<ResultDataType>();
         }
@@ -209,15 +227,11 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = assert_cast<ColVecResult&>(to);
-        column.get_data().push_back(this->data(place).template result<ResultType>());
-    }
-
-    void deserialize_from_column(AggregateDataPtr places, const IColumn& column, Arena&,
-                                 size_t num_rows) const override {
-        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
-        auto* data = col.get_data().data();
-        memcpy(places, data, sizeof(Data) * num_rows);
+        if constexpr (is_decimal(T)) {
+            column.get_data().push_back(this->data(place).template result<ResultType>(multiplier));
+        } else {
+            column.get_data().push_back(this->data(place).template result<ResultType>());
+        }
     }
 
     void serialize_to_column(const std::vector<AggregateDataPtr>& places, size_t offset,
@@ -246,20 +260,6 @@ public:
         }
     }
 
-    NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column(AggregateDataPtr __restrict place,
-                                                                 const IColumn& column,
-                                                                 Arena&) const override {
-        auto& col = assert_cast<const ColumnFixedLengthObject&>(column);
-        const size_t num_rows = column.size();
-        DCHECK(col.size() >= num_rows) << "source column's size should greater than num_rows";
-        auto* data = reinterpret_cast<const Data*>(col.get_data().data());
-
-        for (size_t i = 0; i != num_rows; ++i) {
-            this->data(place).sum += data[i].sum;
-            this->data(place).count += data[i].count;
-        }
-    }
-
     NO_SANITIZE_UNDEFINED void deserialize_and_merge_from_column_range(
             AggregateDataPtr __restrict place, const IColumn& column, size_t begin, size_t end,
             Arena&) const override {
@@ -276,15 +276,17 @@ public:
     void deserialize_and_merge_vec(const AggregateDataPtr* places, size_t offset,
                                    AggregateDataPtr rhs, const IColumn* column, Arena& arena,
                                    const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        this->merge_vec(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void deserialize_and_merge_vec_selected(const AggregateDataPtr* places, size_t offset,
                                             AggregateDataPtr rhs, const IColumn* column,
                                             Arena& arena, const size_t num_rows) const override {
-        this->deserialize_from_column(rhs, *column, arena, num_rows);
-        this->merge_vec_selected(places, offset, rhs, arena, num_rows);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*column);
+        const auto* data = col.get_data().data();
+        this->merge_vec_selected(places, offset, AggregateDataPtr(data), arena, num_rows);
     }
 
     void serialize_without_key_to_column(ConstAggregateDataPtr __restrict place,
@@ -355,7 +357,8 @@ public:
     }
 
 private:
-    UInt32 scale;
+    uint32_t output_scale;
+    ResultType multiplier;
 };
 
 } // namespace doris::vectorized

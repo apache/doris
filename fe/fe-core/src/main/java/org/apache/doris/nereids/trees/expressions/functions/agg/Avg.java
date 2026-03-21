@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.catalog.ScalarType;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NeedSessionVarGuard;
 import org.apache.doris.nereids.trees.expressions.functions.ComputePrecision;
@@ -86,15 +85,6 @@ public class Avg extends NullableAggregateFunction
     }
 
     @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType argType = child().getDataType();
-        if (!argType.isNumericType() && !argType.isBooleanType()
-                && !argType.isNullType() && !argType.isStringLikeType()) {
-            throw new AnalysisException("avg requires a numeric, boolean or string parameter: " + this.toSql());
-        }
-    }
-
-    @Override
     public FunctionSignature computePrecision(FunctionSignature signature) {
         DataType argumentType = getArgumentType(0);
         if (signature.getArgType(0) instanceof DecimalV3Type) {
@@ -105,28 +95,16 @@ public class Avg extends NullableAggregateFunction
             }
             DecimalV3Type decimalV3Type = DecimalV3Type.forType(argumentType);
             // DecimalV3 scale lower than DEFAULT_MIN_AVG_DECIMAL128_SCALE should do cast
-            int precision = decimalV3Type.getPrecision();
             int scale = decimalV3Type.getScale();
             if (decimalV3Type.getScale() < ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE) {
                 scale = ScalarType.DEFAULT_MIN_AVG_DECIMAL128_SCALE;
-                precision = precision - decimalV3Type.getScale() + scale;
-                if (enableDecimal256) {
-                    if (precision > DecimalV3Type.MAX_DECIMAL256_PRECISION) {
-                        precision = DecimalV3Type.MAX_DECIMAL256_PRECISION;
-                    }
-                } else {
-                    if (precision > DecimalV3Type.MAX_DECIMAL128_PRECISION) {
-                        precision = DecimalV3Type.MAX_DECIMAL128_PRECISION;
-                    }
-                }
             }
-            decimalV3Type = DecimalV3Type.createDecimalV3Type(precision, scale);
             return signature.withArgumentType(0, decimalV3Type)
                     .withReturnType(DecimalV3Type.createDecimalV3Type(
                             enableDecimal256 ? DecimalV3Type.MAX_DECIMAL256_PRECISION
                                     : DecimalV3Type.MAX_DECIMAL128_PRECISION,
-                            decimalV3Type.getScale()
-            ));
+                            scale)
+                    );
         } else {
             return signature;
         }

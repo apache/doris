@@ -138,9 +138,6 @@ bool VSlotRef::equals(const VExpr& other) {
 }
 
 uint64_t VSlotRef::get_digest(uint64_t seed) const {
-    if (_data_type->get_primitive_type() == TYPE_VARIANT) {
-        return 0;
-    }
     seed = HashUtil::hash64(&_column_uniq_id, sizeof(int), seed);
     return HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
 }

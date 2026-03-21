@@ -315,6 +315,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String USE_SERIAL_EXCHANGE = "use_serial_exchange";
 
     public static final String ENABLE_PARALLEL_SCAN = "enable_parallel_scan";
+    public static final String ENABLE_AGGREGATE_FUNCTION_NULL_V2 = "enable_aggregate_function_null_v2";
 
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
@@ -1497,6 +1498,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_SCAN, fuzzy = true, varType = VariableAnnotation.EXPERIMENTAL,
             needForward = true)
     private boolean enableParallelScan = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_AGGREGATE_FUNCTION_NULL_V2, fuzzy = true, needForward = true)
+    private boolean enableAggregateFunctionNullV2 = true;
 
     @VariableMgr.VarAttr(name = OPTIMIZE_INDEX_SCAN_PARALLELISM,
             needForward = true,
@@ -3173,6 +3177,9 @@ public class SessionVariable implements Serializable, Writable {
         "enable optimization for conjunctions in sequential phrase queries"
     })
     public boolean enablePhraseQuerySequentialOpt = true;
+
+    @VariableMgr.VarAttr(name = "enable_adjust_conjunct_order_by_cost", needForward = true)
+    public boolean enableAdjustConjunctOrderByCost = true;
 
     @VariableMgr.VarAttr(name = REQUIRE_SEQUENCE_IN_INSERT, needForward = true, description = {
             "该变量用于控制，使用了 sequence 列的 unique key 表，insert into 操作是否要求必须提供每一行的 sequence 列的值",
@@ -5176,6 +5183,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableParallelScan(enableParallelScan);
         tResult.setEnableLeftSemiDirectReturnOpt(enableLeftSemiDirectReturnOpt);
+        tResult.setEnableAggregateFunctionNullV2(enableAggregateFunctionNullV2);
         tResult.setParallelScanMaxScannersCount(parallelScanMaxScannersCount);
         tResult.setParallelScanMinRowsPerScanner(parallelScanMinRowsPerScanner);
         tResult.setOptimizeIndexScanParallelism(optimizeIndexScanParallelism);
@@ -5252,6 +5260,7 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             tResult.setFileCacheQueryLimitPercent(Config.file_cache_query_limit_max_percent);
         }
+        tResult.setEnableAdjustConjunctOrderByCost(enableAdjustConjunctOrderByCost);
 
         // Set Iceberg write target file size
         tResult.setIcebergWriteTargetFileSizeBytes(icebergWriteTargetFileSizeBytes);
@@ -5573,6 +5582,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean getEnableParallelScan() {
         return enableParallelScan;
+    }
+
+    public boolean getEnableAggregateFunctionNullV2() {
+        return enableAggregateFunctionNullV2;
     }
 
     public boolean enableParallelResultSink() {
