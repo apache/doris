@@ -19,6 +19,7 @@ package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.S3Util;
@@ -60,6 +61,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -89,6 +91,9 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             Path locatedPath = new Path(remotePath);
             org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(locatedPath);
+            if (recursive && Config.enable_list_hdfs_files_ignore_hidden_directory) {
+                return listFilesIgnoreHiddenDirectory(fileSystem, locatedPath, result);
+            }
             RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
             while (locatedFiles.hasNext()) {
                 LocatedFileStatus fileStatus = locatedFiles.next();
@@ -101,6 +106,36 @@ public class DFSFileSystem extends RemoteFileSystem {
             return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
         } catch (Exception e) {
             return new Status(Status.ErrCode.COMMON_ERROR, e.getMessage());
+        }
+        return Status.OK;
+    }
+
+    /**
+     * List files recursively while ignoring hidden directories (directories starting with '.' or '_').
+     * This provides an optimization by not descending into hidden directories.
+     */
+    private Status listFilesIgnoreHiddenDirectory(FileSystem fileSystem, Path locatedPath,
+            List<RemoteFile> result) throws IOException {
+        ArrayDeque<Path> pathQueue = new ArrayDeque<>();
+        pathQueue.add(locatedPath);
+        while (!pathQueue.isEmpty()) {
+            Path currentPath = pathQueue.poll();
+            FileStatus[] fileStatusList = hdfsProperties.getHadoopAuthenticator()
+                    .doAs(() -> fileSystem.listStatus(currentPath));
+            for (FileStatus fileStatus : fileStatusList) {
+                if (fileStatus.isDirectory()) {
+                    String fileName = fileStatus.getPath().getName();
+                    if (fileName.startsWith(".") || fileName.startsWith("_")) {
+                        continue;
+                    }
+                    pathQueue.add(fileStatus.getPath());
+                } else {
+                    RemoteFile location = new RemoteFile(
+                            fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                            fileStatus.getBlockSize(), fileStatus.getModificationTime(), null);
+                    result.add(location);
+                }
+            }
         }
         return Status.OK;
     }
