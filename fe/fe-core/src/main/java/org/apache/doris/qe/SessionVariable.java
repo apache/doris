@@ -483,6 +483,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
     public static final String TOPN_FILTER_RATIO = "topn_filter_ratio";
     public static final String ENABLE_SNAPSHOT_POINT_QUERY = "enable_snapshot_point_query";
+    public static final String POINT_QUERY_VERSION_CACHE_TTL_MS = "point_query_version_cache_ttl_ms";
 
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
@@ -2178,6 +2179,14 @@ public class SessionVariable implements Serializable, Writable {
     public double topnFilterRatio = 0.5;
     @VariableMgr.VarAttr(name = ENABLE_SNAPSHOT_POINT_QUERY)
     public boolean enableSnapshotPointQuery = true;
+
+    @VariableMgr.VarAttr(name = POINT_QUERY_VERSION_CACHE_TTL_MS, description = {
+            "点查版本缓存的 TTL（毫秒）。在云模式下，点查需要从 MetaService 获取分区版本，"
+                    + "该缓存通过合并并发请求来减少 RPC 次数。设为 0 禁用缓存。",
+            "TTL in milliseconds for point query version cache. In cloud mode, point queries need "
+                    + "to fetch partition versions from MetaService. This cache reduces RPC calls by "
+                    + "coalescing concurrent requests. Set to 0 to disable."})
+    public long pointQueryVersionCacheTtlMs = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_SERVER_SIDE_PREPARED_STATEMENT, needForward = true, description = {
             "是否启用开启服务端 prepared statement", "Set whether to enable server side prepared statement."})
