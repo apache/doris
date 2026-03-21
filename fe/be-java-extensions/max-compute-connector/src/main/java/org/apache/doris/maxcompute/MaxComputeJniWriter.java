@@ -303,12 +303,17 @@ public class MaxComputeJniWriter extends JniWriter {
             return maxWriteBatchRows;
         }
 
-        // Probe: materialize a small sample to measure actual heap cost per row
+        // Probe: materialize a small sample to measure actual heap cost per row.
+        // We must actually call getMaterializedData() between the two heap
+        // measurements; otherwise probeHeapCost is always ~0 and we fall
+        // through to the conservative 1MB/row fallback every time.
         int probeRows = Math.min(10, numRows);
         Runtime rt = Runtime.getRuntime();
-        rt.gc(); // Request GC to get a cleaner measurement
         long heapBefore = rt.totalMemory() - rt.freeMemory();
+        Object[][] probeData = inputTable.getMaterializedData(
+                0, probeRows, java.util.Collections.emptyMap());
         long heapAfter = rt.totalMemory() - rt.freeMemory();
+        probeData = null; // release probe data, GC will reclaim when needed
 
         long probeHeapCost = heapAfter - heapBefore;
         long bytesPerRow;
