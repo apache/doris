@@ -114,6 +114,19 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
                 .map(Column::getName)
                 .collect(Collectors.toSet());
         if (!partitionNames.isEmpty()) {
+            // Check if any partition column is present in cols (the bound columns from SELECT).
+            // Static partition columns are excluded from cols by BindSink.bindMaxComputeTableSink(),
+            // so if no partition column remains in cols, all partitions are statically specified
+            // and we don't need sort/shuffle — all data goes to a single known partition.
+            Set<String> colNames = cols.stream()
+                    .map(Column::getName)
+                    .collect(Collectors.toSet());
+            boolean hasDynamicPartition = partitionNames.stream().anyMatch(colNames::contains);
+            if (!hasDynamicPartition) {
+                // All partition columns are statically specified, no sort needed
+                return PhysicalProperties.SINK_RANDOM_PARTITIONED;
+            }
+
             List<Integer> columnIdx = new ArrayList<>();
             List<Column> fullSchema = targetTable.getFullSchema();
             for (int i = 0; i < fullSchema.size(); i++) {
