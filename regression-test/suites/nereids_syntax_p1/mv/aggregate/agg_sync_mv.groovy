@@ -387,9 +387,9 @@ suite("agg_sync_mv") {
 
     qt_select_stddev_pop """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync41 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync41 as select id as g3, stddev_pop(kint) from agg_mv_test group by id order by id;""")
-    mv_rewrite_any_success("select id, stddev_pop(kint) from agg_mv_test group by id order by id;", ["mv_sync40", "mv_sync41"])
-    qt_select_stddev_pop_mv """select id, stddev_pop(kint) from agg_mv_test group by id order by id;"""
+    createMV("""create materialized view mv_sync41 as select id as g3, stddev_pop(kint) as stddev_pop_kint from agg_mv_test group by id order by id;""")
+    mv_rewrite_any_success("select id, stddev_pop(kint) as stddev_pop_kint from agg_mv_test group by id order by id;", ["mv_sync40", "mv_sync41"])
+    qt_select_stddev_pop_mv """select id, stddev_pop(kint) as stddev_pop_kint from agg_mv_test group by id order by id;"""
 
     qt_select_stddev_samp """select id, stddev_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync42 on agg_mv_test;"""
@@ -429,9 +429,9 @@ suite("agg_sync_mv") {
 
     qt_select_var_pop """select id, var_pop(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync48 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync48 as select id as s4, var_pop(kint) from agg_mv_test group by id order by id;""")
-    mv_rewrite_any_success("select id, var_pop(kint) from agg_mv_test group by id order by id;", ["mv_sync47", "mv_sync48"])
-    qt_select_var_pop_mv """select id, var_pop(kint) from agg_mv_test group by id order by id;"""
+    createMV("""create materialized view mv_sync48 as select id as s4, var_pop(kint) as var_pop_kint from agg_mv_test group by id order by id;""")
+    mv_rewrite_any_success("select id, var_pop(kint) as var_pop_kint from agg_mv_test group by id order by id;", ["mv_sync47", "mv_sync48"])
+    qt_select_var_pop_mv """select id, var_pop(kint) as var_pop_kint from agg_mv_test group by id order by id;"""
 
     qt_select_variance_samp """select id, variance_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync49 on agg_mv_test;"""
@@ -441,9 +441,9 @@ suite("agg_sync_mv") {
 
     qt_select_var_samp """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync50 on agg_mv_test;"""
-    createMV("""create materialized view mv_sync50 as select id as s6, var_samp(kint) from agg_mv_test group by id order by id;""")
-    mv_rewrite_any_success("select id, var_samp(kint) from agg_mv_test group by id order by id;", ["mv_sync49", "mv_sync50"])
-    qt_select_var_samp_mv """select id, var_samp(kint) from agg_mv_test group by id order by id;"""
+    createMV("""create materialized view mv_sync50 as select id as s6, var_samp(kint) as var_samp_kint from agg_mv_test group by id order by id;""")
+    mv_rewrite_any_success("select id, var_samp(kint) as var_samp_kint from agg_mv_test group by id order by id;", ["mv_sync49", "mv_sync50"])
+    qt_select_var_samp_mv """select id, var_samp(kint) as var_samp_kint from agg_mv_test group by id order by id;"""
 
     qt_select_window_funnel """select id, window_funnel(3600 * 3, 'default', kdtm, kint = 1, kint = 2) from agg_mv_test group by id order by id;"""
     sql """drop materialized view if exists mv_sync51 on agg_mv_test;"""
@@ -480,7 +480,7 @@ suite("agg_sync_mv") {
 
     streamLoad {
         table "agg_mv_test"
-        db "regression_test_nereids_syntax_p1_mv"
+        db "regression_test_nereids_syntax_p1_mv_aggregate"
         set 'column_separator', ';'
         set 'columns', '''
             id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,
