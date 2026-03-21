@@ -37,6 +37,7 @@ import org.apache.doris.nereids.trees.SuperClassId;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.And;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
@@ -51,6 +52,7 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
@@ -65,6 +67,9 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOut
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.NullIf;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Nvl;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UniqueFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.ComparableLiteral;
@@ -78,7 +83,6 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.visitor.ExpressionLineageReplacer;
-import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.types.coercion.NumericType;
@@ -229,7 +233,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.TRUE;
         } else if (exprList.size() == 1) {
@@ -277,7 +281,7 @@ public class ExpressionUtils {
             }
         }
 
-        List<Expression> exprList = Lists.newArrayList(distinctExpressions);
+        List<Expression> exprList = ImmutableList.copyOf(distinctExpressions);
         if (exprList.isEmpty()) {
             return BooleanLiteral.FALSE;
         } else if (exprList.size() == 1) {
@@ -289,7 +293,7 @@ public class ExpressionUtils {
 
     public static Expression falseOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new And(new IsNull(expression), new NullLiteral(BooleanType.INSTANCE));
+            return new And(new IsNull(expression), NullLiteral.BOOLEAN_INSTANCE);
         } else {
             return BooleanLiteral.FALSE;
         }
@@ -297,10 +301,14 @@ public class ExpressionUtils {
 
     public static Expression trueOrNull(Expression expression) {
         if (expression.nullable()) {
-            return new Or(new Not(new IsNull(expression)), new NullLiteral(BooleanType.INSTANCE));
+            return new Or(new Not(new IsNull(expression)), NullLiteral.BOOLEAN_INSTANCE);
         } else {
             return BooleanLiteral.TRUE;
         }
+    }
+
+    public static Expression notIsNull(Expression expression) {
+        return new Not(new IsNull(expression));
     }
 
     public static Expression toInPredicateOrEqualTo(Expression reference, Collection<? extends Expression> values) {
@@ -605,22 +613,6 @@ public class ExpressionUtils {
         return result.build();
     }
 
-    private static class ExpressionReplacer
-            extends DefaultExpressionRewriter<Map<? extends Expression, ? extends Expression>> {
-        public static final ExpressionReplacer INSTANCE = new ExpressionReplacer();
-
-        private ExpressionReplacer() {
-        }
-
-        @Override
-        public Expression visit(Expression expr, Map<? extends Expression, ? extends Expression> replaceMap) {
-            if (replaceMap.containsKey(expr)) {
-                return replaceMap.get(expr);
-            }
-            return super.visit(expr, replaceMap);
-        }
-    }
-
     /**
      * merge arguments into an expression array
      *
@@ -661,40 +653,10 @@ public class ExpressionUtils {
         return true;
     }
 
-    /** matchNumericType */
-    public static boolean matchNumericType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isNumericType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** matchDateLikeType */
-    public static boolean matchDateLikeType(List<Expression> children) {
-        for (Expression child : children) {
-            if (!child.getDataType().isDateLikeType()) {
-                return false;
-            }
-        }
-        return true;
-    }
-
     /** hasNullLiteral */
     public static boolean hasNullLiteral(List<Expression> children) {
         for (Expression child : children) {
             if (child instanceof NullLiteral) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /** hasOnlyMetricType */
-    public static boolean hasOnlyMetricType(List<Expression> children) {
-        for (Expression child : children) {
-            if (child.getDataType().isOnlyMetricType()) {
                 return true;
             }
         }
@@ -715,7 +677,7 @@ public class ExpressionUtils {
          * and in semi join, we can safely change the mark conjunct to hash conjunct
          */
         ImmutableList<Literal> literals =
-                ImmutableList.of(new NullLiteral(BooleanType.INSTANCE), BooleanLiteral.FALSE);
+                ImmutableList.of(NullLiteral.BOOLEAN_INSTANCE, BooleanLiteral.FALSE);
         List<MarkJoinSlotReference> markJoinSlotReferenceList =
                 new ArrayList<>((predicate.collect(MarkJoinSlotReference.class::isInstance)));
         int markSlotSize = markJoinSlotReferenceList.size();
@@ -1274,6 +1236,40 @@ public class ExpressionUtils {
         }
         shapeBuilder.append(")");
         return shapeBuilder.toString();
+    }
+
+    /**
+     * check whether the expression contains CaseWhen like type
+     */
+    public static boolean containsCaseWhenLikeType(Expression expression) {
+        return expression.containsType(CaseWhen.class, If.class, NullIf.class, Nvl.class);
+    }
+
+    /**
+     * get the results of each branch in CaseWhen like expression
+     */
+    public static Optional<List<Expression>> getCaseWhenLikeBranchResults(Expression expression) {
+        if (expression instanceof CaseWhen) {
+            CaseWhen caseWhen = (CaseWhen) expression;
+            ImmutableList.Builder<Expression> builder
+                    = ImmutableList.builderWithExpectedSize(caseWhen.getWhenClauses().size() + 1);
+            for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+                builder.add(whenClause.getResult());
+            }
+            builder.add(caseWhen.getDefaultValue().orElse(new NullLiteral(caseWhen.getDataType())));
+            return Optional.of(builder.build());
+        } else if (expression instanceof If) {
+            If ifExpr = (If) expression;
+            return Optional.of(ImmutableList.of(ifExpr.getTrueValue(), ifExpr.getFalseValue()));
+        } else if (expression instanceof NullIf) {
+            NullIf nullIf = (NullIf) expression;
+            return Optional.of(ImmutableList.of(new NullLiteral(nullIf.getDataType()), nullIf.left()));
+        } else if (expression instanceof Nvl) {
+            Nvl nvl = (Nvl) expression;
+            return Optional.of(ImmutableList.of(nvl.left(), nvl.right()));
+        } else {
+            return Optional.empty();
+        }
     }
 
     /**

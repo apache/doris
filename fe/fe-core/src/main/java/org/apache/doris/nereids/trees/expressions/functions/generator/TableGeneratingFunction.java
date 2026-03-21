@@ -52,4 +52,9 @@ public abstract class TableGeneratingFunction extends BoundFunction implements C
     protected GeneratorFunctionParams getFunctionParams(List<Expression> arguments) {
         return new GeneratorFunctionParams(this, getName(), arguments, isInferred());
     }
+
+    @Override
+    public boolean foldable() {
+        return false;
+    }
 }
