@@ -20,6 +20,8 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <barrier>
 #include <chrono>
 #include <thread>
 
@@ -357,5 +359,49 @@ TEST_F(HdfsMgrTest, ConcurrentAccess) {
 //
 //     ASSERT_EQ(MockKerberosTicketCache::get_instance_count(), 0);
 // }
+
+// Test that only one HDFS connection is created under concurrent access
+TEST_F(HdfsMgrTest, ConcurrentAccessSingleCreation) {
+    const int NUM_THREADS = 10;
+    std::vector<std::thread> threads;
+    std::vector<std::shared_ptr<HdfsHandler>> handlers(NUM_THREADS);
+    std::atomic<int> creation_count{0};
+
+    THdfsParams params = create_test_params("test_user");
+
+    // Setup mock to count creations
+    ON_CALL(*_hdfs_mgr, _create_hdfs_fs_impl(_, _, _))
+            .WillByDefault([&creation_count](const THdfsParams& params, const std::string& fs_name,
+                                             std::shared_ptr<HdfsHandler>* fs_handler) {
+                creation_count++;
+                // Simulate some delay in HDFS connection creation
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+                *fs_handler = std::make_shared<HdfsHandler>(nullptr, false, "", "", fs_name);
+                return Status::OK();
+            });
+
+    // Use a barrier to ensure all threads start at the same time
+    std::barrier sync_point(NUM_THREADS);
+
+    for (int i = 0; i < NUM_THREADS; i++) {
+        threads.emplace_back([this, &params, &handlers, i, &sync_point]() {
+            sync_point.arrive_and_wait();
+            ASSERT_TRUE(_hdfs_mgr->get_or_create_fs(params, "test_fs", &handlers[i]).ok());
+        });
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    // Verify only ONE creation happened
+    ASSERT_EQ(creation_count.load(), 1);
+    ASSERT_EQ(_hdfs_mgr->get_fs_handlers_size(), 1);
+
+    // Verify all threads got the same handler
+    for (int i = 1; i < NUM_THREADS; i++) {
+        ASSERT_EQ(handlers[0], handlers[i]);
+    }
+}
 
 } // namespace doris::io
