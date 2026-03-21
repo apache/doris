@@ -51,12 +51,16 @@
 #include "io/file_factory.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/s3_file_writer.h"
-#include "olap/utils.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"
 #include "rapidjson/writer.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
+#include "storage/utils.h"
+#include "util/cpu_info.h"
+#include "util/disk_info.h"
+#include "util/mem_info.h"
+
 #ifdef __clang__
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wkeyword-macro"

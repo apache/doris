@@ -21,13 +21,13 @@
 #include <pdqsort.h>
 
 #include "common/object_pool.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/column/column_vector.h"
+#include "core/data_type/primitive_type.h"
+#include "exec/common/hash_table/phmap_fwd_decl.h"
+#include "exec/runtime_filter/utils.h"
 #include "exprs/filter_base.h"
-#include "runtime/primitive_type.h"
-#include "runtime_filter/utils.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/columns/column_vector.h"
-#include "vec/common/hash_table/phmap_fwd_decl.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -189,7 +189,7 @@ template <typename T>
 class DynamicContainer {
 public:
     using Self = DynamicContainer;
-    using Iterator = typename vectorized::flat_hash_set<T>::iterator;
+    using Iterator = typename flat_hash_set<T>::iterator;
     using ElementType = T;
 
     DynamicContainer() = default;
@@ -210,7 +210,7 @@ public:
     size_t size() const { return _set.size(); }
 
 private:
-    vectorized::flat_hash_set<T> _set;
+    flat_hash_set<T> _set;
 };
 
 // TODO Maybe change void* parameter to template parameter better.
@@ -222,10 +222,9 @@ public:
     // use in vectorize execute engine
     virtual void insert(void* data, size_t) = 0;
 
-    virtual void insert_range_from(const vectorized::ColumnPtr& column, size_t start,
-                                   size_t end) = 0;
+    virtual void insert_range_from(const ColumnPtr& column, size_t start, size_t end) = 0;
 
-    virtual void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) = 0;
+    virtual void insert_fixed_len(const ColumnPtr& column, size_t start) = 0;
 
     virtual void insert(HybridSetBase* set) {
         HybridSetBase::IteratorBase* iter = set->begin();
@@ -244,19 +243,19 @@ public:
     // use in vectorize execute engine
     virtual bool find(const void* data, size_t) const = 0;
 
-    virtual void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                            doris::vectorized::ColumnUInt8::Container& results,
+    virtual void find_batch(const doris::IColumn& column, size_t rows,
+                            doris::ColumnUInt8::Container& results,
                             const uint8_t* __restrict filter = nullptr) = 0;
-    virtual void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                                     doris::vectorized::ColumnUInt8::Container& results,
+    virtual void find_batch_negative(const doris::IColumn& column, size_t rows,
+                                     doris::ColumnUInt8::Container& results,
                                      const uint8_t* __restrict filter = nullptr) = 0;
-    virtual void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
-                                     const doris::vectorized::NullMap& null_map,
-                                     doris::vectorized::ColumnUInt8::Container& results,
+    virtual void find_batch_nullable(const doris::IColumn& column, size_t rows,
+                                     const doris::NullMap& null_map,
+                                     doris::ColumnUInt8::Container& results,
                                      const uint8_t* __restrict filter = nullptr) = 0;
-    virtual void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
-                                              const doris::vectorized::NullMap& null_map,
-                                              doris::vectorized::ColumnUInt8::Container& results,
+    virtual void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
+                                              const doris::NullMap& null_map,
+                                              doris::ColumnUInt8::Container& results,
                                               const uint8_t* __restrict filter = nullptr) = 0;
 
     virtual void to_pb(PInFilter* filter) = 0;
@@ -297,11 +296,11 @@ public:
 
     void insert(void* data, size_t /*unused*/) override { insert(data); }
 
-    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+    void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         insert_range_from(column, start, column->size());
     }
 
-    void insert_range_from(const vectorized::ColumnPtr& column, size_t start, size_t end) override {
+    void insert_range_from(const ColumnPtr& column, size_t start, size_t end) override {
         if (end > column->size()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Parameters start = {}, end = {}, are out of bound in "
@@ -309,11 +308,10 @@ public:
                                    start, end, column->size());
         }
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& col = nullable->get_nested_column();
             const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
 
             const ElementType* data = (ElementType*)col.get_raw_data().data;
             for (size_t i = start; i < end; i++) {
@@ -339,37 +337,34 @@ public:
 
     bool find(const void* data, size_t /*unused*/) const override { return find(data); }
 
-    void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                    doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch(const doris::IColumn& column, size_t rows,
+                    doris::ColumnUInt8::Container& results,
                     const uint8_t* __restrict filter = nullptr) override {
         _find_batch<false, false>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                             doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_negative(const doris::IColumn& column, size_t rows,
+                             doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
-                             const doris::vectorized::NullMap& null_map,
-                             doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_nullable(const doris::IColumn& column, size_t rows,
+                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
-    void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
-                                      const doris::vectorized::NullMap& null_map,
-                                      doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
+                                      const doris::NullMap& null_map,
+                                      doris::ColumnUInt8::Container& results,
                                       const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                     const doris::vectorized::NullMap* null_map,
-                     doris::vectorized::ColumnUInt8::Container& results,
-                     const uint8_t* __restrict filter) {
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+                     doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
         auto& col = assert_cast<const ColumnType&>(column);
         const auto* __restrict data = (ElementType*)col.get_data().data();
         const uint8_t* __restrict null_map_data;
@@ -494,11 +489,11 @@ public:
         }
     }
 
-    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+    void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         insert_range_from(column, start, column->size());
     }
 
-    void insert_range_from(const vectorized::ColumnPtr& column, size_t start, size_t end) override {
+    void insert_range_from(const ColumnPtr& column, size_t start, size_t end) override {
         if (end > column->size()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Parameters start = {}, end = {}, are out of bound in "
@@ -506,26 +501,25 @@ public:
                                    start, end, column->size());
         }
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->get_nested_column().is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(
-                                                 nullable->get_nested_column()),
-                                         nullmap.data(), start, end);
+                _insert_fixed_len_string(
+                        assert_cast<const ColumnString64&>(nullable->get_nested_column()),
+                        nullmap.data(), start, end);
             } else {
                 _insert_fixed_len_string(
-                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        assert_cast<const ColumnString&>(nullable->get_nested_column()),
                         nullmap.data(), start, end);
             }
         } else {
             if (column->is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString64&>(*column), nullptr,
+                                         start, end);
             } else {
-                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                         end);
             }
         }
     }
@@ -543,38 +537,35 @@ public:
         return _set.find(str_value);
     }
 
-    void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                    doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch(const doris::IColumn& column, size_t rows,
+                    doris::ColumnUInt8::Container& results,
                     const uint8_t* __restrict filter = nullptr) override {
         _find_batch<false, false>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                             doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_negative(const doris::IColumn& column, size_t rows,
+                             doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
-                             const doris::vectorized::NullMap& null_map,
-                             doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_nullable(const doris::IColumn& column, size_t rows,
+                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
-    void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
-                                      const doris::vectorized::NullMap& null_map,
-                                      doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
+                                      const doris::NullMap& null_map,
+                                      doris::ColumnUInt8::Container& results,
                                       const uint8_t* __restrict filter = nullptr) override {
         _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                     const doris::vectorized::NullMap* null_map,
-                     doris::vectorized::ColumnUInt8::Container& results,
-                     const uint8_t* __restrict filter) {
-        const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+                     doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
+        const auto& col = assert_cast<const doris::ColumnString&>(column);
         const uint8_t* __restrict null_map_data;
         if constexpr (is_nullable) {
             null_map_data = null_map->data();
@@ -702,11 +693,11 @@ public:
         }
     }
 
-    void insert_fixed_len(const vectorized::ColumnPtr& column, size_t start) override {
+    void insert_fixed_len(const ColumnPtr& column, size_t start) override {
         insert_range_from(column, start, column->size());
     }
 
-    void insert_range_from(const vectorized::ColumnPtr& column, size_t start, size_t end) override {
+    void insert_range_from(const ColumnPtr& column, size_t start, size_t end) override {
         if (end > column->size()) {
             throw doris::Exception(doris::ErrorCode::INTERNAL_ERROR,
                                    "Parameters start = {}, end = {}, are out of bound in "
@@ -714,26 +705,25 @@ public:
                                    start, end, column->size());
         }
         if (column->is_nullable()) {
-            const auto* nullable = assert_cast<const vectorized::ColumnNullable*>(column.get());
+            const auto* nullable = assert_cast<const ColumnNullable*>(column.get());
             const auto& nullmap =
-                    assert_cast<const vectorized::ColumnUInt8&>(nullable->get_null_map_column())
-                            .get_data();
+                    assert_cast<const ColumnUInt8&>(nullable->get_null_map_column()).get_data();
             if (nullable->get_nested_column().is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(
-                                                 nullable->get_nested_column()),
-                                         nullmap.data(), start, end);
+                _insert_fixed_len_string(
+                        assert_cast<const ColumnString64&>(nullable->get_nested_column()),
+                        nullmap.data(), start, end);
             } else {
                 _insert_fixed_len_string(
-                        assert_cast<const vectorized::ColumnString&>(nullable->get_nested_column()),
+                        assert_cast<const ColumnString&>(nullable->get_nested_column()),
                         nullmap.data(), start, end);
             }
         } else {
             if (column->is_column_string64()) {
-                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString64&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString64&>(*column), nullptr,
+                                         start, end);
             } else {
-                _insert_fixed_len_string(assert_cast<const vectorized::ColumnString&>(*column),
-                                         nullptr, start, end);
+                _insert_fixed_len_string(assert_cast<const ColumnString&>(*column), nullptr, start,
+                                         end);
             }
         }
     }
@@ -750,38 +740,35 @@ public:
         return _set.find(sv);
     }
 
-    void find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                    doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch(const doris::IColumn& column, size_t rows,
+                    doris::ColumnUInt8::Container& results,
                     const uint8_t* __restrict filter) override {
         _find_batch<false, false>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_negative(const doris::vectorized::IColumn& column, size_t rows,
-                             doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_negative(const doris::IColumn& column, size_t rows,
+                             doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter) override {
         _find_batch<false, true>(column, rows, nullptr, results, filter);
     }
 
-    void find_batch_nullable(const doris::vectorized::IColumn& column, size_t rows,
-                             const doris::vectorized::NullMap& null_map,
-                             doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_nullable(const doris::IColumn& column, size_t rows,
+                             const doris::NullMap& null_map, doris::ColumnUInt8::Container& results,
                              const uint8_t* __restrict filter) override {
         _find_batch<true, false>(column, rows, &null_map, results, filter);
     }
 
-    void find_batch_nullable_negative(const doris::vectorized::IColumn& column, size_t rows,
-                                      const doris::vectorized::NullMap& null_map,
-                                      doris::vectorized::ColumnUInt8::Container& results,
+    void find_batch_nullable_negative(const doris::IColumn& column, size_t rows,
+                                      const doris::NullMap& null_map,
+                                      doris::ColumnUInt8::Container& results,
                                       const uint8_t* __restrict filter) override {
         _find_batch<true, true>(column, rows, &null_map, results, filter);
     }
 
     template <bool is_nullable, bool is_negative>
-    void _find_batch(const doris::vectorized::IColumn& column, size_t rows,
-                     const doris::vectorized::NullMap* null_map,
-                     doris::vectorized::ColumnUInt8::Container& results,
-                     const uint8_t* __restrict filter) {
-        const auto& col = assert_cast<const doris::vectorized::ColumnString&>(column);
+    void _find_batch(const doris::IColumn& column, size_t rows, const doris::NullMap* null_map,
+                     doris::ColumnUInt8::Container& results, const uint8_t* __restrict filter) {
+        const auto& col = assert_cast<const doris::ColumnString&>(column);
         const auto& offset = col.get_offsets();
         const uint8_t* __restrict data = col.get_chars().data();
         const uint8_t* __restrict null_map_data;

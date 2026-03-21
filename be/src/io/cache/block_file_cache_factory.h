@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <gen_cpp/internal_service.pb.h>
+
 #include <memory>
 #include <optional>
 #include <string>
@@ -27,15 +29,13 @@
 #include <vector>
 
 #include "common/status.h"
-#include "gen_cpp/internal_service.pb.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_cache_common.h"
+#include "storage/options.h"
 namespace doris {
 class TUniqueId;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 namespace io {
 
@@ -100,7 +100,7 @@ public:
      */
     std::string reset_capacity(const std::string& path, int64_t new_capacity);
 
-    void get_cache_stats_block(vectorized::Block* block);
+    void get_cache_stats_block(Block* block);
 
     // Get all cache instances for inspection
     const std::vector<std::unique_ptr<BlockFileCache>>& get_caches() const { return _caches; }

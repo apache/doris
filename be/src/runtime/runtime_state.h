@@ -43,14 +43,13 @@
 #include "common/config.h"
 #include "common/factory_creator.h"
 #include "common/status.h"
-#include "io/fs/file_system.h"
+#include "exec/scan/vector_search_user_params.h"
 #include "io/fs/s3_file_system.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/task_execution_context.h"
 #include "runtime/workload_group/workload_group.h"
 #include "util/debug_util.h"
-#include "util/runtime_profile.h"
 #include "util/timezone_utils.h"
-#include "vec/runtime/vector_search_user_params.h"
 
 namespace doris {
 class RuntimeFilter;
@@ -59,13 +58,11 @@ inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
 }
 
-namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
 class Dependency;
-} // namespace pipeline
 
 class DescriptorTbl;
 class ObjectPool;
@@ -616,8 +613,8 @@ public:
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
-    using LocalState = doris::pipeline::PipelineXLocalStateBase;
-    using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
+    using LocalState = doris::PipelineXLocalStateBase;
+    using SinkLocalState = doris::PipelineXSinkLocalStateBase;
     // get result can return an error message, and we will only call it during the prepare.
     void emplace_local_state(int id, std::unique_ptr<LocalState> state);
 
@@ -848,7 +845,6 @@ private:
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
     int _max_operator_id = 0;
-    pipeline::PipelineTask* _task = nullptr;
     int _task_id = -1;
     int _task_num = 0;
 
@@ -861,9 +857,9 @@ private:
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
 
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 
-    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
+    std::unique_ptr<doris::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 

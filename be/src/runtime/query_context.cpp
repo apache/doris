@@ -32,9 +32,10 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "pipeline/dependency.h"
-#include "pipeline/pipeline_fragment_context.h"
+#include "exec/pipeline/dependency.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
+#include "exec/runtime_filter/runtime_filter_definitions.h"
+#include "exec/spill/spill_stream_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/memory/heap_profiler.h"
@@ -43,10 +44,9 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "runtime/workload_management/query_task_controller.h"
-#include "runtime_filter/runtime_filter_definitions.h"
+#include "storage/olap_common.h"
 #include "util/mem_info.h"
 #include "util/uid_util.h"
-#include "vec/spill/spill_stream_manager.h"
 
 namespace doris {
 
@@ -102,9 +102,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(query_mem_tracker());
     _query_watcher.start();
     _execution_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "ExecutionDependency", false);
+            Dependency::create_unique(-1, -1, "ExecutionDependency", false);
     _memory_sufficient_dependency =
-            pipeline::Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
+            Dependency::create_unique(-1, -1, "MemorySufficientDependency", true);
 
     _runtime_filter_mgr = std::make_unique<RuntimeFilterMgr>(true);
 
@@ -341,7 +341,7 @@ std::string QueryContext::get_first_error_msg() {
 }
 
 void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragment_id) {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_cancel;
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_cancel;
     {
         std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
         for (auto& [f_id, f_context] : _fragment_id_to_pipeline_ctx) {
@@ -359,7 +359,7 @@ void QueryContext::cancel_all_pipeline_context(const Status& reason, int fragmen
 }
 
 std::string QueryContext::print_all_pipeline_context() {
-    std::vector<std::weak_ptr<pipeline::PipelineFragmentContext>> ctx_to_print;
+    std::vector<std::weak_ptr<PipelineFragmentContext>> ctx_to_print;
     fmt::memory_buffer debug_string_buffer;
     size_t i = 0;
     {
@@ -386,12 +386,12 @@ std::string QueryContext::print_all_pipeline_context() {
 }
 
 void QueryContext::set_pipeline_context(
-        const int fragment_id, std::shared_ptr<pipeline::PipelineFragmentContext> pip_ctx) {
+        const int fragment_id, std::shared_ptr<PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
     _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
 }
 
-doris::pipeline::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
+doris::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
     if (!_task_scheduler) {
         throw Exception(Status::InternalError("task_scheduler is null"));
     }

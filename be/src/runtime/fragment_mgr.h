@@ -32,13 +32,13 @@
 #include <vector>
 
 #include "common/be_mock_util.h"
+#include "common/metrics/metrics.h"
 #include "common/status.h"
-#include "http/rest_monitor_iface.h"
+#include "exec/runtime_filter/runtime_filter_mgr.h"
 #include "runtime/query_context.h"
-#include "runtime_filter/runtime_filter_mgr.h"
+#include "service/http/rest_monitor_iface.h"
 #include "util/countdown_latch.h"
 #include "util/hash_util.hpp" // IWYU pragma: keep
-#include "util/metrics.h"
 
 namespace butil {
 class IOBufAsZeroCopyInputStream;
@@ -49,9 +49,7 @@ namespace doris {
 extern bvar::Adder<uint64_t> g_fragment_executing_count;
 extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
-namespace pipeline {
 class PipelineFragmentContext;
-} // namespace pipeline
 class QueryContext;
 class ExecEnv;
 class ThreadPool;
@@ -132,7 +130,7 @@ public:
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
     Status trigger_pipeline_context_report(const ReportStatusRequest,
-                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
+                                           std::shared_ptr<PipelineFragmentContext>&&);
 
     // Can be used in both version.
     MOCK_FUNCTION void cancel_query(const TUniqueId query_id, const Status reason);
@@ -215,9 +213,8 @@ private:
     ExecEnv* _exec_env = nullptr;
 
     // (QueryID, FragmentID) -> PipelineFragmentContext
-    ConcurrentContextMap<std::pair<TUniqueId, int>,
-                         std::shared_ptr<pipeline::PipelineFragmentContext>,
-                         pipeline::PipelineFragmentContext>
+    ConcurrentContextMap<std::pair<TUniqueId, int>, std::shared_ptr<PipelineFragmentContext>,
+                         PipelineFragmentContext>
             _pipeline_map;
 
     // query id -> QueryContext

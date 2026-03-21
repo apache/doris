@@ -38,6 +38,7 @@
 #include "cloud/config.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "cpp/s3_rate_limiter.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
@@ -49,17 +50,16 @@
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/io_common.h"
-#include "olap/storage_policy.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
+#include "storage/storage_policy.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
+#include "util/client_cache.h"
 #include "util/debug_points.h"
-#include "util/doris_metrics.h"
-#include "util/runtime_profile.h"
 
 namespace doris::io {
 

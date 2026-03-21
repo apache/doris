@@ -40,9 +40,6 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <sys/stat.h>
-#include <vec/data_types/data_type.h>
-#include <vec/exec/vjdbc_connector.h>
-#include <vec/sink/varrow_flight_result_writer.h>
 
 #include <algorithm>
 #include <exception>
@@ -60,77 +57,79 @@
 #include "common/config.h"
 #include "common/exception.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/metrics/metrics.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
+#include "core/block/block.h"
+#include "core/data_type/data_type.h"
+#include "exec/common/variant_util.h"
+#include "exec/connector/vjdbc_connector.h"
+#include "exec/exchange/vdata_stream_mgr.h"
 #include "exec/rowid_fetcher.h"
-#include "http/http_client.h"
+#include "exec/sink/writer/varrow_flight_result_writer.h"
+#include "exec/sink/writer/vmysql_result_writer.h"
+#include "exprs/function/dictionary_factory.h"
+#include "format/arrow/arrow_row_batch.h"
+#include "format/avro/avro_jni_reader.h"
+#include "format/csv/csv_reader.h"
+#include "format/generic_reader.h"
+#include "format/json/new_json_reader.h"
+#include "format/native/native_reader.h"
+#include "format/orc/vorc_reader.h"
+#include "format/parquet/vparquet_reader.h"
+#include "format/text/text_reader.h"
 #include "io/fs/local_file_system.h"
 #include "io/fs/stream_load_pipe.h"
 #include "io/io_common.h"
-#include "olap/data_dir.h"
-#include "olap/delta_writer.h"
-#include "olap/olap_common.h"
-#include "olap/olap_define.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/rowset/rowset.h"
-#include "olap/rowset/rowset_factory.h"
-#include "olap/rowset/rowset_meta.h"
-#include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/rowset/segment_v2/inverted_index_desc.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_fwd.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_schema.h"
-#include "olap/txn_manager.h"
-#include "olap/wal/wal_manager.h"
+#include "load/channel/load_channel_mgr.h"
+#include "load/channel/load_stream_mgr.h"
+#include "load/delta_writer/delta_writer.h"
+#include "load/group_commit/wal/wal_manager.h"
+#include "load/routine_load/routine_load_task_executor.h"
+#include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_context.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/cdc_client_mgr.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/fold_constant_executor.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/load_channel_mgr.h"
-#include "runtime/load_stream_mgr.h"
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
-#include "runtime/routine_load/routine_load_task_executor.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_context.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/thread_context.h"
-#include "runtime/types.h"
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "service/backend_options.h"
+#include "service/http/http_client.h"
 #include "service/point_query_executor.h"
-#include "util/arrow/row_batch.h"
+#include "storage/data_dir.h"
+#include "storage/index/inverted/inverted_index_desc.h"
+#include "storage/olap_common.h"
+#include "storage/olap_define.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/rowset/rowset.h"
+#include "storage/rowset/rowset_factory.h"
+#include "storage/rowset/rowset_meta.h"
+#include "storage/segment/column_reader.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/tablet/tablet_manager.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/txn/txn_manager.h"
 #include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/brpc_closure.h"
-#include "util/doris_metrics.h"
+#include "util/jsonb/serialize.h"
 #include "util/md5.h"
-#include "util/metrics.h"
 #include "util/network_util.h"
 #include "util/proto_util.h"
-#include "util/runtime_profile.h"
 #include "util/stopwatch.hpp"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/common/variant_util.h"
-#include "vec/core/block.h"
-#include "vec/exec/format/avro//avro_jni_reader.h"
-#include "vec/exec/format/csv/csv_reader.h"
-#include "vec/exec/format/generic_reader.h"
-#include "vec/exec/format/json/new_json_reader.h"
-#include "vec/exec/format/native/native_reader.h"
-#include "vec/exec/format/orc/vorc_reader.h"
-#include "vec/exec/format/parquet/vparquet_reader.h"
-#include "vec/exec/format/text/text_reader.h"
-#include "vec/functions/dictionary_factory.h"
-#include "vec/jsonb/serialize.h"
-#include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/vmysql_result_writer.h"
 
 namespace google {
 namespace protobuf {
@@ -653,9 +652,9 @@ void PInternalService::fetch_data(google::protobuf::RpcController* controller,
                                   google::protobuf::Closure* done) {
     // fetch_data is a light operation which will put a request rather than wait inplace when there's no data ready.
     // when there's data ready, use brpc to send. there's queue in brpc service. won't take it too long.
-    auto ctx = vectorized::GetResultBatchCtx::create_shared(result, done);
+    auto ctx = GetResultBatchCtx::create_shared(result, done);
     TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
-    std::shared_ptr<vectorized::MySQLResultBlockBuffer> buffer;
+    std::shared_ptr<MySQLResultBlockBuffer> buffer;
     Status st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, buffer);
     if (!st.ok()) {
         LOG(WARNING) << "Result buffer not found! finst ID: " << print_id(unique_id);
@@ -671,9 +670,9 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
                                         PFetchArrowDataResult* result,
                                         google::protobuf::Closure* done) {
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
-        auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result, done);
+        auto ctx = GetArrowResultBatchCtx::create_shared(result, done);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
-        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
+        std::shared_ptr<ArrowFlightResultBlockBuffer> arrow_buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
@@ -823,7 +822,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         // might asynchronouslly access the profile
         std::unique_ptr<RuntimeProfile> profile =
                 std::make_unique<RuntimeProfile>("FetchTableSchema");
-        std::unique_ptr<vectorized::GenericReader> reader(nullptr);
+        std::unique_ptr<GenericReader> reader(nullptr);
         io::IOContext io_ctx;
         io::FileCacheStatistics file_cache_statis;
         io_ctx.file_cache_stats = &file_cache_statis;
@@ -840,35 +839,35 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
         case TFileFormatType::FORMAT_CSV_SNAPPYBLOCK:
         case TFileFormatType::FORMAT_CSV_LZOP:
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
-            reader = vectorized::CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
+            reader = CsvReader::create_unique(nullptr, profile.get(), nullptr, params,
                                                           range, file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_TEXT: {
-            reader = vectorized::TextReader::create_unique(nullptr, profile.get(), nullptr, params,
+            reader = TextReader::create_unique(nullptr, profile.get(), nullptr, params,
                                                            range, file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {
-            reader = vectorized::ParquetReader::create_unique(params, range, &io_ctx, nullptr);
+            reader = ParquetReader::create_unique(params, range, &io_ctx, nullptr);
             break;
         }
         case TFileFormatType::FORMAT_ORC: {
-            reader = vectorized::OrcReader::create_unique(params, range, "", &io_ctx);
+            reader = OrcReader::create_unique(params, range, "", &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_NATIVE: {
-            reader = vectorized::NativeReader::create_unique(profile.get(), params, range, &io_ctx,
+            reader = NativeReader::create_unique(profile.get(), params, range, &io_ctx,
                                                              nullptr);
             break;
         }
         case TFileFormatType::FORMAT_JSON: {
-            reader = vectorized::NewJsonReader::create_unique(profile.get(), params, range,
+            reader = NewJsonReader::create_unique(profile.get(), params, range,
                                                               file_slots, &io_ctx);
             break;
         }
         case TFileFormatType::FORMAT_AVRO: {
-            reader = vectorized::AvroJNIReader::create_unique(profile.get(), params, range,
+            reader = AvroJNIReader::create_unique(profile.get(), params, range,
                                                               file_slots);
             break;
         }
@@ -890,7 +889,7 @@ void PInternalService::fetch_table_schema(google::protobuf::RpcController* contr
             return;
         }
         std::vector<std::string> col_names;
-        std::vector<vectorized::DataTypePtr> col_types;
+        std::vector<DataTypePtr> col_types;
         st = reader->get_parsed_schema(&col_names, &col_types);
         if (!st.ok()) {
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
@@ -920,7 +919,7 @@ void PInternalService::fetch_arrow_flight_schema(google::protobuf::RpcController
     bool ret = _arrow_flight_work_pool.try_offer([request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         std::shared_ptr<arrow::Schema> schema;
-        std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> buffer;
+        std::shared_ptr<ArrowFlightResultBlockBuffer> buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(
                 UniqueId(request->finst_id()).to_thrift(), buffer);
         if (!st.ok()) {
@@ -991,7 +990,7 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                 fmt::format("InternalService::test_jdbc_connection"));
         SCOPED_ATTACH_TASK(mem_tracker);
         TTableDescriptor table_desc;
-        vectorized::JdbcConnectorParam jdbc_param;
+        JdbcConnectorParam jdbc_param;
         Status st = Status::OK();
         {
             const uint8_t* buf = (const uint8_t*)request->jdbc_table().data();
@@ -1020,8 +1019,8 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
         jdbc_param.connection_pool_max_wait_time = jdbc_table.connection_pool_max_wait_time;
         jdbc_param.connection_pool_keep_alive = jdbc_table.connection_pool_keep_alive;
 
-        std::unique_ptr<vectorized::JdbcConnector> jdbc_connector;
-        jdbc_connector.reset(new (std::nothrow) vectorized::JdbcConnector(jdbc_param));
+        std::unique_ptr<JdbcConnector> jdbc_connector;
+        jdbc_connector.reset(new (std::nothrow) JdbcConnector(jdbc_param));
 
         st = jdbc_connector->test_connection();
         st.to_protobuf(result->mutable_status());
@@ -1205,7 +1204,7 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
             if (!schemas.empty() && st.ok()) {
                 // merge all
                 TabletSchemaSPtr merged_schema;
-                st = vectorized::variant_util::get_least_common_schema(schemas, nullptr,
+                st = variant_util::get_least_common_schema(schemas, nullptr,
                                                                        merged_schema);
                 if (!st.ok()) {
                     LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
@@ -1241,14 +1240,14 @@ void PInternalService::fetch_remote_tablet_schema(google::protobuf::RpcControlle
                     }
                     auto tablet = res.value();
                     auto rowsets = tablet->get_snapshot_rowset();
-                    auto schema = vectorized::variant_util::VariantCompactionUtil::
+                    auto schema = variant_util::VariantCompactionUtil::
                             calculate_variant_extended_schema(rowsets, tablet->tablet_schema());
                     tablet_schemas.push_back(schema);
                 }
                 if (!tablet_schemas.empty()) {
                     // merge all
                     TabletSchemaSPtr merged_schema;
-                    st = vectorized::variant_util::get_least_common_schema(tablet_schemas, nullptr,
+                    st = variant_util::get_least_common_schema(tablet_schemas, nullptr,
                                                                            merged_schema);
                     if (!st.ok()) {
                         LOG(WARNING) << "Failed to get least common schema: " << st.to_string();
@@ -2132,14 +2131,14 @@ void PInternalService::multiget_data_v2(google::protobuf::RpcController* control
         return;
     }
 
-    doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::ScannerScheduler* scan_sched = nullptr;
-    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
+    doris::TaskScheduler* exec_sched = nullptr;
+    ScannerScheduler* scan_sched = nullptr;
+    ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
     st = remote_scan_sched->submit_scan_task(
-            vectorized::SimplifiedScanTask(
+            SimplifiedScanTask(
                     [request, response, done]() {
                         SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->rowid_storage_reader_tracker());
                         signal::set_signal_task_id(request->query_id());

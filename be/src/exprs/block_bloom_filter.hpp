@@ -22,7 +22,7 @@
 
 #include <crc32c/crc32c.h>
 
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
 #ifdef __AVX2__
 #include <immintrin.h>
 #endif

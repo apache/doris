@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "s3_file_bufferpool.h"
+#include "io/fs/s3_file_bufferpool.h"
 
 #include <bvar/bvar.h>
 #include <crc32c/crc32c.h>
@@ -27,6 +27,7 @@
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "core/arena.h"
 #include "cpp/sync_point.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -35,7 +36,6 @@
 #include "runtime/thread_context.h"
 #include "util/defer_op.h"
 #include "util/slice.h"
-#include "vec/common/arena.h"
 
 namespace doris {
 namespace io {

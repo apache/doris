@@ -31,9 +31,10 @@
 #include <aws/sts/STSClient.h>
 #include <bvar/reducer.h>
 #include <cpp/s3_rate_limiter.h>
-#include <util/string_util.h>
 
 #include <atomic>
+
+#include "util/string_util.h"
 
 #ifdef USE_AZURE
 #include <azure/core/diagnostics/logger.hpp>
@@ -59,11 +60,11 @@
 #ifdef USE_AZURE
 #include "io/fs/azure_obj_storage_client.h"
 #endif
+#include "exec/scan/scanner_scheduler.h"
 #include "io/fs/obj_storage_client.h"
 #include "io/fs/s3_obj_storage_client.h"
 #include "runtime/exec_env.h"
-#include "s3_uri.h"
-#include "vec/exec/scan/scanner_scheduler.h"
+#include "util/s3_uri.h"
 
 namespace doris {
 namespace s3_bvar {

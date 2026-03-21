@@ -44,14 +44,10 @@ class Controller;
 
 namespace doris {
 
-namespace pipeline {
 class Dependency;
-} // namespace pipeline
 
-namespace vectorized {
 class GetArrowResultBatchCtx;
 class Block;
-} // namespace vectorized
 
 class PFetchDataResult;
 
@@ -65,7 +61,7 @@ public:
 
     [[nodiscard]] virtual std::shared_ptr<MemTrackerLimiter> mem_tracker() = 0;
     virtual void set_dependency(const TUniqueId& id,
-                                std::shared_ptr<pipeline::Dependency> result_sink_dependency) = 0;
+                                std::shared_ptr<Dependency> result_sink_dependency) = 0;
 };
 
 // This is used to serialize a result block by normal queries / arrow flight queries / point queries.
@@ -83,10 +79,10 @@ public:
 
     [[nodiscard]] std::shared_ptr<MemTrackerLimiter> mem_tracker() override { return _mem_tracker; }
     void set_dependency(const TUniqueId& id,
-                        std::shared_ptr<pipeline::Dependency> result_sink_dependency) override;
+                        std::shared_ptr<Dependency> result_sink_dependency) override;
 
 protected:
-    friend class vectorized::GetArrowResultBatchCtx;
+    friend class GetArrowResultBatchCtx;
     ResultBlockBuffer(RuntimeState* state)
             : ResultBlockBuffer<ResultCtxType>(TUniqueId(), state, 0) {}
     void _update_dependency();
@@ -114,7 +110,7 @@ protected:
 
     std::atomic<int64_t> _returned_rows = 0;
     // instance id to dependency
-    std::unordered_map<TUniqueId, std::shared_ptr<pipeline::Dependency>> _result_sink_dependencies;
+    std::unordered_map<TUniqueId, std::shared_ptr<Dependency>> _result_sink_dependencies;
     std::unordered_map<TUniqueId, size_t> _instance_rows;
     std::list<std::unordered_map<TUniqueId, size_t>> _instance_rows_in_queue;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;

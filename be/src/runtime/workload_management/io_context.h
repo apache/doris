@@ -18,8 +18,8 @@
 #pragma once
 
 #include "common/factory_creator.h"
+#include "runtime/runtime_profile.h"
 #include "runtime/workload_management/io_throttle.h"
-#include "util/runtime_profile.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

@@ -17,9 +17,10 @@
 
 #pragma once
 
+#include <gen_cpp/olap_file.pb.h>
+
 #include "cloud/cloud_storage_engine.h"
 #include "common/status.h"
-#include "gen_cpp/olap_file.pb.h"
 #include "io/fs/file_reader_writer_fwd.h"
 
 namespace doris {

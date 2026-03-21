@@ -16,7 +16,6 @@
 // under the License.
 
 // IWYU pragma: no_include <bthread/errno.h>
-#include <common/multi_version.h>
 #include <gen_cpp/HeartbeatService_types.h>
 #include <gen_cpp/Metrics_types.h>
 #include <simdjson.h>
@@ -42,61 +41,55 @@
 #include "common/config.h"
 #include "common/kerberos/kerberos_ticket_mgr.h"
 #include "common/logging.h"
+#include "common/metrics/doris_metrics.h"
+#include "common/multi_version.h"
 #include "common/status.h"
 #include "cpp/s3_rate_limiter.h"
-#include "io/cache/block_file_cache.h"
+#include "exec/exchange/vdata_stream_mgr.h"
+#include "exec/pipeline/pipeline_tracing.h"
+#include "exec/pipeline/task_queue.h"
+#include "exec/pipeline/task_scheduler.h"
+#include "exec/scan/scanner_scheduler.h"
+#include "exec/sink/delta_writer_v2_pool.h"
+#include "exec/sink/load_stream_map_pool.h"
+#include "exec/spill/spill_stream_manager.h"
+#include "exprs/function/dictionary_factory.h"
+#include "format/orc/orc_memory_pool.h"
+#include "format/parquet/arrow_memory_pool.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/fs/file_meta_cache.h"
 #include "io/fs/local_file_reader.h"
-#include "olap/id_manager.h"
-#include "olap/memtable_memory_limiter.h"
-#include "olap/olap_define.h"
-#include "olap/options.h"
-#include "olap/page_cache.h"
-#include "olap/rowset/segment_v2/condition_cache.h"
-#include "olap/rowset/segment_v2/encoding_info.h"
-#include "olap/rowset/segment_v2/inverted_index_cache.h"
-#include "olap/schema_cache.h"
-#include "olap/segment_loader.h"
-#include "olap/storage_engine.h"
-#include "olap/storage_policy.h"
-#include "olap/tablet_column_object_pool.h"
-#include "olap/tablet_meta.h"
-#include "olap/tablet_schema_cache.h"
-#include "olap/wal/wal_manager.h"
-#include "pipeline/pipeline_tracing.h"
-#include "pipeline/query_cache/query_cache.h"
-#include "pipeline/task_queue.h"
-#include "pipeline/task_scheduler.h"
+#include "load/channel/load_channel_mgr.h"
+#include "load/channel/load_stream_mgr.h"
+#include "load/group_commit/group_commit_mgr.h"
+#include "load/group_commit/wal/wal_manager.h"
+#include "load/load_path_mgr.h"
+#include "load/memtable/memtable_memory_limiter.h"
+#include "load/routine_load/routine_load_task_executor.h"
+#include "load/stream_load/new_load_stream_mgr.h"
+#include "load/stream_load/stream_load_executor.h"
+#include "load/stream_load/stream_load_recorder_manager.h"
 #include "runtime/broker_mgr.h"
 #include "runtime/cache/result_cache.h"
 #include "runtime/cdc_client_mgr.h"
-#include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/external_scan_context_mgr.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/group_commit_mgr.h"
 #include "runtime/heartbeat_flags.h"
 #include "runtime/index_policy/index_policy_mgr.h"
-#include "runtime/load_channel_mgr.h"
-#include "runtime/load_path_mgr.h"
-#include "runtime/load_stream_mgr.h"
 #include "runtime/memory/cache_manager.h"
 #include "runtime/memory/heap_profiler.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/process_profile.h"
+#include "runtime/query_cache/query_cache.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/result_queue_mgr.h"
-#include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/runtime_query_statistics_mgr.h"
 #include "runtime/small_file_mgr.h"
-#include "runtime/stream_load/new_load_stream_mgr.h"
-#include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/stream_load/stream_load_recorder_manager.h"
 #include "runtime/thread_context.h"
 #include "runtime/user_function_cache.h"
 #include "runtime/workload_group/workload_group_manager.h"
@@ -104,27 +97,33 @@
 #include "service/backend_options.h"
 #include "service/backend_service.h"
 #include "service/point_query_executor.h"
+#include "storage/cache/page_cache.h"
+#include "storage/cache/schema_cache.h"
+#include "storage/id_manager.h"
+#include "storage/index/inverted/inverted_index_cache.h"
+#include "storage/olap_define.h"
+#include "storage/options.h"
+#include "storage/segment/condition_cache.h"
+#include "storage/segment/encoding_info.h"
+#include "storage/segment/segment_loader.h"
+#include "storage/storage_engine.h"
+#include "storage/storage_policy.h"
+#include "storage/tablet/tablet_column_object_pool.h"
+#include "storage/tablet/tablet_meta.h"
+#include "storage/tablet/tablet_schema_cache.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"
+#include "util/client_cache.h"
 #include "util/cpu_info.h"
 #include "util/disk_info.h"
 #include "util/dns_cache.h"
-#include "util/doris_metrics.h"
 #include "util/mem_info.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
 #include "util/threadpool.h"
 #include "util/thrift_rpc_helper.h"
 #include "util/timezone_utils.h"
-#include "vec/exec/format/orc/orc_memory_pool.h"
-#include "vec/exec/format/parquet/arrow_memory_pool.h"
-#include "vec/exec/scan/scanner_scheduler.h"
-#include "vec/functions/dictionary_factory.h"
-#include "vec/runtime/vdata_stream_mgr.h"
-#include "vec/sink/delta_writer_v2_pool.h"
-#include "vec/sink/load_stream_map_pool.h"
-#include "vec/spill/spill_stream_manager.h"
 // clang-format off
 // this must after util/brpc_client_cache.h
 // /doris/thirdparty/installed/include/brpc/errno.pb.h:69:3: error: expected identifier
@@ -225,9 +224,9 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     if (ready()) {
         return Status::OK();
     }
-    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> spill_store_map;
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> spill_store_map;
     for (const auto& spill_path : spill_store_paths) {
-        spill_store_map.emplace(spill_path.path, std::make_unique<vectorized::SpillDataDir>(
+        spill_store_map.emplace(spill_path.path, std::make_unique<SpillDataDir>(
                                                          spill_path.path, spill_path.capacity_bytes,
                                                          spill_path.storage_medium));
     }
@@ -238,7 +237,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _user_function_cache = new UserFunctionCache();
     static_cast<void>(_user_function_cache->init(doris::config::user_function_dir));
     _external_scan_context_mgr = new ExternalScanContextMgr(this);
-    set_stream_mgr(new doris::vectorized::VDataStreamMgr());
+    set_stream_mgr(new doris::VDataStreamMgr());
     _result_mgr = new ResultBufferMgr();
     _result_queue_mgr = new ResultQueueMgr();
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
@@ -307,7 +306,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     init_file_cache_factory(cache_paths);
     doris::io::BeConfDataDirReader::init_be_conf_data_dir(store_paths, spill_store_paths,
                                                           cache_paths);
-    _pipeline_tracer_ctx = std::make_unique<pipeline::PipelineTracerContext>(); // before query
+    _pipeline_tracer_ctx = std::make_unique<PipelineTracerContext>(); // before query
     _init_runtime_filter_timer_queue();
 
     _workload_group_manager = new WorkloadGroupMgr();
@@ -347,11 +346,11 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
     _cdc_client_mgr = new CdcClientMgr();
     _memtable_memory_limiter = std::make_unique<MemTableMemoryLimiter>();
     _load_stream_map_pool = std::make_unique<LoadStreamMapPool>();
-    _delta_writer_v2_pool = std::make_unique<vectorized::DeltaWriterV2Pool>();
+    _delta_writer_v2_pool = std::make_unique<DeltaWriterV2Pool>();
     _wal_manager = WalManager::create_unique(this, config::group_commit_wal_path);
     _dns_cache = new DNSCache();
     _write_cooldown_meta_executors = std::make_unique<WriteCooldownMetaExecutors>();
-    _spill_stream_mgr = new vectorized::SpillStreamManager(std::move(spill_store_map));
+    _spill_stream_mgr = new SpillStreamManager(std::move(spill_store_map));
     _kerberos_ticket_mgr = new kerberos::KerberosTicketMgr(config::kerberos_ccache_path);
     _hdfs_mgr = new io::HdfsMgr();
     _backend_client_cache->init_metrics("backend");
@@ -445,7 +444,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 
     RETURN_IF_ERROR(_spill_stream_mgr->init());
     RETURN_IF_ERROR(_runtime_query_statistics_mgr->start_report_thread());
-    _dict_factory = new doris::vectorized::DictionaryFactory();
+    _dict_factory = new doris::DictionaryFactory();
     _s_ready = true;
 
     init_simdjson_parser();
@@ -465,7 +464,7 @@ Status ExecEnv::_create_internal_workload_group() {
 }
 
 void ExecEnv::_init_runtime_filter_timer_queue() {
-    _runtime_filter_timer_queue = new doris::pipeline::RuntimeFilterTimerQueue();
+    _runtime_filter_timer_queue = new doris::RuntimeFilterTimerQueue();
     _runtime_filter_timer_queue->run();
 }
 
@@ -669,8 +668,8 @@ Status ExecEnv::init_mem_env() {
               << ", origin config value: " << config::condition_cache_limit;
 
     // init orc memory pool
-    _orc_memory_pool = new doris::vectorized::ORCMemoryPool();
-    _arrow_memory_pool = new doris::vectorized::ArrowMemoryPool();
+    _orc_memory_pool = new doris::ORCMemoryPool();
+    _arrow_memory_pool = new doris::ArrowMemoryPool();
 
     _query_cache = QueryCache::create_global_cache(config::query_cache_size * 1024L * 1024L);
     LOG(INFO) << "query cache memory limit: " << config::query_cache_size << "MB";

@@ -29,8 +29,8 @@
 #include "common/status.h"
 #include "io/cache/block_file_cache_downloader.h"
 #include "io/cache/block_file_cache_factory.h"
-#include "runtime/stream_load/stream_load_context.h"
-#include "runtime/stream_load/stream_load_recorder.h"
+#include "load/stream_load/stream_load_context.h"
+#include "load/stream_load/stream_load_recorder.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/thrift_server.h"
 

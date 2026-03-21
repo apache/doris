@@ -35,15 +35,15 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/schema_scanner/schema_scanner_helper.h"
-#include "runtime/client_cache.h"
+#include "core/block/block.h"
+#include "information_schema/schema_scanner_helper.h"
 #include "runtime/exec_env.h"
+#include "util/client_cache.h"
 #include "util/debug_util.h"
 #include "util/threadpool.h"
 #include "util/thrift_client.h"
 #include "util/time.h"
 #include "util/uid_util.h"
-#include "vec/core/block.h"
 
 namespace doris {
 // TODO: Currently this function is only used to report profile.
@@ -493,7 +493,7 @@ void RuntimeQueryStatisticsMgr::report_runtime_query_statistics() {
     }
 }
 
-void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(vectorized::Block* block) {
+void RuntimeQueryStatisticsMgr::get_active_be_tasks_block(Block* block) {
     std::shared_lock<std::shared_mutex> read_lock(_resource_contexts_map_lock);
     int64_t be_id = ExecEnv::GetInstance()->cluster_info()->backend_id;
 

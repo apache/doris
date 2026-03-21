@@ -44,6 +44,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
+#include "exec/common/hex.h"
 #include "io/cache/block_file_cache.h"
 #include "io/cache/file_block.h"
 #include "io/cache/file_cache_common.h"
@@ -54,7 +55,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "vec/common/hex.h"
 
 namespace doris::io {
 
@@ -676,7 +676,7 @@ void FSFileCacheStorage::load_cache_info_into_memory_from_fs(BlockFileCache* mgr
             }
             std::string key_str = key_with_suffix.substr(0, delim_pos);
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
-            auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
+            auto hash = UInt128Wrapper(unhex_uint<uint128_t>(key_str.c_str()));
             std::error_code ec;
             std::filesystem::directory_iterator offset_it(key_it->path(), ec);
             if (ec) [[unlikely]] {
@@ -793,7 +793,7 @@ Status FSFileCacheStorage::get_file_cache_infos(std::vector<FileCacheInfo>& info
             std::string key_str = key_with_suffix.substr(0, delim_pos);
             std::string expiration_time_str = key_with_suffix.substr(delim_pos + 1);
             long expiration_time = std::stoul(expiration_time_str);
-            auto hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(key_str.c_str()));
+            auto hash = UInt128Wrapper(unhex_uint<uint128_t>(key_str.c_str()));
             std::filesystem::directory_iterator offset_it(key_it->path(), ec);
             if (ec) [[unlikely]] {
                 LOG(ERROR) << fmt::format("Failed to list dir {}, err={}",
@@ -1572,7 +1572,7 @@ void FSFileCacheStorage::cleanup_leaked_files(BlockFileCache* mgr, size_t metada
 
                     UInt128Wrapper hash;
                     try {
-                        hash = UInt128Wrapper(vectorized::unhex_uint<uint128_t>(
+                        hash = UInt128Wrapper(unhex_uint<uint128_t>(
                                 key_with_suffix.substr(0, delim_pos).c_str()));
                     } catch (...) {
                         LOG(WARNING) << "Leak scan failed to parse hash from " << key_with_suffix;

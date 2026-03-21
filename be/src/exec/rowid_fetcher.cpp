@@ -46,37 +46,35 @@
 #include "common/consts.h"
 #include "common/exception.h"
 #include "common/signal_handler.h"
-#include "exec/tablet_info.h" // DorisNodesInfo
-#include "olap/olap_common.h"
-#include "olap/rowset/beta_rowset.h"
-#include "olap/storage_engine.h"
-#include "olap/tablet_fwd.h"
-#include "olap/tablet_manager.h"
-#include "olap/tablet_schema.h"
-#include "olap/utils.h"
+#include "core/assert_cast.h"
+#include "core/block/block.h" // Block
+#include "core/column/column.h"
+#include "core/column/column_nullable.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type_struct.h"
+#include "core/data_type_serde/data_type_serde.h"
+#include "core/string_ref.h"
+#include "core/types.h"
+#include "exec/scan/file_scanner.h"
+#include "format/orc/vorc_reader.h"
+#include "format/parquet/vparquet_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
-#include "runtime/types.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
+#include "storage/olap_common.h"
+#include "storage/rowset/beta_rowset.h"
+#include "storage/segment/column_reader.h"
+#include "storage/storage_engine.h"
+#include "storage/tablet/tablet_fwd.h"
+#include "storage/tablet/tablet_schema.h"
+#include "storage/tablet_info.h" // DorisNodesInfo
+#include "storage/utils.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/defer_op.h"
-#include "vec/columns/column.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/columns/column_string.h"
-#include "vec/common/assert_cast.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/block.h" // Block
-#include "vec/data_types/data_type_factory.hpp"
-#include "vec/data_types/data_type_struct.h"
-#include "vec/data_types/serde/data_type_serde.h"
-#include "vec/exec/format/orc/vorc_reader.h"
-#include "vec/exec/format/parquet/vparquet_reader.h"
-#include "vec/exec/scan/file_scanner.h"
-#include "vec/functions/function_helpers.h"
-#include "vec/jsonb/serialize.h"
+#include "util/jsonb/serialize.h"
 
 namespace doris {
 
@@ -99,7 +97,7 @@ Status RowIDFetcher::init() {
     return Status::OK();
 }
 
-PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnString& row_locs) const {
+PMultiGetRequest RowIDFetcher::_init_fetch_request(const ColumnString& row_locs) const {
     PMultiGetRequest mget_req;
     _fetch_option.desc->to_protobuf(mget_req.mutable_desc());
     for (SlotDescriptor* slot : _fetch_option.desc->slots()) {
@@ -137,7 +135,7 @@ PMultiGetRequest RowIDFetcher::_init_fetch_request(const vectorized::ColumnStrin
 Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
                                         const std::vector<PMultiGetResponse>& rsps,
                                         const std::vector<brpc::Controller>& cntls,
-                                        vectorized::Block* output_block,
+                                        Block* output_block,
                                         std::vector<PRowLocation>* rows_id) const {
     output_block->clear();
     for (const auto& cntl : cntls) {
@@ -147,7 +145,7 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
             return Status::InternalError(cntl.ErrorText());
         }
     }
-    vectorized::DataTypeSerDeSPtrs serdes;
+    DataTypeSerDeSPtrs serdes;
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     std::vector<std::string> default_values;
     default_values.resize(_fetch_option.desc->slots().size());
@@ -164,24 +162,24 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
         if (request.fetch_row_store()) {
             CHECK(resp.row_locs().size() == resp.binary_row_data_size());
             if (output_block->is_empty_column()) {
-                *output_block = vectorized::Block(_fetch_option.desc->slots(), 1);
+                *output_block = Block(_fetch_option.desc->slots(), 1);
             }
             if (serdes.empty() && col_uid_to_idx.empty()) {
-                serdes = vectorized::create_data_type_serdes(_fetch_option.desc->slots());
+                serdes = create_data_type_serdes(_fetch_option.desc->slots());
                 for (int i = 0; i < _fetch_option.desc->slots().size(); ++i) {
                     col_uid_to_idx[_fetch_option.desc->slots()[i]->col_unique_id()] = i;
                     default_values[i] = _fetch_option.desc->slots()[i]->col_default_value();
                 }
             }
             for (int i = 0; i < resp.binary_row_data_size(); ++i) {
-                RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
+                RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
                         serdes, resp.binary_row_data(i).data(), resp.binary_row_data(i).size(),
                         col_uid_to_idx, *output_block, default_values, {}));
             }
             return Status::OK();
         }
         // Merge partial blocks
-        vectorized::Block partial_block;
+        Block partial_block;
         [[maybe_unused]] size_t uncompressed_size = 0;
         [[maybe_unused]] int64_t uncompressed_time = 0;
 
@@ -215,39 +213,34 @@ Status RowIDFetcher::_merge_rpc_results(const PMultiGetRequest& request,
     return Status::OK();
 }
 
-bool _has_char_type(const vectorized::DataTypePtr& type) {
+bool _has_char_type(const DataTypePtr& type) {
     switch (type->get_primitive_type()) {
     case TYPE_CHAR: {
         return true;
     }
     case TYPE_ARRAY: {
-        const auto* arr_type =
-                assert_cast<const vectorized::DataTypeArray*>(remove_nullable(type).get());
+        const auto* arr_type = assert_cast<const DataTypeArray*>(remove_nullable(type).get());
         return _has_char_type(arr_type->get_nested_type());
     }
     case TYPE_MAP: {
-        const auto* map_type =
-                assert_cast<const vectorized::DataTypeMap*>(remove_nullable(type).get());
+        const auto* map_type = assert_cast<const DataTypeMap*>(remove_nullable(type).get());
         return _has_char_type(map_type->get_key_type()) ||
                _has_char_type(map_type->get_value_type());
     }
     case TYPE_STRUCT: {
-        const auto* struct_type =
-                assert_cast<const vectorized::DataTypeStruct*>(remove_nullable(type).get());
-        return std::any_of(
-                struct_type->get_elements().begin(), struct_type->get_elements().end(),
-                [&](const vectorized::DataTypePtr& dt) -> bool { return _has_char_type(dt); });
+        const auto* struct_type = assert_cast<const DataTypeStruct*>(remove_nullable(type).get());
+        return std::any_of(struct_type->get_elements().begin(), struct_type->get_elements().end(),
+                           [&](const DataTypePtr& dt) -> bool { return _has_char_type(dt); });
     }
     default:
         return false;
     }
 }
 
-Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
-                           vectorized::Block* res_block) {
+Status RowIDFetcher::fetch(const ColumnPtr& column_row_ids, Block* res_block) {
     CHECK(!_stubs.empty());
-    PMultiGetRequest mget_req = _init_fetch_request(assert_cast<const vectorized::ColumnString&>(
-            *vectorized::remove_nullable(column_row_ids).get()));
+    PMultiGetRequest mget_req = _init_fetch_request(
+            assert_cast<const ColumnString&>(*remove_nullable(column_row_ids).get()));
     std::vector<PMultiGetResponse> resps(_stubs.size());
     std::vector<brpc::Controller> cntls(_stubs.size());
     bthread::CountdownEvent counter(cast_set<int>(_stubs.size()));
@@ -280,7 +273,7 @@ Status RowIDFetcher::fetch(const vectorized::ColumnPtr& column_row_ids,
     if (positions.size() < rows_locs.size()) {
         LOG(WARNING) << "cwntains duplicated row entry";
     }
-    vectorized::IColumn::Permutation permutation;
+    IColumn::Permutation permutation;
     permutation.reserve(column_row_ids->size());
     for (size_t i = 0; i < column_row_ids->size(); ++i) {
         auto location =
@@ -375,7 +368,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                           PMultiGetResponse* response) {
     // read from storage engine row id by row id
     OlapReaderStatistics stats;
-    vectorized::Block result_block;
+    Block result_block;
     int64_t acquire_tablet_ms = 0;
     int64_t acquire_rowsets_ms = 0;
     int64_t acquire_segments_ms = 0;
@@ -466,7 +459,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
 
         // fetch by column store
         if (result_block.is_empty_column()) {
-            result_block = vectorized::Block(slots, request.row_locs().size());
+            result_block = Block(slots, request.row_locs().size());
         }
         VLOG_DEBUG << "Read row location "
                    << fmt::format("{}, {}, {}, {}", row_location.tablet_id,
@@ -475,8 +468,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequest& request,
                                   row_location.row_location.row_id);
         for (int x = 0; x < slots.size(); ++x) {
             auto row_id = static_cast<segment_v2::rowid_t>(row_loc.ordinal_id());
-            vectorized::MutableColumnPtr column =
-                    result_block.get_by_position(x).column->assume_mutable();
+            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
             IteratorKey iterator_key {.tablet_id = tablet->tablet_id(),
                                       .rowset_id = rowset_id,
                                       .segment_id = row_loc.segment_id(),
@@ -528,7 +520,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
     if (request.request_block_descs_size()) {
         auto tquery_id = ((UniqueId)request.query_id()).to_thrift();
         // todo: use mutableBlock instead of block
-        std::vector<vectorized::Block> result_blocks(request.request_block_descs_size());
+        std::vector<Block> result_blocks(request.request_block_descs_size());
 
         OlapReaderStatistics stats;
         int64_t acquire_tablet_ms = 0;
@@ -651,11 +643,11 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
 
 Status RowIdStorageReader::read_batch_doris_format_row(
         const PRequestBlockDesc& request_block_desc, std::shared_ptr<IdFileMap> id_file_map,
-        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id,
-        vectorized::Block& result_block, OlapReaderStatistics& stats, int64_t* acquire_tablet_ms,
-        int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
+        std::vector<SlotDescriptor>& slots, const TUniqueId& query_id, Block& result_block,
+        OlapReaderStatistics& stats, int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms,
+        int64_t* acquire_segments_ms, int64_t* lookup_row_data_ms) {
     if (result_block.is_empty_column()) [[likely]] {
-        result_block = vectorized::Block(slots, request_block_desc.row_id_size());
+        result_block = Block(slots, request_block_desc.row_id_size());
     }
     TabletSchema full_read_schema;
     for (const ColumnPB& column_pb : request_block_desc.column_descs()) {
@@ -716,8 +708,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         size_t idx, const std::multimap<segment_v2::rowid_t, size_t>& row_ids,
         const std::shared_ptr<FileMapping>& file_mapping, const std::vector<SlotDescriptor>& slots,
         const TUniqueId& query_id, const std::shared_ptr<RuntimeState>& runtime_state,
-        std::vector<vectorized::Block>& scan_blocks,
-        std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
+        std::vector<Block>& scan_blocks, std::vector<std::pair<size_t, size_t>>& row_id_block_idx,
         std::vector<RowIdStorageReader::ExternalFetchStatistics>& fetch_statistics,
         const TFileScanRangeParams& rpc_scan_params,
         const std::unordered_map<std::string, int>& colname_to_slot_id,
@@ -736,7 +727,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
         row_id_block_idx[result_block_idx] = std::make_pair(idx, read_ids.size() - 1);
     }
 
-    scan_blocks[idx] = vectorized::Block(slots, read_ids.size());
+    scan_blocks[idx] = Block(slots, read_ids.size());
 
     auto& external_info = file_mapping->get_external_file_info();
     auto& scan_range_desc = external_info.scan_range_desc;
@@ -750,10 +741,9 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     std::unique_ptr<RuntimeProfile> sub_runtime_profile =
             std::make_unique<RuntimeProfile>("ExternalRowIDFetcher");
     {
-        std::unique_ptr<vectorized::FileScanner> vfile_scanner_ptr =
-                vectorized::FileScanner::create_unique(runtime_state.get(),
-                                                       sub_runtime_profile.get(), &rpc_scan_params,
-                                                       &colname_to_slot_id, &tuple_desc);
+        std::unique_ptr<FileScanner> vfile_scanner_ptr =
+                FileScanner::create_unique(runtime_state.get(), sub_runtime_profile.get(),
+                                           &rpc_scan_params, &colname_to_slot_id, &tuple_desc);
 
         RETURN_IF_ERROR(vfile_scanner_ptr->prepare_for_read_lines(scan_range_desc));
         RETURN_IF_ERROR(vfile_scanner_ptr->read_lines_from_range(
@@ -762,7 +752,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     }
 
     auto file_read_bytes_counter =
-            sub_runtime_profile->get_counter(vectorized::FileScanner::FileReadBytesProfile);
+            sub_runtime_profile->get_counter(FileScanner::FileReadBytesProfile);
 
     if (file_read_bytes_counter != nullptr) {
         fetch_statistics[idx].file_read_bytes = PrettyPrinter::print(
@@ -770,7 +760,7 @@ Status RowIdStorageReader::read_external_row_from_file_mapping(
     }
 
     auto file_read_times_counter =
-            sub_runtime_profile->get_counter(vectorized::FileScanner::FileReadTimeProfile);
+            sub_runtime_profile->get_counter(FileScanner::FileReadTimeProfile);
     if (file_read_times_counter != nullptr) {
         fetch_statistics[idx].file_read_times = PrettyPrinter::print(
                 file_read_times_counter->value(), file_read_times_counter->type());
@@ -788,7 +778,7 @@ Status RowIdStorageReader::read_batch_external_row(
         const uint64_t workload_group_id, const PRequestBlockDesc& request_block_desc,
         std::shared_ptr<IdFileMap> id_file_map, std::vector<SlotDescriptor>& slots,
         std::shared_ptr<FileMapping> first_file_mapping, const TUniqueId& query_id,
-        vectorized::Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
+        Block& result_block, PRuntimeProfileTree* pprofile, int64_t* init_reader_avg_ms,
         int64_t* get_block_avg_ms, size_t* scan_range_cnt) {
     TFileScanRangeParams rpc_scan_params;
     TupleDescriptor tuple_desc(request_block_desc.desc(), false);
@@ -798,7 +788,7 @@ Status RowIdStorageReader::read_batch_external_row(
     int max_file_scanners = 0;
     {
         if (result_block.is_empty_column()) [[likely]] {
-            result_block = vectorized::Block(slots, request_block_desc.row_id_size());
+            result_block = Block(slots, request_block_desc.row_id_size());
         }
 
         auto& external_info = first_file_mapping->get_external_file_info();
@@ -857,7 +847,7 @@ Status RowIdStorageReader::read_batch_external_row(
             scan_rows;
 
     // Block corresponding to the order of `scan_rows` map.
-    std::vector<vectorized::Block> scan_blocks;
+    std::vector<Block> scan_blocks;
 
     // row_id (Indexing of vectors) => < In which block, which line in the block >
     std::vector<std::pair<size_t, size_t>> row_id_block_idx;
@@ -905,9 +895,9 @@ Status RowIdStorageReader::read_batch_external_row(
     std::vector<uint64_t> workload_group_ids;
     workload_group_ids.emplace_back(workload_group_id);
     auto wg = ExecEnv::GetInstance()->workload_group_mgr()->get_group(workload_group_ids);
-    doris::pipeline::TaskScheduler* exec_sched = nullptr;
-    vectorized::ScannerScheduler* scan_sched = nullptr;
-    vectorized::ScannerScheduler* remote_scan_sched = nullptr;
+    doris::TaskScheduler* exec_sched = nullptr;
+    ScannerScheduler* scan_sched = nullptr;
+    ScannerScheduler* remote_scan_sched = nullptr;
     wg->get_query_scheduler(&exec_sched, &scan_sched, &remote_scan_sched);
     DCHECK(remote_scan_sched);
 
@@ -926,7 +916,7 @@ Status RowIdStorageReader::read_batch_external_row(
                 for (const auto& [_, scan_info] : scan_rows) {
                     semaphore.acquire();
                     RETURN_IF_ERROR(remote_scan_sched->submit_scan_task(
-                            vectorized::SimplifiedScanTask(
+                            SimplifiedScanTask(
                                     [&, idx, scan_info]() -> Status {
                                         const auto& [row_ids, file_mapping] = scan_info;
                                         return read_external_row_from_file_mapping(
@@ -953,10 +943,9 @@ Status RowIdStorageReader::read_batch_external_row(
     for (size_t column_id = 0; column_id < result_block.get_columns().size(); column_id++) {
         // The non-const Block(result_block) is passed in read_by_rowids, but columns[i] in get_columns
         // is at bottom an immutable_ptr of Cow<IColumn>, so use const_cast
-        auto dst_col =
-                const_cast<vectorized::IColumn*>(result_block.get_columns()[column_id].get());
+        auto dst_col = const_cast<IColumn*>(result_block.get_columns()[column_id].get());
 
-        std::vector<const vectorized::IColumn*> scan_src_columns;
+        std::vector<const IColumn*> scan_src_columns;
         scan_src_columns.reserve(row_id_block_idx.size());
         std::vector<size_t> scan_positions;
         scan_positions.reserve(row_id_block_idx.size());
@@ -1004,9 +993,9 @@ Status RowIdStorageReader::read_batch_external_row(
                                          std::to_string(*init_reader_avg_ms) + "ms");
         runtime_profile->add_info_string(FileReadLinesProfile,
                                          fmt::to_string(file_read_lines_buffer));
-        runtime_profile->add_info_string(vectorized::FileScanner::FileReadBytesProfile,
+        runtime_profile->add_info_string(FileScanner::FileReadBytesProfile,
                                          fmt::to_string(file_read_bytes_buffer));
-        runtime_profile->add_info_string(vectorized::FileScanner::FileReadTimeProfile,
+        runtime_profile->add_info_string(FileScanner::FileReadTimeProfile,
                                          fmt::to_string(file_read_times_buffer));
     }
 
@@ -1025,7 +1014,7 @@ Status RowIdStorageReader::read_doris_format_row(
         int64_t* acquire_tablet_ms, int64_t* acquire_rowsets_ms, int64_t* acquire_segments_ms,
         int64_t* lookup_row_data_ms, std::unordered_map<SegKey, SegItem, HashOfSegKey>& seg_map,
         std::unordered_map<IteratorKey, IteratorItem, HashOfIteratorKey>& iterator_map,
-        vectorized::Block& result_block) {
+        Block& result_block) {
     auto [tablet_id, rowset_id, segment_id] = file_mapping->get_doris_format_info();
     SegKey seg_key {.tablet_id = tablet_id, .rowset_id = rowset_id, .segment_id = segment_id};
 
@@ -1103,7 +1092,7 @@ Status RowIdStorageReader::read_doris_format_row(
                     },
                     lookup_row_data_ms));
 
-            RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
+            RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(
                     row_store_read_struct.serdes, row_store_read_struct.row_store_buffer.data(),
                     row_store_read_struct.row_store_buffer.size(),
                     row_store_read_struct.col_uid_to_idx, result_block,
@@ -1111,8 +1100,7 @@ Status RowIdStorageReader::read_doris_format_row(
         }
     } else {
         for (int x = 0; x < slots.size(); ++x) {
-            vectorized::MutableColumnPtr column =
-                    result_block.get_by_position(x).column->assume_mutable();
+            MutableColumnPtr column = result_block.get_by_position(x).column->assume_mutable();
             IteratorKey iterator_key {.tablet_id = tablet_id,
                                       .rowset_id = rowset_id,
                                       .segment_id = segment_id,
