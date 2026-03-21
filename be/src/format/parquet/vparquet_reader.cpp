@@ -393,7 +393,70 @@ void ParquetReader::_init_file_description() {
     }
 }
 
+Status ParquetReader::on_before_init_reader(
+        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
+        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
+        const TFileScanRangeParams& params, const TFileRangeDesc& range,
+        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+    RETURN_IF_ERROR(GenericReader::on_before_init_reader(
+            column_descs, column_names, table_info_node, column_ids, filter_column_ids, params,
+            range, tuple_descriptor, row_descriptor, state, col_name_to_block_idx));
+
+    // Build table_info_node from Parquet file metadata with case-insensitive recursive matching.
+    // File is already opened by init_reader before this hook, so metadata is available.
+    const FieldDescriptor* field_desc = nullptr;
+    RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
+    RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
+            tuple_descriptor, *field_desc, table_info_node));
+    return Status::OK();
+}
+
 Status ParquetReader::init_reader(
+        std::vector<ColumnDescriptor>& column_descs,
+        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
+        const VExprContextSPtrs& conjuncts,
+        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates,
+        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        const std::unordered_map<std::string, int>* colname_to_slot_id,
+        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
+        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
+    // Store essential params early so hooks can access them
+    _tuple_descriptor = tuple_descriptor;
+    _row_descriptor = row_descriptor;
+
+    // Open file first so hooks can access file metadata
+    RETURN_IF_ERROR(_open_file());
+
+    // Hook: let subclasses customize column selection and schema mapping
+    // Base implementation also calls _prepare_fill_columns.
+    std::vector<std::string> column_names;
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node =
+            TableSchemaChangeHelper::ConstNode::get_instance();
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+
+    RETURN_IF_ERROR(on_before_init_reader(column_descs, column_names, table_info_node, column_ids,
+                                          filter_column_ids, _scan_params, _scan_range,
+                                          _tuple_descriptor, _row_descriptor, _state,
+                                          col_name_to_block_idx));
+
+    // Core init
+    RETURN_IF_ERROR(_do_init_reader(
+            column_names, col_name_to_block_idx, conjuncts, slot_id_to_predicates, tuple_descriptor,
+            row_descriptor, colname_to_slot_id, not_single_slot_filter_conjuncts,
+            slot_id_to_filter_conjuncts, table_info_node, column_ids, filter_column_ids));
+
+    // Hook: let subclasses do post-init work (e.g. read delete files)
+    RETURN_IF_ERROR(on_after_init_reader(_scan_params, _scan_range, _tuple_descriptor,
+                                         _row_descriptor, _state));
+
+    return Status::OK();
+}
+
+Status ParquetReader::_do_init_reader(
         const std::vector<std::string>& all_column_names,
         std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
         const VExprContextSPtrs& conjuncts,
@@ -403,7 +466,7 @@ Status ParquetReader::init_reader(
         const std::unordered_map<std::string, int>* colname_to_slot_id,
         const VExprContextSPtrs* not_single_slot_filter_conjuncts,
         const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts,
-        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr, bool filter_groups,
+        std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node_ptr,
         const std::set<uint64_t>& column_ids, const std::set<uint64_t>& filter_column_ids) {
     _col_name_to_block_idx = col_name_to_block_idx;
     _tuple_descriptor = tuple_descriptor;
@@ -412,11 +475,14 @@ Status ParquetReader::init_reader(
     _not_single_slot_filter_conjuncts = not_single_slot_filter_conjuncts;
     _slot_id_to_filter_conjuncts = slot_id_to_filter_conjuncts;
     _table_info_node_ptr = table_info_node_ptr;
-    _filter_groups = filter_groups;
     _column_ids = column_ids;
     _filter_column_ids = filter_column_ids;
 
-    RETURN_IF_ERROR(_open_file());
+    // _open_file() is called by init_reader template method before hooks.
+    // For standalone _do_init_reader callers (tvf, load, etc.), open the file here if not already opened.
+    if (_file_metadata == nullptr) {
+        RETURN_IF_ERROR(_open_file());
+    }
     _t_metadata = &(_file_metadata->to_thrift());
     if (_file_metadata == nullptr) {
         return Status::InternalError("failed to init parquet reader, please open reader first");
@@ -450,9 +516,63 @@ Status ParquetReader::init_reader(
             _read_table_columns_set.insert(required_file_columns[name]);
         }
     }
+
+    // Build _fill_missing_defaults from _column_descs.
+    // Default value expressions are pre-computed once per table scan in FileScanner.
+    if (_column_descs && !_missing_cols.empty()) {
+        std::unordered_set<std::string> missing_set(_missing_cols.begin(), _missing_cols.end());
+        for (const auto& desc : *_column_descs) {
+            if (missing_set.contains(desc.name)) {
+                _fill_missing_defaults[desc.name] = desc.default_expr;
+            }
+        }
+    }
+
     // build column predicates for column lazy read
     _lazy_read_ctx.conjuncts = conjuncts;
     _lazy_read_ctx.slot_id_to_predicates = slot_id_to_predicates;
+
+    // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
+
+    // Store in GenericReader for on_fill_partition/missing_columns hooks
+    set_fill_column_data(_fill_partition_values, _fill_missing_defaults, _col_name_to_block_idx);
+
+    // 1. Collect predicate columns from conjuncts for lazy materialization
+    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
+    _collect_predicate_columns_from_conjuncts(predicate_columns);
+
+    // 2. Classify read/partition/missing/synthesized columns into lazy vs predicate groups
+    _classify_columns_for_lazy_read(predicate_columns, _fill_partition_values,
+                                    _fill_missing_defaults);
+
+    // 3. Populate col_names vectors for ColumnProcessor path
+    for (auto& kv : _lazy_read_ctx.predicate_partition_columns) {
+        _lazy_read_ctx.predicate_partition_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.predicate_missing_columns) {
+        _lazy_read_ctx.predicate_missing_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.partition_columns) {
+        _lazy_read_ctx.partition_col_names.emplace_back(kv.first);
+    }
+    for (auto& kv : _lazy_read_ctx.missing_columns) {
+        _lazy_read_ctx.missing_col_names.emplace_back(kv.first);
+    }
+
+    if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
+        return Status::EndOfFile("No row group to read");
+    }
+    // Register TopN row_id handler if iterator was set by FileScanner
+    if (_row_id_column_iterator_pair.first != nullptr) {
+        register_synthesized_column_handler(
+                BeConsts::ROWID_COL, [this](Block* block, size_t rows) -> Status {
+                    if (_current_group_reader) {
+                        return _current_group_reader->fill_topn_row_id(block, rows);
+                    }
+                    return Status::OK();
+                });
+    }
+
     return Status::OK();
 }
 
@@ -478,18 +598,8 @@ bool ParquetReader::_type_matches(const int cid) const {
            !is_complex_type(table_col_type->get_primitive_type());
 }
 
-Status ParquetReader::set_fill_columns(
-        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
-                partition_columns,
-        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
-    _lazy_read_ctx.fill_partition_columns = partition_columns;
-    _lazy_read_ctx.fill_missing_columns = missing_columns;
-
-    // std::unordered_map<column_name, std::pair<col_id, slot_id>>
-    std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_columns;
-
-    // TODO(gabriel): we should try to clear too much structs which are used to represent conjuncts and predicates.
-    // visit_slot for lazy mat.
+void ParquetReader::_collect_predicate_columns_from_conjuncts(
+        std::unordered_map<std::string, std::pair<uint32_t, int>>& predicate_columns) {
     std::function<void(VExpr * expr)> visit_slot = [&](VExpr* expr) {
         if (expr->is_slot_ref()) {
             VSlotRef* slot_ref = static_cast<VSlotRef*>(expr);
@@ -505,19 +615,18 @@ Status ParquetReader::set_fill_columns(
             visit_slot(child.get());
         }
     };
+
     for (const auto& conjunct : _lazy_read_ctx.conjuncts) {
         auto expr = conjunct->root();
-
         if (expr->is_rf_wrapper()) {
-            // REF: src/runtime_filter/runtime_filter_consumer.cpp
             VRuntimeFilterWrapper* runtime_filter = assert_cast<VRuntimeFilterWrapper*>(expr.get());
-
             auto filter_impl = runtime_filter->get_impl();
             visit_slot(filter_impl.get());
         } else {
             visit_slot(expr.get());
         }
     }
+
     if (!_lazy_read_ctx.slot_id_to_predicates.empty()) {
         auto and_pred = AndBlockColumnPredicate::create_unique();
         for (const auto& entry : _lazy_read_ctx.slot_id_to_predicates) {
@@ -533,7 +642,13 @@ Status ParquetReader::set_fill_columns(
             _push_down_predicates.push_back(std::move(and_pred));
         }
     }
+}
 
+void ParquetReader::_classify_columns_for_lazy_read(
+        const std::unordered_map<std::string, std::pair<uint32_t, int>>& predicate_columns,
+        const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_columns,
+        const std::unordered_map<std::string, VExprContextSPtr>& missing_columns) {
     const FieldDescriptor& schema = _file_metadata->schema();
 
     for (auto& read_table_col : _read_table_columns) {
@@ -560,7 +675,7 @@ Status ParquetReader::set_fill_columns(
         _lazy_read_ctx.all_predicate_col_ids.emplace_back(_row_id_column_iterator_pair.second);
     }
 
-    for (auto& kv : _lazy_read_ctx.fill_partition_columns) {
+    for (auto& kv : partition_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.partition_columns.emplace(kv.first, kv.second);
@@ -570,19 +685,17 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    for (auto& kv : _lazy_read_ctx.fill_missing_columns) {
+    for (auto& kv : missing_columns) {
         auto iter = predicate_columns.find(kv.first);
         if (iter == predicate_columns.end()) {
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         } else {
-            //For check missing column :   missing column == xx, missing column is null,missing column is not null.
             if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
                 _slot_id_to_filter_conjuncts->end()) {
                 for (auto& ctx : _slot_id_to_filter_conjuncts->find(iter->second.second)->second) {
                     _lazy_read_ctx.missing_columns_conjuncts.emplace_back(ctx);
                 }
             }
-
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
         }
@@ -601,12 +714,6 @@ Status ParquetReader::set_fill_columns(
             _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
     }
-
-    if (_filter_groups && (_total_groups == 0 || _t_metadata->num_rows == 0 || _range_size < 0)) {
-        return Status::EndOfFile("No row group to read");
-    }
-    _fill_all_columns = true;
-    return Status::OK();
 }
 
 // init file reader and file metadata for parsing schema
@@ -628,8 +735,8 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
-Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
-                                  std::unordered_set<std::string>* missing_cols) {
+Status ParquetReader::_get_columns_impl(
+        std::unordered_map<std::string, DataTypePtr>* name_to_type) {
     const auto& schema_desc = _file_metadata->schema();
     std::unordered_set<std::string> column_names;
     schema_desc.get_column_names(&column_names);
@@ -637,13 +744,15 @@ Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
         auto field = schema_desc.get_column(name);
         name_to_type->emplace(name, field->data_type);
     }
-    for (auto& col : _missing_cols) {
-        missing_cols->insert(col);
-    }
     return Status::OK();
 }
 
 Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
+    RETURN_IF_ERROR(_do_get_next_block(block, read_rows, eof));
+    return Status::OK();
+}
+
+Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_current_group_reader == nullptr || _row_group_eof) {
         Status st = _next_row_group_reader();
         if (!st.ok() && !st.is<ErrorCode::END_OF_FILE>()) {
@@ -716,7 +825,13 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
 
 RowGroupReader::PositionDeleteContext ParquetReader::_get_position_delete_ctx(
         const tparquet::RowGroup& row_group, const RowGroupReader::RowGroupIndex& row_group_index) {
+    LOG(INFO) << "[PosDeleteDebug] _get_position_delete_ctx: _delete_rows="
+              << (_delete_rows ? "set(" + std::to_string(_delete_rows->size()) + ")" : "null")
+              << " row_group.num_rows=" << row_group.num_rows
+              << " first_row=" << row_group_index.first_row;
     if (_delete_rows == nullptr) {
+        LOG(INFO) << "[PosDeleteDebug] _get_position_delete_ctx: NO delete rows, returning "
+                     "no-filter ctx";
         return RowGroupReader::PositionDeleteContext(row_group.num_rows, row_group_index.first_row);
     }
     const int64_t* delete_rows = &(*_delete_rows)[0];
@@ -836,6 +951,7 @@ Status ParquetReader::_next_row_group_reader() {
     if (_condition_cache_ctx) {
         _current_group_reader->set_condition_cache_context(_condition_cache_ctx);
     }
+    _current_group_reader->set_table_format_reader(this);
 
     _current_group_reader->_table_info_node_ptr = _table_info_node_ptr;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,

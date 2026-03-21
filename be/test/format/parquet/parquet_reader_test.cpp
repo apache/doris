@@ -38,6 +38,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_view.h"
+#include "format/column_processor.h"
 #include "format/parquet/vparquet_reader.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_meta_cache.h"
@@ -51,6 +52,13 @@
 
 namespace doris {
 class VExprContext;
+static std::vector<ColumnDescriptor> to_column_descs(const std::vector<std::string>& names) {
+    std::vector<ColumnDescriptor> descs;
+    for (const auto& name : names) {
+        descs.push_back({name, nullptr, ColumnCategory::REGULAR});
+    }
+    return descs;
+}
 static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState* runtime_state);
 template <bool filter_all>
 static VExprContextSPtrs create_partition_predicates(DescriptorTbl* desc_tbl,
@@ -116,12 +124,12 @@ public:
         slot_id_to_expr_ctxs[1].emplace_back(conjuncts[1]);
 
         if constexpr (filter_all) {
-            st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp,
-                                       tuple_desc, nullptr, nullptr, nullptr,
+            st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx,
+                                       conjuncts, tmp, tuple_desc, nullptr, nullptr, nullptr,
                                        &slot_id_to_expr_ctxs);
         } else {
-            st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
-                                       nullptr, nullptr, nullptr, nullptr);
+            st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx, {},
+                                       tmp, nullptr, nullptr, nullptr, nullptr, nullptr);
         }
 
         EXPECT_TRUE(st.ok()) << st;
@@ -210,8 +218,9 @@ public:
         slot_id_to_expr_ctxs[1].emplace_back(conjuncts[0]);
         slot_id_to_expr_ctxs[2].emplace_back(conjuncts[1]);
 
-        st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
-                                   nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
+        st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx, conjuncts,
+                                   tmp, tuple_desc, nullptr, nullptr, nullptr,
+                                   &slot_id_to_expr_ctxs);
         EXPECT_TRUE(st.ok()) << st;
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
@@ -349,8 +358,8 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    static_cast<void>(p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr,
-                                            nullptr, nullptr, nullptr, nullptr));
+    static_cast<void>(p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp,
+                                                nullptr, nullptr, nullptr, nullptr, nullptr));
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
@@ -414,8 +423,8 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                                   nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -488,8 +497,8 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                                   nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -564,8 +573,8 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                                   nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -640,8 +649,8 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     runtime_state.set_desc_tbl(desc_tbl);
 
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
-                               nullptr, nullptr, nullptr);
+    st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
+                                   nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
@@ -974,8 +983,8 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     std::unordered_map<int, VExprContextSPtrs> slot_id_to_expr_ctxs;
     slot_id_to_expr_ctxs[0].emplace_back(conjuncts[0]);
 
-    st = p_reader->init_reader(column_names, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
-                               nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
+    st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx, conjuncts,
+                               tmp, tuple_desc, nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
     EXPECT_TRUE(st.ok()) << st;
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
