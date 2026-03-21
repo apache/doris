@@ -20,10 +20,10 @@ import org.awaitility.Awaitility
 
 import static java.util.concurrent.TimeUnit.SECONDS
 
-suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
-    def jobName = "test_streaming_postgres_job_all_type_name"
+suite("test_streaming_postgres_job_array_types", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
+    def jobName = "test_streaming_postgres_job_array_types_name"
     def currentDb = (sql "select database()")[0][0]
-    def table1 = "streaming_all_types_nullable_with_pk_pg"
+    def table1 = "streaming_array_types_pg"
     def pgDB = "postgres"
     def pgSchema = "cdc_test"
     def pgUser = "postgres"
@@ -40,50 +40,38 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
 
-        // create test
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
-            sql """CREATE EXTENSION IF NOT EXISTS hstore"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
             sql """
-            create table ${pgDB}.${pgSchema}.${table1} (
-                id                  bigserial PRIMARY KEY,
-                smallint_col        smallint,
-                integer_col         integer,
-                bigint_col          bigint,
-                real_col            real,
-                double_col          double precision,
-                numeric_col         numeric(20,6),
-                char_col            char(10),
-                varchar_col         varchar(255),
-                text_col            text,
-                boolean_col         boolean,
-                date_col            date,
-                time_col            time,
-                timetz_col          time with time zone,
-                timestamp_col       timestamp,
-                timestamptz_col     timestamp with time zone,
-                interval_col        interval,
-                bytea_col           bytea,
-                uuid_col            uuid,
-                json_col            json,
-                jsonb_col           jsonb,
-                inet_col            inet,
-                cidr_col            cidr,
-                macaddr_col         macaddr,
-                bit_col             bit(8),
-                bit_varying_col     bit varying(16),
-                int_array_col       integer[],
-                text_array_col      text[],
-                point_col           point,
-                macaddr8_col        macaddr8,
-                xml_col             xml,
-                hstore_col          hstore
+            CREATE TABLE ${pgDB}.${pgSchema}.${table1} (
+                id                      bigserial PRIMARY KEY,
+                int2_array_col          int2[],
+                int4_array_col          int4[],
+                int8_array_col          int8[],
+                float4_array_col        float4[],
+                double_array_col        double precision[],
+                bool_array_col          bool[],
+                varchar_array_col       varchar(50)[],
+                text_array_col          text[],
+                timestamp_array_col     timestamp[],
+                timestamptz_array_col   timestamptz[]
             );
             """
             // mock snapshot data
             sql """
-            INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (1,1,100,1000,1.23,4.56,12345.678901,'char','varchar','text value',true,'2024-01-01','12:00:00','12:00:00+08','2024-01-01 12:00:00','2024-01-01 12:00:00+08','1 day',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555555'::uuid,'{"a":1}','{"b":2}','192.168.1.1','192.168.0.0/24','08:00:2b:01:02:03',B'10101010',B'1010',ARRAY[1,2,3],ARRAY['a','b','c'],'(1,2)','08:00:2b:01:02:03:04:05'::macaddr8,'<root><item>1</item></root>'::xml,'a=>1,b=>2'::hstore);
+            INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (
+                1,
+                ARRAY[1::int2, 2::int2],
+                ARRAY[10::int4, 20::int4],
+                ARRAY[100::int8, 200::int8],
+                ARRAY[1.1::float4, 2.2::float4],
+                ARRAY[1.11::double precision, 2.22::double precision],
+                ARRAY[true, false],
+                ARRAY['foo'::varchar, 'bar'::varchar],
+                ARRAY['hello', 'world'],
+                ARRAY['2024-01-01 12:00:00'::timestamp, '2024-06-01 00:00:00'::timestamp],
+                ARRAY['2024-01-01 12:00:00+08'::timestamptz, '2024-06-01 00:00:00+00'::timestamptz]
+            );
             """
         }
 
@@ -97,7 +85,7 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
                     "password" = "${pgPassword}",
                     "database" = "${pgDB}",
                     "schema" = "${pgSchema}",
-                    "include_tables" = "${table1}", 
+                    "include_tables" = "${table1}",
                     "offset" = "initial"
                 )
                 TO DATABASE ${currentDb} (
@@ -112,7 +100,6 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
                     {
                         def jobSuccendCount = sql """ select SucceedTaskCount from jobs("type"="insert") where Name = '${jobName}' and ExecuteType='STREAMING' """
                         log.info("jobSuccendCount: " + jobSuccendCount)
-                        // check job status and succeed task count larger than 1
                         jobSuccendCount.size() == 1 && '1' <= jobSuccendCount.get(0).get(0)
                     }
             )
@@ -124,24 +111,37 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
             throw ex;
         }
 
-        qt_desc_all_types_null """desc ${currentDb}.${table1};"""
-        qt_select_all_types_null """select * from ${currentDb}.${table1} order by 1;"""
+        qt_desc_array_types """desc ${currentDb}.${table1};"""
+        qt_select_array_types """select * from ${currentDb}.${table1} order by 1;"""
 
-        // mock incremental into
+        // mock incremental data
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (2,2,200,2000,7.89,0.12,99999.000001,'char2','varchar2','another text',false,'2025-01-01','23:59:59','23:59:59+00','2025-01-01 23:59:59','2025-01-01 23:59:59+00','2 hours',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555556'::uuid,'{"x":10}','{"y":20}','10.0.0.1','10.0.0.0/16','08:00:2b:aa:bb:cc',B'11110000',B'1111',ARRAY[10,20],ARRAY['x','y'],'(3,4)','08:00:2b:aa:bb:cc:dd:ee'::macaddr8,'<root><item>2</item></root>'::xml,'x=>10,y=>20'::hstore);"""
+            sql """
+            INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (
+                2,
+                ARRAY[3::int2, 4::int2],
+                ARRAY[30::int4, 40::int4],
+                ARRAY[300::int8, 400::int8],
+                ARRAY[3.3::float4, 4.4::float4],
+                ARRAY[3.33::double precision, 4.44::double precision],
+                ARRAY[false, true],
+                ARRAY['baz'::varchar, 'qux'::varchar],
+                ARRAY['foo', 'bar'],
+                ARRAY['2025-01-01 06:00:00'::timestamp, '2025-06-01 18:00:00'::timestamp],
+                ARRAY['2025-01-01 06:00:00+08'::timestamptz, '2025-06-01 18:00:00+00'::timestamptz]
+            );
+            """
         }
 
         sleep(60000); // wait for cdc incremental data
 
-        // check incremental data
-        qt_select_all_types_null2 """select * from ${currentDb}.${table1} order by 1;"""
+        qt_select_array_types2 """select * from ${currentDb}.${table1} order by 1;"""
 
         sql """
-            DROP JOB IF EXISTS where jobname =  '${jobName}'
+            DROP JOB IF EXISTS where jobname = '${jobName}'
         """
 
-        def jobCountRsp = sql """select count(1) from jobs("type"="insert")  where Name ='${jobName}'"""
+        def jobCountRsp = sql """select count(1) from jobs("type"="insert") where Name ='${jobName}'"""
         assert jobCountRsp.get(0).get(0) == 0
     }
 }
