@@ -17,17 +17,17 @@
 
 #include "common/compiler_util.h"
 #include "common/status.h"
-#include "core/column/column_const.h"
-#include "core/column/column_array.h"
 #include "core/assert_cast.h"
-#include "exprs/function/function.h"
-#include "exprs/function/simple_function_factory.h"
-#include "core/types.h"
+#include "core/column/column_array.h"
+#include "core/column/column_const.h"
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_nullable.h"
+#include "core/types.h"
+#include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
+#include "exprs/function/simple_function_factory.h"
 
 namespace doris::vectorized {
 // array_combinations([1, 2, 3],2) -> [[1,2], [1,3], [2,3]]
