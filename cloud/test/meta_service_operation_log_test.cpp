@@ -47,6 +47,8 @@ extern void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
                           int64_t partition_id, int64_t tablet_id);
 extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id,
                                               int64_t version, int num_rows);
+extern void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                           CreateRowsetResponse& res);
 extern void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res);
 extern void add_tablet(CreateTabletsRequest& req, int64_t table_id, int64_t index_id,
@@ -841,7 +843,7 @@ TEST(MetaServiceOperationLogTest, CommitTxn) {
         LOG(INFO) << "Creating rowset for tablet_id=" << (tablet_id_base + i)
                   << ", partition_id=" << partition_id << ", txn_id=" << txn_id
                   << ", rowset=" << tmp_rowset.ShortDebugString();
-
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -1048,6 +1050,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnEventually) {
     create_tablet(meta_service.get(), table_id, 1237, partition_id, tablet_id_base);
     auto tmp_rowset = create_rowset(txn_id, tablet_id_base, partition_id, 1, 100);
     CreateRowsetResponse res;
+    prepare_rowset(meta_service.get(), tmp_rowset, res);
     commit_rowset(meta_service.get(), tmp_rowset, res);
     ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
 
@@ -1273,6 +1276,7 @@ TEST(MetaServiceOperationLogTest, CommitTxnWithSubTxn) {
         create_tablet(meta_service.get(), table_id, 1238, partition_id, tablet_id_base + i);
         auto tmp_rowset = create_rowset(sub_txn_id, tablet_id_base + i, partition_id, 1, 100);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), tmp_rowset, res);
         commit_rowset(meta_service.get(), tmp_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }

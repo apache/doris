@@ -2659,22 +2659,22 @@ int check_idempotent_for_txn_or_job(Transaction* txn, const std::string& recycle
             return -1;
         }
     } else if (!config::enable_recycle_delete_rowset_key_check) {
-        if (config::enable_tablet_job_check && tablet_job_id.empty() && !tablet_job_id.empty()) {
+        if (config::enable_tablet_job_check && !tablet_job_id.empty()) {
             if (!check_job_existed(txn, code, msg, instance_id, tablet_id, rowset_id, tablet_job_id,
                                    is_versioned_read, resource_mgr)) {
                 return 1;
             }
         }
 
-        // Check if the prepare rowset request is invalid.
-        // If the transaction has been finished, it means this prepare rowset is a timeout retry request.
+        // Check if the commit rowset request is invalid.
+        // If the transaction has been finished, it means this commit rowset is a timeout retry request.
         // In this case, do not write the recycle key again, otherwise it may cause data loss.
         // If the rowset had load id, it means it is a load request, otherwise it is a
         // compaction/sc request.
         if (config::enable_load_txn_status_check && rowset_meta.has_load_id() &&
             !check_transaction_status(TxnStatusPB::TXN_STATUS_PREPARED, txn, instance_id,
                                       rowset_meta.txn_id(), code, msg)) {
-            LOG(WARNING) << "prepare rowset failed, txn_id=" << rowset_meta.txn_id()
+            LOG(WARNING) << "commit rowset failed, txn_id=" << rowset_meta.txn_id()
                          << ", tablet_id=" << tablet_id << ", rowset_id=" << rowset_id
                          << ", rowset_state=" << rowset_meta.rowset_state() << ", msg=" << msg;
             return 1;

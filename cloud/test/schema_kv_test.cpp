@@ -651,6 +651,7 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
     auto sp = SyncPoint::get_instance();
     DORIS_CLOUD_DEFER {
         SyncPoint::get_instance()->clear_all_call_backs();
+        config::enable_recycle_delete_rowset_key_check = true;
     };
     sp->set_call_back("get_instance_id", [&](auto&& args) {
         auto* ret = try_any_cast_ret<std::string>(args);
@@ -658,6 +659,7 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
         ret->second = true;
     });
     sp->enable_processing();
+    config::enable_recycle_delete_rowset_key_check = false;
 
     int64_t db_id = 1000;
 
@@ -667,17 +669,36 @@ TEST(DetachSchemaKVTest, InsertExistedRowsetTest) {
         config::write_schema_kv = false;
         ASSERT_NO_FATAL_FAILURE(create_tablet(meta_service.get(), db_id, table_id, index_id,
                                               partition_id, tablet_id, next_rowset_id(), 1));
+
+        int64_t txn_id = -1;
+        std::string label = "test_abort_txn_label";
+        {
+            brpc::Controller cntl;
+            BeginTxnRequest req;
+            BeginTxnResponse res;
+            req.set_cloud_unique_id("test_cloud_unique_id");
+            auto* txn_info = req.mutable_txn_info();
+            txn_info->set_db_id(db_id);
+            txn_info->set_label(label);
+            txn_info->add_table_ids(table_id);
+            txn_info->set_timeout_ms(36000);
+            meta_service->begin_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                    &req, &res, nullptr);
+            ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+            txn_id = res.txn_id();
+            LOG(INFO) << "Step 1: Transaction started, txn_id=" << txn_id;
+        }
         std::unique_ptr<Transaction> txn;
         ASSERT_EQ(meta_service->txn_kv()->create_txn(&txn), TxnErrorCode::TXN_OK);
-        auto committed_rowset = create_rowset(10005, tablet_id, next_rowset_id(), 2, 2);
+        auto committed_rowset = create_rowset(txn_id, tablet_id, next_rowset_id(), 2, 2);
         std::string tmp_rowset_key, tmp_rowset_val;
         // 0:instance_id  1:txn_id  2:tablet_id
-        meta_rowset_tmp_key({instance_id, 10005, tablet_id}, &tmp_rowset_key);
+        meta_rowset_tmp_key({instance_id, txn_id, tablet_id}, &tmp_rowset_key);
         ASSERT_TRUE(committed_rowset.SerializeToString(&tmp_rowset_val));
         txn->put(tmp_rowset_key, tmp_rowset_val);
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
         CreateRowsetResponse res;
-        auto new_rowset = create_rowset(10005, tablet_id, next_rowset_id(), 2, 2);
+        auto new_rowset = create_rowset(txn_id, tablet_id, next_rowset_id(), 2, 2);
         prepare_rowset(meta_service.get(), new_rowset, res);
         ASSERT_EQ(res.status().code(), MetaServiceCode::ALREADY_EXISTED);
         ASSERT_TRUE(res.has_existed_rowset_meta());
