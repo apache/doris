@@ -36,7 +36,6 @@
 #include "core/data_type/data_type_map.h"
 #include "core/field.h"
 #include "core/types.h"
-#include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_block.h"
 #include "exec/sort/sort_description.h"
 #include "testutil/test_util.h"

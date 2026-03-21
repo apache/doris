@@ -70,7 +70,6 @@
 #include "storage/segment/page_pointer.h" // for PagePointer
 #include "storage/segment/row_ranges.h"
 #include "storage/segment/segment.h"
-#include "storage/segment/segment_prefetcher.h"
 #include "storage/segment/variant/variant_column_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h" // for TypeInfo

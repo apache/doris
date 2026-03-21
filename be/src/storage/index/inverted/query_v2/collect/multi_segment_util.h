@@ -17,7 +17,7 @@
 
 #pragma once
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
+#include "storage/index/inverted/query_v2/weight.h"
 
 #ifdef __clang__
 #pragma clang diagnostic push

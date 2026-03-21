@@ -41,7 +41,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/plugin/cloud_plugin_downloader.h"
 #include "service/http/http_client.h"
-#include "udf/python/python_server.h"
 #include "util/defer_op.h"
 #include "util/dynamic_util.h"
 #include "util/md5.h"

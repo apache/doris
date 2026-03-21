@@ -16,7 +16,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/collect/top_k_collector.h"
+#include "storage/index/inverted/query_v2/collect/top_k_collector.h"
 
 #include <gtest/gtest.h>
 

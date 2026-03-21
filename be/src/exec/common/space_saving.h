@@ -22,10 +22,10 @@
 
 #include <boost/range/adaptor/reversed.hpp>
 
-#include "vec/common/arena_with_free_lists.h"
-#include "vec/common/hash_table/hash_map.h"
-#include "vec/common/string_buffer.hpp"
-#include "vec/io/io_helper.h"
+#include "core/arena_with_free_lists.h"
+#include "exec/common/hash_table/hash_map.h"
+#include "core/string_buffer.hpp"
+#include "util/io_helper.h"
 
 namespace doris::vectorized {
 

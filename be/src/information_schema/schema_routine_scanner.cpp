@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exec/schema_scanner/schema_routine_scanner.h"
+#include "information_schema/schema_routine_scanner.h"
 
+#include "core/block/block.h"
+#include "core/data_type/data_type_factory.hpp"
+#include "core/string_ref.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/thrift_rpc_helper.h"
-#include "vec/common/string_ref.h"
-#include "vec/core/block.h"
-#include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"

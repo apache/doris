@@ -34,7 +34,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "util/runtime_profile.h"
 #include "util/uid_util.h"
 
 namespace butil {
@@ -54,7 +53,6 @@ class RuntimeState;
 class RuntimeFilterWrapper;
 class QueryContext;
 class ExecEnv;
-class RuntimeProfile;
 
 struct LocalMergeContext {
     std::mutex mtx;

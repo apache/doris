@@ -59,7 +59,6 @@
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/client_cache.h"
-#include "util/concurrency_stats.h"
 #include "util/debug_points.h"
 
 namespace doris::io {

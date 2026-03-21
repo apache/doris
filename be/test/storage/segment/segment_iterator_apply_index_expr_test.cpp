@@ -20,13 +20,13 @@
 #include <memory>
 
 #include "common/status.h"
-#include "olap/olap_common.h"
-#include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/tablet_schema.h"
+#include "storage/olap_common.h"
+#include "storage/segment/column_reader.h"
+#include "storage/tablet/tablet_schema.h"
 #include "runtime/runtime_state.h"
-#include "vec/data_types/data_type_number.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
+#include "core/data_type/data_type_number.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
 
 // Use #define private public to access private members for testing
 #if defined(__clang__)
@@ -34,8 +34,8 @@
 #pragma clang diagnostic ignored "-Wkeyword-macro"
 #endif
 #define private public
-#include "olap/rowset/segment_v2/segment.h"
-#include "olap/rowset/segment_v2/segment_iterator.h"
+#include "storage/segment/segment.h"
+#include "storage/segment/segment_iterator.h"
 #undef private
 #if defined(__clang__)
 #pragma clang diagnostic pop

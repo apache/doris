@@ -30,7 +30,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/local_file_system.h"
-#include "olap/column_block.h"
+#include "storage/column_block.h"
 #include "storage/olap_common.h"
 #include "storage/segment/column_reader.h"
 #include "storage/segment/column_writer.h"

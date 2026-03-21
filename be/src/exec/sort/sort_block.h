@@ -42,7 +42,6 @@
 #include "core/memcmp_small.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_description.h"
 #include "util/simd/bits.h"
 

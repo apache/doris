@@ -111,7 +111,6 @@
 #include "storage/tablet/tablet_column_object_pool.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/tablet/tablet_schema_cache.h"
-#include "udf/python/python_server.h"
 #include "util/bfd_parser.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h"

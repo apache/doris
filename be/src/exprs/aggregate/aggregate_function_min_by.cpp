@@ -17,8 +17,8 @@
 
 #include <memory>
 
-#include "vec/aggregate_functions/aggregate_function_min_max_by.h"
-#include "vec/aggregate_functions/aggregate_function_simple_factory.h"
+#include "exprs/aggregate/aggregate_function_min_max_by.h"
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
 
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"

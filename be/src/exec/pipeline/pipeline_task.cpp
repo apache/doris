@@ -32,7 +32,6 @@
 #include "core/block/block.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/operator.h"
-#include "exec/operator/rec_cte_source_operator.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline.h"

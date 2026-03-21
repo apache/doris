@@ -30,7 +30,6 @@
 #include "core/block/block.h"
 #include "core/field.h"
 #include "exec/common/util.hpp"
-#include "exec/sort/hybrid_sorter.h"
 #include "exec/sort/sort_cursor.h"
 #include "exec/sort/sort_description.h"
 #include "exec/sort/vsort_exec_exprs.h"

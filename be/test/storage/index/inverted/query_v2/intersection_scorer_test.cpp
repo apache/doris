@@ -26,7 +26,7 @@
 #include <utility>
 #include <vector>
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/exclude_scorer.h"
+#include "storage/index/inverted/query_v2/exclude_scorer.h"
 
 namespace doris {
 

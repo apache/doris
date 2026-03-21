@@ -48,7 +48,6 @@
 #include "storage/segment/page_handle.h" // for PageHandle
 #include "storage/segment/page_pointer.h"
 #include "storage/segment/parsed_page.h" // for ParsedPage
-#include "storage/segment/segment_prefetcher.h"
 #include "storage/segment/stream_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"

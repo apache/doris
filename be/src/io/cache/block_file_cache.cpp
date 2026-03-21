@@ -51,7 +51,6 @@
 #include "io/cache/fs_file_cache_storage.h"
 #include "io/cache/mem_file_cache_storage.h"
 #include "runtime/runtime_profile.h"
-#include "util/concurrency_stats.h"
 #include "util/stack_util.h"
 #include "util/stopwatch.hpp"
 #include "util/thread.h"

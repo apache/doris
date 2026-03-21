@@ -23,8 +23,8 @@
 #include <vector>
 
 #include "pipeline/common/join_utils.h"
-#include "vec/columns/column_vector.h"
-#include "vec/runtime/timestamptz_value.h"
+#include "core/column/column_vector.h"
+#include "core/value/timestamptz_value.h"
 
 namespace doris {
 using namespace vectorized;

@@ -34,7 +34,7 @@
 #elif defined(__GNUC__)
 #pragma GCC diagnostic pop
 #endif
-#include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+#include "storage/index/inverted/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 

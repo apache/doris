@@ -28,7 +28,6 @@
 #include "exprs/vexpr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
-#include "util/concurrency_stats.h"
 #include "util/defer_op.h"
 
 namespace doris::vectorized {

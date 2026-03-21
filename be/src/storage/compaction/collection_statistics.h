@@ -25,6 +25,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/olap_common.h"
+#include "storage/predicate_collector.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

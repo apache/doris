@@ -23,6 +23,7 @@
 #include <utility>
 
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/vectorized_agg_fn.h"
 
 namespace doris {

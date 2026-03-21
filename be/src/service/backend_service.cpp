@@ -74,7 +74,6 @@
 #include "storage/tablet/tablet_manager.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/txn/txn_manager.h"
-#include "udf/python/python_env.h"
 #include "util/defer_op.h"
 #include "util/threadpool.h"
 #include "util/thrift_server.h"

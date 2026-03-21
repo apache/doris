@@ -54,6 +54,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/string_ref.h"
+#include "core/types.h"
 #include "exec/scan/file_scanner.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -61,7 +62,6 @@
 #include "runtime/exec_env.h"      // ExecEnv
 #include "runtime/fragment_mgr.h"  // FragmentMgr
 #include "runtime/runtime_state.h" // RuntimeState
-#include "runtime/types.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "semaphore"
 #include "storage/olap_common.h"

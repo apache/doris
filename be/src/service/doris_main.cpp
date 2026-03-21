@@ -51,7 +51,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/tablet/tablet_schema_cache.h"
 #include "storage/utils.h"
-#include "util/concurrency_stats.h"
 #include "util/jni-util.h"
 
 #if defined(LEAK_SANITIZER)
@@ -77,7 +76,6 @@
 #include "service/http_service.h"
 #include "storage/options.h"
 #include "storage/storage_engine.h"
-#include "udf/python/python_env.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
 #include "util/mem_info.h"

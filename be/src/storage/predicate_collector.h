@@ -24,9 +24,9 @@
 
 #include "common/status.h"
 #include "gen_cpp/Exprs_types.h"
-#include "olap/rowset/segment_v2/inverted_index/query/query_info.h"
 #include "runtime/runtime_state.h"
-#include "vec/exprs/vexpr_fwd.h"
+#include "storage/index/inverted/query/query_info.h"
+#include "exprs/vexpr_fwd.h"
 
 namespace doris {
 

@@ -53,7 +53,6 @@
 #include "information_schema/schema_collations_scanner.h"
 #include "information_schema/schema_column_data_sizes_scanner.h"
 #include "information_schema/schema_columns_scanner.h"
-#include "information_schema/schema_database_properties_scanner.h"
 #include "information_schema/schema_dummy_scanner.h"
 #include "information_schema/schema_encryption_keys_scanner.h"
 #include "information_schema/schema_file_cache_info_scanner.h"

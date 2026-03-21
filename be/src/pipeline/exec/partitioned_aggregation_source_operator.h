@@ -22,9 +22,9 @@
 
 #include "common/status.h"
 #include "operator.h"
-#include "vec/spill/spill_file.h"
-#include "vec/spill/spill_file_reader.h"
-#include "vec/spill/spill_repartitioner.h"
+#include "exec/spill/spill_file.h"
+#include "exec/spill/spill_file_reader.h"
+#include "exec/spill/spill_repartitioner.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

@@ -32,7 +32,6 @@
 
 #include "common/logging.h"
 #include "common/status.h"
-#include "exec/operator/rec_cte_scan_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"

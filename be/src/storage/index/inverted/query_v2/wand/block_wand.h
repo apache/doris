@@ -22,7 +22,7 @@
 #include <ranges>
 #include <vector>
 
-#include "olap/rowset/segment_v2/inverted_index/query_v2/term_query/term_scorer.h"
+#include "storage/index/inverted/query_v2/term_query/term_scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 

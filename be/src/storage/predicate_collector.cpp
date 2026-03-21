@@ -15,20 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "olap/predicate_collector.h"
+#include "storage/predicate_collector.h"
 
 #include <glog/logging.h>
 
 #include "gen_cpp/Exprs_types.h"
-#include "olap/rowset/segment_v2/index_reader_helper.h"
-#include "olap/rowset/segment_v2/inverted_index/analyzer/analyzer.h"
-#include "olap/rowset/segment_v2/inverted_index/util/string_helper.h"
-#include "olap/tablet_schema.h"
-#include "vec/exprs/vexpr.h"
-#include "vec/exprs/vexpr_context.h"
-#include "vec/exprs/vliteral.h"
-#include "vec/exprs/vsearch.h"
-#include "vec/exprs/vslot_ref.h"
+#include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/util/string_helper.h"
+#include "storage/tablet/tablet_schema.h"
+#include "exprs/vexpr.h"
+#include "exprs/vexpr_context.h"
+#include "exprs/vliteral.h"
+#include "exprs/vsearch.h"
+#include "exprs/vslot_ref.h"
 
 namespace doris {
 
