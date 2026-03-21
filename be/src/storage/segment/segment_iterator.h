@@ -218,8 +218,7 @@ private:
                                        MutableColumns& column_block, size_t nrows);
     [[nodiscard]] Status _read_columns_by_index(uint32_t nrows_read_limit, uint16_t& nrows_read);
     void _replace_version_col_if_needed(const std::vector<ColumnId>& column_ids, size_t num_rows);
-    Status _init_current_block(Block* block,
-                               std::vector<MutableColumnPtr>& non_pred_vector,
+    Status _init_current_block(Block* block, std::vector<MutableColumnPtr>& non_pred_vector,
                                uint32_t nrows_read_limit);
     uint16_t _evaluate_vectorization_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
     uint16_t _evaluate_short_circuit_predicate(uint16_t* sel_rowid_idx, uint16_t selected_size);
@@ -231,14 +230,12 @@ private:
                                                  MutableColumns* mutable_columns,
                                                  bool init_condition_cache = false);
 
-    Status copy_column_data_by_selector(IColumn* input_col_ptr,
-                                        MutableColumnPtr& output_col,
+    Status copy_column_data_by_selector(IColumn* input_col_ptr, MutableColumnPtr& output_col,
                                         uint16_t* sel_rowid_idx, uint16_t select_size,
                                         size_t batch_size);
 
     template <class Container>
-    [[nodiscard]] Status _output_column_by_sel_idx(Block* block,
-                                                   const Container& column_ids,
+    [[nodiscard]] Status _output_column_by_sel_idx(Block* block, const Container& column_ids,
                                                    uint16_t* sel_rowid_idx, uint16_t select_size) {
         SCOPED_RAW_TIMER(&_opts.stats->output_col_ns);
         for (auto cid : column_ids) {
@@ -281,8 +278,7 @@ private:
     // same with _extract_common_expr_columns, but only extract columns that can be used for index
     [[nodiscard]] Status _execute_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
                                               Block* block);
-    Status _process_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size,
-                                Block* block);
+    Status _process_common_expr(uint16_t* sel_rowid_idx, uint16_t& selected_size, Block* block);
 
     uint16_t _evaluate_common_expr_filter(uint16_t* sel_rowid_idx, uint16_t selected_size,
                                           const IColumn::Filter& filter);
@@ -296,8 +292,7 @@ private:
     bool _check_apply_by_inverted_index(std::shared_ptr<ColumnPredicate> pred);
 
     void _output_index_result_column(const std::vector<VExprContext*>& expr_ctxs,
-                                     uint16_t* sel_rowid_idx, uint16_t select_size,
-                                     Block* block);
+                                     uint16_t* sel_rowid_idx, uint16_t select_size, Block* block);
 
     bool _need_read_data(ColumnId cid);
     bool _prune_column(ColumnId cid, MutableColumnPtr& column, bool fill_defaults,
@@ -355,8 +350,7 @@ private:
 
     Status _convert_to_expected_type(const std::vector<ColumnId>& col_ids);
 
-    bool _no_need_read_key_data(ColumnId cid, MutableColumnPtr& column,
-                                size_t nrows_read);
+    bool _no_need_read_key_data(ColumnId cid, MutableColumnPtr& column, size_t nrows_read);
 
     bool _has_delete_predicate(ColumnId cid);
 
