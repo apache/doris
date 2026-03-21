@@ -37,7 +37,6 @@
 #include "exec/common/util.hpp"
 #include "exprs/aggregate/aggregate_function_ai_agg.h"
 #include "exprs/aggregate/aggregate_function_java_udaf.h"
-#include "exprs/aggregate/aggregate_function_python_udaf.h"
 #include "exprs/aggregate/aggregate_function_rpc.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_sort.h"

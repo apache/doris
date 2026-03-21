@@ -41,6 +41,7 @@
 #include "storage/field.h"
 #include "storage/olap_common.h"
 #include "storage/schema.h"
+#include "storage/segment/column_reader.h"
 #include "storage/segment/page_handle.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"

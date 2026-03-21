@@ -27,6 +27,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "storage/index/indexed_column_reader.h"
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/segment/segment.h"
