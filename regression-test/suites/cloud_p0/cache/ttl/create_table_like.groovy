@@ -20,7 +20,10 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite("create_table_like") {
     def custoBeConfig = [
         enable_evict_file_cache_in_advance : false,
-        file_cache_enter_disk_resource_limit_mode_percent : 99
+        file_cache_enter_disk_resource_limit_mode_percent : 99,
+        file_cache_background_ttl_gc_interval_ms : 1000,
+        file_cache_background_ttl_info_update_interval_ms : 1000,
+        file_cache_background_tablet_id_flush_interval_ms : 1000
     ]
 
     setBeConfigTemporary(custoBeConfig) {

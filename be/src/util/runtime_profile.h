@@ -395,7 +395,7 @@ public:
                          int64_t level = 2, int64_t condition = 0, int64_t value = 0)
                 : Counter(type, value, level),
                   _condition(condition),
-                  _value(value),
+                  _stored_value(value),
                   _condition_func(condition_func) {}
 
         Counter* clone() const override {
@@ -405,13 +405,13 @@ public:
 
         int64_t value() const override {
             std::lock_guard<std::mutex> l(_mutex);
-            return _value;
+            return _stored_value;
         }
 
         void conditional_update(int64_t c, int64_t v) {
             std::lock_guard<std::mutex> l(_mutex);
             if (_condition_func(_condition, c)) {
-                _value = v;
+                _stored_value = v;
                 _condition = c;
             }
         }
@@ -419,7 +419,7 @@ public:
     private:
         mutable std::mutex _mutex;
         int64_t _condition;
-        int64_t _value;
+        int64_t _stored_value;
         ConditionCounterFunction _condition_func;
     };
 
