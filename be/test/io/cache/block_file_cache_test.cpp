@@ -1570,6 +1570,55 @@ TEST_F(BlockFileCacheTest, change_cache_type_memory_storage) {
     }
 }
 
+TEST_F(BlockFileCacheTest, memory_storage_read_offset_and_bounds) {
+    io::FileCacheSettings settings;
+    settings.query_queue_size = 32;
+    settings.query_queue_elements = 8;
+    settings.max_file_block_size = 32;
+    settings.max_query_cache_size = 32;
+    settings.capacity = 32;
+    settings.storage = "memory";
+    io::BlockFileCache cache(cache_base_path, settings);
+    ASSERT_TRUE(cache.initialize());
+    for (int i = 0; i < 100; i++) {
+        if (cache.get_async_open_success()) {
+            break;
+        };
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    io::CacheContext context;
+    ReadStatistics rstats;
+    context.stats = &rstats;
+    context.cache_type = io::FileCacheType::NORMAL;
+    auto key = io::BlockFileCache::hash("memory_storage_read_offset_and_bounds");
+
+    auto holder = cache.get_or_set(key, 100, 8, context); /// Add range [100, 107]
+    auto blocks = fromHolder(holder);
+    ASSERT_EQ(blocks.size(), 1);
+    ASSERT_TRUE(blocks[0]->get_or_set_downloader() == io::FileBlock::get_caller_id());
+
+    const std::string data = "01234567";
+    ASSERT_TRUE(blocks[0]->append(Slice(data.data(), data.size())).ok());
+    ASSERT_TRUE(blocks[0]->finalize().ok());
+
+    std::string part(3, '\0');
+    ASSERT_TRUE(blocks[0]->read(Slice(part.data(), part.size()), 2).ok());
+    EXPECT_EQ(part, "234");
+
+    std::string out_of_bound_offset(1, '\0');
+    EXPECT_FALSE(blocks[0]
+                         ->read(Slice(out_of_bound_offset.data(), out_of_bound_offset.size()),
+                                data.size() + 1)
+                         .ok());
+
+    std::string out_of_bound_size(3, '\0');
+    EXPECT_FALSE(blocks[0]
+                         ->read(Slice(out_of_bound_size.data(), out_of_bound_size.size()),
+                                data.size() - 2)
+                         .ok());
+}
+
 TEST_F(BlockFileCacheTest, fd_cache_remove) {
     if (fs::exists(cache_base_path)) {
         fs::remove_all(cache_base_path);
