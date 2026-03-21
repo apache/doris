@@ -18,6 +18,7 @@
 #pragma once
 
 #include <memory>
+#include <roaring/roaring.hh>
 #include <string>
 
 #include "common/exception.h"
