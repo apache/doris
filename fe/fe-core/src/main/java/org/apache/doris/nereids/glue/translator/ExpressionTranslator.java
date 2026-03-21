@@ -114,6 +114,8 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -130,6 +132,8 @@ import java.util.stream.Collectors;
 public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTranslatorContext> {
 
     public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
+
+    private static final Logger LOG = LogManager.getLogger(ExpressionTranslator.class);
 
     /**
      * The entry function of ExpressionTranslator.
@@ -222,7 +226,7 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
         // Try to resolve inverted index metadata. When the slot has lost its original
         // column/table reference (e.g., after CTE inlining or join projection remapping),
         // we gracefully fall back to invertedIndex = null. The BE can still evaluate MATCH
-        // correctly without inverted index (slow path), or the PushDownMatchProjection rule
+        // correctly without inverted index (slow path), or the PushDownMatchProjection/PushDownMatchPredicate rules
         // may have already converted this to a virtual column on the OlapScan (fast path).
         Index invertedIndex = null;
         String analyzer = match.getAnalyzer().orElse(null);
@@ -234,6 +238,9 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 throw new AnalysisException("No inverted index found for analyzer '" + analyzer
                         + "' on column " + column.getName());
             }
+        } else if (analyzer != null) {
+            LOG.warn("MATCH with analyzer '{}' on slot '{}' lost column metadata, "
+                    + "falling back without inverted index", analyzer, slot.getName());
         }
 
         MatchPredicate.Operator op = match.op();

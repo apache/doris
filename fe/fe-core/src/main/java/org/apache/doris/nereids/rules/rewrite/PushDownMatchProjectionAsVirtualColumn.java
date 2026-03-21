@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -53,10 +52,7 @@ import java.util.function.Function;
 public class PushDownMatchProjectionAsVirtualColumn implements RewriteRuleFactory {
 
     private boolean canPushDown(LogicalOlapScan scan) {
-        boolean dupTblOrMOW = scan.getTable().getKeysType() == KeysType.DUP_KEYS
-                || (scan.getTable().getTableProperty() != null
-                    && scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite());
-        return dupTblOrMOW;
+        return MatchPushDownHelper.canPushDownMatch(scan);
     }
 
     @Override

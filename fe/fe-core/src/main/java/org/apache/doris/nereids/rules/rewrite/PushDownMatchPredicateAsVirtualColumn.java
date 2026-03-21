@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -40,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Push down MATCH expressions from join/filter predicates as virtual columns on OlapScan.
@@ -64,13 +64,16 @@ import java.util.Set;
  *           └── Project[objectId, fn, __match_vc]
  *                 └── OlapScan[table, virtualColumns=[(CAST(col) MATCH_ANY 'hello')]]
  *           └── ...
+ *
+ * NOTE: Currently only handles MATCH on the left side of a join. If the MATCH references
+ * a column from the right side (e.g., RIGHT JOIN with Project on the right), this rule
+ * will not trigger. This is acceptable for the primary use case (CTE + LEFT JOIN with
+ * the main table on the left side).
  */
 public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory {
 
     private boolean canPushDown(LogicalOlapScan scan) {
-        return scan.getTable().getKeysType() == KeysType.DUP_KEYS
-                || (scan.getTable().getTableProperty() != null
-                    && scan.getTable().getTableProperty().getEnableUniqueKeyMergeOnWrite());
+        return MatchPushDownHelper.canPushDownMatch(scan);
     }
 
     @Override
@@ -207,9 +210,8 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
             return null;
         }
 
-        List<NamedExpression> virtualColumns = new ArrayList<>(scan.getVirtualColumns());
-        virtualColumns.addAll(matchToVirtualColumn.values());
-        LogicalOlapScan newScan = scan.withVirtualColumns(virtualColumns);
+        LogicalOlapScan newScan = scan.appendVirtualColumns(
+                new ArrayList<>(matchToVirtualColumn.values()));
 
         List<NamedExpression> newProjections = new ArrayList<>(project.getProjects());
         for (Alias vcAlias : matchToVirtualColumn.values()) {
@@ -221,11 +223,7 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
             newPredicateList.add(replaceMatch(predicate, matchToVirtualSlot));
         }
 
-        PushDownResult result = new PushDownResult();
-        result.newScan = newScan;
-        result.newProjections = newProjections;
-        result.newPredicateList = newPredicateList;
-        return result;
+        return new PushDownResult(newScan, newProjections, newPredicateList);
     }
 
     private void collectMatchesNeedingPushDown(Expression expr,
@@ -234,25 +232,28 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
         if (expr instanceof Match) {
             Match match = (Match) expr;
             Set<Slot> inputSlots = match.left().getInputSlots();
-            SlotReference matchSlot = null;
-            for (Slot s : inputSlots) {
-                if (s instanceof SlotReference) {
-                    matchSlot = (SlotReference) s;
-                    break;
-                }
-            }
-            if (matchSlot == null) {
+            List<SlotReference> matchSlots = inputSlots.stream()
+                    .filter(SlotReference.class::isInstance)
+                    .map(SlotReference.class::cast)
+                    .collect(Collectors.toList());
+            if (matchSlots.isEmpty()) {
                 return;
             }
 
-            if (!leftOutputSlots.contains(matchSlot)) {
+            // All slots must come from the left side of the join
+            if (!matchSlots.stream().allMatch(leftOutputSlots::contains)) {
                 return;
             }
 
-            if (matchSlot.getOriginalColumn().isPresent() && matchSlot.getOriginalTable().isPresent()) {
+            // If all slots have metadata, no need to push down
+            boolean allHaveMetadata = matchSlots.stream()
+                    .allMatch(s -> s.getOriginalColumn().isPresent() && s.getOriginalTable().isPresent());
+            if (allHaveMetadata) {
                 return;
             }
 
+            // Use the first slot to trace back through the project
+            SlotReference matchSlot = matchSlots.get(0);
             Expression sourceExpr = findSourceExpression(matchSlot, project);
             if (sourceExpr == null) {
                 return;
@@ -309,8 +310,15 @@ public class PushDownMatchPredicateAsVirtualColumn implements RewriteRuleFactory
     }
 
     private static class PushDownResult {
-        LogicalOlapScan newScan;
-        List<NamedExpression> newProjections;
-        List<Expression> newPredicateList;
+        final LogicalOlapScan newScan;
+        final List<NamedExpression> newProjections;
+        final List<Expression> newPredicateList;
+
+        PushDownResult(LogicalOlapScan newScan, List<NamedExpression> newProjections,
+                List<Expression> newPredicateList) {
+            this.newScan = newScan;
+            this.newProjections = newProjections;
+            this.newPredicateList = newPredicateList;
+        }
     }
 }
