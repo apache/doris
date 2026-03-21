@@ -219,7 +219,7 @@ public:
     static void make_top_consumption_tasks_tracker_profile(RuntimeProfile* profile, int top_num);
     static void make_all_tasks_tracker_profile(RuntimeProfile* profile);
 
-    std::shared_ptr<MemTrackerLimiter> write_tracker() { return _write_tracker; }
+    // std::shared_ptr<MemTrackerLimiter> write_tracker() { return _write_tracker; }
 
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
@@ -266,7 +266,7 @@ private:
     // Avoid frequent printing.
     bool _enable_print_log_usage = false;
 
-    std::shared_ptr<MemTrackerLimiter> _write_tracker;
+    // std::shared_ptr<MemTrackerLimiter> _write_tracker;
 
     struct AddressSanitizer {
         size_t size;

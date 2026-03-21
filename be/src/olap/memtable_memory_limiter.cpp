@@ -19,9 +19,13 @@
 
 #include <bvar/bvar.h>
 
+#include <cstdint>
+
 #include "common/config.h"
 #include "olap/memtable.h"
 #include "olap/memtable_writer.h"
+#include "runtime/memory/heap_profiler.h"
+#include "runtime/memory/memory_profile.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/doris_metrics.h"
 #include "util/mem_info.h"
@@ -118,7 +122,20 @@ int64_t MemTableMemoryLimiter::_need_flush() {
     int64_t limit2 = _sys_avail_mem_less_than_warning_water_mark();
     int64_t limit3 = _process_used_mem_more_than_soft_mem_limit();
     int64_t need_flush = std::max({limit1, limit2, limit3});
-    return need_flush - _queue_mem_usage - _flush_mem_usage;
+    int64_t result = need_flush - _queue_mem_usage - _flush_mem_usage;
+    constexpr int64_t dbg_mem_limit = 30 * 1024 * 1024 * 1024LL;
+    if (_mem_tracker->consumption() > dbg_mem_limit) {
+        LOG(INFO) << "memtable need flush calc: "
+                  << ", mem consumption: "
+                  << PrettyPrinter::print_bytes(_mem_tracker->consumption())
+                  << ", load soft limit: " << PrettyPrinter::print_bytes(_load_soft_mem_limit)
+                  << ", sys avail limit: " << PrettyPrinter::print_bytes(limit2)
+                  << ", process used limit: " << PrettyPrinter::print_bytes(limit3)
+                  << ", queue mem usage: " << PrettyPrinter::print_bytes(_queue_mem_usage)
+                  << ", flush mem usage: " << PrettyPrinter::print_bytes(_flush_mem_usage)
+                  << ", need flush: " << PrettyPrinter::print_bytes(result);
+    }
+    return result;
 }
 
 void MemTableMemoryLimiter::handle_memtable_flush(std::function<bool()> cancel_check) {
