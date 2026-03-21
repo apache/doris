@@ -26,6 +26,7 @@ import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DynamicPartitionUtil;
@@ -292,6 +293,22 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                         "Property "
                                 + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                                 + " should be set to true or false");
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_TSO)) {
+            if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("true")
+                    && !properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("false")) {
+                throw new AnalysisException(
+                        "Property "
+                                + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
+                                + " should be set to true or false");
+            }
+            if (properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_TSO).equalsIgnoreCase("true")
+                    && !Config.enable_feature_tso) {
+                throw new AnalysisException(
+                        "Property " + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
+                                + " can not be enabled when experimental_enable_feature_tso is disabled");
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;

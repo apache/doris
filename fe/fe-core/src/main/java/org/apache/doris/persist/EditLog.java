@@ -106,6 +106,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.Frontend;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TransactionStatus;
+import org.apache.doris.tso.TSOTimestamp;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -1467,6 +1468,10 @@ public class EditLog {
                     // This log is only used to keep FE/MS cut point in journal timeline.
                     break;
                 }
+                case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
+                    env.getCurrentTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
+                    break;
+                }
                 default: {
                     IOException e = new IOException();
                     LOG.error("UNKNOWN Operation Type {}, log id: {}", opCode, logId, e);
@@ -1908,6 +1913,10 @@ public class EditLog {
 
     public void logTimestamp(Timestamp stamp) {
         logEdit(OperationType.OP_TIMESTAMP, stamp);
+    }
+
+    public void logTSOTimestampWindowEnd(TSOTimestamp windowEnd) {
+        logEdit(OperationType.OP_TSO_TIMESTAMP_WINDOW_END, windowEnd);
     }
 
     public void logMasterInfo(MasterInfo info) {

@@ -200,10 +200,11 @@ Status TxnManager::commit_txn(TPartitionId partition_id, const Tablet& tablet,
 Status TxnManager::publish_txn(TPartitionId partition_id, const TabletSharedPtr& tablet,
                                TTransactionId transaction_id, const Version& version,
                                TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+                               const int64_t commit_tso) {
     return publish_txn(tablet->data_dir()->get_meta(), partition_id, transaction_id,
                        tablet->tablet_id(), tablet->tablet_uid(), version, stats,
-                       extend_tablet_txn_info);
+                       extend_tablet_txn_info, commit_tso);
 }
 
 void TxnManager::abort_txn(TPartitionId partition_id, TTransactionId transaction_id,
@@ -459,7 +460,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                                TTransactionId transaction_id, TTabletId tablet_id,
                                TabletUid tablet_uid, const Version& version,
                                TabletPublishStatistics* stats,
-                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info) {
+                               std::shared_ptr<TabletTxnInfo>& extend_tablet_txn_info,
+                               const int64_t commit_tso) {
     auto tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     if (tablet == nullptr) {
         return Status::OK();
@@ -493,8 +495,8 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     if (rowset == nullptr) {
         return Status::Error<TRANSACTION_NOT_EXIST>(
                 "publish txn failed, rowset not found. partition_id={}, transaction_id={}, "
-                "tablet={}",
-                partition_id, transaction_id, tablet_info.to_string());
+                "tablet={}, commit_tso={}",
+                partition_id, transaction_id, tablet_info.to_string(), commit_tso);
     }
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_before_save_rs_meta", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
@@ -519,7 +521,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     // it is under a single txn lock
     // TODO(ygl): rowset is already set version here, memory is changed, if save failed
     // it maybe a fatal error
-    rowset->make_visible(version);
+    rowset->make_visible(version, commit_tso);
 
     DBUG_EXECUTE_IF("TxnManager.publish_txn.random_failed_after_save_rs_meta", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {

@@ -84,7 +84,7 @@ Status Rowset::load(bool use_cache) {
     return Status::OK();
 }
 
-void Rowset::make_visible(Version version) {
+void Rowset::make_visible(Version version, int64_t commit_tso) {
     _is_pending = false;
     _rowset_meta->set_version(version);
     _rowset_meta->set_rowset_state(VISIBLE);
@@ -95,6 +95,7 @@ void Rowset::make_visible(Version version) {
     if (_rowset_meta->has_delete_predicate()) {
         _rowset_meta->mutable_delete_predicate()->set_version(cast_set<int32_t>(version.first));
     }
+    _rowset_meta->set_commit_tso(commit_tso);
 }
 
 void Rowset::set_version(Version version) {
