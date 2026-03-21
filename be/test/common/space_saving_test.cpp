@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "vec/common/space_saving.h"
+#include "exec/common/space_saving.h"
 
 #include <gtest/gtest.h>
 
@@ -27,7 +27,7 @@
 #include <vector>
 
 #include "common/logging.h"
-#include "vec/common/string_ref.h"
+#include "core/string_ref.h"
 
 namespace doris::vectorized {
 
