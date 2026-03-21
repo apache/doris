@@ -24,7 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.hive.HiveUtil;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.statistics.util.StatisticsUtil;
@@ -111,7 +111,8 @@ public class HMSAnalysisTask extends ExternalAnalysisTask {
                 String value = part[1];
                 if (colName != null && colName.equals(col.getName())) {
                     // HIVE_DEFAULT_PARTITION hive partition value when the partition name is not specified.
-                    if (value == null || value.isEmpty() || value.equals(HiveMetaStoreCache.HIVE_DEFAULT_PARTITION)) {
+                    if (value == null || value.isEmpty()
+                            || value.equals(HiveExternalMetaCache.HIVE_DEFAULT_PARTITION)) {
                         numNulls += 1;
                         continue;
                     }

@@ -17,45 +17,28 @@
 
 package org.apache.doris.datasource.paimon;
 
+import com.google.common.base.Suppliers;
 import org.apache.paimon.table.Table;
 
 import java.util.function.Supplier;
 
 /**
- * Cache value for Paimon table metadata.
- * Encapsulates the Paimon Table object and provides lazy loading for snapshot cache.
+ * Cache value for Paimon table metadata and its latest runtime snapshot projection.
  */
 public class PaimonTableCacheValue {
     private final Table paimonTable;
+    private final Supplier<PaimonSnapshotCacheValue> latestSnapshotCacheValue;
 
-    // Lazy-loaded snapshot cache
-    private volatile boolean snapshotCacheLoaded;
-    private volatile PaimonSnapshotCacheValue snapshotCacheValue;
-
-    public PaimonTableCacheValue(Table paimonTable) {
+    public PaimonTableCacheValue(Table paimonTable, Supplier<PaimonSnapshotCacheValue> latestSnapshotCacheValue) {
         this.paimonTable = paimonTable;
+        this.latestSnapshotCacheValue = Suppliers.memoize(latestSnapshotCacheValue::get);
     }
 
     public Table getPaimonTable() {
         return paimonTable;
     }
 
-    /**
-     * Get snapshot cache value with lazy loading.
-     * Uses double-checked locking to ensure thread-safe initialization.
-     *
-     * @param loader Supplier to load snapshot cache value when needed
-     * @return The cached or newly loaded snapshot cache value
-     */
-    public PaimonSnapshotCacheValue getSnapshotCacheValue(Supplier<PaimonSnapshotCacheValue> loader) {
-        if (!snapshotCacheLoaded) {
-            synchronized (this) {
-                if (!snapshotCacheLoaded) {
-                    snapshotCacheValue = loader.get();
-                    snapshotCacheLoaded = true;
-                }
-            }
-        }
-        return snapshotCacheValue;
+    public PaimonSnapshotCacheValue getLatestSnapshotCacheValue() {
+        return latestSnapshotCacheValue.get();
     }
 }

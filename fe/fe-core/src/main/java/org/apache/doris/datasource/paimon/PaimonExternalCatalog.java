@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.paimon;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
@@ -37,7 +38,6 @@ import org.apache.paimon.partition.Partition;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 // The subclasses of this class are all deprecated, only for meta persistence compatibility.
 public class PaimonExternalCatalog extends ExternalCatalog {
@@ -173,12 +173,9 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
-        String tableCacheEnable = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_ENABLE, null);
-        String tableCacheTtl = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_TTL_SECOND, null);
-        String tableCacheCapacity = updatedProps.getOrDefault(PAIMON_TABLE_CACHE_CAPACITY, null);
-        if (Objects.nonNull(tableCacheEnable) || Objects.nonNull(tableCacheTtl)
-                || Objects.nonNull(tableCacheCapacity)) {
-            PaimonUtils.getPaimonMetadataCache(this).init();
+        if (updatedProps.keySet().stream()
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, PaimonExternalMetaCache.ENGINE))) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), PaimonExternalMetaCache.ENGINE);
         }
     }
 

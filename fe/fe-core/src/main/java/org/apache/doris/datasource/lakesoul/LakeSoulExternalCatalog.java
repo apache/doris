@@ -107,4 +107,3 @@ public class LakeSoulExternalCatalog extends ExternalCatalog {
         return Lists.newArrayList();
     }
 }
-

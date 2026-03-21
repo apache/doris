@@ -46,6 +46,11 @@ public class NameMapping {
         return new NameMapping(0, dbName, tblName, dbName, tblName);
     }
 
+    @VisibleForTesting
+    public static NameMapping createForTest(long ctlId, String dbName, String tblName) {
+        return new NameMapping(ctlId, dbName, tblName, dbName, tblName);
+    }
+
     @Override
     public boolean equals(Object o) {
         if (this == o) {
