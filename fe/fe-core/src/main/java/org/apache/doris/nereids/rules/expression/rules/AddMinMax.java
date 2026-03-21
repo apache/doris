@@ -185,22 +185,22 @@ public class AddMinMax implements ExpressionPatternRuleFactory, ValueDescVisitor
                     && range.lowerEndpoint().equals(range.upperEndpoint())
                     && range.lowerBoundType() == BoundType.CLOSED
                     && range.upperBoundType() == BoundType.CLOSED) {
-                Expression cmp = new EqualTo(targetExpr, (Literal) range.lowerEndpoint());
+                Expression cmp = new EqualTo(targetExpr, (Literal) range.lowerEndpoint()).withInferred(true);
                 addExprs.add(cmp);
                 continue;
             }
             if (range.hasLowerBound()) {
                 ComparableLiteral literal = range.lowerEndpoint();
                 Expression cmp = range.lowerBoundType() == BoundType.CLOSED
-                        ? new GreaterThanEqual(targetExpr, (Literal) literal)
-                        : new GreaterThan(targetExpr, (Literal) literal);
+                        ? new GreaterThanEqual(targetExpr, (Literal) literal).withInferred(true)
+                        : new GreaterThan(targetExpr, (Literal) literal).withInferred(true);
                 addExprs.add(cmp);
             }
             if (range.hasUpperBound()) {
                 ComparableLiteral literal = range.upperEndpoint();
                 Expression cmp = range.upperBoundType() == BoundType.CLOSED
-                        ? new LessThanEqual(targetExpr, (Literal) literal)
-                        : new LessThan(targetExpr, (Literal) literal);
+                        ? new LessThanEqual(targetExpr, (Literal) literal).withInferred(true)
+                        : new LessThan(targetExpr, (Literal) literal).withInferred(true);
                 addExprs.add(cmp);
             }
         }
