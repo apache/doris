@@ -29,7 +29,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 // array_combinations([1, 2, 3],2) -> [[1,2], [1,3], [2,3]]
 // array_combinations([1, NULL, 3, NULL, 5]，4) -> [[1,NULL,3,NULL], [1,NULL,3,5], [NULL,3,NULL,5]]
 
@@ -184,4 +184,4 @@ private:
 void register_function_array_combinations(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayCombinations>();
 }
-} // namespace doris::vectorized
+} // namespace doris
