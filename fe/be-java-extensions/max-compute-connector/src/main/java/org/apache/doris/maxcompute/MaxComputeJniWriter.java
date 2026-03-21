@@ -310,10 +310,10 @@ public class MaxComputeJniWriter extends JniWriter {
         int probeRows = Math.min(10, numRows);
         Runtime rt = Runtime.getRuntime();
         long heapBefore = rt.totalMemory() - rt.freeMemory();
-        Object[][] probeData = inputTable.getMaterializedData(
-                0, probeRows, java.util.Collections.emptyMap());
+        // Materialize a small probe batch to measure actual heap cost per row.
+        // The returned Object[][] is not needed — only the heap side-effect matters.
+        inputTable.getMaterializedData(0, probeRows, java.util.Collections.emptyMap());
         long heapAfter = rt.totalMemory() - rt.freeMemory();
-        probeData = null; // release probe data, GC will reclaim when needed
 
         long probeHeapCost = heapAfter - heapBefore;
         long bytesPerRow;
