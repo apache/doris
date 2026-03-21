@@ -117,7 +117,7 @@ suite("test_partial_update_publish_seq") {
     wait_for_publish(txn2, 10)
     
     qt_seq_map_1 "select * from ${table1} order by k1;"
-    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,__DORIS_VERSION_COL__;"
+    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,c1,c2,c3,c4,__DORIS_VERSION_COL__;"
 
     // without seq map val, the filled seq val >/=/< conflicting seq val
     def txn3 = load_data("k1,c1,c2", "1,9,77\n2,10,77\n3,50,77\n")
@@ -127,7 +127,7 @@ suite("test_partial_update_publish_seq") {
     do_streamload_2pc_commit(txn4)
     wait_for_publish(txn4, 10)
     qt_seq_map_2 "select * from ${table1} order by k1;"
-    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,__DORIS_VERSION_COL__;"
+    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,c1,c2,c3,c4,__DORIS_VERSION_COL__;"
 
     // with delete sign and seq col val, >/=/< conflicting seq val
     def txn5 = load_data("k1,c1,c2", "1,80,66\n2,100,66\n3,120,66\n")
@@ -138,7 +138,7 @@ suite("test_partial_update_publish_seq") {
     wait_for_publish(txn6, 10)
 
     qt_seq_map_3 "select * from ${table1} order by k1;"
-    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,__DORIS_VERSION_COL__;"
+    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,c1,c2,c3,c4,__DORIS_VERSION_COL__;"
 
 
     sql "truncate table ${table1};"
@@ -154,5 +154,5 @@ suite("test_partial_update_publish_seq") {
     wait_for_publish(txn8, 10)
 
     qt_seq_map_4 "select * from ${table1} order by k1;"
-    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,__DORIS_VERSION_COL__;"
+    inspect_rows "select *,__DORIS_DELETE_SIGN__,__DORIS_SEQUENCE_COL__,__DORIS_VERSION_COL__ from ${table1} order by k1,c1,c2,c3,c4,__DORIS_VERSION_COL__;"
 }
