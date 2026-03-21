@@ -92,7 +92,7 @@ static std::string hostname;
 static std::string address;
 static ClusterInfo cluster_info;
 
-static void set_up() {
+static void set_up(bool mark_storage_root_broken = false) {
     char buffer[MAX_PATH_LEN];
     EXPECT_NE(getcwd(buffer, MAX_PATH_LEN), nullptr);
     storage_root_path = std::string(buffer) + "/snapshot_data_test";
@@ -105,6 +105,9 @@ static void set_up() {
 
     doris::EngineOptions options;
     options.store_paths = paths;
+    if (mark_storage_root_broken) {
+        options.broken_paths.insert(storage_root_path);
+    }
     options.backend_uid = UniqueId::gen_uid();
     auto engine = std::make_unique<StorageEngine>(options);
     engine_ref = engine.get();
@@ -267,6 +270,15 @@ public:
     static void TearDownTestSuite() { tear_down(); }
 };
 
+class BrokenSnapshotLoaderTest : public ::testing::Test {
+public:
+    BrokenSnapshotLoaderTest() {}
+    ~BrokenSnapshotLoaderTest() {}
+    static void SetUpTestSuite() { set_up(true); }
+
+    static void TearDownTestSuite() { tear_down(); }
+};
+
 TEST_F(SnapshotLoaderTest, NormalCase) {
     StorageEngine engine({});
     SnapshotLoader loader(engine, ExecEnv::GetInstance(), 1L, 2L);
@@ -324,6 +336,60 @@ TEST_F(SnapshotLoaderTest, NormalCase) {
                                                 &tablet_id);
     EXPECT_TRUE(st.ok());
     EXPECT_EQ(10005, tablet_id);
+}
+
+TEST_F(SnapshotLoaderTest, AcceptHealthySnapshotPath) {
+    SnapshotLoader loader(*engine_ref, ExecEnv::GetInstance(), 1L, 2L);
+    auto snapshot_path =
+            fmt::format("{}/snapshot/20260311120000.0.86400/10001/12345", storage_root_path);
+    std::filesystem::remove_all(snapshot_path);
+    std::filesystem::create_directories(snapshot_path);
+
+    std::map<std::string, std::string> src_to_dest;
+    src_to_dest[snapshot_path] = "unused";
+
+    auto st = loader._check_local_snapshot_paths(src_to_dest, true);
+    ASSERT_TRUE(st.ok()) << st;
+    std::filesystem::remove_all(snapshot_path);
+}
+
+TEST_F(BrokenSnapshotLoaderTest, RejectBrokenSnapshotPath) {
+    SnapshotLoader loader(*engine_ref, ExecEnv::GetInstance(), 1L, 2L);
+    auto snapshot_path =
+            fmt::format("{}/snapshot/20260311120000.0.86400/10001/12345", storage_root_path);
+    std::filesystem::remove_all(snapshot_path);
+    std::filesystem::create_directories(snapshot_path);
+
+    std::map<std::string, std::string> src_to_dest;
+    src_to_dest[snapshot_path] = "unused";
+
+    auto st = loader._check_local_snapshot_paths(src_to_dest, true);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("broken storage path"), std::string::npos) << st;
+    std::filesystem::remove_all(snapshot_path);
+}
+
+TEST_F(BrokenSnapshotLoaderTest, RejectBrokenSnapshotPathAfterCanonicalize) {
+    SnapshotLoader loader(*engine_ref, ExecEnv::GetInstance(), 1L, 2L);
+    auto snapshot_path =
+            fmt::format("{}/snapshot/20260311120001.0.86400/10001/12345", storage_root_path);
+    auto symlink_path = fmt::format("{}/snapshot-link", storage_root_path);
+    std::filesystem::remove_all(snapshot_path);
+    std::filesystem::remove(symlink_path);
+    std::filesystem::create_directories(snapshot_path);
+    std::filesystem::create_directory_symlink(snapshot_path, symlink_path);
+
+    std::map<std::string, std::string> src_to_dest;
+    src_to_dest[symlink_path] = "unused";
+
+    auto st = loader._check_local_snapshot_paths(src_to_dest, true);
+    EXPECT_FALSE(st.ok());
+    EXPECT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+    EXPECT_NE(st.to_string().find("broken storage path"), std::string::npos) << st;
+
+    std::filesystem::remove(symlink_path);
+    std::filesystem::remove_all(snapshot_path);
 }
 
 TEST_F(SnapshotLoaderTest, DirMoveTaskIsIdempotent) {
