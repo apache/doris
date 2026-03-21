@@ -192,6 +192,11 @@ public class BackendServiceClient {
         return stub.alterVaultSync(request);
     }
 
+    public ListenableFuture<InternalService.PSyncTabletMetaResponse> syncTabletMeta(
+            InternalService.PSyncTabletMetaRequest request) {
+        return stub.syncTabletMeta(request);
+    }
+
     public Future<InternalService.PGetBeResourceResponse> getBeResource(InternalService.PGetBeResourceRequest request,
             int timeoutSec) {
         return stub.withDeadlineAfter(timeoutSec, TimeUnit.SECONDS).getBeResource(request);

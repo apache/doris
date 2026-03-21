@@ -223,6 +223,10 @@ public:
                          const PGetBeResourceRequest* request, PGetBeResourceResponse* response,
                          google::protobuf::Closure* done) override;
 
+    void sync_tablet_meta(google::protobuf::RpcController* controller,
+                          const PSyncTabletMetaRequest* request, PSyncTabletMetaResponse* response,
+                          google::protobuf::Closure* done) override;
+
     void delete_dictionary(google::protobuf::RpcController* controller,
                            const PDeleteDictionaryRequest* request,
                            PDeleteDictionaryResponse* response,

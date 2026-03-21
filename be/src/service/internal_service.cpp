@@ -2530,5 +2530,14 @@ void PInternalService::request_cdc_client(google::protobuf::RpcController* contr
     }
 }
 
+void PInternalService::sync_tablet_meta(google::protobuf::RpcController* controller,
+                                        const PSyncTabletMetaRequest* request,
+                                        PSyncTabletMetaResponse* response,
+                                        google::protobuf::Closure* done) {
+    brpc::ClosureGuard closure_guard(done);
+    Status::NotSupported("sync_tablet_meta only supports cloud mode")
+            .to_protobuf(response->mutable_status());
+}
+
 #include "common/compile_check_avoid_end.h"
 } // namespace doris
