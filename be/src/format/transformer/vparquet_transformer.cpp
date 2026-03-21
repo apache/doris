@@ -316,7 +316,7 @@ Status VParquetTransformer::close() {
 }
 
 Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnStats* stats) {
-    std::shared_ptr<parquet::FileMetaData> file_metadata = _writer->metadata();
+    std::shared_ptr<::parquet::FileMetaData> file_metadata = _writer->metadata();
     if (file_metadata == nullptr) {
         return Status::InternalError("File metadata is not available");
     }
@@ -325,7 +325,7 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
     std::map<int, int64_t> null_value_counts;
     std::map<int, std::string> lower_bounds;
     std::map<int, std::string> upper_bounds;
-    std::map<int, std::shared_ptr<parquet::Statistics>> merged_column_stats;
+    std::map<int, std::shared_ptr<::parquet::Statistics>> merged_column_stats;
 
     const int num_row_groups = file_metadata->num_row_groups();
     const int num_columns = file_metadata->num_columns();

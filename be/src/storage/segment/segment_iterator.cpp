@@ -384,7 +384,7 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     _storage_name_and_type.resize(_schema->columns().size());
     auto storage_format = _opts.tablet_schema->get_inverted_index_storage_format();
     for (int i = 0; i < _schema->columns().size(); ++i) {
-        const Field* col = _schema->column(i);
+        const StorageField* col = _schema->column(i);
         if (col) {
             auto storage_type = _segment->get_data_type_of(col->get_desc(), _opts);
             if (storage_type == nullptr) {
@@ -559,7 +559,7 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
     }
 
     // Read & seek key columns is a waste of time when no key column in _schema
-    if (std::none_of(_schema->columns().begin(), _schema->columns().end(), [&](const Field* col) {
+    if (std::none_of(_schema->columns().begin(), _schema->columns().end(), [&](const StorageField* col) {
             return col && _opts.tablet_schema->column_by_uid(col->unique_id()).is_key();
         })) {
         return Status::OK();
@@ -593,7 +593,7 @@ Status SegmentIterator::_get_row_ranges_by_keys() {
 
 // Set up environment for the following seek.
 Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_range) {
-    std::vector<const Field*> key_fields;
+    std::vector<const StorageField*> key_fields;
     std::set<uint32_t> column_set;
     if (key_range.lower_key != nullptr) {
         for (auto cid : key_range.lower_key->schema()->column_ids()) {
@@ -1888,7 +1888,7 @@ bool SegmentIterator::_can_evaluated_by_vectorized(std::shared_ptr<ColumnPredica
     }
 }
 
-bool SegmentIterator::_has_char_type(const Field& column_desc) {
+bool SegmentIterator::_has_char_type(const StorageField& column_desc) {
     switch (column_desc.type()) {
     case FieldType::OLAP_FIELD_TYPE_CHAR:
         return true;
@@ -1916,7 +1916,7 @@ void SegmentIterator::_vec_init_char_column_id(Block* block) {
     _is_char_type.resize(_schema->columns().size(), false);
     for (size_t i = 0; i < _schema->num_column_ids(); i++) {
         auto cid = _schema->column_id(i);
-        const Field* column_desc = _schema->column(cid);
+        const StorageField* column_desc = _schema->column(cid);
 
         // The additional deleted filter condition will be in the materialized column at the end of the block.
         // After _output_column_by_sel_idx, it will be erased, so we do not need to shrink it.
@@ -2427,7 +2427,7 @@ Status SegmentIterator::_convert_to_expected_type(const std::vector<ColumnId>& c
         if (!_current_return_columns[i] || _converted_column_ids[i] || _is_pred_column[i]) {
             continue;
         }
-        const Field* field_type = _schema->column(i);
+        const StorageField* field_type = _schema->column(i);
         DataTypePtr expected_type = Schema::get_data_type_ptr(*field_type);
         DataTypePtr file_column_type = _storage_name_and_type[i].second;
         if (!file_column_type->equals(*expected_type)) {

@@ -336,7 +336,7 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
@@ -400,7 +400,7 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
@@ -476,7 +476,7 @@ public:
         // Get field for column c1
         const TabletColumn& column = tablet_schema->column(0);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer
@@ -539,7 +539,7 @@ public:
         // Get field for column c2
         const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Save original config value
@@ -723,7 +723,7 @@ TEST_F(InvertedIndexWriterTest, CompareUnicodeStringWriteResults) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
     ASSERT_NE(field.get(), nullptr);
 
     // Save original config value
@@ -886,7 +886,7 @@ TEST_F(InvertedIndexWriterTest, ErrorHandlingInFileWriter) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -965,7 +965,7 @@ TEST_F(InvertedIndexWriterTest, ArrayValuesWithNulls) {
             std::move(file_writer));
 
     // Get field for array column
-    std::unique_ptr<Field> field(FieldFactory::create(array_column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(array_column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -1095,7 +1095,7 @@ TEST_F(InvertedIndexWriterTest, NumericArrayWithErrorConditions) {
             std::move(file_writer));
 
     // Get field for array column
-    std::unique_ptr<Field> field(FieldFactory::create(array_column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(array_column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -1211,7 +1211,7 @@ TEST_F(InvertedIndexWriterTest, CopyFileErrorHandling) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -1267,7 +1267,7 @@ TEST_F(InvertedIndexWriterTest, CollectionValueProcessing) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -1342,7 +1342,7 @@ TEST_F(InvertedIndexWriterTest, BKDWriterErrorConditions) {
     // Get field for column c1
     const TabletColumn& column = tablet_schema->column(0);
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
@@ -1404,7 +1404,7 @@ TEST_F(InvertedIndexWriterTest, FileCreationAndOutputErrorHandling) {
     // Get field for column c2
     const TabletColumn& column = tablet_schema->column(1); // c2 is the second column
     ASSERT_NE(&column, nullptr);
-    std::unique_ptr<Field> field(FieldFactory::create(column));
+    std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
     ASSERT_NE(field.get(), nullptr);
 
     // Create column writer
