@@ -30,6 +30,7 @@
 #include "service/http/http_common.h"
 #include "service/http/http_headers.h"
 #include "service/http/utils.h"
+#include "runtime/exec_env.h"
 #include "util/client_cache.h"
 #include "util/path_util.h"
 #include "util/thrift_rpc_helper.h"

@@ -31,7 +31,6 @@
 #include "io/fs/file_system.h"
 #include "io/fs/file_writer.h"
 #include "io/fs/packed_file_system.h"
-#include "runtime/exec_env.h"
 #include "storage/olap_define.h"
 #include "storage/partial_update_info.h"
 #include "storage/storage_policy.h"

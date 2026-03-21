@@ -18,11 +18,11 @@
 #include <gen_cpp/FrontendService_types.h>
 
 #include "cloud/cloud_tablet_mgr.h"
-#include "runtime/exec_env.h"
 #include "service/http/http_handler_with_auth.h"
 #include "service/http/http_request.h"
 #include "storage/tablet/tablet_manager.h"
 namespace doris {
+class ExecEnv;
 
 class CheckEncryptionAction : public HttpHandlerWithAuth {
 public:

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "runtime/exec_env.h"
 #include "storage/cache/page_cache.h"
 #include "util/slice.h" // for Slice
 
