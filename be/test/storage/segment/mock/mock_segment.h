@@ -56,6 +56,10 @@ public:
 
     void set_footer(std::shared_ptr<SegmentFooterPB> footer) { _footer = footer; }
 
+    void set_column_raw_data_bytes(int32_t uid, uint64_t bytes) {
+        _column_uid_to_raw_bytes[uid] = bytes;
+    }
+
     std::shared_ptr<SegmentFooterPB> get_footer() const { return _footer; }
 
     std::shared_ptr<SegmentFooterPB> _footer;

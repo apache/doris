@@ -162,6 +162,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_EXEC_MEM_LIMIT = 2097152;
     public static final String BATCH_SIZE = "batch_size";
     public static final String BROKER_LOAD_BATCH_SIZE = "broker_load_batch_size";
+    public static final String PREFERRED_BLOCK_SIZE_BYTES = "preferred_block_size_bytes";
+    public static final String PREFERRED_MAX_COLUMN_IN_BLOCK_SIZE_BYTES =
+            "preferred_max_column_in_block_size_bytes";
     public static final String DISABLE_STREAMING_PREAGGREGATIONS = "disable_streaming_preaggregations";
     public static final String ENABLE_DISTINCT_STREAMING_AGGREGATION = "enable_distinct_streaming_aggregation";
     public static final String ENABLE_STREAMING_AGG_HASH_JOIN_FORCE_PASSTHROUGH =
@@ -1281,6 +1284,20 @@ public class SessionVariable implements Serializable, Writable {
     // 16352 + 16 + 16 = 16384
     @VariableMgr.VarAttr(name = BROKER_LOAD_BATCH_SIZE, fuzzy = true, checker = "checkBatchSize")
     public int brokerLoadBatchSize = 16352;
+
+    // Target output block size in bytes for adaptive batch size. 0 disables the byte limit.
+    // Default 8MB. Passed to storage layer to control how many rows each SegmentIterator chunk
+    // should contain so the final Block stays near this size.
+    @VariableMgr.VarAttr(name = PREFERRED_BLOCK_SIZE_BYTES, needForward = true,
+            description = {"目标输出 Block 字节数上限，自适应 batch size 功能使用，0 表示不限制，默认 8MB",
+                "Target output block size in bytes for adaptive batch size. 0 disables the limit. Default 8MB."})
+    public long preferredBlockSizeBytes = 8388608L; // 8MB
+
+    // Per-column byte limit when computing adaptive chunk rows. 0 disables the per-column limit.
+    @VariableMgr.VarAttr(name = PREFERRED_MAX_COLUMN_IN_BLOCK_SIZE_BYTES, needForward = true,
+            description = {"自适应 batch size 时单列字节数上限，0 表示不限制，默认 1MB",
+                "Per-column byte limit for adaptive batch size. 0 disables per-column limit. Default 1MB."})
+    public long preferredMaxColumnInBlockSizeBytes = 1048576L; // 1MB
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
@@ -5320,6 +5337,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
+        tResult.setPreferredBlockSizeBytes(preferredBlockSizeBytes);
+        tResult.setPreferredMaxColumnInBlockSizeBytes(preferredMaxColumnInBlockSizeBytes);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
         tResult.setEnableDistinctStreamingAggregation(enableDistinctStreamingAggregation);
         tResult.setEnableStreamingAggHashJoinForcePassthrough(enableStreamingAggHashJoinForcePassthrough);

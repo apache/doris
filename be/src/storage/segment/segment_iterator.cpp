@@ -368,6 +368,14 @@ Status SegmentIterator::_init_impl(const StorageReadOptions& opts) {
     // Read options will not change, so that just resize here
     _block_rowids.resize(_opts.block_row_max);
 
+    // Adaptive batch size: snapshot the initial row limit and create predictor if enabled.
+    _initial_block_row_max = _opts.block_row_max;
+    if (config::enable_adaptive_batch_size && _opts.preferred_block_size_bytes > 0) {
+        _block_size_predictor = std::make_unique<AdaptiveBlockSizePredictor>(
+                _opts.preferred_block_size_bytes, _opts.preferred_max_col_bytes, *_segment,
+                _opts.adaptive_batch_output_columns);
+    }
+
     _remaining_conjunct_roots = opts.remaining_conjunct_roots;
 
     if (_schema->rowid_col_idx() > 0) {
@@ -2456,6 +2464,22 @@ Status SegmentIterator::next_batch(Block* block) {
     _init_virtual_columns(block);
     auto status = [&]() {
         RETURN_IF_CATCH_EXCEPTION({
+            // Adaptive batch size: predict how many rows this batch should read.
+            if (_block_size_predictor) {
+                auto predicted = static_cast<uint32_t>(
+                        _block_size_predictor->predict_next_rows(_initial_block_row_max));
+                _opts.block_row_max = std::min(predicted, _initial_block_row_max);
+                _opts.stats->adaptive_batch_size_predict_min_rows =
+                        std::min(_opts.stats->adaptive_batch_size_predict_min_rows,
+                                 static_cast<int64_t>(predicted));
+                _opts.stats->adaptive_batch_size_predict_max_rows =
+                        std::max(_opts.stats->adaptive_batch_size_predict_max_rows,
+                                 static_cast<int64_t>(predicted));
+            } else {
+                _opts.stats->adaptive_batch_size_predict_min_rows = _opts.block_row_max;
+                _opts.stats->adaptive_batch_size_predict_max_rows = _opts.block_row_max;
+            }
+
             auto res = _next_batch_internal(block);
 
             if (res.is<END_OF_FILE>()) {
@@ -2500,6 +2524,13 @@ Status SegmentIterator::next_batch(Block* block) {
             }
 
             RETURN_IF_ERROR(block->check_type_and_column());
+
+            // Adaptive batch size: update EWMA estimate from the completed batch.
+            // block->bytes() is accurate here: predicates have been applied and non-predicate
+            // columns have been filled for surviving rows by _next_batch_internal.
+            if (_block_size_predictor && block->rows() > 0) {
+                _block_size_predictor->update(*block, _opts.adaptive_batch_output_columns);
+            }
 
             return Status::OK();
         });

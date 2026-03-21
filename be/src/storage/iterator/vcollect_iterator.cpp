@@ -29,6 +29,7 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
+#include "common/config.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column.h"
@@ -853,6 +854,24 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
                                                          pre_row_ref.row_pos,
                                                          continuous_row_in_block);
                 }
+            }
+            block->set_columns(std::move(target_columns));
+            return Status::OK();
+        }
+        // Byte-budget check: _merge_next() has already advanced _ref to the next unread row,
+        // so it is safe to stop here without duplicating any data.
+        if (_reader->preferred_block_size_bytes() > 0 &&
+            Block::columns_byte_size(target_columns) >= _reader->preferred_block_size_bytes()) {
+            if (continuous_row_in_block > 0) {
+                const auto& src_block = pre_row_ref.block;
+                for (size_t i = 0; i < column_count; ++i) {
+                    target_columns[i]->insert_range_from(*(src_block->get_by_position(i).column),
+                                                         pre_row_ref.row_pos,
+                                                         continuous_row_in_block);
+                }
+            }
+            if (UNLIKELY(_reader->_reader_context.record_rowids)) {
+                _block_row_locations.resize(target_block_row);
             }
             block->set_columns(std::move(target_columns));
             return Status::OK();
