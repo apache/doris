@@ -38,6 +38,10 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeOut
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplit;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeSplitOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.ExplodeVariantArray;
+import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEach;
+import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEachOuter;
+import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEachText;
+import org.apache.doris.nereids.trees.expressions.functions.generator.JsonEachTextOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplode;
 import org.apache.doris.nereids.trees.expressions.functions.generator.PosExplodeOuter;
 import org.apache.doris.nereids.trees.expressions.functions.generator.Unnest;
@@ -78,6 +82,10 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             tableGenerating(ExplodeJsonArrayJson.class, "explode_json_array_json"),
             tableGenerating(ExplodeJsonArrayJsonOuter.class, "explode_json_array_json_outer"),
             tableGenerating(ExplodeVariantArray.class, "explode_variant_array"),
+            tableGenerating(JsonEach.class, "json_each"),
+            tableGenerating(JsonEachOuter.class, "json_each_outer"),
+            tableGenerating(JsonEachText.class, "json_each_text"),
+            tableGenerating(JsonEachTextOuter.class, "json_each_text_outer"),
             tableGenerating(PosExplode.class, "posexplode"),
             tableGenerating(PosExplodeOuter.class, "posexplode_outer"),
             tableGenerating(Unnest.class, "unnest")
@@ -89,6 +97,8 @@ public class BuiltinTableGeneratingFunctions implements FunctionHelper {
             .add("explode_json_array_string").add("explode_json_array_json").add("explode_json_array_int_outer")
             .add("explode_json_array_double_outer").add("explode_json_array_string_outer")
             .add("explode_json_array_json_outer").add("explode_split").add("explode_split_outer")
+            .add("json_each").add("json_each_outer")
+            .add("json_each_text").add("json_each_text_outer")
             .add("posexplode").add("posexplode_outer").build();
 
     public Set<String> getReturnManyColumnFunctions() {
