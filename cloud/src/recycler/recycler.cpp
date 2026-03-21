@@ -1634,41 +1634,6 @@ int64_t calculate_restore_job_expired_time(
     return final_expiration;
 }
 
-int get_meta_rowset_key(Transaction* txn, const std::string& instance_id, int64_t tablet_id,
-                        const std::string& rowset_id, int64_t start_version, int64_t end_version,
-                        bool load_key, bool* exist) {
-    std::string key =
-            load_key ? versioned::meta_rowset_load_key({instance_id, tablet_id, end_version})
-                     : versioned::meta_rowset_compact_key({instance_id, tablet_id, end_version});
-    RowsetMetaCloudPB rowset_meta;
-    Versionstamp version;
-    TxnErrorCode err = versioned::document_get(txn, key, &rowset_meta, &version);
-    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-        VLOG_DEBUG << "not found load or compact meta_rowset_key."
-                   << " rowset_id=" << rowset_id << " start_version=" << start_version
-                   << " end_version=" << end_version << " key=" << hex(key);
-    } else if (err != TxnErrorCode::TXN_OK) {
-        LOG_INFO("failed to get load or compact meta_rowset_key.")
-                .tag("rowset_id", rowset_id)
-                .tag("start_version", start_version)
-                .tag("end_version", end_version)
-                .tag("key", hex(key))
-                .tag("error_code", err);
-        return -1;
-    } else if (rowset_meta.rowset_id_v2() == rowset_id) {
-        *exist = true;
-        VLOG_DEBUG << "found load or compact meta_rowset_key."
-                   << " rowset_id=" << rowset_id << " start_version=" << start_version
-                   << " end_version=" << end_version << " key=" << hex(key);
-    } else {
-        VLOG_DEBUG << "rowset_id does not match when find load or compact meta_rowset_key."
-                   << " rowset_id=" << rowset_id << " start_version=" << start_version
-                   << " end_version=" << end_version << " key=" << hex(key)
-                   << " found_rowset_id=" << rowset_meta.rowset_id_v2();
-    }
-    return 0;
-}
-
 int InstanceRecycler::abort_txn_for_related_rowset(int64_t txn_id) {
     AbortTxnRequest req;
     TxnInfoPB txn_info;
@@ -4429,29 +4394,18 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
     };
 
     std::vector<RowsetDeleteTask> all_tasks;
-
-    auto create_delete_task = [this](const RowsetMetaCloudPB& rs_meta, std::string_view recycle_key,
-                                     std::string_view non_versioned_rowset_key =
-                                             "") -> RowsetDeleteTask {
-        RowsetDeleteTask task;
-        task.rowset_meta = rs_meta;
-        task.recycle_rowset_key = std::string(recycle_key);
-        task.non_versioned_rowset_key = std::string(non_versioned_rowset_key);
-        task.versioned_rowset_key = versioned::meta_rowset_key(
-                {instance_id_, rs_meta.tablet_id(), rs_meta.rowset_id_v2()});
-        return task;
-    };
-
     for (const auto& [rs_meta, versionstamp] : load_rowset_metas) {
         update_rowset_stats(rs_meta);
         // Version 0-1 rowset has no resource_id and no actual data files,
         // but still needs ref_count key cleanup, so we add it to all_tasks.
         // It will be filtered out in Phase 2 when building rowsets_to_delete.
-        std::string rowset_load_key =
+        RowsetDeleteTask task;
+        task.rowset_meta = rs_meta;
+        task.versioned_rowset_key =
                 versioned::meta_rowset_load_key({instance_id_, tablet_id, rs_meta.end_version()});
-        std::string rowset_key = meta_rowset_key({instance_id_, tablet_id, rs_meta.end_version()});
-        RowsetDeleteTask task = create_delete_task(
-                rs_meta, encode_versioned_key(rowset_load_key, versionstamp), rowset_key);
+        task.non_versioned_rowset_key =
+                meta_rowset_key({instance_id_, tablet_id, rs_meta.end_version()});
+        task.versionstamp = versionstamp;
         all_tasks.push_back(std::move(task));
     }
 
@@ -4460,11 +4414,13 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
         // Version 0-1 rowset has no resource_id and no actual data files,
         // but still needs ref_count key cleanup, so we add it to all_tasks.
         // It will be filtered out in Phase 2 when building rowsets_to_delete.
-        std::string rowset_compact_key = versioned::meta_rowset_compact_key(
+        RowsetDeleteTask task;
+        task.rowset_meta = rs_meta;
+        task.versioned_rowset_key = versioned::meta_rowset_compact_key(
                 {instance_id_, tablet_id, rs_meta.end_version()});
-        std::string rowset_key = meta_rowset_key({instance_id_, tablet_id, rs_meta.end_version()});
-        RowsetDeleteTask task = create_delete_task(
-                rs_meta, encode_versioned_key(rowset_compact_key, versionstamp), rowset_key);
+        task.non_versioned_rowset_key =
+                meta_rowset_key({instance_id_, tablet_id, rs_meta.end_version()});
+        task.versionstamp = versionstamp;
         all_tasks.push_back(std::move(task));
     }
 
@@ -4510,7 +4466,9 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
             // Version 0-1 rowset has no resource_id and no actual data files,
             // but still needs ref_count key cleanup, so we add it to all_tasks.
             // It will be filtered out in Phase 2 when building rowsets_to_delete.
-            RowsetDeleteTask task = create_delete_task(rowset_meta, k);
+            RowsetDeleteTask task;
+            task.rowset_meta = rowset_meta;
+            task.recycle_rowset_key = k;
             all_tasks.push_back(std::move(task));
         }
         return 0;
@@ -4534,8 +4492,7 @@ int InstanceRecycler::recycle_versioned_tablet(int64_t tablet_id,
                     .tag("tablet_id", tablet_id)
                     .tag("rowset_id", task.rowset_meta.rowset_id_v2());
             concurrent_delete_executor.add([this, t = std::move(task)]() mutable {
-                return recycle_rowset_meta_and_data(t.recycle_rowset_key, t.rowset_meta,
-                                                    t.non_versioned_rowset_key);
+                return recycle_rowset_meta_and_data(t);
             });
         }
     }
@@ -5352,7 +5309,11 @@ int InstanceRecycler::recycle_versioned_rowsets() {
             bool is_compacted = rowset.type() == RecycleRowsetPB::COMPACT;
             worker_pool->submit(
                     [&, is_compacted, k = std::string(k), rowset_meta = std::move(*rowset_meta)]() {
-                        if (recycle_rowset_meta_and_data(k, rowset_meta) != 0) {
+                        // The load & compact rowset keys are recycled during recycling operation logs.
+                        RowsetDeleteTask task;
+                        task.rowset_meta = rowset_meta;
+                        task.recycle_rowset_key = k;
+                        if (recycle_rowset_meta_and_data(task) != 0) {
                             return;
                         }
                         num_compacted += is_compacted;
@@ -5399,10 +5360,9 @@ int InstanceRecycler::recycle_versioned_rowsets() {
     return ret;
 }
 
-int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                                   const RowsetMetaCloudPB& rowset_meta,
-                                                   std::string_view non_versioned_rowset_key) {
+int InstanceRecycler::recycle_rowset_meta_and_data(const RowsetDeleteTask& task) {
     constexpr int MAX_RETRY = 10;
+    const RowsetMetaCloudPB& rowset_meta = task.rowset_meta;
     int64_t tablet_id = rowset_meta.tablet_id();
     const std::string& rowset_id = rowset_meta.rowset_id_v2();
     std::string_view reference_instance_id = instance_id_;
@@ -5412,7 +5372,7 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
 
     AnnotateTag tablet_id_tag("tablet_id", tablet_id);
     AnnotateTag rowset_id_tag("rowset_id", rowset_id);
-    AnnotateTag rowset_key_tag("recycle_rowset_key", hex(recycle_rowset_key));
+    AnnotateTag rowset_key_tag("recycle_rowset_key", hex(task.recycle_rowset_key));
     AnnotateTag instance_id_tag("instance_id", instance_id_);
     AnnotateTag ref_instance_id_tag("ref_instance_id", reference_instance_id);
     for (int i = 0; i < MAX_RETRY; ++i) {
@@ -5477,13 +5437,6 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
             LOG_INFO("remove versioned delete bitmap kv")
                     .tag("begin", hex(versioned_dbm_start_key))
                     .tag("end", hex(versioned_dbm_end_key));
-
-            std::string meta_rowset_key_begin =
-                    versioned::meta_rowset_key({reference_instance_id, tablet_id, rowset_id});
-            std::string meta_rowset_key_end = meta_rowset_key_begin;
-            encode_int64(INT64_MAX, &meta_rowset_key_end);
-            txn->remove(meta_rowset_key_begin, meta_rowset_key_end);
-            LOG_INFO("remove meta rowset key").tag("key", hex(meta_rowset_key_begin));
         } else {
             // Decrease the rowset ref count.
             //
@@ -5496,13 +5449,22 @@ int InstanceRecycler::recycle_rowset_meta_and_data(std::string_view recycle_rows
                     .tag("ref_count_key", hex(rowset_ref_count_key));
         }
 
-        if (!recycle_rowset_key.empty()) { // empty when recycle ref rowsets for deleted instance
-            txn->remove(recycle_rowset_key);
-            LOG_INFO("remove recycle rowset key").tag("key", hex(recycle_rowset_key));
+        if (!task.versioned_rowset_key.empty()) {
+            versioned::document_remove<RowsetMetaCloudPB>(txn.get(), task.versioned_rowset_key,
+                                                          task.versionstamp);
+            LOG_INFO("remove versioned meta rowset key").tag("key", hex(task.versioned_rowset_key));
         }
-        if (!non_versioned_rowset_key.empty()) {
-            txn->remove(non_versioned_rowset_key);
-            LOG_INFO("remove non versioned rowset key").tag("key", hex(non_versioned_rowset_key));
+
+        if (!task.non_versioned_rowset_key.empty()) {
+            txn->remove(task.non_versioned_rowset_key);
+            LOG_INFO("remove non versioned rowset key")
+                    .tag("key", hex(task.non_versioned_rowset_key));
+        }
+
+        // empty when recycle ref rowsets for deleted instance
+        if (!task.recycle_rowset_key.empty()) {
+            txn->remove(task.recycle_rowset_key);
+            LOG_INFO("remove recycle rowset key").tag("key", hex(task.recycle_rowset_key));
         }
 
         err = txn->commit();
@@ -7507,15 +7469,13 @@ int InstanceRecycler::cleanup_rowset_metadata(const std::vector<RowsetDeleteTask
 
         // Remove versioned meta rowset key
         if (!task.versioned_rowset_key.empty()) {
-            std::string versioned_rowset_key_end = task.versioned_rowset_key;
-            encode_int64(INT64_MAX, &versioned_rowset_key_end);
-            txn->remove(task.versioned_rowset_key, versioned_rowset_key_end);
+            versioned::document_remove<RowsetMetaCloudPB>(
+                txn.get(), task.versioned_rowset_key, task.versionstamp);
             LOG_INFO("remove versioned meta rowset key in cleanup phase")
                     .tag("instance_id", instance_id_)
                     .tag("tablet_id", tablet_id)
                     .tag("rowset_id", rowset_id)
-                    .tag("begin", hex(task.versioned_rowset_key))
-                    .tag("end", hex(versioned_rowset_key_end));
+                    .tag("key_prefix", hex(task.versioned_rowset_key));
         }
 
         if (!task.non_versioned_rowset_key.empty()) {

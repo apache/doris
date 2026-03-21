@@ -140,6 +140,7 @@ struct RowsetDeleteTask {
     std::string recycle_rowset_key;       // Primary key marking "pending recycle"
     std::string non_versioned_rowset_key; // Legacy non-versioned rowset meta key
     std::string versioned_rowset_key;     // Versioned meta rowset key
+    Versionstamp versionstamp;
     std::string rowset_ref_count_key;
 };
 
@@ -491,12 +492,8 @@ private:
 
     // Recycle rowset meta and data, return 0 for success otherwise error
     //
-    // Both recycle_rowset_key and non_versioned_rowset_key will be removed in the same transaction.
-    //
     // This function will decrease the rowset ref count and remove the rowset meta and data if the ref count is 1.
-    int recycle_rowset_meta_and_data(std::string_view recycle_rowset_key,
-                                     const RowsetMetaCloudPB& rowset_meta,
-                                     std::string_view non_versioned_rowset_key = "");
+    int recycle_rowset_meta_and_data(const RowsetDeleteTask& task);
 
     // Classify rowset task by ref_count, return 0 to add to batch delete, 1 if handled (ref>1), -1 on error
     int classify_rowset_task_by_ref_count(RowsetDeleteTask& task,
