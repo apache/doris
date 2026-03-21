@@ -135,7 +135,6 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
 
         List<SlotDescriptor> slots = Lists.newArrayList(mapSlot, structSlot, arraySlot);
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
-        // Should return the first one since they have same priority, compared by slot size
         Assertions.assertNotNull(result);
         Assertions.assertSame(structSlot, result);
     }
@@ -433,6 +432,18 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
                     Assertions.assertNotNull(false);
             }
         }
+        boolean hasMap = false;
+        boolean hasStruct = false;
+        boolean hasArray = false;
+        for (int i = 18; i <= 20; i++) {
+            PrimitiveType primitiveType = slots.get(i).getType().getPrimitiveType();
+            hasMap = hasMap || primitiveType == PrimitiveType.MAP;
+            hasStruct = hasStruct || primitiveType == PrimitiveType.STRUCT;
+            hasArray = hasArray || primitiveType == PrimitiveType.ARRAY;
+        }
+        Assertions.assertTrue(hasMap);
+        Assertions.assertTrue(hasStruct);
+        Assertions.assertTrue(hasArray);
     }
 
     /**
