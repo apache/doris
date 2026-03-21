@@ -2295,6 +2295,8 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 } finally {
                     nestingLevel--;
                 }
+            } else if (atomCtx.nestedQuery() != null) {
+                node = visit(atomCtx.nestedQuery());
             } else if (atomCtx.fieldGroupQuery() != null) {
                 // Field group query (e.g., title:(rock OR jazz))
                 node = visit(atomCtx.fieldGroupQuery());

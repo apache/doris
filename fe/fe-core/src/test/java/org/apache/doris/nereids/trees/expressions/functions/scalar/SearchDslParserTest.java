@@ -2622,6 +2622,16 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testNestedQueryMustBeTopLevelInAndLuceneMode() {
+        String dsl = "title:hello AND NESTED(data, msg:hello)";
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
+            SearchDslParser.parseDsl(dsl,
+                    "{\"mode\":\"lucene\",\"default_operator\":\"AND\",\"minimum_should_match\":0}");
+        });
+        Assertions.assertTrue(exception.getMessage().contains("NESTED clause must be evaluated at top level"));
+    }
+
+    @Test
     public void testNestedQueryMixedRelativeAndAbsoluteRejected() {
         String dsl = "NESTED(data.items, msg:hello AND data.items.title:news)";
         RuntimeException exception = Assertions.assertThrows(RuntimeException.class, () -> {
