@@ -25,7 +25,9 @@ suite("test_seq_map_backup_restore", "p1") {
         admin set frontend config('max_backup_restore_job_num_per_db'=50);
     """
 
-    def dbName = "${context.dbName}"
+    def dbName = "test_seq_map_backup_restore_db_" + UUID.randomUUID().toString().replace("-", "").substring(0, 8)
+    sql "CREATE DATABASE IF NOT EXISTS ${dbName}"
+    sql "USE ${dbName}"
 
     def syncer = getSyncer()
     def repo = "__keep_on_local__"
@@ -173,4 +175,5 @@ suite("test_seq_map_backup_restore", "p1") {
     qt_16 """select * from ${dbName}.$tableName order by a"""
 
     sql """drop table if exists ${dbName}.$tableName"""
+    sql """drop database if exists ${dbName}"""
 }
