@@ -19,7 +19,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_time.h"
-#include "exprs/function/cast/cast_base.h"
+#include "exprs/function/cast/cast_to_date.h"
 
 namespace doris::CastWrapper {
 
