@@ -71,6 +71,7 @@ struct FileDescription {
     // because for a hive table, differenet partitions may have different
     // locations(or fs), so different files may have different fs.
     std::string fs_name;
+    bool file_cache_admission = true;
 };
 
 } // namespace io
@@ -118,6 +119,7 @@ public:
         case TStorageBackendType::BROKER:
             return TFileType::FILE_BROKER;
         case TStorageBackendType::HDFS:
+        case TStorageBackendType::JFS:
             return TFileType::FILE_HDFS;
         default:
             return ResultError(Status::FatalError("not match type to convert, from type:{}", type));

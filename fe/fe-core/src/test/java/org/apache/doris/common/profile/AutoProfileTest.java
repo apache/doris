@@ -64,15 +64,15 @@ public class AutoProfileTest {
                 result = System.currentTimeMillis();
             }
         };
-        profile.autoProfileDurationMs = 1000;
-        Thread.sleep(899);
+        profile.autoProfileDurationMs = 10000;
+        Thread.sleep(100);
         profile.updateSummary(summaryInfo, true, null);
         Assertions.assertNull(ProfileManager.getInstance().queryIdToProfileMap.get(profile.getId()));
 
         profile = createProfile();
         profile.setSummaryProfile(summaryProfile);
-        profile.autoProfileDurationMs = 500;
-        Thread.sleep(899);
+        profile.autoProfileDurationMs = 50;
+        Thread.sleep(200);
         profile.updateSummary(summaryInfo, true, null);
         Assertions.assertNotNull(ProfileManager.getInstance().queryIdToProfileMap.get(profile.getId()));
     }

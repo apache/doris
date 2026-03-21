@@ -40,11 +40,12 @@
 #include "exec/pipeline/revokable_task.h"
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
-#include "exec/spill/spill_stream.h"
+#include "exec/spill/spill_file.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/defer_op.h"
@@ -233,25 +234,25 @@ bool PipelineTask::inject_shared_state(std::shared_ptr<BasicSharedState> shared_
 void PipelineTask::_init_profile() {
     _task_profile = std::make_unique<RuntimeProfile>(fmt::format("PipelineTask(index={})", _index));
     _parent_profile->add_child(_task_profile.get(), true, nullptr);
-    _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
+    _task_cpu_timer = ADD_TIMER(_task_profile, profile::TASK_CPU_TIME);
 
-    static const char* exec_time = "ExecuteTime";
+    static const char* exec_time = profile::EXECUTE_TIME;
     _exec_timer = ADD_TIMER(_task_profile, exec_time);
-    _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
-    _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
-    _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
-    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
-    _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
+    _prepare_timer = ADD_CHILD_TIMER(_task_profile, profile::PREPARE_TIME, exec_time);
+    _open_timer = ADD_CHILD_TIMER(_task_profile, profile::OPEN_TIME, exec_time);
+    _get_block_timer = ADD_CHILD_TIMER(_task_profile, profile::GET_BLOCK_TIME, exec_time);
+    _get_block_counter = ADD_COUNTER(_task_profile, profile::GET_BLOCK_COUNTER, TUnit::UNIT);
+    _sink_timer = ADD_CHILD_TIMER(_task_profile, profile::SINK_TIME, exec_time);
+    _close_timer = ADD_CHILD_TIMER(_task_profile, profile::CLOSE_TIME, exec_time);
 
-    _wait_worker_timer = ADD_TIMER_WITH_LEVEL(_task_profile, "WaitWorkerTime", 1);
+    _wait_worker_timer = ADD_TIMER_WITH_LEVEL(_task_profile, profile::WAIT_WORKER_TIME, 1);
 
-    _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
-    _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
-    _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
-    _memory_reserve_times = ADD_COUNTER(_task_profile, "MemoryReserveTimes", TUnit::UNIT);
+    _schedule_counts = ADD_COUNTER(_task_profile, profile::NUM_SCHEDULE_TIMES, TUnit::UNIT);
+    _yield_counts = ADD_COUNTER(_task_profile, profile::NUM_YIELD_TIMES, TUnit::UNIT);
+    _core_change_times = ADD_COUNTER(_task_profile, profile::CORE_CHANGE_TIMES, TUnit::UNIT);
+    _memory_reserve_times = ADD_COUNTER(_task_profile, profile::MEMORY_RESERVE_TIMES, TUnit::UNIT);
     _memory_reserve_failed_times =
-            ADD_COUNTER(_task_profile, "MemoryReserveFailedTimes", TUnit::UNIT);
+            ADD_COUNTER(_task_profile, profile::MEMORY_RESERVE_FAILED_TIMES, TUnit::UNIT);
 }
 
 void PipelineTask::_fresh_profile_counter() {
@@ -365,6 +366,70 @@ void PipelineTask::terminate() {
             LOG(WARNING) << "Terminate failed: " << e.code() << ", " << e.to_string();
         }
     }
+}
+
+// When current memory pressure is low, memory usage may increase significantly in the next
+// operator run, while there is no revocable memory available for spilling.
+// Trigger memory revoking when pressure is high and revocable memory is significant.
+// Memory pressure is evaluated using two signals:
+// 1. Query memory usage exceeds a threshold ratio of the query memory limit.
+// 2. Workload group memory usage reaches the workload group low-watermark threshold.
+bool PipelineTask::_should_trigger_revoking(const size_t reserve_size) const {
+    if (!_state->enable_spill()) {
+        return false;
+    }
+
+    auto query_mem_tracker = _state->get_query_ctx()->query_mem_tracker();
+    auto wg = _state->get_query_ctx()->workload_group();
+    if (!query_mem_tracker || !wg) {
+        return false;
+    }
+
+    const auto parallelism = std::max(1, _pipeline->num_tasks());
+    const auto query_water_mark = 90; // 90%
+    const auto group_mem_limit = wg->memory_limit();
+    auto query_limit = query_mem_tracker->limit();
+    if (query_limit <= 0) {
+        query_limit = group_mem_limit;
+    } else if (query_limit > group_mem_limit && group_mem_limit > 0) {
+        query_limit = group_mem_limit;
+    }
+
+    if (query_limit <= 0) {
+        return false;
+    }
+
+    if ((reserve_size * parallelism) <= (query_limit / 5)) {
+        return false;
+    }
+
+    bool is_high_memory_pressure = false;
+    const auto used_mem = query_mem_tracker->consumption() + reserve_size * parallelism;
+    if (used_mem >= int64_t((double(query_limit) * query_water_mark / 100))) {
+        is_high_memory_pressure = true;
+    }
+
+    if (!is_high_memory_pressure) {
+        bool is_low_watermark;
+        bool is_high_watermark;
+        wg->check_mem_used(&is_low_watermark, &is_high_watermark);
+        is_high_memory_pressure = is_low_watermark || is_high_watermark;
+    }
+
+    if (is_high_memory_pressure) {
+        const auto revocable_size = [&]() {
+            size_t total = _sink->revocable_mem_size(_state);
+            for (const auto& op : _operators) {
+                total += op->revocable_mem_size(_state);
+            }
+            return total;
+        }();
+
+        const auto total_estimated_revocable = revocable_size * parallelism;
+        return total_estimated_revocable >= int64_t(double(query_limit) * 0.2);
+    }
+
+    return false;
 }
 
 /**
@@ -514,19 +579,39 @@ Status PipelineTask::execute(bool* done) {
             SCOPED_TIMER(_get_block_timer);
             if (_state->low_memory_mode()) {
                 _sink->set_low_memory_mode(_state);
-                _root->set_low_memory_mode(_state);
+                for (auto& op : _operators) {
+                    op->set_low_memory_mode(_state);
+                }
             }
             DEFER_RELEASE_RESERVED();
             _get_block_counter->update(1);
-            const auto reserve_size = _root->get_reserve_mem_size(_state);
-            _root->reset_reserve_mem_size(_state);
-
+            // Sum reserve sizes across all operators in this pipeline.
+            // Each operator reports only its own requirement (non-recursive).
+            size_t reserve_size = 0;
+            for (auto& op : _operators) {
+                reserve_size += op->get_reserve_mem_size(_state);
+                op->reset_reserve_mem_size(_state);
+            }
             if (workload_group &&
                 _state->get_query_ctx()
                         ->resource_ctx()
                         ->task_controller()
                         ->is_enable_reserve_memory() &&
                 reserve_size > 0) {
+                if (_should_trigger_revoking(reserve_size)) {
+                    LOG(INFO) << fmt::format(
+                            "Query: {} sink: {}, node id: {}, task id: {}, reserve size: {} when "
+                            "high memory pressure, try to spill",
+                            print_id(_query_id), _sink->get_name(), _sink->node_id(),
+                            _state->task_id(), reserve_size);
+                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                            _state->get_query_ctx()->resource_ctx()->shared_from_this(),
+                            reserve_size,
+                            Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                                    "high memory pressure, try to spill"));
+                    _spilling = true;
+                    continue;
+                }
                 if (!_try_to_reserve_memory(reserve_size, _root)) {
                     continue;
                 }
@@ -548,6 +633,22 @@ Status PipelineTask::execute(bool* done) {
                         ->is_enable_reserve_memory() &&
                 workload_group && !(_wake_up_early || _dry_run)) {
                 const auto sink_reserve_size = _sink->get_reserve_mem_size(_state, _eos);
+
+                if (sink_reserve_size > 0 && _should_trigger_revoking(sink_reserve_size)) {
+                    LOG(INFO) << fmt::format(
+                            "Query: {} sink: {}, node id: {}, task id: {}, reserve size: {} when "
+                            "high memory pressure, try to spill",
+                            print_id(_query_id), _sink->get_name(), _sink->node_id(),
+                            _state->task_id(), sink_reserve_size);
+                    ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
+                            _state->get_query_ctx()->resource_ctx()->shared_from_this(),
+                            sink_reserve_size,
+                            Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                                    "high memory pressure, try to spill"));
+                    _spilling = true;
+                    continue;
+                }
+
                 if (sink_reserve_size > 0 &&
                     !_try_to_reserve_memory(sink_reserve_size, _sink.get())) {
                     continue;
@@ -639,9 +740,26 @@ Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill
             THROW_IF_ERROR(_sink->terminate(_state));
             _eos = true;
         }
+
+        // SpillContext tracks pipeline task count, not operator count.
+        // Notify completion once after all operators + sink have finished revoking.
+        if (spill_context) {
+            spill_context->on_task_finished();
+        }
     }};
 
-    return _sink->revoke_memory(_state, spill_context);
+    // Revoke memory from every operator that has enough revocable memory,
+    // then revoke from the sink.
+    for (auto& op : _operators) {
+        if (op->revocable_mem_size(_state) >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+            RETURN_IF_ERROR(op->revoke_memory(_state));
+        }
+    }
+
+    if (_sink->revocable_mem_size(_state) >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
+        RETURN_IF_ERROR(_sink->revoke_memory(_state));
+    }
+    return Status::OK();
 }
 
 bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBase* op) {
@@ -655,58 +773,68 @@ bool PipelineTask::_try_to_reserve_memory(const size_t reserve_size, OperatorBas
         return true;
     }
     COUNTER_UPDATE(_memory_reserve_times, 1);
-    auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
-    if (st.ok() && _state->enable_force_spill() && _sink->is_spillable() &&
-        sink_revocable_mem_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-        st = Status(ErrorCode::QUERY_MEMORY_EXCEEDED, "Force Spill");
+
+    // Compute total revocable memory across all operators and the sink.
+    size_t total_revocable_mem_size = 0;
+    size_t operator_max_revocable_mem_size = 0;
+
+    if (!st.ok() || _state->enable_force_spill()) {
+        // Compute total revocable memory across all operators and the sink.
+        total_revocable_mem_size = _sink->revocable_mem_size(_state);
+        operator_max_revocable_mem_size = total_revocable_mem_size;
+        for (auto& cur_op : _operators) {
+            total_revocable_mem_size += cur_op->revocable_mem_size(_state);
+            operator_max_revocable_mem_size =
+                    std::max(cur_op->revocable_mem_size(_state), operator_max_revocable_mem_size);
+        }
     }
+
+    // During enable force spill, other operators like scan opeartor will also try to reserve memory and will failed
+    // here, if not add this check, it will always paused and resumed again.
+    if (st.ok() && _state->enable_force_spill()) {
+        if (operator_max_revocable_mem_size >= _state->spill_min_revocable_mem()) {
+            st = Status::Error<ErrorCode::QUERY_MEMORY_EXCEEDED>(
+                    "force spill and there is an operator has memory "
+                    "size {} exceeds min mem size {}",
+                    PrettyPrinter::print_bytes(operator_max_revocable_mem_size),
+                    PrettyPrinter::print_bytes(_state->spill_min_revocable_mem()));
+        }
+    }
+
     if (!st.ok()) {
         COUNTER_UPDATE(_memory_reserve_failed_times, 1);
+        // build per-operator revocable memory info string for debugging
+        std::string ops_revocable_info;
+        {
+            fmt::memory_buffer buf;
+            for (auto& cur_op : _operators) {
+                fmt::format_to(buf, "{}({})-> ", cur_op->get_name(),
+                               PrettyPrinter::print_bytes(cur_op->revocable_mem_size(_state)));
+            }
+            if (_sink) {
+                fmt::format_to(buf, "{}({}) ", _sink->get_name(),
+                               PrettyPrinter::print_bytes(_sink->revocable_mem_size(_state)));
+            }
+            ops_revocable_info = fmt::to_string(buf);
+        }
+
         auto debug_msg = fmt::format(
-                "Query: {} , try to reserve: {}, operator name: {}, operator "
-                "id: {}, task id: {}, root revocable mem size: {}, sink revocable mem"
-                "size: {}, failed: {}",
-                print_id(_query_id), PrettyPrinter::print_bytes(reserve_size), op->get_name(),
-                op->node_id(), _state->task_id(),
-                PrettyPrinter::print_bytes(op->revocable_mem_size(_state)),
-                PrettyPrinter::print_bytes(sink_revocable_mem_size), st.to_string());
+                "Query: {} , try to reserve: {}, total revocable mem size: {}, failed reason: {}",
+                print_id(_query_id), PrettyPrinter::print_bytes(reserve_size),
+                PrettyPrinter::print_bytes(total_revocable_mem_size), st.to_string());
+        if (!ops_revocable_info.empty()) {
+            debug_msg += fmt::format(", ops_revocable=[{}]", ops_revocable_info);
+        }
         // PROCESS_MEMORY_EXCEEDED error msg already contains process_mem_log_str
         if (!st.is<ErrorCode::PROCESS_MEMORY_EXCEEDED>()) {
             debug_msg +=
                     fmt::format(", debug info: {}", GlobalMemoryArbitrator::process_mem_log_str());
         }
-        // If sink has enough revocable memory, trigger revoke memory
-        LOG(INFO) << fmt::format(
-                "Query: {} sink: {}, node id: {}, task id: "
-                "{}, revocable mem size: {}",
-                print_id(_query_id), _sink->get_name(), _sink->node_id(), _state->task_id(),
-                PrettyPrinter::print_bytes(sink_revocable_mem_size));
+        LOG(INFO) << debug_msg;
         ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
                 _state->get_query_ctx()->resource_ctx()->shared_from_this(), reserve_size, st);
         _spilling = true;
         return false;
-        // !!! Attention:
-        // In the past, if reserve failed, not add this query to paused list, because it is very small, will not
-        // consume a lot of memory. But need set low memory mode to indicate that the system should
-        // not use too much memory.
-        // But if we only set _state->get_query_ctx()->set_low_memory_mode() here, and return true, the query will
-        // continue to run and not blocked, and this reserve maybe the last block of join sink opertorator, and it will
-        // build hash table directly and will consume a lot of memory. So that should return false directly.
-        // TODO: we should using a global system buffer management logic to deal with low memory mode.
-        /**
-        if (sink_revocable_mem_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
-            LOG(INFO) << fmt::format(
-                    "Query: {} sink: {}, node id: {}, task id: "
-                    "{}, revocable mem size: {}",
-                    print_id(_query_id), _sink->get_name(), _sink->node_id(), _state->task_id(),
-                    PrettyPrinter::print_bytes(sink_revocable_mem_size));
-            ExecEnv::GetInstance()->workload_group_mgr()->add_paused_query(
-                    _state->get_query_ctx()->resource_ctx()->shared_from_this(), reserve_size, st);
-            _spilling = true;
-            return false;
-        } else {
-            _state->get_query_ctx()->set_low_memory_mode();
-        } */
     }
     return true;
 }
@@ -854,7 +982,13 @@ size_t PipelineTask::get_revocable_size() const {
         return 0;
     }
 
-    return _sink->revocable_mem_size(_state);
+    // Sum revocable memory from every operator in the pipeline + the sink.
+    // Each operator reports only its own revocable memory (no child recursion).
+    size_t total = _sink->revocable_mem_size(_state);
+    for (const auto& op : _operators) {
+        total += op->revocable_mem_size(_state);
+    }
+    return total;
 }
 
 Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_context) {
@@ -866,14 +1000,16 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
         return Status::OK();
     }
 
-    const auto revocable_size = _sink->revocable_mem_size(_state);
-    if (revocable_size >= SpillStream::MIN_SPILL_WRITE_BATCH_MEM) {
+    const auto revocable_size = get_revocable_size();
+    if (revocable_size >= SpillFile::MIN_SPILL_WRITE_BATCH_MEM) {
         auto revokable_task = std::make_shared<RevokableTask>(shared_from_this(), spill_context);
+        // Submit a revocable task to run, the run method will call revoke memory. Currently the
+        // underline pipeline task is still blocked.
         RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(revokable_task));
     } else {
         spill_context->on_task_finished();
-        LOG(INFO) << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
-                  << " has not enough data to revoke: " << revocable_size;
+        VLOG_DEBUG << "Query: " << print_id(_state->query_id()) << ", task: " << ((void*)this)
+                   << " has not enough data to revoke: " << revocable_size;
     }
     return Status::OK();
 }

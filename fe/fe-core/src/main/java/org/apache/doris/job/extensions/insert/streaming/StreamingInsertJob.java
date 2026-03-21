@@ -368,6 +368,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
             setExecuteSql(alterJobCommand.getSql());
             initLogicalPlan(true);
+            // refresh cached TVF props so fetchMeta and createStreamingInsertTask
+            // pick up the new credentials (e.g. aksk) from the updated SQL
+            this.originTvfProps = getCurrentTvf().getProperties().getMap();
             String encryptedSql = generateEncryptedSql();
             logParts.add("sql: " + encryptedSql);
         }
@@ -543,12 +546,16 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 // and auto resume will automatically wake it up.
                 this.updateJobStatus(JobStatus.PAUSED);
 
-                MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_STREAMING_JOB_GET_META_FAIL_COUNT.increase(1L);
+                }
             }
         } finally {
             long end = System.currentTimeMillis();
-            MetricRepo.COUNTER_STREAMING_JOB_GET_META_LANTENCY.increase(end - start);
-            MetricRepo.COUNTER_STREAMING_JOB_GET_META_COUNT.increase(1L);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_STREAMING_JOB_GET_META_LANTENCY.increase(end - start);
+                MetricRepo.COUNTER_STREAMING_JOB_GET_META_COUNT.increase(1L);
+            }
         }
     }
 
@@ -595,7 +602,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             failedTaskCount.incrementAndGet();
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             this.failureReason = new FailureReason(task.getErrMsg());
-            MetricRepo.COUNTER_STREAMING_JOB_TASK_FAILED_COUNT.increase(1L);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_STREAMING_JOB_TASK_FAILED_COUNT.increase(1L);
+            }
         } finally {
             writeUnlock();
         }
@@ -607,8 +616,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             resetFailureInfo(null);
             succeedTaskCount.incrementAndGet();
             //update metric
-            MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
-            MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME.increase(task.getFinishTimeMs() - task.getStartTimeMs());
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_COUNT.increase(1L);
+                MetricRepo.COUNTER_STREAMING_JOB_TASK_EXECUTE_TIME.increase(
+                        task.getFinishTimeMs() - task.getStartTimeMs());
+            }
 
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
             AbstractStreamingTask nextTask = createStreamingTask();
@@ -620,7 +632,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         }
     }
 
-    private void updateJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
+    private void updateJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment, boolean isReplay) {
         if (this.jobStatistic == null) {
             this.jobStatistic = new StreamingJobStatistic();
         }
@@ -631,11 +643,13 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
 
         //update metric
-        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(attachment.getScannedRows());
-        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(attachment.getLoadBytes());
+        if (MetricRepo.isInit && !isReplay) {
+            MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(attachment.getScannedRows());
+            MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(attachment.getLoadBytes());
+        }
     }
 
-    private void updateCloudJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment) {
+    private void updateCloudJobStatisticAndOffset(StreamingTaskTxnCommitAttachment attachment, boolean isReplay) {
         if (this.jobStatistic == null) {
             this.jobStatistic = new StreamingJobStatistic();
         }
@@ -646,8 +660,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
 
         //update metric
-        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.update(attachment.getScannedRows());
-        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.update(attachment.getLoadBytes());
+        if (MetricRepo.isInit && !isReplay) {
+            MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.update(attachment.getScannedRows());
+            MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.update(attachment.getLoadBytes());
+        }
     }
 
     private void updateJobStatisticAndOffset(CommitOffsetRequest offsetRequest) {
@@ -671,9 +687,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         offsetProvider.updateOffset(offsetProvider.deserializeOffset(offsetRequest.getOffset()));
 
         //update metric
-        MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(offsetRequest.getScannedRows());
-        MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.increase(offsetRequest.getFilteredRows());
-        MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(offsetRequest.getLoadBytes());
+        if (MetricRepo.isInit) {
+            MetricRepo.COUNTER_STREAMING_JOB_TOTAL_ROWS.increase(offsetRequest.getScannedRows());
+            MetricRepo.COUNTER_STREAMING_JOB_FILTER_ROWS.increase(offsetRequest.getFilteredRows());
+            MetricRepo.COUNTER_STREAMING_JOB_LOAD_BYTES.increase(offsetRequest.getLoadBytes());
+        }
     }
 
     @Override
@@ -1009,7 +1027,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         StreamingTaskTxnCommitAttachment attachment =
                 (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
-        updateJobStatisticAndOffset(attachment);
+        updateJobStatisticAndOffset(attachment, false);
     }
 
     @Override
@@ -1017,7 +1035,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         Preconditions.checkNotNull(txnState.getTxnCommitAttachment(), txnState);
         StreamingTaskTxnCommitAttachment attachment =
                 (StreamingTaskTxnCommitAttachment) txnState.getTxnCommitAttachment();
-        updateJobStatisticAndOffset(attachment);
+        updateJobStatisticAndOffset(attachment, true);
         succeedTaskCount.incrementAndGet();
     }
 
@@ -1061,7 +1079,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
         StreamingTaskTxnCommitAttachment commitAttach =
                 new StreamingTaskTxnCommitAttachment(response.getCommitAttach());
-        updateCloudJobStatisticAndOffset(commitAttach);
+        updateCloudJobStatisticAndOffset(commitAttach, true);
     }
 
     @Override
@@ -1158,6 +1176,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 if (offsetRequest.getScannedRows() == 0 && offsetRequest.getLoadBytes() == 0) {
                     JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
                     op.setHasMoreData(false);
+                }
+                if (offsetRequest.getTableSchemas() != null) {
+                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
+                    op.setTableSchemas(offsetRequest.getTableSchemas());
                 }
                 persistOffsetProviderIfNeed();
                 log.info("Streaming multi table job {} task {} commit offset successfully, offset: {}",

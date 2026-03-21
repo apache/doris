@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 
 import org.apache.hadoop.fs.Path;
 import org.junit.Assert;

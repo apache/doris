@@ -52,6 +52,7 @@ list(REMOVE_ITEM UT_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/frame_of_reference_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/plain_page_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/rle_page_test.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/storage/segment/segment_iterator_apply_index_expr_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/runtime/decimal_value_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/decompress_test.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/util/url_coding_test.cpp
@@ -109,8 +110,13 @@ add_subdirectory(storage/index/ann)
 
 add_executable(doris_be_test ${UT_FILES})
 
-target_link_libraries(doris_be_test ${TEST_LINK_LIBS} 
-    -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
+if (APPLE)
+    target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
+        -Wl,-force_load,$<TARGET_FILE:vector_search_test>)
+else()
+    target_link_libraries(doris_be_test ${TEST_LINK_LIBS}
+        -Wl,--whole-archive vector_search_test -Wl,--no-whole-archive)
+endif()
 set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
 target_compile_options(doris_be_test PRIVATE -include gtest/gtest.h -Wno-shadow -Wno-shadow-field)
 

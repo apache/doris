@@ -39,6 +39,9 @@ public:
     Status terminate(RuntimeState* state) override;
     Status process_build_block(RuntimeState* state, Block& block);
 
+    // Build ASOF JOIN pre-sorted index for O(log K) lookup
+    Status build_asof_index(Block& block);
+
     void init_short_circuit_for_probe();
 
     bool build_unique() const;
@@ -93,6 +96,12 @@ protected:
     RuntimeProfile::Counter* _build_blocks_memory_usage = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _build_arena_memory_usage = nullptr;
+
+    // ASOF index build counters
+    RuntimeProfile::Counter* _asof_index_total_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_expr_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_sort_timer = nullptr;
+    RuntimeProfile::Counter* _asof_index_group_timer = nullptr;
 };
 
 class HashJoinBuildSinkOperatorX MOCK_REMOVE(final)
@@ -181,6 +190,11 @@ private:
     // need to finalize variant column to speed up the join op
     bool _need_finalize_variant_column = false;
 
+    // ASOF JOIN: build-side expression extracted from MATCH_CONDITION's right child
+    // Prepared against build child's row_desc directly (no intermediate tuple needed)
+    VExprContextSPtr _asof_build_side_expr;
+    TExprOpcode::type _asof_opcode = TExprOpcode::INVALID_OPCODE;
+
     bool _use_shared_hash_table = false;
     std::atomic<bool> _signaled = false;
     std::mutex _mutex;
@@ -198,8 +212,9 @@ struct ProcessHashTableBuild {
               _batch_size(batch_size),
               _state(state) {}
 
-    template <int JoinOpType, bool short_circuit_for_null, bool with_other_conjuncts>
-    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key) {
+    template <int JoinOpType>
+    Status run(HashTableContext& hash_table_ctx, ConstNullMapPtr null_map, bool* has_null_key,
+               bool short_circuit_for_null, bool with_other_conjuncts) {
         if (null_map) {
             // first row is mocked and is null
             if (simd::contain_one(null_map->data() + 1, _rows - 1)) {

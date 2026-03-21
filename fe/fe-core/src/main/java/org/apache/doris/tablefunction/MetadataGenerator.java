@@ -18,6 +18,7 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.blockrule.SqlBlockRule;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
@@ -47,6 +48,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.PartitionsProcDir;
 import org.apache.doris.common.profile.RuntimeProfile;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
@@ -60,12 +62,9 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalTable;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hudi.source.HudiCachedMetaClientProcessor;
-import org.apache.doris.datasource.hudi.source.HudiMetadataCacheMgr;
-import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
-import org.apache.doris.datasource.iceberg.IcebergMetadataCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalCatalog;
+import org.apache.doris.datasource.metacache.MetaCacheEntryStats;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.job.common.JobType;
 import org.apache.doris.job.extensions.insert.streaming.AbstractStreamingTask;
@@ -85,6 +84,7 @@ import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
 import org.apache.doris.service.ExecuteEnv;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
@@ -92,6 +92,7 @@ import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TFrontendsMetadataParams;
 import org.apache.doris.thrift.THudiMetadataParams;
 import org.apache.doris.thrift.THudiQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
@@ -117,7 +118,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.gson.Gson;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.timeline.HoodieInstant;
 import org.apache.hudi.common.table.timeline.HoodieTimeline;
 import org.apache.logging.log4j.LogManager;
@@ -128,7 +128,9 @@ import org.jetbrains.annotations.NotNull;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
@@ -157,6 +159,8 @@ public class MetadataGenerator {
     private static final ImmutableMap<String, Integer> VIEW_DEPENDENCY_COLUMN_TO_INDEX;
 
     private static final ImmutableMap<String, Integer> SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
@@ -235,6 +239,15 @@ public class MetadataGenerator {
             sqlBlockRuleStatusBuilder.put(sqlBlockRuleStatusBuilderColList.get(i).getName().toLowerCase(), i);
         }
         SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX = sqlBlockRuleStatusBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> authenticationIntegrationsBuilder = new ImmutableMap.Builder();
+        List<Column> authenticationIntegrationsColList = SchemaTable.TABLE_MAP.get("authentication_integrations")
+                .getFullSchema();
+        for (int i = 0; i < authenticationIntegrationsColList.size(); i++) {
+            authenticationIntegrationsBuilder.put(
+                    authenticationIntegrationsColList.get(i).getName().toLowerCase(), i);
+        }
+        AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -349,6 +362,10 @@ public class MetadataGenerator {
                 result = sqlBlockRuleStatusMetadataResult(schemaTableParams);
                 columnIndex = SQL_BLOCK_RULE_STATUS_COLUMN_TO_INDEX;
                 break;
+            case AUTHENTICATION_INTEGRATIONS:
+                result = authenticationIntegrationsMetadataResult(schemaTableParams);
+                columnIndex = AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
+                break;
             default:
                 return errorResult("invalid schema table name.");
         }
@@ -394,19 +411,16 @@ public class MetadataGenerator {
             return errorResult("The specified table is not a hudi table: " + hudiMetadataParams.getTable());
         }
 
-        HudiCachedMetaClientProcessor hudiMetadataCache = Env.getCurrentEnv().getExtMetaCacheMgr()
-                .getHudiMetadataCacheMgr().getHudiMetaClientProcessor(catalog);
-        String hudiBasePathString = ((HMSExternalCatalog) catalog).getClient()
-                .getTable(dorisTable.getRemoteDbName(), dorisTable.getRemoteName()).getSd().getLocation();
-        Configuration conf = ((HMSExternalCatalog) catalog).getConfiguration();
-
+        HMSExternalTable hudiTable = (HMSExternalTable) dorisTable;
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         switch (hudiQueryType) {
             case TIMELINE:
-                HoodieTimeline timeline = hudiMetadataCache.getHoodieTableMetaClient(dorisTable.getOrBuildNameMapping(),
-                        hudiBasePathString, conf).getActiveTimeline();
+                HoodieTimeline timeline = Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .hudi(catalog.getId())
+                        .getHoodieTableMetaClient(hudiTable.getOrBuildNameMapping())
+                        .getActiveTimeline();
                 for (HoodieInstant instant : timeline.getInstants()) {
                     TRow trow = new TRow();
                     trow.addToColumnValue(new TCell().setStringVal(instant.requestedTime()));
@@ -533,11 +547,12 @@ public class MetadataGenerator {
             return errorResult("frontends metadata param is not set.");
         }
 
+        TFrontendsMetadataParams frontendsParam = params.getFrontendsMetadataParams();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         List<TRow> dataBatch = Lists.newArrayList();
         List<List<String>> infos = Lists.newArrayList();
-        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos, frontendsParam.getCurrentConnectedFeHost());
         for (List<String> info : infos) {
             TRow trow = new TRow();
             for (String item : info) {
@@ -687,6 +702,83 @@ public class MetadataGenerator {
             dataBatch.add(trow);
         }
         return result;
+    }
+
+    private static TFetchSchemaTableDataResult authenticationIntegrationsMetadataResult(
+            TSchemaTableRequestParams params) {
+        if (!params.isSetCurrentUserIdent()) {
+            return errorResult("current user ident is not set.");
+        }
+        UserIdentity currentUserIdentity = UserIdentity.fromThrift(params.getCurrentUserIdent());
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUserIdentity, PrivPredicate.ADMIN)) {
+            return result;
+        }
+
+        List<Expression> conjuncts = Collections.EMPTY_LIST;
+        if (params.isSetFrontendConjuncts()) {
+            conjuncts = FrontendConjunctsUtils.convertToExpression(params.getFrontendConjuncts());
+        }
+        List<Expression> nameConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "NAME");
+        List<Expression> typeConjuncts = FrontendConjunctsUtils.filterBySlotName(conjuncts, "TYPE");
+
+        for (AuthenticationIntegrationMeta meta : Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .getAuthenticationIntegrations().values()) {
+            if (FrontendConjunctsUtils.isFiltered(nameConjuncts, "NAME", meta.getName())
+                    || FrontendConjunctsUtils.isFiltered(typeConjuncts, "TYPE", meta.getType())) {
+                continue;
+            }
+            TRow row = new TRow();
+            row.addToColumnValue(new TCell().setStringVal(meta.getName()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getType()));
+            row.addToColumnValue(new TCell().setStringVal(maskAuthenticationProperties(meta.getProperties())));
+            if (meta.getComment() == null) {
+                row.addToColumnValue(new TCell());
+            } else {
+                row.addToColumnValue(new TCell().setStringVal(meta.getComment()));
+            }
+            row.addToColumnValue(new TCell().setStringVal(meta.getCreateUser()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getCreateTimeString()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getAlterUser()));
+            row.addToColumnValue(new TCell().setStringVal(meta.getModifyTimeString()));
+            dataBatch.add(row);
+        }
+        return result;
+    }
+
+    private static String maskAuthenticationProperties(Map<String, String> properties) {
+        Map<String, String> maskedProperties = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (shouldMaskAuthenticationProperty(entry.getKey())) {
+                maskedProperties.put(entry.getKey(), DatasourcePrintableMap.PASSWORD_MASK);
+            } else {
+                maskedProperties.put(entry.getKey(), entry.getValue());
+            }
+        }
+        return new DatasourcePrintableMap<>(maskedProperties, "=", true, false).toString();
+    }
+
+    private static boolean shouldMaskAuthenticationProperty(String key) {
+        String lowerCaseKey = key.toLowerCase(Locale.ROOT);
+        return DatasourcePrintableMap.SENSITIVE_KEY.contains(key)
+                || lowerCaseKey.startsWith("secret.")
+                || lowerCaseKey.endsWith(".password")
+                || lowerCaseKey.endsWith("_password")
+                || lowerCaseKey.equals("secret")
+                || lowerCaseKey.endsWith(".secret")
+                || lowerCaseKey.endsWith("_secret")
+                || lowerCaseKey.endsWith(".secret_key")
+                || lowerCaseKey.endsWith("_secret_key")
+                || lowerCaseKey.endsWith(".token")
+                || lowerCaseKey.endsWith("_token")
+                || lowerCaseKey.endsWith(".credential")
+                || lowerCaseKey.endsWith("_credential")
+                || lowerCaseKey.endsWith(".keytab")
+                || lowerCaseKey.endsWith("_keytab")
+                || lowerCaseKey.endsWith("keytab_content");
     }
 
     private static TFetchSchemaTableDataResult viewDependencyMetadataResult(TSchemaTableRequestParams params) {
@@ -1585,26 +1677,71 @@ public class MetadataGenerator {
         List<TRow> dataBatch = Lists.newArrayList();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         ExternalMetaCacheMgr mgr = Env.getCurrentEnv().getExtMetaCacheMgr();
-        for (CatalogIf catalogIf : Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog()) {
-            if (catalogIf instanceof HMSExternalCatalog) {
-                HMSExternalCatalog catalog = (HMSExternalCatalog) catalogIf;
-                // 1. hive metastore cache
-                HiveMetaStoreCache cache = mgr.getMetaStoreCache(catalog);
-                if (cache != null) {
-                    fillBatch(dataBatch, cache.getStats(), catalog.getName());
+        String timeZone = VariableMgr.getDefaultSessionVariable().getTimeZone();
+        if (params.isSetTimeZone()) {
+            timeZone = params.getTimeZone();
+        }
+        String feHost = FrontendOptions.getLocalHostAddress();
+        UserIdentity currentUserIdentity = params.isSetCurrentUserIdent()
+                ? UserIdentity.fromThrift(params.getCurrentUserIdent())
+                : null;
+
+        List<CatalogIf> catalogs = Lists.newArrayList(Env.getCurrentEnv().getCatalogMgr().getCopyOfCatalog());
+        catalogs.sort((left, right) -> left.getName().compareTo(right.getName()));
+        for (CatalogIf catalogIf : catalogs) {
+            if (catalogIf instanceof ExternalCatalog) {
+                if (currentUserIdentity != null
+                        && !Env.getCurrentEnv().getAccessManager().checkCtlPriv(
+                                currentUserIdentity, catalogIf.getName(), PrivPredicate.SHOW)) {
+                    continue;
                 }
-                // 2. hudi cache
-                HudiMetadataCacheMgr hudiMetadataCacheMgr = mgr.getHudiMetadataCacheMgr();
-                fillBatch(dataBatch, hudiMetadataCacheMgr.getCacheStats(catalog), catalog.getName());
-            } else if (catalogIf instanceof IcebergExternalCatalog) {
-                // 3. iceberg cache
-                IcebergMetadataCache icebergCache = mgr.getIcebergMetadataCache((IcebergExternalCatalog) catalogIf);
-                fillBatch(dataBatch, icebergCache.getCacheStats(), catalogIf.getName());
+                for (ExternalMetaCacheMgr.CatalogMetaCacheStats cacheStats
+                        : mgr.getCatalogCacheStats(catalogIf.getId())) {
+                    MetaCacheEntryStats entryStats = cacheStats.getEntryStats();
+                    TRow trow = new TRow();
+                    trow.addToColumnValue(new TCell().setStringVal(feHost)); // FE_HOST
+                    trow.addToColumnValue(new TCell().setStringVal(catalogIf.getName())); // CATALOG_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(cacheStats.getEngineName())); // ENGINE_NAME
+                    trow.addToColumnValue(new TCell().setStringVal(cacheStats.getEntryName())); // ENTRY_NAME
+                    trow.addToColumnValue(new TCell().setBoolVal(entryStats.isEffectiveEnabled())); // EFFECTIVE_ENABLED
+                    trow.addToColumnValue(new TCell().setBoolVal(entryStats.isConfigEnabled())); // CONFIG_ENABLED
+                    trow.addToColumnValue(new TCell().setBoolVal(entryStats.isAutoRefresh())); // AUTO_REFRESH
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getTtlSecond())); // TTL_SECOND
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getCapacity())); // CAPACITY
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEstimatedSize())); // ESTIMATED_SIZE
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getRequestCount())); // REQUEST_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getHitCount())); // HIT_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getMissCount())); // MISS_COUNT
+                    trow.addToColumnValue(new TCell().setDoubleVal(entryStats.getHitRate())); // HIT_RATE
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getLoadSuccessCount())); // LOAD_SUCCESS_COUNT
+                    trow.addToColumnValue(
+                            new TCell().setLongVal(entryStats.getLoadFailureCount())); // LOAD_FAILURE_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(
+                            TimeUnit.NANOSECONDS.toMillis(entryStats.getTotalLoadTimeNanos()))); // TOTAL_LOAD_TIME_MS
+                    trow.addToColumnValue(new TCell().setDoubleVal(
+                            entryStats.getAverageLoadPenaltyNanos() / TimeUnit.MILLISECONDS.toNanos(1)));
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getEvictionCount())); // EVICTION_COUNT
+                    trow.addToColumnValue(new TCell().setLongVal(entryStats.getInvalidateCount())); // INVALIDATE_COUNT
+                    trow.addToColumnValue(new TCell().setStringVal(
+                            formatMetaCacheTime(entryStats.getLastLoadSuccessTimeMs(), timeZone)));
+                    trow.addToColumnValue(new TCell().setStringVal(
+                            formatMetaCacheTime(entryStats.getLastLoadFailureTimeMs(), timeZone)));
+                    trow.addToColumnValue(new TCell().setStringVal(entryStats.getLastError())); // LAST_ERROR
+                    dataBatch.add(trow);
+                }
             }
         }
         result.setDataBatch(dataBatch);
         result.setStatus(new TStatus(TStatusCode.OK));
         return result;
+    }
+
+    private static String formatMetaCacheTime(long eventTime, String timeZone) {
+        if (eventTime < 0) {
+            return "";
+        }
+        return TimeUtils.longToTimeStringWithTimeZone(eventTime, timeZone);
     }
 
     private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity, CatalogIf catalog,
@@ -1809,24 +1946,6 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static void fillBatch(List<TRow> dataBatch, Map<String, Map<String, String>> stats,
-            String catalogName) {
-        for (Map.Entry<String, Map<String, String>> entry : stats.entrySet()) {
-            String cacheName = entry.getKey();
-            Map<String, String> cacheStats = entry.getValue();
-            for (Map.Entry<String, String> cacheStatsEntry : cacheStats.entrySet()) {
-                String metricName = cacheStatsEntry.getKey();
-                String metricValue = cacheStatsEntry.getValue();
-                TRow trow = new TRow();
-                trow.addToColumnValue(new TCell().setStringVal(catalogName)); // CATALOG_NAME
-                trow.addToColumnValue(new TCell().setStringVal(cacheName)); // CACHE_NAME
-                trow.addToColumnValue(new TCell().setStringVal(metricName)); // METRIC_NAME
-                trow.addToColumnValue(new TCell().setStringVal(metricValue)); // METRIC_VALUE
-                dataBatch.add(trow);
-            }
-        }
-    }
-
     private static TFetchSchemaTableDataResult partitionValuesMetadataResult(TMetadataTableRequestParams params) {
         if (!params.isSetPartitionValuesMetadataParams()) {
             return errorResult("partition values metadata params is not set.");
@@ -1876,7 +1995,7 @@ public class MetadataGenerator {
                     "column " + colNames + " does not match partition columns of table " + tbl.getName());
         }
 
-        HiveMetaStoreCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
+        HiveExternalMetaCache.HivePartitionValues hivePartitionValues = tbl.getHivePartitionValues(
                 MvccUtil.getSnapshotFromContext(tbl));
         Map<Long, List<String>> valuesMap = hivePartitionValues.getPartitionValuesMap();
         List<TRow> dataBatch = Lists.newArrayList();

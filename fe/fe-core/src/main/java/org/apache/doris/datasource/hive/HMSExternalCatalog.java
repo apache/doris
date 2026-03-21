@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
@@ -28,8 +27,10 @@ import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.datasource.hudi.HudiExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergMetadataOps;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
 import org.apache.doris.fs.FileSystemProvider;
@@ -172,12 +173,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
-        return metadataOps.listTableNames(ClusterNamespace.getNameFromFullName(dbName));
+        return metadataOps.listTableNames(dbName);
     }
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return metadataOps.tableExist(ClusterNamespace.getNameFromFullName(dbName), tblName);
+        return metadataOps.tableExist(dbName, tblName);
     }
 
     @Override
@@ -187,7 +188,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         if (hmsExternalDatabase == null) {
             return false;
         }
-        return hmsExternalDatabase.getTable(ClusterNamespace.getNameFromFullName(tblName)).isPresent();
+        return hmsExternalDatabase.getTable(tblName).isPresent();
     }
 
     public HMSCachedClient getClient() {
@@ -214,7 +215,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
         String fileMetaCacheTtl = updatedProps.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         String partitionCacheTtl = updatedProps.getOrDefault(PARTITION_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtl) || Objects.nonNull(partitionCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().getMetaStoreCache(this).init();
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HiveExternalMetaCache.ENGINE);
+        }
+        if (updatedProps.keySet().stream()
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, HudiExternalMetaCache.ENGINE))) {
+            Env.getCurrentEnv().getExtMetaCacheMgr().removeCatalogByEngine(getId(), HudiExternalMetaCache.ENGINE);
         }
     }
 
@@ -236,4 +241,3 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return icebergMetadataOps;
     }
 }
-

@@ -748,12 +748,30 @@ public class DateTimeExtractAndTransform {
             secondValue = 59;
         }
 
-        double totalSeconds = Math.abs(hourValue) * 3600 + minuteValue * 60
-                + Math.round(secondValue * 1000000.0) / 1000000.0;
-        if (hourValue < 0) {
-            totalSeconds = -totalSeconds;
+        return new TimeV2Literal((int) Math.abs(hourValue), (int) minuteValue, (int) secondValue,
+                            (int) Math.round(secondValue * 1000000) % 1000000, 6, hourValue < 0);
+    }
+
+    /**
+     * time transformation function: maketime
+     */
+    @ExecFunction(name = "maketime")
+    public static Expression makeTime(BigIntLiteral hour, BigIntLiteral minute, BigIntLiteral second) {
+        long hourValue = hour.getValue();
+        long minuteValue = minute.getValue();
+        long secondValue = second.getValue();
+
+        if (minuteValue < 0 || minuteValue >= 60 || secondValue < 0 || secondValue >= 60) {
+            return new NullLiteral(TimeV2Type.SYSTEM_DEFAULT);
         }
-        return new TimeV2Literal(totalSeconds);
+        if (Math.abs(hourValue) > 838) {
+            hourValue = hourValue > 0 ? 838 : -838;
+            minuteValue = 59;
+            secondValue = 59;
+        }
+
+        return new TimeV2Literal((int) Math.abs(hourValue), (int) minuteValue,
+                        (int) secondValue, 0, 0, hourValue < 0);
     }
 
     /**

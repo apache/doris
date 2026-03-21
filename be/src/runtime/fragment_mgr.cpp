@@ -877,6 +877,11 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
     std::shared_ptr<QueryContext> query_ctx;
     RETURN_IF_ERROR(_get_or_create_query_ctx(params, parent, query_source, query_ctx));
     SCOPED_ATTACH_TASK(query_ctx.get()->resource_ctx());
+    // Set single_backend_query before prepare() so that pipeline local states
+    // (e.g. StreamingAggLocalState) can read the correct value in their constructors.
+    query_ctx->set_single_backend_query(params.__isset.query_options &&
+                                        params.query_options.__isset.single_backend_query &&
+                                        params.query_options.single_backend_query);
     int64_t duration_ns = 0;
     std::shared_ptr<PipelineFragmentContext> context = std::make_shared<PipelineFragmentContext>(
             query_ctx->query_id(), params, query_ctx, _exec_env, cb,

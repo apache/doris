@@ -30,10 +30,29 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tbls_columns = {
+        {"FE_HOST", TYPE_STRING, sizeof(StringRef), true},
         {"CATALOG_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"CACHE_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"METRIC_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"METRIC_VALUE", TYPE_STRING, sizeof(StringRef), true},
+        {"ENGINE_NAME", TYPE_STRING, sizeof(StringRef), true},
+        {"ENTRY_NAME", TYPE_STRING, sizeof(StringRef), true},
+        {"EFFECTIVE_ENABLED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"CONFIG_ENABLED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"AUTO_REFRESH", TYPE_BOOLEAN, sizeof(bool), true},
+        {"TTL_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CAPACITY", TYPE_BIGINT, sizeof(int64_t), true},
+        {"ESTIMATED_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
+        {"REQUEST_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"HIT_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"MISS_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"HIT_RATE", TYPE_DOUBLE, sizeof(double), true},
+        {"LOAD_SUCCESS_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"LOAD_FAILURE_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"TOTAL_LOAD_TIME_MS", TYPE_BIGINT, sizeof(int64_t), true},
+        {"AVG_LOAD_PENALTY_MS", TYPE_DOUBLE, sizeof(double), true},
+        {"EVICTION_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"INVALIDATE_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"LAST_LOAD_SUCCESS_TIME", TYPE_STRING, sizeof(StringRef), true},
+        {"LAST_LOAD_FAILURE_TIME", TYPE_STRING, sizeof(StringRef), true},
+        {"LAST_ERROR", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaCatalogMetaCacheStatsScanner::SchemaCatalogMetaCacheStatsScanner()

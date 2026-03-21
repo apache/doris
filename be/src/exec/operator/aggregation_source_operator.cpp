@@ -541,6 +541,12 @@ Status AggSourceOperatorX::reset_hash_table(RuntimeState* state) {
     return Status::OK();
 }
 
+Status AggSourceOperatorX::get_serialized_block(RuntimeState* state, Block* block, bool* eos) {
+    auto& local_state = get_local_state(state);
+    // Always use the serialized intermediate output path, regardless of _needs_finalize.
+    return local_state._get_results_with_serialized_key(state, block, eos);
+}
+
 void AggLocalState::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
                                              uint32_t num_rows) {
     std::visit(
@@ -578,10 +584,9 @@ void AggLocalState::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRaw
                           };
 
                           SCOPED_TIMER(_hash_table_emplace_timer);
-                          for (size_t i = 0; i < num_rows; ++i) {
-                              places[i] = *agg_method.lazy_emplace(state, i, creator,
-                                                                   creator_for_null_key);
-                          }
+                          lazy_emplace_batch(
+                                  agg_method, state, num_rows, creator, creator_for_null_key,
+                                  [&](uint32_t row, auto& mapped) { places[row] = mapped; });
 
                           COUNTER_UPDATE(_hash_table_input_counter, num_rows);
                           COUNTER_SET(_hash_table_memory_usage,

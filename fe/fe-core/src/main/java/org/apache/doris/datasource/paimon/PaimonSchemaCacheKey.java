@@ -17,8 +17,8 @@
 
 package org.apache.doris.datasource.paimon;
 
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.SchemaCacheKey;
 
 import com.google.common.base.Objects;
 

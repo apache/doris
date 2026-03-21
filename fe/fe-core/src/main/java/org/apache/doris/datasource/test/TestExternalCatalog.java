@@ -112,4 +112,3 @@ public class TestExternalCatalog extends ExternalCatalog {
         initCatalogProvider();
     }
 }
-

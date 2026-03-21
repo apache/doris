@@ -87,6 +87,8 @@ public:
             auto rs = create_rowset(Version {ver, ver});
             if (warmup) {
                 tablet->add_warmed_up_rowset(rs->rowset_id());
+            } else {
+                tablet->add_not_warmed_up_rowset(rs->rowset_id());
             }
             rowsets.emplace_back(rs);
         }
@@ -102,6 +104,8 @@ public:
         auto rowset = create_rowset(Version {version, version}, visible_timestamp);
         if (warmed_up) {
             tablet->add_warmed_up_rowset(rowset->rowset_id());
+        } else {
+            tablet->add_not_warmed_up_rowset(rowset->rowset_id());
         }
         std::unique_lock wlock {tablet->get_header_lock()};
         tablet->add_rowsets({rowset}, false, wlock, false);
@@ -114,6 +118,8 @@ public:
         auto output_rowset = create_rowset(Version {start_version, end_version}, visible_timestamp);
         if (warmed_up) {
             tablet->add_warmed_up_rowset(output_rowset->rowset_id());
+        } else {
+            tablet->add_not_warmed_up_rowset(output_rowset->rowset_id());
         }
         std::ranges::copy_if(std::views::values(tablet->rowset_map()),
                              std::back_inserter(input_rowsets), [=](const RowsetSharedPtr& rowset) {

@@ -28,6 +28,7 @@ import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -74,10 +75,10 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalMaxComputeTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable,
                 cols, outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
@@ -87,24 +88,24 @@ public class PhysicalMaxComputeTableSink<CHILD_TYPE extends Plan> extends Physic
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalMaxComputeTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), child());
+                groupExpression, getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
                                                  Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalMaxComputeTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable, cols, outputExprs,
-                groupExpression, logicalProperties.get(), children.get(0));
+                groupExpression, logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalMaxComputeTableSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalMaxComputeTableSink<>(
                 (MaxComputeExternalDatabase) database, (MaxComputeExternalTable) targetTable, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+                groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

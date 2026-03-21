@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -101,6 +102,7 @@ import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.CalcDeleteBitmapTask;
+import org.apache.doris.task.MakeCloudTmpRsVisibleTask;
 import org.apache.doris.thrift.TCalcDeleteBitmapPartitionInfo;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
@@ -146,6 +148,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -494,11 +497,21 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     /**
      * Post process of commitTxn
-     * 1. update some stats
-     * 2. produce event for further processes like async MV
+     * 1. notify BEs to make temporary rowsets visible
+     * 2. update some stats
+     * 3. produce event for further processes like async MV
      * @param commitTxnResponse commit txn call response from meta-service
+     * @param tabletCommitInfos tablet commit infos containing backend and tablet mapping
      */
-    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse) {
+    public void afterCommitTxnResp(CommitTxnResponse commitTxnResponse, List<TabletCommitInfo> tabletCommitInfos,
+            List<Long> tabletIds) {
+        // ========================================
+        // notify BEs to make temporary rowsets visible
+        // ========================================
+        if (tabletCommitInfos != null) {
+            notifyBesMakeTmpRsVisible(commitTxnResponse, tabletCommitInfos);
+        }
+
         // ========================================
         // update some table stats
         // ========================================
@@ -532,6 +545,12 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         if (sb.length() > 0) {
             LOG.info("notify partition first load. {}", sb);
         }
+        // 4. notify update tablet stats
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("force sync tablet stats for txnId: {}, tabletNum: {}, tabletIds: {}", txnId,
+                    tabletIds.size(), tabletIds);
+        }
+        CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
 
         // ========================================
         // produce event
@@ -723,11 +742,14 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
-        executeCommitTxnRequest(commitTxnRequest, transactionId, is2PC, txnCommitAttachment);
+        executeCommitTxnRequest(commitTxnRequest, transactionId, is2PC, txnCommitAttachment, tabletCommitInfos,
+                tabletCommitInfos == null ? Collections.emptyList()
+                        : tabletCommitInfos.stream().map(t -> t.getTabletId()).collect(Collectors.toList()));
     }
 
     private void executeCommitTxnRequest(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
-            TxnCommitAttachment txnCommitAttachment) throws UserException {
+            TxnCommitAttachment txnCommitAttachment, List<TabletCommitInfo> tabletCommitInfos, List<Long> tabletIds)
+            throws UserException {
         if (DebugPointUtil.isEnable("FE.mow.commit.exception")) {
             LOG.info("debug point FE.mow.commit.exception, throw e");
             throw new UserException(InternalErrorCode.INTERNAL_ERR, "debug point FE.mow.commit.exception");
@@ -750,7 +772,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
         try {
-            txnState = commitTxn(commitTxnRequest, transactionId, is2PC);
+            txnState = commitTxn(commitTxnRequest, transactionId, is2PC, tabletCommitInfos, tabletIds);
             txnOperated = true;
             if (DebugPointUtil.isEnable("CloudGlobalTransactionMgr.commitTransaction.timeout")) {
                 throw new UserException(InternalErrorCode.DELETE_BITMAP_LOCK_ERR,
@@ -789,8 +811,8 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
         }
     }
 
-    private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC)
-            throws UserException {
+    private TransactionState commitTxn(CommitTxnRequest commitTxnRequest, long transactionId, boolean is2PC,
+            List<TabletCommitInfo> tabletCommitInfos, List<Long> tabletIds) throws UserException {
         checkCommitInfo(commitTxnRequest);
 
         CommitTxnResponse commitTxnResponse = null;
@@ -850,7 +872,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
             MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnState.getCommitTime() - txnState.getPrepareTime());
         }
-        afterCommitTxnResp(commitTxnResponse);
+        afterCommitTxnResp(commitTxnResponse, tabletCommitInfos, tabletIds);
         return txnState;
     }
 
@@ -1627,6 +1649,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             builder.addMowTableIds(olapTable.getId());
         }
         // add sub txn infos
+        Set<Long> tabletIds = new HashSet<>();
         for (SubTransactionState subTransactionState : subTransactionStates) {
             builder.addSubTxnInfos(SubTxnInfo.newBuilder().setSubTxnId(subTransactionState.getSubTransactionId())
                     .setTableId(subTransactionState.getTable().getId())
@@ -1636,10 +1659,13 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                                             .map(c -> new TabletCommitInfo(c.getTabletId(), c.getBackendId()))
                                             .collect(Collectors.toList())))
                     .build());
+            for (TTabletCommitInfo tabletCommitInfo : subTransactionState.getTabletCommitInfos()) {
+                tabletIds.add(tabletCommitInfo.getTabletId());
+            }
         }
 
         final CommitTxnRequest commitTxnRequest = builder.build();
-        executeCommitTxnRequest(commitTxnRequest, transactionId, false, null);
+        executeCommitTxnRequest(commitTxnRequest, transactionId, false, null, null, new ArrayList<>(tabletIds));
     }
 
     private List<Table> getTablesNeedCommitLock(List<Table> tableList) {
@@ -2704,5 +2730,112 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
 
     private void clearTxnLastSignature(long dbId, long txnId) {
         txnLastSignatureMap.remove(txnId);
+    }
+
+    /**
+     * Notify BEs to make temporary cloud rowsets visible after transaction commit.
+     * This method is called in afterCommitTxnResp to notify BEs to promote
+     * the temporary rowsets from CloudCommittedRSMgr to tablet meta.
+     *
+     * @param commitTxnResponse commit txn response from meta-service
+     * @param tabletCommitInfos tablet commit infos containing backend and tablet mapping
+     */
+    private void notifyBesMakeTmpRsVisible(CommitTxnResponse commitTxnResponse,
+                                           List<TabletCommitInfo> tabletCommitInfos) {
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()
+                || !Config.enable_notify_be_after_load_txn_commit) {
+            return;
+        }
+        long txnId = commitTxnResponse.getTxnInfo().getTxnId();
+        if (DebugPointUtil.isEnable("notifyBesMakeTmpRsVisible.skip")) {
+            LOG.info("skip sendMakeCloudTmpRsVisibleTasks, txn_id: {}", txnId);
+            return;
+        }
+
+        try {
+            // Convert TabletCommitInfo to TTabletCommitInfo
+            List<TTabletCommitInfo> tTabletCommitInfos = Lists.newArrayList();
+            for (TabletCommitInfo commitInfo : tabletCommitInfos) {
+                TTabletCommitInfo tCommitInfo = new TTabletCommitInfo();
+                tCommitInfo.setTabletId(commitInfo.getTabletId());
+                tCommitInfo.setBackendId(commitInfo.getBackendId());
+                tTabletCommitInfos.add(tCommitInfo);
+            }
+
+            // Build partition version map from commit response
+            Map<Long, Long> partitionVersionMap = Maps.newHashMap();
+            int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
+            for (int idx = 0; idx < totalPartitionNum; ++idx) {
+                long partitionId = commitTxnResponse.getPartitionIds(idx);
+                long version = commitTxnResponse.getVersions(idx);
+                partitionVersionMap.put(partitionId, version);
+            }
+
+            long updateVersionVisibleTime = commitTxnResponse.getVersionUpdateTimeMs();
+
+            // Send tasks to notify BEs
+            sendMakeCloudTmpRsVisibleTasks(txnId, tTabletCommitInfos,
+                    partitionVersionMap, updateVersionVisibleTime);
+        } catch (Throwable t) {
+            // According to normal logic, no exceptions will be thrown,
+            // but in order to avoid bugs affecting the original logic, all exceptions are caught
+            LOG.warn("notifyBesMakeTmpRsVisible failed, txn_id: {}",
+                    commitTxnResponse.getTxnInfo().getTxnId(), t);
+        }
+    }
+
+    /**
+     * Send agent tasks to notify BEs to make temporary cloud committed rowsets visible.
+     * This is called after transaction commit to MS, to notify BEs to promote
+     * rowset meta from CloudCommittedRSMgr to tablet meta.
+     *
+     * just send notify rpc with best effort, no need to retry or guarantee all BEs receive the rpc.
+     * @param txnId transaction id
+     * @param commitInfos tablet commit infos containing backend and tablet mapping
+     * @param partitionVersionMap partition id to version mapping
+     * @param updateVersionVisibleTime visible time for the version
+     */
+    public void sendMakeCloudTmpRsVisibleTasks(long txnId,
+                                               List<TTabletCommitInfo> commitInfos,
+                                               Map<Long, Long> partitionVersionMap,
+                                               long updateVersionVisibleTime) {
+        if (commitInfos == null || commitInfos.isEmpty()) {
+            LOG.info("no commit infos to send make cloud tmp rs visible tasks, txn_id: {}", txnId);
+            return;
+        }
+
+        // Group tablet_ids by backend_id
+        Map<Long, List<Long>> beToTabletIds = Maps.newHashMap();
+        for (TTabletCommitInfo commitInfo : commitInfos) {
+            long backendId = commitInfo.getBackendId();
+            long tabletId = commitInfo.getTabletId();
+            beToTabletIds.computeIfAbsent(backendId, k -> Lists.newArrayList()).add(tabletId);
+        }
+
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("send make cloud tmp rs visible tasks, txn_id: {}, backend_count: {}, total_tablets: {}",
+                    txnId, beToTabletIds.size(), commitInfos.size());
+        }
+
+        // Create agent tasks for each BE
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (Map.Entry<Long, List<Long>> entry : beToTabletIds.entrySet()) {
+            long backendId = entry.getKey();
+            List<Long> tabletIds = entry.getValue();
+
+            MakeCloudTmpRsVisibleTask task = new MakeCloudTmpRsVisibleTask(
+                    backendId, txnId, tabletIds, partitionVersionMap, updateVersionVisibleTime);
+            batchTask.addTask(task);
+
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("add make cloud tmp rs visible task, txn_id: {}, backend_id: {}, tablet_count: {}",
+                        txnId, backendId, tabletIds.size());
+            }
+        }
+
+        // Submit tasks
+        AgentTaskExecutor.submit(batchTask);
+        LOG.info("sent make cloud tmp rs visible tasks, txn_id: {}, backend_count: {}, total_tablets: {}",
+                txnId, beToTabletIds.size(), commitInfos.size());
     }
 }

@@ -17,7 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TVarBinaryLiteral;
@@ -46,9 +46,9 @@ public class VarBinaryLiteralAnalysisTest {
         Assertions.assertEquals("abc", lit.getStringValue());
 
         FormatOptions opts = FormatOptions.getDefault();
-        Assertions.assertEquals("\"abc\"", lit.getStringValueInComplexTypeForQuery(opts));
+        Assertions.assertEquals("\"abc\"", lit.accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(opts).asComplexType()));
         FormatOptions hive = FormatOptions.getForHive();
-        Assertions.assertEquals("\"abc\"", lit.getStringValueInComplexTypeForQuery(hive));
+        Assertions.assertEquals("\"abc\"", lit.accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(hive).asComplexType()));
     }
 
     @Test

@@ -17,7 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeNameFormat;
@@ -284,7 +283,7 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     // return default_role_rbac_username@host or default_role_rbac_username@[domain]
     public String toDefaultRoleName() {
         StringBuilder sb = new StringBuilder(
-                RoleManager.DEFAULT_ROLE_PREFIX + ClusterNamespace.getNameFromFullName(user) + "@");
+                RoleManager.DEFAULT_ROLE_PREFIX + user + "@");
         if (isDomain) {
             sb.append("[");
         }
@@ -293,11 +292,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
             sb.append("]");
         }
         return sb.toString();
-    }
-
-    // should be remove after version 3.0
-    public void removeClusterPrefix() {
-        user = ClusterNamespace.getNameFromFullName(user);
     }
 
     public static UserIdentity read(DataInput in) throws IOException {
@@ -354,6 +348,5 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     @Override
     public void gsonPostProcess() throws IOException {
         isAnalyzed = true;
-        removeClusterPrefix();
     }
 }

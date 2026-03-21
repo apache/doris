@@ -47,7 +47,6 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentMap;
@@ -497,12 +496,11 @@ public class RuntimeProfile {
     }
 
     boolean shouldBeIncluded() {
-        if (Objects.equals(this.name, "CommonCounters") || Objects.equals(this.name, "CustomCounters")
-                || Objects.equals(this.name, "Scanner")) {
+        if ("CommonCounters".equals(this.name) || "CustomCounters".equals(this.name)
+                || "Scanner".equals(this.name)) {
             return true;
-        } else {
-            return this.name.matches(".*Pipeline.*") || this.name.matches(".*_OPERATOR.*");
         }
+        return this.name.startsWith("Pipeline") || this.name.contains("_OPERATOR");
     }
 
     private static void collectActualRowCount(RuntimeProfile mergedProfile) {

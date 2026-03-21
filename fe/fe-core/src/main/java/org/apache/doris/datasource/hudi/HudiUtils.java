@@ -26,14 +26,11 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.StructField;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.datasource.ExternalSchemaCache;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.hive.HivePartition;
-import org.apache.doris.datasource.hudi.source.HudiCachedPartitionProcessor;
 import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.schema.external.TArrayField;
@@ -285,8 +282,9 @@ public class HudiUtils {
         TablePartitionValues partitionValues = new TablePartitionValues();
 
         HoodieTableMetaClient hudiClient = hmsTable.getHudiClient();
-        HudiCachedPartitionProcessor processor = (HudiCachedPartitionProcessor) Env.getCurrentEnv()
-                .getExtMetaCacheMgr().getHudiPartitionProcess(hmsTable.getCatalog());
+        HudiExternalMetaCache hudiExternalMetaCache =
+                Env.getCurrentEnv().getExtMetaCacheMgr()
+                        .hudi(hmsTable.getCatalog().getId());
         boolean useHiveSyncPartition = hmsTable.useHiveSyncPartition();
 
         if (tableSnapshot.isPresent()) {
@@ -297,7 +295,7 @@ public class HudiUtils {
             String queryInstant = tableSnapshot.get().getValue().replaceAll("[-: ]", "");
             try {
                 partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(() ->
-                        processor.getSnapshotPartitionValues(hmsTable, hudiClient, queryInstant, useHiveSyncPartition));
+                        hudiExternalMetaCache.getSnapshotPartitionValues(hmsTable, queryInstant, useHiveSyncPartition));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
@@ -309,7 +307,7 @@ public class HudiUtils {
             }
             try {
                 partitionValues = hmsTable.getCatalog().getExecutionAuthenticator().execute(()
-                        -> processor.getPartitionValues(hmsTable, hudiClient, useHiveSyncPartition));
+                        -> hudiExternalMetaCache.getPartitionValues(hmsTable, useHiveSyncPartition));
             } catch (Exception e) {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
@@ -328,9 +326,9 @@ public class HudiUtils {
 
 
     public static HudiSchemaCacheValue getSchemaCacheValue(HMSExternalTable hmsTable, String queryInstant) {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(hmsTable.getCatalog());
-        SchemaCacheKey key = new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), Long.parseLong(queryInstant));
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(key);
+        Optional<SchemaCacheValue> schemaCacheValue = Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getSchemaCacheValue(hmsTable,
+                        new HudiSchemaCacheKey(hmsTable.getOrBuildNameMapping(), Long.parseLong(queryInstant)));
         return (HudiSchemaCacheValue) schemaCacheValue.get();
     }
 

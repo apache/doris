@@ -24,14 +24,12 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.TableAttributes;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIndexes;
-import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
@@ -82,6 +80,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     // dbName is temporarily retained and will be deleted later. To use dbName, please use db.getFullName()
     @SerializedName(value = "dbName")
     protected String dbName;
+    @Deprecated
     @SerializedName(value = "ta")
     private final TableAttributes tableAttributes = new TableAttributes();
 
@@ -174,8 +173,7 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
 
     @Override
     public List<Column> getFullSchema() {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        Optional<SchemaCacheValue> schemaCacheValue = cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
+        Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
         return schemaCacheValue.map(SchemaCacheValue::getSchema).orElse(null);
     }
 
@@ -205,13 +203,15 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     @Override
-    public Map<String, Constraint> getConstraintsMapUnsafe() {
-        return tableAttributes.getConstraintsMap();
-    }
-
-    @Override
     public String getEngine() {
         return getType().toEngineName();
+    }
+
+    /**
+     * Returns the effective meta cache engine for this table.
+     */
+    public String getMetaCacheEngine() {
+        return "default";
     }
 
     @Override
@@ -396,8 +396,8 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
     }
 
     public Optional<SchemaCacheValue> getSchemaCacheValue() {
-        ExternalSchemaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
-        return cache.getSchemaValue(new SchemaCacheKey(getOrBuildNameMapping()));
+        return Env.getCurrentEnv().getExtMetaCacheMgr()
+                .getSchemaCacheValue(this, new SchemaCacheKey(getOrBuildNameMapping()));
     }
 
     @Override
@@ -511,6 +511,11 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return db.getRemoteName();
     }
 
+    /**
+     * @deprecated Use ConstraintManager for constraint access.
+     *             This method will be removed in a future version.
+     */
+    @Deprecated
     public TableAttributes getTableAttributes() {
         return tableAttributes;
     }

@@ -63,7 +63,6 @@ Status SetSinkLocalState<is_intersect>::close(RuntimeState* state, Status exec_s
 
 template <bool is_intersect>
 Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block, bool eos) {
-    constexpr static auto BUILD_BLOCK_MAX_SIZE = 4 * 1024UL * 1024UL * 1024UL;
     RETURN_IF_CANCELLED(state);
     auto& local_state = get_local_state(state);
 
@@ -74,9 +73,14 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
     auto& valid_element_in_hash_tbl = local_state._shared_state->valid_element_in_hash_tbl;
 
     if (in_block->rows() != 0) {
+        if (local_state._mutable_block.empty()) {
+            auto tmp_build_block = *(in_block->create_same_struct_block(0, false));
+            local_state._mutable_block = MutableBlock::build_mutable_block(&tmp_build_block);
+        }
+
         {
             SCOPED_TIMER(local_state._merge_block_timer);
-            RETURN_IF_ERROR(local_state._mutable_block.merge(*in_block));
+            RETURN_IF_ERROR(local_state._mutable_block.merge_ignore_overflow(std::move(*in_block)));
         }
         if (local_state._mutable_block.rows() > std::numeric_limits<uint32_t>::max()) {
             return Status::NotSupported("set operator do not support build table rows over:" +
@@ -84,26 +88,24 @@ Status SetSinkOperatorX<is_intersect>::sink(RuntimeState* state, Block* in_block
         }
     }
 
-    if (eos || local_state._mutable_block.allocated_bytes() >= BUILD_BLOCK_MAX_SIZE) {
+    if (eos) {
         SCOPED_TIMER(local_state._build_timer);
         build_block = local_state._mutable_block.to_block();
         RETURN_IF_ERROR(_process_build_block(local_state, build_block, state));
         local_state._mutable_block.clear();
 
-        if (eos) {
-            uint64_t hash_table_size = local_state._shared_state->get_hash_table_size();
-            valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
+        uint64_t hash_table_size = local_state._shared_state->get_hash_table_size();
+        valid_element_in_hash_tbl = is_intersect ? 0 : hash_table_size;
 
-            // record hash table
-            COUNTER_SET(local_state._hash_table_size, (int64_t)hash_table_size);
-            COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
+        // record hash table
+        COUNTER_SET(local_state._hash_table_size, (int64_t)hash_table_size);
+        COUNTER_SET(local_state._valid_element_in_hash_table, valid_element_in_hash_tbl);
 
-            local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
-                    ->set_ready();
-            DCHECK_GT(_child_quantity, 1);
-            RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
-                    state, hash_table_size, local_state._finish_dependency));
-        }
+        local_state._shared_state->probe_finished_children_dependency[_cur_child_id + 1]
+                ->set_ready();
+        DCHECK_GT(_child_quantity, 1);
+        RETURN_IF_ERROR(local_state._runtime_filter_producer_helper->send_filter_size(
+                state, hash_table_size, local_state._finish_dependency));
     }
     return Status::OK();
 }
@@ -117,6 +119,10 @@ Status SetSinkOperatorX<is_intersect>::_process_build_block(
     }
 
     materialize_block_inplace(block);
+    // Dispose the overflow of ColumnString
+    for (auto& data : block) {
+        data.column = std::move(*data.column).mutate()->convert_column_if_overflow();
+    }
     ColumnRawPtrs raw_ptrs(_child_exprs.size());
     RETURN_IF_ERROR(_extract_build_column(local_state, block, raw_ptrs, rows));
     auto st = Status::OK();

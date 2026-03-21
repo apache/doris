@@ -44,7 +44,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
+import static io.debezium.connector.AbstractSourceInfo.TABLE_NAME_KEY;
 import static org.apache.doris.cdcclient.common.Constants.DORIS_DELETE_SIGN;
 
 import com.esri.core.geometry.ogc.OGCGeometry;
@@ -58,6 +60,8 @@ import io.debezium.data.VariableScaleDecimal;
 import io.debezium.data.geometry.Geography;
 import io.debezium.data.geometry.Geometry;
 import io.debezium.data.geometry.Point;
+import io.debezium.relational.TableId;
+import io.debezium.relational.history.TableChanges;
 import io.debezium.time.MicroTime;
 import io.debezium.time.MicroTimestamp;
 import io.debezium.time.NanoTime;
@@ -65,17 +69,21 @@ import io.debezium.time.NanoTimestamp;
 import io.debezium.time.Time;
 import io.debezium.time.Timestamp;
 import io.debezium.time.ZonedTimestamp;
+import lombok.Getter;
 import lombok.Setter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-/** SourceRecord ==> [{},{}] */
+/** SourceRecord ==> DeserializeResult */
 public class DebeziumJsonDeserializer
-        implements SourceRecordDeserializer<SourceRecord, List<String>> {
+        implements SourceRecordDeserializer<SourceRecord, DeserializeResult> {
     private static final long serialVersionUID = 1L;
     private static final Logger LOG = LoggerFactory.getLogger(DebeziumJsonDeserializer.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
     @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
+    @Getter @Setter protected Map<TableId, TableChanges.TableChange> tableSchemas;
+    // Parsed exclude-column sets per table, populated once in init() from config
+    protected Map<String, Set<String>> excludeColumnsCache = new HashMap<>();
 
     public DebeziumJsonDeserializer() {}
 
@@ -83,35 +91,38 @@ public class DebeziumJsonDeserializer
     public void init(Map<String, String> props) {
         this.serverTimeZone =
                 ConfigUtil.getServerTimeZoneFromJdbcUrl(props.get(DataSourceConfigKeys.JDBC_URL));
+        excludeColumnsCache = ConfigUtil.parseAllExcludeColumns(props);
     }
 
     @Override
-    public List<String> deserialize(Map<String, String> context, SourceRecord record)
+    public DeserializeResult deserialize(Map<String, String> context, SourceRecord record)
             throws IOException {
         if (RecordUtils.isDataChangeRecord(record)) {
             LOG.trace("Process data change record: {}", record);
-            return deserializeDataChangeRecord(record);
-        } else if (RecordUtils.isSchemaChangeEvent(record)) {
-            return Collections.emptyList();
+            List<String> rows = deserializeDataChangeRecord(record);
+            return DeserializeResult.dml(rows);
         } else {
-            return Collections.emptyList();
+            return DeserializeResult.empty();
         }
     }
 
     private List<String> deserializeDataChangeRecord(SourceRecord record) throws IOException {
         List<String> rows = new ArrayList<>();
+        String tableName = extractTableName(record);
+        Set<String> excludeColumns =
+                excludeColumnsCache.getOrDefault(tableName, Collections.emptySet());
         Envelope.Operation op = Envelope.operationFor(record);
         Struct value = (Struct) record.value();
         Schema valueSchema = record.valueSchema();
         if (Envelope.Operation.DELETE.equals(op)) {
-            String deleteRow = extractBeforeRow(value, valueSchema);
+            String deleteRow = extractBeforeRow(value, valueSchema, excludeColumns);
             if (StringUtils.isNotEmpty(deleteRow)) {
                 rows.add(deleteRow);
             }
         } else if (Envelope.Operation.READ.equals(op)
                 || Envelope.Operation.CREATE.equals(op)
                 || Envelope.Operation.UPDATE.equals(op)) {
-            String insertRow = extractAfterRow(value, valueSchema);
+            String insertRow = extractAfterRow(value, valueSchema, excludeColumns);
             if (StringUtils.isNotEmpty(insertRow)) {
                 rows.add(insertRow);
             }
@@ -119,7 +130,12 @@ public class DebeziumJsonDeserializer
         return rows;
     }
 
-    private String extractAfterRow(Struct value, Schema valueSchema)
+    private String extractTableName(SourceRecord record) {
+        Struct value = (Struct) record.value();
+        return value.getStruct(Envelope.FieldName.SOURCE).getString(TABLE_NAME_KEY);
+    }
+
+    private String extractAfterRow(Struct value, Schema valueSchema, Set<String> excludeColumns)
             throws JsonProcessingException {
         Map<String, Object> record = new HashMap<>();
         Struct after = value.getStruct(Envelope.FieldName.AFTER);
@@ -131,15 +147,19 @@ public class DebeziumJsonDeserializer
                 .fields()
                 .forEach(
                         field -> {
-                            Object valueConverted =
-                                    convert(field.schema(), after.getWithoutDefault(field.name()));
-                            record.put(field.name(), valueConverted);
+                            if (!excludeColumns.contains(field.name())) {
+                                Object valueConverted =
+                                        convert(
+                                                field.schema(),
+                                                after.getWithoutDefault(field.name()));
+                                record.put(field.name(), valueConverted);
+                            }
                         });
         record.put(DORIS_DELETE_SIGN, 0);
         return objectMapper.writeValueAsString(record);
     }
 
-    private String extractBeforeRow(Struct value, Schema valueSchema)
+    private String extractBeforeRow(Struct value, Schema valueSchema, Set<String> excludeColumns)
             throws JsonProcessingException {
         Map<String, Object> record = new HashMap<>();
         Struct before = value.getStruct(Envelope.FieldName.BEFORE);
@@ -151,9 +171,13 @@ public class DebeziumJsonDeserializer
                 .fields()
                 .forEach(
                         field -> {
-                            Object valueConverted =
-                                    convert(field.schema(), before.getWithoutDefault(field.name()));
-                            record.put(field.name(), valueConverted);
+                            if (!excludeColumns.contains(field.name())) {
+                                Object valueConverted =
+                                        convert(
+                                                field.schema(),
+                                                before.getWithoutDefault(field.name()));
+                                record.put(field.name(), valueConverted);
+                            }
                         });
         record.put(DORIS_DELETE_SIGN, 1);
         return objectMapper.writeValueAsString(record);
@@ -179,10 +203,11 @@ public class DebeziumJsonDeserializer
                 case BOOLEAN:
                     return Boolean.parseBoolean(dbzObj.toString());
                 case STRING:
-                case ARRAY:
                 case MAP:
                 case STRUCT:
                     return dbzObj.toString();
+                case ARRAY:
+                    return convertToArray(fieldSchema, dbzObj);
                 case BYTES:
                     return convertToBinary(dbzObj, fieldSchema);
                 default:
@@ -321,6 +346,18 @@ public class DebeziumJsonDeserializer
             }
         }
         return bigDecimal;
+    }
+
+    private Object convertToArray(Schema fieldSchema, Object dbzObj) {
+        if (dbzObj instanceof List) {
+            Schema elementSchema = fieldSchema.valueSchema();
+            List<Object> result = new ArrayList<>();
+            for (Object element : (List<?>) dbzObj) {
+                result.add(element == null ? null : convert(elementSchema, element));
+            }
+            return result;
+        }
+        return dbzObj.toString();
     }
 
     protected Object convertToTime(Object dbzObj, Schema schema) {

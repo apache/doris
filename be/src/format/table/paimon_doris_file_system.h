@@ -17,6 +17,17 @@
 
 #pragma once
 
+#include <gen_cpp/Types_types.h>
+
+#include <string>
+
+namespace paimon {
+
+// Visible for tests: maps a URI scheme to the Doris file type used by paimon-cpp.
+doris::TFileType::type map_scheme_to_file_type(const std::string& scheme);
+
+} // namespace paimon
+
 namespace doris {
 
 // Force-link helper so the paimon-cpp file system factory registration is kept.

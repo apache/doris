@@ -108,3 +108,4 @@ enableTrinoConnectorTest = false
 
 s3Source = "aliyun"
 s3Endpoint = "oss-cn-hongkong-internal.aliyuncs.com"
+recycleServiceHttpAddress = "127.0.0.1:6000"

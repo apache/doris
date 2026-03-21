@@ -26,13 +26,13 @@
 
 #include "common/status.h"
 #include "core/column/column.h"
-#include "core/field.h"
 #include "exec/common/variant_util.h"
 #include "storage/index/indexed_column_writer.h"
 #include "storage/segment/column_writer.h"
 #include "storage/segment/variant/nested_group_provider.h"
 #include "storage/segment/variant/nested_group_routing_plan.h"
 #include "storage/segment/variant/variant_statistics.h"
+#include "storage/segment/variant/variant_streaming_compaction_writer.h"
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
@@ -167,9 +167,13 @@ private:
 class VariantColumnWriterImpl {
 public:
     VariantColumnWriterImpl(const ColumnWriterOptions& opts, const TabletColumn* column);
+    ~VariantColumnWriterImpl();
     Status finalize();
     Status init();
     bool is_finalized() const;
+    bool has_streaming_compaction_writer_for_test() const {
+        return _streaming_compaction_writer != nullptr;
+    }
 
     Status append_data(const uint8_t** ptr, size_t num_rows);
 
@@ -184,6 +188,10 @@ public:
 
 private:
     Status _for_each_column_writer(const std::function<Status(ColumnWriter*)>& func);
+    bool _can_use_nested_group_streaming_compaction() const;
+    Status _ensure_materialized_variant_finalized();
+    void _assert_ready_for_index_writes() const;
+    bool _has_extracted_variant_columns() const;
     Status _process_root_column(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
                                 size_t num_rows, int& column_id);
     Status _process_subcolumns(ColumnVariant* ptr, OlapBlockDataConvertor* converter,
@@ -212,6 +220,7 @@ private:
     std::unique_ptr<NestedGroupWriteProvider> _nested_group_provider;
     VariantStatistics _statistics;
     NestedGroupRoutingPlan _nested_group_routing_plan;
+    std::unique_ptr<VariantStreamingCompactionWriter> _streaming_compaction_writer;
 };
 
 class VariantDocCompactWriter : public ColumnWriter {

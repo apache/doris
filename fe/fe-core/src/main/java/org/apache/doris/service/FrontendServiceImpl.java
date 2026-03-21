@@ -25,6 +25,7 @@ import org.apache.doris.backup.BackupMeta;
 import org.apache.doris.backup.Snapshot;
 import org.apache.doris.binlog.BinlogLagInfo;
 import org.apache.doris.catalog.AutoIncrementGenerator;
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
@@ -48,8 +49,8 @@ import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
 import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
+import org.apache.doris.cloud.proto.Cloud.GetTabletStatsResponse;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
@@ -95,6 +96,7 @@ import org.apache.doris.load.routineload.RoutineLoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadManager;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.meta.MetaContext;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanNodeAndHash;
@@ -286,6 +288,7 @@ import org.apache.doris.thrift.TStreamLoadMultiTablePutResult;
 import org.apache.doris.thrift.TStreamLoadPutRequest;
 import org.apache.doris.thrift.TStreamLoadPutResult;
 import org.apache.doris.thrift.TSubTxnInfo;
+import org.apache.doris.thrift.TSyncCloudTabletStatsRequest;
 import org.apache.doris.thrift.TSyncQueryColumns;
 import org.apache.doris.thrift.TTableIndexQueryStats;
 import org.apache.doris.thrift.TTableMetadataNameIds;
@@ -1185,7 +1188,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     private UserIdentity checkPasswordAndPrivs(String user, String passwd, String db, List<String> tables,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
-        final String fullUserName = ClusterNamespace.getNameFromFullName(user);
+        final String fullUserName = user;
         final String fullDbName = db;
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
@@ -1217,7 +1220,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void checkPassword(String user, String passwd, String clientIp)
             throws AuthenticationException {
-        final String fullUserName = ClusterNamespace.getNameFromFullName(user);
+        final String fullUserName = user;
         List<UserIdentity> currentUser = Lists.newArrayList();
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
         Preconditions.checkState(currentUser.size() == 1);
@@ -1240,7 +1243,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         try {
             TLoadTxnBeginResult tmpRes = loadTxnBeginImpl(request, clientAddr);
-            result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
+            if (tmpRes.isSetTableGroupCommitMode()) {
+                // if use table group commit mode, just return the mode info, no need to begin txn
+                result.setTableGroupCommitMode(tmpRes.getTableGroupCommitMode()).setDbId(tmpRes.getDbId());
+            } else {
+                result.setTxnId(tmpRes.getTxnId()).setDbId(tmpRes.getDbId());
+            }
         } catch (DuplicatedRequestException e) {
             // this is a duplicate request, just return previous txn id
             LOG.warn("duplicate request for stream load. request id: {}, txn: {}", e.getDuplicatedRequestId(),
@@ -1297,6 +1305,16 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         OlapTable table = (OlapTable) db.getTableOrMetaException(request.tbl, TableType.OLAP);
+        // check if use table group_commit_mode property
+        if (request.isUseTableGroupCommitMode()) {
+            String tableGroupCommitMode = table.getGroupCommitMode();
+            if (tableGroupCommitMode != null && !tableGroupCommitMode.equalsIgnoreCase(
+                    PropertyAnalyzer.GROUP_COMMIT_MODE_OFF)) {
+                TLoadTxnBeginResult result = new TLoadTxnBeginResult();
+                result.setTableGroupCommitMode(tableGroupCommitMode).setDbId(db.getId());
+                return result;
+            }
+        }
         // begin
         long timeoutSecond = request.isSetTimeout() ? request.getTimeout() : Config.stream_load_default_timeout_second;
         Backend backend = Env.getCurrentSystemInfo().getBackend(request.getBackendId());
@@ -2276,7 +2294,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new AuthenticationException("Invalid token: " + request.getToken());
                 }
             } else {
-                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                final String fullUserName = request.getUser();
                 List<UserIdentity> currentUser = Lists.newArrayList();
                 Env.getCurrentEnv().getAuth()
                         .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
@@ -2471,7 +2489,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new AuthenticationException("Invalid token: " + request.getToken());
                 }
             } else {
-                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                final String fullUserName = request.getUser();
                 List<UserIdentity> currentUser = Lists.newArrayList();
                 Env.getCurrentEnv().getAuth()
                         .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
@@ -2552,7 +2570,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     throw new AuthenticationException("Invalid token: " + request.getToken());
                 }
             } else {
-                final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+                final String fullUserName = request.getUser();
                 List<UserIdentity> currentUser = Lists.newArrayList();
                 Env.getCurrentEnv().getAuth()
                         .checkPlainPassword(fullUserName, clientAddr, request.getPasswd(), currentUser);
@@ -3225,7 +3243,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         // check account and password
-        final String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+        final String fullUserName = request.getUser();
         List<UserIdentity> currentUser = Lists.newArrayList();
         try {
             Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
@@ -3949,7 +3967,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         LOG.debug("restore snapshot info, restoreCommand: {}", restoreCommand);
         try {
             ConnectContext ctx = new ConnectContext();
-            String fullUserName = ClusterNamespace.getNameFromFullName(request.getUser());
+            String fullUserName = request.getUser();
             ctx.setCurrentUserIdentity(UserIdentity.createAnalyzedUserIdentWithIp(fullUserName, "%"));
             ctx.setThreadLocalInfo();
             restoreCommand.validate(ctx);
@@ -4374,15 +4392,24 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with existing
         // partitions, which would lead to false positive. so we should check the partition number AFTER adding new
         // partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
-        if (olapTable.getPartitionNum() > Config.max_auto_partition_num) {
+        int partitionNum = olapTable.getPartitionNum();
+        int autoPartitionLimit = Config.max_auto_partition_num;
+        if (partitionNum > autoPartitionLimit) {
             String errorMessage = String.format(
                     "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
-                    olapTable.getPartitionNum(), Config.max_auto_partition_num);
+                    partitionNum, autoPartitionLimit);
             LOG.warn(errorMessage);
             errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
             return result;
+        } else if (partitionNum > autoPartitionLimit * 8 / 10) {
+            LOG.warn("Table {}.{} auto partition count {} is approaching limit {} (>80%)."
+                        + " Consider increasing max_auto_partition_num.",
+                    db.getFullName(), olapTable.getName(), partitionNum, autoPartitionLimit);
+            if (MetricRepo.isInit) {
+                MetricRepo.COUNTER_AUTO_PARTITION_NEAR_LIMIT.increase(1L);
+            }
         }
 
         // build partition & tablets
@@ -5075,16 +5102,28 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             return new TStatus(TStatusCode.NOT_MASTER);
         }
 
-        LOG.info("receive load stats report request: {}, backend: {}, dbId: {}, txnId: {}, label: {}",
-                request, clientAddr, request.getDbId(), request.getTxnId(), request.getLabel());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("receive load stats report from backend: {}, dbId: {}, txnId: {}, label: {}, tabletIds: {}",
+                    clientAddr, request.getDbId(), request.getTxnId(), request.getLabel(), request.getTabletIds());
+        }
 
         try {
-            byte[] receivedProtobufBytes = request.getPayload();
-            if (receivedProtobufBytes == null || receivedProtobufBytes.length <= 0) {
-                return new TStatus(TStatusCode.INVALID_ARGUMENT);
+            List<Long> tabletIds = request.isSetTabletIds() ? request.getTabletIds() : Collections.emptyList();
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("force sync tablet stats for txnId: {}, tabletNum: {}, tabletIds: {}", request.txnId,
+                        tabletIds.size(), tabletIds);
             }
-            CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
-            Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse);
+            if (request.isSetTxnId() && request.getTxnId() != -1) {
+                byte[] receivedProtobufBytes = request.getPayload();
+                if (receivedProtobufBytes == null || receivedProtobufBytes.length <= 0) {
+                    return new TStatus(TStatusCode.INVALID_ARGUMENT);
+                }
+                CommitTxnResponse commitTxnResponse = CommitTxnResponse.parseFrom(receivedProtobufBytes);
+                Env.getCurrentGlobalTransactionMgr().afterCommitTxnResp(commitTxnResponse, null, tabletIds);
+            } else {
+                // compaction notify update tablet stats
+                CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
+            }
         } catch (InvalidProtocolBufferException e) {
             // Handle the exception, log it, or take appropriate action
             e.printStackTrace();
@@ -5446,6 +5485,33 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
             return result;
         }
+    }
+
+    @Override
+    public TStatus syncCloudTabletStats(TSyncCloudTabletStatsRequest request)
+            throws TException {
+        TStatus status = new TStatus(TStatusCode.OK);
+        if (Env.getCurrentEnv().isMaster()) {
+            LOG.warn("syncCloudTabletStats called on master, ignoring");
+            return status;
+        }
+
+        byte[] receivedProtobufBytes = request.getTabletStatsPb();
+        if (receivedProtobufBytes == null || receivedProtobufBytes.length <= 0) {
+            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("TabletStatsPb is null or empty");
+            return status;
+        }
+        GetTabletStatsResponse getTabletStatsResponse;
+        try {
+            getTabletStatsResponse = GetTabletStatsResponse.parseFrom(receivedProtobufBytes);
+        } catch (Exception e) {
+            status.setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            status.addToErrorMsgs("parse GetTabletStatsResponse error: " + e.getMessage());
+            return status;
+        }
+        CloudTabletStatMgr.getInstance().syncTabletStats(getTabletStatsResponse);
+        return status;
     }
 
     private TStatus checkMaster() {

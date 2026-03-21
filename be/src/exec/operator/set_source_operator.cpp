@@ -145,13 +145,25 @@ Status SetSourceOperatorX<is_intersect>::_get_data_in_hashtable(
         }
     };
 
+    // Output null key first (if present and not yet output)
+    if (!local_state._null_key_output && hash_table_ctx.hash_table->has_null_key_data()) {
+        auto value = hash_table_ctx.hash_table->template get_null_key_data<RowRefWithFlag>();
+        static_assert(std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>> ||
+                      std::is_same_v<char*, std::decay_t<decltype(value)>>);
+        if constexpr (std::is_same_v<RowRefWithFlag, std::decay_t<decltype(value)>>) {
+            add_result(value);
+        }
+        local_state._null_key_output = true;
+    }
+
     auto& iter = hash_table_ctx.begin;
-    while (iter != hash_table_ctx.end && local_state._result_indexs.size() < batch_size) {
+    while (iter != hash_table_ctx.hash_table->end() &&
+           local_state._result_indexs.size() < batch_size) {
         add_result(iter.get_second());
         ++iter;
     }
 
-    *eos = iter == hash_table_ctx.end;
+    *eos = iter == hash_table_ctx.hash_table->end();
 
     COUNTER_UPDATE(local_state._get_data_from_hashtable_rows, local_state._result_indexs.size());
     local_state._add_result_columns();
@@ -175,7 +187,9 @@ void SetSourceLocalState<is_intersect>::_add_result_columns() {
 
     for (auto& idx : build_col_idx) {
         const auto& column = *build_block.get_by_position(idx.second).column;
-        column.append_data_by_selector(_mutable_cols[idx.first], _result_indexs);
+        // use insert_indices_from to support ColumnString64
+        _mutable_cols[idx.first]->insert_indices_from(column, _result_indexs.data(),
+                                                      &_result_indexs[_result_indexs.size()]);
     }
 }
 template class SetSourceLocalState<true>;

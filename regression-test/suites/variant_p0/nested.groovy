@@ -36,7 +36,7 @@ suite("regression_test_variant_nested", "p0"){
                 )
                 DUPLICATE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 4
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "variant_enable_flatten_nested" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "deprecated_variant_enable_flatten_nested" = "true");
             """
         sql """
             insert into var_nested values (1, '{"xx" : 10}');
@@ -118,7 +118,7 @@ parallel_pipeline_task_num=7,profile_level=1,enable_pipeline_engine=true,enable_
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "variant_enable_flatten_nested" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "deprecated_variant_enable_flatten_nested" = "true");
             """
         sql """insert into var_nested2 select * from var_nested order by k limit 1024"""
         qt_sql """select  /*+SET_VAR(batch_size=4064,broker_load_batch_size=16352,disable_streaming_preaggregations=true,enable_distinct_streaming_aggregation=true,parallel_pipeline_task_num=1,profile_level=1,enable_parallel_scan=true,parallel_scan_max_scanners_count=48,parallel_scan_min_rows_per_scanner=16384,enable_fold_constant_by_be=true,enable_rewrite_element_at_to_slot=true,runtime_filter_type=12,enable_parallel_result_sink=false,enable_nereids_planner=true,rewrite_or_to_in_predicate_threshold=2,enable_function_pushdown=true,enable_common_expr_pushdown=false,enable_local_exchange=false,partition_pruning_expand_threshold=10,enable_share_hash_table_for_broadcast_join=false,enable_two_phase_read_opt=true,enable_common_expr_pushdown_for_inverted_index=true,spill_min_revocable_mem=33554432,fetch_remote_schema_timeout_seconds=120,max_fetch_remote_schema_tablet_count=512,enable_spill=false,enable_force_spill=false,data_queue_max_blocks=1,spill_streaming_agg_mem_limit=268435456,spill_aggregation_partition_count=5) */  * from var_nested2 order by k limit 10;"""
@@ -140,7 +140,7 @@ where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "variant_enable_flatten_nested" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "deprecated_variant_enable_flatten_nested" = "true");
             """
         sql "insert into var_nested_array_agg select * from var_nested"
         // 1. array_contains
@@ -157,7 +157,7 @@ where phone_numbers['type'] = 'GSM' OR phone_numbers['type'] = 'HOME' and phone_
                 )
                 UNIQUE KEY(`k`)
                 DISTRIBUTED BY HASH(k) BUCKETS 1
-                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "variant_enable_flatten_nested" = "true");
+                properties("replication_num" = "1", "disable_auto_compaction" = "false", "enable_unique_key_merge_on_write" = "true", "deprecated_variant_enable_flatten_nested" = "true");
             """
         sql "insert into var_nested_explode_variant_with_abnomal select * from var_nested"
         // 1. v['nested']['x'] is null root

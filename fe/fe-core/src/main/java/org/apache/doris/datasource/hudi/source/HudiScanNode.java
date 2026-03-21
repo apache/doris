@@ -35,6 +35,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.datasource.hive.HivePartition;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
+import org.apache.doris.datasource.hudi.HudiPartitionUtils;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.mvcc.MvccUtil;
@@ -221,8 +222,8 @@ public class HudiScanNode extends HiveScanNode {
 
         fsView = Env.getCurrentEnv()
             .getExtMetaCacheMgr()
-            .getFsViewProcessor(hmsTable.getCatalog())
-            .getFsView(hmsTable.getDbName(), hmsTable.getName(), hudiClient);
+            .hudi(hmsTable.getCatalog().getId())
+            .getFsView(hmsTable.getOrBuildNameMapping());
         // Todo: Get the current schema id of the table, instead of using -1.
         // In Be Parquet/Rrc reader, if `current table schema id == current file schema id`, then its
         // `table_info_node_ptr` will be `TableSchemaChangeHelper::ConstNode`. When using `ConstNode`,
@@ -376,7 +377,7 @@ public class HudiScanNode extends HiveScanNode {
         List<String> partitionNames = partitionColumns.isPresent() ? Arrays.asList(partitionColumns.get())
                 : Collections.emptyList();
         return incrementalRelation.collectFileSlices().stream().map(fileSlice -> generateHudiSplit(fileSlice,
-                HudiPartitionProcessor.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
+                HudiPartitionUtils.parsePartitionValues(partitionNames, fileSlice.getPartitionPath()),
                 incrementalRelation.getEndTs())).collect(Collectors.toList());
     }
 

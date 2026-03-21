@@ -17,11 +17,11 @@
 
 package org.apache.doris.cdcclient.source.reader.mysql;
 
-import org.apache.doris.cdcclient.source.deserialize.DebeziumJsonDeserializer;
-import org.apache.doris.cdcclient.source.deserialize.SourceRecordDeserializer;
+import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
+import org.apache.doris.cdcclient.source.deserialize.MySqlDebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.factory.DataSource;
+import org.apache.doris.cdcclient.source.reader.AbstractCdcSourceReader;
 import org.apache.doris.cdcclient.source.reader.SnapshotReaderContext;
-import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
 import org.apache.doris.cdcclient.source.reader.SplitRecords;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
@@ -62,7 +62,6 @@ import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
-import org.apache.flink.cdc.debezium.history.FlinkJsonTableChangeSerializer;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
@@ -110,13 +109,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 @Data
-public class MySqlSourceReader implements SourceReader {
+public class MySqlSourceReader extends AbstractCdcSourceReader {
     private static final Logger LOG = LoggerFactory.getLogger(MySqlSourceReader.class);
     private static ObjectMapper objectMapper = new ObjectMapper();
-    private static final FlinkJsonTableChangeSerializer TABLE_CHANGE_SERIALIZER =
-            new FlinkJsonTableChangeSerializer();
-    private SourceRecordDeserializer<SourceRecord, List<String>> serializer;
-    private Map<TableId, TableChanges.TableChange> tableSchemas;
 
     // Support for multiple snapshot splits with Round-Robin polling
     private List<
@@ -135,7 +130,7 @@ public class MySqlSourceReader implements SourceReader {
     private MySqlBinlogSplitState binlogSplitState;
 
     public MySqlSourceReader() {
-        this.serializer = new DebeziumJsonDeserializer();
+        this.serializer = new MySqlDebeziumJsonDeserializer();
         this.snapshotReaderContexts = new ArrayList<>();
     }
 
@@ -339,6 +334,8 @@ public class MySqlSourceReader implements SourceReader {
     /** Prepare binlog split */
     private SplitReadResult prepareBinlogSplit(
             Map<String, Object> offsetMeta, JobBaseRecordRequest baseReq) throws Exception {
+        // Load tableSchemas from FE if available (avoids re-discover on restart)
+        tryLoadTableSchemasFromRequest(baseReq);
         Tuple2<MySqlSplit, Boolean> splitFlag = createBinlogSplit(offsetMeta, baseReq);
         this.binlogSplit = (MySqlBinlogSplit) splitFlag.f0;
         this.binlogReader = getBinlogSplitReader(baseReq);
@@ -778,6 +775,8 @@ public class MySqlSourceReader implements SourceReader {
         configFactory.serverTimeZone(
                 ConfigUtil.getTimeZoneFromProps(cu.getOriginalProperties()).toString());
 
+        // Schema change handling for MySQL is not yet implemented; keep disabled to avoid
+        // unnecessary processing overhead until DDL support is added.
         configFactory.includeSchemaChanges(false);
 
         String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
@@ -992,7 +991,7 @@ public class MySqlSourceReader implements SourceReader {
     }
 
     @Override
-    public List<String> deserialize(Map<String, String> config, SourceRecord element)
+    public DeserializeResult deserialize(Map<String, String> config, SourceRecord element)
             throws IOException {
         return serializer.deserialize(config, element);
     }

@@ -18,11 +18,13 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToStringValueVisitor;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.NullLiteral;
+import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.VarBinaryLiteral;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TVarBinaryLiteral;
@@ -51,11 +53,15 @@ public class VarBinaryLiteralTest {
 
         // nested string wrapper behavior (still wraps the plain string value)
         FormatOptions opts = FormatOptions.getDefault();
-        Assertions.assertEquals("\"hello\"", lit.getStringValueInComplexTypeForQuery(opts));
+        Assertions.assertEquals("\"hello\"",
+                lit.accept(ExprToStringValueVisitor.INSTANCE,
+                        StringValueContext.forQuery(opts).asComplexType()));
 
         // hive option uses same wrapper for nested by default
         FormatOptions hive = FormatOptions.getForHive();
-        Assertions.assertEquals("\"hello\"", lit.getStringValueInComplexTypeForQuery(hive));
+        Assertions.assertEquals("\"hello\"",
+                lit.accept(ExprToStringValueVisitor.INSTANCE,
+                        StringValueContext.forQuery(hive).asComplexType()));
     }
 
     @Test
