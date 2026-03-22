@@ -19,7 +19,7 @@
 
 #include <faiss/index_io.h>
 #include <faiss/invlists/OnDiskInvertedLists.h>
-#include <faiss/invlists/OnDiskInvertedListsV2.h>
+#include <faiss/invlists/PreadInvertedLists.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <omp.h>
 #include <pthread.h>
@@ -928,7 +928,7 @@ doris::Status FaissVectorIndex::save(lucene::store::Directory* dir) {
         //
         // Why do we replace invlists here in save() instead of at build() time?
         // During build/train/add, IndexIVF needs a writable ArrayInvertedLists to
-        // receive vectors via add_entries(). OnDiskInvertedListsV2 inherits from
+        // receive vectors via add_entries(). PreadInvertedLists inherits from
         // ReadOnlyInvertedLists and does not support writes. The original
         // OnDiskInvertedLists does support writes but requires mmap on a real file,
         // which is unavailable at build time (Directory is only passed to save()).
@@ -1019,7 +1019,7 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
         // IVF_ON_DISK load:
         // 1. Read index metadata from ann.faiss with IO_FLAG_SKIP_IVF_DATA.
         //    This reads "ilod" metadata (lists[], slots[], etc.) without mmap.
-        // 2. Replace the OnDiskInvertedLists with OnDiskInvertedListsV2.
+        // 2. Replace the OnDiskInvertedLists with PreadInvertedLists.
         // 3. Open ann.ivfdata via CLucene IndexInput and bind as RandomAccessReader.
         lucene::store::IndexInput* idx_input = nullptr;
         try {
@@ -1032,8 +1032,8 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
         auto reader = std::make_unique<FaissIndexReader>(idx_input);
         faiss::Index* idx = faiss::read_index(reader.get(), faiss::IO_FLAG_SKIP_IVF_DATA);
 
-        // Replace OnDiskInvertedLists (metadata-only) with V2
-        faiss::OnDiskInvertedListsV2* v2 = faiss::replace_ondisk_invlists_with_v2(idx);
+        // Replace OnDiskInvertedLists (metadata-only) with PreadInvertedLists
+        faiss::PreadInvertedLists* pread = faiss::replace_with_pread_invlists(idx);
 
         // Open ann.ivfdata and bind the cached random access reader
         lucene::store::IndexInput* ivfdata_input = nullptr;
@@ -1046,7 +1046,7 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
                     e.what());
         }
         const size_t ivfdata_size = static_cast<size_t>(ivfdata_input->length());
-        v2->set_reader(std::make_unique<CachedRandomAccessReader>(
+        pread->set_reader(std::make_unique<CachedRandomAccessReader>(
                 ivfdata_input, _ivfdata_cache_key_prefix, ivfdata_size));
 
         // Close the original input (CachedRandomAccessReader cloned it)
