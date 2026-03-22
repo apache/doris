@@ -257,7 +257,7 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_MatchQuerySelectsFulltext) {
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fulltext_reader);
     iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, string_reader);
 
-    auto string_type = std::make_shared<vectorized::DataTypeString>();
+    auto string_type = std::make_shared<DataTypeString>();
     auto result = iterator.select_best_reader(string_type, InvertedIndexQueryType::MATCH_ANY_QUERY,
                                               "chinese");
     EXPECT_TRUE(result.has_value());
@@ -272,7 +272,7 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_EqualQuerySelectsStringType) 
     iterator.add_reader(InvertedIndexReaderType::FULLTEXT, fulltext_reader);
     iterator.add_reader(InvertedIndexReaderType::STRING_TYPE, string_reader);
 
-    auto string_type = std::make_shared<vectorized::DataTypeString>();
+    auto string_type = std::make_shared<DataTypeString>();
     auto result = iterator.select_best_reader(string_type, InvertedIndexQueryType::EQUAL_QUERY,
                                               "chinese");
     EXPECT_TRUE(result.has_value());
@@ -357,7 +357,7 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_DeterministicByIndexId) {
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_100);
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_50);
 
-        auto col_type = std::make_shared<vectorized::DataTypeString>();
+        auto col_type = std::make_shared<DataTypeString>();
         auto result =
                 iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
         ASSERT_TRUE(result.has_value());
@@ -370,7 +370,7 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_DeterministicByIndexId) {
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_50);
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_100);
 
-        auto col_type = std::make_shared<vectorized::DataTypeString>();
+        auto col_type = std::make_shared<DataTypeString>();
         auto result =
                 iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
         ASSERT_TRUE(result.has_value());
