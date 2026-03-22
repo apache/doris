@@ -1095,6 +1095,81 @@ public class SearchDslParserTest {
     }
 
     @Test
+    public void testSlashInTerm() {
+        // DORIS-24624: slash within a term should be treated as a regular character
+        // e.g., AC/DC should parse as a single term, not trigger regex parsing
+        String dsl = "title:AC/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testSlashInTermBareQuery() {
+        // DORIS-24624: slash within a bare term (using default_field)
+        String dsl = "AC/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"default_field\":\"title\",\"default_operator\":\"OR\"}");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testSlashInTermLuceneMode() {
+        // DORIS-24624: slash within a bare term in Lucene mode
+        String dsl = "AC/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl,
+                "{\"default_field\":\"title\",\"default_operator\":\"OR\",\"minimum_should_match\":0}");
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testEscapedSlashInTerm() {
+        // Escaped slash should also work and produce same result as unescaped
+        String dsl = "title:AC\\/DC";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        // After unescape: AC\/DC -> AC/DC
+        Assertions.assertEquals("AC/DC", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testMultipleSlashesInTerm() {
+        // Multiple slashes within a term
+        String dsl = "path:foo/bar/baz";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.TERM, plan.getRoot().getType());
+        Assertions.assertEquals("path", plan.getRoot().getField());
+        Assertions.assertEquals("foo/bar/baz", plan.getRoot().getValue());
+    }
+
+    @Test
+    public void testSlashDoesNotBreakRegexp() {
+        // Regex pattern /pattern/ should still work correctly
+        String dsl = "title:/[a-z]+/";
+        QsPlan plan = SearchDslParser.parseDsl(dsl);
+
+        Assertions.assertNotNull(plan);
+        Assertions.assertEquals(QsClauseType.REGEXP, plan.getRoot().getType());
+        Assertions.assertEquals("title", plan.getRoot().getField());
+        Assertions.assertEquals("[a-z]+", plan.getRoot().getValue());
+    }
+
+    @Test
     public void testUppercaseAndOperator() {
         // Test: uppercase AND should be treated as operator
         String dsl = "field:a AND field:b";
