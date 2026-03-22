@@ -158,6 +158,7 @@ public class MTMVPlanUtil {
         ctx.setStatementContext(stmtCtx);
         ctx.getState().setNereids(true);
         ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
+        ctx.getSessionVariable().setEnableDmlMaterializedViewRewrite(false);
         ctx.getSessionVariable().setEnableIvmNormalRewrite(enableIvmNormalMTMVPlan);
         if (ctxCustomizer != null) {
             ctxCustomizer.accept(ctx);
