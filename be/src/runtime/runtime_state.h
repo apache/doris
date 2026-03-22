@@ -809,9 +809,12 @@ public:
 
     void set_id_file_map();
     VectorSearchUserParams get_vector_search_params() const {
-        return VectorSearchUserParams(_query_options.hnsw_ef_search,
-                                      _query_options.hnsw_check_relative_distance,
-                                      _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
+        VectorSearchUserParams params;
+        params.hnsw_ef_search = _query_options.hnsw_ef_search;
+        params.hnsw_check_relative_distance = _query_options.hnsw_check_relative_distance;
+        params.hnsw_bounded_queue = _query_options.hnsw_bounded_queue;
+        params.ivf_nprobe = _query_options.ivf_nprobe;
+        return params;
     }
 
     void reset_to_rerun();
