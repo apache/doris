@@ -166,4 +166,31 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
                 }
         );
     }
+
+    @Test
+    public void testRootFragmentOutputExprsUseFinalAggregateTuple() throws Exception {
+        Planner planner = getSQLPlanner("select count(*) from test_db.t");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(AggregationNode.class, rootFragment.getPlanRoot());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+
+        AggregationNode aggregationNode = (AggregationNode) rootFragment.getPlanRoot();
+        SlotRef outputExpr = (SlotRef) rootFragment.getOutputExprs().get(0);
+        TupleDescriptor outputTuple = planner.getDescTable().getTupleDesc(aggregationNode.getOutputTupleIds().get(0));
+
+        Assertions.assertEquals(outputTuple.getSlots().get(0).getId(), outputExpr.getDesc().getId());
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsPruneTopNOrderByOnlySlots() throws Exception {
+        Planner planner = getSQLPlanner(
+                "select Status from tasks('type'='mv') order by CreateTime desc limit 1");
+        PlanFragment rootFragment = planner.getFragments().get(0);
+
+        Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
+        Assertions.assertEquals("Status", ((SlotRef) rootFragment.getOutputExprs().get(0)).getColumnName());
+    }
 }
