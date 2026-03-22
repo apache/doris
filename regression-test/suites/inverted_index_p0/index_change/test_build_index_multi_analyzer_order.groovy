@@ -22,6 +22,11 @@ suite("test_build_index_multi_analyzer_order") {
     // index order different from tablet schema, causing select_best_reader
     // to pick different indexes for different segments.
 
+    // Cloud mode does not support BUILD INDEX with specified index name
+    if (isCloudMode()) {
+        return
+    }
+
     def timeout = 60000
     def delta_time = 1000
     def alter_res = "null"
@@ -160,6 +165,9 @@ suite("test_build_index_multi_analyzer_order") {
     """
 
     sql "sync"
+
+    // Pin fuzzy variable: search() requires common expr pushdown to work
+    sql "SET enable_common_expr_pushdown = true"
 
     // === Verification: regex /\d\d\d\d/ should match exactly 4-digit tokens ===
     // With edge_ngram analyzer, "11921" produces tokens: "119", "1192", "11921"
