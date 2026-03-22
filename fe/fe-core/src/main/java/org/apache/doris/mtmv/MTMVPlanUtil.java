@@ -152,6 +152,7 @@ public class MTMVPlanUtil {
         ctx.setStatementContext(stmtCtx);
         ctx.getState().setNereids(true);
         ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
+        ctx.getSessionVariable().setEnableDmlMaterializedViewRewrite(false);
         ctx.getSessionVariable().setEnableIvmNormalRewrite(enableIvmNormalMTMVPlan);
         StmtExecutor executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, stmtCtx));
         ctx.setExecutor(executor);
