@@ -23,6 +23,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.ivm.IvmContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
@@ -98,6 +99,24 @@ class IvmNormalizeMtmvPlanTest {
     }
 
     @Test
+    void testUnboundTableSinkKeepsSinkShapeAndNormalizesChild() {
+        UnboundTableSink<Plan> sink = new UnboundTableSink<>(
+                ImmutableList.of("internal", "db", "mv"),
+                ImmutableList.of("col1"),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                scan);
+
+        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(sink, newJobContextForRoot(sink, true));
+
+        Assertions.assertInstanceOf(UnboundTableSink.class, result);
+        UnboundTableSink<?> rewrittenSink = (UnboundTableSink<?>) result;
+        Assertions.assertEquals(ImmutableList.of("col1"), rewrittenSink.getColNames());
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenSink.child());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenSink.child().getOutput().get(0).getName());
+    }
+
+    @Test
     void testMowTableRowIdIsDeterministic() {
         OlapTable mowTable = PlanConstructor.newOlapTable(10, "mow", 0, KeysType.UNIQUE_KEYS);
         TableProperty tableProperty = new TableProperty(new java.util.HashMap<>());
@@ -169,12 +188,16 @@ class IvmNormalizeMtmvPlanTest {
     }
 
     private JobContext newJobContextForScan(LogicalOlapScan rootScan, boolean enableIvmNormalRewrite) {
+        return newJobContextForRoot(rootScan, enableIvmNormalRewrite);
+    }
+
+    private JobContext newJobContextForRoot(Plan root, boolean enableIvmNormalRewrite) {
         ConnectContext connectContext = MemoTestUtils.createConnectContext();
         SessionVariable sessionVariable = new SessionVariable();
         sessionVariable.setEnableIvmNormalRewrite(enableIvmNormalRewrite);
         connectContext.setSessionVariable(sessionVariable);
         StatementContext statementContext = new StatementContext(connectContext, null);
-        CascadesContext cascadesContext = CascadesContext.initContext(statementContext, rootScan, PhysicalProperties.ANY);
+        CascadesContext cascadesContext = CascadesContext.initContext(statementContext, root, PhysicalProperties.ANY);
         return new JobContext(cascadesContext, PhysicalProperties.ANY);
     }
 }
