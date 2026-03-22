@@ -266,7 +266,12 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
 
 std::string ExchangeSinkLocalState::name_suffix() {
     auto& p = _parent->cast<ExchangeSinkOperatorX>();
-    return fmt::format(exchange_sink_name_suffix, std::to_string(p._dest_node_id));
+    if (_parent->nereids_id() == -1) {
+        return fmt::format("(id={}, dest_id={})", _parent->node_id(), p._dest_node_id);
+    } else {
+        return fmt::format("(nereids_id={}, id={}, dest_id={})", _parent->nereids_id(),
+                           _parent->node_id(), p._dest_node_id);
+    }
 }
 
 segment_v2::CompressionTypePB ExchangeSinkLocalState::compression_type() const {

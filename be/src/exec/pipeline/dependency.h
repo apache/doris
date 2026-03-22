@@ -45,6 +45,7 @@
 #include "exec/sort/partition_sorter.h"
 #include "exec/sort/sorter.h"
 #include "exec/spill/spill_file.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "util/brpc_closure.h"
 #include "util/stack_util.h"
 

@@ -416,6 +416,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         plan->kind = ReadKind::ROOT_FLAT;
         plan->type = create_variant_type(target_col);
         plan->relative_path = relative_path;
+        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
         return Status::OK();
     }
     VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
@@ -477,6 +478,11 @@ bool VariantColumnReader::_need_read_flat_leaves(const StorageReadOptions* opts)
 bool VariantColumnReader::_can_use_nested_group_read_path() const {
     return _nested_group_read_provider != nullptr &&
            _nested_group_read_provider->should_enable_nested_group_read_path();
+}
+
+bool VariantColumnReader::_needs_root_nested_group_merge(const PathInData& relative_path) const {
+    return relative_path.empty() && _nested_group_read_provider != nullptr &&
+           !_nested_group_readers.empty();
 }
 
 Status VariantColumnReader::_validate_access_paths_debug(const TabletColumn& target_col,
@@ -669,6 +675,7 @@ Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid
 
     DCHECK(node->is_leaf_node());
     const auto* leaf_node = _subcolumns_meta_info->find_leaf(relative_path);
+
     std::shared_ptr<ColumnReader> leaf_column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
             col_uid, leaf_node->path, &leaf_column_reader, stats, leaf_node));
@@ -686,6 +693,7 @@ Status VariantColumnReader::_try_build_external_leaf_plan(ReadPlan* plan, int32_
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
         return Status::OK();
     }
+
     std::shared_ptr<ColumnReader> leaf_column_reader;
     Status st = column_reader_cache->get_path_column_reader(col_uid, relative_path,
                                                             &leaf_column_reader, stats, nullptr);
@@ -750,12 +758,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         plan->type = create_variant_type(target_col);
         plan->relative_path = relative_path;
         plan->root = root;
-        return Status::OK();
-    }
-
-    // NestedGroup path resolution must happen before sparse/hierarchical fallbacks.
-    // Otherwise a valid nested path may be misclassified as generic sparse extraction.
-    if (_try_build_nested_group_plan(plan, target_col, opt, col_uid, relative_path)) {
+        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
         return Status::OK();
     }
 
@@ -785,6 +788,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         plan->relative_path = relative_path;
         plan->node = node;
         plan->root = root;
+        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
         return Status::OK();
     }
 
@@ -826,6 +830,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             plan->type = create_variant_type(target_col);
             plan->relative_path = relative_path;
             plan->root = root;
+            plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
             return Status::OK();
         }
 
@@ -851,6 +856,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             plan->relative_path = relative_path;
             plan->node = node;
             plan->root = root;
+            plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
             return Status::OK();
         }
 
@@ -870,31 +876,23 @@ Status VariantColumnReader::_create_iterator_from_plan(
         PathToBinaryColumnCache* binary_column_cache_ptr) {
     switch (plan.kind) {
     case ReadKind::ROOT_FLAT: {
+        // ROOT_FLAT reads the persisted root column itself. It does not rebuild root `v` from
+        // regular extracted columns such as `v.keep` / `v.owner`; only the optional root-merge
+        // wrapper below may fold NestedGroup data back into the root view.
         *iterator = std::make_unique<VariantRootColumnIterator>(
                 std::make_unique<FileColumnIterator>(_root_column_reader));
-        return Status::OK();
+        return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::HIERARCHICAL: {
+        // HIERARCHICAL reconstructs the requested object from extracted subcolumns plus sparse
+        // state. Reading root `v` through this branch may therefore read regular children such as
+        // `v.keep` / `v.owner` and merge them into the final variant result.
         int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
                                                       : target_col.parent_unique_id();
-        ColumnIteratorUPtr base_iterator;
         RETURN_IF_ERROR(_create_hierarchical_reader(
-                &base_iterator, col_uid, plan.relative_path, plan.node, plan.root,
-                column_reader_cache, opt->stats,
-                HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE));
-
-        // Root variant reconstruction needs to merge top-level NestedGroup arrays, because NG leaf
-        // columns are not row-aligned and are skipped by the generic hierarchical reader.
-        if (plan.relative_path.empty() && _nested_group_read_provider != nullptr &&
-            !_nested_group_readers.empty()) {
-            ColumnIteratorUPtr merged_iterator;
-            RETURN_IF_ERROR(_nested_group_read_provider->create_root_merge_iterator(
-                    std::move(base_iterator), _nested_group_readers, opt, &merged_iterator));
-            *iterator = std::move(merged_iterator);
-            return Status::OK();
-        }
-        *iterator = std::move(base_iterator);
-        return Status::OK();
+                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
+                opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE));
+        return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::LEAF: {
         DCHECK(plan.leaf_column_reader != nullptr);
@@ -951,7 +949,7 @@ Status VariantColumnReader::_create_iterator_from_plan(
         if (opt && opt->stats) {
             opt->stats->variant_doc_value_column_iter_count++;
         }
-        return Status::OK();
+        return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::NESTED_GROUP_WHOLE:
     case ReadKind::NESTED_GROUP_CHILD: {
@@ -975,6 +973,22 @@ Status VariantColumnReader::_create_iterator_from_plan(
     default:
         return Status::InternalError("unknown variant read kind");
     }
+}
+
+Status VariantColumnReader::_maybe_wrap_root_merge_iterator(ColumnIteratorUPtr* iterator,
+                                                            const ReadPlan& plan,
+                                                            const StorageReadOptions* opt) {
+    if (!plan.needs_root_merge) {
+        return Status::OK();
+    }
+
+    // The planner may reach this point through ROOT_FLAT, HIERARCHICAL or HIERARCHICAL_DOC.
+    // Wrapping once here prevents those branches from duplicating the same root merge logic.
+    ColumnIteratorUPtr merged_iterator;
+    RETURN_IF_ERROR(_nested_group_read_provider->create_root_merge_iterator(
+            std::move(*iterator), _nested_group_readers, opt, &merged_iterator));
+    *iterator = std::move(merged_iterator);
+    return Status::OK();
 }
 
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
@@ -1032,6 +1046,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
 
     _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     _root_unique_id = self_column_pb.unique_id();
+    const bool should_record_path_stats = variant_util::should_record_variant_path_stats(
+            opts.tablet_schema->column_by_uid(self_column_pb.unique_id()));
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
     // record variant_sparse_column_statistics_size from parent column
     _variant_sparse_column_statistics_size =
@@ -1067,10 +1083,12 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         std::string rel_str = relative.get_path();
         if (rel_str == SPARSE_COLUMN_PATH) {
             DCHECK(col.has_variant_statistics()) << col.DebugString();
-            // Always load sparse stats from the sparse column's own meta.
-            // This is the authoritative source; root stats may duplicate these
-            // but the sparse column meta is canonical.
-            _statistics->merge_sparse_from_pb(col.variant_statistics());
+            if (should_record_path_stats) {
+                // Always load sparse stats from the sparse column's own meta.
+                // This is the authoritative source; root stats may duplicate these
+                // but the sparse column meta is canonical.
+                _statistics->merge_sparse_from_pb(col.variant_statistics());
+            }
             std::shared_ptr<ColumnReader> single_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, footer->num_rows(), file_reader,
                                                  &single_reader));
@@ -1091,8 +1109,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             uint32_t idx =
                     static_cast<uint32_t>(atoi(rel_str.substr(bucket_prefix.size()).c_str()));
             DCHECK(col.has_variant_statistics()) << col.DebugString();
-            // Additively merge per-bucket sparse stats into the unified statistics.
-            _statistics->merge_sparse_from_pb(col.variant_statistics());
+            if (should_record_path_stats) {
+                // Additively merge per-bucket sparse stats into the unified statistics.
+                _statistics->merge_sparse_from_pb(col.variant_statistics());
+            }
             std::shared_ptr<ColumnReader> reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &reader));
             tmp_sparse_readers[idx] = std::move(reader);
@@ -1107,8 +1127,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             std::shared_ptr<ColumnReader> column_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &column_reader));
             tmp_doc_value_readers[bucket_value] = std::move(column_reader);
-            // Additively merge per-bucket doc value stats into the unified statistics.
-            _statistics->merge_doc_value_from_pb(col.variant_statistics());
+            if (should_record_path_stats) {
+                // Additively merge per-bucket doc value stats into the unified statistics.
+                _statistics->merge_doc_value_from_pb(col.variant_statistics());
+            }
             *handled = true;
             return Status::OK();
         }
@@ -1173,7 +1195,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             continue;
         }
         // check the root is already a leaf node
-        if (column_pb.has_none_null_size()) {
+        if (should_record_path_stats && column_pb.has_none_null_size()) {
             _statistics->subcolumns_non_null_size.emplace(relative_path.get_path(),
                                                           column_pb.none_null_size());
         }
@@ -1214,8 +1236,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     // NestedGroup initialization is provider-driven. Disabled providers keep fallback behavior,
     // while enabled providers populate nested group readers from segment footer.
     if (_can_use_nested_group_read_path()) {
-        RETURN_IF_ERROR(_nested_group_read_provider->init_readers(
-                opts, footer, file_reader, accessor, num_rows, _nested_group_readers));
+        RETURN_IF_ERROR(_nested_group_read_provider->init_readers(opts, footer, file_reader,
+                                                                  accessor, _root_unique_id,
+                                                                  num_rows, _nested_group_readers));
     }
 
     return Status::OK();
@@ -1280,7 +1303,11 @@ Status VariantColumnReader::load_external_meta_once() {
     // Ensure only one writer can populate `_subcolumns_meta_info` / `_statistics`
     // while readers of these structures hold shared locks.
     std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), _statistics.get());
+    VariantStatistics* stats = variant_util::should_record_variant_path_stats(
+                                       _tablet_schema->column_by_uid(_root_unique_id))
+                                       ? _statistics.get()
+                                       : nullptr;
+    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), stats);
 }
 
 TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
@@ -1302,13 +1329,20 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
         PathInData index_path {*column.path_info_ptr()};
         DataTypePtr index_data_type = data_type;
         if (!relative_path.empty()) {
-            // For nested-group materialized columns, the inverted index suffix is built from the
-            // variant-relative path (e.g. "items.msg"), rather than the full logical column path
-            // (e.g. "data.items.msg"). This keeps the suffix consistent with the write path which
-            // does not include the VARIANT root column name.
             auto [nested_reader, _] = find_nested_group_for_path(relative_path.get_path());
+            const std::string root_path(kRootNestedGroupPath);
+
             if (nested_reader != nullptr) {
-                index_path = relative_path;
+                const bool is_root_ng = nested_reader->array_path == root_path;
+                if (!is_root_ng) {
+                    // Named NG — use variant-relative path (consistent with write path)
+                    index_path = relative_path;
+                } else {
+                    // $root NG — prefix path with __D0_root__
+                    index_path = PathInData(root_path + "." + relative_path.get_path());
+                }
+
+                // Unwrap Nullable(Array(...)) → element type for NG subcolumns
                 if (data_type->is_nullable()) {
                     auto base = variant_util::get_base_type_of_array(remove_nullable(data_type));
                     index_data_type = base->is_nullable() ? base : make_nullable(base);
@@ -1316,18 +1350,7 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletCol
                     index_data_type = variant_util::get_base_type_of_array(data_type);
                 }
             }
-        }
-        const std::string root_path(kRootNestedGroupPath);
-        if (_nested_group_readers.contains(root_path) && !relative_path.empty()) {
-            // If the segment has a top-level "$root" nested group (JSON root is array<object>),
-            // nested paths are stored under the virtual root marker.
-            index_path = PathInData(root_path + "." + relative_path.get_path());
-            if (data_type->is_nullable()) {
-                auto base = variant_util::get_base_type_of_array(remove_nullable(data_type));
-                index_data_type = base->is_nullable() ? base : make_nullable(base);
-            } else {
-                index_data_type = variant_util::get_base_type_of_array(data_type);
-            }
+            // else: non-NG scalar field — keep index_path and index_data_type unchanged
         }
         TabletColumn target_column =
                 variant_util::get_column_by_type(index_data_type, column.name(),
