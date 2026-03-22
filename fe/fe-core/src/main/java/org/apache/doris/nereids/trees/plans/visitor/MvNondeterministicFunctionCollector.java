@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.visitor;
 
+import org.apache.doris.catalog.Column;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.functions.FunctionTrait;
@@ -26,12 +28,12 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * Collect the nondeterministic expr in plan, these expressions will be put into context
+ * Collect the nondeterministic expr in MV plan, skipping hidden IVM row-id aliases.
  */
-public class NondeterministicFunctionCollector
+public class MvNondeterministicFunctionCollector
         extends DefaultPlanVisitor<Void, List<Expression>> {
 
-    public static final NondeterministicFunctionCollector INSTANCE = new NondeterministicFunctionCollector();
+    public static final MvNondeterministicFunctionCollector INSTANCE = new MvNondeterministicFunctionCollector();
 
     @Override
     public Void visit(Plan plan, List<Expression> collectedExpressions) {
@@ -40,11 +42,19 @@ public class NondeterministicFunctionCollector
             return super.visit(plan, collectedExpressions);
         }
         for (Expression expression : expressions) {
+            if (isMvRowIdAlias(expression)) {
+                continue;
+            }
             Set<Expression> nondeterministicFunctions =
                     expression.collect(expr -> !((ExpressionTrait) expr).isDeterministic()
                             && expr instanceof FunctionTrait);
             collectedExpressions.addAll(nondeterministicFunctions);
         }
         return super.visit(plan, collectedExpressions);
+    }
+
+    private boolean isMvRowIdAlias(Expression expression) {
+        return expression instanceof Alias
+                && Column.IVM_ROW_ID_COL.equals(((Alias) expression).getName());
     }
 }
