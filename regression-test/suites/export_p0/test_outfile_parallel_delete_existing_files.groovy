@@ -79,8 +79,6 @@ suite("test_outfile_parallel_delete_existing_files", "p0") {
     }
 
     try {
-        sql """ set enable_nereids_planner = true """
-        sql """ set enable_fallback_to_original_planner = false """
         sql """ set enable_parallel_outfile = true """
         sql """ set parallel_pipeline_task_num = 8 """
 
@@ -129,6 +127,5 @@ suite("test_outfile_parallel_delete_existing_files", "p0") {
         assertEquals(expected[0][2], actual[0][2])
     } finally {
         try_sql(""" set enable_parallel_outfile = false """)
-        try_sql(""" DROP TABLE IF EXISTS ${tableName} """)
     }
 }
