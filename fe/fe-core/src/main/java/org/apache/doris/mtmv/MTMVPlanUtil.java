@@ -157,6 +157,7 @@ public class MTMVPlanUtil {
         ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         ctx.setStatementContext(stmtCtx);
         ctx.getState().setNereids(true);
+        ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
         ctx.getSessionVariable().setEnableIvmNormalRewrite(enableIvmNormalMTMVPlan);
         if (ctxCustomizer != null) {
             ctxCustomizer.accept(ctx);
@@ -624,7 +625,7 @@ public class MTMVPlanUtil {
         if (enableNondeterministicFunction) {
             return;
         }
-        List<Expression> functionCollectResult = MaterializedViewUtils.extractNondeterministicFunction(plan);
+        List<Expression> functionCollectResult = MaterializedViewUtils.extractMvNondeterministicFunction(plan);
         if (!CollectionUtils.isEmpty(functionCollectResult)) {
             throw new AnalysisException(String.format(
                     "can not contain nonDeterministic expression, the expression is %s. "

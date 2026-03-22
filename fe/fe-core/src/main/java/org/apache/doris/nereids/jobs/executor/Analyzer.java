@@ -51,6 +51,7 @@ import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.SubqueryToApply;
 import org.apache.doris.nereids.rules.analysis.VariableToLiteral;
 import org.apache.doris.nereids.rules.rewrite.AdjustNullable;
+import org.apache.doris.nereids.rules.rewrite.IvmNormalizeMtmvPlan;
 import org.apache.doris.nereids.rules.rewrite.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.SemiJoinCommute;
 import org.apache.doris.nereids.rules.rewrite.SimplifyAggGroupBy;
@@ -131,6 +132,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new CheckPolicy(),
                     new BindExpression()
             ),
+            custom(RuleType.IVM_NORMALIZE_MTMV_PLAN, IvmNormalizeMtmvPlan::new),
             topDown(new BindSink()),
             bottomUp(new CheckAnalysis(false)),
             topDown(new FillUpQualifyMissingSlot()),

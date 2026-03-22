@@ -56,7 +56,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
-import org.apache.doris.nereids.trees.plans.visitor.NondeterministicFunctionCollector;
+import org.apache.doris.nereids.trees.plans.visitor.MvNondeterministicFunctionCollector;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.collect.ImmutableList;
@@ -530,9 +530,9 @@ public class MaterializedViewUtils {
      * the function would be considered as deterministic function and will not return
      * in the result expression result
      */
-    public static List<Expression> extractNondeterministicFunction(Plan plan) {
+    public static List<Expression> extractMvNondeterministicFunction(Plan plan) {
         List<Expression> nondeterministicFunctions = new ArrayList<>();
-        plan.accept(NondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
+        plan.accept(MvNondeterministicFunctionCollector.INSTANCE, nondeterministicFunctions);
         return nondeterministicFunctions;
     }
 
