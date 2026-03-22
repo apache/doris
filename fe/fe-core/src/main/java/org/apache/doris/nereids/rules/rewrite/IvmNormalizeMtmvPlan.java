@@ -21,26 +21,31 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.ivm.IvmContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash364;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -53,8 +58,10 @@ import java.util.stream.Collectors;
  *   - Other key types: not supported, throws.
  * - Records (rowIdSlot → isDeterministic) in IvmContext on CascadesContext.
  * - visitLogicalProject propagates child's row-id slot if not already in outputs.
+ * - visitLogicalFilter recurses into the child and preserves filter predicates/output shape.
+ * - visitLogicalResultSink recurses into the child and prepends the row-id to output exprs.
  * - Whitelists supported plan nodes; throws AnalysisException for unsupported nodes.
- * Supported: OlapScan, project.
+ * Supported: OlapScan, filter, project, result sink, unbound table sink.
  * TODO: avg rewrite, join support.
  */
 public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implements CustomRewriter {
@@ -104,6 +111,12 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
         return new LogicalProject<>(newOutputs, newChild);
     }
 
+    @Override
+    public Plan visitLogicalFilter(LogicalFilter<? extends Plan> filter, IvmContext ivmContext) {
+        Plan newChild = filter.child().accept(this, ivmContext);
+        return newChild == filter.child() ? filter : filter.withChildren(ImmutableList.of(newChild));
+    }
+
     // whitelisted: result sink — recurse into child, then prepend row-id to output exprs
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, IvmContext ivmContext) {
@@ -113,6 +126,12 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
         }
         List<NamedExpression> newOutputs = prependRowId(newChild, sink.getOutputExprs());
         return sink.withOutputExprs(newOutputs).withChildren(ImmutableList.of(newChild));
+    }
+
+    @Override
+    public Plan visitUnboundTableSink(UnboundTableSink<? extends Plan> sink, IvmContext ivmContext) {
+        Plan newChild = sink.child().accept(this, ivmContext);
+        return newChild == sink.child() ? sink : sink.withChildren(ImmutableList.of(newChild));
     }
 
     private boolean hasRowIdInOutputs(List<NamedExpression> outputs) {
@@ -169,6 +188,6 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
     private Expression buildRowIdHash(List<Expression> keySlots) {
         Expression first = keySlots.get(0);
         Expression[] rest = keySlots.subList(1, keySlots.size()).toArray(new Expression[0]);
-        return new MurmurHash364(first, rest);
+        return new Cast(new MurmurHash364(first, rest), LargeIntType.INSTANCE);
     }
 }

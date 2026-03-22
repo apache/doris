@@ -306,10 +306,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     public PlanFragment translatePlan(PhysicalPlan physicalPlan) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
         if (CollectionUtils.isEmpty(rootFragment.getOutputExprs())) {
-            List<Expr> outputExprs = Lists.newArrayList();
-            physicalPlan.getOutput().stream().map(Slot::getExprId)
-                    .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
-            rootFragment.setOutputExprs(outputExprs);
+            rootFragment.setOutputExprs(translateOutputExprs(physicalPlan.getOutput()));
         }
         Collections.reverse(context.getPlanFragments());
         if (context.getSessionVariable() != null && context.getSessionVariable().forbidUnknownColStats) {
@@ -399,6 +396,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // its source partition is targetDataPartition. and outputPartition is UNPARTITIONED now, will be set when
         // visit its SinkNode
         PlanFragment downstreamFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, targetDataPartition);
+        downstreamFragment.setOutputExprs(translateOutputExprs(distribute.getOutput()));
         if (targetDistribution instanceof DistributionSpecGather
                 || targetDistribution instanceof DistributionSpecStorageGather) {
             // gather to one instance
@@ -677,9 +675,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 fileSink.getProperties()
         );
 
-        List<Expr> outputExprs = Lists.newArrayList();
-        fileSink.getOutput().stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        List<Expr> outputExprs = translateOutputExprs(fileSink.getOutput());
         sinkFragment.setOutputExprs(outputExprs);
 
         // generate colLabels
@@ -3215,6 +3211,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return true;
+    }
+
+    private List<Expr> translateOutputExprs(List<? extends Slot> outputSlots) {
+        List<Expr> outputExprs = Lists.newArrayListWithCapacity(outputSlots.size());
+        outputSlots.stream().map(Slot::getExprId)
+                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        return outputExprs;
     }
 
     private boolean isComplexDataType(DataType dataType) {

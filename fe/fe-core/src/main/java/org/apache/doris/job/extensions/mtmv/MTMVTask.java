@@ -242,8 +242,7 @@ public class MTMVTask extends AbstractTask {
             if (refreshMode == MTMVTaskRefreshMode.NOT_REFRESH) {
                 return;
             }
-            // TODO: just for test, need refactor
-            // Attempt IVM refresh for INCREMENTAL MVs
+            // Attempt IVM refresh for incremental MVs and fall back when the plan is unsupported.
             if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
                 IVMRefreshManager ivmRefreshManager = new IVMRefreshManager();
                 IVMRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);

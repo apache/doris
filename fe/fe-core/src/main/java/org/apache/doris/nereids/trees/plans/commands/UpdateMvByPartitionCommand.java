@@ -32,6 +32,7 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.mtmv.BaseColInfo;
 import org.apache.doris.mtmv.BaseTableInfo;
+import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
@@ -115,12 +116,11 @@ public class UpdateMvByPartitionCommand extends InsertOverwriteTableCommand {
         if (plan instanceof Sink) {
             plan = plan.child(0);
         }
-        // FIXME: not support for ivm mv now, because ivm mv has invisible columns(rowid, sum, count).
-        // for invisible columns, need special them in sink's cols.
-        // but rule BindSink will check sink's cols size and sink child output size,
-        // there's unsolved problem between rule BindSink and IvmNormalMTMVPlan
+        List<String> sinkColumns = mv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL
+                ? mv.getInsertedColumnNames()
+                : ImmutableList.of();
         LogicalSink<? extends Plan> sink = UnboundTableSinkCreator.createUnboundTableSink(mv.getFullQualifiers(),
-                ImmutableList.of(), ImmutableList.of(), parts, plan);
+                sinkColumns, ImmutableList.of(), parts, plan);
         if (LOG.isDebugEnabled()) {
             LOG.debug("MTMVTask plan for mvName: {}, partitionNames: {}, plan: {}", mv.getName(), partitionNames,
                     sink.treeString());
