@@ -1596,7 +1596,7 @@ public class DatabaseTransactionMgr {
         for (long tableId : tableToPartition.keySet()) {
             OlapTable table = (OlapTable) db.getTableNullable(tableId);
             TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
-            if (Config.enable_feature_tso && table.enableTso()) {
+            if (Config.enable_tso_feature && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
 
@@ -1661,7 +1661,7 @@ public class DatabaseTransactionMgr {
                 TableCommitInfo tableCommitInfo = new TableCommitInfo(tableId);
                 tableCommitInfo.setVersion(tableNextVersion);
                 tableCommitInfo.setVersionTime(System.currentTimeMillis());
-                if (Config.enable_feature_tso && table.enableTso()) {
+                if (Config.enable_tso_feature && table.enableTso()) {
                     tableCommitInfo.setCommitTSO(commitTSO);
                 }
 
@@ -1720,7 +1720,7 @@ public class DatabaseTransactionMgr {
                         transactionState);
                 continue;
             }
-            if (Config.enable_feature_tso && table.enableTso()) {
+            if (Config.enable_tso_feature && table.enableTso()) {
                 tableCommitInfo.setCommitTSO(commitTSO);
             }
             Iterator<PartitionCommitInfo> partitionCommitInfoIterator
@@ -3079,7 +3079,7 @@ public class DatabaseTransactionMgr {
     private long getCommitTSO(TransactionState transactionState, Database db, Set<Long> tableIds)
             throws TransactionCommitFailedException {
         long tso = -1L;
-        if (!Config.enable_feature_tso) {
+        if (!Config.enable_tso_feature) {
             return tso;
         }
         if (tableIds == null || tableIds.isEmpty()) {
@@ -3097,7 +3097,12 @@ public class DatabaseTransactionMgr {
             return tso;
         }
         try {
-            long fetched = Env.getCurrentEnv().getTSOService().getTSO();
+            Env env = Env.getCurrentEnv();
+            if (env == null || env.getTSOService() == null) {
+                throw new TransactionCommitFailedException("failed to get TSO for txn "
+                        + transactionState.getTransactionId() + ": TSO service is unavailable");
+            }
+            long fetched = env.getTSOService().getTSO();
             if (fetched <= 0) {
                 throw new TransactionCommitFailedException("failed to get TSO for txn "
                         + transactionState.getTransactionId() + ", fetched=" + fetched);

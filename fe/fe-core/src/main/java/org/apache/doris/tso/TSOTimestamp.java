@@ -45,9 +45,9 @@ import java.io.IOException;
 public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
 
     @SerializedName(value = "physicalTimestamp")
-    private Long physicalTimestamp = 0L;
+    private long physicalTimestamp = 0L;
     @SerializedName(value = "logicalCounter")
-    private Long logicalCounter = 0L;
+    private long logicalCounter = 0L;
 
     // Bit width for each field
     private static final int LOGICAL_BITS   = 18;  // Logical counter bits
@@ -173,7 +173,11 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
 
     public static TSOTimestamp read(DataInput dataInput) throws IOException {
         String json = Text.readString(dataInput);
-        return GsonUtils.GSON.fromJson(json, TSOTimestamp.class);
+        TSOTimestamp tsoTimestamp = GsonUtils.GSON.fromJson(json, TSOTimestamp.class);
+        if (tsoTimestamp == null) {
+            throw new IOException("failed to deserialize TSOTimestamp from journal/image");
+        }
+        return tsoTimestamp;
     }
 
     /**
@@ -188,7 +192,6 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
         long physical = physicalTime   & RAW_PHYSICAL_MASK; // Keep only 46 bits
         long logical  = logicalCounter & RAW_LOGICAL_MASK;  // Keep only 18 bits
 
-
         // Bitwise assembly: High 46 bits physical time + Low 18 bits logical counter
         return (physical  << PHYSICAL_SHIFT)
             | (logical);
@@ -198,7 +201,7 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("physical timestamp: ").append(physicalTimestamp);
-        sb.append("logical counter: ").append(logicalCounter);
+        sb.append(", logical counter: ").append(logicalCounter);
 
         return sb.toString();
     }
@@ -231,15 +234,14 @@ public final class TSOTimestamp implements Writable, Comparable<TSOTimestamp> {
             return false;
         }
         TSOTimestamp t = (TSOTimestamp) o;
-        return physicalTimestamp.equals(t.physicalTimestamp)
-                && logicalCounter.equals(t.logicalCounter);
+        return physicalTimestamp == t.physicalTimestamp
+                && logicalCounter == t.logicalCounter;
     }
 
     @Override
     public int hashCode() {
-        int h = 31;
-        h = h * 17 + physicalTimestamp.hashCode();
-        h = h * 17 + logicalCounter.hashCode();
-        return h;
+        int result = Long.hashCode(physicalTimestamp);
+        result = 31 * result + Long.hashCode(logicalCounter);
+        return result;
     }
 }

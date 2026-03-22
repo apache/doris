@@ -19,10 +19,10 @@ import org.apache.doris.regression.util.Http
 import groovy.json.JsonSlurper
 
 suite("test_tso_api", "nonConcurrent") {
-    def ret = sql "SHOW FRONTEND CONFIG like '%experimental_enable_feature_tso%';"
+    def ret = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
     logger.info("${ret}")
     try {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_feature_tso' = 'true')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
         sleep(1000)
         def currentTime = System.currentTimeMillis()
 
@@ -104,7 +104,7 @@ suite("test_tso_api", "nonConcurrent") {
         def extractedLogicalCounter = tsoValue & 0x3FFFFL // 18 bits mask
         assertEquals(logicalCounter, extractedLogicalCounter)
     } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_feature_tso' = '${ret[0][1]}')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${ret[0][1]}')"
     }
 
     logger.info("TSO API test completed successfully")

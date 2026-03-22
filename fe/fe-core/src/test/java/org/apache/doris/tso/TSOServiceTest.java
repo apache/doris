@@ -20,6 +20,8 @@ package org.apache.doris.tso;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.journal.Journal;
+import org.apache.doris.metric.LongCounterMetric;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.EditLog;
 
 import mockit.Mock;
@@ -44,6 +46,7 @@ public class TSOServiceTest {
     private Env env;
 
     private int originalMaxGetTSORetryCount;
+    private int originalMaxUpdateRetryCount;
     private int originalUpdateIntervalMs;
     private boolean originalEnableTsoPersistJournal;
     private long originalClockBackwardThresholdMs;
@@ -52,12 +55,14 @@ public class TSOServiceTest {
     public void setUp() {
         new EnvMockUp();
 
-        originalMaxGetTSORetryCount = Config.max_get_tso_retry_count;
+        originalMaxGetTSORetryCount = Config.tso_max_get_retry_count;
+        originalMaxUpdateRetryCount = Config.tso_max_update_retry_count;
         originalUpdateIntervalMs = Config.tso_service_update_interval_ms;
         originalEnableTsoPersistJournal = Config.enable_tso_persist_journal;
         originalClockBackwardThresholdMs = Config.tso_clock_backward_startup_threshold_ms;
 
-        Config.max_get_tso_retry_count = 1;
+        Config.tso_max_get_retry_count = 1;
+        Config.tso_max_update_retry_count = 1;
         Config.tso_service_update_interval_ms = 1;
         Config.enable_tso_persist_journal = false;
         Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
@@ -71,7 +76,8 @@ public class TSOServiceTest {
     @After
     public void tearDown() {
         EnvMockUp.CURRENT_ENV.set(null);
-        Config.max_get_tso_retry_count = originalMaxGetTSORetryCount;
+        Config.tso_max_get_retry_count = originalMaxGetTSORetryCount;
+        Config.tso_max_update_retry_count = originalMaxUpdateRetryCount;
         Config.tso_service_update_interval_ms = originalUpdateIntervalMs;
         Config.enable_tso_persist_journal = originalEnableTsoPersistJournal;
         Config.tso_clock_backward_startup_threshold_ms = originalClockBackwardThresholdMs;
@@ -128,15 +134,26 @@ public class TSOServiceTest {
             Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
             Assert.assertNotNull(e.getCause());
             Assert.assertTrue(e.getCause().getMessage().contains("logical counter overflow"));
+            Assert.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
         }
     }
 
     @Test
+    public void testGetTSOAcceptsLogicalCounterUpperBound() throws Exception {
+        setInitializedFlag(tsoService, true);
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER - 1);
+        long tso = tsoService.getTSO();
+        Assert.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
+    }
+
+    @Test
     public void testRunAfterCatalogReadySetsIntervalTo50WhenDisabled() {
-        boolean originalEnableTsoFeature = Config.enable_feature_tso;
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
         try {
             setInitializedFlag(tsoService, true);
-            Config.enable_feature_tso = false;
+            Config.enable_tso_feature = false;
             tsoService.runAfterCatalogReady();
             Assert.assertEquals(1L, tsoService.getInterval());
             try {
@@ -146,15 +163,51 @@ public class TSOServiceTest {
                 Assert.assertTrue(e.getMessage().contains("not calibrated"));
             }
         } finally {
-            Config.enable_feature_tso = originalEnableTsoFeature;
+            Config.enable_tso_feature = originalEnableTsoFeature;
         }
     }
 
     @Test
-    public void testReplayWindowEndTSOUpdatesEnv() {
+    public void testRunAfterCatalogReadyUsesAtLeastOneRetryWhenConfigNonPositive() {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        try {
+            Config.enable_tso_feature = true;
+            Config.tso_max_update_retry_count = 0;
+            Mockito.when(env.isReady()).thenReturn(true);
+            Mockito.when(env.isMaster()).thenReturn(true);
+            tsoService.runAfterCatalogReady();
+            Assert.assertTrue(tsoService.getTSO() > 0);
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+        }
+    }
+
+    @Test
+    public void testRunAfterCatalogReadyUpdateFailureDoesNotTouchMetricWhenNotInit() throws Exception {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalMetricInit = MetricRepo.isInit;
+        LongCounterMetric originalUpdateFailedMetric = MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED;
+        try {
+            Config.enable_tso_feature = true;
+            setInitializedFlag(tsoService, true);
+            setGlobalTimestamp(tsoService, 100L, 1L);
+            MetricRepo.isInit = false;
+            MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED = null;
+            Mockito.when(env.isReady()).thenReturn(true);
+            Mockito.when(env.isMaster()).thenThrow(new RuntimeException("injected update failure"));
+            tsoService.runAfterCatalogReady();
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+            MetricRepo.isInit = originalMetricInit;
+            MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED = originalUpdateFailedMetric;
+        }
+    }
+
+    @Test
+    public void testReplayWindowEndTSOUpdatesServiceState() {
         long windowEnd = 12345L;
         tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
-        Mockito.verify(env).setWindowEndTSO(windowEnd);
+        Assert.assertEquals(windowEnd, tsoService.getWindowEndTSO());
     }
 
     @Test
@@ -186,7 +239,8 @@ public class TSOServiceTest {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         long now = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
-        Mockito.when(env.getWindowEndTSO()).thenReturn(now + Config.tso_clock_backward_startup_threshold_ms + 60_000);
+        tsoService.replayWindowEndTSO(new TSOTimestamp(
+                now + Config.tso_clock_backward_startup_threshold_ms + 60_000, 0L));
         try {
             invokeCalibrateTimestamp(tsoService);
             Assert.fail();
@@ -221,6 +275,13 @@ public class TSOServiceTest {
         TSOTimestamp timestamp = (TSOTimestamp) f.get(service);
         timestamp.setPhysicalTimestamp(physical);
         timestamp.setLogicalCounter(logical);
+    }
+
+    private static long getGlobalLogicalCounter(TSOService service) throws Exception {
+        Field f = TSOService.class.getDeclaredField("globalTimestamp");
+        f.setAccessible(true);
+        TSOTimestamp timestamp = (TSOTimestamp) f.get(service);
+        return timestamp.getLogicalCounter();
     }
 
     private static void setInitializedFlag(TSOService service, boolean initialized) {

@@ -26,6 +26,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
@@ -75,11 +76,12 @@ public class TSOAction extends RestBaseController {
                 return ResponseEntityBuilder.badRequest("FE is not ready");
             }
             if (!env.isMaster()) {
-                LOG.warn("TSO HTTP API: current FE is not master");
-                return ResponseEntityBuilder.badRequest("FE is not master");
+                LOG.info("TSO HTTP API: current FE is not master, forward to master {}:{}",
+                        env.getMasterHost(), env.getMasterHttpPort());
+                return forwardToMasterAndAddMasterAddress(request, env);
             }
             // Get current TSO information without increasing it
-            long windowEndPhysicalTime = env.getWindowEndTSO();
+            long windowEndPhysicalTime = env.getTSOService().getWindowEndTSO();
             long currentTSO = env.getTSOService().getCurrentTSO();
 
             // Prepare response data with detailed TSO information
@@ -93,5 +95,22 @@ public class TSOAction extends RestBaseController {
             LOG.warn("Failed to get TSO information", e);
             return ResponseEntityBuilder.badRequest(e.getMessage());
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object forwardToMasterAndAddMasterAddress(HttpServletRequest request, Env env) {
+        Object forwarded = forwardToMaster(request);
+        String masterFeAddr = env.getMasterHost() + ":" + env.getMasterHttpPort();
+        if (forwarded instanceof ResponseEntity) {
+            return forwarded;
+        }
+        if (forwarded instanceof Map) {
+            ((Map<String, Object>) forwarded).put("master_fe_addr", masterFeAddr);
+            return forwarded;
+        }
+        Map<String, Object> wrapped = Maps.newHashMap();
+        wrapped.put("result", forwarded);
+        wrapped.put("master_fe_addr", masterFeAddr);
+        return ResponseEntityBuilder.ok(wrapped);
     }
 }

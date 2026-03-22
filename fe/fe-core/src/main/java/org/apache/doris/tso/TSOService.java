@@ -20,6 +20,7 @@ package org.apache.doris.tso;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.journal.local.LocalJournal;
 import org.apache.doris.metric.MetricRepo;
@@ -28,9 +29,11 @@ import org.apache.doris.persist.EditLog;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInputStream;
+import java.io.IOException;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.ReentrantLock;
-
 
 public class TSOService extends MasterDaemon {
     private static final Logger LOG = LogManager.getLogger(TSOService.class);
@@ -44,6 +47,7 @@ public class TSOService extends MasterDaemon {
 
     private final AtomicBoolean isInitialized = new AtomicBoolean(false);
     private final AtomicBoolean fatalClockBackwardReported = new AtomicBoolean(false);
+    private final AtomicLong windowEndTSO = new AtomicLong(0);
 
     private static final class TSOClockBackwardException extends RuntimeException {
         private TSOClockBackwardException(String message) {
@@ -72,15 +76,16 @@ public class TSOService extends MasterDaemon {
      */
     @Override
     protected void runAfterCatalogReady() {
-        if (!Config.enable_feature_tso) {
+        if (!Config.enable_tso_feature) {
             isInitialized.set(false);
             fatalClockBackwardReported.set(false);
             return;
         }
+        int maxUpdateRetryCount = Math.max(1, Config.tso_max_update_retry_count);
         boolean updated = false;
         Throwable lastFailure = null;
         if (!isInitialized.get()) {
-            for (int i = 0; i < Config.max_update_tso_retry_count; i++) {
+            for (int i = 0; i < maxUpdateRetryCount; i++) {
                 if (isInitialized.get()) {
                     break;
                 }
@@ -112,7 +117,7 @@ public class TSOService extends MasterDaemon {
             }
         }
 
-        for (int i = 0; i < Config.max_update_tso_retry_count; i++) {
+        for (int i = 0; i < maxUpdateRetryCount; i++) {
             try {
                 updateTimestamp();
                 updated = true;
@@ -120,7 +125,9 @@ public class TSOService extends MasterDaemon {
             } catch (Exception e) {
                 lastFailure = e;
                 LOG.warn("TSO service update timestamp failed, retry: {}", i, e);
-                MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED.increase(1L);
+                if (MetricRepo.isInit) {
+                    MetricRepo.COUNTER_TSO_CLOCK_UPDATE_FAILED.increase(1L);
+                }
                 try {
                     sleep(Config.tso_service_update_interval_ms);
                 } catch (InterruptedException ie) {
@@ -136,9 +143,9 @@ public class TSOService extends MasterDaemon {
             }
         } else if (lastFailure != null) {
             LOG.warn("TSO service update timestamp failed after {} retries",
-                    Config.max_update_tso_retry_count, lastFailure);
+                    maxUpdateRetryCount, lastFailure);
         } else {
-            LOG.warn("TSO service update timestamp failed after {} retries", Config.max_update_tso_retry_count);
+            LOG.warn("TSO service update timestamp failed after {} retries", maxUpdateRetryCount);
         }
     }
 
@@ -148,11 +155,11 @@ public class TSOService extends MasterDaemon {
      * @return Composed TSO timestamp combining physical time and logical counter
      * @throws RuntimeException if TSO is not calibrated or other errors occur
      */
-    public Long getTSO() {
+    public long getTSO() {
         if (!isInitialized.get()) {
             throw new RuntimeException("TSO timestamp is not calibrated, please check");
         }
-        int maxGetTSORetryCount = Math.max(1, Config.max_get_tso_retry_count);
+        int maxGetTSORetryCount = Math.max(1, Config.tso_max_get_retry_count);
         RuntimeException lastFailure = null;
         for (int i = 0; i < maxGetTSORetryCount; i++) {
             // Wait for environment to be ready and ensure we're running on master FE
@@ -188,7 +195,7 @@ public class TSOService extends MasterDaemon {
             }
 
             // Check for logical counter overflow
-            if (logical >= TSOTimestamp.MAX_LOGICAL_COUNTER) {
+            if (logical > TSOTimestamp.MAX_LOGICAL_COUNTER) {
                 LOG.warn("TSO timestamp logical counter overflow, please check");
                 lastFailure = new RuntimeException("TSO timestamp logical counter overflow");
                 try {
@@ -240,7 +247,7 @@ public class TSOService extends MasterDaemon {
             return;
         }
 
-        long timeLast = env.getWindowEndTSO(); // Last timestamp from EditLog replay
+        long timeLast = windowEndTSO.get(); // Last timestamp from image/editlog replay
         long timeNow = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
         long backwardMs = timeLast - timeNow;
         if (backwardMs > Config.tso_clock_backward_startup_threshold_ms) {
@@ -262,7 +269,7 @@ public class TSOService extends MasterDaemon {
 
         // Write the right boundary of time window to BDBJE for persistence
         long timeWindowEnd = nextPhysicalTime + Config.tso_service_window_duration_ms;
-        env.setWindowEndTSO(timeWindowEnd);
+        windowEndTSO.set(timeWindowEnd);
         writeTimestampToBDBJE(timeWindowEnd);
         isInitialized.set(true);
 
@@ -341,10 +348,10 @@ public class TSOService extends MasterDaemon {
         }
 
         // 4. Check if time window right boundary needs renewal
-        if ((env.getWindowEndTSO() - nextPhysicalTime) <= UPDATE_TIME_WINDOW_GUARD) {
+        if ((windowEndTSO.get() - nextPhysicalTime) <= UPDATE_TIME_WINDOW_GUARD) {
             // Time window right boundary needs renewal
             long nextWindowEnd = nextPhysicalTime + Config.tso_service_window_duration_ms;
-            env.setWindowEndTSO(nextWindowEnd);
+            windowEndTSO.set(nextWindowEnd);
             writeTimestampToBDBJE(nextWindowEnd);
         }
 
@@ -427,9 +434,12 @@ public class TSOService extends MasterDaemon {
                 return Pair.of(0L, 0L);
             }
             long logicalCounter = globalTimestamp.getLogicalCounter();
-            globalTimestamp.setLogicalCounter(logicalCounter + 1);
-            logicalCounter = globalTimestamp.getLogicalCounter();
-            return Pair.of(physicalTime, logicalCounter);
+            if (logicalCounter >= TSOTimestamp.MAX_LOGICAL_COUNTER) {
+                return Pair.of(physicalTime, logicalCounter + 1);
+            }
+            long nextLogical = logicalCounter + 1;
+            globalTimestamp.setLogicalCounter(nextLogical);
+            return Pair.of(physicalTime, nextLogical);
         } finally {
             lock.unlock();
         }
@@ -459,16 +469,35 @@ public class TSOService extends MasterDaemon {
 
     /**
      * Replay handler for TSO window end timestamp from edit log.
-     * This method updates the Env's window end TSO value.
+     * This method updates TSO service state.
      * It is safe to call during checkpoint replay when TSOService may not be initialized.
      *
      * @param windowEnd New window end physical time
      */
     public void replayWindowEndTSO(TSOTimestamp windowEnd) {
-        Env env = Env.getCurrentEnv();
-        if (env == null) {
-            return;
+        windowEndTSO.set(windowEnd.getPhysicalTimestamp());
+    }
+
+    public long getWindowEndTSO() {
+        return windowEndTSO.get();
+    }
+
+    public long saveTSO(CountingDataOutputStream dos, long checksum) throws IOException {
+        if (!Config.enable_tso_feature || !Config.enable_tso_checkpoint_module) {
+            return checksum;
         }
-        env.setWindowEndTSO(windowEnd.getPhysicalTimestamp());
+        TSOTimestamp tsoTimestamp = new TSOTimestamp(windowEndTSO.get(), 0);
+        tsoTimestamp.write(dos);
+        checksum ^= tsoTimestamp.getPhysicalTimestamp();
+        LOG.info("Save TSO windowEndTSO {} to image", tsoTimestamp);
+        return checksum;
+    }
+
+    public long loadTSO(DataInputStream dis, long checksum) throws IOException {
+        TSOTimestamp tsoTimestamp = TSOTimestamp.read(dis);
+        windowEndTSO.set(tsoTimestamp.getPhysicalTimestamp());
+        long newChecksum = checksum ^ tsoTimestamp.getPhysicalTimestamp();
+        LOG.info("Finished replay TSO windowEndTSO {} from image", windowEndTSO.get());
+        return newChecksum;
     }
 }

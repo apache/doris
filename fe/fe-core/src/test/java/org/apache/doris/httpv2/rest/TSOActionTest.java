@@ -19,9 +19,11 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseBody;
+import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.tso.TSOService;
 import org.apache.doris.tso.TSOTimestamp;
 
+import com.google.common.collect.Maps;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import mockit.Mock;
@@ -66,11 +68,35 @@ public class TSOActionTest {
     }
 
     @Test
-    public void testGetTSONotMasterReturnsBadRequest() {
+    @SuppressWarnings("unchecked")
+    public void testGetTSONotMasterForwardToMasterAndAddMasterAddress() {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(false);
-        ResponseEntity<?> resp = (ResponseEntity<?>) action.getTSO(mockRequest(), mockResponse());
-        ResponseBody<?> body = (ResponseBody<?>) resp.getBody();
+        Mockito.when(env.getMasterHost()).thenReturn("master-fe");
+        Mockito.when(env.getMasterHttpPort()).thenReturn(8030);
+        Map<String, Object> forwarded = Maps.newHashMap();
+        forwarded.put("code", 0);
+        forwarded.put("msg", "OK");
+        ((TestableTSOAction) action).setForwardResult(forwarded);
+
+        Object result = action.getTSO(mockRequest(), mockResponse());
+        Assert.assertTrue(result instanceof Map);
+        Map<String, Object> resp = (Map<String, Object>) result;
+        Assert.assertEquals("master-fe:8030", resp.get("master_fe_addr"));
+        Assert.assertEquals(0, resp.get("code"));
+    }
+
+    @Test
+    public void testGetTSONotMasterKeepResponseEntityWhenForwardingFails() {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(false);
+        Mockito.when(env.getMasterHost()).thenReturn("master-fe");
+        Mockito.when(env.getMasterHttpPort()).thenReturn(8030);
+        ((TestableTSOAction) action).setForwardResult(ResponseEntityBuilder.badRequest("forward failed"));
+
+        Object result = action.getTSO(mockRequest(), mockResponse());
+        Assert.assertTrue(result instanceof ResponseEntity);
+        ResponseBody<?> body = (ResponseBody<?>) ((ResponseEntity<?>) result).getBody();
         Assert.assertNotNull(body);
         Assert.assertEquals(RestApiStatusCode.BAD_REQUEST.code, body.getCode());
     }
@@ -80,9 +106,9 @@ public class TSOActionTest {
     public void testGetTSOSuccessPayloadConsistency() {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
-        Mockito.when(env.getWindowEndTSO()).thenReturn(12345L);
         TSOService tsoService = Mockito.mock(TSOService.class);
         Mockito.when(env.getTSOService()).thenReturn(tsoService);
+        Mockito.when(tsoService.getWindowEndTSO()).thenReturn(12345L);
         long currentTso = TSOTimestamp.composeTimestamp(1000L, 12L);
         Mockito.when(tsoService.getCurrentTSO()).thenReturn(currentTso);
 
@@ -109,9 +135,20 @@ public class TSOActionTest {
     }
 
     private static final class TestableTSOAction extends TSOAction {
+        private Object forwardResult;
+
+        void setForwardResult(Object forwardResult) {
+            this.forwardResult = forwardResult;
+        }
+
         @Override
         public ActionAuthorizationInfo executeCheckPassword(HttpServletRequest request, HttpServletResponse response) {
             return null;
+        }
+
+        @Override
+        public Object forwardToMaster(HttpServletRequest request) {
+            return forwardResult;
         }
     }
 
@@ -124,4 +161,3 @@ public class TSOActionTest {
         }
     }
 }
-

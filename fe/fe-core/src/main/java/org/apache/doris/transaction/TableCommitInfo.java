@@ -39,7 +39,7 @@ public class TableCommitInfo {
     private long version;
     @SerializedName(value = "versionTime")
     private long versionTime;
-    @SerializedName(value = "commitTSO")
+    @SerializedName(value = "ctso", alternate = {"commitTSO"})
     private long commitTSO = -1;
 
     public TableCommitInfo() {

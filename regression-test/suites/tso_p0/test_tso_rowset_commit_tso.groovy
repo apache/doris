@@ -18,10 +18,10 @@
 import org.apache.doris.regression.util.Http
 
 suite("test_tso_rowset_commit_tso", "nonConcurrent") {
-    def ret = sql "SHOW FRONTEND CONFIG like '%experimental_enable_feature_tso%';"
+    def ret = sql "SHOW FRONTEND CONFIG like '%experimental_enable_tso_feature%';"
     logger.info("${ret}")
     try {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_feature_tso' = 'true')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
         sleep(1000)
         def url = String.format("http://%s/api/tso", context.config.feHttpAddress)
         def tsoResp = Http.GET(url, true)
@@ -67,7 +67,7 @@ suite("test_tso_rowset_commit_tso", "nonConcurrent") {
 
         sql """DROP TABLE IF EXISTS ${tableName}"""
     } finally {
-        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_feature_tso' = '${ret[0][1]}')"
+        sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = '${ret[0][1]}')"
     }
 }
 
