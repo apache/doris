@@ -171,6 +171,9 @@ void NewJsonReader::_init_file_description() {
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
     }
+    if (_range.__isset.file_cache_admission) {
+        _file_description.file_cache_admission = _range.file_cache_admission;
+    }
 }
 
 Status NewJsonReader::init_reader(
