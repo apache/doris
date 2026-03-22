@@ -773,7 +773,3 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-<<<<<<< codex/fix-parallel-outfile-delete-existing-files
-=======
-
->>>>>>> master
