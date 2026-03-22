@@ -26,7 +26,7 @@ namespace doris {
 Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
     TimestampTzValue res;
     CastParameters params {.status = Status::OK(), .is_strict = true};
-
+    DCHECK(false) << "zclll" << node.date_literal.value.c_str();
     if (!CastToTimstampTz::from_string(
                 {node.date_literal.value.c_str(), node.date_literal.value.size()}, res, params,
                 nullptr, _scale)) [[unlikely]] {
