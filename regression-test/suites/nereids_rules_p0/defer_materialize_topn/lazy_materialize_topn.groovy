@@ -72,4 +72,55 @@ suite("lazy_materialize_topn") {
         }
         sql """${sqlStr}"""
     }
+
+    // -------------------------------------------------------------------------
+    // Regression test for: LazyMaterializeTopN must NOT wrap LOCAL_SORT phase.
+    //
+    // A two-phase distributed sort (LOCAL_SORT -> MERGE_SORT) with LazyMaterialize
+    // previously caused a ClassCastException at plan translation time:
+    //   MaterializationNode cannot be cast to SortNode
+    //
+    // Root cause: LazyMaterializeTopN bottom-up traversal wrapped the LOCAL_SORT
+    // TopN, inserting a MaterializationNode between SortNode and ExchangeNode.
+    // The merge-sort translator then tried to cast ExchangeNode.getChild(0) to
+    // SortNode but got a MaterializationNode instead.
+    //
+    // Fix: skip LOCAL_SORT phase in LazyMaterializeTopN.computeTopN(); lazy
+    // materialize should only be applied at the final MERGE_SORT/GATHER_SORT phase.
+    // -------------------------------------------------------------------------
+    sql """
+        set topn_lazy_materialization_threshold = 100;
+    """
+
+    sql """
+        drop table if exists lazy_materialize_two_phase;
+    """
+
+    sql """
+        CREATE TABLE `lazy_materialize_two_phase` (
+          `id`  int          NOT NULL,
+          `k1`  int          NULL,
+          `v1`  varchar(500) NULL,
+          `v2`  varchar(500) NULL
+        ) DISTRIBUTED BY HASH(`id`) BUCKETS 3
+        PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1"
+        );
+    """
+
+    sql """
+        insert into lazy_materialize_two_phase values
+            (1, 10, repeat('a', 100), repeat('b', 100)),
+            (2, 20, repeat('c', 100), repeat('d', 100)),
+            (3, 30, repeat('e', 100), repeat('f', 100));
+    """
+
+    sql "sync"
+
+    // select * with ORDER BY + LIMIT on a multi-bucket table triggers
+    // LOCAL_SORT + MERGE_SORT + LazyMaterialize.  Before the fix this threw
+    // ClassCastException; after the fix it must execute without error.
+    order_qt_two_phase_sort """
+        select * from lazy_materialize_two_phase order by k1 limit 10
+    """
 }
