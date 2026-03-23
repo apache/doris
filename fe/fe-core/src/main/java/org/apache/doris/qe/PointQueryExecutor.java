@@ -27,6 +27,7 @@ import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
@@ -215,6 +216,23 @@ public class PointQueryExecutor implements CoordInterface {
         TSerializer serializer = new TSerializer();
         for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
             Expr literalExpr = columnExpr.get(column.getName());
+            // Ensure the literal type matches the column type for proper TExprNode
+            // deserialization on BE side. Prepared statement parameters may have
+            // mismatched types (e.g., setBigDecimal for INT column produces a
+            // DecimalLiteral, but BE expects INT_LITERAL for INT columns).
+            if (literalExpr instanceof LiteralExpr) {
+                Type colType = column.getType();
+                if (!colType.equals(literalExpr.getType())
+                        && !colType.matchesType(literalExpr.getType())) {
+                    try {
+                        literalExpr = LiteralExpr.create(
+                                ((LiteralExpr) literalExpr).getStringValue(), colType);
+                    } catch (org.apache.doris.common.AnalysisException e) {
+                        throw new TException("Failed to re-type literal for key column "
+                                + column.getName() + ": " + e.getMessage(), e);
+                    }
+                }
+            }
             TExpr texpr = ExprToThriftVisitor.treeToThrift(literalExpr);
             // For point queries, key column values are always simple literals
             // (CastExpr no-ops are already stripped by treeToThrift).
