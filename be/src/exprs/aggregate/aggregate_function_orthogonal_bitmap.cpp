@@ -25,34 +25,28 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_orth_bitmap_intersect(
-        const std::string& name, const DataTypes& argument_types,
-        const DataTypePtr& result_type, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr);
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 AggregateFunctionPtr create_aggregate_function_orth_bitmap_intersect_count(
-        const std::string& name, const DataTypes& argument_types,
-        const DataTypePtr& result_type, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr);
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 AggregateFunctionPtr create_aggregate_function_orth_bitmap_union_count(
-        const std::string& name, const DataTypes& argument_types,
-        const DataTypePtr& result_type, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr);
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 AggregateFunctionPtr create_aggregate_function_orth_intersect_count(
-        const std::string& name, const DataTypes& argument_types,
-        const DataTypePtr& result_type, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr);
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 AggregateFunctionPtr create_aggregate_function_orth_bitmap_expr_cal(
-        const std::string& name, const DataTypes& argument_types,
-        const DataTypePtr& result_type, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr);
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 AggregateFunctionPtr create_aggregate_function_orth_bitmap_expr_cal_count(
-        const std::string& name, const DataTypes& argument_types,
-        const DataTypePtr& result_type, const bool result_is_nullable,
-        const AggregateFunctionAttr& attr);
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("orthogonal_bitmap_intersect",
