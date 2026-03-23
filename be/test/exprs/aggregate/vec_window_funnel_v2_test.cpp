@@ -738,4 +738,136 @@ TEST_F(VWindowFunnelV2Test, testFixedMode) {
     agg_function->destroy(place);
 }
 
+// Test that same-row multi-condition matching does NOT advance the chain
+// through multiple levels. This tests the continuation flag logic.
+// Scenario: window_funnel(86400, 'default', ts, xwhat=1, xwhat!=2, xwhat=3)
+// Row 0 (xwhat=1): matches cond0=T (xwhat=1), cond1=T (1!=2), cond2=F → 2 conditions on same row
+// Row 1 (xwhat=2): matches nothing (cond1: 2!=2=F)
+// Row 2 (xwhat=3): matches cond1=T (3!=2), cond2=T (xwhat=3) → 2 conditions on same row
+// Correct result: 2 (cond0 from row0, cond1 from row2). NOT 3.
+// Without the continuation flag, row0 would advance through both cond0 and cond1,
+// then row2 would match cond2 → result 3 (wrong).
+TEST_F(VWindowFunnelV2Test, testSameRowMultiConditionDefault) {
+    // 3 conditions (instead of 4), so we need a different setup
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int NUM_ROWS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("default"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    // Row 0: ts=10:41:00  (xwhat=1)
+    // Row 1: ts=13:28:02  (xwhat=2)
+    // Row 2: ts=16:15:01  (xwhat=3)
+    // Row 3: ts=19:05:04  (xwhat=4)
+    VecDateTimeValue tv0, tv1, tv2, tv3;
+    tv0.unchecked_set_time(2022, 3, 12, 10, 41, 0);
+    tv1.unchecked_set_time(2022, 3, 12, 13, 28, 2);
+    tv2.unchecked_set_time(2022, 3, 12, 16, 15, 1);
+    tv3.unchecked_set_time(2022, 3, 12, 19, 5, 4);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    auto dtv2_3 = tv3.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+    column_timestamp->insert_data((char*)&dtv2_3, 0);
+
+    // cond0: xwhat=1 (only row0 matches)
+    auto column_cond0 = ColumnUInt8::create();
+    column_cond0->insert(Field::create_field<TYPE_BOOLEAN>(1)); // row0: xwhat=1 → T
+    column_cond0->insert(Field::create_field<TYPE_BOOLEAN>(0)); // row1: xwhat=2 → F
+    column_cond0->insert(Field::create_field<TYPE_BOOLEAN>(0)); // row2: xwhat=3 → F
+    column_cond0->insert(Field::create_field<TYPE_BOOLEAN>(0)); // row3: xwhat=4 → F
+
+    // cond1: xwhat!=2 (rows 0,2,3 match)
+    auto column_cond1 = ColumnUInt8::create();
+    column_cond1->insert(Field::create_field<TYPE_BOOLEAN>(1)); // row0: 1!=2 → T
+    column_cond1->insert(Field::create_field<TYPE_BOOLEAN>(0)); // row1: 2!=2 → F
+    column_cond1->insert(Field::create_field<TYPE_BOOLEAN>(1)); // row2: 3!=2 → T
+    column_cond1->insert(Field::create_field<TYPE_BOOLEAN>(1)); // row3: 4!=2 → T
+
+    // cond2: xwhat=3 (only row2 matches)
+    auto column_cond2 = ColumnUInt8::create();
+    column_cond2->insert(Field::create_field<TYPE_BOOLEAN>(0)); // row0: F
+    column_cond2->insert(Field::create_field<TYPE_BOOLEAN>(0)); // row1: F
+    column_cond2->insert(Field::create_field<TYPE_BOOLEAN>(1)); // row2: T
+    column_cond2->insert(Field::create_field<TYPE_BOOLEAN>(0)); // row3: F
+
+    // window = 86400 seconds (24 hours)
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(86400));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),  column_timestamp.get(),
+                                column_cond0.get(),  column_cond1.get(), column_cond2.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Without continuation flag: row0 matches cond0+cond1 (same row advances both),
+    // row2 matches cond2 → result=3 (WRONG)
+    // With continuation flag: row0 sets cond0 only (cond1 is same-row continuation),
+    // row2's cond1 extends chain (different row), but cond2 from row2 is same-row → stops at 2
+    EXPECT_EQ(column_result.get_data()[0], 2);
+    agg_func_3->destroy(place);
+}
+
+// Test same-row multi-condition with ALL conditions matching the same event name
+// window_funnel(big_window, 'default', ts, event='登录', event='登录', event='登录', ...)
+// A single row matching all 4 conditions should only count as level 1 (not 4).
+TEST_F(VWindowFunnelV2Test, testSameRowAllConditionsMatch) {
+    auto column_mode = ColumnString::create();
+    column_mode->insert(Field::create_field<TYPE_STRING>("default"));
+
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0;
+    tv0.unchecked_set_time(2022, 2, 28, 0, 0, 0);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+
+    // All 4 conditions match the single row
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    auto column_event4 = ColumnUInt8::create();
+    column_event4->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    column_window->insert(Field::create_field<TYPE_BIGINT>(86400));
+
+    std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_function->create(place);
+    const IColumn* column[7] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get(),
+                                column_event4.get()};
+    agg_function->add(place, column, 0, arena);
+
+    ColumnInt32 column_result;
+    agg_function->insert_result_into(place, column_result);
+    // Only 1 row matching all conditions → can only reach level 1
+    // because each funnel step must come from a different row
+    EXPECT_EQ(column_result.get_data()[0], 1);
+    agg_function->destroy(place);
+}
+
 } // namespace doris

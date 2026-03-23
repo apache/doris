@@ -68,10 +68,42 @@ void merge_events_list(T& events_list, size_t prefix_size, bool prefix_sorted, b
 /// V2 state: stores only matched events as (timestamp, event_index) pairs.
 /// Compared to V1 which stores all rows with N boolean columns, V2 only stores
 /// events that actually match at least one condition, dramatically reducing memory.
+///
+/// To prevent same-row multi-condition chain advancement (where a single row
+/// matching multiple conditions could incorrectly advance the funnel through
+/// multiple levels), we use the high bit of event_idx as a "same-row continuation"
+/// flag. When a row matches multiple conditions, the first event stored for that
+/// row has bit 7 = 0, and subsequent events from the same row have bit 7 = 1.
+/// The algorithm uses this to ensure each funnel step comes from a different row.
+///
+/// This approach adds ZERO storage overhead — each event remains 9 bytes (UInt64 + UInt8).
 struct WindowFunnelStateV2 {
-    /// (timestamp_int_val, 1-based event_index)
-    /// event_index 0 is unused in normal modes.
-    using TimestampEvent = std::pair<UInt64, UInt8>;
+    /// (timestamp_int_val, 1-based event_index with continuation flag in bit 7)
+    ///
+    /// Bit layout of event_idx:
+    ///   bit 7 (0x80): continuation flag — 1 means this event is from the same row
+    ///                  as the preceding event in events_list
+    ///   bits 0-6:     actual 1-based event index (supports up to 127 conditions)
+    ///
+    /// Sorted by timestamp only (via operator<). stable_sort preserves insertion order
+    /// for equal timestamps, so same-row events remain consecutive after sorting.
+    struct TimestampEvent {
+        UInt64 timestamp;
+        UInt8 event_idx; // includes continuation flag in bit 7
+
+        /// Sort by timestamp only. For same timestamp, stable_sort preserves insertion
+        /// order, keeping same-row events consecutive.
+        bool operator<(const TimestampEvent& other) const { return timestamp < other.timestamp; }
+        bool operator<=(const TimestampEvent& other) const { return timestamp <= other.timestamp; }
+    };
+
+    static constexpr UInt8 CONTINUATION_FLAG = 0x80;
+    static constexpr UInt8 EVENT_IDX_MASK = 0x7F;
+
+    /// Extract the actual 1-based event index (stripping continuation flag).
+    static int get_event_idx(UInt8 raw) { return (raw & EVENT_IDX_MASK); }
+    /// Check if this event is a continuation of the same row as the previous event.
+    static bool is_continuation(UInt8 raw) { return (raw & CONTINUATION_FLAG) != 0; }
 
     int event_count = 0;
     int64_t window = 0;
@@ -100,11 +132,20 @@ struct WindowFunnelStateV2 {
         // This ensures that after stable_sort, events with the same timestamp
         // appear in descending event_index order, which is important for correct
         // matching when one row satisfies multiple conditions.
+        //
+        // The first event stored for this row has continuation=0;
+        // subsequent events from the same row have continuation=1 (bit 7 set).
+        bool first_match = true;
         for (int i = event_count - 1; i >= 0; --i) {
             auto event_val =
                     assert_cast<const ColumnUInt8&>(*arg_columns[3 + i]).get_data()[row_num];
             if (event_val) {
-                TimestampEvent new_event {timestamp, cast_set<UInt8>(i + 1)};
+                UInt8 packed_idx = cast_set<UInt8>(i + 1);
+                if (!first_match) {
+                    packed_idx |= CONTINUATION_FLAG;
+                }
+                first_match = false;
+                TimestampEvent new_event {timestamp, packed_idx};
                 if (sorted && !events_list.empty()) {
                     sorted = events_list.back() <= new_event;
                 }
@@ -132,6 +173,10 @@ struct WindowFunnelStateV2 {
             const auto prefix_size = events_list.size();
             events_list.insert(std::end(events_list), std::begin(other.events_list),
                                std::end(other.events_list));
+            // Both stable_sort and inplace_merge preserve relative order of equal elements.
+            // Since same-row events have the same timestamp (and thus compare equal in
+            // the primary sort key), they remain consecutive after merge — preserving
+            // the validity of continuation flags.
             merge_events_list(events_list, prefix_size, sorted, other.sorted);
             sorted = true;
         }
@@ -150,11 +195,11 @@ struct WindowFunnelStateV2 {
                       out);
         write_var_int(sorted ? 1 : 0, out);
         write_var_int(cast_set<Int64>(events_list.size()), out);
-        for (const auto& [ts, idx] : events_list) {
+        for (const auto& evt : events_list) {
             // Use fixed-size binary write for timestamp (8 bytes) and event_idx (1 byte).
-            // This is more efficient than VarInt for these fixed-width values.
-            out.write(reinterpret_cast<const char*>(&ts), sizeof(ts));
-            out.write(reinterpret_cast<const char*>(&idx), sizeof(idx));
+            // The event_idx byte includes the continuation flag in bit 7.
+            out.write(reinterpret_cast<const char*>(&evt.timestamp), sizeof(evt.timestamp));
+            out.write(reinterpret_cast<const char*>(&evt.event_idx), sizeof(evt.event_idx));
         }
     }
 
@@ -176,8 +221,10 @@ struct WindowFunnelStateV2 {
         events_list.clear();
         events_list.resize(size);
         for (Int64 i = 0; i < size; ++i) {
-            in.read(reinterpret_cast<char*>(&events_list[i].first), sizeof(events_list[i].first));
-            in.read(reinterpret_cast<char*>(&events_list[i].second), sizeof(events_list[i].second));
+            in.read(reinterpret_cast<char*>(&events_list[i].timestamp),
+                    sizeof(events_list[i].timestamp));
+            in.read(reinterpret_cast<char*>(&events_list[i].event_idx),
+                    sizeof(events_list[i].event_idx));
         }
     }
 
@@ -195,15 +242,19 @@ struct WindowFunnelStateV2 {
         return current_ts <= end_ts.to_date_int_val();
     }
 
-    /// Track (first_timestamp, last_timestamp) for each event level in a chain.
-    /// Uses packed UInt64 values; 0 means unset.
+    /// Track (first_timestamp, last_timestamp, last_event_list_idx) for each event level.
+    /// Uses packed UInt64 values; 0 means unset for first_ts.
+    /// last_list_idx tracks the position in events_list of the event that set this level,
+    /// used to check continuation flag on subsequent events to detect same-row advancement.
     struct TimestampPair {
         UInt64 first_ts = 0;
         UInt64 last_ts = 0;
+        size_t last_list_idx = 0;
         bool has_value() const { return first_ts != 0; }
         void reset() {
             first_ts = 0;
             last_ts = 0;
+            last_list_idx = 0;
         }
     };
 
@@ -236,22 +287,28 @@ private:
     /// Uses events_timestamp array to track the (first, last) timestamps for each level.
     /// For each event in sorted order:
     ///   - If it's event 0, start a new potential chain
-    ///   - If its predecessor level has been matched and within time window, extend the chain
+    ///   - If its predecessor level has been matched, within time window, AND from a
+    ///     different row (checked via continuation flag), extend the chain
     int _get_default(bool increase_mode) const {
         std::vector<TimestampPair> events_timestamp(event_count);
 
-        for (const auto& [ts, raw_idx] : events_list) {
-            int event_idx = raw_idx - 1;
+        for (size_t i = 0; i < events_list.size(); ++i) {
+            const auto& evt = events_list[i];
+            int event_idx = get_event_idx(evt.event_idx) - 1;
 
             if (event_idx == 0) {
-                events_timestamp[0] = {ts, ts};
-            } else if (events_timestamp[event_idx - 1].has_value()) {
-                bool matched = _within_window(events_timestamp[event_idx - 1].first_ts, ts);
+                events_timestamp[0] = {evt.timestamp, evt.timestamp, i};
+            } else if (events_timestamp[event_idx - 1].has_value() &&
+                       !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
+                // Must be from a DIFFERENT row than the predecessor level
+                bool matched =
+                        _within_window(events_timestamp[event_idx - 1].first_ts, evt.timestamp);
                 if (increase_mode) {
-                    matched = matched && events_timestamp[event_idx - 1].last_ts < ts;
+                    matched = matched && events_timestamp[event_idx - 1].last_ts < evt.timestamp;
                 }
                 if (matched) {
-                    events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts, ts};
+                    events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
+                                                   evt.timestamp, i};
                     if (event_idx + 1 == event_count) {
                         return event_count;
                     }
@@ -275,8 +332,9 @@ private:
         int max_level = -1;
         int curr_level = -1;
 
-        for (const auto& [ts, raw_idx] : events_list) {
-            int event_idx = raw_idx - 1;
+        for (size_t i = 0; i < events_list.size(); ++i) {
+            const auto& evt = events_list[i];
+            int event_idx = get_event_idx(evt.event_idx) - 1;
 
             if (event_idx == 0) {
                 // Duplicate of event 0: terminate current chain first
@@ -287,7 +345,7 @@ private:
                     _eliminate_chain(curr_level, events_timestamp);
                 }
                 // Start a new chain
-                events_timestamp[0] = {ts, ts};
+                events_timestamp[0] = {evt.timestamp, evt.timestamp, i};
                 curr_level = 0;
             } else if (events_timestamp[event_idx].has_value()) {
                 // Duplicate event detected: this level was already matched
@@ -296,8 +354,11 @@ private:
                 }
                 // Eliminate current chain
                 _eliminate_chain(curr_level, events_timestamp);
-            } else if (events_timestamp[event_idx - 1].has_value()) {
-                if (_promote_level(events_timestamp, ts, event_idx, curr_level, false)) {
+            } else if (events_timestamp[event_idx - 1].has_value() &&
+                       !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
+                // Must be from a DIFFERENT row than the predecessor level
+                if (_promote_level(events_timestamp, evt.timestamp, i, event_idx, curr_level,
+                                   false)) {
                     return event_count;
                 }
             }
@@ -319,8 +380,9 @@ private:
         int curr_level = -1;
         bool first_event = false;
 
-        for (const auto& [ts, raw_idx] : events_list) {
-            int event_idx = raw_idx - 1;
+        for (size_t i = 0; i < events_list.size(); ++i) {
+            const auto& evt = events_list[i];
+            int event_idx = get_event_idx(evt.event_idx) - 1;
 
             if (event_idx == 0) {
                 // Save current chain before starting a new one
@@ -330,7 +392,7 @@ private:
                     }
                     _eliminate_chain(curr_level, events_timestamp);
                 }
-                events_timestamp[0] = {ts, ts};
+                events_timestamp[0] = {evt.timestamp, evt.timestamp, i};
                 curr_level = 0;
                 first_event = true;
             } else if (first_event && !events_timestamp[event_idx - 1].has_value()) {
@@ -341,8 +403,11 @@ private:
                     }
                     _eliminate_chain(curr_level, events_timestamp);
                 }
-            } else if (events_timestamp[event_idx - 1].has_value()) {
-                if (_promote_level(events_timestamp, ts, event_idx, curr_level, false)) {
+            } else if (events_timestamp[event_idx - 1].has_value() &&
+                       !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
+                // Must be from a DIFFERENT row than the predecessor level
+                if (_promote_level(events_timestamp, evt.timestamp, i, event_idx, curr_level,
+                                   false)) {
                     return event_count;
                 }
             }
@@ -361,16 +426,34 @@ private:
         }
     }
 
+    /// Check if the event at `current_idx` in events_list is from the same original row
+    /// as the event at `prev_idx`. Same-row events are consecutive in the sorted list
+    /// with continuation flags set. We walk backwards from current_idx checking if every
+    /// event between prev_idx+1 and current_idx has the continuation flag set.
+    bool _is_same_row(size_t prev_idx, size_t current_idx) const {
+        if (current_idx <= prev_idx) {
+            return false;
+        }
+        // Check that all events from prev_idx+1 to current_idx have the continuation flag.
+        // If any of them doesn't, there's a row boundary in between.
+        for (size_t j = prev_idx + 1; j <= current_idx; ++j) {
+            if (!is_continuation(events_list[j].event_idx)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     /// Try to promote the chain to the next level.
     /// Returns true if we've matched all events (early termination).
-    bool _promote_level(std::vector<TimestampPair>& events_timestamp, UInt64 ts, int event_idx,
-                        int& curr_level, bool increase_mode) const {
+    bool _promote_level(std::vector<TimestampPair>& events_timestamp, UInt64 ts, size_t list_idx,
+                        int event_idx, int& curr_level, bool increase_mode) const {
         bool matched = _within_window(events_timestamp[event_idx - 1].first_ts, ts);
         if (increase_mode) {
             matched = matched && events_timestamp[event_idx - 1].last_ts < ts;
         }
         if (matched) {
-            events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts, ts};
+            events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts, ts, list_idx};
             if (event_idx > curr_level) {
                 curr_level = event_idx;
             }
