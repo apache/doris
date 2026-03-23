@@ -40,14 +40,14 @@ TEST(MetaServiceHelperTest, FdbClusterPressureNeedsLatencyAndNonWorkload) {
 
     auto decision = update_ms_stress_detector_for_test(0, metrics, true);
     ASSERT_TRUE(decision.fdb_cluster_under_pressure);
-    ASSERT_TRUE(decision.under_greate_stress());
+    ASSERT_TRUE(decision.under_great_stress());
     std::cout << decision.debug_string() << std::endl;
     ASSERT_NE(decision.debug_string().find("fdb_cluster"), std::string::npos);
 
     metrics.fdb_performance_limited_by_name = 0;
     decision = update_ms_stress_detector_for_test(1000, metrics, true);
     ASSERT_FALSE(decision.fdb_cluster_under_pressure);
-    ASSERT_FALSE(decision.under_greate_stress());
+    ASSERT_FALSE(decision.under_great_stress());
 }
 
 TEST(MetaServiceHelperTest, FdbClientThreadPressureNeedsWindowAverageAndInstantValue) {
@@ -61,7 +61,7 @@ TEST(MetaServiceHelperTest, FdbClientThreadPressureNeedsWindowAverageAndInstantV
     metrics.fdb_client_thread_busyness_percent = 91;
     auto decision = update_ms_stress_detector_for_test(60 * 1000, metrics);
     ASSERT_TRUE(decision.fdb_client_thread_under_pressure);
-    ASSERT_TRUE(decision.under_greate_stress());
+    ASSERT_TRUE(decision.under_great_stress());
     std::cout << decision.debug_string() << std::endl;
     ASSERT_NE(decision.debug_string().find("fdb_client_thread"), std::string::npos);
 }
@@ -77,7 +77,7 @@ TEST(MetaServiceHelperTest, MsResourcePressureNeedsCurrentAndWindowAverageHigh) 
     metrics.ms_cpu_usage_percent = 96;
     auto decision = update_ms_stress_detector_for_test(59 * 1000, metrics);
     ASSERT_TRUE(decision.ms_resource_under_pressure);
-    ASSERT_TRUE(decision.under_greate_stress());
+    ASSERT_TRUE(decision.under_great_stress());
     std::cout << decision.debug_string() << std::endl;
     ASSERT_NE(decision.debug_string().find("ms_resource"), std::string::npos);
 
@@ -94,17 +94,17 @@ TEST(MetaServiceHelperTest, MsRateLimitInjectionRequiresSwitchAndProbabilityHit)
     config::ms_rate_limit_injection_probability = 100;
     auto decision = update_ms_stress_detector_for_test(0, metrics, true, 0);
     ASSERT_FALSE(decision.rate_limit_injected_for_test);
-    ASSERT_FALSE(decision.under_greate_stress());
+    ASSERT_FALSE(decision.under_great_stress());
 
     config::enable_ms_rate_limit_injection = true;
     config::ms_rate_limit_injection_probability = 30;
     decision = update_ms_stress_detector_for_test(1000, metrics, true, 30);
     ASSERT_FALSE(decision.rate_limit_injected_for_test);
-    ASSERT_FALSE(decision.under_greate_stress());
+    ASSERT_FALSE(decision.under_great_stress());
 
     decision = update_ms_stress_detector_for_test(2000, metrics, true, 29);
     ASSERT_TRUE(decision.rate_limit_injected_for_test);
-    ASSERT_TRUE(decision.under_greate_stress());
+    ASSERT_TRUE(decision.under_great_stress());
     ASSERT_NE(decision.debug_string().find("test_injection"), std::string::npos);
 }
 } // namespace doris::cloud

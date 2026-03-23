@@ -287,6 +287,18 @@ const std::unordered_map<std::string_view, HttpHandlerInfo>& get_http_handlers()
                               return process_get_cluster_status((MS*)s, c);
                           },
                   .role = HttpRole::META_SERVICE}},
+                {"set_rpc_rate_limit_whitelist",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_set_rpc_rate_limit_whitelist((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
+                {"get_rpc_rate_limit_whitelist",
+                 {.handler =
+                          [](void* s, brpc::Controller* c) {
+                              return process_get_rpc_rate_limit_whitelist((MS*)s, c);
+                          },
+                  .role = HttpRole::META_SERVICE}},
 
                 {"list_snapshot",
                  {.handler = [](void* s,

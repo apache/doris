@@ -317,9 +317,10 @@ inline MetaServiceCode cast_as(TxnErrorCode code) {
         ms_stress_decision = get_ms_stress_decision();                                        \
     }                                                                                         \
     if ((config::enable_ms_rate_limit || config::enable_ms_rate_limit_injection) &&           \
-        ms_stress_decision.under_greate_stress()) {                                           \
+        RpcRateLimitWhitelist::instance().should_rate_limit(#func_name) &&                    \
+        ms_stress_decision.under_great_stress()) {                                            \
         drop_request = true;                                                                  \
-        code = MetaServiceCode::MS_RATE_LIMIT;                                                \
+        code = MetaServiceCode::MS_TOO_BUSY;                                                  \
         msg = ms_stress_decision.debug_string();                                              \
         response->mutable_status()->set_code(code);                                           \
         response->mutable_status()->set_msg(msg);                                             \

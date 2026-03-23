@@ -18,7 +18,10 @@
 #pragma once
 
 #include <cstdint>
+#include <mutex>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "common/bvars.h"
 
@@ -49,7 +52,7 @@ struct MsStressDecision {
     double ms_memory_usage_avg_percent {-1};
     int32_t rate_limit_injected_random_value {-1};
 
-    [[nodiscard]] bool under_greate_stress() const {
+    [[nodiscard]] bool under_great_stress() const {
         return fdb_cluster_under_pressure || fdb_client_thread_under_pressure ||
                ms_resource_under_pressure || rate_limit_injected_for_test;
     }
@@ -58,9 +61,20 @@ struct MsStressDecision {
 };
 
 MsStressDecision get_ms_stress_decision();
-bool check_ms_if_under_greate_stress();
 MsStressDecision update_ms_stress_detector_for_test(int64_t now_ms, const MsStressMetrics& metrics,
                                                     bool reset = false,
                                                     int32_t rate_limit_injected_random_value = -1);
+
+class RpcRateLimitWhitelist {
+public:
+    static RpcRateLimitWhitelist& instance();
+    bool should_rate_limit(const std::string& rpc_name) const;
+    void set_whitelist(const std::vector<std::string>& rpcs);
+    std::vector<std::string> get_whitelist() const;
+
+private:
+    mutable std::mutex mutex_;
+    std::unordered_set<std::string> whitelist_;
+};
 
 } // namespace doris::cloud

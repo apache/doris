@@ -83,6 +83,11 @@ inline static HttpResponse http_text_reply(const MetaServiceResponseStatus& stat
 class MetaServiceImpl;
 class RecyclerServiceImpl;
 
+HttpResponse process_set_rpc_rate_limit_whitelist(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl);
+HttpResponse process_get_rpc_rate_limit_whitelist(MetaServiceImpl* service,
+                                                  brpc::Controller* ctrl);
+
 // Role-based HTTP handler
 enum class HttpRole { META_SERVICE = 1, RECYCLER = 2, BOTH = 3 };
 

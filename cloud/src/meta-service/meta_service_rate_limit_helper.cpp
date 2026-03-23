@@ -166,8 +166,10 @@ public:
                 metrics.fdb_read_latency_ns != BVAR_FDB_INVALID_VALUE &&
                 metrics.fdb_read_latency_ns >
                         config::ms_rate_limit_fdb_read_latency_ms * kNanosecondsPerMillisecond;
-        decision->fdb_cluster_under_pressure = (commit_latency_high || read_latency_high) &&
-                                               metrics.fdb_performance_limited_by_name != 0;
+        decision->fdb_cluster_under_pressure =
+                (commit_latency_high || read_latency_high) &&
+                metrics.fdb_performance_limited_by_name != BVAR_FDB_INVALID_VALUE &&
+                metrics.fdb_performance_limited_by_name != 0;
 
         const int64_t current_second = now_ms / 1000;
         // No mutex needed: update() is only called from a single thread
@@ -337,7 +339,7 @@ void maybe_apply_ms_rate_limit_injection(MsStressDecision* decision, int32_t ran
 } // namespace
 
 std::string MsStressDecision::debug_string() const {
-    if (!under_greate_stress()) {
+    if (!under_great_stress()) {
         return "meta service rate limited: no stress condition matched";
     }
 
@@ -385,10 +387,6 @@ MsStressDecision get_ms_stress_decision() {
     return decision;
 }
 
-bool check_ms_if_under_greate_stress() {
-    return get_ms_stress_decision().under_greate_stress();
-}
-
 MsStressDecision update_ms_stress_detector_for_test(int64_t now_ms, const MsStressMetrics& metrics,
                                                     bool reset,
                                                     int32_t rate_limit_injected_random_value) {
@@ -405,6 +403,32 @@ MsStressDecision update_ms_stress_detector_for_test(int64_t now_ms, const MsStre
     }
     maybe_apply_ms_rate_limit_injection(&decision, rate_limit_injected_random_value);
     return decision;
+}
+
+RpcRateLimitWhitelist& RpcRateLimitWhitelist::instance() {
+    static RpcRateLimitWhitelist inst;
+    static std::once_flag init_flag;
+    std::call_once(init_flag, []() {
+        inst.set_whitelist({"prepare_rowset", "commit_rowset", "update_tmp_rowset",
+                            "update_delete_bitmap", "update_packed_file_info"});
+    });
+    return inst;
+}
+
+bool RpcRateLimitWhitelist::should_rate_limit(const std::string& rpc_name) const {
+    std::lock_guard lock(mutex_);
+    return whitelist_.empty() || whitelist_.contains(rpc_name);
+}
+
+void RpcRateLimitWhitelist::set_whitelist(const std::vector<std::string>& rpcs) {
+    std::lock_guard lock(mutex_);
+    whitelist_.clear();
+    whitelist_.insert(rpcs.begin(), rpcs.end());
+}
+
+std::vector<std::string> RpcRateLimitWhitelist::get_whitelist() const {
+    std::lock_guard lock(mutex_);
+    return {whitelist_.begin(), whitelist_.end()};
 }
 
 } // namespace doris::cloud

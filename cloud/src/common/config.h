@@ -193,7 +193,7 @@ CONF_Int64(default_max_qps_limit, "1000000");
 CONF_String(specific_max_qps_limit, "get_cluster:5000000;begin_txn:5000000");
 CONF_Bool(enable_rate_limit, "true");
 CONF_Int64(bvar_qps_update_second, "5");
-CONF_Bool(enable_ms_rate_limit, "true");
+CONF_mBool(enable_ms_rate_limit, "true");
 // Fault injection: randomly return meta service rate limit error for testing.
 // ms_rate_limit_injection_probability is the probability (0-100) of injecting a rate limit error.
 CONF_mBool(enable_ms_rate_limit_injection, "false");
