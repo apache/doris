@@ -82,6 +82,8 @@ public class DebeziumJsonDeserializer
     private static ObjectMapper objectMapper = new ObjectMapper();
     @Setter private ZoneId serverTimeZone = ZoneId.systemDefault();
     @Getter @Setter protected Map<TableId, TableChanges.TableChange> tableSchemas;
+    // Parsed source->target table name mappings, populated once in init() from config
+    protected Map<String, String> targetTableMappingsCache = new HashMap<>();
     // Parsed exclude-column sets per table, populated once in init() from config
     protected Map<String, Set<String>> excludeColumnsCache = new HashMap<>();
 
@@ -91,7 +93,16 @@ public class DebeziumJsonDeserializer
     public void init(Map<String, String> props) {
         this.serverTimeZone =
                 ConfigUtil.getServerTimeZoneFromJdbcUrl(props.get(DataSourceConfigKeys.JDBC_URL));
+        targetTableMappingsCache = ConfigUtil.parseAllTargetTableMappings(props);
         excludeColumnsCache = ConfigUtil.parseAllExcludeColumns(props);
+    }
+
+    /**
+     * Resolve the Doris target table name for a given upstream (PG) source table name. Returns the
+     * mapped name if configured, otherwise returns the source name unchanged.
+     */
+    protected String resolveTargetTable(String srcTable) {
+        return targetTableMappingsCache.getOrDefault(srcTable, srcTable);
     }
 
     @Override

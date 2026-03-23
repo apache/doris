@@ -41,6 +41,7 @@ public class DataSourceConfigKeys {
     // per-table config: key format is "table.<tableName>.<suffix>"
     public static final String TABLE = "table";
     public static final String TABLE_EXCLUDE_COLUMNS_SUFFIX = "exclude_columns";
+    public static final String TABLE_TARGET_TABLE_SUFFIX = "target_table";
 
     // target properties
     public static final String TABLE_PROPS_PREFIX = "table.create.properties.";
