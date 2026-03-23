@@ -192,9 +192,6 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
-    VecDateTimeValue t;
-    t.from_unixtime(0, ctz);
-    _offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -221,9 +218,6 @@ OrcReader::OrcReader(RuntimeProfile* profile, RuntimeState* state,
                   state == nullptr ? true : state->query_options().enable_orc_filter_by_min_max),
           _dict_cols_has_converted(false) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
-    VecDateTimeValue t;
-    t.from_unixtime(0, ctz);
-    _offset_days = t.day() == 31 ? -1 : 0; // If 1969-12-31, then returns -1.
     _meta_cache = meta_cache;
     _init_profile();
     _init_system_properties();
@@ -1498,6 +1492,9 @@ void OrcReader::_init_file_description() {
     _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : -1;
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
+    }
+    if (_scan_range.__isset.file_cache_admission) {
+        _file_description.file_cache_admission = _scan_range.file_cache_admission;
     }
 }
 

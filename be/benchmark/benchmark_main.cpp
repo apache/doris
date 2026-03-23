@@ -24,8 +24,8 @@
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_string.hpp"
 #include "binary_cast_benchmark.hpp"
+#include "core/block/block.h"
 #include "vec/columns/column_string.h"
-#include "vec/core/block.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_string.h"
 

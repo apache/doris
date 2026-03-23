@@ -592,7 +592,7 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_2) {
         local_state->_emplace_into_hash_table(local_state->_places.data(), key_columns,
                                               block.rows());
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 4); // [1,2,3,null]
+        EXPECT_EQ(local_state->get_hash_table_size(), 4); // [1,2,3,null]
     }
 }
 

@@ -1,4 +1,4 @@
-﻿// Licensed to the Apache Software Foundation (ASF) under one
+// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
@@ -225,6 +225,9 @@ void CsvReader::_init_file_description() {
     _file_description.file_size = _range.__isset.file_size ? _range.file_size : -1;
     if (_range.__isset.fs_name) {
         _file_description.fs_name = _range.fs_name;
+    }
+    if (_range.__isset.file_cache_admission) {
+        _file_description.file_cache_admission = _range.file_cache_admission;
     }
 }
 

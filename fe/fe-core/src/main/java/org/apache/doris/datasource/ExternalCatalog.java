@@ -38,7 +38,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -396,7 +395,7 @@ public abstract class ExternalCatalog
             if (LOG.isDebugEnabled()) {
                 LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
             }
-            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().legacyMetaCacheFactory().build(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
@@ -599,7 +598,7 @@ public abstract class ExternalCatalog
         setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
         }
     }
 
@@ -1117,7 +1116,7 @@ public abstract class ExternalCatalog
         if (isInitialized()) {
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1337,7 +1336,8 @@ public abstract class ExternalCatalog
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            extMetaCacheMgr.removeCatalog(id);
         }
     }
 

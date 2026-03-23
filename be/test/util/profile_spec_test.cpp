@@ -125,7 +125,7 @@ TEST_F(ProfileSpecTest, SourceOperatorNameSuffixTest2) {
     op._nereids_id = 100;
     RuntimeState* runtime_state = nullptr;
     auto local_state = std::make_unique<MockLocalState>(runtime_state, &op);
-    ASSERT_EQ(local_state->name_suffix(), "(nereids_id=100)(id=1)");
+    ASSERT_EQ(local_state->name_suffix(), "(nereids_id=100, id=1)");
 }
 
 TEST_F(ProfileSpecTest, DataStreamSinkOperatorTest) {
@@ -144,7 +144,7 @@ TEST_F(ProfileSpecTest, DataStreamSinkOperatorTest) {
     ExchangeSinkLocalState local_state(state.get());
     local_state._parent = &sink_op;
 
-    ASSERT_EQ(local_state.name_suffix(), "(dest_id=101)");
+    ASSERT_EQ(local_state.name_suffix(), "(id=101, dest_id=101)");
 }
 
 TEST_F(ProfileSpecTest, CommonCountersCustomCounters) {

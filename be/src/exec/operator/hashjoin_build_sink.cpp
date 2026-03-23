@@ -590,22 +590,19 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
     RETURN_IF_ERROR(_hash_table_init(state, raw_ptrs));
 
     Status st = std::visit(
-            Overload {[&](std::monostate& arg, auto join_op,
-                          auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
+            Overload {[&](std::monostate& arg, auto join_op) -> Status {
                           throw Exception(Status::FatalError("FATAL: uninited hash table"));
                       },
-                      [&](auto&& arg, auto&& join_op, auto short_circuit_for_null_in_build_side,
-                          auto with_other_conjuncts) -> Status {
+                      [&](auto&& arg, auto&& join_op) -> Status {
                           using HashTableCtxType = std::decay_t<decltype(arg)>;
                           using JoinOpType = std::decay_t<decltype(join_op)>;
                           ProcessHashTableBuild<HashTableCtxType> hash_table_build_process(
                                   rows, raw_ptrs, this, state->batch_size(), state);
-                          auto st = hash_table_build_process.template run<
-                                  JoinOpType::value, short_circuit_for_null_in_build_side,
-                                  with_other_conjuncts>(
+                          auto st = hash_table_build_process.template run<JoinOpType::value>(
                                   arg, null_map_val ? &null_map_val->get_data() : nullptr,
-                                  &_shared_state->_has_null_in_build_side);
+                                  &_shared_state->_has_null_in_build_side,
+                                  p._short_circuit_for_null_in_build_side,
+                                  p._have_other_join_conjunct);
                           COUNTER_SET(_memory_used_counter,
                                       _build_blocks_memory_usage->value() +
                                               (int64_t)(arg.hash_table->get_byte_size() +
@@ -613,9 +610,7 @@ Status HashJoinBuildSinkLocalState::process_build_block(RuntimeState* state, Blo
                           return st;
                       }},
             _shared_state->hash_table_variant_vector.front()->method_variant,
-            _shared_state->join_op_variants,
-            make_bool_variant(p._short_circuit_for_null_in_build_side),
-            make_bool_variant((p._have_other_join_conjunct)));
+            _shared_state->join_op_variants);
     return st;
 }
 

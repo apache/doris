@@ -87,5 +87,6 @@ Status Crc32CHashPartitioner::clone(RuntimeState* state,
 
 template class Crc32HashPartitioner<ShuffleChannelIds>;
 template class Crc32HashPartitioner<SpillPartitionChannelIds>;
+template class Crc32HashPartitioner<SpillRePartitionChannelIds>;
 
 } // namespace doris

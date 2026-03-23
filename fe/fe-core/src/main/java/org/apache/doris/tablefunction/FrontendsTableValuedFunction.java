@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TFrontendsMetadataParams;
 import org.apache.doris.thrift.TMetaScanRange;
 import org.apache.doris.thrift.TMetadataType;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
@@ -105,7 +106,12 @@ public class FrontendsTableValuedFunction extends MetadataTableValuedFunction {
         TMetaScanRange metaScanRange = new TMetaScanRange();
         metaScanRange.setMetadataType(TMetadataType.FRONTENDS);
         TFrontendsMetadataParams frontendsMetadataParams = new TFrontendsMetadataParams();
-        frontendsMetadataParams.setClusterName("");
+        String currentConnectedFe = Env.getCurrentEnv().getSelfNode().getHost();
+        if (ConnectContext.get() != null
+                && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
+            currentConnectedFe = ConnectContext.get().getCurrentConnectedFEIp();
+        }
+        frontendsMetadataParams.setCurrentConnectedFeHost(currentConnectedFe);
         metaScanRange.setFrontendsParams(frontendsMetadataParams);
         return metaScanRange;
     }

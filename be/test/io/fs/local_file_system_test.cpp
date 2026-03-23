@@ -467,4 +467,13 @@ TEST_F(LocalFileSystemTest, TestConvertToAbsPath) {
     st = doris::io::LocalFileSystem::convert_to_abs_path("hdfs:/abc", abs_path);
     ASSERT_TRUE(!st.ok());
 }
+
+TEST_F(LocalFileSystemTest, TestEqualOrSubPath) {
+    EXPECT_TRUE(io::LocalFileSystem::equal_or_sub_path("/data/store", "/data/store"));
+    EXPECT_TRUE(io::LocalFileSystem::equal_or_sub_path("/data/store", "/data/store/snapshot"));
+    EXPECT_TRUE(io::LocalFileSystem::equal_or_sub_path("/data/store/./snapshot",
+                                                       "/data/store/snapshot/dir/../dir"));
+    EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store1", "/data/store11/snapshot"));
+    EXPECT_FALSE(io::LocalFileSystem::equal_or_sub_path("/data/store/snapshot", "/data/store"));
+}
 } // namespace doris
