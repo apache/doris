@@ -57,6 +57,9 @@ struct ResultFileOptions {
     // TODO: we should merge parquet_commpression_type/orc_compression_type/compression_type
     TFileCompressType::type compression_type = TFileCompressType::PLAIN;
 
+    // Deprecated compatibility flag. New FE handles outfile delete_existing_files in FE
+    // and clears this field before sending the result sink to BE. Keep reading it here
+    // only for compatibility with older FE during rolling upgrade.
     bool delete_existing_files = false;
     std::string file_suffix;
     //Bring BOM when exporting to CSV format
@@ -70,6 +73,7 @@ struct ResultFileOptions {
         line_delimiter = t_opt.__isset.line_delimiter ? t_opt.line_delimiter : "\n";
         max_file_size_bytes =
                 t_opt.__isset.max_file_size_bytes ? t_opt.max_file_size_bytes : max_file_size_bytes;
+        // Deprecated compatibility path. New FE should already have cleared this flag.
         delete_existing_files =
                 t_opt.__isset.delete_existing_files ? t_opt.delete_existing_files : false;
         file_suffix = t_opt.file_suffix;
