@@ -734,6 +734,8 @@ message TabletCompactionJobPB {
     optional int64 segment_size_input_rowsets = 28;
     optional int64 index_size_output_rowsets = 29;
     optional int64 segment_size_output_rowsets = 30;
+    // Whether this compaction uses tablet-level lock (for async publish tables)
+    optional bool use_delete_bitmap_tablet_lock = 31;
 }
 
 message TabletSchemaChangeJobPB {

@@ -387,6 +387,7 @@ Status CloudBaseCompaction::modify_rowsets() {
                 .tag("input_segments", _input_segments)
                 .tag("num_output_delete_bitmap", output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
 
     cloud::FinishTabletJobResponse resp;
@@ -467,6 +468,7 @@ Status CloudBaseCompaction::garbage_collection() {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {

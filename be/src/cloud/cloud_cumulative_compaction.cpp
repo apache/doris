@@ -328,6 +328,7 @@ Status CloudCumulativeCompaction::modify_rowsets() {
                 .tag("number_output_delete_bitmap",
                      output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
 
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed", {
@@ -473,6 +474,7 @@ Status CloudCumulativeCompaction::garbage_collection() {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
     DBUG_EXECUTE_IF("CumulativeCompaction.modify_rowsets.trigger_abort_job_failed", {
         LOG(INFO) << "CumulativeCompaction.modify_rowsets.abort_job_failed for tablet_id"

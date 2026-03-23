@@ -3483,7 +3483,8 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
                                      std::unique_ptr<Transaction>& txn, std::string& instance_id,
                                      int64_t table_id, int64_t lock_id, int64_t lock_initiator,
                                      std::string& lock_key, DeleteBitmapUpdateLockPB& lock_info,
-                                     std::string use_version, std::string log = "") {
+                                     std::string use_version, std::string log = "",
+                                     bool tablet_level_lock = false) {
     std::string lock_val;
     LOG(INFO) << "check_delete_bitmap_lock, table_id=" << table_id << " lock_id=" << lock_id
               << " initiator=" << lock_initiator << " key=" << hex(lock_key) << log
@@ -3513,7 +3514,7 @@ static bool check_delete_bitmap_lock(MetaServiceCode& code, std::string& msg, st
         code = MetaServiceCode::LOCK_EXPIRED;
         return false;
     }
-    if (use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
+    if (!tablet_level_lock && use_version == "v2" && is_job_delete_bitmap_lock_id(lock_id)) {
         std::string tablet_job_key = mow_tablet_job_key({instance_id, table_id, lock_initiator});
         std::string tablet_job_val;
         err = txn->get(tablet_job_key, &tablet_job_val);
@@ -3988,22 +3989,30 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
 
     bool is_explicit_txn = (request->has_is_explicit_txn() && request->is_explicit_txn());
     bool is_first_sub_txn = (is_explicit_txn && request->txn_id() == request->lock_id());
+    bool is_mow_async_publish = request->has_is_mow_async_publish() && request->is_mow_async_publish();
     std::string log = ", update delete bitmap for tablet " + std::to_string(tablet_id);
     if (!without_lock) {
         // 1. Check whether the lock expires
-        std::string lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+        // For async publish tables, check tablet-level lock instead of table-level lock
+        std::string lock_key;
+        if (is_mow_async_publish) {
+            lock_key = meta_delete_bitmap_tablet_lock_key({instance_id, table_id, tablet_id});
+        } else {
+            lock_key = meta_delete_bitmap_update_lock_key({instance_id, table_id, -1});
+        }
         DeleteBitmapUpdateLockPB lock_info;
         if (!check_delete_bitmap_lock(code, msg, ss, txn, instance_id, table_id, request->lock_id(),
                                       request->initiator(), lock_key, lock_info, use_version,
-                                      log)) {
+                                      log, is_mow_async_publish)) {
             LOG(WARNING) << "failed to check delete bitmap lock, table_id=" << table_id
+                         << " tablet_id=" << tablet_id
+                         << " is_mow_async_publish=" << is_mow_async_publish
                          << " request lock_id=" << request->lock_id()
                          << " request initiator=" << request->initiator() << " msg " << msg;
             return;
         }
         // 2. Process pending delete bitmap
         // Skip for async publish tables
-        bool is_mow_async_publish = request->has_is_mow_async_publish() && request->is_mow_async_publish();
 
         // if this is a txn load and is not the first sub txn, we should not remove
         // the pending delete bitmaps written by previous sub txns
