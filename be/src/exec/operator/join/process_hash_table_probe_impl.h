@@ -264,8 +264,7 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     ColumnPtr probe_col_for_compare = probe_col_ptr;
     const uint8_t* asof_probe_null_map = nullptr;
     if (probe_col_ptr->is_nullable()) {
-        const auto* nullable_probe_col =
-                assert_cast<const ColumnNullable*>(probe_col_ptr.get());
+        const auto* nullable_probe_col = assert_cast<const ColumnNullable*>(probe_col_ptr.get());
         asof_probe_null_map = nullable_probe_col->get_null_map_data().data();
         probe_col_for_compare = nullable_probe_col->get_nested_column_ptr();
     }
@@ -432,27 +431,23 @@ uint32_t ProcessHashTableProbe<JoinOpType>::
     // Dispatch on AsofIndexVariant to get the correct integer type,
     // then cast probe column to the matching concrete type
     uint32_t matched_cnt = std::visit(
-            Overload {
-                    [](std::monostate&) -> uint32_t {
-                        throw Exception(ErrorCode::INTERNAL_ERROR,
-                                        "AsofIndexVariant should not be monostate here");
-                    },
-                    [&](std::vector<AsofIndexGroup<uint32_t>>& groups) -> uint32_t {
-                        // DateV2
-                        return probe_with_index(
-                                groups, assert_cast<const ColumnDateV2*>(probe_col));
-                    },
-                    [&](std::vector<AsofIndexGroup<uint64_t>>& groups) -> uint32_t {
-                        // DateTimeV2 or TimestampTZ
-                        if (const auto* c =
-                                    check_and_get_column<ColumnDateTimeV2>(
-                                            probe_col)) {
-                            return probe_with_index(groups, c);
-                        }
-                        return probe_with_index(
-                                groups,
-                                assert_cast<const ColumnTimeStampTz*>(probe_col));
-                    }},
+            Overload {[](std::monostate&) -> uint32_t {
+                          throw Exception(ErrorCode::INTERNAL_ERROR,
+                                          "AsofIndexVariant should not be monostate here");
+                      },
+                      [&](std::vector<AsofIndexGroup<uint32_t>>& groups) -> uint32_t {
+                          // DateV2
+                          return probe_with_index(groups,
+                                                  assert_cast<const ColumnDateV2*>(probe_col));
+                      },
+                      [&](std::vector<AsofIndexGroup<uint64_t>>& groups) -> uint32_t {
+                          // DateTimeV2 or TimestampTZ
+                          if (const auto* c = check_and_get_column<ColumnDateTimeV2>(probe_col)) {
+                              return probe_with_index(groups, c);
+                          }
+                          return probe_with_index(groups,
+                                                  assert_cast<const ColumnTimeStampTz*>(probe_col));
+                      }},
             shared_state->asof_index_groups);
 
     return matched_cnt;

@@ -23,10 +23,10 @@
 #include <unordered_map>
 
 #include "common/status.h"
+#include "exprs/vexpr_fwd.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/runtime_state.h"
 #include "storage/index/inverted/query/query_info.h"
-#include "exprs/vexpr_fwd.h"
 
 namespace doris {
 

@@ -21,10 +21,10 @@
 #include <vector>
 
 #include "common/status.h"
-#include "operator.h"
 #include "exec/spill/spill_file.h"
 #include "exec/spill/spill_file_reader.h"
 #include "exec/spill/spill_repartitioner.h"
+#include "operator.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"

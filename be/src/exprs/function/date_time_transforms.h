@@ -400,8 +400,7 @@ struct FromUnixTimeImpl {
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
-            return {std::make_shared<DataTypeInt64>(),
-                    std::make_shared<DataTypeString>()};
+            return {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeString>()};
         } else {
             return {std::make_shared<DataTypeInt64>()};
         }
@@ -469,8 +468,7 @@ struct FromUnixTimeDecimalImpl {
 
     static DataTypes get_variadic_argument_types() {
         if constexpr (WithStringArg) {
-            return {std::make_shared<DataTypeDecimal64>(),
-                    std::make_shared<DataTypeString>()};
+            return {std::make_shared<DataTypeDecimal64>(), std::make_shared<DataTypeString>()};
         } else {
             return {std::make_shared<DataTypeDecimal64>()};
         }

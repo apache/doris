@@ -20,13 +20,13 @@
 #include <memory>
 
 #include "common/status.h"
-#include "storage/olap_common.h"
-#include "storage/segment/column_reader.h"
-#include "storage/tablet/tablet_schema.h"
-#include "runtime/runtime_state.h"
 #include "core/data_type/data_type_number.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "runtime/runtime_state.h"
+#include "storage/olap_common.h"
+#include "storage/segment/column_reader.h"
+#include "storage/tablet/tablet_schema.h"
 
 // Use #define private public to access private members for testing
 #if defined(__clang__)
@@ -42,7 +42,6 @@
 #endif
 
 namespace doris::segment_v2 {
-
 
 namespace {
 

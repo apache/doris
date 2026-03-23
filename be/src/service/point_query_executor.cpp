@@ -562,8 +562,7 @@ Status PointQueryExecutor::_lookup_row_data() {
             ColumnPtr delete_filter_columns =
                     _result_block->get_columns()[_reusable->delete_sign_idx()];
             const auto& filter =
-                    assert_cast<const ColumnInt8*>(delete_filter_columns.get())
-                            ->get_data();
+                    assert_cast<const ColumnInt8*>(delete_filter_columns.get())->get_data();
             filtered = filter.size() - simd::count_zero_num((int8_t*)filter.data(), filter.size());
             total = filter.size();
         }
@@ -594,7 +593,7 @@ Status PointQueryExecutor::_output_data() {
         auto buffer = std::make_shared<PointQueryResultBlockBuffer>(&state);
         // TODO reuse mysql_writer
         VMysqlResultWriter mysql_writer(buffer, _reusable->output_exprs(), nullptr,
-                                                    _binary_row_format);
+                                        _binary_row_format);
         RETURN_IF_ERROR(mysql_writer.init(_reusable->runtime_state()));
         _result_block->clear_names();
         RETURN_IF_ERROR(mysql_writer.write(_reusable->runtime_state(), *_result_block));

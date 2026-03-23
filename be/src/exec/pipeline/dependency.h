@@ -294,8 +294,7 @@ public:
 
     Status reset_hash_table();
 
-    bool do_limit_filter(Block* block, size_t num_rows,
-                         const std::vector<int>* key_locs = nullptr);
+    bool do_limit_filter(Block* block, size_t num_rows, const std::vector<int>* key_locs = nullptr);
     void build_limit_heap(size_t hash_table_size);
 
     // We should call this function only at 1st phase.
@@ -390,25 +389,24 @@ private:
 
     void _close_with_serialized_key() {
         std::visit(Overload {[&](std::monostate& arg) -> void {
-                                             // Do nothing
-                                         },
-                                         [&](auto& agg_method) -> void {
-                                             auto& data = *agg_method.hash_table;
-                                             data.for_each_mapped([&](auto& mapped) {
-                                                 if (mapped) {
-                                                     static_cast<void>(_destroy_agg_status(mapped));
-                                                     mapped = nullptr;
-                                                 }
-                                             });
-                                             if (data.has_null_key_data()) {
-                                                 auto st = _destroy_agg_status(
-                                                         data.template get_null_key_data<
-                                                                 AggregateDataPtr>());
-                                                 if (!st) {
-                                                     throw Exception(st.code(), st.to_string());
-                                                 }
-                                             }
-                                         }},
+                                 // Do nothing
+                             },
+                             [&](auto& agg_method) -> void {
+                                 auto& data = *agg_method.hash_table;
+                                 data.for_each_mapped([&](auto& mapped) {
+                                     if (mapped) {
+                                         static_cast<void>(_destroy_agg_status(mapped));
+                                         mapped = nullptr;
+                                     }
+                                 });
+                                 if (data.has_null_key_data()) {
+                                     auto st = _destroy_agg_status(
+                                             data.template get_null_key_data<AggregateDataPtr>());
+                                     if (!st) {
+                                         throw Exception(st.code(), st.to_string());
+                                     }
+                                 }
+                             }},
                    agg_data->method_variant);
     }
 

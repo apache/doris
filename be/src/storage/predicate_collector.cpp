@@ -19,16 +19,16 @@
 
 #include <glog/logging.h>
 
-#include "gen_cpp/Exprs_types.h"
-#include "storage/index/index_reader_helper.h"
-#include "storage/index/inverted/analyzer/analyzer.h"
-#include "storage/index/inverted/util/string_helper.h"
-#include "storage/tablet/tablet_schema.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vsearch.h"
 #include "exprs/vslot_ref.h"
+#include "gen_cpp/Exprs_types.h"
+#include "storage/index/index_reader_helper.h"
+#include "storage/index/inverted/analyzer/analyzer.h"
+#include "storage/index/inverted/util/string_helper.h"
+#include "storage/tablet/tablet_schema.h"
 
 namespace doris {
 
@@ -63,8 +63,7 @@ std::string PredicateCollector::build_field_name(int32_t col_unique_id,
 }
 
 Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
-                                        const VExprSPtr& expr,
-                                        CollectInfoMap* collect_infos) {
+                                        const VExprSPtr& expr, CollectInfoMap* collect_infos) {
     DCHECK(collect_infos != nullptr);
 
     auto* left_slot_ref = find_slot_ref(expr->children()[0]);
@@ -136,8 +135,7 @@ Status MatchPredicateCollector::collect(RuntimeState* state, const TabletSchemaS
 }
 
 Status SearchPredicateCollector::collect(RuntimeState* state, const TabletSchemaSPtr& tablet_schema,
-                                         const VExprSPtr& expr,
-                                         CollectInfoMap* collect_infos) {
+                                         const VExprSPtr& expr, CollectInfoMap* collect_infos) {
     DCHECK(collect_infos != nullptr);
 
     auto* search_expr = dynamic_cast<VSearchExpr*>(expr.get());

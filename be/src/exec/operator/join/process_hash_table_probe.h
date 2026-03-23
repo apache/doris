@@ -53,12 +53,11 @@ struct ProcessHashTableProbe {
     // the logic of probe
     template <typename HashTableType>
     Status process(HashTableType& hash_table_ctx, const uint8_t* null_map,
-                   MutableBlock& mutable_block, Block* output_block,
-                   uint32_t probe_rows, bool is_mark_join);
+                   MutableBlock& mutable_block, Block* output_block, uint32_t probe_rows,
+                   bool is_mark_join);
 
     template <typename HashTableType>
-    void process_direct_return(HashTableType& hash_table_ctx,
-                               MutableBlock& mutable_block,
+    void process_direct_return(HashTableType& hash_table_ctx, MutableBlock& mutable_block,
                                Block* output_block, uint32_t probe_rows);
 
     // In the presence of other join conjunct, the process of join become more complicated.

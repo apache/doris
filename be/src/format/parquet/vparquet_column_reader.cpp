@@ -411,8 +411,8 @@ Status ScalarColumnReader<IN_COLLECTION, OFFSET_INDEX>::_read_nested_column(
     NullMap* map_data_column = nullptr;
     if (doris_column->is_nullable()) {
         SCOPED_RAW_TIMER(&_decode_null_map_time);
-        auto* nullable_column = const_cast<ColumnNullable*>(
-                assert_cast<const ColumnNullable*>(doris_column.get()));
+        auto* nullable_column =
+                const_cast<ColumnNullable*>(assert_cast<const ColumnNullable*>(doris_column.get()));
         data_column = nullable_column->get_nested_column_ptr();
         map_data_column = &(nullable_column->get_null_map_data());
     } else {

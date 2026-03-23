@@ -127,9 +127,8 @@ Status FromBlockConverter::convert(std::shared_ptr<arrow::RecordBatch>* out) {
     return Status::OK();
 }
 
-Status convert_to_arrow_batch(const Block& block,
-                              const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
-                              std::shared_ptr<arrow::RecordBatch>* result,
+Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj) {
     FromBlockConverter converter(block, schema, pool, timezone_obj);
     return converter.convert(result);

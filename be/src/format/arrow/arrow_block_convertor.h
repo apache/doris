@@ -40,9 +40,8 @@ class Schema;
 
 namespace doris {
 
-Status convert_to_arrow_batch(const Block& block,
-                              const std::shared_ptr<arrow::Schema>& schema, arrow::MemoryPool* pool,
-                              std::shared_ptr<arrow::RecordBatch>* result,
+Status convert_to_arrow_batch(const Block& block, const std::shared_ptr<arrow::Schema>& schema,
+                              arrow::MemoryPool* pool, std::shared_ptr<arrow::RecordBatch>* result,
                               const cctz::time_zone& timezone_obj);
 
 } // namespace doris

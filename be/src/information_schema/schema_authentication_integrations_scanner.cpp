@@ -88,8 +88,8 @@ Status SchemaAuthenticationIntegrationsScanner::_get_authentication_integrations
 
     _authentication_integrations_block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = DataTypeFactory::instance().create_data_type(
-                _s_tbls_columns[i].type, true);
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
         _authentication_integrations_block->insert(ColumnWithTypeAndName(
                 data_type->create_column(), data_type, _s_tbls_columns[i].name));
     }
@@ -115,8 +115,7 @@ Status SchemaAuthenticationIntegrationsScanner::_get_authentication_integrations
     return Status::OK();
 }
 
-Status SchemaAuthenticationIntegrationsScanner::get_next_block_internal(Block* block,
-                                                                        bool* eos) {
+Status SchemaAuthenticationIntegrationsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

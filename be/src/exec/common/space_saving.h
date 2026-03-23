@@ -23,8 +23,8 @@
 #include <boost/range/adaptor/reversed.hpp>
 
 #include "core/arena_with_free_lists.h"
-#include "exec/common/hash_table/hash_map.h"
 #include "core/string_buffer.hpp"
+#include "exec/common/hash_table/hash_map.h"
 #include "util/io_helper.h"
 
 namespace doris {

@@ -177,28 +177,24 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, spill_probe_blocks) {
             continue;
         }
 
-        Block block = ColumnHelper::create_block<DataTypeInt32>(
-                {1 * i, 2 * i, 3 * i});
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1 * i, 2 * i, 3 * i});
         local_state->_probe_blocks[i].emplace_back(std::move(block));
     }
 
     std::vector<int32_t> large_data(3 * 1024 * 1024);
     std::iota(large_data.begin(), large_data.end(), 0);
-    Block large_block =
-            ColumnHelper::create_block<DataTypeInt32>(large_data);
+    Block large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
 
     std::vector<int32_t> small_data(3 * 1024);
     std::iota(small_data.begin(), small_data.end(), 3 * 1024 * 1024);
-    Block small_block =
-            ColumnHelper::create_block<DataTypeInt32>(small_data);
+    Block small_block = ColumnHelper::create_block<DataTypeInt32>(small_data);
 
     // add a large block to the last partition
     local_state->_partitioned_blocks[PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT - 1] =
             MutableBlock::create_unique(std::move(large_block));
 
     // add a small block to the first partition
-    local_state->_partitioned_blocks[0] =
-            MutableBlock::create_unique(std::move(small_block));
+    local_state->_partitioned_blocks[0] = MutableBlock::create_unique(std::move(small_block));
 
     local_state->_shared_state->is_spilled = false;
     local_state->update_profile_from_inner();
@@ -246,8 +242,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDisk) {
 
     // Write some test data to spill stream
     {
-        Block block =
-                ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
         ASSERT_TRUE(spill_stream->spill_block(_helper.runtime_state.get(), block, false).ok());
         ASSERT_TRUE(spill_stream->spill_eof().ok());
     }
@@ -303,14 +298,12 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskLargeData
         // create block larger than 32MB(4 * (8 * 1024 * 1024 + 10))
         std::vector<int32_t> large_data(8 * 1024 * 1024 + 10);
         std::iota(large_data.begin(), large_data.end(), 0);
-        Block large_block =
-                ColumnHelper::create_block<DataTypeInt32>(large_data);
+        Block large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
 
         ASSERT_TRUE(
                 spill_stream->spill_block(_helper.runtime_state.get(), large_block, false).ok());
 
-        Block block =
-                ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
         ASSERT_TRUE(spill_stream->spill_block(_helper.runtime_state.get(), block, false).ok());
         ASSERT_TRUE(spill_stream->spill_eof().ok());
     }
@@ -400,8 +393,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverProbeBlocksFromDiskError) {
 
     // Write some test data to spill stream
     {
-        Block block =
-                ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
         ASSERT_TRUE(spilling_stream->spill_block(_helper.runtime_state.get(), block, false).ok());
         ASSERT_TRUE(spilling_stream->spill_eof().ok());
     }
@@ -443,8 +435,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDisk) {
 
     // Write test data
     {
-        Block block =
-                ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
         ASSERT_TRUE(spilled_stream->spill_block(_helper.runtime_state.get(), block, false).ok());
         ASSERT_TRUE(spilled_stream->spill_eof().ok());
     }
@@ -518,10 +509,8 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, revocable_mem_size) {
     local_state->_probe_blocks[0].emplace_back(block1);
     ASSERT_EQ(probe_operator->revocable_mem_size(_helper.runtime_state.get()),
               block1.allocated_bytes());
-    auto block2 =
-            ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 5, 6, 7});
-    local_state->_partitioned_blocks[0] =
-            MutableBlock::create_unique(std::move(block2));
+    auto block2 = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 5, 6, 7});
+    local_state->_partitioned_blocks[0] = MutableBlock::create_unique(std::move(block2));
 
     // block2 is small, so it should not be counted
     ASSERT_EQ(probe_operator->revocable_mem_size(_helper.runtime_state.get()),
@@ -530,12 +519,10 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, revocable_mem_size) {
     // Create large input block (> 32k)
     std::vector<int32_t> large_data(9 * 1024);
     std::iota(large_data.begin(), large_data.end(), 0);
-    Block large_block =
-            ColumnHelper::create_block<DataTypeInt32>(large_data);
+    Block large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
 
     const auto large_size = large_block.allocated_bytes();
-    local_state->_partitioned_blocks[0] =
-            MutableBlock::create_unique(std::move(large_block));
+    local_state->_partitioned_blocks[0] = MutableBlock::create_unique(std::move(large_block));
     ASSERT_EQ(probe_operator->revocable_mem_size(_helper.runtime_state.get()),
               block1.allocated_bytes() + large_size);
 
@@ -634,14 +621,12 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, RecoverBuildBlocksFromDiskLargeData
         // create block larger than 32MB(4 * (8 * 1024 * 1024 + 10))
         std::vector<int32_t> large_data(8 * 1024 * 1024 + 10);
         std::iota(large_data.begin(), large_data.end(), 0);
-        Block large_block =
-                ColumnHelper::create_block<DataTypeInt32>(large_data);
+        Block large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
 
         ASSERT_TRUE(
                 spilled_stream->spill_block(_helper.runtime_state.get(), large_block, false).ok());
 
-        Block block =
-                ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+        Block block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
         ASSERT_TRUE(spilled_stream->spill_block(_helper.runtime_state.get(), block, false).ok());
     }
     ASSERT_TRUE(spilled_stream->spill_eof().ok());
@@ -801,8 +786,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PushPartitionData) {
             {tnode.hash_join_node.eq_join_conjuncts[0].left}, row_desc);
 
     // Create test input block
-    Block input_block =
-            ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
+    Block input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
 
     // Test pushing data
     auto st = probe_operator->push(_helper.runtime_state.get(), &input_block, false);
@@ -835,8 +819,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PushWithEOS) {
             {tnode.hash_join_node.eq_join_conjuncts[0].left}, row_desc);
 
     // Create test data and push with EOS
-    Block input_block =
-            ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    Block input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
 
     auto st = probe_operator->push(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "Push failed: " << st.to_string();
@@ -879,8 +862,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PushLargeBlock) {
     // Create large input block (> 2M rows)
     std::vector<int32_t> large_data(3 * 1024 * 1024);
     std::iota(large_data.begin(), large_data.end(), 0);
-    Block large_block =
-            ColumnHelper::create_block<DataTypeInt32>(large_data);
+    Block large_block = ColumnHelper::create_block<DataTypeInt32>(large_data);
 
     // Push large block
     auto st = probe_operator->push(_helper.runtime_state.get(), &large_block, false);
@@ -940,8 +922,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullMultiplePartitions) {
 
     for (uint32_t i = 0; i < PartitionedHashJoinTestHelper::TEST_PARTITION_COUNT; i++) {
         auto& probe_blocks = local_state->_probe_blocks[i];
-        probe_blocks.emplace_back(
-                ColumnHelper::create_block<DataTypeInt32>({1, 2, 3}));
+        probe_blocks.emplace_back(ColumnHelper::create_block<DataTypeInt32>({1, 2, 3}));
     }
 
     Block output_block;
@@ -991,8 +972,7 @@ TEST_F(PartitionedHashJoinProbeOperatorTest, PullWithDiskRecovery) {
 
     ASSERT_TRUE(st) << "Register spill stream failed: " << st.to_string();
 
-    Block spill_block =
-            ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
+    Block spill_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3});
     st = spilled_stream->spill_block(_helper.runtime_state.get(), spill_block, true);
     ASSERT_TRUE(st) << "Spill block failed: " << st.to_string();
     st = spilling_stream->spill_block(_helper.runtime_state.get(), spill_block, false);

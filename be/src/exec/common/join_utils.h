@@ -36,11 +36,9 @@ template <typename Func>
 decltype(auto) asof_column_dispatch(const IColumn* col, Func&& func) {
     if (const auto* c_dv2 = check_and_get_column<ColumnDateV2>(col)) {
         return std::forward<Func>(func)(c_dv2);
-    } else if (const auto* c_dtv2 =
-                       check_and_get_column<ColumnDateTimeV2>(col)) {
+    } else if (const auto* c_dtv2 = check_and_get_column<ColumnDateTimeV2>(col)) {
         return std::forward<Func>(func)(c_dtv2);
-    } else if (const auto* c_tstz =
-                       check_and_get_column<ColumnTimeStampTz>(col)) {
+    } else if (const auto* c_tstz = check_and_get_column<ColumnTimeStampTz>(col)) {
         return std::forward<Func>(func)(c_tstz);
     } else {
         return std::forward<Func>(func)(col);

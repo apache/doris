@@ -47,9 +47,9 @@ Status SortSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(p._vsort_exec_exprs.clone(state, _vsort_exec_exprs));
     switch (p._algorithm) {
     case TSortAlgorithm::HEAP_SORT: {
-        _shared_state->sorter = HeapSorter::create_shared(
-                _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc());
+        _shared_state->sorter =
+                HeapSorter::create_shared(_vsort_exec_exprs, p._limit, p._offset, p._pool,
+                                          p._is_asc_order, p._nulls_first, p._child->row_desc());
         break;
     }
     case TSortAlgorithm::TOPN_SORT: {
@@ -59,9 +59,9 @@ Status SortSinkLocalState::open(RuntimeState* state) {
         break;
     }
     case TSortAlgorithm::FULL_SORT: {
-        auto sorter = FullSorter::create_shared(
-                _vsort_exec_exprs, p._limit, p._offset, p._pool, p._is_asc_order, p._nulls_first,
-                p._child->row_desc(), state, custom_profile());
+        auto sorter = FullSorter::create_shared(_vsort_exec_exprs, p._limit, p._offset, p._pool,
+                                                p._is_asc_order, p._nulls_first,
+                                                p._child->row_desc(), state, custom_profile());
         if (p._max_buffered_bytes > 0) {
             sorter->set_max_buffered_block_bytes(p._max_buffered_bytes);
         }
@@ -179,9 +179,8 @@ Status SortSinkOperatorX::prepare_for_spill(RuntimeState* state) {
     return local_state._shared_state->sorter->prepare_for_read(true);
 }
 
-Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state,
-                                                    doris::Block* block, int batch_size,
-                                                    bool* eos) {
+Status SortSinkOperatorX::merge_sort_read_for_spill(RuntimeState* state, doris::Block* block,
+                                                    int batch_size, bool* eos) {
     auto& local_state = get_local_state(state);
     return local_state._shared_state->sorter->merge_sort_read_for_spill(state, block, batch_size,
                                                                         eos);

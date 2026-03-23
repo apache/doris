@@ -292,8 +292,7 @@ TEST_F(ColumnReaderTest, MapReadByRowidsSkipReadingResizesDestination) {
     auto values = ColumnInt32::create();
     auto offsets = ColumnArray::ColumnOffsets::create();
     offsets->get_data().push_back(0);
-    auto column_map =
-            ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
+    auto column_map = ColumnMap::create(std::move(keys), std::move(values), std::move(offsets));
     MutableColumnPtr dst = std::move(column_map);
 
     const rowid_t rowids[] = {1, 5, 7};

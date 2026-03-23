@@ -208,14 +208,10 @@ public:
 
     ScannerScheduler* get_scan_scheduler() { return _scan_task_scheduler; }
 
-    ScannerScheduler* get_remote_scan_scheduler() {
-        return _remote_scan_task_scheduler;
-    }
+    ScannerScheduler* get_remote_scan_scheduler() { return _remote_scan_task_scheduler; }
 
     Dependency* get_execution_dependency() { return _execution_dependency.get(); }
-    Dependency* get_memory_sufficient_dependency() {
-        return _memory_sufficient_dependency.get();
-    }
+    Dependency* get_memory_sufficient_dependency() { return _memory_sufficient_dependency.get(); }
 
     doris::TaskScheduler* get_pipe_exec_scheduler();
 

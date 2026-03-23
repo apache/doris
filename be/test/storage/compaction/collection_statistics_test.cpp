@@ -47,19 +47,16 @@ public:
 
     TExprNodeType::type node_type() const override { return _mock_node_type; }
 
-    Status execute(VExprContext* context, Block* block,
-                   int32_t* result_column_id) const override {
+    Status execute(VExprContext* context, Block* block, int32_t* result_column_id) const override {
         return Status::OK();
     }
 
-    Status execute_column(VExprContext* context, const Block* block,
-                          Selector* selector, size_t count,
-                          ColumnPtr& result_column) const override {
+    Status execute_column(VExprContext* context, const Block* block, Selector* selector,
+                          size_t count, ColumnPtr& result_column) const override {
         return Status::OK();
     }
 
-    Status prepare(RuntimeState* state, const RowDescriptor& desc,
-                   VExprContext* context) override {
+    Status prepare(RuntimeState* state, const RowDescriptor& desc, VExprContext* context) override {
         return Status::OK();
     }
 
@@ -68,8 +65,7 @@ public:
         return Status::OK();
     }
 
-    void close(VExprContext* context,
-               FunctionContext::FunctionStateScope scope) override {}
+    void close(VExprContext* context, FunctionContext::FunctionStateScope scope) override {}
 
     const std::string& expr_name() const override {
         static std::string name = "mock_expr";
@@ -279,8 +275,7 @@ protected:
         return tablet_schema;
     }
 
-    VExprContextSPtrs create_match_expr_contexts(
-            const std::string& search_term = "search term") {
+    VExprContextSPtrs create_match_expr_contexts(const std::string& search_term = "search term") {
         VExprContextSPtrs contexts;
 
         auto match_expr =

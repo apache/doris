@@ -58,14 +58,13 @@ using ScoreRuntimeSPtr = std::shared_ptr<ScoreRuntime>;
 
 class IndexExecContext {
 public:
-    IndexExecContext(
-            const std::vector<ColumnId>& col_ids,
-            const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
-            const std::vector<IndexFieldNameAndTypePair>& storage_name_and_type_vec,
-            std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
-                    common_expr_index_status,
-            ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment = nullptr,
-            const segment_v2::ColumnIteratorOptions& column_iter_opts = {})
+    IndexExecContext(const std::vector<ColumnId>& col_ids,
+                     const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& index_iterators,
+                     const std::vector<IndexFieldNameAndTypePair>& storage_name_and_type_vec,
+                     std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
+                             common_expr_index_status,
+                     ScoreRuntimeSPtr score_runtime, segment_v2::Segment* segment = nullptr,
+                     const segment_v2::ColumnIteratorOptions& column_iter_opts = {})
             : _col_ids(col_ids),
               _index_iterators(index_iterators),
               _storage_name_and_type(storage_name_and_type_vec),
@@ -110,8 +109,7 @@ public:
         return &_storage_name_and_type[column_id];
     }
 
-    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(
-            ColumnId column_id) const {
+    const IndexFieldNameAndTypePair* get_storage_name_and_type_by_id(ColumnId column_id) const {
         if (column_id >= _storage_name_and_type.size()) {
             return nullptr;
         }
@@ -160,8 +158,7 @@ public:
         return _index_result_column;
     }
 
-    const segment_v2::InvertedIndexResultBitmap* get_index_result_for_expr(
-            const VExpr* expr) {
+    const segment_v2::InvertedIndexResultBitmap* get_index_result_for_expr(const VExpr* expr) {
         auto iter = _index_result_bitmap.find(expr);
         if (iter == _index_result_bitmap.end()) {
             return nullptr;
@@ -187,8 +184,7 @@ public:
 
     ScoreRuntimeSPtr get_score_runtime() const { return _score_runtime; }
 
-    void set_analyzer_ctx_for_expr(const VExpr* expr,
-                                   InvertedIndexAnalyzerCtxSPtr analyzer_ctx) {
+    void set_analyzer_ctx_for_expr(const VExpr* expr, InvertedIndexAnalyzerCtxSPtr analyzer_ctx) {
         if (expr == nullptr || analyzer_ctx == nullptr) {
             return;
         }
@@ -228,8 +224,7 @@ private:
     const std::vector<IndexFieldNameAndTypePair>& _storage_name_and_type;
 
     // A map of expressions to their corresponding inverted index result bitmaps.
-    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap>
-            _index_result_bitmap;
+    std::unordered_map<const VExpr*, segment_v2::InvertedIndexResultBitmap> _index_result_bitmap;
 
     // A map of expressions to their corresponding result columns.
     std::unordered_map<const VExpr*, ColumnPtr> _index_result_column;
@@ -238,8 +233,7 @@ private:
     std::unordered_map<const VExpr*, InvertedIndexAnalyzerCtxSPtr> _expr_analyzer_ctx;
 
     // A reference to a map of common expressions to their inverted index evaluation status.
-    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>&
-            _expr_index_status;
+    std::unordered_map<ColumnId, std::unordered_map<const VExpr*, bool>>& _expr_index_status;
 
     ScoreRuntimeSPtr _score_runtime;
 
@@ -399,8 +393,7 @@ public:
             const std::vector<std::unique_ptr<segment_v2::IndexIterator>>& cid_to_index_iterators,
             const std::vector<ColumnId>& idx_to_cid,
             const std::vector<std::unique_ptr<segment_v2::ColumnIterator>>& column_iterators,
-            const std::unordered_map<VExprContext*,
-                                     std::unordered_map<ColumnId, VExpr*>>&
+            const std::unordered_map<VExprContext*, std::unordered_map<ColumnId, VExpr*>>&
                     common_expr_to_slotref_map,
             roaring::Roaring& row_bitmap, segment_v2::AnnIndexStats& ann_index_stats);
 
