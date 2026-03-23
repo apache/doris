@@ -324,10 +324,24 @@ ObjectStorageResponse S3ObjStorageClient::get_object(const ObjectStoragePathOpti
     SCOPED_BVAR_LATENCY(s3_bvar::s3_get_latency);
     auto outcome = s3_get_rate_limit([&]() { return _client->GetObject(request); });
     if (!outcome.IsSuccess()) {
+        auto& err = outcome.GetError();
+        // Heuristic: mark as retriable only for SDK-level flush errors.
+        // Conditions: REQUEST_NOT_MADE + INTERNAL_FAILURE + empty exceptionName
+        //             + message contains "Failed to flush"
+        // This excludes: local rate limiter errors (exceptionName="exceeds limit"),
+        //                other INTERNAL_FAILURE with different messages,
+        //                NETWORK_CONNECTION errors (already retried by SDK).
+        bool retriable =
+                (err.GetResponseCode() == Aws::Http::HttpResponseCode::REQUEST_NOT_MADE &&
+                 err.GetErrorType() == Aws::S3::S3Errors::INTERNAL_FAILURE &&
+                 err.GetExceptionName().empty() &&
+                 err.GetMessage().find("Failed to flush") != Aws::String::npos);
         return {convert_to_obj_response(s3fs_error(
-                        outcome.GetError(), fmt::format("failed to read from {}", opts.key))),
-                static_cast<int>(outcome.GetError().GetResponseCode()),
-                outcome.GetError().GetRequestId()};
+                        err, fmt::format("failed to read from {}", opts.key))),
+                static_cast<int>(err.GetResponseCode()),
+                err.GetRequestId(),
+                static_cast<int>(err.GetErrorType()),
+                retriable};
     }
     *size_return = outcome.GetResult().GetContentLength();
     // case for incomplete read

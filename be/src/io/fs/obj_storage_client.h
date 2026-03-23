@@ -62,6 +62,8 @@ struct ObjectStorageResponse {
     ObjectStorageStatus status {};
     int http_code {200};
     std::string request_id = std::string();
+    int error_type {-1};       // AWS/S3 error enum numeric value, -1 = OK (no error)
+    bool is_retriable {false}; // true = transient error that application layer should retry
     static ObjectStorageResponse OK() {
         // clang-format off
         return {

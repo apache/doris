@@ -52,6 +52,7 @@ bvar::Adder<uint64_t> s3_file_reader_total("s3_file_reader", "total_num");
 bvar::Adder<uint64_t> s3_bytes_read_total("s3_file_reader", "bytes_read");
 bvar::Adder<uint64_t> s3_file_being_read("s3_file_reader", "file_being_read");
 bvar::Adder<uint64_t> s3_file_reader_too_many_request_counter("s3_file_reader", "too_many_request");
+bvar::Adder<uint64_t> s3_file_reader_transient_error_counter("s3_file_reader", "transient_error");
 bvar::LatencyRecorder s3_bytes_per_read("s3_file_reader", "bytes_per_read"); // also QPS
 bvar::PerSecond<bvar::Adder<uint64_t>> s3_read_througthput("s3_file_reader", "s3_read_throughput",
                                                            &s3_bytes_read_total);
@@ -158,6 +159,8 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
     }};
     SCOPED_RAW_TIMER(&_s3_stats.total_get_request_time_ns);
 
+    constexpr int max_transient_retries = 3;
+    int transient_retry_count = 0;
     int total_sleep_time = 0;
     while (retry_count <= max_retries) {
         *bytes_read = 0;
@@ -166,6 +169,15 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         auto resp = client->get_object( { .bucket = _bucket, .key = _key, },
                 to, offset, bytes_req, bytes_read);
         // clang-format on
+        DBUG_EXECUTE_IF("s3_file_reader.transient_error", {
+            if (transient_retry_count < dp->param("inject_count", 1)) {
+                resp.status.code = ErrorCode::INTERNAL_ERROR;
+                resp.status.msg = "injected: Failed to flush response stream";
+                resp.http_code = -1;
+                resp.error_type = 1; // INTERNAL_FAILURE
+                resp.is_retriable = true;
+            }
+        });
         _s3_stats.total_get_request_counter++;
         if (resp.status.code != ErrorCode::OK) {
             if (resp.http_code ==
@@ -179,10 +191,23 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
                 _s3_stats.too_many_request_sleep_time_ms += wait_time;
                 total_sleep_time += wait_time;
                 continue;
+            } else if (resp.is_retriable && transient_retry_count < max_transient_retries) {
+                transient_retry_count++;
+                s3_file_reader_transient_error_counter << 1;
+                int wait_time = std::min(base_wait_time * (1 << transient_retry_count),
+                                         max_wait_time);
+                LOG(WARNING) << fmt::format(
+                        "s3 read transient error, retry {}/{} after {}ms, path={}, "
+                        "http_code={}, error_type={}, msg={}",
+                        transient_retry_count, max_transient_retries, wait_time,
+                        _path.native(), resp.http_code, resp.error_type, resp.status.msg);
+                std::this_thread::sleep_for(std::chrono::milliseconds(wait_time));
+                _s3_stats.transient_error_retry_counter++;
+                _s3_stats.transient_error_sleep_time_ms += wait_time;
+                total_sleep_time += wait_time;
+                continue;
             } else {
-                // Handle other errors
-                return std::move(Status(resp.status.code, std::move(resp.status.msg))
-                                         .append("failed to read"));
+                return Status(resp.status.code, std::move(resp.status.msg));
             }
         }
         if (*bytes_read != bytes_req) {
@@ -197,9 +222,11 @@ Status S3FileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_rea
         s3_bytes_read_total << bytes_req;
         s3_bytes_per_read << bytes_req;
         DorisMetrics::instance()->s3_bytes_read_total->increment(bytes_req);
-        if (retry_count > 0) {
-            LOG(INFO) << fmt::format("read s3 file {} succeed after {} times with {} ms sleeping",
-                                     _path.native(), retry_count, total_sleep_time);
+        if (retry_count > 0 || transient_retry_count > 0) {
+            LOG(INFO) << fmt::format(
+                    "read s3 file {} succeed after {} 429-retries and {} transient-retries "
+                    "with {} ms sleeping",
+                    _path.native(), retry_count, transient_retry_count, total_sleep_time);
         }
         return Status::OK();
     }
@@ -225,12 +252,18 @@ void S3FileReader::_collect_profile_before_close() {
                 ADD_CHILD_COUNTER(_profile, "TotalBytesRead", TUnit::BYTES, s3_profile_name);
         RuntimeProfile::Counter* total_get_request_time_ns =
                 ADD_CHILD_TIMER(_profile, "TotalGetRequestTime", s3_profile_name);
+        RuntimeProfile::Counter* transient_error_retry_counter =
+                ADD_CHILD_COUNTER(_profile, "TransientErrorRetry", TUnit::UNIT, s3_profile_name);
+        RuntimeProfile::Counter* transient_error_sleep_time = ADD_CHILD_COUNTER(
+                _profile, "TransientErrorSleepTime", TUnit::TIME_MS, s3_profile_name);
 
         COUNTER_UPDATE(total_get_request_counter, _s3_stats.total_get_request_counter);
         COUNTER_UPDATE(too_many_request_err_counter, _s3_stats.too_many_request_err_counter);
         COUNTER_UPDATE(too_many_request_sleep_time, _s3_stats.too_many_request_sleep_time_ms);
         COUNTER_UPDATE(total_bytes_read, _s3_stats.total_bytes_read);
         COUNTER_UPDATE(total_get_request_time_ns, _s3_stats.total_get_request_time_ns);
+        COUNTER_UPDATE(transient_error_retry_counter, _s3_stats.transient_error_retry_counter);
+        COUNTER_UPDATE(transient_error_sleep_time, _s3_stats.transient_error_sleep_time_ms);
     }
 }
 
