@@ -1237,7 +1237,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                                  PipelinePtr& cur_pipe, int parent_idx,
                                                  int child_idx,
                                                  const bool followed_by_shuffled_operator,
-                                                 const bool require_bucket_distribution, OperatorPtr& cache_op) {
+                                                 const bool require_bucket_distribution,
+                                                 OperatorPtr& cache_op) {
     std::vector<DataSinkOperatorPtr> sink_ops;
     Defer defer = Defer([&]() {
         if (op) {
