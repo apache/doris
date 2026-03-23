@@ -16,6 +16,12 @@
 // under the License.
 
 suite("test_s3_read_transient_error_retry", "p0,external,nonConcurrent") {
+    // Use framework S3 config; for local testing with MinIO, override in regression-conf.groovy:
+    //   s3Endpoint = "127.0.0.1:9001"
+    //   s3BucketName = "lyk"
+    //   s3Region = "us-east-1"
+    //   ak = "minioadmin"
+    //   sk = "minioadmin"
     String ak = getS3AK()
     String sk = getS3SK()
     String s3_endpoint = getS3Endpoint()
@@ -27,7 +33,7 @@ suite("test_s3_read_transient_error_retry", "p0,external,nonConcurrent") {
         return
     }
 
-    def outFilePath = "${bucket}/test_s3_transient_error_retry/data_"
+    def outFilePath = "${bucket}/lyk_test_prefix/test_s3_transient_error_retry/data_"
 
     // Clean up before test; keep table after test for debugging
     sql """ DROP TABLE IF EXISTS test_s3_transient_error_src """
@@ -54,25 +60,30 @@ suite("test_s3_read_transient_error_retry", "p0,external,nonConcurrent") {
             "column_separator" = ","
         );
     """
-    outfile_url = res[0][3]
-    logger.info("Exported to: ${outfile_url}")
+    // outfile_url contains wildcard like s3://bucket/path/data_xxx_*.csv
+    // Replace wildcard with 0.csv to get the actual file path
+    def rawUrl = res[0][3]
+    def csvUrl = rawUrl.replaceAll('\\*', '0') + ".csv"
+    logger.info("Exported to: ${rawUrl}, reading: ${csvUrl}")
+
+    def s3TvfSql = { String uri -> """
+        SELECT count(*) FROM s3(
+            'uri' = '${uri}',
+            'format' = 'csv',
+            's3.access_key' = '${ak}',
+            's3.secret_key' = '${sk}',
+            's3.endpoint' = '${s3_endpoint}',
+            's3.region' = '${region}',
+            'column_separator' = ','
+        )
+    """}
 
     // Test 1: transient error retry succeeds (inject_count=1, first read fails, retry succeeds)
     try {
         GetDebugPoint().enableDebugPointForAllBEs(
             "s3_file_reader.transient_error", ["inject_count": "1"])
 
-        def result = sql """
-            SELECT count(*) FROM s3(
-                'uri' = '${outfile_url}.csv',
-                'format' = 'csv',
-                's3.access_key' = '${ak}',
-                's3.secret_key' = '${sk}',
-                's3.endpoint' = '${s3_endpoint}',
-                's3.region' = '${region}',
-                'column_separator' = ','
-            );
-        """
+        def result = sql s3TvfSql(csvUrl)
         logger.info("Query with transient error injection succeeded: ${result}")
         assertEquals(3, result[0][0] as int)
     } finally {
@@ -86,17 +97,7 @@ suite("test_s3_read_transient_error_retry", "p0,external,nonConcurrent") {
 
         def failed = false
         try {
-            sql """
-                SELECT count(*) FROM s3(
-                    'uri' = '${outfile_url}.csv',
-                    'format' = 'csv',
-                    's3.access_key' = '${ak}',
-                    's3.secret_key' = '${sk}',
-                    's3.endpoint' = '${s3_endpoint}',
-                    's3.region' = '${region}',
-                    'column_separator' = ','
-                );
-            """
+            sql s3TvfSql(csvUrl)
         } catch (Exception e) {
             logger.info("Query failed as expected after retry exhaustion: ${e.getMessage()}")
             assertTrue(e.getMessage().contains("Failed to flush response stream")
@@ -107,5 +108,4 @@ suite("test_s3_read_transient_error_retry", "p0,external,nonConcurrent") {
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("s3_file_reader.transient_error")
     }
-
 }
