@@ -58,7 +58,7 @@ under the License.
             <version>1.7.9</version>
         </dependency>
 
-        <!-- Test: JUnit + Mockito + SLF4J simple implementation -->
+        <!-- Test: JUnit + Mockito -->
         <dependency>
             <groupId>junit</groupId>
             <artifactId>junit</artifactId>
