@@ -27,6 +27,7 @@
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
+#include "util/defer_op.h"
 #include "storage/rowset/rowset_factory.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/olap_common.h"
@@ -183,6 +184,22 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     // with different signatures on the same (txn_id, tablet_id) load in same BE. We use _rowset_update_lock
     // to avoid them being executed concurrently to avoid correctness problem.
     std::unique_lock wrlock(tablet->get_rowset_update_lock());
+
+    // For async publish: acquire MS tablet-level lock right after memory lock,
+    // before delete bitmap calculation, to ensure mutual exclusion with compaction
+    if (_enable_async_publish) {
+        auto lock_st = _engine.meta_mgr().get_delete_bitmap_tablet_lock(
+                *tablet, _transaction_id, -1);
+        if (!lock_st.ok()) {
+            return lock_st;
+        }
+    }
+    // Release MS tablet lock on any exit path (no-op if _enable_async_publish is false)
+    Defer defer_release_tablet_lock {[&]() {
+        if (_enable_async_publish) {
+            _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
+        }
+    }};
 
     int64_t max_version = tablet->max_version_unlocked();
     int64_t t2 = MonotonicMicros();
@@ -438,41 +455,27 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
 
 Status CloudTabletCalcDeleteBitmapTask::_handle_async_publish(
         std::shared_ptr<CloudTablet> tablet, int64_t version) const {
-    // Acquire MS tablet-level lock before convert_tmp_rowset (rowset_update_lock already held)
-    RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_tablet_lock(
-            *tablet, _transaction_id, -1));
+    // MS tablet-level lock is already held (acquired in handle() before delete bitmap calculation)
 
     // Step 1: Call MS convert_tmp_rowset
     RowsetMetaSharedPtr rowset_meta;
-    auto st = _engine.meta_mgr().convert_tmp_rowset(
+    RETURN_IF_ERROR(_engine.meta_mgr().convert_tmp_rowset(
             _transaction_id, _tablet_id, version, _db_id, _table_id, _index_id, _partition_id,
-            &rowset_meta);
-    if (!st.ok()) {
-        _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
-        return st;
-    }
+            &rowset_meta));
 
     // Step 2: Create RowsetSharedPtr from returned rowset_meta
     RowsetSharedPtr rowset;
-    st = RowsetFactory::create_rowset(nullptr, "", rowset_meta, &rowset);
-    if (!st.ok()) {
-        _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
-        return st;
-    }
+    RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, "", rowset_meta, &rowset));
 
     // Step 3: Local apply - add rowset to tablet, update max_version
     {
         std::unique_lock meta_lock(tablet->get_header_lock());
         if (tablet->max_version_unlocked() >= version) {
             LOG(INFO) << "tablet=" << _tablet_id << " already applied version=" << version;
-            _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
             return Status::OK();
         }
         tablet->add_rowsets({rowset}, false /* version_overlap */, meta_lock);
     }
-
-    // Release MS tablet-level lock after local apply
-    _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
 
     LOG(INFO) << "async publish apply succeeded, tablet_id=" << _tablet_id
               << ", txn_id=" << _transaction_id << ", version=" << version;
