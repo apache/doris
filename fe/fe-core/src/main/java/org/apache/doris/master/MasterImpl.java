@@ -136,7 +136,8 @@ public class MasterImpl {
                         && taskType != TTaskType.DOWNLOAD && taskType != TTaskType.MOVE
                         && taskType != TTaskType.CLONE && taskType != TTaskType.PUBLISH_VERSION
                         && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
-                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE) {
+                        && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
+                        && taskType != TTaskType.REALTIME_PUSH) {
                     return result;
                 }
             }
@@ -149,8 +150,6 @@ public class MasterImpl {
                     finishCreateReplica(task, request);
                     break;
                 case REALTIME_PUSH:
-                    checkHasTabletInfo(request);
-                    Preconditions.checkState(request.isSetReportVersion());
                     finishRealtimePush(task, request);
                     break;
                 case PUBLISH_VERSION:
@@ -282,26 +281,46 @@ public class MasterImpl {
         }
     }
 
-    private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) {
-        List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
-        Preconditions.checkState(finishTabletInfos != null && !finishTabletInfos.isEmpty());
-
+    private void finishRealtimePush(AgentTask task, TFinishTaskRequest request) throws Exception {
         PushTask pushTask = (PushTask) task;
 
         long dbId = pushTask.getDbId();
         long backendId = pushTask.getBackendId();
         long signature = task.getSignature();
         long transactionId = ((PushTask) task).getTransactionId();
+
+        long tableId = pushTask.getTableId();
+        long partitionId = pushTask.getPartitionId();
+        long pushIndexId = pushTask.getIndexId();
+        long pushTabletId = pushTask.getTabletId();
+
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            if (pushTask.getPushType() == TPushType.DELETE) {
+                TStatus taskStatus = request.getTaskStatus();
+                List<String> errorMsgs = taskStatus.isSetErrorMsgs() ? taskStatus.getErrorMsgs() : new ArrayList<>();
+                String msg = task.getBackendId() + ": " + errorMsgs.toString();
+
+                LOG.warn("finish push replica, signature={}, error: {}", signature, errorMsgs.toString());
+
+                if (taskStatus.getStatusCode() == TStatusCode.INVALID_ARGUMENT) {
+                    pushTask.countDownToZero(taskStatus.getStatusCode(), msg);
+                } else {
+                    pushTask.countDownLatch(backendId, pushTabletId);
+                }
+                AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
+            }
+            return;
+        }
+
+        checkHasTabletInfo(request);
+        List<TTabletInfo> finishTabletInfos = request.getFinishTabletInfos();
+
         Database db = Catalog.getCurrentInternalCatalog().getDbNullable(dbId);
         if (db == null) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             return;
         }
 
-        long tableId = pushTask.getTableId();
-        long partitionId = pushTask.getPartitionId();
-        long pushIndexId = pushTask.getIndexId();
-        long pushTabletId = pushTask.getTabletId();
         // push finish type:
         //                  numOfFinishTabletInfos  tabletId schemaHash
         // Normal:                     1                   /          /
@@ -344,6 +363,7 @@ public class MasterImpl {
             }
 
             // should be done before addReplicaPersistInfos and countDownLatch
+            Preconditions.checkState(request.isSetReportVersion());
             long reportVersion = request.getReportVersion();
             Catalog.getCurrentSystemInfo().updateBackendReportVersion(task.getBackendId(), reportVersion,
                                                                        task.getDbId(), task.getTableId());
@@ -412,6 +432,9 @@ public class MasterImpl {
         } catch (MetaNotFoundException e) {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
+            if (pushTask.getPushType() == TPushType.DELETE) {
+                pushTask.countDownLatch(backendId, pushTabletId);
+            }
         } finally {
             olapTable.writeUnlock();
         }

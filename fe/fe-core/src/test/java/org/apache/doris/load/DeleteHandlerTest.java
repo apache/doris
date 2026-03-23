@@ -242,6 +242,14 @@ public class DeleteHandlerTest {
             }
         };
 
+        int[] sleepCount = new int[1];
+        new MockUp<Thread>() {
+            @Mock
+            public static void sleep(long millis) {
+                sleepCount[0]++;
+            }
+        };
+
         new MockUp<GlobalTransactionMgr>() {
             @Mock
             public TransactionState getTransactionState(long transactionId) {
@@ -268,6 +276,7 @@ public class DeleteHandlerTest {
         for (DeleteJob job : jobs) {
             Assert.assertEquals(job.getState(), DeleteState.QUORUM_FINISHED);
         }
+        Assert.assertEquals(0, sleepCount[0]);
     }
 
     @Test

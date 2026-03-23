@@ -326,25 +326,6 @@ public class DeleteHandler implements Writable {
                                 + ", timeout(ms) " + timeoutMs + ", " + errMsg);
                     case QUORUM_FINISHED:
                     case FINISHED:
-                        try {
-                            long nowQuorumTimeMs = System.currentTimeMillis();
-                            long endQuorumTimeoutMs = nowQuorumTimeMs + timeoutMs / 2;
-                            // if job's state is quorum_finished then wait for a period of time and commit it.
-                            while (deleteJob.getState() == DeleteState.QUORUM_FINISHED
-                                    && endQuorumTimeoutMs > nowQuorumTimeMs) {
-                                deleteJob.checkAndUpdateQuorum();
-                                Thread.sleep(1000);
-                                nowQuorumTimeMs = System.currentTimeMillis();
-                                LOG.debug("wait for quorum finished delete job: {}, txn id: {}",
-                                        deleteJob.getId(), transactionId);
-                            }
-                        } catch (MetaNotFoundException e) {
-                            cancelJob(deleteJob, CancelType.METADATA_MISSING, e.getMessage());
-                            throw new DdlException(e.getMessage(), e);
-                        } catch (InterruptedException e) {
-                            cancelJob(deleteJob, CancelType.UNKNOWN, e.getMessage());
-                            throw new DdlException(e.getMessage(), e);
-                        }
                         commitJob(deleteJob, db, olapTable, timeoutMs);
                         break;
                     default:

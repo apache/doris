@@ -25,6 +25,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.MarkedCountDownLatch;
+import org.apache.doris.common.Status;
 import org.apache.doris.thrift.TBrokerScanRange;
 import org.apache.doris.thrift.TCondition;
 import org.apache.doris.thrift.TDescriptorTable;
@@ -32,6 +33,7 @@ import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TPushReq;
 import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TResourceInfo;
+import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TTaskType;
 
 import org.apache.logging.log4j.LogManager;
@@ -185,6 +187,14 @@ public class PushTask extends AgentTask {
                 LOG.debug("pushTask current latch count: {}. backend: {}, tablet:{}",
                          latch.getCount(), backendId, tabletId);
             }
+        }
+    }
+
+    // call this always means one of tasks is failed. count down to zero to finish entire task
+    public void countDownToZero(TStatusCode code, String errMsg) {
+        if (this.latch != null) {
+            latch.countDownToZero(new Status(code, errMsg));
+            LOG.debug("PushTask count down to zero. error msg: {}", errMsg);
         }
     }
 
