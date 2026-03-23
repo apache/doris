@@ -1,3 +1,20 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
 package org.apache.doris.sdk.load;
 
 import org.apache.doris.sdk.load.config.DorisConfig;
@@ -79,22 +96,22 @@ public class DorisLoadClient implements AutoCloseable {
         }
         Exception lastException = null;
         LoadResponse lastResponse = null;
-        long totalRetryTimeMs = 0L;
         long operationStart = System.currentTimeMillis();
 
         for (int attempt = 0; attempt <= maxRetries; attempt++) {
             if (attempt > 0) {
                 log.info("Retry attempt {}/{}", attempt, maxRetries);
-                long backoff = calculateBackoffMs(attempt, baseIntervalMs, maxTotalTimeMs, totalRetryTimeMs);
+                // Use actual wall-clock elapsed time (includes request time, not just sleep time)
+                long elapsed = System.currentTimeMillis() - operationStart;
+                long backoff = calculateBackoffMs(attempt, baseIntervalMs, maxTotalTimeMs, elapsed);
 
-                if (maxTotalTimeMs > 0 && totalRetryTimeMs + backoff > maxTotalTimeMs) {
+                if (maxTotalTimeMs > 0 && elapsed + backoff > maxTotalTimeMs) {
                     log.warn("Next retry backoff ({}ms) would exceed total limit ({}ms). Stopping.", backoff, maxTotalTimeMs);
                     break;
                 }
 
-                log.info("Waiting {}ms before retry (total retry time so far: {}ms)", backoff, totalRetryTimeMs);
+                log.info("Waiting {}ms before retry (elapsed so far: {}ms)", backoff, elapsed);
                 sleep(backoff);
-                totalRetryTimeMs += backoff;
             } else {
                 log.info("Initial load attempt");
             }
@@ -116,15 +133,17 @@ public class DorisLoadClient implements AutoCloseable {
                 // Retryable: network error, HTTP 5xx, etc.
                 lastException = e;
                 log.error("Attempt {} failed with retryable error: ", attempt + 1, e);
+
+                // Check elapsed wall-clock time (same guard as the Exception branch below)
+                long elapsed = System.currentTimeMillis() - operationStart;
+                if (maxTotalTimeMs > 0 && elapsed > maxTotalTimeMs) {
+                    log.warn("Total elapsed time ({}ms) exceeded limit ({}ms), stopping retries.", elapsed, maxTotalTimeMs);
+                    break;
+                }
             } catch (Exception e) {
                 // Wrap unexpected exceptions as retryable
                 lastException = new StreamLoadException("Unexpected error building request: " + e.getMessage(), e);
-                log.error("Attempt {} failed with unexpected error: {}", attempt + 1, e.getMessage());
-
-                if (attempt == maxRetries) {
-                    log.warn("Reached maximum retry attempts ({}), stopping.", maxRetries);
-                    break;
-                }
+                log.error("Attempt {} failed with unexpected error: ", attempt + 1, e);
 
                 // Check elapsed wall-clock time
                 long elapsed = System.currentTimeMillis() - operationStart;
@@ -153,13 +172,15 @@ public class DorisLoadClient implements AutoCloseable {
      * Package-private for unit testing.
      *
      * Formula: base * 2^(attempt-1), constrained by remaining total time and absolute max.
+     *
+     * @param elapsedMs actual wall-clock time elapsed since the operation started (includes request time)
      */
-    static long calculateBackoffMs(int attempt, long baseIntervalMs, long maxTotalTimeMs, long currentRetryTimeMs) {
+    static long calculateBackoffMs(int attempt, long baseIntervalMs, long maxTotalTimeMs, long elapsedMs) {
         if (attempt <= 0) return 0;
         long intervalMs = baseIntervalMs * (1L << (attempt - 1)); // base * 2^(attempt-1)
 
         if (maxTotalTimeMs > 0) {
-            long remaining = maxTotalTimeMs - currentRetryTimeMs - 5000; // reserve 5s for request
+            long remaining = maxTotalTimeMs - elapsedMs - 5000; // reserve 5s for the next request
             if (remaining <= 0) {
                 intervalMs = 0;
             } else if (intervalMs > remaining) {
