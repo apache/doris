@@ -55,9 +55,8 @@ public class QeService {
         try {
             HelpModule.getInstance().setUpModule(HelpModule.HELP_ZIP_FILE_NAME);
         } catch (Exception e) {
-            LOG.warn("Help module failed. ignore it.", e);
-            // TODO: ignore the help module failure temporarily.
-            // We should fix it in the future.
+            // Expected when help-resource.zip is not present, suppress stack trace
+            LOG.warn("Help module failed. ignore it: {}", e.getMessage());
         }
 
         if (!mysqlServer.start()) {

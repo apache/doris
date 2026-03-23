@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.CustomThreadFactory;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -82,7 +83,12 @@ public class TokenManager {
             try {
                 return acquireTokenFromMaster();
             } catch (TException e) {
-                LOG.warn("acquire token error", e);
+                Throwable rootCause = Util.getRootCause(e);
+                if (rootCause instanceof java.net.ConnectException) {
+                    LOG.warn("acquire token error: {}", Util.getRootCauseMessage(e));
+                } else {
+                    LOG.warn("acquire token error", e);
+                }
                 throw new UserException("Acquire token from master failed", e);
             }
         }

@@ -260,7 +260,8 @@ public class CacheHotspotManagerUtils {
             try {
                 connectContext.getCloudCluster();
             } catch (ComputeGroupException e) {
-                LOG.warn("failed to get compute group name", e);
+                // Expected error during initialization, suppress stack trace
+                LOG.warn("failed to get compute group name: {}", e.getMessage());
             }
         }
 
