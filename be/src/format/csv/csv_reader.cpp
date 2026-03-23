@@ -585,6 +585,10 @@ Status CsvReader::_create_file_reader(bool need_schema) {
 
 Status CsvReader::_create_line_reader() {
     std::shared_ptr<TextLineReaderContextIf> text_line_reader_ctx;
+    // Hive TextInputFormat defines one record per physical line, so OpenCSVSerde must not
+    // merge rows across line delimiters even if a quote stays open.
+    const bool allow_multiline_records =
+            !(_range.__isset.table_format_params && _range.table_format_params.table_format_type == "hive");
     if (_enclose == 0) {
         text_line_reader_ctx = std::make_shared<PlainTextLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _keep_cr);
@@ -596,7 +600,7 @@ Status CsvReader::_create_line_reader() {
         size_t col_sep_num = _file_slot_descs.size() > 1 ? _file_slot_descs.size() - 1 : 0;
         _enclose_reader_ctx = std::make_shared<EncloseCsvLineReaderCtx>(
                 _line_delimiter, _line_delimiter_length, _value_separator, _value_separator_length,
-                col_sep_num, _enclose, _escape, _keep_cr);
+                col_sep_num, _enclose, _escape, _keep_cr, allow_multiline_records);
         text_line_reader_ctx = _enclose_reader_ctx;
 
         _fields_splitter = std::make_unique<EncloseCsvTextFieldSplitter>(

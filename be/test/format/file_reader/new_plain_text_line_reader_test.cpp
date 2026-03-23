@@ -71,9 +71,10 @@ protected:
     void verify_csv_split(const std::string& input, const std::string& line_delim,
                           const std::string& col_sep, char enclose, char escape, bool keep_cr,
                           const std::vector<std::string>& expected_lines,
-                          const std::vector<std::vector<size_t>>& expected_col_positions) {
+                          const std::vector<std::vector<size_t>>& expected_col_positions,
+                          bool allow_multiline = true) {
         EncloseCsvLineReaderCtx ctx(line_delim, line_delim.size(), col_sep, col_sep.size(), 10,
-                                    enclose, escape, keep_cr);
+                                    enclose, escape, keep_cr, allow_multiline);
 
         const auto* data = reinterpret_cast<const uint8_t*>(input.c_str());
         size_t pos = 0;
@@ -163,6 +164,11 @@ TEST_F(EncloseCsvLineReaderTest, MultiCharDelimiters) {
 
     verify_csv_split("\"a|||b\"|||c\r\n\n\"d|||e\"|||f", "\r\n\n", "|||", '"', '\\', false,
                      {"\"a|||b\"|||c", "\"d|||e\"|||f"}, {{7}, {7}});
+}
+
+TEST_F(EncloseCsvLineReaderTest, HiveTextInputFormatKeepsPhysicalLineBoundaries) {
+    verify_csv_split("'corp\nname',x\nplain,y", "\n", ",", '\'', '\\', false,
+                     {"'corp", "name',x", "plain,y"}, {{}, {5}, {5}}, false);
 }
 
 } // namespace doris
