@@ -41,22 +41,33 @@ struct CastParameters;
 // operations according to the specified timezone.
 // This requires that both reading and writing operations need a timezone parameter.
 // Therefore, we implement a separate TIMESTAMPTZ type to prevent misuse.
+//
+// TimestampTzValue inherits from DateV2ValueBase<DateTimeV2ValueType> which provides all
+// date/time computation methods (date_add_interval, datetime_trunc, from_unixtime, etc.)
+// without delegation. TimestampTzValue adds only timezone-aware methods.
 
-class TimestampTzValue {
+class TimestampTzValue : public DateV2ValueBase<DateTimeV2ValueType> {
+    using Base = DateV2ValueBase<DateTimeV2ValueType>;
+
 public:
     using underlying_value = uint64_t;
     const static TimestampTzValue DEFAULT_VALUE;
+    static const TimestampTzValue FIRST_DAY;
 
-    explicit TimestampTzValue(underlying_value u64) : _utc_dt(u64) {}
+    TimestampTzValue() : Base(MIN_DATETIME_V2) {}
 
-    TimestampTzValue() : _utc_dt(MIN_DATETIME_V2) {}
+    explicit TimestampTzValue(underlying_value u64) : Base(u64) {}
 
-    TimestampTzValue(const DateV2Value<DateTimeV2ValueType>& dt) : _utc_dt(dt) {}
+    TimestampTzValue(const DateV2Value<DateTimeV2ValueType>& dt) // NOLINT: implicit from DateTimeV2
+            : Base(dt.to_date_int_val()) {}
 
-    DateV2Value<DateTimeV2ValueType> utc_dt() const { return _utc_dt; }
+    // Return a DateTimeV2 copy of the UTC datetime value (for backward compatibility)
+    DateV2Value<DateTimeV2ValueType> utc_dt() const {
+        return DateTimeV2(to_date_int_val());
+    }
 
-    // Returns an integer value for storage in a column
-    underlying_value to_date_int_val() const { return _utc_dt.to_date_int_val(); }
+    // Bring base class to_string(char*) into scope (needed by operator<< and other generic code)
+    using Base::to_string;
 
     // Outputs a string representation with timezone information in the format +03:00
     std::string to_string(const cctz::time_zone& local_time_zone, int scale = 6) const;
@@ -76,71 +87,6 @@ public:
     // Default column value (since the default value 0 for UInt64 is not a valid datetime)
     static underlying_value default_column_value() { return MIN_DATETIME_V2; }
 
-    // Check if the datetime part is valid
-    bool is_valid_date() const { return _utc_dt.is_valid_date(); }
-
-    uint16_t year() const { return _utc_dt.year(); }
-    uint8_t month() const { return _utc_dt.month(); }
-    uint8_t day() const { return _utc_dt.day(); }
-    uint8_t hour() const { return _utc_dt.hour(); }
-    uint8_t minute() const { return _utc_dt.minute(); }
-    uint8_t second() const { return _utc_dt.second(); }
-    uint32_t microsecond() const { return _utc_dt.microsecond(); }
-    int64_t daynr() const { return _utc_dt.daynr(); }
-    int quarter() const { return _utc_dt.quarter(); }
-
-    // Methods needed for time rounding
-    int64_t datetime_diff_in_seconds(const TimestampTzValue& other) const {
-        return _utc_dt.datetime_diff_in_seconds(other._utc_dt);
-    }
-
-    template <TimeUnit unit>
-    bool date_set_interval(const TimeInterval& interval) {
-        return _utc_dt.date_set_interval<unit>(interval);
-    }
-
-    template <TimeUnit unit>
-    void unchecked_set_time_unit(uint32_t value) {
-        _utc_dt.unchecked_set_time_unit<unit>(value);
-    }
-
-    void unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
-                            uint8_t second, uint32_t microsecond = 0) {
-        _utc_dt.unchecked_set_time(year, month, day, hour, minute, second, microsecond);
-    }
-
-    bool check_range_and_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
-                                  uint8_t minute, uint8_t second, uint32_t microsecond = 0) {
-        return _utc_dt.check_range_and_set_time(year, month, day, hour, minute, second,
-                                                microsecond);
-    }
-
-    void set_int_val(underlying_value value) { _utc_dt.set_int_val(value); }
-
-    // Special constant for first day
-    static const TimestampTzValue FIRST_DAY;
-
-    template <TimeUnit unit, bool need_check = true>
-    bool date_add_interval(const TimeInterval& interval) {
-        return _utc_dt.date_add_interval<unit, need_check>(interval);
-    }
-
-    // truncate datetime to specified unit
-    template <TimeUnit unit>
-    bool datetime_trunc() {
-        return _utc_dt.datetime_trunc<unit>();
-    }
-
-    void from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
-        _utc_dt.from_unixtime(timestamp, ctz);
-    }
-
-    void set_microsecond(uint64_t microsecond) { _utc_dt.set_microsecond(microsecond); }
-
-    void unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
-        _utc_dt.unix_timestamp(timestamp, ctz);
-    }
-
     // Convert UTC time to local time based on the given timezone
     void convert_utc_to_local(const cctz::time_zone& local_time_zone,
                               DateV2Value<DateTimeV2ValueType>& dt) const;
@@ -149,43 +95,24 @@ public:
     void convert_local_to_utc(const cctz::time_zone& local_time_zone,
                               const DateV2Value<DateTimeV2ValueType>& dt);
 
-    TimestampTzValue& operator++() {
-        ++_utc_dt;
-        return *this;
-    }
-
-    TimestampTzValue& operator--() {
-        --_utc_dt;
-        return *this;
-    }
-
+    // Override self-returning operators to return TimestampTzValue&
     TimestampTzValue& operator+=(int64_t rhs) {
-        _utc_dt += rhs;
+        Base::operator+=(rhs);
         return *this;
     }
-
-    TimestampTzValue& operator-=(int64_t rhs) {
-        _utc_dt -= rhs;
-        return *this;
-    }
-
-    bool operator==(const TimestampTzValue& rhs) const { return _utc_dt == rhs._utc_dt; }
-
-    bool operator!=(const TimestampTzValue& rhs) const { return _utc_dt != rhs._utc_dt; }
-
-    bool operator<(const TimestampTzValue& rhs) const { return _utc_dt < rhs._utc_dt; }
-
-    bool operator<=(const TimestampTzValue& rhs) const { return _utc_dt <= rhs._utc_dt; }
-
-    bool operator>(const TimestampTzValue& rhs) const { return _utc_dt > rhs._utc_dt; }
-
-    bool operator>=(const TimestampTzValue& rhs) const { return _utc_dt >= rhs._utc_dt; }
-
-private:
-    DateV2Value<DateTimeV2ValueType> _utc_dt;
+    TimestampTzValue& operator-=(int64_t rhs) { return *this += -rhs; }
+    TimestampTzValue& operator++() { return *this += 1; }
+    TimestampTzValue& operator--() { return *this += -1; }
 };
 inline const TimestampTzValue TimestampTzValue::DEFAULT_VALUE =
         TimestampTzValue(DateV2Value<DateTimeV2ValueType>::DEFAULT_VALUE.to_date_int_val());
+
+static_assert(std::is_trivially_destructible_v<TimestampTzValue>,
+              "TimestampTzValue must be trivially destructible");
+static_assert(std::is_trivially_copyable_v<TimestampTzValue>,
+              "TimestampTzValue must be trivially copyable");
+static_assert(sizeof(TimestampTzValue) == sizeof(uint64_t),
+              "TimestampTzValue must be 8 bytes");
 
 } // namespace doris
 

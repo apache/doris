@@ -221,8 +221,7 @@ private:
                                                     std::integral_constant<TimeUnit, TimeUnit::DAY>,
                                                     TimeUnitOrVoid>;
                     int move = 0;
-                    while (doris::datetime_diff<UNIT::value, DateTimeV2ValueType,
-                                                DateTimeV2ValueType>(idx, end_row) > 0) {
+                    while (doris::datetime_diff<UNIT::value>(idx, end_row) > 0) {
                         if (move > max_array_size_as_field) {
                             return Status::InvalidArgument("Array size exceeds the limit {}",
                                                            max_array_size_as_field);
