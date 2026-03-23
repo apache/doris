@@ -664,6 +664,7 @@ message TabletMetaInfoPB { // For update tablet meta
     optional bool disable_auto_compaction = 13;
     optional bool enable_mow_light_delete = 14;
     optional int32 vertical_compaction_num_columns_per_group = 15;
+    optional string group_commit_mode = 16;
 }
 
 message TabletCompactionJobPB {

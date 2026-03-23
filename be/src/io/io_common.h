@@ -94,6 +94,7 @@ struct IOContext {
     bool is_dryrun = false;
     // if `is_warmup` == true, this I/O request is from a warm up task
     bool is_warmup {false};
+    int64_t condition_cache_filtered_rows = 0;
 };
 
 } // namespace io

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -66,8 +67,8 @@ public class PhysicalBlackholeSink<CHILD_TYPE extends Plan> extends PhysicalSink
     public PhysicalBlackholeSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalBlackholeSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalBlackholeSink<>(outputExprs, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalBlackholeSink<>(outputExprs, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
@@ -82,8 +83,8 @@ public class PhysicalBlackholeSink<CHILD_TYPE extends Plan> extends PhysicalSink
 
     @Override
     public PhysicalBlackholeSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalBlackholeSink<>(outputExprs, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalBlackholeSink<>(outputExprs, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
@@ -91,15 +92,15 @@ public class PhysicalBlackholeSink<CHILD_TYPE extends Plan> extends PhysicalSink
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalBlackholeSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalBlackholeSink<>(outputExprs, groupExpression, logicalProperties.get(),
-                physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalBlackholeSink<>(outputExprs, groupExpression,
+                logicalProperties.get(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalBlackholeSink<Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalBlackholeSink<>(outputExprs, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalBlackholeSink<>(outputExprs, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

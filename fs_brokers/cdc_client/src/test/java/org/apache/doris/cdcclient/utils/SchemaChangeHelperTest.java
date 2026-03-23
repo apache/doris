@@ -147,12 +147,19 @@ class SchemaChangeHelperTest {
 
     @Test
     void networkAndMiscTypes_isString() {
-        assertEquals(DorisType.STRING, map("inet", -1, -1));
-        assertEquals(DorisType.STRING, map("cidr", -1, -1));
+        assertEquals(DorisType.STRING, map("inet",    -1, -1));
+        assertEquals(DorisType.STRING, map("cidr",    -1, -1));
         assertEquals(DorisType.STRING, map("macaddr", -1, -1));
-        assertEquals(DorisType.STRING, map("uuid", -1, -1));
-        assertEquals(DorisType.STRING, map("bytea", -1, -1));
-        assertEquals(DorisType.STRING, map("varbit", -1, -1));
+        assertEquals(DorisType.STRING, map("uuid",    -1, -1));
+        assertEquals(DorisType.STRING, map("bytea",   -1, -1));
+        assertEquals(DorisType.STRING, map("varbit",  -1, -1));
+    }
+
+    @Test
+    void macaddr8XmlHstoreTypes_isString() {
+        assertEquals(DorisType.STRING, map("macaddr8", -1, -1));
+        assertEquals(DorisType.STRING, map("xml",      -1, -1));
+        assertEquals(DorisType.STRING, map("hstore",   -1, -1));
     }
 
     @Test
@@ -164,6 +171,38 @@ class SchemaChangeHelperTest {
         assertEquals(DorisType.STRING, map("path", -1, -1));
         assertEquals(DorisType.STRING, map("polygon", -1, -1));
         assertEquals(DorisType.STRING, map("circle", -1, -1));
+    }
+
+    // ─── Array types ─────────────────────────────────────────────────────────
+
+    @Test
+    void arrayTypes() {
+        // covers the 10 types required by test_streaming_postgres_job_array_types
+        assertEquals("ARRAY<SMALLINT>",     map("_int2",        -1, -1));
+        assertEquals("ARRAY<INT>",          map("_int4",        -1, -1));
+        assertEquals("ARRAY<BIGINT>",       map("_int8",        -1, -1));
+        assertEquals("ARRAY<FLOAT>",        map("_float4",      -1, -1));
+        assertEquals("ARRAY<DOUBLE>",       map("_float8",      -1, -1));
+        assertEquals("ARRAY<BOOLEAN>",      map("_bool",        -1, -1));
+        assertEquals("ARRAY<STRING>",       map("_varchar",     -1, -1));
+        assertEquals("ARRAY<STRING>",       map("_text",        -1, -1));
+        assertEquals("ARRAY<DATETIME(6)>",  map("_timestamp",   -1, -1));
+        assertEquals("ARRAY<DATETIME(6)>",  map("_timestamptz", -1, -1));
+        // additional types
+        assertEquals("ARRAY<DATE>",         map("_date",        -1, -1));
+        assertEquals("ARRAY<JSON>",         map("_json",        -1, -1));
+        assertEquals("ARRAY<JSON>",         map("_jsonb",       -1, -1));
+    }
+
+    @Test
+    void arrayType_numeric_defaultPrecisionScale() {
+        assertEquals("ARRAY<DECIMAL(38, 9)>", map("_numeric", 0, -1));
+    }
+
+    @Test
+    void arrayType_nested() {
+        // Two-dimensional array: __int4 → ARRAY<ARRAY<INT>>
+        assertEquals("ARRAY<ARRAY<INT>>", map("__int4", -1, -1));
     }
 
     // ─── Unknown type fallback ───────────────────────────────────────────────

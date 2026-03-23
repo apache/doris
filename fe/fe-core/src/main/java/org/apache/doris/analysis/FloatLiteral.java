@@ -20,8 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FractionalFormat;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -146,37 +144,6 @@ public class FloatLiteral extends NumericLiteralExpr {
             nf.setMaximumFractionDigits(16);
         }
         return nf.format(value);
-    }
-
-    @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        if (type == Type.TIMEV2) {
-            // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
-            // for example '11:22:33' -> 11:22:33
-            String timeStr = getStringValue();
-            return timeStr.substring(1, timeStr.length() - 1);
-        } else {
-            if (type == Type.FLOAT) {
-                Float fValue = (float) value;
-                if (fValue.equals(Float.POSITIVE_INFINITY)) {
-                    value = Double.POSITIVE_INFINITY;
-                }
-                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
-                    value = Double.NEGATIVE_INFINITY;
-                }
-            }
-            return FractionalFormat.getFormatStringValue(value, type == Type.DOUBLE ? 16 : 7,
-                    type == Type.DOUBLE ? "%.15E" : "%.6E");
-        }
-    }
-
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        String ret = this.getStringValueForQuery(options);
-        if (type == Type.TIMEV2) {
-            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
-        }
-        return ret;
     }
 
     @Override

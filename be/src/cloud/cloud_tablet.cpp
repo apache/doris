@@ -27,6 +27,7 @@
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
@@ -41,6 +42,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet_mgr.h"
 #include "cloud/cloud_warm_up_manager.h"
+#include "cloud/config.h"
 #include "common/cast_set.h"
 #include "common/config.h"
 #include "common/logging.h"
@@ -80,6 +82,7 @@ bvar::Adder<int64_t> g_capture_with_freshness_tolerance_count(
         "capture_with_freshness_tolerance_count");
 bvar::Adder<int64_t> g_capture_with_freshness_tolerance_fallback_count(
         "capture_with_freshness_tolerance_fallback_count");
+bvar::Adder<int64_t> g_rowset_warmup_state_missing_count("rowset_warmup_state_missing_count");
 bvar::Window<bvar::Adder<int64_t>> g_capture_prefer_cache_count_window(
         "capture_prefer_cache_count_window", &g_capture_prefer_cache_count, 30);
 bvar::Window<bvar::Adder<int64_t>> g_capture_with_freshness_tolerance_count_window(
@@ -275,16 +278,34 @@ Status CloudTablet::sync_rowsets(const SyncOptions& options, SyncRowsetStats* st
     RETURN_IF_ERROR(sync_if_not_running(stats));
 
     if (options.query_version > 0) {
+        auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         if (_max_version >= options.query_version) {
             return Status::OK();
         }
     }
 
     // serially execute sync to reduce unnecessary network overhead
+    auto sync_lock_start = std::chrono::steady_clock::now();
     std::unique_lock lock(_sync_meta_lock);
+    if (stats) {
+        stats->sync_meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                 std::chrono::steady_clock::now() - sync_lock_start)
+                                                 .count();
+    }
     if (options.query_version > 0) {
+        auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         if (_max_version >= options.query_version) {
             return Status::OK();
         }
@@ -307,10 +328,22 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
     }
 
     // Serially execute sync to reduce unnecessary network overhead
+    auto sync_lock_start = std::chrono::steady_clock::now();
     std::unique_lock lock(_sync_meta_lock);
+    if (stats) {
+        stats->sync_meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                 std::chrono::steady_clock::now() - sync_lock_start)
+                                                 .count();
+    }
 
     {
+        auto lock_start = std::chrono::steady_clock::now();
         std::shared_lock rlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         if (tablet_state() == TABLET_RUNNING) {
             return Status::OK();
         }
@@ -332,7 +365,13 @@ Status CloudTablet::sync_if_not_running(SyncRowsetStats* stats) {
 
     TimestampedVersionTracker empty_tracker;
     {
+        auto lock_start = std::chrono::steady_clock::now();
         std::lock_guard wlock(_meta_lock);
+        if (stats) {
+            stats->meta_lock_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(
+                                                std::chrono::steady_clock::now() - lock_start)
+                                                .count();
+        }
         RETURN_IF_ERROR(set_tablet_state(TABLET_RUNNING));
         _rs_version_map.clear();
         _stale_rs_version_map.clear();
@@ -1557,7 +1596,32 @@ WarmUpState CloudTablet::complete_rowset_segment_warmup(WarmUpTriggerSource trig
 bool CloudTablet::is_rowset_warmed_up(const RowsetId& rowset_id) const {
     auto it = _rowset_warm_up_states.find(rowset_id);
     if (it == _rowset_warm_up_states.end()) {
-        return false;
+        // The rowset is not in warmup state, which means the rowset has never been warmed up.
+        // This may happen when the upstream BE tried to warm up rowsets on this BE but this BE
+        // was restarting so the warmup failed, and _rowset_warm_up_states has no entry for it.
+        //
+        // Normally the startup_timepoint check in rowset_is_warmed_up_unlocked() would filter out
+        // such rowsets (visible_timestamp < startup_timepoint → assumed warmed up). However,
+        // compaction-produced rowsets have their visible_timestamp set at rowset builder
+        // initialization time rather than the final transaction commit time on meta-service,
+        // so their visible_timestamp can be earlier than startup_timepoint, causing the
+        // startup_timepoint check to NOT filter them out and reaching here with no warmup entry.
+        //
+        // If such a rowset is before the cumulative compaction point and base compaction never
+        // happens, returning false here would cause the version path algorithm to exclude it,
+        // leading to a persistently low path_max_version. With continuous upstream ingestion,
+        // the freshness tolerance fallback check would keep triggering, making every query on
+        // this tablet fall back to reading all data from remote storage.
+        //
+        // Returning true (optimistically treating it as warmed up) allows the version path to
+        // include it. On cache miss the data is transparently read from remote storage per-segment
+        // and cached locally in 1MB blocks, so the problem self-heals through subsequent queries.
+        g_rowset_warmup_state_missing_count << 1;
+        LOG_EVERY_N(WARNING, 100) << fmt::format(
+                "rowset warmup state missing, considering it as warmed up. tablet_id={}, "
+                "rowset_id={}",
+                tablet_id(), rowset_id.to_string());
+        return true;
     }
     return it->second.state.progress == WarmUpProgress::DONE;
 }
@@ -1566,6 +1630,14 @@ void CloudTablet::add_warmed_up_rowset(const RowsetId& rowset_id) {
     _rowset_warm_up_states[rowset_id] = {
             .state = {.trigger_source = WarmUpTriggerSource::SYNC_ROWSET,
                       .progress = WarmUpProgress::DONE},
+            .num_segments = 1,
+            .start_tp = std::chrono::steady_clock::now()};
+}
+
+void CloudTablet::add_not_warmed_up_rowset(const RowsetId& rowset_id) {
+    _rowset_warm_up_states[rowset_id] = {
+            .state = {.trigger_source = WarmUpTriggerSource::SYNC_ROWSET,
+                      .progress = WarmUpProgress::DOING},
             .num_segments = 1,
             .start_tp = std::chrono::steady_clock::now()};
 }
@@ -1793,5 +1865,172 @@ void CloudTablet::_add_rowsets_directly(std::vector<RowsetSharedPtr>& rowsets,
     _tablet_meta->add_rowsets_unchecked(rowsets);
 }
 
+void CloudTablet::clear_unused_visible_pending_rowsets() {
+    int64_t cur_max_version = max_version().second;
+    int32_t max_version_count = max_version_config();
+    int64_t current_time = std::chrono::duration_cast<std::chrono::seconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count();
+
+    std::unique_lock<std::mutex> wlock(_visible_pending_rs_lock);
+    for (auto it = _visible_pending_rs_map.begin(); it != _visible_pending_rs_map.end();) {
+        if (int64_t version = it->first, expiration_time = it->second.expiration_time;
+            version <= cur_max_version || expiration_time < current_time) {
+            it = _visible_pending_rs_map.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    while (!_visible_pending_rs_map.empty() && _visible_pending_rs_map.size() > max_version_count) {
+        _visible_pending_rs_map.erase(--_visible_pending_rs_map.end());
+    }
+}
+
+void CloudTablet::try_make_committed_rs_visible(int64_t txn_id, int64_t visible_version,
+                                                int64_t version_update_time_ms) {
+    if (enable_unique_key_merge_on_write()) {
+        // for mow tablet, we get committed rowset from `CloudTxnDeleteBitmapCache` rather than `CommittedRowsetManager`
+        try_make_committed_rs_visible_for_mow(txn_id, visible_version, version_update_time_ms);
+        return;
+    }
+
+    auto& committed_rs_mgr = _engine.committed_rs_mgr();
+    auto res = committed_rs_mgr.get_committed_rowset(txn_id, tablet_id());
+    if (!res.has_value()) {
+        return;
+    }
+    auto [rowset_meta, expiration_time] = res.value();
+    bool is_empty_rowset = (rowset_meta == nullptr);
+    if (!is_empty_rowset) {
+        rowset_meta->set_cloud_fields_after_visible(visible_version, version_update_time_ms);
+    }
+    {
+        std::lock_guard<std::mutex> lock(_visible_pending_rs_lock);
+        _visible_pending_rs_map.emplace(
+                visible_version,
+                VisiblePendingRowset {rowset_meta, expiration_time, is_empty_rowset});
+    }
+    apply_visible_pending_rowsets();
+    committed_rs_mgr.remove_committed_rowset(txn_id, tablet_id());
+}
+
+void CloudTablet::try_make_committed_rs_visible_for_mow(int64_t txn_id, int64_t visible_version,
+                                                        int64_t version_update_time_ms) {
+    Defer defer {[&] {
+        _engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(txn_id, tablet_id());
+    }};
+    auto res = _engine.txn_delete_bitmap_cache().get_rowset_and_delete_bitmap(txn_id, tablet_id());
+    if (!res.has_value()) {
+        return;
+    }
+    auto [rowset, delete_bitmap] = res.value();
+    bool is_empty_rowset = (rowset == nullptr);
+    {
+        std::unique_lock lock {_sync_meta_lock};
+        std::unique_lock meta_wlock {_meta_lock};
+        if (_max_version + 1 != visible_version) {
+            return;
+        }
+        if (is_empty_rowset) {
+            Versions existing_versions;
+            for (const auto& [_, rs] : tablet_meta()->all_rs_metas()) {
+                existing_versions.emplace_back(rs->version());
+            }
+            if (existing_versions.empty()) {
+                return;
+            }
+            auto max_version = std::ranges::max(existing_versions, {}, &Version::first);
+            auto prev_rowset = get_rowset_by_version(max_version);
+            auto st = _engine.meta_mgr().create_empty_rowset_for_hole(
+                    this, visible_version, prev_rowset->rowset_meta(), &rowset);
+            if (!st.ok()) {
+                return;
+            }
+        } else {
+            for (const auto& [delete_bitmap_key, bitmap_value] : delete_bitmap->delete_bitmap) {
+                // skip sentinel mark, which is used for delete bitmap correctness check
+                if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                    tablet_meta()->delete_bitmap().merge(
+                            {std::get<0>(delete_bitmap_key), std::get<1>(delete_bitmap_key),
+                             visible_version},
+                            bitmap_value);
+                }
+            }
+        }
+        rowset->rowset_meta()->set_cloud_fields_after_visible(visible_version,
+                                                              version_update_time_ms);
+        add_rowsets({rowset}, false, meta_wlock, true);
+    }
+    LOG(INFO) << "mow added visible pending rowset, txn_id=" << txn_id
+              << ", tablet_id=" << tablet_id() << ", version=" << visible_version
+              << ", rowset_id=" << rowset->rowset_id().to_string();
+}
+
+void CloudTablet::apply_visible_pending_rowsets() {
+    Defer defer {[&] { clear_unused_visible_pending_rowsets(); }};
+
+    std::unique_lock lock(_sync_meta_lock);
+    std::unique_lock<std::shared_mutex> meta_wlock(_meta_lock);
+    int64_t next_version = _max_version + 1;
+    std::vector<RowsetSharedPtr> to_add;
+    std::lock_guard<std::mutex> pending_lock(_visible_pending_rs_lock);
+    for (auto it = _visible_pending_rs_map.upper_bound(_max_version);
+         it != _visible_pending_rs_map.end(); ++it) {
+        int64_t version = it->first;
+        if (version != next_version) break;
+
+        auto& pending_rs = it->second;
+        if (pending_rs.is_empty_rowset) {
+            RowsetSharedPtr prev_rowset {nullptr};
+            if (!to_add.empty()) {
+                prev_rowset = to_add.back();
+            } else {
+                Versions existing_versions;
+                for (const auto& [_, rs] : tablet_meta()->all_rs_metas()) {
+                    existing_versions.emplace_back(rs->version());
+                }
+                if (existing_versions.empty()) {
+                    break;
+                }
+                auto max_version = std::ranges::max(existing_versions, {}, &Version::first);
+                prev_rowset = get_rowset_by_version(max_version);
+            }
+            RowsetSharedPtr rowset;
+            auto st = _engine.meta_mgr().create_empty_rowset_for_hole(
+                    this, version, prev_rowset->rowset_meta(), &rowset);
+            if (!st.ok()) {
+                return;
+            }
+            to_add.push_back(std::move(rowset));
+        } else {
+            RowsetSharedPtr rowset;
+            auto st = RowsetFactory::create_rowset(nullptr, "", pending_rs.rowset_meta, &rowset);
+            if (!st.ok()) {
+                LOG(WARNING) << "failed to create rowset from pending rowset meta, tablet_id="
+                             << tablet_id() << ", version=" << version
+                             << ", rowset_id=" << pending_rs.rowset_meta->rowset_id().to_string()
+                             << ", error=" << st;
+                break;
+            }
+            to_add.push_back(std::move(rowset));
+        }
+        next_version++;
+    }
+    if (!to_add.empty()) {
+        add_rowsets(to_add, false, meta_wlock, true);
+        LOG_INFO(
+                "applied_visible_pending_rowsets, tablet_id={}, new_max_version={}, "
+                "count={}, new_rowsets={}",
+                tablet_id(), _max_version, to_add.size(),
+                fmt::join(to_add | std::views::transform([](const RowsetSharedPtr& rs) {
+                              return fmt::format("{}{}", rs->rowset_id().to_string(),
+                                                 rs->version().to_string());
+                          }),
+                          ","));
+    }
+}
+
 #include "common/compile_check_end.h"
+
 } // namespace doris

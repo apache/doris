@@ -39,6 +39,8 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "storage/olap_common.h"
+#include "storage/olap_scan_common.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris {
 class RuntimeState;
@@ -232,7 +234,13 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
-private:
+    // Condition cache for external tables
+    uint64_t _condition_cache_digest = 0;
+    segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    int64_t _condition_cache_hit_count = 0;
+
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
     Status _check_output_block_types();
@@ -276,6 +284,10 @@ private:
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
     }
+
+    bool _should_enable_condition_cache();
+    void _init_reader_condition_cache();
+    void _finalize_reader_condition_cache();
 
     TPushAggOp::type _get_push_down_agg_type() {
         return _local_state == nullptr ? TPushAggOp::type::NONE

@@ -104,6 +104,16 @@ public:
 
     bool count_read_rows() override { return _file_format_reader->count_read_rows(); }
 
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _file_format_reader->set_condition_cache_context(std::move(ctx));
+    }
+
+    bool has_delete_operations() const override {
+        return _file_format_reader->has_delete_operations();
+    }
+
+    int64_t get_total_rows() const override { return _file_format_reader->get_total_rows(); }
+
 protected:
     std::string _table_format;                          // hudi, iceberg, paimon
     std::unique_ptr<GenericReader> _file_format_reader; // parquet, orc

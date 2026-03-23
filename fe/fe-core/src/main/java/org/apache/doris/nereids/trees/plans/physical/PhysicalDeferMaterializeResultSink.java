@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -82,10 +83,10 @@ public class PhysicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalDeferMaterializeResultSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalDeferMaterializeResultSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDeferMaterializeResultSink<>(
                 physicalResultSink.withChildren(ImmutableList.of(children.get(0))),
                 olapTable, selectedIndexId, groupExpression, getLogicalProperties(),
-                physicalProperties, statistics, children.get(0));
+                physicalProperties, statistics, children.get(0)));
     }
 
     @Override
@@ -100,8 +101,9 @@ public class PhysicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDeferMaterializeResultSink<>(physicalResultSink, olapTable, selectedIndexId,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDeferMaterializeResultSink<>(physicalResultSink,
+                olapTable, selectedIndexId, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, child()));
     }
 
     @Override
@@ -109,16 +111,17 @@ public class PhysicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalDeferMaterializeResultSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalDeferMaterializeResultSink<>(
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDeferMaterializeResultSink<>(
                 physicalResultSink.withChildren(ImmutableList.of(children.get(0))),
                 olapTable, selectedIndexId, groupExpression, logicalProperties.get(),
-                physicalProperties, statistics, children.get(0));
+                physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalDeferMaterializeResultSink<>(physicalResultSink, olapTable, selectedIndexId,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDeferMaterializeResultSink<>(physicalResultSink,
+                olapTable, selectedIndexId, groupExpression, getLogicalProperties(),
+                physicalProperties, statistics, child()));
     }
 
     @Override

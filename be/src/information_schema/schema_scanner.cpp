@@ -43,6 +43,7 @@
 #include "core/value/hll.h"
 #include "exec/pipeline/dependency.h"
 #include "information_schema/schema_active_queries_scanner.h"
+#include "information_schema/schema_authentication_integrations_scanner.h"
 #include "information_schema/schema_backend_active_tasks.h"
 #include "information_schema/schema_backend_configuration_scanner.h"
 #include "information_schema/schema_backend_kerberos_ticket_cache.h"
@@ -261,6 +262,8 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaColumnDataSizesScanner::create_unique();
     case TSchemaTableType::SCH_FILE_CACHE_INFO:
         return SchemaFileCacheInfoScanner::create_unique();
+    case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
+        return SchemaAuthenticationIntegrationsScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;

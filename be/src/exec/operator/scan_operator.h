@@ -130,6 +130,9 @@ protected:
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
+    // condition cache filter stats
+    RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;

@@ -334,6 +334,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, false);
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)) {
+            PropertyAnalyzer.analyzeGroupCommitMode(properties, false);
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;

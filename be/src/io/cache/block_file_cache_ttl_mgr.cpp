@@ -40,16 +40,15 @@ BlockFileCacheTtlMgr::BlockFileCacheTtlMgr(BlockFileCache* mgr, CacheBlockMetaSt
         : _mgr(mgr), _meta_store(meta_store), _stop_background(false) {
     _tablet_id_set_size_metrics = std::make_shared<bvar::Status<size_t>>(
             _mgr->get_base_path().c_str(), "file_cache_ttl_mgr_tablet_id_set_size", 0);
-    // Start background threads
-    _update_ttl_thread =
-            std::thread(&BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map, this);
-    _expiration_check_thread =
-            std::thread(&BlockFileCacheTtlMgr::run_backgroud_expiration_check, this);
-    _tablet_id_flush_thread =
-            std::thread(&BlockFileCacheTtlMgr::run_background_tablet_id_flush, this);
+    resume();
 }
 
 BlockFileCacheTtlMgr::~BlockFileCacheTtlMgr() {
+    stop();
+}
+
+void BlockFileCacheTtlMgr::stop() {
+    std::lock_guard<std::mutex> lifecycle_lock(_thread_lifecycle_mutex);
     _stop_background.store(true, std::memory_order_release);
 
     if (_update_ttl_thread.joinable()) {
@@ -63,6 +62,22 @@ BlockFileCacheTtlMgr::~BlockFileCacheTtlMgr() {
     if (_tablet_id_flush_thread.joinable()) {
         _tablet_id_flush_thread.join();
     }
+}
+
+void BlockFileCacheTtlMgr::resume() {
+    std::lock_guard<std::mutex> lifecycle_lock(_thread_lifecycle_mutex);
+    if (_update_ttl_thread.joinable() || _expiration_check_thread.joinable() ||
+        _tablet_id_flush_thread.joinable()) {
+        return;
+    }
+
+    _stop_background.store(false, std::memory_order_release);
+    _update_ttl_thread =
+            std::thread(&BlockFileCacheTtlMgr::run_backgroud_update_ttl_info_map, this);
+    _expiration_check_thread =
+            std::thread(&BlockFileCacheTtlMgr::run_backgroud_expiration_check, this);
+    _tablet_id_flush_thread =
+            std::thread(&BlockFileCacheTtlMgr::run_background_tablet_id_flush, this);
 }
 
 void BlockFileCacheTtlMgr::register_tablet_id(int64_t tablet_id) {

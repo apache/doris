@@ -157,7 +157,14 @@ public class PropertyAnalyzer {
 
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
-    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
+    // Legacy persisted switch for flatten-nested variant behavior before it was deprecated.
+    @Deprecated
+    public static final String LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "variant_enable_flatten_nested";
+
+    // Deprecated legacy switch for flatten-nested variant behavior.
+    // It is distinct from variant_enable_nested_group.
+    @Deprecated
+    public static final String PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED = "deprecated_variant_enable_flatten_nested";
 
     public static final String PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION = "enable_single_replica_compaction";
 
@@ -239,6 +246,11 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_GROUP_COMMIT_DATA_BYTES = "group_commit_data_bytes";
     public static final int PROPERTIES_GROUP_COMMIT_DATA_BYTES_DEFAULT_VALUE
             = Config.group_commit_data_bytes_default_value;
+
+    public static final String PROPERTIES_GROUP_COMMIT_MODE = "group_commit_mode";
+    public static final String GROUP_COMMIT_MODE_OFF = "off_mode";
+    public static final String GROUP_COMMIT_MODE_ASYNC = "async_mode";
+    public static final String GROUP_COMMIT_MODE_SYNC = "sync_mode";
 
     public static final String PROPERTIES_ENABLE_MOW_LIGHT_DELETE =
             "enable_mow_light_delete";
@@ -830,6 +842,7 @@ public class PropertyAnalyzer {
                 + " must be `true` or `false`");
     }
 
+    @Deprecated
     public static Boolean analyzeVariantFlattenNested(Map<String, String> properties) throws AnalysisException {
         if (properties == null || properties.isEmpty()) {
             return false;
@@ -1906,6 +1919,25 @@ public class PropertyAnalyzer {
         }
 
         return groupCommitDataBytes;
+    }
+
+    public static String analyzeGroupCommitMode(Map<String, String> properties, boolean removeProperty)
+            throws AnalysisException {
+        String groupCommitMode = GROUP_COMMIT_MODE_OFF;
+        if (properties != null && properties.containsKey(PROPERTIES_GROUP_COMMIT_MODE)) {
+            groupCommitMode = properties.get(PROPERTIES_GROUP_COMMIT_MODE);
+            if (!groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_OFF)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_ASYNC)
+                    && !groupCommitMode.equalsIgnoreCase(GROUP_COMMIT_MODE_SYNC)) {
+                throw new AnalysisException("Invalid group_commit_mode: " + groupCommitMode
+                        + ". Valid values: " + GROUP_COMMIT_MODE_OFF + ", " + GROUP_COMMIT_MODE_ASYNC
+                        + ", " + GROUP_COMMIT_MODE_SYNC);
+            }
+            if (removeProperty) {
+                properties.remove(PROPERTIES_GROUP_COMMIT_MODE);
+            }
+        }
+        return groupCommitMode.toLowerCase();
     }
 
     /**

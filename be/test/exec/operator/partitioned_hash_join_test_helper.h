@@ -33,7 +33,7 @@
 #include "exec/operator/partitioned_hash_join_sink_operator.h"
 #include "exec/operator/spillable_operator_test_helper.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
@@ -43,15 +43,15 @@ namespace doris {
 class MockPartitionedHashJoinSharedState : public PartitionedHashJoinSharedState {
 public:
     MockPartitionedHashJoinSharedState() {
-        is_spilled = false;
-        inner_runtime_state = nullptr;
-        spilled_streams.clear();
-        partitioned_build_blocks.clear();
+        _is_spilled = false;
+        _inner_runtime_state = nullptr;
+        _spilled_build_groups.clear();
+        _partitioned_build_blocks.clear();
     }
 
     void init(size_t partition_count) {
-        spilled_streams.resize(partition_count);
-        partitioned_build_blocks.resize(partition_count);
+        _spilled_build_groups.resize(partition_count);
+        _partitioned_build_blocks.resize(partition_count);
     }
 };
 

@@ -462,7 +462,6 @@ public class Env {
     private ColocateTableIndex colocateTableIndex;
 
     private CatalogRecycleBin recycleBin;
-    private FunctionSet functionSet;
 
     // for nereids
     private FunctionRegistry functionRegistry;
@@ -761,7 +760,6 @@ public class Env {
         this.tabletInvertedIndex = EnvFactory.getInstance().createTabletInvertedIndex();
         this.colocateTableIndex = new ColocateTableIndex();
         this.recycleBin = new CatalogRecycleBin();
-        this.functionSet = new FunctionSet();
 
         this.functionRegistry = new FunctionRegistry();
 
@@ -4030,6 +4028,12 @@ public class Env {
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES).append("\" = \"");
         sb.append(olapTable.getGroupCommitDataBytes()).append("\"");
 
+        // group commit mode (only show when not off_mode)
+        if (!olapTable.getGroupCommitMode().equalsIgnoreCase(PropertyAnalyzer.GROUP_COMMIT_MODE_OFF)) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE).append("\" = \"");
+            sb.append(olapTable.getGroupCommitMode()).append("\"");
+        }
+
         // enable delete on delete predicate
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
@@ -6508,14 +6512,6 @@ public class Env {
 
     public FunctionRegistry getFunctionRegistry() {
         return functionRegistry;
-    }
-
-    public boolean isNondeterministicFunction(String funcName) {
-        return functionSet.isNondeterministicFunction(funcName);
-    }
-
-    public boolean isNullResultWithOneNullParamFunction(String funcName) {
-        return functionSet.isNullResultWithOneNullParamFunctions(funcName);
     }
 
     @Deprecated

@@ -2492,7 +2492,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean variantEnableFlattenNested  = false;
         try {
             variantEnableFlattenNested = PropertyAnalyzer.analyzeVariantFlattenNested(properties);
-            // only if session variable: enable_variant_flatten_nested = true and
+            // Deprecated legacy flatten-nested switches.
+            // Only if session variable: enable_variant_flatten_nested = true and
             // table property: variant_enable_flatten_nested = true
             // we can enable variant flatten nested otherwise throw error
             if (ctx != null && ctx.getSessionVariable().getEnableVariantFlattenNested()
@@ -2959,6 +2960,13 @@ public class InternalCatalog implements CatalogIf<Database> {
         try {
             int groupCommitDataBytes = PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, true);
             olapTable.setGroupCommitDataBytes(groupCommitDataBytes);
+        } catch (Exception e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        try {
+            String groupCommitMode = PropertyAnalyzer.analyzeGroupCommitMode(properties, true);
+            olapTable.setGroupCommitMode(groupCommitMode);
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
         }

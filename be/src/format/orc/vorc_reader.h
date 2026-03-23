@@ -230,8 +230,23 @@ public:
 
     bool count_read_rows() override { return true; }
 
+    void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override {
+        _condition_cache_ctx = std::move(ctx);
+    }
+
+    int64_t get_total_rows() const override {
+        return _row_reader ? _row_reader->getNumberOfRows() : 0;
+    }
+
+    bool has_delete_operations() const override {
+        return (_position_delete_ordered_rowids != nullptr &&
+                !_position_delete_ordered_rowids->empty()) ||
+               (_delete_rows != nullptr && !_delete_rows->empty());
+    }
+
 protected:
     void _collect_profile_before_close() override;
+    void _filter_rows_by_condition_cache(size_t* read_rows, bool* eof);
 
 private:
     struct OrcProfile {
@@ -524,8 +539,8 @@ private:
                     }
                 }
 
-                // because the date api argument is int32_t, we should cast to int32_t.
-                int32_t date_value = cast_set<int32_t>(data->data[i]) + _offset_days;
+                // ORC DATE stores a logical day count without time zone semantics.
+                int32_t date_value = cast_set<int32_t>(data->data[i]);
                 if constexpr (std::is_same_v<CppType, VecDateTimeValue>) {
                     v.create_from_date_v2(date_dict[date_value], TIME_DATE);
                     // we should cast to date if using date v1.
@@ -666,7 +681,6 @@ private:
     int64_t _range_size;
     std::string _ctz;
 
-    int32_t _offset_days = 0;
     cctz::time_zone _time_zone;
 
     // The columns of the table to be read (contain columns that do not exist)
@@ -698,6 +712,17 @@ private:
     std::unique_ptr<orc::ColumnVectorBatch> _batch;
     std::unique_ptr<orc::Reader> _reader = nullptr;
     std::unique_ptr<orc::RowReader> _row_reader;
+
+    // The absolute row number where the most recent batch started (set after nextBatch).
+    // Used by the condition-cache code to map in-batch indices to granules.
+    uint64_t _last_read_row_number = 0;
+    // The absolute row number where the *next* nextBatch call will start reading.
+    // Used by _filter_rows_by_condition_cache to decide which granule to seek to.
+    uint64_t _current_read_position = 0;
+    // The absolute row number of the first row in this scan range.
+    // Used to convert absolute granule indices to cache-relative indices.
+    uint64_t _first_row_in_range = 0;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     std::unique_ptr<ORCFilterImpl> _orc_filter;
     orc::RowReaderOptions _row_reader_options;
 

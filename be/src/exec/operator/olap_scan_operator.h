@@ -47,9 +47,12 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
-                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name,
-                           std::to_string(_parent->node_id()));
+        if (_parent->nereids_id() == -1) {
+            return fmt::format("(id={}, table_name={})", _parent->node_id(),
+                               olap_scan_node().table_name);
+        }
+        return fmt::format("(nereids_id={}, id={}, table_name={})", _parent->nereids_id(),
+                           _parent->node_id(), olap_scan_node().table_name);
     }
     std::vector<Dependency*> execution_dependencies() override {
         if (!_cloud_tablet_dependency) {
@@ -103,6 +106,7 @@ private:
 
     bool _storage_no_merge() override;
 
+    bool _read_mor_as_dup();
     bool _push_down_topn(const RuntimePredicate& predicate) override {
         if (!predicate.target_is_slot(_parent->node_id())) {
             return false;
@@ -179,6 +183,9 @@ private:
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_key_count = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_bytes = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_bthread_schedule_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_meta_lock_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_sync_meta_lock_wait_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -256,10 +263,6 @@ private:
     RuntimeProfile::Counter* _filtered_segment_counter = nullptr;
     // total number of segment related to this scan node
     RuntimeProfile::Counter* _total_segment_counter = nullptr;
-
-    // condition cache filter stats
-    RuntimeProfile::Counter* _condition_cache_hit_segment_counter = nullptr;
-    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 
     // timer about tablet reader
     RuntimeProfile::Counter* _tablet_reader_init_timer = nullptr;
