@@ -65,6 +65,6 @@ public abstract class DefaultPlanRewriter<C> extends PlanVisitor<Plan, C> {
                 plan = (P) ((AbstractPhysicalPlan) plan).copyStatsAndGroupIdFrom((AbstractPhysicalPlan) originPlan);
             }
         }
-    return plan;
+        return plan;
     }
 }
