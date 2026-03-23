@@ -81,6 +81,7 @@
 #include "runtime/workload_group/workload_group.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "service/backend_options.h"
+#include "storage/id_manager.h"
 #include "util/brpc_client_cache.h"
 #include "util/client_cache.h"
 #include "util/debug_points.h"
@@ -949,6 +950,10 @@ void FragmentMgr::cancel_query(const TUniqueId query_id, const Status reason) {
     SCOPED_ATTACH_TASK(query_ctx->resource_ctx());
     query_ctx->cancel(reason);
     remove_query_context(query_id);
+    // Clean up id_file_map in IdManager if exists
+    if (ExecEnv::GetInstance()->get_id_manager()->get_id_file_map(query_id)) {
+        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(query_id);
+    }
     LOG(INFO) << "Query " << print_id(query_id)
               << " is cancelled and removed. Reason: " << reason.to_string();
 }
