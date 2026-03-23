@@ -1801,7 +1801,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                                           DeleteBitmap* delete_bitmap_v2, std::string rowset_id,
                                           std::optional<StorageResource> storage_resource,
                                           int64_t store_version, int64_t txn_id,
-                                          bool is_explicit_txn, int64_t next_visible_version) {
+                                          bool is_explicit_txn, int64_t next_visible_version,
+                                          bool is_mow_async_publish) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     if (config::enable_mow_verbose_log) {
         std::stringstream ss;
@@ -1831,6 +1832,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         req.set_next_visible_version(next_visible_version);
     }
     req.set_store_version(store_version);
+    req.set_is_mow_async_publish(is_mow_async_publish);
 
     bool write_v1 = store_version == 1 || store_version == 3;
     bool write_v2 = store_version == 2 || store_version == 3;

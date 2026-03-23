@@ -1186,7 +1186,7 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
             *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
             rowset->rowset_id().to_string(), storage_resource,
             config::delete_bitmap_store_write_version, txn_id, is_explicit_txn,
-            next_visible_version));
+            next_visible_version, enable_mow_async_publish()));
     return Status::OK();
 }
 
@@ -1338,7 +1338,8 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
     auto st = _engine.meta_mgr().update_delete_bitmap(
             *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),
-            output_rowset->rowset_id().to_string(), storage_resource, store_version);
+            output_rowset->rowset_id().to_string(), storage_resource, store_version,
+            -1, false, -1, enable_mow_async_publish());
     int64_t t6 = MonotonicMicros();
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
               << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)

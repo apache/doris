@@ -148,7 +148,8 @@ public:
                                 std::string rowset_id,
                                 std::optional<StorageResource> storage_resource,
                                 int64_t store_version, int64_t txn_id = -1,
-                                bool is_explicit_txn = false, int64_t next_visible_version = -1);
+                                bool is_explicit_txn = false, int64_t next_visible_version = -1,
+                                bool is_mow_async_publish = false);
 
     Status cloud_update_delete_bitmap_without_lock(
             const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
