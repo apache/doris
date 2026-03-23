@@ -285,7 +285,7 @@ under the License.
         <metrics-core.version>4.0.2</metrics-core.version>
         <!--Netty 4.1.94 is not compatible with arrow flight.-->
         <!--Need to ensure that the version is the same as in arrow/java/pom.xml or compatible with it.-->
-        <netty-all.version>4.1.132.Final</netty-all.version>
+        <netty-all.version>4.1.110.Final</netty-all.version>
         <!--The dependence of transitive dependence cannot be ruled out, only Saving the nation through twisted ways.-->
         <netty-3-test.version>3.10.6.Final</netty-3-test.version>
         <objenesis.version>2.1</objenesis.version>
@@ -298,6 +298,9 @@ under the License.
         <grpc.version>1.65.1</grpc.version>
         <check.freamework.version>3.53.0</check.freamework.version>
         <protobuf.version>3.25.8</protobuf.version>
+        <reactor-netty.version>1.0.39</reactor-netty.version>
+        <azure-core-http-netty.version>1.15.12</azure-core-http-netty.version>
+        <aws.netty-nio-client.version>2.29.26</aws.netty-nio-client.version>
         <!-- we use protoc-jar-maven-plugin to generate protobuf generated code -->
         <!-- see https://repo.maven.apache.org/maven2/com/google/protobuf/protoc/ to get correct version -->
         <protoc.artifact.version>3.24.3</protoc.artifact.version>
@@ -608,6 +611,26 @@ under the License.
                 <version>${spring.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+            <dependency>
+            <groupId>io.projectreactor.netty</groupId>
+                <artifactId>reactor-netty-core</artifactId>
+                <version>${reactor-netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>io.projectreactor.netty</groupId>
+                <artifactId>reactor-netty-http</artifactId>
+                <version>${reactor-netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.azure</groupId>
+                <artifactId>azure-core-http-netty</artifactId>
+                <version>${azure-core-http-netty.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>netty-nio-client</artifactId>
+                <version>${aws.netty-nio-client.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.springframework.boot</groupId>
