@@ -38,7 +38,6 @@
 #include "core/field.h"
 #include "core/types.h"
 #include "core/value/large_int_value.h"
-#include "cpp/private_member_accessor.hpp"
 #include "io/fs/file_reader.h"
 #include "io/fs/local_file_system.h"
 #include "json2pb/pb_to_json.h"
