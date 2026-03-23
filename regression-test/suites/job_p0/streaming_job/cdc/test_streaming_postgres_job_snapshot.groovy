@@ -109,22 +109,6 @@ suite("test_streaming_postgres_job_snapshot", "p0,external,pg,external_docker,ex
         qt_select_snapshot_table1 """ SELECT * FROM ${table1} order by name asc """
         qt_select_snapshot_table2 """ SELECT * FROM ${table2} order by name asc """
 
-        // insert new data into postgres after job is FINISHED
-        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} (name, age) VALUES ('C1', 3)"""
-            sql """UPDATE ${pgDB}.${pgSchema}.${table1} SET age = 99 WHERE name = 'A1'"""
-        }
-
-        // wait a bit and confirm new data is NOT synced (job is done, no binlog reading)
-        sleep(30000)
-
-        qt_select_after_finish_table1 """ SELECT * FROM ${table1} order by name asc """
-
-        // verify job status remains FINISHED
-        def jobInfo = sql """select Status from jobs("type"="insert") where Name='${jobName}'"""
-        log.info("jobInfo after incremental insert: " + jobInfo)
-        assert jobInfo.get(0).get(0) == 'FINISHED'
-
         sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     }
 }

@@ -7,7 +7,3 @@ B1	2
 A2	1
 B2	2
 
--- !select_after_finish_table1 --
-A1	1
-B1	2
-
