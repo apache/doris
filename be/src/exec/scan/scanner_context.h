@@ -221,6 +221,12 @@ protected:
     int _batch_size;
     // The limit from SQL's limit clause
     int64_t limit;
+    // Shared remaining limit across all concurrent scanners, decremented atomically.
+    // -1 means no limit. Scanners call acquire_limit_quota() to claim rows.
+    std::atomic<int64_t> _remaining_limit;
+    // Atomically acquire up to `desired` rows. Returns actual granted count (0 = exhausted).
+    int64_t acquire_limit_quota(int64_t desired);
+    int64_t remaining_limit() const { return _remaining_limit.load(std::memory_order_acquire); }
 
     int64_t _max_bytes_in_queue = 0;
     // Using stack so that we can resubmit scanner in a LIFO order, maybe more cache friendly
