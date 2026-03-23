@@ -4002,10 +4002,12 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
             return;
         }
         // 2. Process pending delete bitmap
+        // Skip for async publish tables
+        bool is_mow_async_publish = request->has_is_mow_async_publish() && request->is_mow_async_publish();
 
         // if this is a txn load and is not the first sub txn, we should not remove
         // the pending delete bitmaps written by previous sub txns
-        if (!is_explicit_txn || is_first_sub_txn) {
+        if (!is_mow_async_publish && (!is_explicit_txn || is_first_sub_txn)) {
             if (!remove_pending_delete_bitmap(code, msg, ss, txn, instance_id, tablet_id)) {
                 return;
             }
@@ -4071,7 +4073,8 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     // lock_id = -1 : compaction
     // lock_id = -2 : schema change
     // lock_id = -3 : compaction update delete bitmap without lock
-    if (request->lock_id() > 0 || request->lock_id() == -2) {
+    // Skip pending delete bitmap write for async publish tables
+    if (!is_mow_async_publish && (request->lock_id() > 0 || request->lock_id() == -2)) {
         PendingDeleteBitmapPB delete_bitmap_keys;
         delete_bitmap_keys.mutable_delete_bitmap_keys()->Add(delete_bitmap_keys_v1.begin(),
                                                              delete_bitmap_keys_v1.end());
