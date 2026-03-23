@@ -988,11 +988,6 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
             return Status::OK();
         }
     }
-    for (const auto& column : output->tablet_schema()->columns()) {
-        if (!column->is_variant_type()) {
-            continue;
-        }
-    }
     std::unordered_map<int32_t, PathToNoneNullValues> original_uid_to_path_stats;
     for (const auto& rs : intputs) {
         RETURN_IF_ERROR(aggregate_path_to_stats(rs, &original_uid_to_path_stats));
