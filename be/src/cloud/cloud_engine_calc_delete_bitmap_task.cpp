@@ -438,25 +438,41 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
 
 Status CloudTabletCalcDeleteBitmapTask::_handle_async_publish(
         std::shared_ptr<CloudTablet> tablet, int64_t version) const {
+    // Acquire MS tablet-level lock before convert_tmp_rowset (rowset_update_lock already held)
+    RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_tablet_lock(
+            *tablet, _transaction_id, -1));
+
     // Step 1: Call MS convert_tmp_rowset
     RowsetMetaSharedPtr rowset_meta;
-    RETURN_IF_ERROR(_engine.meta_mgr().convert_tmp_rowset(
+    auto st = _engine.meta_mgr().convert_tmp_rowset(
             _transaction_id, _tablet_id, version, _db_id, _table_id, _index_id, _partition_id,
-            &rowset_meta));
+            &rowset_meta);
+    if (!st.ok()) {
+        _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
+        return st;
+    }
 
     // Step 2: Create RowsetSharedPtr from returned rowset_meta
     RowsetSharedPtr rowset;
-    RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, "", rowset_meta, &rowset));
+    st = RowsetFactory::create_rowset(nullptr, "", rowset_meta, &rowset);
+    if (!st.ok()) {
+        _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
+        return st;
+    }
 
     // Step 3: Local apply - add rowset to tablet, update max_version
     {
         std::unique_lock meta_lock(tablet->get_header_lock());
         if (tablet->max_version_unlocked() >= version) {
             LOG(INFO) << "tablet=" << _tablet_id << " already applied version=" << version;
+            _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
             return Status::OK();
         }
         tablet->add_rowsets({rowset}, false /* version_overlap */, meta_lock);
     }
+
+    // Release MS tablet-level lock after local apply
+    _engine.meta_mgr().remove_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
 
     LOG(INFO) << "async publish apply succeeded, tablet_id=" << _tablet_id
               << ", txn_id=" << _transaction_id << ", version=" << version;

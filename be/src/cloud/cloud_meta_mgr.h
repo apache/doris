@@ -162,6 +162,13 @@ public:
     void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
                                           int64_t tablet_id);
 
+    // Tablet-level lock for async publish tables
+    Status get_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                         int64_t initiator);
+
+    void remove_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                          int64_t initiator);
+
     // Fill version holes by creating empty rowsets for missing versions
     Status fill_version_holes(CloudTablet* tablet, int64_t max_version,
                               std::unique_lock<std::shared_mutex>& wlock);

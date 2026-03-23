@@ -476,6 +476,22 @@ private:
                                              std::string& msg, std::stringstream& ss,
                                              KVStats& stats);
 
+    // Tablet-level lock for async publish tables
+    void get_delete_bitmap_tablet_lock(google::protobuf::RpcController* controller,
+                                       const GetDeleteBitmapUpdateLockRequest* request,
+                                       GetDeleteBitmapUpdateLockResponse* response,
+                                       ::google::protobuf::Closure* done,
+                                       std::string& instance_id, MetaServiceCode& code,
+                                       std::string& msg, std::stringstream& ss, KVStats& stats);
+
+    void remove_delete_bitmap_tablet_lock(google::protobuf::RpcController* controller,
+                                          const RemoveDeleteBitmapUpdateLockRequest* request,
+                                          RemoveDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done,
+                                          std::string& instance_id, MetaServiceCode& code,
+                                          std::string& msg, std::stringstream& ss,
+                                          KVStats& stats);
+
     void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
                               int64_t table_id);
 

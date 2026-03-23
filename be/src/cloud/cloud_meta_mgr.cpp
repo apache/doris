@@ -2075,6 +2075,66 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
     }
 }
 
+Status CloudMetaMgr::get_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                                   int64_t initiator) {
+    LOG(INFO) << "get_delete_bitmap_tablet_lock, tablet_id=" << tablet.tablet_id()
+              << ", lock_id=" << lock_id << ", initiator=" << initiator;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(tablet.table_id());
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
+    req.set_tablet_level_lock(true);
+    req.add_lock_tablet_ids(tablet.tablet_id());
+
+    int retry_times = 0;
+    Status st;
+    std::default_random_engine rng = make_random_engine();
+    std::uniform_int_distribution<uint32_t> u(500, 2000);
+    do {
+        st = retry_rpc("get delete bitmap tablet lock", req, &res,
+                       &MetaService_Stub::get_delete_bitmap_update_lock);
+        if (res.status().code() != MetaServiceCode::LOCK_CONFLICT) {
+            break;
+        }
+        uint32_t duration_ms = u(rng);
+        LOG(WARNING) << "get delete bitmap tablet lock conflict, tablet_id=" << tablet.tablet_id()
+                     << " lock_id=" << lock_id << " retry_times=" << retry_times
+                     << " sleep=" << duration_ms << "ms : " << res.status().msg();
+        bthread_usleep(duration_ms * 1000);
+    } while (++retry_times <= config::get_delete_bitmap_lock_max_retry_times);
+
+    if (res.status().code() == MetaServiceCode::LOCK_CONFLICT) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "lock conflict when get delete bitmap tablet lock, tablet_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.tablet_id(), lock_id, initiator);
+    }
+    return st;
+}
+
+void CloudMetaMgr::remove_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                                    int64_t initiator) {
+    LOG(INFO) << "remove_delete_bitmap_tablet_lock, tablet_id=" << tablet.tablet_id()
+              << ", lock_id=" << lock_id << ", initiator=" << initiator;
+    RemoveDeleteBitmapUpdateLockRequest req;
+    RemoveDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(tablet.table_id());
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    req.set_tablet_level_lock(true);
+    req.add_unlock_tablet_ids(tablet.tablet_id());
+    auto st = retry_rpc("remove delete bitmap tablet lock", req, &res,
+                        &MetaService_Stub::remove_delete_bitmap_update_lock);
+    if (!st.ok()) {
+        LOG(WARNING) << "remove delete bitmap tablet lock fail, tablet_id=" << tablet.tablet_id()
+                     << ", lock_id=" << lock_id << ", st=" << st.to_string();
+    }
+}
+
 void CloudMetaMgr::check_table_size_correctness(RowsetMeta& rs_meta) {
     if (!config::enable_table_size_correctness_check) {
         return;

@@ -359,8 +359,20 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
         RETURN_IF_ERROR(_cloud_full_compaction_calc_delete_bitmap(it, cur_version, delete_bitmap));
     }
 
-    RETURN_IF_ERROR(
-            _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
+    // For async publish tables: acquire rowset_update_lock first (same-BE mutex),
+    // then acquire MS tablet-level lock (cross-BE mutex)
+    // For legacy tables: use MS table-level lock only
+    std::unique_lock<std::mutex> rowset_update_lock(cloud_tablet()->get_rowset_update_lock(),
+                                                     std::defer_lock);
+    if (cloud_tablet()->enable_mow_async_publish()) {
+        rowset_update_lock.lock();
+        RETURN_IF_ERROR(
+                _engine.meta_mgr().get_delete_bitmap_tablet_lock(*cloud_tablet(), -1, initiator));
+    } else {
+        RETURN_IF_ERROR(
+                _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
+    }
+
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
     std::lock_guard header_lock(_tablet->get_header_lock());
     for (const auto& it : cloud_tablet()->rowset_map()) {

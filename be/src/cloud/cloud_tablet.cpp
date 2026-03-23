@@ -1283,9 +1283,19 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     // 2. calc delete bitmap for incremental data
+    // For async publish tables: acquire rowset_update_lock first (same-BE mutex),
+    // then acquire MS tablet-level lock (cross-BE mutex)
+    // For legacy tables: use MS table-level lock only
+    std::unique_lock<std::mutex> rowset_update_lock(get_rowset_update_lock(), std::defer_lock);
     int64_t t1 = MonotonicMicros();
-    RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
-            *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    if (enable_mow_async_publish()) {
+        rowset_update_lock.lock();
+        RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_tablet_lock(
+                *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    } else {
+        RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
+                *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    }
     int64_t t2 = MonotonicMicros();
     if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
         g_cu_compaction_get_delete_bitmap_lock_time_ms << (t2 - t1) / 1000;
