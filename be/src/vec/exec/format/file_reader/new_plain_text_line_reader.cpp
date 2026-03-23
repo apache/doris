@@ -177,6 +177,9 @@ void EncloseCsvLineReaderCtx::_on_pre_match_enclose(const uint8_t* start, size_t
         } while (_idx != len);
 
         if (_idx != _total_len) {
+            if (!_allow_multiline) {
+                break;
+            }
             len = update_reading_bound(start);
         } else {
             // It needs to set the result to nullptr for matching enclose may not be read
