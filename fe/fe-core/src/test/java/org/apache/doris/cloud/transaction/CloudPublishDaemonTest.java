@@ -29,6 +29,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CalcDeleteBitmapTask;
+import org.apache.doris.thrift.TCalcDeleteBitmapPartitionInfo;
+import org.apache.doris.thrift.TCalcDeleteBitmapRequest;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
@@ -134,6 +136,18 @@ public class CloudPublishDaemonTest {
         Assert.assertEquals("should have 2 BE tasks", 2, tasks.size());
         Assert.assertTrue("should have task for BE1", tasks.containsKey(BACKEND_ID_1));
         Assert.assertTrue("should have task for BE2", tasks.containsKey(BACKEND_ID_2));
+
+        TCalcDeleteBitmapRequest req = tasks.get(BACKEND_ID_1).toThrift();
+        Assert.assertTrue("async publish flag should be set", req.isSetEnableMowAsyncPublish());
+        Assert.assertTrue("async publish should be enabled", req.isEnableMowAsyncPublish());
+        TCalcDeleteBitmapPartitionInfo partitionInfo = req.getPartitions().get(0);
+        Assert.assertTrue("db id should be propagated", partitionInfo.isSetDbId());
+        Assert.assertEquals(DB_ID, partitionInfo.getDbId());
+        Assert.assertTrue("table id should be propagated", partitionInfo.isSetTableId());
+        Assert.assertEquals(TABLE_ID, partitionInfo.getTableId());
+        Assert.assertTrue("index ids should be propagated", partitionInfo.isSetIndexIds());
+        Assert.assertEquals(1, partitionInfo.getIndexIdsSize());
+        Assert.assertEquals(0L, partitionInfo.getIndexIds().get(0).longValue());
 
         // Tasks should not be finished yet
         Assert.assertFalse(tasks.get(BACKEND_ID_1).isFinished());

@@ -37,6 +37,7 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     private long transactionId;
     private List<TCalcDeleteBitmapPartitionInfo> partitionInfos;
     private List<Long> errorTablets;
+    private boolean enableMowAsyncPublish;
 
     public CalcDeleteBitmapTask(long backendId, long transactionId, long dbId,
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos, long signature,
@@ -47,6 +48,7 @@ public class CalcDeleteBitmapTask extends AgentTask  {
         this.errorTablets = new ArrayList<Long>();
         this.isFinished = false;
         this.latch = latch;
+        this.enableMowAsyncPublish = false;
     }
 
     public void countDownLatch(long backendId, long transactionId) {
@@ -90,7 +92,14 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     public TCalcDeleteBitmapRequest toThrift() {
         TCalcDeleteBitmapRequest calcDeleteBitmapRequest = new TCalcDeleteBitmapRequest(transactionId,
                 partitionInfos);
+        if (enableMowAsyncPublish) {
+            calcDeleteBitmapRequest.setEnableMowAsyncPublish(true);
+        }
         return calcDeleteBitmapRequest;
+    }
+
+    public void setEnableMowAsyncPublish(boolean enableMowAsyncPublish) {
+        this.enableMowAsyncPublish = enableMowAsyncPublish;
     }
 
     public long getTransactionId() {

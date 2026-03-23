@@ -66,6 +66,7 @@ import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TabletIndexPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnStatusPB;
+import org.apache.doris.cloud.proto.Cloud.TxnTabletInfoPB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.AnalysisException;
@@ -98,6 +99,7 @@ import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
@@ -150,6 +152,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -1810,6 +1813,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             throws UserException {
         StopWatch stopWatch = new StopWatch();
         stopWatch.start();
+        long tableId = getSingleTableId(tableList);
 
         // Step 1: Acquire FE commit lock
         beforeCommitTransaction(tableList, transactionId, timeoutMillis);
@@ -1823,7 +1827,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
             // Step 3: Build CommittedTxnEntry and add to memory set
             Map<Long, Long> partitionCommitVersions = extractPartitionVersions(response);
             CommittedTxnEntry entry = new CommittedTxnEntry(
-                    transactionId, db.getId(), getSingleTableId(tableList),
+                    transactionId, db.getId(), tableId,
                     partitionCommitVersions, tabletCommitInfos, txnCommitAttachment);
             committedTxnManager.addCommittedTxn(entry);
 
@@ -1887,7 +1891,7 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
      * @return CommitTxnResponse with partition commit versions
      * @throws UserException if RPC failed
      */
-    private CommitTxnResponse callMsTwoPhaseCommit(long dbId, long transactionId,
+    CommitTxnRequest buildTwoPhaseCommitRequest(long dbId, long transactionId,
             List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
             throws UserException {
         CommitTxnRequest.Builder builder = CommitTxnRequest.newBuilder()
@@ -1898,11 +1902,71 @@ public class CloudGlobalTransactionMgr implements GlobalTransactionMgrIface {
                 .setCloudUniqueId(Config.cloud_unique_id)
                 .setEnableMowAsyncPublish(true);  // Enable async publish
 
+        for (TxnTabletInfoPB tabletInfoPB : buildTxnTabletInfoPBs(tabletCommitInfos)) {
+            builder.addInvolvedTablets(tabletInfoPB);
+        }
+
         // Populate commit attachment
         populateCommitAttachment(builder, transactionId, txnCommitAttachment);
 
-        CommitTxnRequest commitTxnRequest = builder.build();
+        return builder.build();
+    }
+
+    /**
+     * Call MS two-phase commit API (enable_mow_async_publish=true).
+     *
+     * @param dbId database id
+     * @param transactionId transaction id
+     * @param tabletCommitInfos tablet commit infos
+     * @param txnCommitAttachment transaction commit attachment
+     * @return CommitTxnResponse with partition commit versions
+     * @throws UserException if RPC failed
+     */
+    private CommitTxnResponse callMsTwoPhaseCommit(long dbId, long transactionId,
+            List<TabletCommitInfo> tabletCommitInfos, TxnCommitAttachment txnCommitAttachment)
+            throws UserException {
+        CommitTxnRequest commitTxnRequest = buildTwoPhaseCommitRequest(
+                dbId, transactionId, tabletCommitInfos, txnCommitAttachment);
         return executeCommitTxnRequestTwoPhase(commitTxnRequest, transactionId, txnCommitAttachment);
+    }
+
+    private List<TxnTabletInfoPB> buildTxnTabletInfoPBs(List<TabletCommitInfo> tabletCommitInfos)
+            throws UserException {
+        if (tabletCommitInfos == null || tabletCommitInfos.isEmpty()) {
+            throw new UserException("Async publish requires non-empty tablet commit infos");
+        }
+
+        LinkedHashMap<Long, TxnTabletInfoPB> uniqueTablets = new LinkedHashMap<>();
+        for (TabletCommitInfo tabletCommitInfo : tabletCommitInfos) {
+            long tabletId = tabletCommitInfo.getTabletId();
+            if (uniqueTablets.containsKey(tabletId)) {
+                continue;
+            }
+
+            TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
+            if (tabletMeta == null) {
+                throw new UserException("Failed to get tablet meta for async publish tabletId=" + tabletId);
+            }
+
+            TxnTabletInfoPB.Builder builder = TxnTabletInfoPB.newBuilder()
+                    .setTabletId(tabletId)
+                    .setTableId(tabletMeta.getTableId())
+                    .setIndexId(tabletMeta.getIndexId())
+                    .setPartitionId(tabletMeta.getPartitionId());
+
+            Backend backend = Env.getCurrentSystemInfo().getBackend(tabletCommitInfo.getBackendId());
+            if (backend != null) {
+                if (!Strings.isNullOrEmpty(backend.getCloudUniqueId())) {
+                    builder.setBeCloudUniqueId(backend.getCloudUniqueId());
+                }
+                if (backend.getBrpcPort() > 0) {
+                    builder.setBeEndpoint(backend.getHost() + ":" + backend.getBrpcPort());
+                }
+            }
+
+            uniqueTablets.put(tabletId, builder.build());
+        }
+        return new ArrayList<>(uniqueTablets.values());
     }
 
     /**

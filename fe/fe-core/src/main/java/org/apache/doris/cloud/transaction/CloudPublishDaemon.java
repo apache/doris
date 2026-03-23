@@ -165,7 +165,7 @@ public class CloudPublishDaemon extends MasterDaemon {
         // Build backendId -> List<TCalcDeleteBitmapPartitionInfo> from tabletCommitInfos
         // Group tablets by (backendId, partitionId)
         // backendId -> (partitionId -> tabletIds)
-        Map<Long, Map<Long, List<Long>>> beToPartitionTablets = new HashMap<>();
+        Map<Long, Map<Long, List<TabletCommitInfo>>> beToPartitionTablets = new HashMap<>();
         for (TabletCommitInfo info : entry.getTabletCommitInfos()) {
             long tabletId = info.getTabletId();
             long backendId = info.getBackendId();
@@ -178,30 +178,57 @@ public class CloudPublishDaemon extends MasterDaemon {
             beToPartitionTablets
                     .computeIfAbsent(backendId, k -> new HashMap<>())
                     .computeIfAbsent(partitionId, k -> new ArrayList<>())
-                    .add(tabletId);
+                    .add(info);
         }
 
         Map<Long, Long> partitionCommitVersions = entry.getPartitionCommitVersions();
         Map<Long, CalcDeleteBitmapTask> tasks = new HashMap<>();
         long signature = txnId; // Use txnId as signature
 
-        for (Map.Entry<Long, Map<Long, List<Long>>> beEntry : beToPartitionTablets.entrySet()) {
+        for (Map.Entry<Long, Map<Long, List<TabletCommitInfo>>> beEntry : beToPartitionTablets.entrySet()) {
             long backendId = beEntry.getKey();
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos = Lists.newArrayList();
-            for (Map.Entry<Long, List<Long>> partEntry : beEntry.getValue().entrySet()) {
+            for (Map.Entry<Long, List<TabletCommitInfo>> partEntry : beEntry.getValue().entrySet()) {
                 long partitionId = partEntry.getKey();
                 Long version = partitionCommitVersions.get(partitionId);
                 if (version == null) {
                     LOG.warn("partition {} commit version not found for txnId={}", partitionId, txnId);
                     continue;
                 }
-                partitionInfos.add(new TCalcDeleteBitmapPartitionInfo(
-                        partitionId, version, partEntry.getValue()));
+
+                List<Long> tabletIds = new ArrayList<>();
+                List<Long> indexIds = new ArrayList<>();
+                long partitionDbId = -1;
+                long partitionTableId = -1;
+                for (TabletCommitInfo tabletCommitInfo : partEntry.getValue()) {
+                    TabletMeta tabletMeta = Env.getCurrentInvertedIndex()
+                            .getTabletMeta(tabletCommitInfo.getTabletId());
+                    if (tabletMeta == null) {
+                        LOG.warn("tablet {} meta not found when building async publish task for txnId={}",
+                                tabletCommitInfo.getTabletId(), txnId);
+                        continue;
+                    }
+                    tabletIds.add(tabletCommitInfo.getTabletId());
+                    indexIds.add(tabletMeta.getIndexId());
+                    partitionDbId = tabletMeta.getDbId();
+                    partitionTableId = tabletMeta.getTableId();
+                }
+                if (tabletIds.isEmpty()) {
+                    continue;
+                }
+
+                TCalcDeleteBitmapPartitionInfo partitionInfo = new TCalcDeleteBitmapPartitionInfo(
+                        partitionId, version, tabletIds);
+                partitionInfo.setDbId(partitionDbId);
+                partitionInfo.setTableId(partitionTableId);
+                partitionInfo.setIndexIds(indexIds);
+                partitionInfos.add(partitionInfo);
             }
 
             // latch=null means async publish mode
             CalcDeleteBitmapTask task = new CalcDeleteBitmapTask(
                     backendId, txnId, dbId, partitionInfos, signature, null);
+            task.setEnableMowAsyncPublish(true);
             AgentTaskQueue.addTask(task);
             batchTask.addTask(task);
             tasks.put(backendId, task);

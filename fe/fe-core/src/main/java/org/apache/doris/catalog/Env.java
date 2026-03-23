@@ -1942,6 +1942,14 @@ public class Env {
         loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
+        if (Config.isCloudMode()) {
+            org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr cloudTxnMgr =
+                    (org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr)
+                    getGlobalTransactionMgr();
+            cloudPublishDaemon = new org.apache.doris.cloud.transaction.CloudPublishDaemon(
+                    cloudTxnMgr.getCommittedTxnManager(), cloudTxnMgr.getCallbackFactory());
+            cloudPublishDaemon.start();
+        }
         if (Config.isNotCloudMode()) {
             // Tablet checker and scheduler
             tabletChecker.start();
@@ -1950,15 +1958,6 @@ public class Env {
             ColocateTableCheckerAndBalancer.getInstance().start();
             // Publish Version Daemon
             publishVersionDaemon.start();
-            // Cloud Publish Daemon for async publish (MOW two-phase commit)
-            if (Config.isCloudMode()) {
-                org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr cloudTxnMgr =
-                        (org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr)
-                        getGlobalTransactionMgr();
-                cloudPublishDaemon = new org.apache.doris.cloud.transaction.CloudPublishDaemon(
-                        cloudTxnMgr.getCommittedTxnManager(), cloudTxnMgr.getCallbackFactory());
-                cloudPublishDaemon.start();
-            }
             // Start txn cleaner
             txnCleaner.start();
             // Consistency checker
