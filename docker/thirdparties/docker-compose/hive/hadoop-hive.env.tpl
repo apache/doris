@@ -32,6 +32,8 @@ HIVE_SITE_CONF_hive_stats_column_autogather=false
 HIVE_SITE_CONF_hive_exec_parallel=true
 
 CORE_CONF_fs_defaultFS=hdfs://${IP_HOST}:${FS_PORT}
+CORE_CONF_fs_jfs_impl=io.juicefs.JuiceFileSystem
+CORE_CONF_juicefs_cluster_meta=${JFS_CLUSTER_META}
 CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*
 CORE_CONF_hadoop_proxyuser_hue_groups=*
@@ -62,4 +64,3 @@ HADOOP_HEAPSIZE=4096
 
 NEED_LOAD_DATA=${NEED_LOAD_DATA}
 LOAD_PARALLEL=${LOAD_PARALLEL}
-

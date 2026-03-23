@@ -27,7 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
@@ -119,6 +119,18 @@ public class BrokerUtil {
         }
     }
 
+    public static void deleteParentDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
+        deleteDirectoryWithFileSystem(extractParentDirectory(path), brokerDesc);
+    }
+
+    public static String extractParentDirectory(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            return path.substring(0, lastSlash + 1);
+        }
+        return path;
+    }
+
     public static String printBroker(String brokerName, TNetworkAddress address) {
         return brokerName + "[" + address.toString() + "]";
     }
@@ -177,7 +189,7 @@ public class BrokerUtil {
             if (index == -1) {
                 continue;
             }
-            columns[index] = HiveMetaStoreCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
+            columns[index] = HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
                 ? FeConstants.null_string : pair[1];
             size++;
             if (size >= columnsFromPath.size()) {

@@ -66,6 +66,17 @@ suite("test_mc_write_static_partitions", "p2,external") {
         order_qt_static_single_p1 """ SELECT * FROM ${tb1} WHERE ds = '20250101' """
         order_qt_static_single_p2 """ SELECT * FROM ${tb1} WHERE ds = '20250102' """
 
+        // Explain: static partition INSERT should NOT have SORT node
+        explain {
+            sql("INSERT INTO ${tb1} PARTITION(ds='20250103') VALUES (4, 'd')")
+            notContains "SORT"
+        }
+        // Explain: static partition INSERT OVERWRITE should NOT have SORT node
+        explain {
+            sql("INSERT OVERWRITE TABLE ${tb1} PARTITION(ds='20250101') VALUES (5, 'e')")
+            notContains "SORT"
+        }
+
         // Test 2: Multi-level partition columns static partition INSERT INTO
         String tb2 = "static_multi_${uuid}"
         sql """DROP TABLE IF EXISTS ${tb2}"""
@@ -81,6 +92,12 @@ suite("test_mc_write_static_partitions", "p2,external") {
         sql """INSERT INTO ${tb2} PARTITION(ds='20250101', region='sh') VALUES (3, 'v3')"""
         order_qt_static_multi_all """ SELECT * FROM ${tb2} """
         order_qt_static_multi_bj """ SELECT * FROM ${tb2} WHERE region = 'bj' """
+
+        // Explain: all partition columns statically specified should NOT have SORT node
+        explain {
+            sql("INSERT INTO ${tb2} PARTITION(ds='20250102', region='gz') VALUES (4, 'v4')")
+            notContains "SORT"
+        }
 
         test {
             sql """ INSERT INTO ${tb2} PARTITION(ds='20250101', region='bj', ds='20250102') VALUES (1, 'v1'), (2, 'v2');"""
@@ -111,6 +128,12 @@ suite("test_mc_write_static_partitions", "p2,external") {
         sql """INSERT INTO ${tb3_dst} PARTITION(ds='20250201') SELECT id, name FROM ${tb3_src}"""
         order_qt_static_select """ SELECT * FROM ${tb3_dst} """
 
+        // Explain: static partition INSERT INTO SELECT should NOT have SORT node
+        explain {
+            sql("INSERT INTO ${tb3_dst} PARTITION(ds='20250202') SELECT id, name FROM ${tb3_src}")
+            notContains "SORT"
+        }
+
         // Test 4: INSERT OVERWRITE static partition
         String tb4 = "overwrite_part_${uuid}"
         sql """DROP TABLE IF EXISTS ${tb4}"""
@@ -129,6 +152,7 @@ suite("test_mc_write_static_partitions", "p2,external") {
         order_qt_overwrite_p2 """ SELECT * FROM ${tb4} WHERE ds = '20250102' """
 
         // Test 5: Dynamic partition regression (ensure not broken)
+        // Dynamic partition: partition column 'ds' is in the data, SORT node IS expected
         String tb5 = "dynamic_reg_${uuid}"
         sql """DROP TABLE IF EXISTS ${tb5}"""
         sql """
@@ -140,6 +164,17 @@ suite("test_mc_write_static_partitions", "p2,external") {
         """
         sql """INSERT INTO ${tb5} VALUES (1, 'a', '20250101'), (2, 'b', '20250102')"""
         order_qt_dynamic_regression """ SELECT * FROM ${tb5} """
+
+        // Explain: dynamic partition INSERT should HAVE SORT node (partition col in data)
+        explain {
+            sql("INSERT INTO ${tb5} VALUES (3, 'c', '20250103')")
+            contains "SORT"
+        }
+        // Explain: dynamic partition INSERT INTO SELECT should HAVE SORT node
+        explain {
+            sql("INSERT INTO ${tb5} SELECT * FROM ${tb3_src}")
+            contains "SORT"
+        }
 
         // Test 6: INSERT OVERWRITE non-partitioned table
         String tb6 = "overwrite_nopart_${uuid}"
@@ -153,6 +188,41 @@ suite("test_mc_write_static_partitions", "p2,external") {
         sql """INSERT INTO ${tb6} VALUES (1, 'old')"""
         sql """INSERT OVERWRITE TABLE ${tb6} VALUES (2, 'new')"""
         order_qt_overwrite_no_part """ SELECT * FROM ${tb6} """
+
+        // Explain: non-partitioned table INSERT should NOT have SORT node
+        explain {
+            sql("INSERT INTO ${tb6} VALUES (3, 'val')")
+            notContains "SORT"
+        }
+        // Explain: non-partitioned table INSERT OVERWRITE should NOT have SORT node
+        explain {
+            sql("INSERT OVERWRITE TABLE ${tb6} VALUES (4, 'val2')")
+            notContains "SORT"
+        }
+
+        // Test 7: Multi-level partition with partial static (only some partition cols specified)
+        // When only some partition columns are statically specified (partial static),
+        // the remaining partition columns are dynamic, so SORT node IS expected
+        String tb7 = "partial_static_${uuid}"
+        sql """DROP TABLE IF EXISTS ${tb7}"""
+        sql """
+        CREATE TABLE ${tb7} (
+            id INT,
+            val STRING,
+            ds STRING,
+            region STRING
+        ) PARTITION BY (ds, region)()
+        """
+        // Explain: partial static partition (ds static, region dynamic) should HAVE SORT node
+        explain {
+            sql("INSERT INTO ${tb7} PARTITION(ds='20250101') VALUES (1, 'v1', 'bj')")
+            contains "SORT"
+        }
+        // Explain: all static partition should NOT have SORT node
+        explain {
+            sql("INSERT INTO ${tb7} PARTITION(ds='20250101', region='bj') VALUES (1, 'v1')")
+            notContains "SORT"
+        }
     } finally {
         sql """drop database if exists ${mc_catalog_name}.${db}"""
     }

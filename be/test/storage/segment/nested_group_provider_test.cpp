@@ -62,10 +62,10 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderIsNoOp) {
     ColumnWriterOptions opts;
     VariantStatistics statistics;
 
-    EXPECT_TRUE(write_provider
-                        ->prepare(*column_variant, false, nullptr, opts, nullptr, 0, nullptr,
-                                  &statistics)
-                        .ok());
+    auto status =
+            write_provider->prepare(*column_variant, nullptr, opts, nullptr, nullptr, &statistics);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_EQ(0, write_provider->estimate_buffer_size());
     EXPECT_TRUE(write_provider->finish().ok());
     EXPECT_TRUE(write_provider->write_data().ok());
@@ -161,7 +161,7 @@ TEST(DefaultNestedGroupReadProviderTest, InitReadersCEBehavior) {
 
     ColumnReaderOptions opts;
     NestedGroupReaders out_readers;
-    auto status = provider->init_readers(opts, nullptr, nullptr, nullptr, 0, out_readers);
+    auto status = provider->init_readers(opts, nullptr, nullptr, nullptr, 0, 0, out_readers);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(out_readers.empty());
 }

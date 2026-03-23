@@ -184,6 +184,10 @@ public class OutFileClause {
         return maxFileSizeBytes;
     }
 
+    public boolean shouldDeleteExistingFiles() {
+        return deleteExistingFiles;
+    }
+
     public BrokerDesc getBrokerDesc() {
         return brokerDesc;
     }
@@ -451,7 +455,6 @@ public class OutFileClause {
                 + ", should use " + expectType + ", but the definition type is " + orcType);
     }
 
-
     private void analyzeForParquetFormat(List<Expr> resultExprs, List<String> colLabels) throws AnalysisException {
         if (this.parquetSchemas.isEmpty()) {
             genParquetColumnName(resultExprs, colLabels);
@@ -537,6 +540,9 @@ public class OutFileClause {
                         + " To enable this feature, you need to add `enable_delete_existing_files=true`"
                         + " in fe.conf");
             }
+            if (deleteExistingFiles && isLocalOutput) {
+                throw new AnalysisException("Local file system does not support delete existing files");
+            }
             copiedProps.remove(PROP_DELETE_EXISTING_FILES);
         }
 
@@ -608,8 +614,9 @@ public class OutFileClause {
          *    - Centralize HDFS URI parsing logic
          *    - Add validation in FE to reject incomplete or malformed configs
          */
-        if (null != brokerDesc.getStorageType() && brokerDesc.getStorageType()
-                .equals(StorageBackend.StorageType.HDFS)) {
+        if (null != brokerDesc.getStorageType() && (brokerDesc.getStorageType()
+                .equals(StorageBackend.StorageType.HDFS)
+                || brokerDesc.getStorageType().equals(StorageBackend.StorageType.JFS))) {
             String defaultFs = HdfsPropertiesUtils.extractDefaultFsFromPath(filePath);
             brokerDesc.getBackendConfigProperties().put(HdfsProperties.HDFS_DEFAULT_FS_NAME, defaultFs);
         }
@@ -766,5 +773,3 @@ public class OutFileClause {
         return sinkOptions;
     }
 }
-
-
