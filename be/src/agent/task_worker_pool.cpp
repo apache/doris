@@ -520,9 +520,11 @@ bvar::Adder<uint64_t> report_index_policy_failed("report", "index_policy_failed"
 
 } // namespace
 
-TaskWorkerPool::TaskWorkerPool(std::string_view name, int worker_count,
-                               std::function<void(const TAgentTaskRequest& task)> callback)
-        : _callback(std::move(callback)) {
+TaskWorkerPool::TaskWorkerPool(
+        std::string_view name, int worker_count,
+        std::function<void(const TAgentTaskRequest& task)> callback,
+        std::function<void(const TAgentTaskRequest& task)> pre_submit_callback)
+        : _callback(std::move(callback)), _pre_submit_callback(std::move(pre_submit_callback)) {
     auto st = ThreadPoolBuilder(fmt::format("TaskWP_{}", name))
                       .set_min_threads(worker_count)
                       .set_max_threads(worker_count)
@@ -546,6 +548,9 @@ void TaskWorkerPool::stop() {
 
 Status TaskWorkerPool::submit_task(const TAgentTaskRequest& task) {
     return _submit_task(task, [this](auto&& task) {
+        if (_pre_submit_callback) {
+            _pre_submit_callback(task);
+        }
         add_task_count(task, 1);
         return _thread_pool->submit_func([this, task]() {
             _callback(task);
@@ -2239,7 +2244,46 @@ void alter_cloud_tablet_callback(CloudStorageEngine& engine, const TAgentTaskReq
                           std::chrono::system_clock::now().time_since_epoch())
                           .count();
     g_fragment_last_active_time.set_value(now);
+
+    // Clean up alter_version before remove_task_info to avoid race:
+    // remove_task_info allows same-signature re-submit, whose pre_submit_callback
+    // would set alter_version, then this cleanup would wipe it.
+    if (req.__isset.alter_tablet_req_v2) {
+        const auto& alter_req = req.alter_tablet_req_v2;
+        auto new_tablet = engine.tablet_mgr().get_tablet(alter_req.new_tablet_id);
+        auto base_tablet = engine.tablet_mgr().get_tablet(alter_req.base_tablet_id);
+        if (new_tablet.has_value()) {
+            new_tablet.value()->set_alter_version(-1);
+        }
+        if (base_tablet.has_value()) {
+            base_tablet.value()->set_alter_version(-1);
+        }
+    }
+
     remove_task_info(req.task_type, req.signature);
+}
+
+void set_alter_version_before_enqueue(CloudStorageEngine& engine, const TAgentTaskRequest& req) {
+    if (!req.__isset.alter_tablet_req_v2) {
+        return;
+    }
+    const auto& alter_req = req.alter_tablet_req_v2;
+    if (alter_req.alter_version <= 1) {
+        return;
+    }
+    auto new_tablet = engine.tablet_mgr().get_tablet(alter_req.new_tablet_id);
+    if (!new_tablet.has_value() || new_tablet.value()->tablet_state() == TABLET_RUNNING) {
+        return;
+    }
+    auto base_tablet = engine.tablet_mgr().get_tablet(alter_req.base_tablet_id);
+    if (!base_tablet.has_value()) {
+        return;
+    }
+    new_tablet.value()->set_alter_version(alter_req.alter_version);
+    base_tablet.value()->set_alter_version(alter_req.alter_version);
+    LOG(INFO) << "set alter_version=" << alter_req.alter_version
+              << " before enqueue, base_tablet=" << alter_req.base_tablet_id
+              << ", new_tablet=" << alter_req.new_tablet_id;
 }
 
 void gc_binlog_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
