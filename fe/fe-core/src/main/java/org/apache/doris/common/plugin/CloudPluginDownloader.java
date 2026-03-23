@@ -159,7 +159,9 @@ public class CloudPluginDownloader {
                     .filter(AbstractS3CompatibleProperties.class::isInstance)
                     .map(AbstractS3CompatibleProperties.class::cast)
                     .findFirst()
-                    .orElseThrow(() -> new RuntimeException("Failed to create S3-compatible storage properties"));
+                    .orElseThrow(() -> new RuntimeException(
+                            "No S3-compatible storage properties could be built from the provided object store "
+                                    + "parameters"));
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
