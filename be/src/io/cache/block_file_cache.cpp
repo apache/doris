@@ -574,22 +574,21 @@ void BlockFileCache::update_block_lru(FileBlockSPtr block,
                                     .count();
             if (now_time - cell->atime > config::file_cache_2qlru_cold_blocks_promotion_ms) {
                 queue.remove(*cell->queue_iterator, cache_lock);
-                _lru_recorder->record_queue_event(
-                        FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
-                        block->_key.hash, block->_key.offset, block->_block_range.size());
-                auto& normal_queue = get_queue(FileCacheType::NORMAL);
-                cell->queue_iterator =
-                        normal_queue.add(block->_key.hash, block->_key.offset,
-                                         block->_block_range.size(), cache_lock);
-                _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
-                                                  block->_key.hash,
+                _lru_recorder->record_queue_event(FileCacheType::COLD_NORMAL,
+                                                  CacheLRULogType::REMOVE, block->_key.hash,
                                                   block->_key.offset, block->_block_range.size());
+                auto& normal_queue = get_queue(FileCacheType::NORMAL);
+                cell->queue_iterator = normal_queue.add(block->_key.hash, block->_key.offset,
+                                                        block->_block_range.size(), cache_lock);
+                _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
+                                                  block->_key.hash, block->_key.offset,
+                                                  block->_block_range.size());
                 block->set_cache_type(FileCacheType::NORMAL);
             } else {
                 queue.move_to_end(*cell->queue_iterator, cache_lock);
-                _lru_recorder->record_queue_event(
-                        block->cache_type(), CacheLRULogType::MOVETOBACK,
-                        block->_key.hash, block->_key.offset, block->_block_range.size());
+                _lru_recorder->record_queue_event(block->cache_type(), CacheLRULogType::MOVETOBACK,
+                                                  block->_key.hash, block->_key.offset,
+                                                  block->_block_range.size());
             }
         } else {
             queue.move_to_end(*cell->queue_iterator, cache_lock);
