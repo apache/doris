@@ -17,27 +17,35 @@
 
 package org.apache.doris.datasource;
 
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.function.Function;
+import lombok.Data;
 
-public class CatalogScopedCacheMgr<T> {
-    private final Map<Long, T> cacheMap = new ConcurrentHashMap<>();
-    private final Function<ExternalCatalog, T> cacheFactory;
+@Data
+public class SchemaCacheKey {
+    private final NameMapping nameMapping;
 
-    public CatalogScopedCacheMgr(Function<ExternalCatalog, T> cacheFactory) {
-        this.cacheFactory = cacheFactory;
+    public SchemaCacheKey(NameMapping nameMapping) {
+        this.nameMapping = nameMapping;
     }
 
-    public T getCache(ExternalCatalog catalog) {
-        return cacheMap.computeIfAbsent(catalog.getId(), id -> cacheFactory.apply(catalog));
+    @Override
+    public boolean equals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (!(obj instanceof SchemaCacheKey)) {
+            return false;
+        }
+        return nameMapping.equals(((SchemaCacheKey) obj).nameMapping);
     }
 
-    public T getCache(long catalogId) {
-        return cacheMap.get(catalogId);
+    @Override
+    public int hashCode() {
+        return nameMapping.hashCode();
     }
 
-    public T removeCache(long catalogId) {
-        return cacheMap.remove(catalogId);
+    @Override
+    public String toString() {
+        return "SchemaCacheKey{" + "dbName='"
+                + nameMapping.getLocalDbName() + '\'' + ", tblName='" + nameMapping.getLocalTblName() + '\'' + '}';
     }
 }

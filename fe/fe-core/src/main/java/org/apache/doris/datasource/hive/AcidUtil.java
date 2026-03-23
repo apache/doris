@@ -20,7 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache.FileCacheValue;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.remote.RemoteFile;

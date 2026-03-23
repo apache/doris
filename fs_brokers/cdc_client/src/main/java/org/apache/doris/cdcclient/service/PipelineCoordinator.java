@@ -24,6 +24,7 @@ import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
 import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
+import org.apache.doris.cdcclient.utils.ConfigUtil;
 import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
@@ -249,6 +250,10 @@ public class PipelineCoordinator {
         Map<String, String> deserializeContext = new HashMap<>(writeRecordRequest.getConfig());
         deserializeContext.put(Constants.DORIS_TARGET_DB, targetDb);
 
+        // Pre-parse source->target table name mappings once for this request
+        Map<String, String> targetTableMappings =
+                ConfigUtil.parseAllTargetTableMappings(writeRecordRequest.getConfig());
+
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
@@ -338,9 +343,10 @@ public class PipelineCoordinator {
                     }
                     if (!CollectionUtils.isEmpty(result.getRecords())) {
                         String table = extractTable(element);
+                        String dorisTable = targetTableMappings.getOrDefault(table, table);
                         for (String record : result.getRecords()) {
                             scannedRows++;
-                            batchStreamLoad.writeRecord(targetDb, table, record.getBytes());
+                            batchStreamLoad.writeRecord(targetDb, dorisTable, record.getBytes());
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;

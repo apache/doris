@@ -543,6 +543,14 @@ public class Config extends ConfigBase {
     public static boolean random_use_v3_storage_format = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "The stale threshold of checkpoint image file in cloud mode (in seconds). "
+                    + "If the image file is older than this threshold, a new checkpoint will be triggered "
+                    + "even if there are no new journals. This helps keep table version, partition version, "
+                    + "and tablet stats in the image up-to-date. If the value is less than or equal to 0, "
+                    + "this feature is disabled."})
+    public static long cloud_checkpoint_image_stale_threshold_seconds = 3600;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Wait for the internal batch to be written before returning; "
                     + "insert into and stream load use group commit by default."})
     public static boolean wait_internal_group_commit_finish = false;
@@ -1521,7 +1529,7 @@ public class Config extends ConfigBase {
      * The number is determined by "start" and "end" in the dynamic partition parameters.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_dynamic_partition_num = 500;
+    public static int max_dynamic_partition_num = 20000;
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating multi partition,
@@ -2690,8 +2698,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
-                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."})
-    public static int max_auto_partition_num = 2000;
+                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 20000."})
+    public static int max_auto_partition_num = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "The maximum difference in the number of tablets of each BE in partition rebalance mode. "
@@ -3261,8 +3269,8 @@ public class Config extends ConfigBase {
     public static boolean enable_commit_lock_for_all_tables = true;
 
     @ConfField(mutable = true, description = {
-            "Whether to enable lazy commit for large transactions in cloud mode. Default is false."})
-    public static boolean enable_cloud_txn_lazy_commit = false;
+            "Whether to enable lazy commit for large transactions in cloud mode. Default is true."})
+    public static boolean enable_cloud_txn_lazy_commit = true;
 
     @ConfField(mutable = true, masterOnly = true,
             description = {

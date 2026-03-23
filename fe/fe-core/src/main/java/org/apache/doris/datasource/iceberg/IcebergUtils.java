@@ -51,12 +51,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
-import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -720,16 +717,16 @@ public class IcebergUtils {
     }
 
     public static Table getIcebergTable(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getIcebergTable(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
-    // Centralize cache access to keep call sites consistent and easy to understand.
-    private static IcebergMetadataCache icebergMetadataCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(catalog);
+    private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {
+        Preconditions.checkNotNull(catalog, "catalog can not be null");
+        return Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(catalog.getId());
     }
 
-    private static ExternalSchemaCache schemaCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+    private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalTable table) {
+        return icebergExternalMetaCache(table.getCatalog());
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
@@ -1206,15 +1203,10 @@ public class IcebergUtils {
         return false;
     }
 
-    // read schema from external schema cache
+    // read schema from iceberg.schema entry
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
-        Optional<SchemaCacheValue> schemaCacheValue = schemaCache(dorisTable.getCatalog()).getSchemaValue(
-                new IcebergSchemaCacheKey(dorisTable.getOrBuildNameMapping(), schemaId));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                    null, dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), schemaId);
-        }
-        return (IcebergSchemaCacheValue) schemaCacheValue.get();
+        return icebergExternalMetaCache(dorisTable)
+                .getIcebergSchemaCacheValue(dorisTable.getOrBuildNameMapping(), schemaId);
     }
 
     public static IcebergSnapshot getLatestIcebergSnapshot(Table table) {
@@ -1484,7 +1476,7 @@ public class IcebergUtils {
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getSnapshotCache(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
     public static IcebergSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
@@ -1532,7 +1524,7 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getIcebergView(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getIcebergView(dorisTable);
     }
 
     public static Optional<SchemaCacheValue> loadSchemaCacheValue(
@@ -1571,18 +1563,15 @@ public class IcebergUtils {
                 icebergExternalTable.getViewText();
     }
 
-    public static IcebergManifestCache getManifestCache(ExternalCatalog catalog) {
-        return icebergMetadataCache(catalog).getManifestCache();
-    }
-
     public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
-        CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(),
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
+        CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(), CacheSpec.propertySpecBuilder()
+                .enable(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
+                .ttl(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
+                .capacity(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
+                .build());
         return CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity());
     }
 

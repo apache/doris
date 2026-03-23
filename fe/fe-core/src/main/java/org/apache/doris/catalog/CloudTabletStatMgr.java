@@ -108,6 +108,13 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
     @Override
     protected void runAfterCatalogReady() {
+        if (cloudTableStatsList.isEmpty()) {
+            // use tablet stats loaded from image to update table stats when fe start
+            // avoid that the table stats is empty for a long time since getAllTabletStats may consume a long time
+            LOG.info("cloud tablet stat is empty, will update stat info of all tables");
+            updateStatInfo(Env.getCurrentInternalCatalog().getDbIds());
+        }
+
         int version = Config.cloud_get_tablet_stats_version;
         LOG.info("cloud tablet stat begin with version: {}", version);
 

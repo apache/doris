@@ -169,6 +169,31 @@ public class ConfigUtil {
         return result;
     }
 
+    /**
+     * Parse all target-table name mappings from config.
+     *
+     * <p>Scans all keys matching {@code "table.<srcTableName>.target_table"} and returns a map from
+     * source table name to target (Doris) table name. Tables without a mapping are NOT included;
+     * callers should use {@code getOrDefault(srcTable, srcTable)}.
+     */
+    public static Map<String, String> parseAllTargetTableMappings(Map<String, String> config) {
+        String prefix = DataSourceConfigKeys.TABLE + ".";
+        String suffix = "." + DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX;
+        Map<String, String> result = new HashMap<>();
+        for (Map.Entry<String, String> entry : config.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith(prefix) && key.endsWith(suffix)) {
+                String srcTable = key.substring(prefix.length(), key.length() - suffix.length());
+                String rawValue = entry.getValue();
+                String dstTable = rawValue != null ? rawValue.trim() : "";
+                if (!srcTable.isEmpty() && !dstTable.isEmpty()) {
+                    result.put(srcTable, dstTable);
+                }
+            }
+        }
+        return result;
+    }
+
     public static Map<String, String> toStringMap(String json) {
         if (!isJson(json)) {
             return null;
