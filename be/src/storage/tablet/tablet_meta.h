@@ -251,9 +251,13 @@ public:
     void remove_rowset_delete_bitmap(const RowsetId& rowset_id, const Version& version);
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
+    bool enable_mow_async_publish() const { return _enable_mow_async_publish; }
 #ifdef BE_TEST
     void set_enable_unique_key_merge_on_write(bool value) {
         _enable_unique_key_merge_on_write = value;
+    }
+    void set_enable_mow_async_publish(bool value) {
+        _enable_mow_async_publish = value;
     }
 #endif
     // TODO(Drogon): thread safety
@@ -362,6 +366,8 @@ private:
     // which can avoid the merging cost in read stage, and accelerate the aggregation
     // query performance significantly.
     bool _enable_unique_key_merge_on_write = false;
+    // Enable async publish for MOW tables in Cloud mode
+    bool _enable_mow_async_publish = false;
     std::shared_ptr<DeleteBitmap> _delete_bitmap;
 
     // binlog config

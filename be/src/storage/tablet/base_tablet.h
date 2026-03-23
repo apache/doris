@@ -88,6 +88,15 @@ public:
         return _tablet_meta->enable_unique_key_merge_on_write();
     }
 
+    bool enable_mow_async_publish() const {
+#ifdef BE_TEST
+        if (_tablet_meta == nullptr) {
+            return false;
+        }
+#endif
+        return _tablet_meta->enable_mow_async_publish();
+    }
+
     // Property encapsulated in TabletMeta
     const TabletMetaSharedPtr& tablet_meta() { return _tablet_meta; }
 

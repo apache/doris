@@ -461,6 +461,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _storage_policy_id(b._storage_policy_id),
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
+          _enable_mow_async_publish(b._enable_mow_async_publish),
           _delete_bitmap(b._delete_bitmap),
           _binlog_config(b._binlog_config),
           _compaction_policy(b._compaction_policy),
@@ -803,6 +804,9 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
         _delete_bitmap->set_tablet_id(_tablet_id);
     }
+    if (tablet_meta_pb.has_enable_mow_async_publish()) {
+        _enable_mow_async_publish = tablet_meta_pb.enable_mow_async_publish();
+    }
 
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
@@ -931,6 +935,7 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
     }
 
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
+    tablet_meta_pb->set_enable_mow_async_publish(_enable_mow_async_publish);
 
     if (_enable_unique_key_merge_on_write) {
         std::set<RowsetId> stale_rs_ids;
