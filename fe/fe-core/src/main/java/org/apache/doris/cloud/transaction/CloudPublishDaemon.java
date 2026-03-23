@@ -35,9 +35,9 @@ import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.thrift.TCalcDeleteBitmapPartitionInfo;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.TabletCommitInfo;
+import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
-import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
