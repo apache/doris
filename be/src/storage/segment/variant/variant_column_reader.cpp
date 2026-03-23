@@ -70,7 +70,7 @@ bool is_compaction_or_checksum_reader(const StorageReadOptions* opts) {
 } // namespace
 
 const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_path(
-        const vectorized::PathInData& relative_path) const {
+        const PathInData& relative_path) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     const auto* node = _subcolumns_meta_info->find_leaf(relative_path);
     if (node) {
@@ -78,13 +78,12 @@ const SubcolumnColumnMetaInfo::Node* VariantColumnReader::get_subcolumn_meta_by_
     }
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
-    auto path = vectorized::PathInData(relative_path.get_path());
+    auto path = PathInData(relative_path.get_path());
     node = _subcolumns_meta_info->find_leaf(path);
     return node;
 }
 
-bool VariantColumnReader::exist_in_sparse_column(
-        const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::exist_in_sparse_column(const PathInData& relative_path) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     // Check if path exist in sparse column
     bool existed_in_sparse_column =
@@ -141,7 +140,7 @@ int64_t VariantColumnReader::get_metadata_size() const {
 }
 
 Status VariantColumnReader::_create_hierarchical_reader(
-        ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
+        ColumnIteratorUPtr* reader, int32_t col_uid, PathInData path,
         const SubcolumnColumnMetaInfo::Node* node, const SubcolumnColumnMetaInfo::Node* root,
         ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats,
         HierarchicalDataIterator::ReadType read_type) {
@@ -168,8 +167,8 @@ Status VariantColumnReader::_create_hierarchical_reader(
         RETURN_IF_ERROR(_binary_column_reader->new_binary_column_iterator(&iter));
     }
 
-    sparse_iter = std::make_unique<SubstreamIterator>(
-            vectorized::ColumnVariant::create_binary_column_fn(), std::move(iter), nullptr);
+    sparse_iter = std::make_unique<SubstreamIterator>(ColumnVariant::create_binary_column_fn(),
+                                                      std::move(iter), nullptr);
     if (node == nullptr) {
         node = _subcolumns_meta_info->find_exact(path);
     }
@@ -220,7 +219,7 @@ Status VariantColumnReader::_create_sparse_merge_reader(ColumnIteratorUPtr* iter
             CHECK(_binary_column_reader->get_type() == BinaryColumnType::MULTIPLE_SPARSE);
             uint32_t N = static_cast<uint32_t>(_binary_column_reader->num_buckets());
             if (N > 1) {
-                uint32_t b = vectorized::variant_util::variant_binary_shard_of(
+                uint32_t b = variant_util::variant_binary_shard_of(
                         StringRef {path.data(), path.size()}, N);
                 if (b != bucket_index.value()) {
                     continue; // prune subcolumns of other buckets early
@@ -295,8 +294,7 @@ Result<BinaryColumnCacheSPtr> VariantColumnReader::_get_binary_column_cache(
     if (!binary_column_cache_ptr || !binary_column_cache_ptr->contains(path)) {
         ColumnIteratorUPtr inner_iter;
         RETURN_IF_ERROR_RESULT(binary_column_reader->new_iterator(&inner_iter, nullptr));
-        vectorized::MutableColumnPtr binary_column =
-                vectorized::ColumnVariant::create_binary_column_fn();
+        MutableColumnPtr binary_column = ColumnVariant::create_binary_column_fn();
         auto binary_column_cache = std::make_shared<BinaryColumnCache>(std::move(inner_iter),
                                                                        std::move(binary_column));
         // if binary_column_cache_ptr is nullptr, means the binary column cache is not used
@@ -308,12 +306,11 @@ Result<BinaryColumnCacheSPtr> VariantColumnReader::_get_binary_column_cache(
     return binary_column_cache_ptr->at(path);
 }
 
-vectorized::DataTypePtr create_variant_type(const TabletColumn& target_col) {
+DataTypePtr create_variant_type(const TabletColumn& target_col) {
     return target_col.is_nullable()
-                   ? vectorized::make_nullable(std::make_shared<vectorized::DataTypeVariant>(
+                   ? make_nullable(std::make_shared<DataTypeVariant>(
                              target_col.variant_max_subcolumns_count()))
-                   : std::make_shared<vectorized::DataTypeVariant>(
-                             target_col.variant_max_subcolumns_count());
+                   : std::make_shared<DataTypeVariant>(target_col.variant_max_subcolumns_count());
 }
 
 Status VariantColumnReader::_build_read_plan_flat_leaves(
@@ -344,7 +341,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         if (rel == SPARSE_COLUMN_PATH &&
             _binary_column_reader->get_type() == BinaryColumnType::SINGLE_SPARSE) {
             plan->kind = ReadKind::SPARSE_MERGE;
-            plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+            plan->type = DataTypeFactory::instance().create_data_type(target_col);
             plan->relative_path = relative_path;
             plan->binary_column_reader = _binary_column_reader->select_reader(0);
             plan->binary_cache_key = SPARSE_COLUMN_PATH;
@@ -362,7 +359,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
                 return Status::NotFound("bucket sparse column reader not found: {}", rel);
             }
             plan->kind = ReadKind::SPARSE_MERGE;
-            plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+            plan->type = DataTypeFactory::instance().create_data_type(target_col);
             plan->relative_path = relative_path;
             plan->binary_column_reader = _binary_column_reader->select_reader(bucket_index);
             plan->binary_cache_key =
@@ -377,14 +374,14 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
             size_t bucket = rel.rfind('b');
             uint32_t bucket_value = static_cast<uint32_t>(std::stoul(rel.substr(bucket + 1)));
             plan->kind = ReadKind::DOC_COMPACT;
-            plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+            plan->type = DataTypeFactory::instance().create_data_type(target_col);
             plan->binary_column_reader = _binary_column_reader->select_reader(bucket_value);
             return Status::OK();
         }
 
         if (target_col.is_nested_subcolumn()) {
             plan->kind = ReadKind::DEFAULT_NESTED;
-            plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+            plan->type = DataTypeFactory::instance().create_data_type(target_col);
             plan->relative_path = relative_path;
             return Status::OK();
         }
@@ -410,7 +407,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
 
         VLOG_DEBUG << "new_default_iter: " << target_col.path_info_ptr()->get_path();
         plan->kind = ReadKind::DEFAULT_FILL;
-        plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+        plan->type = DataTypeFactory::instance().create_data_type(target_col);
         plan->relative_path = relative_path;
         return Status::OK();
     }
@@ -419,6 +416,7 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
         plan->kind = ReadKind::ROOT_FLAT;
         plan->type = create_variant_type(target_col);
         plan->relative_path = relative_path;
+        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
         return Status::OK();
     }
     VLOG_DEBUG << "new iterator: " << target_col.path_info_ptr()->get_path();
@@ -432,13 +430,12 @@ Status VariantColumnReader::_build_read_plan_flat_leaves(
     return Status::OK();
 }
 
-bool VariantColumnReader::has_prefix_path(const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::has_prefix_path(const PathInData& relative_path) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     return _has_prefix_path_unlocked(relative_path);
 }
 
-bool VariantColumnReader::_has_prefix_path_unlocked(
-        const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::_has_prefix_path_unlocked(const PathInData& relative_path) const {
     if (relative_path.empty()) {
         return true;
     }
@@ -483,9 +480,15 @@ bool VariantColumnReader::_can_use_nested_group_read_path() const {
            _nested_group_read_provider->should_enable_nested_group_read_path();
 }
 
-Status VariantColumnReader::_validate_access_paths_debug(
-        const TabletColumn& target_col, const StorageReadOptions* opt, int32_t col_uid,
-        const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::_needs_root_nested_group_merge(const PathInData& relative_path) const {
+    return relative_path.empty() && _nested_group_read_provider != nullptr &&
+           !_nested_group_readers.empty();
+}
+
+Status VariantColumnReader::_validate_access_paths_debug(const TabletColumn& target_col,
+                                                         const StorageReadOptions* opt,
+                                                         int32_t col_uid,
+                                                         const PathInData& relative_path) const {
     DBUG_EXECUTE_IF("VariantColumnReader.build_read_plan.access_paths", {
         if (opt != nullptr && opt->io_ctx.reader_type == ReaderType::READER_QUERY) {
             auto split_csv = [](const std::string& s) {
@@ -608,14 +611,16 @@ Status VariantColumnReader::_validate_access_paths_debug(
     return Status::OK();
 }
 
-bool VariantColumnReader::_try_fill_nested_group_plan(
-        ReadPlan* plan, const TabletColumn& target_col, const StorageReadOptions* opt,
-        int32_t col_uid, const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::_try_fill_nested_group_plan(ReadPlan* plan,
+                                                      const TabletColumn& target_col,
+                                                      const StorageReadOptions* opt,
+                                                      int32_t col_uid,
+                                                      const PathInData& relative_path) const {
     DCHECK(_nested_group_read_provider != nullptr);
 
     bool is_whole = false;
-    vectorized::DataTypePtr out_type;
-    vectorized::PathInData out_relative_path;
+    DataTypePtr out_type;
+    PathInData out_relative_path;
     std::string out_child_path;
     std::string out_pruned_path;
     std::vector<const NestedGroupReader*> out_chain;
@@ -637,9 +642,11 @@ bool VariantColumnReader::_try_fill_nested_group_plan(
     return true;
 }
 
-bool VariantColumnReader::_try_build_nested_group_plan(
-        ReadPlan* plan, const TabletColumn& target_col, const StorageReadOptions* opt,
-        int32_t col_uid, const vectorized::PathInData& relative_path) const {
+bool VariantColumnReader::_try_build_nested_group_plan(ReadPlan* plan,
+                                                       const TabletColumn& target_col,
+                                                       const StorageReadOptions* opt,
+                                                       int32_t col_uid,
+                                                       const PathInData& relative_path) const {
     const bool is_compaction_or_checksum = is_compaction_or_checksum_reader(opt);
 
     // Root path in compaction/checksum must reconstruct full Variant rows for re-write.
@@ -658,7 +665,7 @@ bool VariantColumnReader::_try_build_nested_group_plan(
 }
 
 Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid,
-                                                 const vectorized::PathInData& relative_path,
+                                                 const PathInData& relative_path,
                                                  const SubcolumnColumnMetaInfo::Node* node,
                                                  ColumnReaderCache* column_reader_cache,
                                                  OlapReaderStatistics* stats) {
@@ -668,6 +675,7 @@ Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid
 
     DCHECK(node->is_leaf_node());
     const auto* leaf_node = _subcolumns_meta_info->find_leaf(relative_path);
+
     std::shared_ptr<ColumnReader> leaf_column_reader;
     RETURN_IF_ERROR(column_reader_cache->get_path_column_reader(
             col_uid, leaf_node->path, &leaf_column_reader, stats, leaf_node));
@@ -678,12 +686,14 @@ Status VariantColumnReader::_try_build_leaf_plan(ReadPlan* plan, int32_t col_uid
     return Status::OK();
 }
 
-Status VariantColumnReader::_try_build_external_leaf_plan(
-        ReadPlan* plan, int32_t col_uid, const vectorized::PathInData& relative_path,
-        ColumnReaderCache* column_reader_cache, OlapReaderStatistics* stats) {
+Status VariantColumnReader::_try_build_external_leaf_plan(ReadPlan* plan, int32_t col_uid,
+                                                          const PathInData& relative_path,
+                                                          ColumnReaderCache* column_reader_cache,
+                                                          OlapReaderStatistics* stats) {
     if (!_ext_meta_reader || !_ext_meta_reader->available()) {
         return Status::OK();
     }
+
     std::shared_ptr<ColumnReader> leaf_column_reader;
     Status st = column_reader_cache->get_path_column_reader(col_uid, relative_path,
                                                             &leaf_column_reader, stats, nullptr);
@@ -732,7 +742,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
     // try rebuild path with hierarchical
     // example path(['a.b']) -> path(['a', 'b'])
     if (node == nullptr) {
-        relative_path = vectorized::PathInData(relative_path.get_path());
+        relative_path = PathInData(relative_path.get_path());
         node = _subcolumns_meta_info->find_exact(relative_path);
     }
 
@@ -748,12 +758,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         plan->type = create_variant_type(target_col);
         plan->relative_path = relative_path;
         plan->root = root;
-        return Status::OK();
-    }
-
-    // NestedGroup path resolution must happen before sparse/hierarchical fallbacks.
-    // Otherwise a valid nested path may be misclassified as generic sparse extraction.
-    if (_try_build_nested_group_plan(plan, target_col, opt, col_uid, relative_path)) {
+        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
         return Status::OK();
     }
 
@@ -783,6 +788,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
         plan->relative_path = relative_path;
         plan->node = node;
         plan->root = root;
+        plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
         return Status::OK();
     }
 
@@ -824,6 +830,7 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             plan->type = create_variant_type(target_col);
             plan->relative_path = relative_path;
             plan->root = root;
+            plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
             return Status::OK();
         }
 
@@ -849,13 +856,14 @@ Status VariantColumnReader::_build_read_plan(ReadPlan* plan, const TabletColumn&
             plan->relative_path = relative_path;
             plan->node = node;
             plan->root = root;
+            plan->needs_root_merge = _needs_root_nested_group_merge(relative_path);
             return Status::OK();
         }
 
         // Sparse column not exists and not reached stats limit, then the target path is not
         // exist, get a default iterator
         plan->kind = ReadKind::DEFAULT_FILL;
-        plan->type = vectorized::DataTypeFactory::instance().create_data_type(target_col);
+        plan->type = DataTypeFactory::instance().create_data_type(target_col);
         plan->relative_path = relative_path;
         return Status::OK();
     }
@@ -868,31 +876,23 @@ Status VariantColumnReader::_create_iterator_from_plan(
         PathToBinaryColumnCache* binary_column_cache_ptr) {
     switch (plan.kind) {
     case ReadKind::ROOT_FLAT: {
+        // ROOT_FLAT reads the persisted root column itself. It does not rebuild root `v` from
+        // regular extracted columns such as `v.keep` / `v.owner`; only the optional root-merge
+        // wrapper below may fold NestedGroup data back into the root view.
         *iterator = std::make_unique<VariantRootColumnIterator>(
                 std::make_unique<FileColumnIterator>(_root_column_reader));
-        return Status::OK();
+        return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::HIERARCHICAL: {
+        // HIERARCHICAL reconstructs the requested object from extracted subcolumns plus sparse
+        // state. Reading root `v` through this branch may therefore read regular children such as
+        // `v.keep` / `v.owner` and merge them into the final variant result.
         int32_t col_uid = target_col.unique_id() >= 0 ? target_col.unique_id()
                                                       : target_col.parent_unique_id();
-        ColumnIteratorUPtr base_iterator;
         RETURN_IF_ERROR(_create_hierarchical_reader(
-                &base_iterator, col_uid, plan.relative_path, plan.node, plan.root,
-                column_reader_cache, opt->stats,
-                HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE));
-
-        // Root variant reconstruction needs to merge top-level NestedGroup arrays, because NG leaf
-        // columns are not row-aligned and are skipped by the generic hierarchical reader.
-        if (plan.relative_path.empty() && _nested_group_read_provider != nullptr &&
-            !_nested_group_readers.empty()) {
-            ColumnIteratorUPtr merged_iterator;
-            RETURN_IF_ERROR(_nested_group_read_provider->create_root_merge_iterator(
-                    std::move(base_iterator), _nested_group_readers, opt, &merged_iterator));
-            *iterator = std::move(merged_iterator);
-            return Status::OK();
-        }
-        *iterator = std::move(base_iterator);
-        return Status::OK();
+                iterator, col_uid, plan.relative_path, plan.node, plan.root, column_reader_cache,
+                opt->stats, HierarchicalDataIterator::ReadType::SUBCOLUMNS_AND_SPARSE));
+        return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::LEAF: {
         DCHECK(plan.leaf_column_reader != nullptr);
@@ -949,14 +949,14 @@ Status VariantColumnReader::_create_iterator_from_plan(
         if (opt && opt->stats) {
             opt->stats->variant_doc_value_column_iter_count++;
         }
-        return Status::OK();
+        return _maybe_wrap_root_merge_iterator(iterator, plan, opt);
     }
     case ReadKind::NESTED_GROUP_WHOLE:
     case ReadKind::NESTED_GROUP_CHILD: {
         // Delegate iterator creation to the read provider.
         DCHECK(!plan.nested_group_chain.empty());
         bool is_whole = (plan.kind == ReadKind::NESTED_GROUP_WHOLE);
-        vectorized::DataTypePtr out_type;
+        DataTypePtr out_type;
         RETURN_IF_ERROR(_nested_group_read_provider->create_nested_group_iterator(
                 is_whole, plan.nested_group_chain, plan.nested_child_path,
                 plan.nested_group_pruned_path, plan.nested_group_path_filter, iterator, &out_type));
@@ -973,6 +973,22 @@ Status VariantColumnReader::_create_iterator_from_plan(
     default:
         return Status::InternalError("unknown variant read kind");
     }
+}
+
+Status VariantColumnReader::_maybe_wrap_root_merge_iterator(ColumnIteratorUPtr* iterator,
+                                                            const ReadPlan& plan,
+                                                            const StorageReadOptions* opt) {
+    if (!plan.needs_root_merge) {
+        return Status::OK();
+    }
+
+    // The planner may reach this point through ROOT_FLAT, HIERARCHICAL or HIERARCHICAL_DOC.
+    // Wrapping once here prevents those branches from duplicating the same root merge logic.
+    ColumnIteratorUPtr merged_iterator;
+    RETURN_IF_ERROR(_nested_group_read_provider->create_root_merge_iterator(
+            std::move(*iterator), _nested_group_readers, opt, &merged_iterator));
+    *iterator = std::move(merged_iterator);
+    return Status::OK();
 }
 
 Status VariantColumnReader::new_iterator(ColumnIteratorUPtr* iterator,
@@ -1011,11 +1027,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         RETURN_IF_ERROR(accessor->get_column_meta_by_uid(*footer, column_uid, &self_column_pb));
         // root column
         // root subcolumn is ColumnVariant::MostCommonType which is jsonb
-        vectorized::DataTypePtr root_type =
+        DataTypePtr root_type =
                 self_column_pb.is_nullable()
-                        ? make_nullable(
-                                  std::make_unique<vectorized::ColumnVariant::MostCommonType>())
-                        : std::make_unique<vectorized::ColumnVariant::MostCommonType>();
+                        ? make_nullable(std::make_unique<ColumnVariant::MostCommonType>())
+                        : std::make_unique<ColumnVariant::MostCommonType>();
         int32_t root_footer_ordinal = -1;
         if (self_column_pb.has_column_id()) {
             // Narrow explicitly to avoid implicit narrowing warnings.
@@ -1029,8 +1044,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
                                              &_root_column_reader));
     }
 
-    _data_type = vectorized::DataTypeFactory::instance().create_data_type(self_column_pb);
+    _data_type = DataTypeFactory::instance().create_data_type(self_column_pb);
     _root_unique_id = self_column_pb.unique_id();
+    const bool should_record_path_stats = variant_util::should_record_variant_path_stats(
+            opts.tablet_schema->column_by_uid(self_column_pb.unique_id()));
     const auto& parent_index = opts.tablet_schema->inverted_indexs(self_column_pb.unique_id());
     // record variant_sparse_column_statistics_size from parent column
     _variant_sparse_column_statistics_size =
@@ -1055,7 +1072,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         if (!col.has_column_path_info()) {
             return Status::OK();
         }
-        vectorized::PathInData path;
+        PathInData path;
         path.from_protobuf(col.column_path_info());
         auto relative = path.copy_pop_front();
         if (relative.empty()) {
@@ -1066,10 +1083,12 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
         std::string rel_str = relative.get_path();
         if (rel_str == SPARSE_COLUMN_PATH) {
             DCHECK(col.has_variant_statistics()) << col.DebugString();
-            // Always load sparse stats from the sparse column's own meta.
-            // This is the authoritative source; root stats may duplicate these
-            // but the sparse column meta is canonical.
-            _statistics->merge_sparse_from_pb(col.variant_statistics());
+            if (should_record_path_stats) {
+                // Always load sparse stats from the sparse column's own meta.
+                // This is the authoritative source; root stats may duplicate these
+                // but the sparse column meta is canonical.
+                _statistics->merge_sparse_from_pb(col.variant_statistics());
+            }
             std::shared_ptr<ColumnReader> single_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, footer->num_rows(), file_reader,
                                                  &single_reader));
@@ -1090,8 +1109,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             uint32_t idx =
                     static_cast<uint32_t>(atoi(rel_str.substr(bucket_prefix.size()).c_str()));
             DCHECK(col.has_variant_statistics()) << col.DebugString();
-            // Additively merge per-bucket sparse stats into the unified statistics.
-            _statistics->merge_sparse_from_pb(col.variant_statistics());
+            if (should_record_path_stats) {
+                // Additively merge per-bucket sparse stats into the unified statistics.
+                _statistics->merge_sparse_from_pb(col.variant_statistics());
+            }
             std::shared_ptr<ColumnReader> reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &reader));
             tmp_sparse_readers[idx] = std::move(reader);
@@ -1106,8 +1127,10 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             std::shared_ptr<ColumnReader> column_reader;
             RETURN_IF_ERROR(ColumnReader::create(opts, col, num_rows, file_reader, &column_reader));
             tmp_doc_value_readers[bucket_value] = std::move(column_reader);
-            // Additively merge per-bucket doc value stats into the unified statistics.
-            _statistics->merge_doc_value_from_pb(col.variant_statistics());
+            if (should_record_path_stats) {
+                // Additively merge per-bucket doc value stats into the unified statistics.
+                _statistics->merge_doc_value_from_pb(col.variant_statistics());
+            }
             *handled = true;
             return Status::OK();
         }
@@ -1144,7 +1167,7 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             continue;
         }
         DCHECK(column_pb.has_column_path_info());
-        vectorized::PathInData path;
+        PathInData path;
         path.from_protobuf(column_pb.column_path_info());
 
         // init sparse column readers
@@ -1172,15 +1195,14 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
             continue;
         }
         // check the root is already a leaf node
-        if (column_pb.has_none_null_size()) {
+        if (should_record_path_stats && column_pb.has_none_null_size()) {
             _statistics->subcolumns_non_null_size.emplace(relative_path.get_path(),
                                                           column_pb.none_null_size());
         }
         _subcolumns_meta_info->add(
                 relative_path,
                 SubcolumnMeta {
-                        .file_column_type =
-                                vectorized::DataTypeFactory::instance().create_data_type(column_pb),
+                        .file_column_type = DataTypeFactory::instance().create_data_type(column_pb),
                         .footer_ordinal = ordinal});
     }
 
@@ -1214,8 +1236,9 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     // NestedGroup initialization is provider-driven. Disabled providers keep fallback behavior,
     // while enabled providers populate nested group readers from segment footer.
     if (_can_use_nested_group_read_path()) {
-        RETURN_IF_ERROR(_nested_group_read_provider->init_readers(
-                opts, footer, file_reader, accessor, num_rows, _nested_group_readers));
+        RETURN_IF_ERROR(_nested_group_read_provider->init_readers(opts, footer, file_reader,
+                                                                  accessor, _root_unique_id,
+                                                                  num_rows, _nested_group_readers));
     }
 
     return Status::OK();
@@ -1234,7 +1257,7 @@ Status VariantColumnReader::create_reader_from_external_meta(const std::string& 
     return ColumnReader::create(opts, meta, num_rows, file_reader, out);
 }
 
-Status VariantColumnReader::create_path_reader(const vectorized::PathInData& relative_path,
+Status VariantColumnReader::create_path_reader(const PathInData& relative_path,
                                                const ColumnReaderOptions& opts,
                                                ColumnMetaAccessor* accessor,
                                                const SegmentFooterPB& footer,
@@ -1280,18 +1303,21 @@ Status VariantColumnReader::load_external_meta_once() {
     // Ensure only one writer can populate `_subcolumns_meta_info` / `_statistics`
     // while readers of these structures hold shared locks.
     std::unique_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
-    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), _statistics.get());
+    VariantStatistics* stats = variant_util::should_record_variant_path_stats(
+                                       _tablet_schema->column_by_uid(_root_unique_id))
+                                       ? _statistics.get()
+                                       : nullptr;
+    return _ext_meta_reader->load_all_once(_subcolumns_meta_info.get(), stats);
 }
 
-TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(
-        const TabletColumn& column, const vectorized::DataTypePtr& data_type) {
+TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(const TabletColumn& column,
+                                                                 const DataTypePtr& data_type) {
     TabletSchema::SubColumnInfo sub_column_info;
     const auto& parent_index = _tablet_schema->inverted_indexs(column.parent_unique_id());
     auto relative_path = column.path_info_ptr()->copy_pop_front();
     // if subcolumn has index, add index to _variant_subcolumns_indexes
-    if (vectorized::variant_util::generate_sub_column_info(
-                *_tablet_schema, column.parent_unique_id(), relative_path.get_path(),
-                &sub_column_info) &&
+    if (variant_util::generate_sub_column_info(*_tablet_schema, column.parent_unique_id(),
+                                               relative_path.get_path(), &sub_column_info) &&
         !sub_column_info.indexes.empty()) {
         return sub_column_info.indexes;
     }
@@ -1300,53 +1326,45 @@ TabletIndexes VariantColumnReader::find_subcolumn_tablet_indexes(
     if (!parent_index.empty() && data_type->get_primitive_type() != PrimitiveType::TYPE_VARIANT &&
         data_type->get_primitive_type() != PrimitiveType::TYPE_MAP /*SPARSE COLUMN*/) {
         // type in column maynot be real type, so use data_type to get the real type
-        vectorized::PathInData index_path {*column.path_info_ptr()};
-        vectorized::DataTypePtr index_data_type = data_type;
+        PathInData index_path {*column.path_info_ptr()};
+        DataTypePtr index_data_type = data_type;
         if (!relative_path.empty()) {
-            // For nested-group materialized columns, the inverted index suffix is built from the
-            // variant-relative path (e.g. "items.msg"), rather than the full logical column path
-            // (e.g. "data.items.msg"). This keeps the suffix consistent with the write path which
-            // does not include the VARIANT root column name.
             auto [nested_reader, _] = find_nested_group_for_path(relative_path.get_path());
+            const std::string root_path(kRootNestedGroupPath);
+
             if (nested_reader != nullptr) {
-                index_path = relative_path;
+                const bool is_root_ng = nested_reader->array_path == root_path;
+                if (!is_root_ng) {
+                    // Named NG — use variant-relative path (consistent with write path)
+                    index_path = relative_path;
+                } else {
+                    // $root NG — prefix path with __D0_root__
+                    index_path = PathInData(root_path + "." + relative_path.get_path());
+                }
+
+                // Unwrap Nullable(Array(...)) → element type for NG subcolumns
                 if (data_type->is_nullable()) {
-                    auto base = vectorized::variant_util::get_base_type_of_array(
-                            remove_nullable(data_type));
+                    auto base = variant_util::get_base_type_of_array(remove_nullable(data_type));
                     index_data_type = base->is_nullable() ? base : make_nullable(base);
                 } else {
-                    index_data_type = vectorized::variant_util::get_base_type_of_array(data_type);
+                    index_data_type = variant_util::get_base_type_of_array(data_type);
                 }
             }
+            // else: non-NG scalar field — keep index_path and index_data_type unchanged
         }
-        const std::string root_path(kRootNestedGroupPath);
-        if (_nested_group_readers.contains(root_path) && !relative_path.empty()) {
-            // If the segment has a top-level "$root" nested group (JSON root is array<object>),
-            // nested paths are stored under the virtual root marker.
-            index_path = vectorized::PathInData(root_path + "." + relative_path.get_path());
-            if (data_type->is_nullable()) {
-                auto base = vectorized::variant_util::get_base_type_of_array(
-                        remove_nullable(data_type));
-                index_data_type = base->is_nullable() ? base : make_nullable(base);
-            } else {
-                index_data_type = vectorized::variant_util::get_base_type_of_array(data_type);
-            }
-        }
-        TabletColumn target_column = vectorized::variant_util::get_column_by_type(
-                index_data_type, column.name(),
-                {.unique_id = -1,
-                 .parent_unique_id = column.parent_unique_id(),
-                 .path_info = index_path});
-        vectorized::variant_util::inherit_index(parent_index, sub_column_info.indexes,
-                                                target_column);
+        TabletColumn target_column =
+                variant_util::get_column_by_type(index_data_type, column.name(),
+                                                 {.unique_id = -1,
+                                                  .parent_unique_id = column.parent_unique_id(),
+                                                  .path_info = index_path});
+        variant_util::inherit_index(parent_index, sub_column_info.indexes, target_column);
     }
     // Return shared_ptr directly to maintain object lifetime
     return sub_column_info.indexes;
 }
 
 void VariantColumnReader::get_subcolumns_types(
-        std::unordered_map<vectorized::PathInData, vectorized::DataTypes,
-                           vectorized::PathInData::Hash>* subcolumns_types) const {
+        std::unordered_map<PathInData, DataTypes, PathInData::Hash>* subcolumns_types) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     for (const auto& subcolumn_reader : *_subcolumns_meta_info) {
         auto& path_types = (*subcolumns_types)[subcolumn_reader->path];
@@ -1364,8 +1382,7 @@ void VariantColumnReader::get_typed_paths(std::unordered_set<std::string>* typed
 }
 
 void VariantColumnReader::get_nested_paths(
-        std::unordered_set<vectorized::PathInData, vectorized::PathInData::Hash>* nested_paths)
-        const {
+        std::unordered_set<PathInData, PathInData::Hash>* nested_paths) const {
     std::shared_lock<std::shared_mutex> lock(_subcolumns_meta_mutex);
     for (const auto& entry : *_subcolumns_meta_info) {
         if (entry->path.has_nested_part()) {
@@ -1374,8 +1391,7 @@ void VariantColumnReader::get_nested_paths(
     }
 }
 
-Status VariantColumnReader::infer_data_type_for_path(vectorized::DataTypePtr* type,
-                                                     const TabletColumn& column,
+Status VariantColumnReader::infer_data_type_for_path(DataTypePtr* type, const TabletColumn& column,
                                                      const StorageReadOptions& opts,
                                                      ColumnReaderCache* column_reader_cache) {
     DCHECK(column.has_path_info());
@@ -1385,27 +1401,24 @@ Status VariantColumnReader::infer_data_type_for_path(vectorized::DataTypePtr* ty
     return Status::OK();
 }
 
-Status VariantRootColumnIterator::_process_root_column(
-        vectorized::MutableColumnPtr& dst, vectorized::MutableColumnPtr& root_column,
-        const vectorized::DataTypePtr& most_common_type) {
-    auto& obj =
-            dst->is_nullable()
-                    ? assert_cast<vectorized::ColumnVariant&>(
-                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                    : assert_cast<vectorized::ColumnVariant&>(*dst);
+Status VariantRootColumnIterator::_process_root_column(MutableColumnPtr& dst,
+                                                       MutableColumnPtr& root_column,
+                                                       const DataTypePtr& most_common_type) {
+    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
+                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                                   : assert_cast<ColumnVariant&>(*dst);
 
     // fill nullmap
     if (root_column->is_nullable() && dst->is_nullable()) {
-        vectorized::ColumnUInt8& dst_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column();
-        vectorized::ColumnUInt8& src_null_map =
-                assert_cast<vectorized::ColumnNullable&>(*root_column).get_null_map_column();
+        ColumnUInt8& dst_null_map = assert_cast<ColumnNullable&>(*dst).get_null_map_column();
+        ColumnUInt8& src_null_map =
+                assert_cast<ColumnNullable&>(*root_column).get_null_map_column();
         dst_null_map.insert_range_from(src_null_map, 0, src_null_map.size());
     }
 
     // add root column to a tmp object column
-    auto tmp = vectorized::ColumnVariant::create(0, root_column->size());
-    auto& tmp_obj = assert_cast<vectorized::ColumnVariant&>(*tmp);
+    auto tmp = ColumnVariant::create(0, root_column->size());
+    auto& tmp_obj = assert_cast<ColumnVariant&>(*tmp);
     tmp_obj.add_sub_column({}, std::move(root_column), most_common_type);
     // tmp_obj.get_sparse_column()->assume_mutable()->insert_many_defaults(root_column->size());
 
@@ -1424,14 +1437,11 @@ Status VariantRootColumnIterator::_process_root_column(
     return Status::OK();
 }
 
-Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                             bool* has_null) {
+Status VariantRootColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     // read root column
-    auto& obj =
-            dst->is_nullable()
-                    ? assert_cast<vectorized::ColumnVariant&>(
-                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                    : assert_cast<vectorized::ColumnVariant&>(*dst);
+    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
+                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                                   : assert_cast<ColumnVariant&>(*dst);
 
     auto most_common_type =
             obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
@@ -1442,13 +1452,11 @@ Status VariantRootColumnIterator::next_batch(size_t* n, vectorized::MutableColum
 }
 
 Status VariantRootColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                 vectorized::MutableColumnPtr& dst) {
+                                                 MutableColumnPtr& dst) {
     // read root column
-    auto& obj =
-            dst->is_nullable()
-                    ? assert_cast<vectorized::ColumnVariant&>(
-                              assert_cast<vectorized::ColumnNullable&>(*dst).get_nested_column())
-                    : assert_cast<vectorized::ColumnVariant&>(*dst);
+    auto& obj = dst->is_nullable() ? assert_cast<ColumnVariant&>(
+                                             assert_cast<ColumnNullable&>(*dst).get_nested_column())
+                                   : assert_cast<ColumnVariant&>(*dst);
 
     auto most_common_type =
             obj.get_most_common_type(); // NOLINT(readability-static-accessed-through-instance)
@@ -1468,12 +1476,12 @@ void VariantRootColumnIterator::collect_prefetchers(
     _inner_iter->collect_prefetchers(prefetchers, init_method);
 }
 
-static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
-                                      vectorized::MutableColumnPtr& sibling_column, size_t nrows) {
-    const auto* sibling_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
-            remove_nullable(sibling_column->get_ptr()).get());
-    const auto* dst_array = vectorized::check_and_get_column<vectorized::ColumnArray>(
-            remove_nullable(dst->get_ptr()).get());
+static void fill_nested_with_defaults(MutableColumnPtr& dst, MutableColumnPtr& sibling_column,
+                                      size_t nrows) {
+    const auto* sibling_array =
+            check_and_get_column<ColumnArray>(remove_nullable(sibling_column->get_ptr()).get());
+    const auto* dst_array =
+            check_and_get_column<ColumnArray>(remove_nullable(dst->get_ptr()).get());
     if (!dst_array || !sibling_array) {
         throw doris::Exception(ErrorCode::INTERNAL_ERROR,
                                "Expected array column, but met {} and {}", dst->get_name(),
@@ -1481,7 +1489,7 @@ static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
     }
     auto new_nested =
             dst_array->get_data_ptr()->clone_resized(sibling_array->get_data_ptr()->size());
-    auto new_array = make_nullable(vectorized::ColumnArray::create(
+    auto new_array = make_nullable(ColumnArray::create(
             new_nested->assume_mutable(), sibling_array->get_offsets_ptr()->assume_mutable()));
     dst->insert_range_from(*new_array, 0, new_array->size());
 #ifndef NDEBUG
@@ -1491,15 +1499,14 @@ static void fill_nested_with_defaults(vectorized::MutableColumnPtr& dst,
 #endif
 }
 
-Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+Status DefaultNestedColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst) {
     bool has_null = false;
     return next_batch(n, dst, &has_null);
 }
 
-Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                               bool* has_null) {
+Status DefaultNestedColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     if (_sibling_iter) {
-        vectorized::MutableColumnPtr sibling_column = _file_column_type->create_column();
+        MutableColumnPtr sibling_column = _file_column_type->create_column();
         RETURN_IF_ERROR(_sibling_iter->next_batch(n, sibling_column, has_null));
         fill_nested_with_defaults(dst, sibling_column, *n);
     } else {
@@ -1508,9 +1515,9 @@ Status DefaultNestedColumnIterator::next_batch(size_t* n, vectorized::MutableCol
     return Status::OK();
 }
 Status DefaultNestedColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                   vectorized::MutableColumnPtr& dst) {
+                                                   MutableColumnPtr& dst) {
     if (_sibling_iter) {
-        vectorized::MutableColumnPtr sibling_column = _file_column_type->create_column();
+        MutableColumnPtr sibling_column = _file_column_type->create_column();
         RETURN_IF_ERROR(_sibling_iter->read_by_rowids(rowids, count, sibling_column));
         fill_nested_with_defaults(dst, sibling_column, count);
     } else {

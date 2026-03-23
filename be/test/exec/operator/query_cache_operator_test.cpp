@@ -28,20 +28,15 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_runtime_state.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
-
-using namespace vectorized;
+namespace doris {
 
 class QueryCacheMockChildOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
-        return Status::OK();
-    }
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -66,6 +61,13 @@ struct QueryCacheOperatorTest : public ::testing::Test {
         palp_scan_range.__set_version("114514");
         scan_range.scan_range.__set_palo_scan_range(palp_scan_range);
         scan_ranges.push_back(scan_range);
+    }
+    void TearDown() override {
+        // Must clear state before query_cache_uptr is destroyed, because
+        // local states inside `state` hold QueryCacheHandle which references
+        // the QueryCache. C++ destroys members in reverse declaration order,
+        // so state (declared before query_cache_uptr) would outlive the cache.
+        state.reset();
     }
     void create_local_state() {
         shared_state = sink->create_shared_state();
@@ -93,7 +95,7 @@ struct QueryCacheOperatorTest : public ::testing::Test {
                                  .shared_state_map = {},
                                  .task_idx = 0};
 
-            EXPECT_TRUE(source_local_state_uptr->init(state.get(), info));
+            EXPECT_TRUE(source_local_state_uptr->init(state.get(), info).ok());
             state->resize_op_id_to_local_state(-100);
             state->emplace_local_state(source->operator_id(), std::move(source_local_state_uptr));
         }
@@ -133,9 +135,10 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache1) {
     source = std::make_unique<CacheSourceOperatorX>();
     EXPECT_TRUE(source->set_child(child_op));
     child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
     cache_param.output_slot_mapping[0] = 0;
     cache_param.tablet_to_range.insert({42, "test"});
     cache_param.force_refresh_query_cache = false;
@@ -173,9 +176,10 @@ TEST_F(QueryCacheOperatorTest, test_no_hit_cache2) {
     source = std::make_unique<CacheSourceOperatorX>();
     EXPECT_TRUE(source->set_child(child_op));
     child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
     cache_param.output_slot_mapping[0] = 0;
     cache_param.tablet_to_range.insert({42, "test"});
     cache_param.force_refresh_query_cache = false;
@@ -213,9 +217,10 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
     source = std::make_unique<CacheSourceOperatorX>();
     EXPECT_TRUE(source->set_child(child_op));
     child_op->_mock_row_desc.reset(
-            new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>()}, &pool});
+            new MockRowDescriptor {{std::make_shared<DataTypeInt64>()}, &pool});
     TQueryCacheParam cache_param;
     cache_param.node_id = 0;
+    cache_param.digest = "test_digest";
     cache_param.output_slot_mapping[0] = 0;
     cache_param.tablet_to_range.insert({42, "test"});
     cache_param.force_refresh_query_cache = false;
@@ -225,7 +230,8 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
     {
         int64_t version = 0;
         std::string cache_key;
-        EXPECT_TRUE(QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version));
+        EXPECT_TRUE(
+                QueryCache::build_cache_key(scan_ranges, cache_param, &cache_key, &version).ok());
         CacheResult result;
         result.push_back(std::make_unique<Block>());
         *result.back() = ColumnHelper::create_block<DataTypeInt64>({1, 2, 3, 4, 5});
@@ -266,8 +272,6 @@ TEST_F(QueryCacheOperatorTest, test_hit_cache) {
         EXPECT_TRUE(eos);
         EXPECT_TRUE(block.empty());
     }
-
-    query_cache_uptr.release();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

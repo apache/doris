@@ -23,10 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.info.TableNameInfo;
-import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TSlotRef;
 
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -176,26 +172,6 @@ public class SlotRef extends Expr {
             this.exprName = Optional.of(accept(ExprToColumnLabelVisitor.INSTANCE, null));
         }
         return this.exprName.get();
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.SLOT_REF;
-        msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
-        msg.slot_ref.setColUniqueId(desc.getUniqueId());
-        msg.slot_ref.setIsVirtualSlot(desc.getVirtualColumn() != null);
-        msg.setLabel(label);
-    }
-
-    @Override
-    protected void normalize(TExprNode msg, Normalizer normalizer) {
-        msg.node_type = TExprNodeType.SLOT_REF;
-        // we should eliminate the different tuple id to reuse query cache
-        msg.slot_ref = new TSlotRef(
-                normalizer.normalizeSlotId(desc.getId().asInt()),
-                0
-        );
-        msg.slot_ref.setColUniqueId(desc.getUniqueId());
     }
 
     @Override

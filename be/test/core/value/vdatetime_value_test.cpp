@@ -26,7 +26,7 @@
 #include "core/types.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(VDateTimeValueTest, date_v2_to_uint32_test) {
     uint16_t year = 2022;
@@ -1312,4 +1312,4 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

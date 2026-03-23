@@ -33,7 +33,7 @@
 #include "core/typeid_cast.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class IFunction;
 
@@ -116,4 +116,4 @@ void validate_argument_type(const IFunction& func, const DataTypes& arguments,
                             size_t argument_index, bool (*validator_func)(const IDataType&),
                             const char* expected_type_description);
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -21,6 +21,7 @@ import org.apache.doris.catalog.TableIf;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -69,32 +70,37 @@ public class LogicalEsScan extends LogicalCatalogRelation {
 
     @Override
     public LogicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns,
-                groupExpression, Optional.of(getLogicalProperties()), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEsScan(relationId, table, qualifier, virtualColumns,
+                groupExpression, Optional.of(getLogicalProperties()), tableAlias));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, groupExpression, logicalProperties,
-                tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEsScan(relationId, table, qualifier, virtualColumns, groupExpression, logicalProperties,
+                tableAlias));
     }
 
     @Override
     public LogicalEsScan withRelationId(RelationId relationId) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
-                tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
+                tableAlias));
     }
 
     @Override
     public LogicalEsScan withVirtualColumns(List<NamedExpression> virtualColumns) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
-                tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(), Optional.empty(),
+                tableAlias));
     }
 
     public LogicalEsScan withTableAlias(String tableAlias) {
-        return new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(),
-                Optional.of(getLogicalProperties()), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalEsScan(relationId, table, qualifier, virtualColumns, Optional.empty(),
+                Optional.of(getLogicalProperties()), tableAlias));
     }
 
     @Override

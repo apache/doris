@@ -47,14 +47,14 @@ static void add_stream(std::shared_ptr<LoadStreamMap> load_stream_map, int64_t n
     }
 }
 
-static std::unique_ptr<vectorized::VTabletWriterV2> create_vtablet_writer(int num_replicas = 3) {
+static std::unique_ptr<VTabletWriterV2> create_vtablet_writer(int num_replicas = 3) {
     TDataSink t_sink;
     t_sink.__isset.olap_table_sink = true;
     t_sink.olap_table_sink.num_replicas = num_replicas;
-    vectorized::VExprContextSPtrs output_exprs;
-    std::shared_ptr<pipeline::Dependency> dep = nullptr;
-    std::shared_ptr<pipeline::Dependency> fin_dep = nullptr;
-    auto writer = std::make_unique<vectorized::VTabletWriterV2>(t_sink, output_exprs, dep, fin_dep);
+    VExprContextSPtrs output_exprs;
+    std::shared_ptr<Dependency> dep = nullptr;
+    std::shared_ptr<Dependency> fin_dep = nullptr;
+    auto writer = std::make_unique<VTabletWriterV2>(t_sink, output_exprs, dep, fin_dep);
 
     int required_replicas = num_replicas / 2 + 1;
     writer->_tablet_replica_info[1] = std::make_pair(num_replicas, required_replicas);

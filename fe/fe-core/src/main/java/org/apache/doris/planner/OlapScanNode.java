@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
@@ -1154,7 +1155,7 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortInfo != null) {
             TSortInfo tSortInfo = new TSortInfo(
-                    Expr.treesToThrift(sortInfo.getOrderingExprs()),
+                    ExprToThriftVisitor.treesToThrift(sortInfo.getOrderingExprs()),
                     sortInfo.getIsAscOrder(),
                     sortInfo.getNullsFirst());
             msg.olap_scan_node.setSortInfo(tSortInfo);
@@ -1164,7 +1165,7 @@ public class OlapScanNode extends ScanNode {
         }
         if (scoreSortInfo != null) {
             TSortInfo tScoreSortInfo = new TSortInfo(
-                    Expr.treesToThrift(scoreSortInfo.getOrderingExprs()),
+                    ExprToThriftVisitor.treesToThrift(scoreSortInfo.getOrderingExprs()),
                     scoreSortInfo.getIsAscOrder(),
                     scoreSortInfo.getNullsFirst());
             msg.olap_scan_node.setScoreSortInfo(tScoreSortInfo);
@@ -1177,7 +1178,7 @@ public class OlapScanNode extends ScanNode {
         }
         if (annSortInfo != null) {
             TSortInfo tAnnSortInfo = new TSortInfo(
-                    Expr.treesToThrift(annSortInfo.getOrderingExprs()),
+                    ExprToThriftVisitor.treesToThrift(annSortInfo.getOrderingExprs()),
                     annSortInfo.getIsAscOrder(),
                     annSortInfo.getNullsFirst());
             msg.olap_scan_node.setAnnSortInfo(tAnnSortInfo);
@@ -1196,6 +1197,19 @@ public class OlapScanNode extends ScanNode {
         }
         msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
+
+        // Set MOR value predicate pushdown flag based on session variable
+        if (olapTable.isMorTable() && ConnectContext.get() != null) {
+            String dbName = olapTable.getQualifiedDbName();
+            String tblName = olapTable.getName();
+            boolean enabled = ConnectContext.get().getSessionVariable()
+                    .isMorValuePredicatePushdownEnabled(dbName, tblName);
+            msg.olap_scan_node.setEnableMorValuePredicatePushdown(enabled);
+            if (ConnectContext.get().getSessionVariable()
+                    .isReadMorAsDupEnabled(dbName, tblName)) {
+                msg.olap_scan_node.setReadMorAsDup(true);
+            }
+        }
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
 

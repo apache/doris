@@ -20,6 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
@@ -222,7 +223,7 @@ public final class RuntimeFilter {
     public TRuntimeFilterDesc toThrift() {
         TRuntimeFilterDesc tFilter = new TRuntimeFilterDesc();
         tFilter.setFilterId(id.asInt());
-        tFilter.setSrcExpr(srcExpr.treeToThrift());
+        tFilter.setSrcExpr(ExprToThriftVisitor.treeToThrift(srcExpr));
         tFilter.setExprOrder(exprOrder);
         tFilter.setIsBroadcastJoin(isBroadcastJoin);
         tFilter.setHasLocalTargets(hasLocalTargets);
@@ -230,7 +231,7 @@ public final class RuntimeFilter {
 
         boolean hasSerialTargets = false;
         for (RuntimeFilterTarget target : targets) {
-            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), target.expr.treeToThrift());
+            tFilter.putToPlanIdToTargetExpr(target.node.getId().asInt(), ExprToThriftVisitor.treeToThrift(target.expr));
             hasSerialTargets = hasSerialTargets
                     || (target.node.isSerialOperator() && target.node.fragment.useSerialSource(ConnectContext.get()));
         }
@@ -260,7 +261,7 @@ public final class RuntimeFilter {
         tFilter.setType(runtimeFilterType);
         tFilter.setBloomFilterSizeBytes(filterSizeBytes);
         if (runtimeFilterType.equals(TRuntimeFilterType.BITMAP)) {
-            tFilter.setBitmapTargetExpr(targets.get(0).expr.treeToThrift());
+            tFilter.setBitmapTargetExpr(ExprToThriftVisitor.treeToThrift(targets.get(0).expr));
             tFilter.setBitmapFilterNotIn(bitmapFilterNotIn);
         }
         if (runtimeFilterType.equals(TRuntimeFilterType.MIN_MAX)) {

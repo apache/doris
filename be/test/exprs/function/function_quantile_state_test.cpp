@@ -26,7 +26,7 @@
 #include "exprs/function/function_test_util.h"
 #include "util/url_coding.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_quantile_state_test, function_quantile_state_to_base64) {
     std::string func_name = "quantile_state_to_base64";
@@ -213,4 +213,4 @@ TEST(function_quantile_state_test, function_quantile_state_roundtrip) {
                 0.01);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

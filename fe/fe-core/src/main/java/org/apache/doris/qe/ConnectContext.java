@@ -35,7 +35,6 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -175,6 +174,8 @@ public class ConnectContext {
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
     private Map<String, LiteralExpr> userVars = new HashMap<>();
+    // Connection attributes provided by the MySQL client during handshake.
+    private Map<String, String> connectAttributes = new HashMap<>();
     // Scheduler this connection belongs to
     protected volatile ConnectScheduler connectScheduler;
     // Executor
@@ -420,7 +421,20 @@ public class ConnectContext {
         context.setEnv(env);
         context.setDatabase(currentDb);
         context.setCurrentUserIdentity(currentUserIdentity);
+        context.setConnectAttributes(connectAttributes);
         return context;
+    }
+
+    public Map<String, String> getConnectAttributes() {
+        return connectAttributes;
+    }
+
+    public void setConnectAttributes(Map<String, String> connectAttributes) {
+        if (connectAttributes == null || connectAttributes.isEmpty()) {
+            this.connectAttributes = new HashMap<>();
+            return;
+        }
+        this.connectAttributes = new HashMap<>(connectAttributes);
     }
 
     public boolean isTxnModel() {
@@ -1211,7 +1225,7 @@ public class ConnectContext {
                 row.add("No");
             }
             row.add("" + connectionId);
-            row.add(ClusterNamespace.getNameFromFullName(getQualifiedUser()));
+            row.add(getQualifiedUser());
             row.add(getRemoteHostPortString());
             if (timeZone.isPresent()) {
                 row.add(TimeUtils.longToTimeStringWithTimeZone(loginTime, timeZone.get()));
@@ -1219,7 +1233,7 @@ public class ConnectContext {
                 row.add(TimeUtils.longToTimeString(loginTime));
             }
             row.add(defaultCatalog);
-            row.add(ClusterNamespace.getNameFromFullName(currentDb));
+            row.add(currentDb);
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add(state.toString());

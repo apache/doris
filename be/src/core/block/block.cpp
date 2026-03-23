@@ -62,7 +62,7 @@ namespace doris::segment_v2 {
 enum CompressionTypePB : int;
 } // namespace doris::segment_v2
 #include "common/compile_check_begin.h"
-namespace doris::vectorized {
+namespace doris {
 template <typename T>
 void clear_blocks(moodycamel::ConcurrentQueue<T>& blocks,
                   RuntimeProfile::Counter* memory_used_counter = nullptr) {
@@ -845,7 +845,7 @@ Status Block::filter_block(Block* block, const std::vector<uint32_t>& columns_to
         }
     } else {
         const IColumn::Filter& filter =
-                assert_cast<const doris::vectorized::ColumnUInt8&>(*filter_column).get_data();
+                assert_cast<const doris::ColumnUInt8&>(*filter_column).get_data();
         RETURN_IF_CATCH_EXCEPTION(filter_block_internal(block, columns_to_filter, filter));
     }
 
@@ -1155,4 +1155,4 @@ std::string MutableBlock::dump_names() const {
     return out;
 }
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

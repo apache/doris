@@ -33,7 +33,7 @@ public:
                                    const std::vector<uint32_t>& column_ids);
 
     // Calculate variant statistics for the given column and block
-    Status calculate_variant_stats(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status calculate_variant_stats(const Block* block, size_t row_pos, size_t num_rows);
 
 private:
     // Map from column path to footer column index for fast lookup
@@ -45,13 +45,12 @@ private:
     std::vector<uint32_t> _column_ids;
 
     // Helper method to calculate sparse column statistics
-    void _calculate_sparse_column_stats(const vectorized::IColumn& column,
-                                        ColumnMetaPB* column_meta,
+    void _calculate_sparse_column_stats(const IColumn& column, ColumnMetaPB* column_meta,
                                         size_t max_sparse_column_statistics_size, size_t row_pos,
                                         size_t num_rows);
 
     // Helper method to calculate sub column statistics
-    void _calculate_sub_column_stats(const vectorized::IColumn& column, ColumnMetaPB* column_meta,
+    void _calculate_sub_column_stats(const IColumn& column, ColumnMetaPB* column_meta,
                                      size_t row_pos, size_t num_rows);
 };
 

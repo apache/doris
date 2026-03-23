@@ -21,7 +21,7 @@
 #include "exprs/function/if.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 auto& get_cond_data(ColumnPtr col) {
     return assert_cast<const ColumnUInt8*>(col.get())->get_data();
@@ -104,4 +104,4 @@ TEST(NumIfImplTest, allTest) {
     test_for_all_types<DataTypeFloat32>();
     test_for_all_types<DataTypeFloat64>();
 }
-} // namespace doris::vectorized
+} // namespace doris

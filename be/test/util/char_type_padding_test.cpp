@@ -27,7 +27,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "storage/iterator/olap_data_convertor.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using ConvertorChar = OlapBlockDataConvertor::OlapColumnDataConvertorChar;
 
@@ -72,4 +72,4 @@ TEST(CharTypePaddingTest, CharTypePaddingDataTest) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

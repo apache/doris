@@ -33,7 +33,7 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // This number represents the number of days from 0000-01-01 to 1970-01-01
 static const int32_t date_threshold = 719528;
@@ -142,8 +142,7 @@ Status DataTypeDateV2SerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeDateV2SerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
-                                                int64_t start, int64_t end,
-                                                vectorized::Arena& arena,
+                                                int64_t start, int64_t end, Arena& arena,
                                                 const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnDateV2&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::LongVectorBatch*>(orc_col_batch);
@@ -229,6 +228,14 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
     return Status::OK();
 }
 
+// Deserializes a DateV2 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses strptime("%Y-%m-%d") to parse, then bit-packs into DateV2 internal format:
+//   uint32_t value = (year << 9) | (month << 5) | day
+//
+// Expected input format: "YYYY-MM-DD", e.g. "2023-10-15"
+// On parse failure, falls back to MIN_DATE_V2.
 Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& field,
                                              const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -442,7 +449,12 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
     return Status::OK();
 }
 
-std::string DataTypeDateV2SerDe::to_olap_string(const vectorized::Field& field) const {
+// Serializes a DateV2 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Delegates to CastToString::from_datev2() which calls DateV2Value::to_string(buf).
+// Output format: "YYYY-MM-DD", e.g. "2023-10-15"
+std::string DataTypeDateV2SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_datev2(field.get<TYPE_DATEV2>());
 }
 // NOLINTEND(readability-function-cognitive-complexity)
@@ -498,4 +510,4 @@ template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDeci
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
 
-} // namespace doris::vectorized
+} // namespace doris

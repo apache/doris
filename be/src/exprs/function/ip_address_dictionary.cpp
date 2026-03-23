@@ -38,7 +38,7 @@
 #include "exec/common/template_helpers.hpp"
 #include "exprs/function/dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 IPAddressDictionary::~IPAddressDictionary() {
     if (_mem_tracker) {
@@ -335,4 +335,4 @@ IPAddressDictionary::RowIdxConstIter IPAddressDictionary::look_up_IP(const IPv6&
 
     return ip_not_found();
 }
-} // namespace doris::vectorized
+} // namespace doris

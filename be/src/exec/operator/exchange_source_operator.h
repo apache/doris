@@ -26,12 +26,10 @@ namespace doris {
 class ExecNode;
 } // namespace doris
 
-namespace vectorized {
 class VDataStreamRecvr;
 class Block;
-} // namespace vectorized
 
-namespace doris::pipeline {
+namespace doris {
 
 class ExchangeSourceOperatorX;
 class ExchangeLocalState : public PipelineXLocalState<> {
@@ -73,8 +71,8 @@ public:
     }
 
     MOCK_FUNCTION void create_stream_recvr(RuntimeState* state);
-    std::shared_ptr<doris::vectorized::VDataStreamRecvr> stream_recvr;
-    doris::vectorized::VSortExecExprs vsort_exec_exprs;
+    std::shared_ptr<doris::VDataStreamRecvr> stream_recvr;
+    doris::VSortExecExprs vsort_exec_exprs;
     int64_t num_rows_skipped;
     bool is_ready;
 
@@ -102,7 +100,7 @@ public:
 
     Status reset(RuntimeState* state) override;
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     std::string debug_string(int indentation_level = 0) const override;
 
@@ -131,10 +129,10 @@ private:
 
     // use in merge sort
     size_t _offset;
-    doris::vectorized::VSortExecExprs _vsort_exec_exprs;
+    doris::VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

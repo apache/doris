@@ -30,7 +30,7 @@
 #include "exec/sink/writer/varrow_flight_result_writer.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class GetResultBatchCtxTest : public ::testing::Test {
 public:
@@ -147,4 +147,4 @@ TEST_F(GetResultBatchCtxTest, TestGetArrowResultBatchCtx) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

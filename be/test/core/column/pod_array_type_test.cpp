@@ -27,7 +27,7 @@
 #include "exprs/function/function.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename T>
 void test_for_type() {
@@ -63,4 +63,4 @@ TEST(PodArrayTypeTest, test) {
     test_for_type<Decimal256>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

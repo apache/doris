@@ -22,7 +22,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_to_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(CastToStringTest, test) {
     {
@@ -138,4 +138,4 @@ TEST(CastToStringTest, test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

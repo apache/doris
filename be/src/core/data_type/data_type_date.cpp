@@ -34,7 +34,7 @@
 #include "core/value/vdatetime_value.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 bool DataTypeDate::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
@@ -47,4 +47,4 @@ MutableColumnPtr DataTypeDate::create_column() const {
     return DataTypeNumberBase<PrimitiveType::TYPE_DATE>::create_column();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -41,7 +41,7 @@
 #include "util/jsonb_document_cast.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 // #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -133,8 +133,16 @@ Status DataTypeDecimalSerDe<T>::from_olap_string(const std::string& str, Field& 
     CastParameters params;
     params.is_strict = false;
 
-    // Decimal string in storage is saved as an integer. The scale is maintained by data type, so we
-    // can just parse the string as an integer here.
+    // DecimalV3 (Decimal32/64/128I/256): zonemap stores the raw unscaled integer string.
+    //   E.g., Decimal(9,2) value 123.45 → to_olap_string() → "12345".
+    //   Caller sets ignore_scale=true → parse with scale=0 → internal int 12345. Correct.
+    //
+    // DecimalV2: zonemap stores "integer.fraction" with 9 zero-padded fractional digits.
+    //   E.g., DecimalV2 value 123.456 → to_olap_string() → "123.456000000".
+    //   Caller sets ignore_scale=false → parse with scale=9 → correctly restores the value.
+    //   Note: read_decimal_text_impl() currently hardcodes DecimalV2Value::SCALE=9 for
+    //   DecimalV2, so the passed-in scale is effectively ignored. But callers should still
+    //   set ignore_scale=false for semantic correctness.
     if (!CastToDecimal::from_string(StringRef(str), to, static_cast<UInt32>(precision),
                                     options.ignore_scale ? 0 : static_cast<UInt32>(scale),
                                     params)) {
@@ -326,8 +334,7 @@ Status DataTypeDecimalSerDe<T>::read_column_from_arrow(IColumn& column,
         const auto arrow_scale = arrow_decimal_type->scale();
         // TODO check precision
         for (auto value_i = start; value_i < end; ++value_i) {
-            auto value = *reinterpret_cast<const vectorized::Decimal128V2*>(
-                    concrete_array->Value(value_i));
+            auto value = *reinterpret_cast<const Decimal128V2*>(concrete_array->Value(value_i));
             // convert scale to 9;
             if (9 > arrow_scale) {
                 using MaxNativeType = typename Decimal128V2::NativeType;
@@ -395,8 +402,7 @@ template <PrimitiveType T>
 Status DataTypeDecimalSerDe<T>::write_column_to_orc(const std::string& timezone,
                                                     const IColumn& column, const NullMap* null_map,
                                                     orc::ColumnVectorBatch* orc_col_batch,
-                                                    int64_t start, int64_t end,
-                                                    vectorized::Arena& arena,
+                                                    int64_t start, int64_t end, Arena& arena,
                                                     const FormatOptions& options) const {
     if constexpr (T == TYPE_DECIMAL256) {
         return Status::NotSupported("write_column_to_orc with type " + column.get_name());
@@ -503,18 +509,32 @@ void DataTypeDecimalSerDe<T>::to_string(const IColumn& column, size_t row_num, B
 }
 
 template <PrimitiveType T>
-std::string DataTypeDecimalSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeDecimalSerDe<T>::to_olap_string(const Field& field) const {
     auto value = field.get<T>();
     if constexpr (T == TYPE_DECIMALV2) {
+        // DecimalV2 outputs "integer.fraction" with 9 zero-padded fractional digits.
+        // E.g., DecimalV2 value 123.456 → int_value=123, frac_value=456000000
+        //       → decimal12_t(123, 456000000).to_string() → "123.456000000".
+        // from_zonemap_string() sets ignore_scale=true internally, but DecimalV2's parser
+        // hardcodes scale=9 regardless, so the round-trip is correct either way.
         decimal12_t decimal_val(value.int_value(), value.frac_value());
         return decimal_val.to_string();
     } else if constexpr (T == TYPE_DECIMAL256) {
+        // DecimalV3: outputs the raw unscaled integer string.
+        // E.g., Decimal256(76,10) value 123.456 → internal int = 1234560000000
+        //       → "1234560000000".
+        // from_zonemap_string() sets ignore_scale=true to parse this as a raw integer.
         return wide::to_string(value.value);
     } else if constexpr (T == TYPE_DECIMAL128I) {
+        // Same as Decimal256: raw unscaled integer.
+        // E.g., Decimal(38,6) value 123.456 → internal int128 = 123456000
+        //       → "123456000".
         fmt::memory_buffer buffer;
         fmt::format_to(buffer, "{}", value.value);
         return std::string(buffer.data(), buffer.size());
     } else {
+        // Decimal32/64: raw unscaled integer.
+        // E.g., Decimal(9,2) value 123.45 → internal int32 = 12345 → "12345".
         return std::to_string(value.value);
     }
 }
@@ -743,4 +763,4 @@ template class DataTypeDecimalSerDe<TYPE_DECIMAL64>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL128I>;
 template class DataTypeDecimalSerDe<TYPE_DECIMALV2>;
 template class DataTypeDecimalSerDe<TYPE_DECIMAL256>;
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,7 @@
 
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // Helper struct to store information about const+nullable columns
@@ -157,4 +157,4 @@ private:
     }
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,7 @@ package org.apache.doris.common.util;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.thrift.TFileType;
 
@@ -103,16 +103,17 @@ public class LocationPathTest {
     }
 
     @Test
-    public void testJFSLocationConvert() {
+    public void testJfsLocationConvertAsHdfsCompatible() {
         LocationPath locationPath = LocationPath.of("jfs://test.com");
         // FE
         Assertions.assertTrue(locationPath.getNormalizedLocation().startsWith("jfs://"));
         // BE
         String loc = locationPath.toStorageLocation().toString();
         Assertions.assertTrue(loc.startsWith("jfs://"));
-        Assertions.assertEquals(FileSystemType.JFS, locationPath.getFileSystemType());
+        // JFS is treated as Hadoop-compatible, so Doris maps it to HDFS file system type.
+        Assertions.assertEquals(FileSystemType.HDFS, locationPath.getFileSystemType());
         Assertions.assertEquals("jfs://test.com", locationPath.getFsIdentifier());
-        Assertions.assertEquals(TFileType.FILE_BROKER, locationPath.getTFileTypeForBE());
+        Assertions.assertEquals(TFileType.FILE_HDFS, locationPath.getTFileTypeForBE());
     }
 
     @Disabled("not support in master")

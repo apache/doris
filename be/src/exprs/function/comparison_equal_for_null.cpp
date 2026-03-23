@@ -46,7 +46,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 // Operator <=>
 class FunctionEqForNull : public IFunction {
 public:
@@ -278,4 +278,4 @@ private:
 void register_function_comparison_eq_for_null(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionEqForNull>();
 }
-} // namespace doris::vectorized
+} // namespace doris

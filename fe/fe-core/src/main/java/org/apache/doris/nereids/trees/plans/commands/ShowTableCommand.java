@@ -24,7 +24,6 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
@@ -116,7 +115,7 @@ public class ShowTableCommand extends ShowCommand {
             throws AnalysisException {
         List<AliasInfo> selectList = new ArrayList<>();
         selectList.add(AliasInfo.of("TABLE_NAME",
-                NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db)));
+                NAME_COL_PREFIX + db));
         if (isVerbose) {
             selectList.add(AliasInfo.of("TABLE_TYPE", TYPE_COL));
         }
@@ -190,7 +189,7 @@ public class ShowTableCommand extends ShowCommand {
     public ShowResultSetMetaData getMetaData() {
         ShowResultSetMetaData.Builder builder = ShowResultSetMetaData.builder();
         builder.addColumn(
-                new Column(NAME_COL_PREFIX + ClusterNamespace.getNameFromFullName(db), ScalarType.createVarchar(20)));
+                new Column(NAME_COL_PREFIX + db, ScalarType.createVarchar(20)));
         if (isVerbose) {
             builder.addColumn(new Column(TYPE_COL, ScalarType.createVarchar(20)));
             // TODO: using where can only show two columns, maybe this is a bug?

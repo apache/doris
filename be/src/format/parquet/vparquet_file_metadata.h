@@ -23,7 +23,7 @@
 #include "common/status.h"
 #include "format/parquet/schema_desc.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class FileMetaData {
 public:
@@ -43,4 +43,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

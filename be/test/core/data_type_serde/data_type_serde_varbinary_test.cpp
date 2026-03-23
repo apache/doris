@@ -40,7 +40,7 @@
 #include "util/jsonb_writer.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 static std::string make_bytes(size_t n, uint8_t seed = 0x31) {
     std::string s;
@@ -377,4 +377,4 @@ TEST_F(DataTypeVarbinarySerDeTest, DeserializeOneCellFromJsonWithRawBytes) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

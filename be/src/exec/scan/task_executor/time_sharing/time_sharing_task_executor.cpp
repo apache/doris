@@ -34,29 +34,19 @@
 #include "util/uid_util.h"
 
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
-// Same with definations in threadpool.cpp
-// Why use same name:
-// We do not want to add seperate metrics for TimeSharingTaskExecutor.
-// TimeSharingTaskExecutor is actually a specialized ThreadPool, which uses a time_sharing queuing policy.
-// So we want it have same metrics ends up in the finale prometheus.
-// This is safe:
-// 1. different compile unit.
-// 2. different metric tags when registering to prometheus.
-// The name of these varialbs will be useds as metric name in prometheus.
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_active_threads, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_queue_size, MetricUnit::NOUNIT);
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(thread_pool_max_threads, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_submit_failed, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_time_ns_total,
-                                     MetricUnit::NANOSECONDS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_execution_count_total, MetricUnit::NOUNIT);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_time_ns_total,
-                                     MetricUnit::NANOSECONDS);
-DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(thread_pool_task_wait_worker_count_total, MetricUnit::NOUNIT);
+// Reuse metric prototypes defined in util/threadpool.cpp to avoid duplicate symbol
+// definitions. Declare them as extern here.
+extern ::doris::MetricPrototype METRIC_thread_pool_active_threads;
+extern ::doris::MetricPrototype METRIC_thread_pool_queue_size;
+extern ::doris::MetricPrototype METRIC_thread_pool_max_queue_size;
+extern ::doris::MetricPrototype METRIC_thread_pool_max_threads;
+extern ::doris::MetricPrototype METRIC_thread_pool_submit_failed;
+extern ::doris::MetricPrototype METRIC_thread_pool_task_execution_time_ns_total;
+extern ::doris::MetricPrototype METRIC_thread_pool_task_execution_count_total;
+extern ::doris::MetricPrototype METRIC_thread_pool_task_wait_worker_time_ns_total;
+extern ::doris::MetricPrototype METRIC_thread_pool_task_wait_worker_count_total;
 
 SplitThreadPoolToken::SplitThreadPoolToken(TimeSharingTaskExecutor* pool,
                                            TimeSharingTaskExecutor::ExecutionMode mode,
@@ -749,8 +739,7 @@ Result<std::shared_ptr<TaskHandle>> TimeSharingTaskExecutor::create_task(
 Status TimeSharingTaskExecutor::add_task(const TaskId& task_id,
                                          std::shared_ptr<TaskHandle> task_handle) {
     std::lock_guard<std::mutex> lock(_mutex);
-    _tasks[task_id] =
-            std::dynamic_pointer_cast<doris::vectorized::TimeSharingTaskHandle>(task_handle);
+    _tasks[task_id] = std::dynamic_pointer_cast<doris::TimeSharingTaskHandle>(task_handle);
     return Status::OK();
 }
 
@@ -962,5 +951,4 @@ size_t TimeSharingTaskExecutor::waiting_splits_size() const {
     return _tokenless->num_tasks();
 }
 
-} // namespace vectorized
 } // namespace doris

@@ -30,7 +30,7 @@ namespace doris {
 struct StringRef;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <template <PrimitiveType> class Impl>
 AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& name,
@@ -81,4 +81,4 @@ void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactor
                                    create_aggregate_function_orthogonal<AggOrthBitMapExprCalCount>);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

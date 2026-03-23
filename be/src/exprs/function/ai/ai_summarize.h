@@ -19,7 +19,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionAISummarize : public AIFunction<FunctionAISummarize> {
 public:
@@ -41,4 +41,4 @@ public:
     static FunctionPtr create() { return std::make_shared<FunctionAISummarize>(); }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

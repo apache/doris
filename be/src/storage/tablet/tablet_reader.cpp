@@ -194,6 +194,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
     _reader_context.enable_unique_key_merge_on_write = tablet()->enable_unique_key_merge_on_write();
+    _reader_context.enable_mor_value_predicate_pushdown =
+            read_params.enable_mor_value_predicate_pushdown;
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.rowid_conversion = read_params.rowid_conversion;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
@@ -223,13 +225,12 @@ TabletColumn TabletReader::materialize_column(const TabletColumn& orig) {
     }
     TabletColumn column_with_cast_type = orig;
     auto cast_type = _reader_context.target_cast_type_for_variants.at(orig.name());
-    return vectorized::variant_util::get_column_by_type(
-            cast_type, orig.name(),
-            {
-                    .unique_id = orig.unique_id(),
-                    .parent_unique_id = orig.parent_unique_id(),
-                    .path_info = *orig.path_info_ptr(),
-            });
+    return variant_util::get_column_by_type(cast_type, orig.name(),
+                                            {
+                                                    .unique_id = orig.unique_id(),
+                                                    .parent_unique_id = orig.parent_unique_id(),
+                                                    .path_info = *orig.path_info_ptr(),
+                                            });
 }
 
 Status TabletReader::_init_params(const ReaderParams& read_params) {
@@ -501,9 +502,17 @@ Status TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         }
     }
 
+    int32_t delete_sign_idx = _tablet_schema->delete_sign_idx();
     for (auto predicate : predicates) {
         auto column = _tablet_schema->column(predicate->column_id());
         if (column.aggregation() != FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
+            // When MOR value predicate pushdown is enabled, drop __DORIS_DELETE_SIGN__
+            // from storage-layer predicates entirely. Delete sign must only be evaluated
+            // post-merge via VExpr to prevent deleted rows from reappearing.
+            if (read_params.enable_mor_value_predicate_pushdown && delete_sign_idx >= 0 &&
+                predicate->column_id() == static_cast<uint32_t>(delete_sign_idx)) {
+                continue;
+            }
             _value_col_predicates.push_back(predicate);
         } else {
             _col_predicates.push_back(predicate);
@@ -556,7 +565,7 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
 Status TabletReader::init_reader_params_and_create_block(
         TabletSharedPtr tablet, ReaderType reader_type,
         const std::vector<RowsetSharedPtr>& input_rowsets,
-        TabletReader::ReaderParams* reader_params, vectorized::Block* block) {
+        TabletReader::ReaderParams* reader_params, Block* block) {
     reader_params->tablet = tablet;
     reader_params->reader_type = reader_type;
     reader_params->version =

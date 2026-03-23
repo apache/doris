@@ -26,7 +26,7 @@
 #include "load/group_commit/wal/wal_manager.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 WalReader::WalReader(RuntimeState* state) : _state(state) {
     _wal_id = state->wal_id();
@@ -85,13 +85,13 @@ Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             return Status::InternalError("read wal {} fail, pos {}, columns size {}", _wal_path,
                                          pos, src_block.columns());
         }
-        vectorized::ColumnPtr column_ptr = src_block.get_by_position(pos).column;
+        ColumnPtr column_ptr = src_block.get_by_position(pos).column;
         if (!column_ptr && slot_desc->is_nullable()) {
             column_ptr = make_nullable(column_ptr);
         }
-        dst_block.insert(index, vectorized::ColumnWithTypeAndName(
-                                        std::move(column_ptr), output_block_columns[index].type,
-                                        output_block_columns[index].name));
+        dst_block.insert(index, ColumnWithTypeAndName(std::move(column_ptr),
+                                                      output_block_columns[index].type,
+                                                      output_block_columns[index].name));
         index++;
     }
     block->swap(dst_block);
@@ -121,4 +121,4 @@ Status WalReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

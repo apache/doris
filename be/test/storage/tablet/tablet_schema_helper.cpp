@@ -95,7 +95,7 @@ TabletColumnPtr create_string_key(int32_t id, bool is_nullable) {
     return column;
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, vectorized::Arena& arena,
+void set_column_value_by_type(FieldType fieldType, int src, char* target, Arena& arena,
                               size_t _length) {
     if (fieldType == FieldType::OLAP_FIELD_TYPE_CHAR) {
         std::string s = std::to_string(src);
@@ -130,7 +130,7 @@ void set_column_value_by_type(FieldType fieldType, int src, char* target, vector
     }
 }
 void set_column_value_by_type(FieldType fieldType, const std::string& src, char* target,
-                              vectorized::Arena& arena, size_t _length) {
+                              Arena& arena, size_t _length) {
     if (fieldType == FieldType::OLAP_FIELD_TYPE_CHAR) {
         const char* src_value = src.c_str();
         int src_len = src.size();

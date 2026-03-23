@@ -30,7 +30,6 @@
 
 namespace doris {
 
-namespace vectorized {
 class Arena;
 #include "common/compile_check_begin.h"
 
@@ -439,8 +438,7 @@ Status DataTypeStructSerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeStructSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                 const NullMap* null_map,
                                                 orc::ColumnVectorBatch* orc_col_batch,
-                                                int64_t start, int64_t end,
-                                                vectorized::Arena& arena,
+                                                int64_t start, int64_t end, Arena& arena,
                                                 const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StructVectorBatch*>(orc_col_batch);
     const auto& struct_col = assert_cast<const ColumnStruct&>(column);
@@ -638,5 +636,4 @@ bool DataTypeStructSerDe::write_column_to_hive_text(const IColumn& column, Buffe
     return true;
 }
 
-} // namespace vectorized
 } // namespace doris

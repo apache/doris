@@ -26,7 +26,7 @@
 #include "core/data_type/data_type_timestamptz.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename T, typename U>
 struct TypePair {
@@ -309,4 +309,4 @@ bool dispatch_switch_decimalv3(PrimitiveType number, F&& f) {
     return dispatch_type_base<F, DispatchDataTypeMask::DECIMALV3>(number, std::forward<F>(f));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

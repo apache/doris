@@ -24,7 +24,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // cast bool, integer, float to double, will not overflow
 template <CastModeType CastMode, typename FromDataType, typename ToDataType>
@@ -140,4 +140,4 @@ WrapperType create_float_wrapper(FunctionContext* context, const DataTypePtr& fr
 }
 } // namespace CastWrapper
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

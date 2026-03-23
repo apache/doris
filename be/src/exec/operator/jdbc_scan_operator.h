@@ -28,12 +28,10 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-namespace vectorized {
 class JdbcScanner;
-}
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class JDBCScanOperatorX;
 class JDBCScanLocalState final : public ScanLocalState<JDBCScanLocalState> {
@@ -42,12 +40,12 @@ public:
     ENABLE_FACTORY_CREATOR(JDBCScanLocalState);
     JDBCScanLocalState(RuntimeState* state, OperatorXBase* parent)
             : ScanLocalState<JDBCScanLocalState>(state, parent) {}
-    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
 
     std::string name_suffix() const override;
 
 private:
-    friend class vectorized::JdbcScanner;
+    friend class JdbcScanner;
 };
 
 class JDBCScanOperatorX final : public ScanOperatorX<JDBCScanLocalState> {
@@ -65,4 +63,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

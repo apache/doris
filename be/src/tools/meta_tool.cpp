@@ -69,7 +69,7 @@ using doris::segment_v2::SegmentFooterPB;
 using doris::io::FileReaderSPtr;
 
 using namespace doris::segment_v2;
-using namespace doris::vectorized;
+using namespace doris;
 using namespace doris;
 
 DEFINE_string(root_path, "", "storage root path");
@@ -438,7 +438,7 @@ std::string get_compression_string(doris::segment_v2::CompressionTypePB compress
 }
 
 // Helper function to format a single value from a column
-std::string format_column_value(const doris::vectorized::IColumn& column, size_t row,
+std::string format_column_value(const doris::IColumn& column, size_t row,
                                 doris::FieldType field_type) {
     try {
         switch (field_type) {
@@ -624,7 +624,7 @@ void print_column_data_values(const doris::segment_v2::ColumnMetaPB& column_meta
     }
 
     // Create destination column for reading data
-    auto data_type = doris::vectorized::DataTypeFactory::instance().create_data_type(column_meta);
+    auto data_type = doris::DataTypeFactory::instance().create_data_type(column_meta);
     if (!data_type) {
         std::cout << indent << "(Failed to create data type for field type "
                   << static_cast<int>(field_type) << ")" << std::endl;

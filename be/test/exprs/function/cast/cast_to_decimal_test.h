@@ -28,7 +28,7 @@
 #include "exprs/function/cast/cast_test.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 struct FunctionCastToDecimalTest : public FunctionCastTest {
@@ -557,7 +557,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                                                             scale, precision);
                             }
                         },
-                        vectorized::make_bool_variant(strict_cast));
+                        make_bool_variant(strict_cast));
             }
         };
 
@@ -601,7 +601,7 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
                                     input_types, data_set, scale, precision);
                         }
                     },
-                    vectorized::make_bool_variant(strict_cast));
+                    make_bool_variant(strict_cast));
         };
         test_func_overflow_after_round(false, true);
         test_func_overflow_after_round(false, false);
@@ -2327,4 +2327,4 @@ struct FunctionCastToDecimalTest : public FunctionCastTest {
         test_func(to_max_decimal_p);
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

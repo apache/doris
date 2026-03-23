@@ -56,9 +56,9 @@ class ColumnReaderCache;
 #include "common/compile_check_begin.h"
 
 struct PathWithColumnAndType {
-    vectorized::PathInData path;
-    vectorized::ColumnPtr column;
-    vectorized::DataTypePtr type;
+    PathInData path;
+    ColumnPtr column;
+    DataTypePtr type;
 };
 
 using PathsWithColumnAndType = std::vector<PathWithColumnAndType>;
@@ -70,7 +70,7 @@ public:
         SUBCOLUMNS_AND_SPARSE = 0,
         DOC_VALUE_COLUMN = 1,
     };
-    static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, vectorized::PathInData path,
+    static Status create(ColumnIteratorUPtr* reader, int32_t col_uid, PathInData path,
                          const SubcolumnColumnMetaInfo::Node* target_node,
                          std::unique_ptr<SubstreamIterator>&& sparse_reader,
                          std::unique_ptr<SubstreamIterator>&& root_column_reader,
@@ -81,10 +81,10 @@ public:
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override;
+                          MutableColumnPtr& dst) override;
 
     ordinal_t get_current_ordinal() const override;
 
@@ -101,10 +101,10 @@ private:
     std::unique_ptr<SubstreamIterator> _root_reader;
     std::unique_ptr<SubstreamIterator> _binary_column_reader;
     size_t _rows_read = 0;
-    vectorized::PathInData _path;
+    PathInData _path;
     OlapReaderStatistics* _stats = nullptr;
     ReadType _read_type = ReadType::SUBCOLUMNS_AND_SPARSE;
-    HierarchicalDataIterator(const vectorized::PathInData& path, ReadType read_type)
+    HierarchicalDataIterator(const PathInData& path, ReadType read_type)
             : _path(path), _read_type(read_type) {}
 
     template <typename NodeFunction>
@@ -115,33 +115,30 @@ private:
         return Status::OK();
     }
 
-    Status _process_sub_columns(vectorized::ColumnVariant& container_variant,
+    Status _process_sub_columns(ColumnVariant& container_variant,
                                 const PathsWithColumnAndType& non_nested_subcolumns);
 
     Status _process_nested_columns(
-            vectorized::ColumnVariant& container_variant,
-            const std::map<vectorized::PathInData, PathsWithColumnAndType>& nested_subcolumns,
-            size_t nrows);
+            ColumnVariant& container_variant,
+            const std::map<PathInData, PathsWithColumnAndType>& nested_subcolumns, size_t nrows);
 
-    Status _process_sparse_column(vectorized::ColumnVariant& container_variant, size_t nrows);
+    Status _process_sparse_column(ColumnVariant& container_variant, size_t nrows);
 
     // 1. add root column
     // 2. collect path for subcolumns and nested subcolumns
     // 3. init container with subcolumns
     // 4. init container with nested subcolumns
     // 5. init container with sparse column
-    Status _init_container(vectorized::MutableColumnPtr& container, size_t nrows,
-                           int max_subcolumns_count);
+    Status _init_container(MutableColumnPtr& container, size_t nrows, int max_subcolumns_count);
 
     // clear all subcolumns's column data for next batch read
     // set null map for nullable column
-    Status _init_null_map_and_clear_columns(vectorized::MutableColumnPtr& container,
-                                            vectorized::MutableColumnPtr& dst, size_t nrows);
+    Status _init_null_map_and_clear_columns(MutableColumnPtr& container, MutableColumnPtr& dst,
+                                            size_t nrows);
 
     // process read
     template <typename ReadFunction>
-    Status process_read(ReadFunction&& read_func, vectorized::MutableColumnPtr& dst, size_t nrows) {
-        using namespace vectorized;
+    Status process_read(ReadFunction&& read_func, MutableColumnPtr& dst, size_t nrows) {
         // // Read all sub columns, and merge with root column
         ColumnNullable* nullable_column = nullptr;
         if (dst->is_nullable()) {

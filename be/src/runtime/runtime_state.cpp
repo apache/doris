@@ -105,7 +105,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env, QueryContext* ctx)
-        : _profile("PipelineX  " + std::to_string(fragment_id)),
+        : _profile(fmt::format("PipelineX(fragment_id={})", fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _unreported_error_idx(0),
@@ -130,7 +130,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env,
                            const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
-        : _profile("PipelineX  " + std::to_string(fragment_id)),
+        : _profile(fmt::format("PipelineX(fragment_id={})", fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _unreported_error_idx(0),
@@ -414,8 +414,8 @@ void RuntimeState::resize_op_id_to_local_state(int operator_size) {
     _op_id_to_local_state.resize(-operator_size);
 }
 
-void RuntimeState::emplace_local_state(
-        int id, std::unique_ptr<doris::pipeline::PipelineXLocalStateBase> state) {
+void RuntimeState::emplace_local_state(int id,
+                                       std::unique_ptr<doris::PipelineXLocalStateBase> state) {
     id = -id;
     DCHECK_LT(id, _op_id_to_local_state.size())
             << state->parent()->get_name() << " node id = " << state->parent()->node_id();
@@ -423,7 +423,7 @@ void RuntimeState::emplace_local_state(
     _op_id_to_local_state[id] = std::move(state);
 }
 
-doris::pipeline::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
+doris::PipelineXLocalStateBase* RuntimeState::get_local_state(int id) {
     DCHECK_GT(_op_id_to_local_state.size(), -id);
     return _op_id_to_local_state[-id].get();
 }
@@ -441,12 +441,12 @@ Result<RuntimeState::LocalState*> RuntimeState::get_local_state_result(int id) {
 };
 
 void RuntimeState::emplace_sink_local_state(
-        int id, std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> state) {
+        int id, std::unique_ptr<doris::PipelineXSinkLocalStateBase> state) {
     DCHECK(!_sink_local_state) << " id=" << id << " state: " << state->debug_string(0);
     _sink_local_state = std::move(state);
 }
 
-doris::pipeline::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state() {
+doris::PipelineXSinkLocalStateBase* RuntimeState::get_sink_local_state() {
     return _sink_local_state.get();
 }
 
@@ -517,7 +517,7 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
         size_t pip_idx = 0;
         for (auto& pipeline_profile : _pipeline_id_to_profile) {
             pipeline_profile =
-                    std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
+                    std::make_shared<RuntimeProfile>(fmt::format("Pipeline(id={})", pip_idx));
             pip_idx++;
         }
     }

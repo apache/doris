@@ -37,12 +37,10 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionTokenize : public IFunction {
 public:
@@ -74,4 +72,4 @@ public:
     Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t /*input_rows_count*/) const override;
 };
-} // namespace doris::vectorized
+} // namespace doris

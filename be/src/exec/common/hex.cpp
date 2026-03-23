@@ -20,7 +20,7 @@
 
 #include "exec/common/hex.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 const char* const hex_digit_to_char_uppercase_table = "0123456789ABCDEF";
 const char* const hex_digit_to_char_lowercase_table = "0123456789abcdef";
@@ -112,4 +112,4 @@ const char* const bin_byte_to_char_table =
         "1110100011101001111010101110101111101100111011011110111011101111"
         "1111000011110001111100101111001111110100111101011111011011110111"
         "1111100011111001111110101111101111111100111111011111111011111111";
-} // namespace doris::vectorized
+} // namespace doris

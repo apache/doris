@@ -19,6 +19,13 @@ package org.apache.doris.jdbc;
 
 import org.apache.doris.thrift.TOdbcTableType;
 
+/**
+ * @deprecated No longer called from C++ side after JdbcConnector removal.
+ * The old C++ JdbcConnector used this to dynamically load database-specific executor classes.
+ * New architecture uses JdbcJniScanner (for reads) and JdbcJniWriter (for writes) directly.
+ * Retained temporarily until BaseJdbcExecutor class hierarchy is fully cleaned up.
+ */
+@Deprecated
 public class JdbcExecutorFactory {
     public static String getExecutorClass(TOdbcTableType type) {
         switch (type) {

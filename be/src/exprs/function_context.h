@@ -34,10 +34,8 @@ struct ColumnPtrWrapper;
 struct StringRef;
 class RuntimeState;
 
-namespace vectorized {
 class IDataType;
 using DataTypePtr = std::shared_ptr<const IDataType>;
-} // namespace vectorized
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for UDF to
 // rest of system. It contains APIs to examine system state, report errors
@@ -67,8 +65,8 @@ public:
     };
 
     static std::unique_ptr<doris::FunctionContext> create_context(
-            RuntimeState* state, const vectorized::DataTypePtr& return_type,
-            const std::vector<vectorized::DataTypePtr>& arg_types);
+            RuntimeState* state, const DataTypePtr& return_type,
+            const std::vector<DataTypePtr>& arg_types);
 
     /// Returns a new FunctionContext with the same constant args, fragment-local state, and
     /// debug flag as this FunctionContext. The caller is responsible for calling delete on
@@ -139,7 +137,7 @@ public:
 
     // Returns the return type information of this function. For UDAs, this is the final
     // return type of the UDA (e.g., the type returned by the finalize function).
-    const vectorized::DataTypePtr get_return_type() const;
+    const DataTypePtr get_return_type() const;
 
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
@@ -147,7 +145,7 @@ public:
 
     // Returns type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
-    const vectorized::DataTypePtr get_arg_type(int arg_idx) const;
+    const DataTypePtr get_arg_type(int arg_idx) const;
 
     // Returns true if the arg_idx-th input argument (0 indexed, not including
     // the FunctionContext* argument) is a constant (e.g. 5, "string", 1 + 1).
@@ -164,7 +162,7 @@ public:
 
     ~FunctionContext() = default;
 
-    vectorized::Arena& get_arena() { return arena; }
+    Arena& get_arena() { return arena; }
 
 private:
     FunctionContext() = default;
@@ -189,10 +187,10 @@ private:
     std::shared_ptr<void> _fragment_local_fn_state;
 
     // Type descriptor for the return type of the function.
-    vectorized::DataTypePtr _return_type;
+    DataTypePtr _return_type;
 
     // Type descriptors for each argument of the function.
-    std::vector<vectorized::DataTypePtr> _arg_types;
+    std::vector<DataTypePtr> _arg_types;
 
     std::vector<std::shared_ptr<doris::ColumnPtrWrapper>> _constant_cols;
 
@@ -206,7 +204,7 @@ private:
 
     std::string _string_result;
 
-    vectorized::Arena arena;
+    Arena arena;
 
     std::optional<TDictFunction> _dict_function;
 };

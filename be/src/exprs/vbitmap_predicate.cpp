@@ -39,17 +39,15 @@ class TExprNode;
 
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class VExprContext;
 
-vectorized::VBitmapPredicate::VBitmapPredicate(const TExprNode& node)
-        : VExpr(node), _filter(nullptr) {}
+VBitmapPredicate::VBitmapPredicate(const TExprNode& node) : VExpr(node), _filter(nullptr) {}
 
-doris::Status vectorized::VBitmapPredicate::prepare(doris::RuntimeState* state,
-                                                    const RowDescriptor& desc,
-                                                    vectorized::VExprContext* context) {
+doris::Status VBitmapPredicate::prepare(doris::RuntimeState* state, const RowDescriptor& desc,
+                                        VExprContext* context) {
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
 
     if (_children.size() != 1) {
@@ -66,9 +64,8 @@ doris::Status vectorized::VBitmapPredicate::prepare(doris::RuntimeState* state,
     return Status::OK();
 }
 
-doris::Status vectorized::VBitmapPredicate::open(doris::RuntimeState* state,
-                                                 vectorized::VExprContext* context,
-                                                 FunctionContext::FunctionStateScope scope) {
+doris::Status VBitmapPredicate::open(doris::RuntimeState* state, VExprContext* context,
+                                     FunctionContext::FunctionStateScope scope) {
     DCHECK(_prepare_finished);
     RETURN_IF_ERROR(VExpr::open(state, context, scope));
     _open_finished = true;
@@ -121,18 +118,17 @@ Status VBitmapPredicate::execute_runtime_filter(VExprContext* context, const Blo
     return _do_execute(context, block, filter, nullptr, count, result_column);
 }
 
-void vectorized::VBitmapPredicate::close(vectorized::VExprContext* context,
-                                         FunctionContext::FunctionStateScope scope) {
+void VBitmapPredicate::close(VExprContext* context, FunctionContext::FunctionStateScope scope) {
     VExpr::close(context, scope);
 }
 
-const std::string& vectorized::VBitmapPredicate::expr_name() const {
+const std::string& VBitmapPredicate::expr_name() const {
     return EXPR_NAME;
 }
 
-void vectorized::VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) {
+void VBitmapPredicate::set_filter(std::shared_ptr<BitmapFilterFuncBase> filter) {
     _filter = filter;
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

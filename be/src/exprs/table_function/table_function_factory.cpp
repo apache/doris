@@ -35,7 +35,7 @@
 #include "exprs/table_function/vexplode_numbers.h"
 #include "exprs/table_function/vexplode_v2.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename TableFunctionType>
@@ -99,4 +99,4 @@ Status TableFunctionFactory::get_fn(const TFunction& t_fn, ObjectPool* pool, Tab
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

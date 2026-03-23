@@ -28,7 +28,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_aggregate_function_count_by_enum(AggregateFunctionSimpleFactory& factory);
 
@@ -89,11 +89,11 @@ TEST_F(VCountByEnumTest, testNotNullableSample) {
     Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
 
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
@@ -130,14 +130,14 @@ TEST_F(VCountByEnumTest, testNullableSample) {
     Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_ptr = std::move(column_f1);
     auto null_map = ColumnUInt8::create();
     std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs[i]));
+        null_map->insert(Field::create_field<TYPE_BOOLEAN>(offs[i]));
     }
 
     auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
@@ -177,14 +177,14 @@ TEST_F(VCountByEnumTest, testNoMerge) {
     Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_ptr = std::move(column_f1);
     auto null_map = ColumnUInt8::create();
     std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs[i]));
+        null_map->insert(Field::create_field<TYPE_BOOLEAN>(offs[i]));
     }
 
     auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
@@ -217,14 +217,14 @@ TEST_F(VCountByEnumTest, testSerialize) {
     Arena arena;
     const int batch_size = 5;
     auto column_f1 = ColumnString::create();
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1->insert(Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_ptr = std::move(column_f1);
     auto null_map = ColumnUInt8::create();
     std::vector<uint8_t> offs = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs[i]));
+        null_map->insert(Field::create_field<TYPE_BOOLEAN>(offs[i]));
     }
     auto nullable_column_f1 = ColumnNullable::create(column_f1_ptr, std::move(null_map));
 
@@ -263,14 +263,14 @@ TEST_F(VCountByEnumTest, testSerialize) {
     EXPECT_EQ(item0["all"].GetInt(), 5);
 
     auto column_f1_2 = ColumnString::create();
-    column_f1_2->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1_2->insert(vectorized::Field::create_field<TYPE_STRING>("F"));
-    column_f1_2->insert(vectorized::Field::create_field<TYPE_STRING>("M"));
+    column_f1_2->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1_2->insert(Field::create_field<TYPE_STRING>("F"));
+    column_f1_2->insert(Field::create_field<TYPE_STRING>("M"));
     ColumnPtr column_f1_2_ptr = std::move(column_f1_2);
     auto null_map_2 = ColumnUInt8::create();
     std::vector<uint8_t> offs_2 = {0, 0, 0, 1, 1};
     for (int i = 0; i < offs.size(); ++i) {
-        null_map_2->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(offs_2[i]));
+        null_map_2->insert(Field::create_field<TYPE_BOOLEAN>(offs_2[i]));
     }
     auto nullable_column_f1_2 = ColumnNullable::create(column_f1_2_ptr, std::move(null_map_2));
 
@@ -300,4 +300,4 @@ TEST_F(VCountByEnumTest, testSerialize) {
     agg_function->destroy(place2);
     agg_function->destroy(place3);
 }
-} // namespace doris::vectorized
+} // namespace doris

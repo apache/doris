@@ -22,6 +22,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.thrift.TDataPartition;
 import org.apache.doris.thrift.TExplainLevel;
@@ -91,7 +92,7 @@ public class DataPartition {
     public TDataPartition toThrift() {
         TDataPartition result = new TDataPartition(type);
         if (partitionExprs != null) {
-            result.setPartitionExprs(Expr.treesToThrift(partitionExprs));
+            result.setPartitionExprs(ExprToThriftVisitor.treesToThrift(partitionExprs));
         }
         return result;
     }

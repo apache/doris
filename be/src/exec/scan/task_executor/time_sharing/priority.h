@@ -21,7 +21,6 @@
 #include <string>
 
 namespace doris {
-namespace vectorized {
 
 /**
  * Task (and split) priority is composed of a level and a within-level
@@ -63,5 +62,4 @@ private:
     int64_t _level_priority;
 };
 
-} // namespace vectorized
 } // namespace doris

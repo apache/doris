@@ -31,7 +31,7 @@
 #include "util/coding.h"
 #include "util/thrift_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 constexpr uint8_t PARQUET_VERSION_NUMBER[4] = {'P', 'A', 'R', '1'};
 constexpr uint32_t PARQUET_FOOTER_SIZE = 8;
@@ -89,4 +89,4 @@ static Status parse_thrift_footer(io::FileReaderSPtr file,
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

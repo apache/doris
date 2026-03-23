@@ -17,7 +17,7 @@
 
 #include "format/parquet/fix_length_plain_decoder.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #include "common/compile_check_begin.h"
 
@@ -41,4 +41,4 @@ Status FixLengthPlainDecoder::decode_values(MutableColumnPtr& doris_column, Data
 
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -29,7 +29,7 @@ class ColumnReaderCache;
 class ColumnMetaAccessor;
 
 // Key: pair of column uid and variant path (empty for normal column)
-using ColumnReaderCacheKey = std::pair<int32_t, vectorized::PathInData>;
+using ColumnReaderCacheKey = std::pair<int32_t, PathInData>;
 
 // This node holds the cached ColumnReader and its key.
 struct CacheNode {
@@ -61,7 +61,7 @@ public:
                              OlapReaderStatistics* stats);
 
     // Get column reader by column unique id and path(leaf node of variant's subcolumn)
-    virtual Status get_path_column_reader(int32_t col_uid, vectorized::PathInData relative_path,
+    virtual Status get_path_column_reader(int32_t col_uid, PathInData relative_path,
                                           std::shared_ptr<ColumnReader>* column_reader,
                                           OlapReaderStatistics* stats,
                                           const SubcolumnColumnMetaInfo::Node* node_hint = nullptr);

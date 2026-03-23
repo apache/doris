@@ -26,7 +26,7 @@
 #include "exec/operator/scan_operator.h"
 #include "load/group_commit/group_commit_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class GroupCommitOperatorX;
@@ -47,7 +47,7 @@ private:
     Status _process_conjuncts(RuntimeState* state) override;
 
     std::shared_ptr<Dependency> _get_block_dependency = nullptr;
-    std::shared_ptr<pipeline::RuntimeFilterTimer> _runtime_filter_timer = nullptr;
+    std::shared_ptr<RuntimeFilterTimer> _runtime_filter_timer = nullptr;
 };
 
 class GroupCommitOperatorX final : public ScanOperatorX<GroupCommitLocalState> {
@@ -55,7 +55,7 @@ public:
     GroupCommitOperatorX(ObjectPool* pool, const TPlanNode& tnode, int operator_id,
                          const DescriptorTbl& descs, int parallel_tasks);
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
 protected:
     friend class GroupCommitLocalState;
@@ -63,4 +63,4 @@ protected:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

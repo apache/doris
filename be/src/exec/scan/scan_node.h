@@ -19,7 +19,7 @@
 
 #include "exec/scan/scanner.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class Scanner;
 class VSlotRef;
@@ -41,4 +41,4 @@ public:
     ScannerDelegate(ScannerDelegate&&) = delete;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

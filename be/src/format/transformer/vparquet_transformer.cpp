@@ -47,7 +47,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
@@ -376,4 +376,4 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
     }
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

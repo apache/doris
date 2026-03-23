@@ -23,7 +23,7 @@
 #include <algorithm>
 #include <cstdint>
 
-namespace doris::vectorized::detail {
+namespace doris::detail {
 #include "common/compile_check_begin.h"
 inline int cmp(uint8_t a, uint8_t b) {
     if (a < b) return -1;
@@ -36,7 +36,7 @@ inline int cmp(size_t a, size_t b) {
     if (a > b) return 1;
     return 0;
 }
-} // namespace doris::vectorized::detail
+} // namespace doris::detail
 
 /// We can process uninitialized memory in the functions below.
 /// Results don't depend on the values inside uninitialized memory but Memory Sanitizer cannot see it.
@@ -65,11 +65,11 @@ inline int memcmp_small_allow_overflow15(const uint8_t* a, size_t a_size, const 
 
             if (offset >= min_size) break;
 
-            return doris::vectorized::detail::cmp(a[offset], b[offset]);
+            return doris::detail::cmp(a[offset], b[offset]);
         }
     }
 
-    return doris::vectorized::detail::cmp(a_size, b_size);
+    return doris::detail::cmp(a_size, b_size);
 }
 
 /** Variant when memory regions have same size.
@@ -87,7 +87,7 @@ inline int memcmp_small_allow_overflow15(const uint8_t* a, const uint8_t* b, siz
 
             if (offset >= size) return 0;
 
-            return doris::vectorized::detail::cmp(a[offset], b[offset]);
+            return doris::detail::cmp(a[offset], b[offset]);
         }
     }
 
@@ -126,7 +126,7 @@ inline int memcmp_small_multiple_of16(const uint8_t* a, const uint8_t* b, size_t
 
         if (mask) {
             offset += __builtin_ctz(mask);
-            return doris::vectorized::detail::cmp(a[offset], b[offset]);
+            return doris::detail::cmp(a[offset], b[offset]);
         }
     }
 
@@ -143,7 +143,7 @@ inline int memcmp16(const uint8_t* a, const uint8_t* b) {
 
     if (mask) {
         auto offset = __builtin_ctz(mask);
-        return doris::vectorized::detail::cmp(a[offset], b[offset]);
+        return doris::detail::cmp(a[offset], b[offset]);
     }
 
     return 0;
@@ -185,7 +185,7 @@ inline int memcmp_small_allow_overflow15(const uint8_t* a, size_t a_size, const 
     if (auto res = memcmp(a, b, std::min(a_size, b_size)))
         return res;
     else
-        return doris::vectorized::detail::cmp(a_size, b_size);
+        return doris::detail::cmp(a_size, b_size);
 }
 
 inline int memcmp_small_allow_overflow15(const uint8_t* a, const uint8_t* b, size_t size) {

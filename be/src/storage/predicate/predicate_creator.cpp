@@ -20,7 +20,7 @@
 namespace doris {
 
 std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
-        const uint32_t cid, const std::string col_name, const vectorized::DataTypePtr& data_type,
+        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
         const std::shared_ptr<BloomFilterFuncBase>& filter) {
     // Do the necessary type conversion, for CAST(STRING AS CHAR), we do nothing here but change the data type to the target type CHAR
     std::shared_ptr<BloomFilterFuncBase> filter_olap;
@@ -112,7 +112,7 @@ std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
 }
 
 std::shared_ptr<ColumnPredicate> create_bitmap_filter_predicate(
-        const uint32_t cid, const std::string col_name, const vectorized::DataTypePtr& data_type,
+        const uint32_t cid, const std::string col_name, const DataTypePtr& data_type,
         const std::shared_ptr<BitmapFilterFuncBase>& filter) {
     switch (data_type->get_primitive_type()) {
     case TYPE_TINYINT: {

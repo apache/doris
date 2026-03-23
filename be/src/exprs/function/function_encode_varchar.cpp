@@ -33,7 +33,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "util/simd/reverse_copy_bytes.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct EncodeAsSmallInt {
     static constexpr auto name = "encode_as_smallint";
@@ -116,4 +116,4 @@ void register_function_encode_varchar(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionEncodeVarchar<EncodeAsLargeInt, TYPE_LARGEINT>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

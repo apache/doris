@@ -27,7 +27,7 @@
 #include "exprs/function/dictionary_factory.h"
 #include "exprs/function/ip_address_dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename DataType>
 ColumnPtr create_column(const std::vector<typename DataType::FieldType>& datas) {
@@ -290,4 +290,4 @@ TEST(DictionaryGetNullableTest, testHashMapDictionaryMultiKey) {
         EXPECT_TRUE(res_column2->is_null_at(3));
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

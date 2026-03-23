@@ -36,7 +36,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionAssertTrue : public IFunction {
 public:
@@ -93,4 +93,4 @@ public:
 void register_function_assert_true(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAssertTrue>();
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -59,17 +59,17 @@ namespace doris {
 template <PrimitiveType primitive_type, class T>
 std::string cast_to_string(T value, int scale) {
     if constexpr (primitive_type == TYPE_DECIMAL32) {
-        return ((vectorized::Decimal<int32_t>)value).to_string(scale);
+        return ((Decimal<int32_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL64) {
-        return ((vectorized::Decimal<int64_t>)value).to_string(scale);
+        return ((Decimal<int64_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
-        return ((vectorized::Decimal<int128_t>)value).to_string(scale);
+        return ((Decimal<int128_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL256) {
-        return ((vectorized::Decimal<wide::Int256>)value).to_string(scale);
+        return ((Decimal<wide::Int256>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
-        return vectorized::int128_to_string(value);
+        return int128_to_string(value);
     } else if constexpr (primitive_type == TYPE_DATETIMEV2) {
         auto datetimev2_val = static_cast<DateV2Value<DateTimeV2ValueType>>(value);
         char buf[30];
@@ -87,7 +87,7 @@ std::string cast_to_string(T value, int scale) {
     } else if constexpr (primitive_type == TYPE_IPV6) {
         return IPv6Value::to_string(value);
     } else if constexpr (primitive_type == TYPE_BOOLEAN) {
-        return vectorized::CastToString::from_number(value);
+        return CastToString::from_number(value);
     } else {
         return boost::lexical_cast<std::string>(value);
     }

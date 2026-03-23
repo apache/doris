@@ -31,7 +31,7 @@
 #include "runtime/runtime_state.h"
 #include "storage/tablet_info.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int rows,
                                       std::vector<VOlapTablePartition*>& partitions,
@@ -101,4 +101,4 @@ Status OlapTabletFinder::find_tablets(RuntimeState* state, Block* block, int row
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

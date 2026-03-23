@@ -37,7 +37,7 @@
 
 using namespace doris;
 using namespace doris::segment_v2;
-using namespace doris::vectorized;
+using namespace doris;
 
 namespace {
 

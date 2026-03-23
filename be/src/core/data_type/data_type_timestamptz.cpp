@@ -22,7 +22,7 @@
 
 #include "exprs/function/cast/cast_to_timestamptz.h"
 
-namespace doris::vectorized {
+namespace doris {
 Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
     TimestampTzValue res;
     CastParameters params {.status = Status::OK(), .is_strict = true};
@@ -38,4 +38,4 @@ Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

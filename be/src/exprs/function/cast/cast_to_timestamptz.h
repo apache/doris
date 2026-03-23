@@ -28,7 +28,7 @@
 #include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct CastToTimstampTz {
     static inline bool from_string(const StringRef& from, TimestampTzValue& to,
@@ -265,4 +265,4 @@ inline WrapperType create_timestamptz_wrapper(FunctionContext* context,
 
 }; // namespace CastWrapper
 
-} // namespace doris::vectorized
+} // namespace doris

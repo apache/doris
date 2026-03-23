@@ -36,7 +36,7 @@
 #include "exec/common/hash_table/phmap_fwd_decl.h"
 #include "util/defer_op.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Arena;
@@ -669,6 +669,6 @@ struct UnaryExpression {};   // Can only have one parameter
 struct MultiExpression {};   // Must have multiple parameters (more than 1)
 struct VarargsExpression {}; // Uncertain number of parameters
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

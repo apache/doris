@@ -32,17 +32,17 @@
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/segment/segment.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace segment_v2;
 
 namespace {
 
 struct SearchInputBundle {
     std::unordered_map<std::string, IndexIterator*> iterators;
-    std::unordered_map<std::string, vectorized::IndexFieldNameAndTypePair> field_types;
+    std::unordered_map<std::string, IndexFieldNameAndTypePair> field_types;
     std::unordered_map<std::string, int> field_name_to_column_id;
     std::vector<int> column_ids;
-    vectorized::ColumnsWithTypeAndName literal_args;
+    ColumnsWithTypeAndName literal_args;
 };
 
 Status collect_search_inputs(const VSearchExpr& expr, VExprContext* context,
@@ -258,11 +258,14 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
         return Status::OK();
     }
 
+    auto index_query_context = index_context->get_index_query_context();
+
     auto function = std::make_shared<FunctionSearch>();
     auto result_bitmap = InvertedIndexResultBitmap();
     auto status = function->evaluate_inverted_index_with_search_param(
             _search_param, bundle.field_types, bundle.iterators, segment_num_rows, result_bitmap,
-            _enable_cache, index_context.get(), bundle.field_name_to_column_id);
+            _enable_cache, index_context.get(), bundle.field_name_to_column_id,
+            index_query_context);
 
     if (!status.ok()) {
         LOG(WARNING) << "VSearchExpr: Function evaluation failed: " << status.to_string();
@@ -277,4 +280,4 @@ Status VSearchExpr::evaluate_inverted_index(VExprContext* context, uint32_t segm
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

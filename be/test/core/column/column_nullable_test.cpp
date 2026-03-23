@@ -31,7 +31,7 @@
 #include "core/types.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnNullableTest, NullTest) {
     ColumnNullable::MutablePtr null_col = create_column_nullable<TYPE_BIGINT>(500, true);
@@ -206,4 +206,4 @@ TEST(ColumnNullableTest, ScalaTypeNullStringTest2erase) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Window;
@@ -140,35 +141,40 @@ public class PhysicalWindow<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalWindow<>(windowFrameGroup, requireProperties,
+                windowExpressions, isSkew, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                getLogicalProperties(), child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalWindow<>(windowFrameGroup, requireProperties,
+                windowExpressions, isSkew, groupExpression,
+                getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkState(children.size() == 1);
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                logicalProperties.get(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalWindow<>(windowFrameGroup, requireProperties,
+                windowExpressions, isSkew, groupExpression,
+                logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalWindow<>(windowFrameGroup, requireProperties,
+                windowExpressions, isSkew, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     public <C extends Plan> PhysicalWindow<C> withRequirePropertiesAndChild(RequireProperties requireProperties,
                                                                             C newChild) {
-        return new PhysicalWindow<>(windowFrameGroup, requireProperties, windowExpressions, isSkew, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, newChild);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalWindow<>(windowFrameGroup, requireProperties,
+                windowExpressions, isSkew, Optional.empty(),
+                getLogicalProperties(), physicalProperties, statistics, newChild));
     }
 
     @Override

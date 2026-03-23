@@ -24,7 +24,7 @@
 #include "core/column/column_string.h"
 #include "core/string_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 
@@ -320,4 +320,4 @@ private:
 
 using VectorBufferReader = BufferReadable;
 using BufferReader = BufferReadable;
-} // namespace doris::vectorized
+} // namespace doris

@@ -19,7 +19,7 @@
 
 #include "core/column/column_nullable.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ColumnFilterHelper {
 public:
     ColumnFilterHelper(IColumn&);
@@ -35,4 +35,4 @@ private:
     ColumnUInt8& _value_column;
     ColumnUInt8& _null_map_column;
 };
-} // namespace doris::vectorized
+} // namespace doris

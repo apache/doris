@@ -26,7 +26,6 @@
 #include "orc/ColumnPrinter.hh"
 
 namespace doris {
-namespace vectorized {
 class OrcReaderConvertToOrcLiteralTest : public ::testing::Test {
 protected:
     void SetUp() override {}
@@ -521,5 +520,4 @@ TEST_F(OrcReaderConvertToOrcLiteralTest, ConvertTypesTest) {
         }
     }
 }
-} // namespace vectorized
 } // namespace doris

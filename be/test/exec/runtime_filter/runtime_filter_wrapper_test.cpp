@@ -39,7 +39,7 @@ public:
 };
 
 TEST_F(RuntimeFilterWrapperTest, TestIn) {
-    using DataType = vectorized::DataTypeInt32;
+    using DataType = DataTypeInt32;
     int32_t filter_id = 0;
     RuntimeFilterType filter_type = RuntimeFilterType::IN_FILTER;
     bool null_aware = true;
@@ -88,13 +88,12 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
     }
     {
         // Insert
-        auto col =
-                vectorized::ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+        auto col = ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
         EXPECT_EQ(wrapper->insert(col, 0).code(), ErrorCode::INTERNAL_ERROR);
         wrapper->_state = RuntimeFilterWrapper::State::UNINITED;
         wrapper->_reason.update({});
 
-        col = vectorized::ColumnHelper::create_column<DataType>({0});
+        col = ColumnHelper::create_column<DataType>({0});
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->hybrid_set()->size(), col->size());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
@@ -105,7 +104,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         EXPECT_TRUE(another_wrapper->init(2).ok());
         EXPECT_EQ(another_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
 
-        auto col = vectorized::ColumnHelper::create_column<DataType>({1});
+        auto col = ColumnHelper::create_column<DataType>({1});
         EXPECT_TRUE(another_wrapper->insert(col, 0).ok());
         another_wrapper->_state = RuntimeFilterWrapper::State::READY;
         EXPECT_TRUE(wrapper->merge(another_wrapper.get()).ok());
@@ -126,7 +125,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         another_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_TRUE(another_wrapper->init(2).ok());
         EXPECT_EQ(another_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
-        col = vectorized::ColumnHelper::create_column<DataType>({1});
+        col = ColumnHelper::create_column<DataType>({1});
         EXPECT_TRUE(another_wrapper->insert(col, 0).ok());
         another_wrapper->_state = RuntimeFilterWrapper::State::READY;
         EXPECT_TRUE(wrapper->merge(another_wrapper.get()).ok());
@@ -139,7 +138,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         another_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_TRUE(another_wrapper->init(2).ok());
         EXPECT_EQ(another_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
-        col = vectorized::ColumnHelper::create_column<DataType>({0, 1});
+        col = ColumnHelper::create_column<DataType>({0, 1});
         EXPECT_TRUE(another_wrapper->insert(col, 0).ok());
         another_wrapper->_state = RuntimeFilterWrapper::State::READY;
         EXPECT_TRUE(wrapper->merge(another_wrapper.get()).ok());
@@ -151,7 +150,7 @@ TEST_F(RuntimeFilterWrapperTest, TestIn) {
         another_wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
         EXPECT_TRUE(another_wrapper->init(2).ok());
         EXPECT_EQ(another_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
-        col = vectorized::ColumnHelper::create_column<DataType>({3, 4});
+        col = ColumnHelper::create_column<DataType>({3, 4});
         EXPECT_TRUE(another_wrapper->insert(col, 0).ok());
         another_wrapper->_state = RuntimeFilterWrapper::State::READY;
         EXPECT_TRUE(wrapper->merge(another_wrapper.get()).ok());
@@ -249,7 +248,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInAssign) {
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL32);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL64);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL128I);
-    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DECIMAL256, vectorized::Decimal256(0), vectorized::Decimal256(1));
+    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DECIMAL256, Decimal256(0), Decimal256(1));
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_VARCHAR, "1", "2");
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_CHAR, "1", "2");
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_STRING, "1", "2");
@@ -332,7 +331,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL32);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL64);
     APPLY_FOR_PRIMITIVE_BASE_TYPE(TYPE_DECIMAL128I);
-    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DECIMAL256, vectorized::Decimal256(0), vectorized::Decimal256(1));
+    APPLY_FOR_PRIMITIVE_TYPE(TYPE_DECIMAL256, Decimal256(0), Decimal256(1));
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_VARCHAR, "1", "2");
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_CHAR, "1", "2");
     APPLY_FOR_PRIMITIVE_TYPE(TYPE_STRING, "1", "2");
@@ -345,7 +344,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMaxAssign) {
 TEST_F(RuntimeFilterWrapperTest, TestBloom) {
     std::vector<int> data_vector(10);
     std::iota(data_vector.begin(), data_vector.end(), 0);
-    using DataType = vectorized::DataTypeInt32;
+    using DataType = DataTypeInt32;
     int32_t filter_id = 0;
     auto runtime_size = 80;
     RuntimeFilterType filter_type = RuntimeFilterType::BLOOM_FILTER;
@@ -471,11 +470,11 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
     }
     {
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
 
-        col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        col = ColumnHelper::create_column<DataType>(data_vector);
         std::vector<uint8_t> res(10);
         wrapper->bloom_filter_func()->find_fixed_len(col, res.data());
         EXPECT_TRUE(std::all_of(res.begin(), res.end(), [](uint8_t i) -> bool { return i; }));
@@ -509,7 +508,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
         auto new_wrapper = std::make_shared<RuntimeFilterWrapper>(&new_params);
         EXPECT_TRUE(new_wrapper->assign(valid_request, &stream).ok());
 
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         std::vector<uint8_t> res(10);
         wrapper->bloom_filter_func()->find_fixed_len(col, res.data());
         EXPECT_TRUE(std::all_of(res.begin(), res.end(), [](uint8_t i) -> bool { return i; }));
@@ -536,7 +535,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
         // Insert
         std::vector<int> new_data_vector(10);
         std::iota(new_data_vector.begin(), new_data_vector.end(), 10);
-        auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        auto col = ColumnHelper::create_column<DataType>(new_data_vector);
         EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
         EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         new_wrapper->_state = RuntimeFilterWrapper::State::READY;
@@ -544,7 +543,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBloom) {
         std::vector<int> res_data_vector(20);
         std::iota(res_data_vector.begin(), res_data_vector.end(), 0);
         EXPECT_TRUE(wrapper->merge(new_wrapper.get()).ok());
-        col = vectorized::ColumnHelper::create_column<DataType>(res_data_vector);
+        col = ColumnHelper::create_column<DataType>(res_data_vector);
         std::vector<uint8_t> res(20);
         wrapper->bloom_filter_func()->find_fixed_len(col, res.data());
         EXPECT_TRUE(std::all_of(res.begin(), res.end(), [](uint8_t i) -> bool { return i; }));
@@ -561,7 +560,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
     const int num_vals = 10;
     std::vector<int> data_vector(num_vals);
     std::iota(data_vector.begin(), data_vector.end(), min_val);
-    using DataType = vectorized::DataTypeInt32;
+    using DataType = DataTypeInt32;
     int32_t filter_id = 0;
     RuntimeFilterType filter_type = RuntimeFilterType::MINMAX_FILTER;
     bool null_aware = false;
@@ -602,7 +601,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
         }
         {
             // Insert
-            auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+            auto col = ColumnHelper::create_column<DataType>(data_vector);
             EXPECT_TRUE(wrapper->insert(col, 0).ok());
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             EXPECT_EQ(*(int*)wrapper->minmax_func()->get_max(), min_val + num_vals - 1);
@@ -630,7 +629,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             // Insert
             std::vector<int> new_data_vector {-100, 100};
-            auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+            auto col = ColumnHelper::create_column<DataType>(new_data_vector);
             EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
@@ -672,7 +671,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
         }
         {
             // Insert
-            auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+            auto col = ColumnHelper::create_column<DataType>(data_vector);
             EXPECT_TRUE(wrapper->insert(col, 0).ok());
             EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
@@ -699,7 +698,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             // Insert
             std::vector<int> new_data_vector {-100, 100};
-            auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+            auto col = ColumnHelper::create_column<DataType>(new_data_vector);
             EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
@@ -741,7 +740,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
         }
         {
             // Insert
-            auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+            auto col = ColumnHelper::create_column<DataType>(data_vector);
             EXPECT_TRUE(wrapper->insert(col, 0).ok());
             EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
@@ -768,7 +767,7 @@ TEST_F(RuntimeFilterWrapperTest, TestMinMax) {
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
             // Insert
             std::vector<int> new_data_vector {-100, 100};
-            auto col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+            auto col = ColumnHelper::create_column<DataType>(new_data_vector);
             EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
             EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
             wrapper->check_state({RuntimeFilterWrapper::State::UNINITED});
@@ -826,10 +825,9 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
     }
     {
         // Insert
-        vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeBitMap>());
+        DataTypePtr bitmap_data_type(std::make_shared<DataTypeBitMap>());
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((vectorized::ColumnBitmap*)bitmap_column.get())->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)bitmap_column.get())->get_data();
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
             bv.add(i);
@@ -854,19 +852,17 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(wrapper->bitmap_filter_func()->size(), 0);
         // Insert nullable column
-        vectorized::DataTypePtr bitmap_data_type(std::make_shared<vectorized::DataTypeNullable>(
-                std::make_shared<vectorized::DataTypeBitMap>()));
+        DataTypePtr bitmap_data_type(
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeBitMap>()));
         auto bitmap_column = bitmap_data_type->create_column();
-        std::vector<BitmapValue>& container =
-                ((vectorized::ColumnBitmap*)((vectorized::ColumnNullable*)bitmap_column.get())
-                         ->get_nested_column_ptr()
-                         .get())
-                        ->get_data();
-        auto& null_map =
-                ((vectorized::ColumnUInt8*)((vectorized::ColumnNullable*)bitmap_column.get())
-                         ->get_null_map_column_ptr()
-                         .get())
-                        ->get_data();
+        std::vector<BitmapValue>& container = ((ColumnBitmap*)((ColumnNullable*)bitmap_column.get())
+                                                       ->get_nested_column_ptr()
+                                                       .get())
+                                                      ->get_data();
+        auto& null_map = ((ColumnUInt8*)((ColumnNullable*)bitmap_column.get())
+                                  ->get_null_map_column_ptr()
+                                  .get())
+                                 ->get_data();
 
         for (int i = 0; i < 1024; ++i) {
             BitmapValue bv;
@@ -903,7 +899,7 @@ TEST_F(RuntimeFilterWrapperTest, TestBitMap) {
 TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
     std::vector<int> data_vector(10);
     std::iota(data_vector.begin(), data_vector.end(), 0);
-    using DataType = vectorized::DataTypeInt32;
+    using DataType = DataTypeInt32;
     int32_t filter_id = 0;
     auto runtime_size = 80;
     RuntimeFilterType filter_type = RuntimeFilterType::IN_OR_BLOOM_FILTER;
@@ -944,11 +940,11 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(wrapper->bloom_filter_func()->_bloom_filter_alloced, bloom_filter_size);
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
 
-        col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        col = ColumnHelper::create_column<DataType>(data_vector);
         std::vector<uint8_t> res(10);
         wrapper->bloom_filter_func()->find_fixed_len(col, res.data());
         EXPECT_TRUE(std::all_of(res.begin(), res.end(), [](uint8_t i) -> bool { return i; }));
@@ -976,7 +972,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_EQ(wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(wrapper->hybrid_set()->size(), col->size());
@@ -1020,14 +1016,14 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_TRUE(new_wrapper->init(runtime_size).ok());
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(wrapper->hybrid_set()->size(), col->size());
 
         std::vector<int> new_data_vector(10);
         std::iota(new_data_vector.begin(), new_data_vector.end(), 10);
-        col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        col = ColumnHelper::create_column<DataType>(new_data_vector);
         EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
         EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(new_wrapper->hybrid_set()->size(), col->size());
@@ -1074,14 +1070,14 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_TRUE(new_wrapper->init(runtime_size).ok());
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(wrapper->hybrid_set()->size(), col->size());
 
         std::vector<int> new_data_vector(10);
         std::iota(new_data_vector.begin(), new_data_vector.end(), 10);
-        col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        col = ColumnHelper::create_column<DataType>(new_data_vector);
         EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
         EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(new_wrapper->hybrid_set()->size(), col->size());
@@ -1091,7 +1087,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
 
         std::vector<int> final_data_vector(20);
         std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
-        col = vectorized::ColumnHelper::create_column<DataType>(final_data_vector);
+        col = ColumnHelper::create_column<DataType>(final_data_vector);
         std::vector<uint8_t> final_res(20);
         wrapper->bloom_filter_func()->find_fixed_len(col, final_res.data());
         EXPECT_TRUE(std::all_of(final_res.begin(), final_res.end(),
@@ -1138,14 +1134,14 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_TRUE(new_wrapper->init(runtime_size).ok());
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(wrapper->hybrid_set()->size(), data_vector.size());
 
         std::vector<int> new_data_vector(10);
         std::iota(new_data_vector.begin(), new_data_vector.end(), 10);
-        col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        col = ColumnHelper::create_column<DataType>(new_data_vector);
         EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
         EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         std::vector<uint8_t> res(10);
@@ -1157,7 +1153,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
 
         std::vector<int> final_data_vector(20);
         std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
-        col = vectorized::ColumnHelper::create_column<DataType>(final_data_vector);
+        col = ColumnHelper::create_column<DataType>(final_data_vector);
         std::vector<uint8_t> final_res(20);
         wrapper->bloom_filter_func()->find_fixed_len(col, final_res.data());
         EXPECT_TRUE(std::all_of(final_res.begin(), final_res.end(),
@@ -1204,17 +1200,17 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_TRUE(new_wrapper->init(runtime_size).ok());
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::IN_FILTER);
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
-        col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        col = ColumnHelper::create_column<DataType>(data_vector);
         std::vector<uint8_t> res(10);
         wrapper->bloom_filter_func()->find_fixed_len(col, res.data());
         EXPECT_TRUE(std::all_of(res.begin(), res.end(), [](uint8_t i) -> bool { return i; }));
 
         std::vector<int> new_data_vector(10);
         std::iota(new_data_vector.begin(), new_data_vector.end(), 10);
-        col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        col = ColumnHelper::create_column<DataType>(new_data_vector);
         EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
         EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
         EXPECT_EQ(new_wrapper->hybrid_set()->size(), col->size());
@@ -1224,7 +1220,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
 
         std::vector<int> final_data_vector(20);
         std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
-        col = vectorized::ColumnHelper::create_column<DataType>(final_data_vector);
+        col = ColumnHelper::create_column<DataType>(final_data_vector);
         std::vector<uint8_t> final_res(20);
         wrapper->bloom_filter_func()->find_fixed_len(col, final_res.data());
         EXPECT_TRUE(std::all_of(final_res.begin(), final_res.end(),
@@ -1269,20 +1265,20 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
         EXPECT_TRUE(new_wrapper->init(runtime_size).ok());
         EXPECT_EQ(new_wrapper->get_real_type(), RuntimeFilterType::BLOOM_FILTER);
         // Insert
-        auto col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        auto col = ColumnHelper::create_column<DataType>(data_vector);
         EXPECT_TRUE(wrapper->insert(col, 0).ok());
         EXPECT_EQ(wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
-        col = vectorized::ColumnHelper::create_column<DataType>(data_vector);
+        col = ColumnHelper::create_column<DataType>(data_vector);
         std::vector<uint8_t> res(10);
         wrapper->bloom_filter_func()->find_fixed_len(col, res.data());
         EXPECT_TRUE(std::all_of(res.begin(), res.end(), [](uint8_t i) -> bool { return i; }));
 
         std::vector<int> new_data_vector(10);
         std::iota(new_data_vector.begin(), new_data_vector.end(), 10);
-        col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        col = ColumnHelper::create_column<DataType>(new_data_vector);
         EXPECT_TRUE(new_wrapper->insert(col, 0).ok());
         EXPECT_EQ(new_wrapper->get_state(), RuntimeFilterWrapper::State::UNINITED);
-        col = vectorized::ColumnHelper::create_column<DataType>(new_data_vector);
+        col = ColumnHelper::create_column<DataType>(new_data_vector);
         new_wrapper->bloom_filter_func()->find_fixed_len(col, res.data());
         EXPECT_TRUE(std::all_of(res.begin(), res.end(), [](uint8_t i) -> bool { return i; }));
         new_wrapper->_state = RuntimeFilterWrapper::State::READY;
@@ -1291,7 +1287,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
 
         std::vector<int> final_data_vector(20);
         std::iota(final_data_vector.begin(), final_data_vector.end(), 0);
-        col = vectorized::ColumnHelper::create_column<DataType>(final_data_vector);
+        col = ColumnHelper::create_column<DataType>(final_data_vector);
         std::vector<uint8_t> final_res(20);
         wrapper->bloom_filter_func()->find_fixed_len(col, final_res.data());
         EXPECT_TRUE(std::all_of(final_res.begin(), final_res.end(),
@@ -1305,7 +1301,7 @@ TEST_F(RuntimeFilterWrapperTest, TestInOrBloom) {
 }
 
 TEST_F(RuntimeFilterWrapperTest, TestErrorPath) {
-    using DataType = vectorized::DataTypeInt32;
+    using DataType = DataTypeInt32;
     int32_t filter_id = 0;
     RuntimeFilterType filter_type = RuntimeFilterType::UNKNOWN_FILTER;
     bool null_aware = false;
@@ -1333,7 +1329,7 @@ TEST_F(RuntimeFilterWrapperTest, TestErrorPath) {
             .bloom_filter_size_calculated_by_ndv = bloom_filter_size_calculated_by_ndv,
             .bitmap_filter_not_in = bitmap_filter_not_in};
     std::shared_ptr<RuntimeFilterWrapper> wrapper = std::make_shared<RuntimeFilterWrapper>(&params);
-    auto col = vectorized::ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
+    auto col = ColumnHelper::create_column<DataType>({0, 1, 2, 3, 4, 5, 6, 7, 8, 9});
     EXPECT_EQ(wrapper->insert(col, 0).code(), ErrorCode::INTERNAL_ERROR);
     {
         std::shared_ptr<RuntimeFilterWrapper> another_wrapper =

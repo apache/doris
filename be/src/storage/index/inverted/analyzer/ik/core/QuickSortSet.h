@@ -58,9 +58,9 @@ protected:
     size_t cell_size_ = 0;
 
 public:
-    vectorized::Arena& arena_;
+    Arena& arena_;
 
-    QuickSortSet(vectorized::Arena& arena) : arena_(arena) {}
+    QuickSortSet(Arena& arena) : arena_(arena) {}
     virtual ~QuickSortSet();
 
     QuickSortSet(const QuickSortSet&) = delete;

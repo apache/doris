@@ -20,7 +20,7 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 void register_function_array_flatten(SimpleFunctionFactory&);
 void register_function_array_shuffle(SimpleFunctionFactory&);
 void register_function_array_exists(SimpleFunctionFactory&);
@@ -97,4 +97,4 @@ void register_function_array(SimpleFunctionFactory& factory) {
     register_function_array_match(factory);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

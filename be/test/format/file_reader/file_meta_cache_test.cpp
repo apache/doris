@@ -22,6 +22,7 @@
 #include "io/fs/file_reader.h"
 
 namespace doris {
+namespace {
 
 class MockFileReader : public io::FileReader {
 public:
@@ -57,6 +58,7 @@ private:
     size_t _size;
     bool _closed;
 };
+} // anonymous namespace
 
 TEST(FileMetaCacheTest, KeyGenerationFromParams) {
     std::string file_name = "/path/to/file";

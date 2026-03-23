@@ -22,7 +22,6 @@
 #include "exec/scan/task_executor/tools/simulator/split_specification.h"
 
 namespace doris {
-namespace vectorized {
 
 // ======================== IntermediateSplitGenerator Implementation ========================
 
@@ -194,12 +193,12 @@ int64_t _generate_leaf_split_quanta_micros(std::mt19937& gen, double origin, dou
 
 int64_t AggregatedLeafSplitGenerator::_generate_leaf_split_total_scheduled_millis(
         double origin, double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
 }
 
 int64_t AggregatedLeafSplitGenerator::_generate_leaf_split_quanta_micros(double origin,
                                                                          double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_quanta_micros(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_quanta_micros(_gen, origin, bound);
 }
 
 std::unique_ptr<SplitSpecification> AggregatedLeafSplitGenerator::next() const {
@@ -214,12 +213,12 @@ std::unique_ptr<SplitSpecification> AggregatedLeafSplitGenerator::next() const {
 
 int64_t FastLeafSplitGenerator::_generate_leaf_split_total_scheduled_millis(double origin,
                                                                             double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
 }
 
 int64_t FastLeafSplitGenerator::_generate_leaf_split_quanta_micros(double origin,
                                                                    double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_quanta_micros(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_quanta_micros(_gen, origin, bound);
 }
 
 std::unique_ptr<SplitSpecification> FastLeafSplitGenerator::next() const {
@@ -234,12 +233,12 @@ std::unique_ptr<SplitSpecification> FastLeafSplitGenerator::next() const {
 
 int64_t SlowLeafSplitGenerator::_generate_leaf_split_total_scheduled_millis(double origin,
                                                                             double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
 }
 
 int64_t SlowLeafSplitGenerator::_generate_leaf_split_quanta_micros(double origin,
                                                                    double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_quanta_micros(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_quanta_micros(_gen, origin, bound);
 }
 
 std::unique_ptr<SplitSpecification> SlowLeafSplitGenerator::next() const {
@@ -254,12 +253,12 @@ std::unique_ptr<SplitSpecification> SlowLeafSplitGenerator::next() const {
 
 int64_t L4LeafSplitGenerator::_generate_leaf_split_total_scheduled_millis(double origin,
                                                                           double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
 }
 
 int64_t L4LeafSplitGenerator::_generate_leaf_split_quanta_micros(double origin,
                                                                  double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_quanta_micros(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_quanta_micros(_gen, origin, bound);
 }
 
 std::unique_ptr<SplitSpecification> L4LeafSplitGenerator::next() const {
@@ -274,12 +273,12 @@ std::unique_ptr<SplitSpecification> L4LeafSplitGenerator::next() const {
 
 int64_t QuantaExceedingSplitGenerator::_generate_leaf_split_total_scheduled_millis(
         double origin, double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_total_scheduled_millis(_gen, origin, bound);
 }
 
 int64_t QuantaExceedingSplitGenerator::_generate_leaf_split_quanta_micros(double origin,
                                                                           double bound) const {
-    return ::doris::vectorized::_generate_leaf_split_quanta_micros(_gen, origin, bound);
+    return ::doris::_generate_leaf_split_quanta_micros(_gen, origin, bound);
 }
 
 std::unique_ptr<SplitSpecification> QuantaExceedingSplitGenerator::next() const {
@@ -296,5 +295,4 @@ std::unique_ptr<SplitSpecification> SimpleLeafSplitGenerator::next() const {
     return std::make_unique<LeafSplitSpecification>(_total_nanos, _quanta_nanos);
 }
 
-} // namespace vectorized
 } // namespace doris

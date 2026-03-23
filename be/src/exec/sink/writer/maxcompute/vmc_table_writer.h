@@ -34,15 +34,12 @@ namespace doris {
 class ObjectPool;
 class RuntimeState;
 
-namespace vectorized {
-
 class VMCPartitionWriter;
 
 class VMCTableWriter final : public AsyncResultWriter {
 public:
     VMCTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                   std::shared_ptr<pipeline::Dependency> dep,
-                   std::shared_ptr<pipeline::Dependency> fin_dep);
+                   std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep);
 
     ~VMCTableWriter() = default;
 
@@ -50,12 +47,18 @@ public:
 
     Status open(RuntimeState* state, RuntimeProfile* profile) override;
 
-    Status write(RuntimeState* state, vectorized::Block& block) override;
+    Status write(RuntimeState* state, Block& block) override;
 
     Status close(Status) override;
 
 private:
     std::shared_ptr<VMCPartitionWriter> _create_partition_writer(const std::string& partition_spec);
+
+    // Split large blocks into sub-blocks before JNI to limit Arrow and SDK
+    // native memory. Needed when data source is not MC scanner and blocks
+    // may exceed 256MB (e.g. batch_size=4096 with 585KB/row = 2.4GB).
+    Status _write_block_in_chunks(const std::shared_ptr<VMCPartitionWriter>& writer,
+                                  Block& output_block);
 
     std::map<std::string, std::string> _build_base_writer_params();
 
@@ -96,5 +99,4 @@ private:
     RuntimeProfile::Counter* _partition_writers_count = nullptr;
 };
 
-} // namespace vectorized
 } // namespace doris

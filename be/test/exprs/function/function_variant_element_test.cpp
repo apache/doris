@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_variant_element_test, extract_from_sparse_column) {
     auto variant_column = ColumnVariant::create(1 /*max_subcolumns_count*/);
@@ -52,7 +52,7 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
             FunctionVariantElement::get_element_column(*variant_column, index_column, &result);
     EXPECT_TRUE(status.ok());
 
-    vectorized::DataTypeSerDe::FormatOptions options;
+    DataTypeSerDe::FormatOptions options;
     auto tz = cctz::utc_time_zone();
     options.timezone = &tz;
     auto result_ptr = assert_cast<const ColumnVariant&>(*result.get());
@@ -61,4 +61,4 @@ TEST(function_variant_element_test, extract_from_sparse_column) {
     EXPECT_EQ(result_string, "{\"age\":\"John\",\"name\":\"John\"}");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

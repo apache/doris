@@ -24,10 +24,9 @@
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
 #include "testutil/column_helper.h"
-namespace doris::pipeline {
+namespace doris {
 
 TEST(AssertNumRowsOperatorTest, testEQOK) {
-    using namespace vectorized;
     OperatorContext ctx;
     // init op
     AssertNumRowsOperatorX op;
@@ -50,7 +49,6 @@ TEST(AssertNumRowsOperatorTest, testEQOK) {
 }
 
 TEST(AssertNumRowsOperatorTest, testEQERROR) {
-    using namespace vectorized;
     OperatorContext ctx;
     // init op
     AssertNumRowsOperatorX op;
@@ -76,7 +74,6 @@ TEST(AssertNumRowsOperatorTest, testEQERROR) {
 }
 
 TEST(AssertNumRowsOperatorTest, testEQ2) {
-    using namespace vectorized;
     OperatorContext ctx;
     // init op
     AssertNumRowsOperatorX op;
@@ -108,4 +105,4 @@ TEST(AssertNumRowsOperatorTest, testEQ2) {
     }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

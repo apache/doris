@@ -37,6 +37,19 @@ struct PackedInt128 {
     __int128 value;
 } __attribute__((packed));
 
+struct PackedUInt128 {
+    PackedUInt128() = default;
+
+    PackedUInt128(const unsigned __int128& value_) { value = value_; }
+    PackedUInt128& operator=(const unsigned __int128& value_) {
+        value = value_;
+        return *this;
+    }
+    PackedUInt128& operator=(const PackedUInt128& rhs) = default;
+
+    uint128_t value;
+} __attribute__((packed));
+
 // unalign address directly casted to int128 will core dump
 inline int128_t get_int128_from_unalign(const void* address) {
     int128_t value = 0;

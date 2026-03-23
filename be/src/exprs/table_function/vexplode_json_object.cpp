@@ -32,7 +32,7 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VExplodeJsonObjectTableFunction::VExplodeJsonObjectTableFunction() {
@@ -161,4 +161,4 @@ int VExplodeJsonObjectTableFunction::get_value(MutableColumnPtr& column, int max
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

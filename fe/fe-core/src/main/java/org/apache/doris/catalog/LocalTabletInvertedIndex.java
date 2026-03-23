@@ -48,10 +48,12 @@ import com.google.common.collect.SetMultimap;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Table;
 import com.google.common.collect.TreeMultimap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -71,7 +73,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
 
     // backing replica table, for visiting backend replicas faster.
     // backend id -> (tablet id -> replica)
-    private Table<Long, Long, Replica> backingReplicaMetaTable = HashBasedTable.create();
+    private Long2ObjectOpenHashMap<Long2ObjectOpenHashMap<Replica>> backingReplicaMetaTable
+            = new Long2ObjectOpenHashMap<>();
 
     // partition id -> partition info.
     // notice partition info update every Config.partition_info_update_interval_secs seconds,
@@ -116,13 +119,15 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                 LOG.debug("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             }
 
-            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
                 feTabletNum = replicaMetaWithBackend.size();
                 processTabletReportAsync(backendId, backendTablets, backendPartitionsVersion, storageMediumMap,
                         tabletSyncMap, tabletDeleteFromMeta, tabletFoundInMeta, tabletMigrationMap,
                         partitionVersionSyncMap, transactionsToPublish, transactionsToClear, tabletRecoveryMap,
                         tabletToUpdate, cooldownTablets, replicaMetaWithBackend);
+            } else {
+                processPartitionVersions(backendPartitionsVersion, partitionVersionSyncMap);
             }
         } finally {
             readUnlock(stamp);
@@ -726,7 +731,13 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             Map<Long, Replica> replicas = replicaMetaTable.rowMap().remove(tabletId);
             if (replicas != null) {
                 for (long backendId : replicas.keySet()) {
-                    backingReplicaMetaTable.remove(backendId, tabletId);
+                    Map<Long, Replica> backendMap = backingReplicaMetaTable.get(backendId);
+                    if (backendMap != null) {
+                        backendMap.remove(tabletId);
+                        if (backendMap.isEmpty()) {
+                            backingReplicaMetaTable.remove(backendId);
+                        }
+                    }
                 }
             }
             tabletMetaMap.remove(tabletId);
@@ -747,7 +758,8 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
                     "tablet " + tabletId + " not exists, replica " + replica.getId()
                             + ", backend " + backendId);
             replicaMetaTable.put(tabletId, backendId, replica);
-            backingReplicaMetaTable.put(backendId, tabletId, replica);
+            backingReplicaMetaTable.computeIfAbsent(backendId, k -> new Long2ObjectOpenHashMap<>())
+                    .put(tabletId, replica);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add replica {} of tablet {} in backend {}",
                         replica.getId(), tabletId, backendId);
@@ -766,10 +778,17 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             if (replicaMetaTable.containsRow(tabletId)) {
                 Replica replica = replicaMetaTable.remove(tabletId, backendId);
 
-                backingReplicaMetaTable.remove(backendId, tabletId);
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("delete replica {} of tablet {} in backend {}",
-                            replica.getId(), tabletId, backendId);
+                            replica == null ? null : replica.getId(), tabletId, backendId);
+                }
+
+                Map<Long, Replica> backendMap = backingReplicaMetaTable.get(backendId);
+                if (backendMap != null) {
+                    backendMap.remove(tabletId);
+                    if (backendMap.isEmpty()) {
+                        backingReplicaMetaTable.remove(backendId);
+                    }
                 }
             } else {
                 // this may happen when fe restart after tablet is empty(bug cause)
@@ -800,7 +819,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             if (replicaMetaTable.containsRow(tabletId)) {
                 return Lists.newArrayList(replicaMetaTable.row(tabletId).values());
             }
-            return Lists.newArrayList();
+            return Collections.emptyList();
         } finally {
             readUnlock(stamp);
         }
@@ -811,7 +830,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         Long ret = 0L;
         long stamp = readLock();
         try {
-            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
                 ret += replicaMetaWithBackend.size();
             }
@@ -823,28 +842,26 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
 
     @Override
     public List<Long> getTabletIdsByBackendId(long backendId) {
-        List<Long> tabletIds = Lists.newArrayList();
         long stamp = readLock();
         try {
-            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
-                tabletIds.addAll(replicaMetaWithBackend.keySet());
+                return Lists.newArrayList(replicaMetaWithBackend.keySet());
             }
         } finally {
             readUnlock(stamp);
         }
-        return tabletIds;
+        return Collections.emptyList();
     }
 
     @Override
     public List<Pair<Long, Long>> getTabletSizeByBackendIdAndStorageMedium(long backendId,
             TStorageMedium storageMedium) {
-        List<Pair<Long, Long>> tabletIdSizes = Lists.newArrayList();
         long stamp = readLock();
         try {
-            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
-                tabletIdSizes = replicaMetaWithBackend.entrySet().stream()
+                return replicaMetaWithBackend.entrySet().stream()
                         .filter(entry -> tabletMetaMap.get(entry.getKey()).getStorageMedium() == storageMedium)
                         .map(entry -> Pair.of(entry.getKey(), entry.getValue().getDataSize()))
                         .collect(Collectors.toList());
@@ -852,14 +869,14 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         } finally {
             readUnlock(stamp);
         }
-        return tabletIdSizes;
+        return Collections.emptyList();
     }
 
     @Override
     public int getTabletNumByBackendId(long backendId) {
         long stamp = readLock();
         try {
-            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
                 return replicaMetaWithBackend.size();
             }
@@ -876,7 +893,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         long ssdNum = 0;
         long stamp = readLock();
         try {
-            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.row(backendId);
+            Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
                 for (long tabletId : replicaMetaWithBackend.keySet()) {
                     if (tabletMetaMap.get(tabletId).getStorageMedium() == TStorageMedium.HDD) {
@@ -1033,7 +1050,13 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
     public Table<Long, Long, Replica> getBackingReplicaMetaTable() {
         long stamp = readLock();
         try {
-            return HashBasedTable.create(backingReplicaMetaTable);
+            Table<Long, Long, Replica> table = HashBasedTable.create();
+            backingReplicaMetaTable.entrySet().forEach(backendEntry -> {
+                backendEntry.getValue().entrySet().forEach(replicaEntry -> {
+                    table.put(backendEntry.getKey(), replicaEntry.getKey(), replicaEntry.getValue());
+                });
+            });
+            return table;
         } finally {
             readUnlock(stamp);
         }

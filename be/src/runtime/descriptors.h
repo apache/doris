@@ -59,7 +59,7 @@ class SlotDescriptor {
 public:
     MOCK_DEFINE(virtual ~SlotDescriptor() = default;)
     SlotId id() const { return _id; }
-    vectorized::DataTypePtr type() const { return _type; }
+    DataTypePtr type() const { return _type; }
     TupleId parent() const { return _parent; }
     // Returns the column index of this slot, including partition keys.
     // (e.g., col_pos - num_partition_keys = the table column this slot corresponds to)
@@ -67,7 +67,7 @@ public:
     // Returns the field index in the generated llvm struct for this slot's tuple
     int field_idx() const { return _field_idx; }
     bool is_nullable() const;
-    vectorized::DataTypePtr get_data_type_ptr() const;
+    DataTypePtr get_data_type_ptr() const;
 
     const std::string& col_name() const { return _col_name; }
     const std::string& col_name_lower_case() const { return _col_name_lower_case; }
@@ -76,7 +76,7 @@ public:
 
     std::string debug_string() const;
 
-    vectorized::MutableColumnPtr get_empty_mutable_column() const;
+    MutableColumnPtr get_empty_mutable_column() const;
 
     MOCK_FUNCTION int32_t col_unique_id() const { return _col_unique_id; }
 
@@ -114,7 +114,7 @@ private:
     friend class TabletSchema;
 
     MOCK_REMOVE(const) SlotId _id;
-    MOCK_REMOVE(const) vectorized::DataTypePtr _type;
+    MOCK_REMOVE(const) DataTypePtr _type;
     const TupleId _parent;
     const int _col_pos;
     MOCK_REMOVE(const) std::string _col_name;

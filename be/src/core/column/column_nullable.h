@@ -35,7 +35,7 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
@@ -406,5 +406,5 @@ private:
 
 ColumnPtr make_nullable(const ColumnPtr& column, bool is_nullable = false);
 ColumnPtr remove_nullable(const ColumnPtr& column);
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

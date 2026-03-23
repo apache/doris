@@ -19,9 +19,9 @@
 
 #include "common/status.h"
 
-namespace doris::vectorized {
+namespace doris {
 struct CastParameters {
     Status status = Status::OK();
     bool is_strict = false;
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -38,6 +38,7 @@ namespace doris::io {
 using doris::Status;
 
 // Mock FileReader for testing PackedFileSystem
+namespace {
 class MockFileReader : public FileReader {
 public:
     explicit MockFileReader(std::string content) : _content(std::move(content)) {}
@@ -74,6 +75,7 @@ private:
     std::string _content;
     bool _closed = false;
 };
+} // anonymous namespace
 
 // Mock FileWriter for testing PackedFileSystem
 class MockFileWriterForMerge : public FileWriter {
@@ -128,7 +130,6 @@ public:
     void set_file_size(int64_t size) { _file_size = size; }
 
     MockFileWriterForMerge* last_writer() const { return _last_writer; }
-    MockFileReader* last_reader() const { return _last_reader; }
 
 protected:
     Status create_file_impl(const Path& file, FileWriterPtr* writer,
@@ -149,7 +150,6 @@ protected:
         }
         // Create a mock reader with some content
         auto mock_reader = std::make_shared<MockFileReader>("mock_content");
-        _last_reader = mock_reader.get();
         *reader = std::move(mock_reader);
         return Status::OK();
     }
@@ -195,7 +195,6 @@ private:
     bool _exists_result = true;
     int64_t _file_size = 0;
     MockFileWriterForMerge* _last_writer = nullptr;
-    MockFileReader* _last_reader = nullptr;
 };
 
 // Test fixture for PackedFileSystem

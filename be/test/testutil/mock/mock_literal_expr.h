@@ -33,7 +33,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -118,5 +117,4 @@ private:
     std::shared_ptr<ColumnPtrWrapper> _mock_const_expr_col;
 };
 
-} // namespace vectorized
 } // namespace doris

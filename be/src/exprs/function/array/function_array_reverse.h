@@ -25,7 +25,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/array/function_array_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct ArrayReverseImpl {
     static Status _execute(Block& block, const ColumnNumbers& arguments, uint32_t result,
@@ -89,4 +89,4 @@ struct ArrayReverseImpl {
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

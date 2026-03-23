@@ -22,7 +22,7 @@
 
 #include "core/block/block.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /** Converts columns-constants to full columns ("materializes" them).
   */
@@ -35,4 +35,4 @@ void materialize_block_inplace(Block& block, Iterator start, Iterator end) {
         ++start;
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

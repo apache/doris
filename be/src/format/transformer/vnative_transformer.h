@@ -29,7 +29,7 @@ namespace doris::io {
 class FileWriter;
 } // namespace doris::io
 
-namespace doris::vectorized {
+namespace doris {
 class Block;
 
 #include "common/compile_check_begin.h"
@@ -62,4 +62,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

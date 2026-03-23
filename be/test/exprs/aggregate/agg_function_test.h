@@ -23,7 +23,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctiontest : public testing::Test {
     void SetUp() override {}
@@ -42,8 +42,8 @@ struct AggregateFunctiontest : public testing::Test {
 private:
     void execute_single(Block block, ColumnWithTypeAndName expected_column) const {
         Arena arena;
-        auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
-                arena.alloc(agg_fn->function()->size_of_data()));
+        auto* place =
+                reinterpret_cast<AggregateDataPtr>(arena.alloc(agg_fn->function()->size_of_data()));
 
         agg_fn->create(place);
 
@@ -102,7 +102,7 @@ private:
         MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
 
         {
-            auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+            auto* place = reinterpret_cast<AggregateDataPtr>(
                     arena.alloc(agg_fn->function()->size_of_data()));
 
             agg_fn->create(place);
@@ -115,7 +115,7 @@ private:
         }
 
         {
-            auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+            auto* place = reinterpret_cast<AggregateDataPtr>(
                     arena.alloc(agg_fn->function()->size_of_data()));
 
             agg_fn->create(place);
@@ -137,7 +137,7 @@ private:
     }
 
     void execute_more(Block block, ColumnWithTypeAndName expected_column) const {
-        auto check_result = [&](vectorized::AggregateDataPtr place) {
+        auto check_result = [&](AggregateDataPtr place) {
             MutableColumnPtr result_column = expected_column.column->clone_empty();
             agg_fn->insert_result_info(place, result_column.get());
             for (int i = 0; i < result_column->size(); i++) {
@@ -152,7 +152,7 @@ private:
             MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
             {
                 Arena arena;
-                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->create(place);
@@ -174,7 +174,7 @@ private:
             }
 
             {
-                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->create(place);
@@ -190,7 +190,7 @@ private:
             MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
             Arena arena;
             {
-                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->create(place);
@@ -202,13 +202,13 @@ private:
                 agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
             }
             {
-                auto* place1 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place1 = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
                 agg_fn->create(place1);
                 Defer defer([&]() { agg_fn->destroy(place1); });
                 std::vector<AggregateDataPtr> places {place1};
 
-                auto* place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place2 = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->function()->deserialize_and_merge_vec(places.data(), 0, place2,
@@ -222,7 +222,7 @@ private:
             MutableColumnPtr serialize_column = agg_fn->function()->create_serialize_column();
             Arena arena;
             {
-                auto* place = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->create(place);
@@ -234,13 +234,13 @@ private:
                 agg_fn->function()->serialize_to_column(places, 0, serialize_column, 1);
             }
             {
-                auto* place1 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place1 = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
                 agg_fn->create(place1);
                 Defer defer([&]() { agg_fn->destroy(place1); });
                 std::vector<AggregateDataPtr> places {place1};
 
-                auto* place2 = reinterpret_cast<vectorized::AggregateDataPtr>(
+                auto* place2 = reinterpret_cast<AggregateDataPtr>(
                         arena.alloc(agg_fn->function()->size_of_data()));
 
                 agg_fn->function()->deserialize_and_merge_vec_selected(
@@ -255,4 +255,4 @@ private:
     AggFnEvaluator* agg_fn;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

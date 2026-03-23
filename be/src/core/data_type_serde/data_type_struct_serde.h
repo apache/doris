@@ -28,7 +28,6 @@ namespace doris {
 class PValues;
 struct JsonbValue;
 
-namespace vectorized {
 class IColumn;
 class Arena;
 #include "common/compile_check_begin.h"
@@ -94,7 +93,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
@@ -129,5 +128,4 @@ private:
     Strings elem_names;
 };
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

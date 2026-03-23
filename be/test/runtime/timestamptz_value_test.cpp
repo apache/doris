@@ -27,7 +27,7 @@
 #include "testutil/datetime_ut_util.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(TimeStampTzValueTest, make_time) {
     TimestampTzValue tz {};
@@ -184,4 +184,4 @@ TEST(TimeStampTzValueTest, to_datetime) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

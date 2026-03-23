@@ -113,13 +113,13 @@ Status VariantExternalMetaReader::lookup_meta_by_path(const std::string& rel_pat
 
     // 2. Read key and verify exact match (keys store pure relative path).
     size_t n = 1;
-    auto col = vectorized::ColumnString::create();
-    vectorized::MutableColumnPtr dst = std::move(col);
+    auto col = ColumnString::create();
+    MutableColumnPtr dst = std::move(col);
     RETURN_IF_ERROR(key_it.next_batch(&n, dst));
     if (n != 1) {
         return Status::Corruption("variant meta key read failed");
     }
-    auto* s = assert_cast<vectorized::ColumnString*>(dst.get());
+    auto* s = assert_cast<ColumnString*>(dst.get());
     auto ref = s->get_data_at(0);
 
     if (ref.size != rel_path.size() || memcmp(ref.data, rel_path.data(), ref.size) != 0) {
@@ -142,8 +142,8 @@ Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tre
 
     while (built < total) {
         size_t n = total - built;
-        auto col = vectorized::ColumnString::create();
-        vectorized::MutableColumnPtr dst = std::move(col);
+        auto col = ColumnString::create();
+        MutableColumnPtr dst = std::move(col);
         RETURN_IF_ERROR(key_it.next_batch(&n, dst));
         if (n == 0) {
             break;
@@ -160,7 +160,7 @@ Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tre
             if (!meta.has_column_path_info()) {
                 continue;
             }
-            vectorized::PathInData full_path;
+            PathInData full_path;
             full_path.from_protobuf(meta.column_path_info());
             auto relative_path = full_path.copy_pop_front();
             if (relative_path.empty()) {
@@ -173,7 +173,7 @@ Status VariantExternalMetaReader::load_all(SubcolumnColumnMetaInfo* out_meta_tre
                 out_stats->subcolumns_non_null_size.emplace(relative_path.get_path(),
                                                             meta.none_null_size());
             }
-            auto file_type = vectorized::DataTypeFactory::instance().create_data_type(meta);
+            auto file_type = DataTypeFactory::instance().create_data_type(meta);
             out_meta_tree->add(relative_path,
                                SubcolumnMeta {.file_column_type = file_type, .footer_ordinal = -1});
         }
@@ -201,14 +201,14 @@ Status VariantExternalMetaReader::has_prefix(const std::string& prefix, bool* ou
     }
     RETURN_IF_ERROR(st);
     size_t n = 1;
-    auto col = vectorized::ColumnString::create();
-    vectorized::MutableColumnPtr dst = std::move(col);
+    auto col = ColumnString::create();
+    MutableColumnPtr dst = std::move(col);
     RETURN_IF_ERROR(key_it.next_batch(&n, dst));
     if (n == 0) {
         *out = false;
         return Status::OK();
     }
-    auto* s = assert_cast<vectorized::ColumnString*>(dst.get());
+    auto* s = assert_cast<ColumnString*>(dst.get());
     auto ref = s->get_data_at(0);
     std::string_view key_sv(ref.data, ref.size);
 

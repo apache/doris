@@ -34,12 +34,10 @@
 namespace doris {
 class QueryContext;
 class RuntimeState;
-namespace pipeline {
 class PipelineFragmentContext;
-} // namespace pipeline
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class MultiCoreTaskQueue;
 class PriorityTaskQueue;
@@ -201,6 +199,7 @@ private:
     // Operator `op` try to reserve memory before executing. Return false if reserve failed
     // otherwise return true.
     bool _try_to_reserve_memory(const size_t reserve_size, OperatorBase* op);
+    bool _should_trigger_revoking(const size_t reserve_size) const;
 
     const TUniqueId _query_id;
     const uint32_t _index;
@@ -209,7 +208,7 @@ private:
     RuntimeState* _state = nullptr;
     int _thread_id = -1;
     uint32_t _schedule_time = 0;
-    std::unique_ptr<vectorized::Block> _block;
+    std::unique_ptr<Block> _block;
 
     std::weak_ptr<PipelineFragmentContext> _fragment_context;
 
@@ -323,4 +322,4 @@ private:
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
 
-} // namespace doris::pipeline
+} // namespace doris

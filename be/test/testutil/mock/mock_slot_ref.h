@@ -29,7 +29,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
 class Block;
 class VExprContext;
 
@@ -76,5 +75,4 @@ private:
     std::string _name = "MockSlotRef";
 };
 
-} // namespace vectorized
 } // namespace doris

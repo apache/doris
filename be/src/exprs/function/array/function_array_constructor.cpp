@@ -43,7 +43,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // construct an array
 // array(col1, col2, '22') -> [col1, col2, '22']
@@ -109,4 +109,4 @@ void register_function_array_constructor(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayConstructor>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

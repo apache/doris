@@ -39,6 +39,8 @@ import java.util.Map;
 import java.util.Set;
 
 public class AuthenticationIntegrationMgrTest {
+    private static final String CREATE_USER = "creator";
+    private static final String ALTER_USER = "modifier";
 
     @Mocked
     private Env env;
@@ -89,21 +91,26 @@ public class AuthenticationIntegrationMgrTest {
         createProperties.put("ldap.server", "ldap://127.0.0.1:389");
         createProperties.put("ldap.admin_password", "123456");
 
-        mgr.createAuthenticationIntegration("corp_ldap", false, createProperties, "comment");
+        mgr.createAuthenticationIntegration("corp_ldap", false, createProperties, "comment", CREATE_USER);
         AuthenticationIntegrationMeta created = mgr.getAuthenticationIntegrations().get("corp_ldap");
         Assertions.assertNotNull(created);
         Assertions.assertEquals("ldap", created.getType());
+        Assertions.assertEquals(CREATE_USER, created.getCreateUser());
+        Assertions.assertEquals(CREATE_USER, created.getAlterUser());
         Assertions.assertEquals("ldap://127.0.0.1:389", created.getProperties().get("ldap.server"));
 
-        mgr.alterAuthenticationIntegrationProperties("corp_ldap", map("ldap.server", "ldap://127.0.0.1:1389"));
+        mgr.alterAuthenticationIntegrationProperties(
+                "corp_ldap", map("ldap.server", "ldap://127.0.0.1:1389"), ALTER_USER);
+        Assertions.assertEquals(ALTER_USER,
+                mgr.getAuthenticationIntegrations().get("corp_ldap").getAlterUser());
         Assertions.assertEquals("ldap://127.0.0.1:1389",
                 mgr.getAuthenticationIntegrations().get("corp_ldap").getProperties().get("ldap.server"));
 
-        mgr.alterAuthenticationIntegrationUnsetProperties("corp_ldap", set("ldap.admin_password"));
+        mgr.alterAuthenticationIntegrationUnsetProperties("corp_ldap", set("ldap.admin_password"), ALTER_USER);
         Assertions.assertFalse(mgr.getAuthenticationIntegrations()
                 .get("corp_ldap").getProperties().containsKey("ldap.admin_password"));
 
-        mgr.alterAuthenticationIntegrationComment("corp_ldap", "new comment");
+        mgr.alterAuthenticationIntegrationComment("corp_ldap", "new comment", ALTER_USER);
         Assertions.assertEquals("new comment", mgr.getAuthenticationIntegrations().get("corp_ldap").getComment());
 
         mgr.dropAuthenticationIntegration("corp_ldap", false);
@@ -133,12 +140,12 @@ public class AuthenticationIntegrationMgrTest {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         mgr.createAuthenticationIntegration("corp_ldap", false, map(
                 "type", "ldap",
-                "ldap.server", "ldap://127.0.0.1:389"), null);
+                "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER);
 
         Assertions.assertThrows(DdlException.class,
-                () -> mgr.createAuthenticationIntegration("corp_ldap", false, map("type", "ldap"), null));
+                () -> mgr.createAuthenticationIntegration("corp_ldap", false, map("type", "ldap"), null, CREATE_USER));
         Assertions.assertDoesNotThrow(
-                () -> mgr.createAuthenticationIntegration("corp_ldap", true, map("type", "ldap"), null));
+                () -> mgr.createAuthenticationIntegration("corp_ldap", true, map("type", "ldap"), null, CREATE_USER));
 
         Assertions.assertDoesNotThrow(() -> mgr.dropAuthenticationIntegration("not_exist", true));
         Assertions.assertThrows(DdlException.class,
@@ -149,11 +156,11 @@ public class AuthenticationIntegrationMgrTest {
     public void testAlterNotExistThrows() {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
         Assertions.assertThrows(DdlException.class,
-                () -> mgr.alterAuthenticationIntegrationProperties("not_exist", map("k", "v")));
+                () -> mgr.alterAuthenticationIntegrationProperties("not_exist", map("k", "v"), ALTER_USER));
         Assertions.assertThrows(DdlException.class,
-                () -> mgr.alterAuthenticationIntegrationUnsetProperties("not_exist", set("k")));
+                () -> mgr.alterAuthenticationIntegrationUnsetProperties("not_exist", set("k"), ALTER_USER));
         Assertions.assertThrows(DdlException.class,
-                () -> mgr.alterAuthenticationIntegrationComment("not_exist", "comment"));
+                () -> mgr.alterAuthenticationIntegrationComment("not_exist", "comment", ALTER_USER));
     }
 
     @Test
@@ -161,8 +168,8 @@ public class AuthenticationIntegrationMgrTest {
         AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
 
         AuthenticationIntegrationMeta meta1 = AuthenticationIntegrationMeta.fromCreateSql(
-                "corp_ldap", map("type", "ldap", "ldap.server", "ldap://old"), null);
-        AuthenticationIntegrationMeta meta2 = meta1.withAlterProperties(map("ldap.server", "ldap://new"));
+                "corp_ldap", map("type", "ldap", "ldap.server", "ldap://old"), null, CREATE_USER);
+        AuthenticationIntegrationMeta meta2 = meta1.withAlterProperties(map("ldap.server", "ldap://new"), ALTER_USER);
 
         mgr.replayCreateAuthenticationIntegration(meta1);
         mgr.replayAlterAuthenticationIntegration(meta2);
@@ -183,7 +190,8 @@ public class AuthenticationIntegrationMgrTest {
                 "corp_ldap", map(
                         "type", "ldap",
                         "ldap.server", "ldap://127.0.0.1:389"),
-                "comment");
+                "comment",
+                CREATE_USER);
         mgr.replayCreateAuthenticationIntegration(meta);
 
         ByteArrayOutputStream bos = new ByteArrayOutputStream();
@@ -202,5 +210,7 @@ public class AuthenticationIntegrationMgrTest {
         Assertions.assertEquals("ldap", readMeta.getType());
         Assertions.assertEquals("ldap://127.0.0.1:389", readMeta.getProperties().get("ldap.server"));
         Assertions.assertEquals("comment", readMeta.getComment());
+        Assertions.assertEquals(CREATE_USER, readMeta.getCreateUser());
+        Assertions.assertEquals(CREATE_USER, readMeta.getAlterUser());
     }
 }

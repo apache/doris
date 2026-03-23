@@ -42,7 +42,7 @@
 #include "util/counts.h"
 #include "util/tdigest.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class Arena;
@@ -565,4 +565,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

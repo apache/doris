@@ -51,12 +51,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
-import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -66,7 +63,6 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -230,65 +226,53 @@ public class IcebergUtils {
                     return null;
             }
         } else if (expr instanceof BinaryPredicate) {
-            TExprOpcode opCode = expr.getOpcode();
-            switch (opCode) {
-                case EQ:
-                case NE:
-                case GE:
-                case GT:
-                case LE:
-                case LT:
-                case EQ_FOR_NULL:
-                    BinaryPredicate eq = (BinaryPredicate) expr;
-                    SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
-                    LiteralExpr literalExpr = null;
-                    if (slotRef == null && eq.getChild(0).isLiteral()) {
-                        literalExpr = (LiteralExpr) eq.getChild(0);
-                        slotRef = convertDorisExprToSlotRef(eq.getChild(1));
-                    } else if (eq.getChild(1).isLiteral()) {
-                        literalExpr = (LiteralExpr) eq.getChild(1);
-                    }
-                    if (slotRef == null || literalExpr == null) {
-                        return null;
-                    }
-                    String colName = slotRef.getColumnName();
-                    Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
-                    colName = nestedField.name();
-                    Object value = extractDorisLiteral(nestedField.type(), literalExpr);
-                    if (value == null) {
-                        if (opCode == TExprOpcode.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
-                            expression = Expressions.isNull(colName);
-                        } else {
-                            return null;
-                        }
-                    } else {
-                        switch (opCode) {
-                            case EQ:
-                            case EQ_FOR_NULL:
-                                expression = Expressions.equal(colName, value);
-                                break;
-                            case NE:
-                                expression = Expressions.not(Expressions.equal(colName, value));
-                                break;
-                            case GE:
-                                expression = Expressions.greaterThanOrEqual(colName, value);
-                                break;
-                            case GT:
-                                expression = Expressions.greaterThan(colName, value);
-                                break;
-                            case LE:
-                                expression = Expressions.lessThanOrEqual(colName, value);
-                                break;
-                            case LT:
-                                expression = Expressions.lessThan(colName, value);
-                                break;
-                            default:
-                                return null;
-                        }
-                    }
-                    break;
-                default:
+            BinaryPredicate eq = (BinaryPredicate) expr;
+            BinaryPredicate.Operator opCode = eq.getOp();
+            SlotRef slotRef = convertDorisExprToSlotRef(eq.getChild(0));
+            LiteralExpr literalExpr = null;
+            if (slotRef == null && eq.getChild(0).isLiteral()) {
+                literalExpr = (LiteralExpr) eq.getChild(0);
+                slotRef = convertDorisExprToSlotRef(eq.getChild(1));
+            } else if (eq.getChild(1).isLiteral()) {
+                literalExpr = (LiteralExpr) eq.getChild(1);
+            }
+            if (slotRef == null || literalExpr == null) {
+                return null;
+            }
+            String colName = slotRef.getColumnName();
+            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            colName = nestedField.name();
+            Object value = extractDorisLiteral(nestedField.type(), literalExpr);
+            if (value == null) {
+                if (opCode == BinaryPredicate.Operator.EQ_FOR_NULL && literalExpr instanceof NullLiteral) {
+                    expression = Expressions.isNull(colName);
+                } else {
                     return null;
+                }
+            } else {
+                switch (opCode) {
+                    case EQ:
+                    case EQ_FOR_NULL:
+                        expression = Expressions.equal(colName, value);
+                        break;
+                    case NE:
+                        expression = Expressions.not(Expressions.equal(colName, value));
+                        break;
+                    case GE:
+                        expression = Expressions.greaterThanOrEqual(colName, value);
+                        break;
+                    case GT:
+                        expression = Expressions.greaterThan(colName, value);
+                        break;
+                    case LE:
+                        expression = Expressions.lessThanOrEqual(colName, value);
+                        break;
+                    case LT:
+                        expression = Expressions.lessThan(colName, value);
+                        break;
+                    default:
+                        return null;
+                }
             }
         } else if (expr instanceof InPredicate) {
             // InPredicate, only support a in (1,2,3)
@@ -733,16 +717,16 @@ public class IcebergUtils {
     }
 
     public static Table getIcebergTable(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getIcebergTable(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
-    // Centralize cache access to keep call sites consistent and easy to understand.
-    private static IcebergMetadataCache icebergMetadataCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(catalog);
+    private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {
+        Preconditions.checkNotNull(catalog, "catalog can not be null");
+        return Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(catalog.getId());
     }
 
-    private static ExternalSchemaCache schemaCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+    private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalTable table) {
+        return icebergExternalMetaCache(table.getCatalog());
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
@@ -1219,15 +1203,10 @@ public class IcebergUtils {
         return false;
     }
 
-    // read schema from external schema cache
+    // read schema from iceberg.schema entry
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
-        Optional<SchemaCacheValue> schemaCacheValue = schemaCache(dorisTable.getCatalog()).getSchemaValue(
-                new IcebergSchemaCacheKey(dorisTable.getOrBuildNameMapping(), schemaId));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                    null, dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), schemaId);
-        }
-        return (IcebergSchemaCacheValue) schemaCacheValue.get();
+        return icebergExternalMetaCache(dorisTable)
+                .getIcebergSchemaCacheValue(dorisTable.getOrBuildNameMapping(), schemaId);
     }
 
     public static IcebergSnapshot getLatestIcebergSnapshot(Table table) {
@@ -1497,7 +1476,7 @@ public class IcebergUtils {
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getSnapshotCache(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
     public static IcebergSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
@@ -1545,7 +1524,7 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getIcebergView(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getIcebergView(dorisTable);
     }
 
     public static Optional<SchemaCacheValue> loadSchemaCacheValue(
@@ -1584,18 +1563,15 @@ public class IcebergUtils {
                 icebergExternalTable.getViewText();
     }
 
-    public static IcebergManifestCache getManifestCache(ExternalCatalog catalog) {
-        return icebergMetadataCache(catalog).getManifestCache();
-    }
-
     public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
-        CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(),
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
+        CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(), CacheSpec.propertySpecBuilder()
+                .enable(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
+                .ttl(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
+                .capacity(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
+                .build());
         return CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity());
     }
 

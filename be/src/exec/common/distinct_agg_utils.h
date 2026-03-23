@@ -36,13 +36,13 @@ struct DistinctHashSetType {
 };
 
 template <>
-struct DistinctHashSetType<vectorized::UInt8> {
-    using HashSet = SmallFixedSizeHashSet<vectorized::UInt8>;
+struct DistinctHashSetType<UInt8> {
+    using HashSet = SmallFixedSizeHashSet<UInt8>;
 };
 
 template <>
-struct DistinctHashSetType<vectorized::Int8> {
-    using HashSet = SmallFixedSizeHashSet<vectorized::Int8>;
+struct DistinctHashSetType<Int8> {
+    using HashSet = SmallFixedSizeHashSet<Int8>;
 };
 
 template <typename T>
@@ -51,13 +51,13 @@ struct DistinctPhase2HashSetType {
 };
 
 template <>
-struct DistinctPhase2HashSetType<vectorized::UInt8> {
-    using HashSet = SmallFixedSizeHashSet<vectorized::UInt8>;
+struct DistinctPhase2HashSetType<UInt8> {
+    using HashSet = SmallFixedSizeHashSet<UInt8>;
 };
 
 template <>
-struct DistinctPhase2HashSetType<vectorized::Int8> {
-    using HashSet = SmallFixedSizeHashSet<vectorized::Int8>;
+struct DistinctPhase2HashSetType<Int8> {
+    using HashSet = SmallFixedSizeHashSet<Int8>;
 };
 
 template <typename T>
@@ -72,115 +72,101 @@ using DistinctDataWithStringKey = PHHashSet<StringRef>;
 using DistinctDataWithShortStringKey = PHHashSet<StringRef>;
 
 using DistinctMethodVariants = std::variant<
-        std::monostate, vectorized::MethodSerialized<DistinctDataWithStringKey>,
-        vectorized::MethodOneNumber<vectorized::UInt8, DistinctData<vectorized::UInt8>>,
-        vectorized::MethodOneNumber<vectorized::UInt16, DistinctData<vectorized::UInt16>>,
-        vectorized::MethodOneNumber<vectorized::UInt32, DistinctData<vectorized::UInt32>>,
-        vectorized::MethodOneNumber<vectorized::UInt64, DistinctData<vectorized::UInt64>>,
-        vectorized::MethodStringNoCache<DistinctDataWithShortStringKey>,
-        vectorized::MethodOneNumber<vectorized::UInt128, DistinctData<vectorized::UInt128>>,
-        vectorized::MethodOneNumber<vectorized::UInt256, DistinctData<vectorized::UInt256>>,
-        vectorized::MethodOneNumber<vectorized::UInt32, DistinctDataPhase2<vectorized::UInt32>>,
-        vectorized::MethodOneNumber<vectorized::UInt64, DistinctDataPhase2<vectorized::UInt64>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt8, vectorized::DataWithNullKey<DistinctData<vectorized::UInt8>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt16, vectorized::DataWithNullKey<DistinctData<vectorized::UInt16>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt32, vectorized::DataWithNullKey<DistinctData<vectorized::UInt32>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt64, vectorized::DataWithNullKey<DistinctData<vectorized::UInt64>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt32,
-                vectorized::DataWithNullKey<DistinctDataPhase2<vectorized::UInt32>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt64,
-                vectorized::DataWithNullKey<DistinctDataPhase2<vectorized::UInt64>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt128,
-                vectorized::DataWithNullKey<DistinctData<vectorized::UInt128>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodOneNumber<
-                vectorized::UInt256,
-                vectorized::DataWithNullKey<DistinctData<vectorized::UInt256>>>>,
-        vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
-                vectorized::DataWithNullKey<DistinctDataWithShortStringKey>>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt72>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt96>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt104>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>>,
-        vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>>>;
+        std::monostate, MethodSerialized<DistinctDataWithStringKey>,
+        MethodOneNumber<UInt8, DistinctData<UInt8>>, MethodOneNumber<UInt16, DistinctData<UInt16>>,
+        MethodOneNumber<UInt32, DistinctData<UInt32>>,
+        MethodOneNumber<UInt64, DistinctData<UInt64>>,
+        MethodStringNoCache<DistinctDataWithShortStringKey>,
+        MethodOneNumber<UInt128, DistinctData<UInt128>>,
+        MethodOneNumber<UInt256, DistinctData<UInt256>>,
+        MethodOneNumber<UInt32, DistinctDataPhase2<UInt32>>,
+        MethodOneNumber<UInt64, DistinctDataPhase2<UInt64>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt8, DataWithNullKey<DistinctData<UInt8>>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt16, DataWithNullKey<DistinctData<UInt16>>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt32, DataWithNullKey<DistinctData<UInt32>>>>,
+        MethodSingleNullableColumn<MethodOneNumber<UInt64, DataWithNullKey<DistinctData<UInt64>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt32, DataWithNullKey<DistinctDataPhase2<UInt32>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt64, DataWithNullKey<DistinctDataPhase2<UInt64>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt128, DataWithNullKey<DistinctData<UInt128>>>>,
+        MethodSingleNullableColumn<
+                MethodOneNumber<UInt256, DataWithNullKey<DistinctData<UInt256>>>>,
+        MethodSingleNullableColumn<
+                MethodStringNoCache<DataWithNullKey<DistinctDataWithShortStringKey>>>,
+        MethodKeysFixed<DistinctData<UInt64>>, MethodKeysFixed<DistinctData<UInt72>>,
+        MethodKeysFixed<DistinctData<UInt96>>, MethodKeysFixed<DistinctData<UInt104>>,
+        MethodKeysFixed<DistinctData<UInt128>>, MethodKeysFixed<DistinctData<UInt136>>,
+        MethodKeysFixed<DistinctData<UInt256>>>;
 
 struct DistinctDataVariants
-        : public DataVariants<DistinctMethodVariants, vectorized::MethodSingleNullableColumn,
-                              vectorized::MethodOneNumber, vectorized::DataWithNullKey> {
-    void init(const std::vector<vectorized::DataTypePtr>& data_types, HashKeyType type) {
+        : public DataVariants<DistinctMethodVariants, MethodSingleNullableColumn, MethodOneNumber,
+                              DataWithNullKey> {
+    void init(const std::vector<DataTypePtr>& data_types, HashKeyType type) {
         bool nullable = data_types.size() == 1 && data_types[0]->is_nullable();
         switch (type) {
         case HashKeyType::serialized:
-            method_variant.emplace<vectorized::MethodSerialized<DistinctDataWithStringKey>>();
+            method_variant.emplace<MethodSerialized<DistinctDataWithStringKey>>();
             break;
         case HashKeyType::int8_key:
-            emplace_single<vectorized::UInt8, DistinctData<vectorized::UInt8>>(nullable);
+            emplace_single<UInt8, DistinctData<UInt8>>(nullable);
             break;
         case HashKeyType::int16_key:
-            emplace_single<vectorized::UInt16, DistinctData<vectorized::UInt16>>(nullable);
+            emplace_single<UInt16, DistinctData<UInt16>>(nullable);
             break;
         case HashKeyType::int32_key:
-            emplace_single<vectorized::UInt32, DistinctData<vectorized::UInt32>>(nullable);
+            emplace_single<UInt32, DistinctData<UInt32>>(nullable);
             break;
         case HashKeyType::int32_key_phase2:
-            emplace_single<vectorized::UInt32, DistinctDataPhase2<vectorized::UInt32>>(nullable);
+            emplace_single<UInt32, DistinctDataPhase2<UInt32>>(nullable);
             break;
         case HashKeyType::int64_key:
-            emplace_single<vectorized::UInt64, DistinctData<vectorized::UInt64>>(nullable);
+            emplace_single<UInt64, DistinctData<UInt64>>(nullable);
             break;
         case HashKeyType::int64_key_phase2:
-            emplace_single<vectorized::UInt64, DistinctDataPhase2<vectorized::UInt64>>(nullable);
+            emplace_single<UInt64, DistinctDataPhase2<UInt64>>(nullable);
             break;
         case HashKeyType::int128_key:
-            emplace_single<vectorized::UInt128, DistinctData<vectorized::UInt128>>(nullable);
+            emplace_single<UInt128, DistinctData<UInt128>>(nullable);
             break;
         case HashKeyType::int256_key:
-            emplace_single<vectorized::UInt256, DistinctData<vectorized::UInt256>>(nullable);
+            emplace_single<UInt256, DistinctData<UInt256>>(nullable);
             break;
         case HashKeyType::string_key:
             if (nullable) {
-                method_variant.emplace<
-                        vectorized::MethodSingleNullableColumn<vectorized::MethodStringNoCache<
-                                vectorized::DataWithNullKey<DistinctDataWithShortStringKey>>>>();
+                method_variant.emplace<MethodSingleNullableColumn<
+                        MethodStringNoCache<DataWithNullKey<DistinctDataWithShortStringKey>>>>();
             } else {
-                method_variant
-                        .emplace<vectorized::MethodStringNoCache<DistinctDataWithShortStringKey>>();
+                method_variant.emplace<MethodStringNoCache<DistinctDataWithShortStringKey>>();
             }
             break;
         case HashKeyType::fixed64:
-            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt64>>>(
+            method_variant.emplace<MethodKeysFixed<DistinctData<UInt64>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed72:
-            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt72>>>(
+            method_variant.emplace<MethodKeysFixed<DistinctData<UInt72>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed96:
-            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt96>>>(
+            method_variant.emplace<MethodKeysFixed<DistinctData<UInt96>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed104:
-            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt104>>>(
+            method_variant.emplace<MethodKeysFixed<DistinctData<UInt104>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed128:
-            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt128>>>(
+            method_variant.emplace<MethodKeysFixed<DistinctData<UInt128>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed136:
-            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt136>>>(
+            method_variant.emplace<MethodKeysFixed<DistinctData<UInt136>>>(
                     get_key_sizes(data_types));
             break;
         case HashKeyType::fixed256:
-            method_variant.emplace<vectorized::MethodKeysFixed<DistinctData<vectorized::UInt256>>>(
+            method_variant.emplace<MethodKeysFixed<DistinctData<UInt256>>>(
                     get_key_sizes(data_types));
             break;
         default:

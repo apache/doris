@@ -32,7 +32,6 @@
 #include "exec/scan/task_executor/time_sharing/split_queue.h"
 
 namespace doris {
-namespace vectorized {
 
 class MultilevelSplitQueue;
 
@@ -87,5 +86,4 @@ private:
     Priority _priority {0, 0};
 };
 
-} // namespace vectorized
 } // namespace doris

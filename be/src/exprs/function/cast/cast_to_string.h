@@ -23,7 +23,7 @@
 #include "exprs/function/cast/cast_base.h"
 #include "util/mysql_global.h"
 #include "util/to_string.h"
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct CastToString {
     template <class SRC>
@@ -569,5 +569,5 @@ inline WrapperType create_string_wrapper(const DataTypePtr& from_type) {
 }
 
 }; // namespace CastWrapper
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

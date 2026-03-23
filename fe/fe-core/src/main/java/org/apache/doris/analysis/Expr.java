@@ -24,13 +24,8 @@ import org.apache.doris.catalog.AggStateType;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
+import org.apache.doris.common.NameFormatUtils;
 import org.apache.doris.common.TreeNode;
-import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.planner.normalize.Normalizer;
-import org.apache.doris.thrift.TExpr;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
@@ -62,9 +57,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     @SerializedName("type")
     protected Type type;  // result of analysis
 
-    @SerializedName("opcode")
-    protected TExprOpcode opcode;  // opcode for this expr
-
     // The function to call. This can either be a scalar or aggregate function.
     // Set in analyze().
     protected Function fn;
@@ -77,13 +69,11 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     protected Expr() {
         super();
         type = Type.INVALID;
-        opcode = TExprOpcode.INVALID_OPCODE;
     }
 
     protected Expr(Expr other) {
         super();
         type = other.type;
-        opcode = other.opcode;
         isConstant = other.isConstant;
         fn = other.fn;
         children = Expr.cloneList(other.children);
@@ -97,7 +87,8 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // alias or is not slotRef
     public String getExprName() {
         if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(Utils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
+            this.exprName = Optional.of(
+                    NameFormatUtils.normalizeName(this.getClass().getSimpleName(), DEFAULT_EXPR_NAME));
         }
         return this.exprName.get();
     }
@@ -109,10 +100,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     // add by cmy. for restoring
     public void setType(Type type) {
         this.type = type;
-    }
-
-    public TExprOpcode getOpcode() {
-        return opcode;
     }
 
     public Function getFn() {
@@ -142,14 +129,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         Preconditions.checkArgument(i < children.size(), "child index {0} out of range {1}", i, children.size());
         Expr child = children.get(i);
         return child instanceof CastExpr ? child.children.get(0) : child;
-    }
-
-    public static List<TExpr> treesToThrift(List<? extends Expr> exprs) {
-        List<TExpr> result = Lists.newArrayList();
-        for (Expr expr : exprs) {
-            result.add(expr.treeToThrift());
-        }
-        return result;
     }
 
     public static String debugString(List<? extends Expr> exprs) {
@@ -218,46 +197,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
      */
     public abstract <R, C> R accept(ExprVisitor<R, C> visitor, C context);
 
-    // Convert this expr, including all children, to its Thrift representation.
-    public TExpr treeToThrift() {
-        TExpr result = new TExpr();
-        treeToThriftHelper(result);
-        return result;
-    }
-
-    protected void treeToThriftHelper(TExpr container) {
-        treeToThriftHelper(container, ((expr, exprNode) -> expr.toThrift(exprNode)));
-    }
-
-    // Append a flattened version of this expr, including all children, to 'container'.
-    protected void treeToThriftHelper(TExpr container, ExprThriftVisitor visitor) {
-        TExprNode msg = new TExprNode();
-        msg.type = type.toThrift();
-        msg.num_children = children.size();
-        if (fn != null) {
-            msg.setFn(fn.toThrift(type, collectChildReturnTypes(), collectChildReturnNullables()));
-            if (fn.hasVarArgs()) {
-                msg.setVarargStartIdx(fn.getNumArgs() - 1);
-            }
-        }
-        // useless parameter, just give a number
-        msg.output_scale = -1;
-        msg.setIsNullable(nullable);
-        visitor.visit(this, msg);
-        container.addToNodes(msg);
-        for (Expr child : children) {
-            child.treeToThriftHelper(container, visitor);
-        }
-    }
-
-    public interface ExprThriftVisitor {
-        void visit(Expr expr, TExprNode exprNode);
-    }
-
-    // Convert this expr into msg (excluding children), which requires setting
-    // msg.op as well as the expr-specific field.
-    protected abstract void toThrift(TExprNode msg);
-
     public String debugString() {
         return debugString(children);
     }
@@ -303,7 +242,7 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
 
     @Override
     public int hashCode() {
-        int result = 31 * Objects.hashCode(type) + Objects.hashCode(opcode);
+        int result = 31 * Objects.hashCode(type) + getClass().hashCode();
         for (Expr child : children) {
             result = 31 * result + Objects.hashCode(child);
         }
@@ -453,45 +392,6 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
     }
 
     /**
-     * This method is used for constant fold of query in FE,
-     * for different serde dialect(hive, presto, doris).
-     */
-    public String getStringValueForQuery(FormatOptions options) {
-        return getStringValue();
-    }
-
-    /**
-     * This method is to return the string value of this expr in a complex type for query
-     * It is only used for "getStringValueForQuery()"
-     * For most of the integer types, it is same as getStringValueForQuery().
-     * But for others like StringLiteral and DateLiteral, it should be wrapped with quotations.
-     * eg: 1,2,abc,[1,2,3],["abc","def"],{10:20},{"abc":20}
-     */
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return getStringValueForQuery(options);
-    }
-
-    /**
-     * This method is to return the string value of this expr for stream load.
-     * so there is a little different from "getStringValueForQuery()".
-     * eg, for NullLiteral, it should be "\N" for stream load, but "null" for FE constant
-     * for StructLiteral, the value should not contain sub column's name.
-     */
-    public String getStringValueForStreamLoad(FormatOptions options) {
-        return getStringValueForQuery(options);
-    }
-
-    public final TExpr normalize(Normalizer normalizer) {
-        TExpr result = new TExpr();
-        treeToThriftHelper(result, (expr, texprNode) -> expr.normalize(texprNode, normalizer));
-        return result;
-    }
-
-    protected void normalize(TExprNode msg, Normalizer normalizer) {
-        this.toThrift(msg);
-    }
-
-    /**
      * For excute expr the result is nullable
      */
     public boolean isNullable() {
@@ -532,4 +432,3 @@ public abstract class Expr extends TreeNode<Expr> implements Cloneable {
         return slots;
     }
 }
-

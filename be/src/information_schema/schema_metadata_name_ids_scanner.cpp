@@ -35,9 +35,7 @@
 namespace doris {
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaMetadataNameIdsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -126,7 +124,7 @@ Status SchemaMetadataNameIdsScanner::_get_new_table() {
     return Status::OK();
 }
 
-Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaMetadataNameIdsScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto table_num = _table_result.tables.size();
     if (table_num == 0) { //database is null
@@ -225,7 +223,7 @@ Status SchemaMetadataNameIdsScanner::_fill_block_impl(vectorized::Block* block) 
     return Status::OK();
 }
 
-Status SchemaMetadataNameIdsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaMetadataNameIdsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }

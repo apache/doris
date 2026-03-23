@@ -29,7 +29,7 @@
 #include "runtime/descriptors.h"
 #include "storage/tablet_info.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace sink_test_utils {
 
@@ -89,8 +89,7 @@ inline TExpr make_slot_ref_expr(TSlotId slot_id, TTupleId tuple_id) {
     return expr;
 }
 
-inline void build_desc_tbl_and_schema(doris::pipeline::OperatorContext& ctx,
-                                      TOlapTableSchemaParam& tschema,
+inline void build_desc_tbl_and_schema(doris::OperatorContext& ctx, TOlapTableSchemaParam& tschema,
                                       TTupleId& tablet_sink_tuple_id, int64_t& schema_index_id,
                                       bool is_nullable = true) {
     TDescriptorTableBuilder dtb;
@@ -225,4 +224,4 @@ inline TOlapTableLocationParam build_location_param() {
 
 } // namespace sink_test_utils
 
-} // namespace doris::vectorized
+} // namespace doris

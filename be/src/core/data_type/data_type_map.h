@@ -38,13 +38,11 @@
 namespace doris {
 class PColumnMeta;
 
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 /** Map data type.
   */
 class DataTypeMap final : public IDataType {
@@ -109,4 +107,4 @@ public:
 #endif
 };
 
-} // namespace doris::vectorized
+} // namespace doris

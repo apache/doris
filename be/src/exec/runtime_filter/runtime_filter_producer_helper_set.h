@@ -36,7 +36,7 @@ public:
 
     RuntimeFilterProducerHelperSet() : RuntimeFilterProducerHelper(true, false) {}
 
-    Status process(RuntimeState* state, const vectorized::Block* block, uint64_t cardinality) {
+    Status process(RuntimeState* state, const Block* block, uint64_t cardinality) {
         if (_skip_runtime_filters_process) {
             return Status::OK();
         }

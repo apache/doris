@@ -32,7 +32,6 @@
 #include "exprs/json_functions.h"
 #include "util/jsonb_parser_simd.h"
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 Status DataTypeJsonbSerDe::write_column_to_mysql_binary(const IColumn& column,
@@ -193,7 +192,7 @@ Status DataTypeJsonbSerDe::read_column_from_arrow(IColumn& column, const arrow::
 Status DataTypeJsonbSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                const NullMap* null_map,
                                                orc::ColumnVectorBatch* orc_col_batch, int64_t start,
-                                               int64_t end, vectorized::Arena& arena,
+                                               int64_t end, Arena& arena,
                                                const FormatOptions& options) const {
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
     const auto& string_column = assert_cast<const ColumnString&>(column);
@@ -442,5 +441,4 @@ bool DataTypeJsonbSerDe::write_column_to_presto_text(const IColumn& column, Buff
     return true;
 }
 
-} // namespace vectorized
 } // namespace doris

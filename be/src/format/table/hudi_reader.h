@@ -21,7 +21,7 @@
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "format/table/table_format_reader.h"
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class HudiReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
@@ -92,4 +92,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -41,12 +41,10 @@
 #include "core/types.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class DataTypeVariant : public IDataType {
 private:
     int32_t _max_subcolumns_count = 0;
@@ -87,4 +85,4 @@ public:
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
     int32_t variant_max_subcolumns_count() const { return _max_subcolumns_count; }
 };
-} // namespace doris::vectorized
+} // namespace doris

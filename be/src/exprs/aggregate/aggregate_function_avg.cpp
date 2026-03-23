@@ -25,7 +25,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 constexpr PrimitiveType result_type(PrimitiveType T) {
@@ -81,4 +81,4 @@ void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
     };
     factory.register_function_both("avg", creator);
 }
-} // namespace doris::vectorized
+} // namespace doris

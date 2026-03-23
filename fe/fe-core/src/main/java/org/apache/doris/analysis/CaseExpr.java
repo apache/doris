@@ -20,11 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.thrift.TCaseExpr;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-
 import com.google.gson.annotations.SerializedName;
 
 import java.util.List;
@@ -127,14 +122,5 @@ public class CaseExpr extends Expr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitCaseExpr(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.CASE_EXPR;
-        msg.case_expr = new TCaseExpr(hasCaseExpr, hasElseExpr);
-        if (ConnectContext.get() != null) {
-            msg.setShortCircuitEvaluation(ConnectContext.get().getSessionVariable().isShortCircuitEvaluation());
-        }
     }
 }

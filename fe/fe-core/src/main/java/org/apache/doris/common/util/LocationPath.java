@@ -20,7 +20,7 @@ package org.apache.doris.common.util;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.AzurePropertyUtils;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
+import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemType;
 import org.apache.doris.fs.SchemaTypeMapper;
 import org.apache.doris.thrift.TFileType;

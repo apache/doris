@@ -22,7 +22,7 @@
 
 #include "format/text/text_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class HiveTextFieldSplitterTest : public testing::Test {
 protected:
@@ -94,4 +94,4 @@ TEST_F(HiveTextFieldSplitterTest, RealWorldScenarios) {
     verify_field_split("a|+||+|c", "|+|", {"a", "", "c"});
 }
 
-} // namespace doris::vectorized
+} // namespace doris

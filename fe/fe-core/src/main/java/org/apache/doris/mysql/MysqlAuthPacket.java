@@ -22,6 +22,7 @@ import org.apache.doris.common.Config;
 import com.google.common.collect.Maps;
 
 import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.Map;
 
 // MySQL protocol handshake response packet, which contain authenticate information.
@@ -62,6 +63,10 @@ public class MysqlAuthPacket extends MysqlPacket {
 
     public String getPluginName() {
         return pluginName;
+    }
+
+    public Map<String, String> getConnectAttributes() {
+        return connectAttributes == null ? Collections.emptyMap() : connectAttributes;
     }
 
     @Override

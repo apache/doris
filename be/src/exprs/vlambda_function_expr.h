@@ -20,7 +20,7 @@
 #include "exprs/function/function.h"
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 class VLambdaFunctionExpr final : public VExpr {
     ENABLE_FACTORY_CREATOR(VLambdaFunctionExpr);
 
@@ -59,4 +59,4 @@ public:
 private:
     const std::string _expr_name = "vlambda_function_expr";
 };
-} // namespace doris::vectorized
+} // namespace doris

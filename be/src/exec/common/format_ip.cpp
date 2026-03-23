@@ -23,7 +23,7 @@
 #include <algorithm>
 #include <array>
 
-namespace doris::vectorized {
+namespace doris {
 
 /** Further we want to generate constexpr array of strings with sizes from sequence of unsigned ints [0..N)
  *  in order to use this arrey for fast conversion of unsigned integers to strings
@@ -74,4 +74,4 @@ consteval std::array<std::pair<const char*, size_t>, N> str_make_array() {
 extern constexpr std::array<std::pair<const char*, size_t>, 256> one_byte_to_string_lookup_table =
         str_make_array<256>();
 
-} // namespace doris::vectorized
+} // namespace doris

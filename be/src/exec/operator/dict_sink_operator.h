@@ -23,7 +23,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 class DictSinkLocalState final : public PipelineXSinkLocalState<BasicSharedState> {
     ENABLE_FACTORY_CREATOR(DictSinkLocalState);
@@ -38,9 +38,9 @@ private:
     Status load_dict(RuntimeState* state);
     friend class DictSinkOperatorX;
 
-    vectorized::MutableBlock _dict_input_block;
+    MutableBlock _dict_input_block;
 
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 };
 
 class DictSinkOperatorX final : public DataSinkOperatorX<DictSinkLocalState> {
@@ -50,7 +50,7 @@ public:
                       const std::vector<TExpr>& dict_input_expr, const TDictionarySink& dict_sink);
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class DictSinkLocalState;
@@ -81,7 +81,7 @@ private:
     // Owned by the RuntimeState.
     const std::vector<TExpr>& _t_output_expr;
 
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
 
     // If true, we will skip the row containing the null key, if false, directly report an error
     const bool _skip_null_key;
@@ -89,5 +89,5 @@ private:
     const int64_t _memory_limit;
 };
 
-} // namespace doris::pipeline
+} // namespace doris
 #include "common/compile_check_end.h"

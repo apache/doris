@@ -1305,7 +1305,11 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN distributeType? right=relationPrimary joinCriteria?
+    : (joinType) JOIN distributeType? right=relationPrimary matchCondition? joinCriteria?
+    ;
+
+matchCondition
+    : MATCH_CONDITION LEFT_PAREN valueExpression RIGHT_PAREN
     ;
 
 // Just like `opt_plan_hints` in legacy CUP parser.
@@ -1427,6 +1431,8 @@ joinType
     | RIGHT SEMI
     | LEFT ANTI
     | RIGHT ANTI
+    | ASOF LEFT?
+    | ASOF INNER
     ;
 
 joinCriteria

@@ -33,15 +33,13 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctionQuantileStateUnionOp {
     static constexpr auto name = "quantile_union";
@@ -157,6 +155,6 @@ AggregateFunctionPtr create_aggregate_function_quantile_state_union(
         const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

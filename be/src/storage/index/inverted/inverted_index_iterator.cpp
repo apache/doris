@@ -220,7 +220,7 @@ Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_for_numeric(
 }
 
 Result<InvertedIndexReaderPtr> InvertedIndexIterator::select_best_reader(
-        const vectorized::DataTypePtr& column_type, InvertedIndexQueryType query_type,
+        const DataTypePtr& column_type, InvertedIndexQueryType query_type,
         const std::string& analyzer_key) {
     if (_reader_entries.empty()) {
         return ResultError(Status::Error<ErrorCode::INVERTED_INDEX_NO_TERMS>(

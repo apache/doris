@@ -25,6 +25,7 @@ import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
@@ -67,17 +68,6 @@ public class IndexDefinition {
     private boolean ifNotExists = false;
 
     private PartitionNamesInfo partitionNames;
-
-    /**
-     * IndexType
-     */
-    public enum IndexType {
-        BITMAP,
-        INVERTED,
-        BLOOMFILTER,
-        NGRAM_BF,
-        ANN
-    }
 
     /**
      * constructor for IndexDefinition

@@ -24,14 +24,12 @@ import org.apache.doris.analysis.WorkloadGroupPattern;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.catalog.MysqlDb;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
-import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
@@ -57,7 +55,7 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-public class RoleManager implements Writable, GsonPostProcessable {
+public class RoleManager implements Writable {
     private static final Logger LOG = LogManager.getLogger(RoleManager.class);
     //prefix of each user default role
     public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
@@ -153,7 +151,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
 
     public void getRoleInfo(List<List<String>> results) {
         for (Role role : roles.values()) {
-            if (ClusterNamespace.getNameFromFullName(role.getRoleName()).startsWith(DEFAULT_ROLE_PREFIX)) {
+            if (role.getRoleName().startsWith(DEFAULT_ROLE_PREFIX)) {
                 if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().showUserDefaultRole) {
                     continue;
                 }
@@ -216,7 +214,7 @@ public class RoleManager implements Writable, GsonPostProcessable {
 
     public void getRoleWorkloadGroupPrivs(List<List<String>> result, Set<String> limitedRole) {
         for (Role role : roles.values()) {
-            if (ClusterNamespace.getNameFromFullName(role.getRoleName()).startsWith(DEFAULT_ROLE_PREFIX)) {
+            if (role.getRoleName().startsWith(DEFAULT_ROLE_PREFIX)) {
                 continue;
             }
 
@@ -310,20 +308,5 @@ public class RoleManager implements Writable, GsonPostProcessable {
     public static RoleManager read(DataInput in) throws IOException {
         String json = Text.readString(in);
         return GsonUtils.GSON.fromJson(json, RoleManager.class);
-    }
-
-    // should be removed after version 3.0
-    private void removeClusterPrefix() {
-        ConcurrentMap<String, Role> newRoles = Maps.newConcurrentMap();
-        for (Map.Entry<String, Role> entry : roles.entrySet()) {
-            String roleName = ClusterNamespace.getNameFromFullName(entry.getKey());
-            newRoles.put(roleName, entry.getValue());
-        }
-        roles = newRoles;
-    }
-
-    @Override
-    public void gsonPostProcess() throws IOException {
-        removeClusterPrefix();
     }
 }

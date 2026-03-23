@@ -24,7 +24,7 @@
 #include "exprs/function/array/function_array_set.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct NameArrayExcept {
     static constexpr auto name = "array_except";
@@ -83,4 +83,4 @@ void register_function_array_except(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayExcept>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

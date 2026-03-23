@@ -19,6 +19,7 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.thrift.TExceptNode;
@@ -103,11 +104,11 @@ public abstract class SetOperationNode extends PlanNode {
         Preconditions.checkState(materializedResultExprLists.size() == children.size());
         List<List<TExpr>> texprLists = Lists.newArrayList();
         for (List<Expr> exprList : materializedResultExprLists) {
-            texprLists.add(Expr.treesToThrift(exprList));
+            texprLists.add(ExprToThriftVisitor.treesToThrift(exprList));
         }
         List<List<TExpr>> constTexprLists = Lists.newArrayList();
         for (List<Expr> constTexprList : materializedConstExprLists) {
-            constTexprLists.add(Expr.treesToThrift(constTexprList));
+            constTexprLists.add(ExprToThriftVisitor.treesToThrift(constTexprList));
         }
         Preconditions.checkState(firstMaterializedChildIdx <= children.size());
         switch (nodeType) {

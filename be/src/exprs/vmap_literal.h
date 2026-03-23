@@ -24,8 +24,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
-
 class VMapLiteral : public VLiteral {
     ENABLE_FACTORY_CREATOR(VMapLiteral);
 
@@ -35,6 +33,5 @@ public:
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                    VExprContext* context) override;
 };
-} // namespace vectorized
 
 } // namespace doris

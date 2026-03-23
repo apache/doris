@@ -645,11 +645,25 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
             boolean isTruncated = false;
             boolean reachLimit = false;
+            String lastMatchedKey = "";
             do {
                 roundCnt++;
                 ListObjectsV2Response response = listObjectsV2(request);
                 for (S3Object obj : response.contents()) {
                     elementCnt++;
+
+                    // Limit already reached: scan remaining objects in this page to find
+                    // the next glob-matching key, so hasMoreDataToConsume() returns true
+                    // correctly without recording a non-matching raw S3 key as currentMaxFile.
+                    if (reachLimit) {
+                        java.nio.file.Path checkPath = Paths.get(obj.key());
+                        if (matcher.matches(checkPath)) {
+                            currentMaxFile = obj.key();
+                            break;
+                        }
+                        continue;
+                    }
+
                     java.nio.file.Path objPath = Paths.get(obj.key());
 
                     boolean isPrefix = false;
@@ -677,6 +691,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                                 isPrefix ? 0 : obj.lastModified().toEpochMilli()
                         );
                         result.add(remoteFile);
+                        lastMatchedKey = obj.key();
 
                         if (hasLimits && reachLimit(result.size(), matchFileSize, fileSizeLimit, fileNumLimit)) {
                             reachLimit = true;
@@ -686,15 +701,13 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                         objPath = objPath.getParent();
                         isPrefix = true;
                     }
-                    if (reachLimit) {
-                        break;
-                    }
                 }
 
-                // Record current max file for limit scenario
-                if (!response.contents().isEmpty()) {
-                    S3Object lastS3Object = response.contents().get(response.contents().size() - 1);
-                    currentMaxFile = lastS3Object.key();
+                // If no next matching file was found after the limit in the current page,
+                // fall back to lastMatchedKey to avoid a non-matching raw S3 key
+                // (e.g. a sibling file like .lz4) being recorded as currentMaxFile.
+                if (currentMaxFile.isEmpty()) {
+                    currentMaxFile = lastMatchedKey;
                 }
 
                 isTruncated = response.isTruncated();

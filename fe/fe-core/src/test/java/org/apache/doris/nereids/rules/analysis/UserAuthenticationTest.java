@@ -292,54 +292,6 @@ public class UserAuthenticationTest {
     }
 
     /**
-     * Test that cluster:information_schema.cluster_snapshots (with cluster prefix)
-     * DOES trigger special privilege check.
-     * This verifies ClusterNamespace.getNameFromFullName correctly strips the cluster prefix.
-     */
-    @Test
-    public void testInfoSchemaWithClusterPrefixTriggersSpecialCheck() {
-        Config.cluster_snapshot_min_privilege = "root";
-
-        UserIdentity normalUser = new UserIdentity("normal_user", "%");
-        normalUser.setIsAnalyzed();
-
-        new Expectations() {
-            {
-                table.getName();
-                minTimes = 0;
-                result = "cluster_snapshots";
-
-                table.getDatabase();
-                minTimes = 0;
-                result = db;
-
-                // Database name with cluster prefix - ClusterNamespace.getNameFromFullName
-                // should strip "default_cluster:" and return "information_schema"
-                db.getFullName();
-                minTimes = 0;
-                result = "default_cluster:information_schema";
-
-                connectContext.getSessionVariable();
-                minTimes = 0;
-                result = sessionVariable;
-
-                sessionVariable.isPlayNereidsDump();
-                minTimes = 0;
-                result = false;
-
-                connectContext.getCurrentUserIdentity();
-                minTimes = 0;
-                result = normalUser;
-            }
-        };
-
-        // Should throw AnalysisException because after stripping cluster prefix,
-        // the db name is "information_schema", which triggers special privilege check
-        Assertions.assertThrows(AnalysisException.class, () ->
-                UserAuthentication.checkPermission(table, connectContext, null));
-    }
-
-    /**
      * Test that information_schema.cluster_snapshots allows admin user in admin mode.
      */
     @Test

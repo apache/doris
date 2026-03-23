@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.ImmutableSet;
@@ -162,6 +162,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
 
     private static List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
             "iceberg.catalog.type", "paimon.catalog.type");
+
+    static final String JINDO_OSS_FILE_SYSTEM_IMPL = "com.aliyun.jindodata.oss.JindoOssFileSystem";
+    static final String JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL = "com.aliyun.jindodata.oss.JindoOSS";
 
     private static final String DLS_URI_KEYWORDS = "oss-dls.aliyuncs";
 
@@ -311,10 +314,12 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
     @Override
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
-        hadoopStorageConfig.set("fs.oss.impl", "org.apache.hadoop.fs.aliyun.oss.AliyunOSSFileSystem");
+        hadoopStorageConfig.set("fs.oss.impl", JINDO_OSS_FILE_SYSTEM_IMPL);
+        hadoopStorageConfig.set("fs.AbstractFileSystem.oss.impl", JINDO_OSS_ABSTRACT_FILE_SYSTEM_IMPL);
         hadoopStorageConfig.set("fs.oss.accessKeyId", accessKey);
         hadoopStorageConfig.set("fs.oss.accessKeySecret", secretKey);
         hadoopStorageConfig.set("fs.oss.endpoint", endpoint);
+        hadoopStorageConfig.set("fs.oss.region", region);
     }
 
     /**

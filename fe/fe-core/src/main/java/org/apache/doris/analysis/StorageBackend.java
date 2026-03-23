@@ -21,7 +21,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.thrift.TStorageBackendType;
 
 import com.google.common.base.Strings;
@@ -118,7 +118,7 @@ public class StorageBackend implements ParseNode {
             sb.append(" `").append(storageDesc.getName()).append("`");
         }
         sb.append(" ON LOCATION ").append(location).append(" PROPERTIES(")
-                .append(new PrintableMap<>(storageDesc.getProperties(), " = ", true, false, true))
+                .append(new DatasourcePrintableMap<>(storageDesc.getProperties(), " = ", true, false, true))
                 .append(")");
         return sb.toString();
     }

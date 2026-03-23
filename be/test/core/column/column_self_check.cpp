@@ -26,7 +26,7 @@
 #include "exprs/function/simple_function_factory.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnSelfCheckTest, const_check_test) {
     {
@@ -147,4 +147,4 @@ TEST(ColumnSelfCheckTest, boolean_check) {
         EXPECT_EQ(column_nullable_bool->column_boolean_check(), true);
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

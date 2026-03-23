@@ -33,7 +33,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // declare function
 void register_aggregate_function_ai_agg(AggregateFunctionSimpleFactory& factory);
@@ -441,4 +441,4 @@ TEST_F(AggregateFunctionAIAggTest, missing_ai_resources_metadata_test) {
     _agg_function->destroy(place);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

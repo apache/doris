@@ -50,7 +50,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // array_apply([1, 2, 3, 10], ">=", 5) -> [10]
 // This function is temporary, use it to meet the requirement before implementing the lambda function.
@@ -229,4 +229,4 @@ void register_function_array_apply(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayApply>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

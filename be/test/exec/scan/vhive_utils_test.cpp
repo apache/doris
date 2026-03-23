@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace doris::vectorized {
+namespace doris {
 
 class VHiveUtilsTest : public testing::Test {
 public:
@@ -67,4 +67,4 @@ TEST_F(VHiveUtilsTest, test_make_partition_name) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

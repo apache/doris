@@ -19,7 +19,7 @@
 
 #include "exec/scan/scanner_scheduler.h"
 
-namespace doris::vectorized {
+namespace doris {
 class MockSimplifiedScanScheduler final : ThreadPoolSimplifiedScanScheduler {
 public:
     MockSimplifiedScanScheduler(std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl)
@@ -32,4 +32,4 @@ public:
                                             std::shared_ptr<ScanTask> current_scan_task,
                                             std::unique_lock<std::mutex>& transfer_lock));
 };
-} // namespace doris::vectorized
+} // namespace doris

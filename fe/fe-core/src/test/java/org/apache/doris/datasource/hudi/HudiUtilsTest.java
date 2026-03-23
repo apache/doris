@@ -17,13 +17,20 @@
 
 package org.apache.doris.datasource.hudi;
 
+import org.apache.doris.catalog.DatabaseIf;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
 import org.apache.doris.datasource.hive.HMSExternalDatabase;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 
+import com.google.common.collect.Maps;
 import mockit.Mock;
 import mockit.MockUp;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.StorageDescriptor;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.junit.Assert;
@@ -170,9 +177,14 @@ public class HudiUtilsTest {
         Files.write(commit1.toPath(), commitContent1.getBytes());
 
         // 3. now, we can get the schema from this table.
-        HMSExternalCatalog catalog = new HMSExternalCatalog();
+        HMSExternalCatalog catalog = new HMSExternalCatalog(10001, "hudi_ut", null, Maps.newHashMap(), "");
+        Env env = mockCurrentEnvWithCatalog(catalog);
+        Assert.assertNotNull(env);
+        env.getExtMetaCacheMgr().prepareCatalogByEngine(catalog.getId(), HudiExternalMetaCache.ENGINE,
+                catalog.getProperties());
         HMSExternalDatabase db = new HMSExternalDatabase(catalog, 1, "db", "db");
         HMSExternalTable hmsExternalTable = new HMSExternalTable(2, "tb", "tb", catalog, db);
+        mockCatalogLookup(catalog, db, hmsExternalTable);
         HiveMetaStoreClientHelper.getHudiTableSchema(hmsExternalTable, new boolean[] {false}, "20241219214518880");
 
         // 4. delete the commit file,
@@ -194,5 +206,65 @@ public class HudiUtilsTest {
         Assert.assertTrue(prop.delete());
         Assert.assertTrue(meta.delete());
         Files.delete(hudiTable);
+        env.getExtMetaCacheMgr().invalidateCatalogByEngine(catalog.getId(), HudiExternalMetaCache.ENGINE);
+    }
+
+    private Env mockCurrentEnvWithCatalog(HMSExternalCatalog catalog) {
+        CatalogMgr catalogMgr = new TestingCatalogMgr(catalog);
+        Env env = new TestingEnv(catalogMgr);
+        new MockUp<Env>() {
+            @Mock
+            Env getCurrentEnv() {
+                return env;
+            }
+        };
+        return env;
+    }
+
+    private void mockCatalogLookup(HMSExternalCatalog catalog, HMSExternalDatabase db, HMSExternalTable table) {
+        new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
+            @Mock
+            public HMSExternalDatabase getDbNullable(String dbName) {
+                return "db".equals(dbName) ? db : null;
+            }
+
+            @Mock
+            public Configuration getConfiguration() {
+                return new Configuration();
+            }
+        };
+        new MockUp<HMSExternalDatabase>(HMSExternalDatabase.class) {
+            @Mock
+            public HMSExternalTable getTableNullable(String tableName) {
+                return "tb".equals(tableName) ? table : null;
+            }
+        };
+    }
+
+    private static final class TestingCatalogMgr extends CatalogMgr {
+        private final CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog;
+
+        private TestingCatalogMgr(CatalogIf<? extends DatabaseIf<? extends TableIf>> catalog) {
+            this.catalog = catalog;
+        }
+
+        @Override
+        public CatalogIf<? extends DatabaseIf<? extends TableIf>> getCatalog(long id) {
+            return catalog.getId() == id ? catalog : null;
+        }
+    }
+
+    private static final class TestingEnv extends Env {
+        private final CatalogMgr catalogMgr;
+
+        private TestingEnv(CatalogMgr catalogMgr) {
+            super(true);
+            this.catalogMgr = catalogMgr;
+        }
+
+        @Override
+        public CatalogMgr getCatalogMgr() {
+            return catalogMgr;
+        }
     }
 }

@@ -27,7 +27,7 @@
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
-using namespace doris::vectorized;
+using namespace doris;
 
 namespace doris {
 
@@ -39,7 +39,7 @@ PredicateType NullPredicate::type() const {
     return _is_null ? PredicateType::IS_NULL : PredicateType::IS_NOT_NULL;
 }
 
-Status NullPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
+Status NullPredicate::evaluate(const IndexFieldNameAndTypePair& name_with_type,
                                IndexIterator* iterator, uint32_t num_rows,
                                roaring::Roaring* bitmap) const {
     if (iterator->has_null()) {
@@ -63,8 +63,7 @@ Status NullPredicate::evaluate(const vectorized::IndexFieldNameAndTypePair& name
     return Status::OK();
 }
 
-uint16_t NullPredicate::_evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
-                                        uint16_t size) const {
+uint16_t NullPredicate::_evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const {
     uint16_t new_size = 0;
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         if (!nullable->has_null()) {
@@ -124,8 +123,7 @@ void NullPredicate::evaluate_and(const IColumn& column, const uint16_t* sel, uin
     }
 }
 
-void NullPredicate::evaluate_vec(const vectorized::IColumn& column, uint16_t size,
-                                 bool* flags) const {
+void NullPredicate::evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const {
     if (auto* nullable = check_and_get_column<ColumnNullable>(column)) {
         if (!nullable->has_null()) {
             memset(flags, !_is_null, size);

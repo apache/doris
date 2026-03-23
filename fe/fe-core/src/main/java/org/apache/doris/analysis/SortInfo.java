@@ -115,7 +115,7 @@ public class SortInfo {
      */
     public TSortInfo toThrift() {
         TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(orderingExprs),
+                ExprToThriftVisitor.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
         if (useTwoPhaseRead) {

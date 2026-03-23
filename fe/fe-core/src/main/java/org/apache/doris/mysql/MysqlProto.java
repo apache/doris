@@ -207,6 +207,7 @@ public class MysqlProto {
                 .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
             return false;
         }
+        context.setConnectAttributes(authPacket.getConnectAttributes());
 
         // try to change catalog, if default_init_catalog inside user property is not 'internal'
         try {

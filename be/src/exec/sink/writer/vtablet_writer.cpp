@@ -92,7 +92,6 @@
 namespace doris {
 class TExpr;
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 bvar::Adder<int64_t> g_sink_write_bytes;
@@ -425,7 +424,13 @@ bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished
             continue;
         }
         for (const auto& tablet_id : _tablets_by_channel[node_id]) {
-            finished_tablets_replica[tablet_id]++;
+            // Only count non-gap backends for quorum success.
+            // Gap backends' success doesn't count toward majority write.
+            auto gap_it = _parent->_tablet_version_gap_backends.find(tablet_id);
+            if (gap_it == _parent->_tablet_version_gap_backends.end() ||
+                gap_it->second.find(node_id) == gap_it->second.end()) {
+                finished_tablets_replica[tablet_id]++;
+            }
         }
     }
 
@@ -726,7 +731,7 @@ Status VNodeChannel::open_wait() {
     return status;
 }
 
-Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload) {
+Status VNodeChannel::add_block(Block* block, const Payload* payload) {
     SCOPED_CONSUME_MEM_TRACKER(_node_channel_tracker.get());
     if (payload->second.empty()) {
         return Status::OK();
@@ -773,7 +778,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
     }
 
     if (UNLIKELY(!_cur_mutable_block)) {
-        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+        _cur_mutable_block = MutableBlock::create_unique(block->clone_empty());
     }
 
     SCOPED_RAW_TIMER(&_stat.append_node_channel_ns);
@@ -806,7 +811,7 @@ Status VNodeChannel::add_block(vectorized::Block* block, const Payload* payload)
                        << " jobid:" << std::to_string(_state->load_job_id())
                        << " loadinfo:" << _load_info;
         }
-        _cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+        _cur_mutable_block = MutableBlock::create_unique(block->clone_empty());
         _cur_add_block_request->clear_tablet_ids();
     }
 
@@ -1328,7 +1333,7 @@ void VNodeChannel::mark_close(bool hang_wait) {
         std::lock_guard<std::mutex> l(_pending_batches_lock);
         if (!_cur_mutable_block) [[unlikely]] {
             // never had a block arrived. add a dummy block
-            _cur_mutable_block = vectorized::MutableBlock::create_unique();
+            _cur_mutable_block = MutableBlock::create_unique();
         }
         auto tmp_add_block_request =
                 std::make_shared<PTabletWriterAddBlockRequest>(*_cur_add_block_request);
@@ -1346,8 +1351,7 @@ void VNodeChannel::mark_close(bool hang_wait) {
 }
 
 VTabletWriter::VTabletWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                             std::shared_ptr<pipeline::Dependency> dep,
-                             std::shared_ptr<pipeline::Dependency> fin_dep)
+                             std::shared_ptr<Dependency> dep, std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_exprs, dep, fin_dep), _t_sink(t_sink) {
     _transfer_large_data_by_brpc = config::transfer_large_data_by_brpc;
 }
@@ -1492,7 +1496,7 @@ Status VTabletWriter::_init_row_distribution() {
                             .schema = _schema,
                             .caller = this,
                             .write_single_replica = _write_single_replica,
-                            .create_partition_callback = &vectorized::on_partitions_created});
+                            .create_partition_callback = &::doris::on_partitions_created});
 
     return _row_distribution.open(_output_row_desc);
 }
@@ -1727,6 +1731,11 @@ void VTabletWriter::_build_tablet_replica_info(const int64_t tablet_id,
                                                  : partition->load_required_replica_num;
         _tablet_replica_info.emplace(
                 tablet_id, std::make_pair(total_replicas_num, load_required_replicas_num));
+        // Copy version gap backends info for this tablet
+        if (auto it = partition->tablet_version_gap_backends.find(tablet_id);
+            it != partition->tablet_version_gap_backends.end()) {
+            _tablet_version_gap_backends[tablet_id] = it->second;
+        }
     } else {
         _tablet_replica_info.emplace(tablet_id,
                                      std::make_pair(_num_replicas, (_num_replicas + 1) / 2));
@@ -2027,8 +2036,7 @@ void VTabletWriter::_generate_one_index_channel_payload(
             if (payload_it == channel_payload.end()) {
                 auto [tmp_it, _] = channel_payload.emplace(
                         locate_node.get(),
-                        Payload {std::make_unique<vectorized::IColumn::Selector>(),
-                                 std::vector<int64_t>()});
+                        Payload {std::make_unique<IColumn::Selector>(), std::vector<int64_t>()});
                 payload_it = tmp_it;
                 payload_it->second.first->reserve(row_cnt);
                 payload_it->second.second.reserve(row_cnt);
@@ -2047,7 +2055,7 @@ void VTabletWriter::_generate_index_channels_payloads(
     }
 }
 
-Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input_block) {
+Status VTabletWriter::write(RuntimeState* state, doris::Block& input_block) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     Status status = Status::OK();
 
@@ -2068,7 +2076,7 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     SCOPED_TIMER(_operator_profile->total_time_counter());
     SCOPED_RAW_TIMER(&_send_data_ns);
 
-    std::shared_ptr<vectorized::Block> block;
+    std::shared_ptr<Block> block;
     _number_input_rows += rows;
     // update incrementally so that FE can get the progress.
     // the real 'num_rows_load_total' will be set when sink being closed.
@@ -2109,5 +2117,4 @@ Status VTabletWriter::write(RuntimeState* state, doris::vectorized::Block& input
     return Status::OK();
 }
 
-} // namespace vectorized
 } // namespace doris

@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -119,36 +120,41 @@ public class LogicalSchemaScan extends LogicalCatalogRelation {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns,
-                frontendConjuncts, groupExpression, Optional.of(getLogicalProperties()), tableAlias);
+                frontendConjuncts, groupExpression, Optional.of(getLogicalProperties()), tableAlias));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, groupExpression,
-                logicalProperties, tableAlias);
+                logicalProperties, tableAlias));
     }
 
     @Override
     public LogicalSchemaScan withRelationId(RelationId relationId) {
-        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSchemaScan(relationId, table, qualifier, filterPushed,
                 schemaCatalog, schemaDatabase, schemaTable, virtualColumns, frontendConjuncts, Optional.empty(),
-                Optional.empty(), tableAlias);
+                Optional.empty(), tableAlias));
     }
 
     public LogicalSchemaScan withFrontendConjuncts(Optional<String> schemaCatalog, Optional<String> schemaDatabase,
             Optional<String> schemaTable, List<Expression> frontendConjuncts) {
-        return new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
-                virtualColumns, frontendConjuncts, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSchemaScan(relationId, table, qualifier, true, schemaCatalog, schemaDatabase, schemaTable,
+                virtualColumns, frontendConjuncts, Optional.empty(), Optional.of(getLogicalProperties()), tableAlias));
     }
 
     public LogicalSchemaScan withTableAlias(String tableAlias) {
-        return new LogicalSchemaScan(relationId, table, qualifier, filterPushed, schemaCatalog, schemaDatabase,
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalSchemaScan(relationId, table, qualifier, filterPushed, schemaCatalog, schemaDatabase,
                 schemaTable, virtualColumns, frontendConjuncts, Optional.empty(),
-                Optional.of(getLogicalProperties()), tableAlias);
+                Optional.of(getLogicalProperties()), tableAlias));
     }
 
     @Override

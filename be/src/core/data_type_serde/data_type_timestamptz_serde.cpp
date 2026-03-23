@@ -24,7 +24,7 @@
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/cast/cast_to_timestamptz.h"
-namespace doris::vectorized {
+namespace doris {
 
 // The implementation of these functions mainly refers to data_type_datetimev2_serde.cpp
 
@@ -225,8 +225,7 @@ Status DataTypeTimeStampTzSerDe::write_column_to_arrow(const IColumn& column,
 Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone,
                                                      const IColumn& column, const NullMap* null_map,
                                                      orc::ColumnVectorBatch* orc_col_batch,
-                                                     int64_t start, int64_t end,
-                                                     vectorized::Arena& arena,
+                                                     int64_t start, int64_t end, Arena& arena,
                                                      const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnTimeStampTz&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::TimestampVectorBatch*>(orc_col_batch);
@@ -247,8 +246,8 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
     return Status::OK();
 }
 
-std::string DataTypeTimeStampTzSerDe::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeTimeStampTzSerDe::to_olap_string(const Field& field) const {
     return CastToString::from_timestamptz(field.get<TYPE_TIMESTAMPTZ>(), 6);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

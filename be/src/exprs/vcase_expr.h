@@ -40,12 +40,10 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class VCaseExpr final : public VExpr {
     ENABLE_FACTORY_CREATOR(VCaseExpr);
@@ -309,4 +307,4 @@ private:
     inline static const std::string FUNCTION_NAME = "case";
     inline static const std::string EXPR_NAME = "vcase expr";
 };
-} // namespace doris::vectorized
+} // namespace doris

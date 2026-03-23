@@ -18,7 +18,7 @@
 #include "common/object_pool.h"
 #include "exprs/vectorized_agg_fn.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 AggFnEvaluator* create_mock_agg_fn_evaluator(ObjectPool& pool, bool is_merge = false,
                                              bool without_key = false);
@@ -36,4 +36,4 @@ public:
             : AggFnEvaluator(is_merge, without_key, is_window_function) {}
 };
 
-} // namespace doris::vectorized
+} // namespace doris

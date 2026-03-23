@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.property.storage;
 
-import org.apache.doris.datasource.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
@@ -169,10 +169,28 @@ public class OBSProperties extends AbstractS3CompatibleProperties {
         return null;
     }
 
+    private static final boolean OBS_FILE_SYSTEM_AVAILABLE =
+            isClassAvailable("org.apache.hadoop.fs.obs.OBSFileSystem");
+
+    private static boolean isClassAvailable(String className) {
+        try {
+            Class.forName(className, false, OBSProperties.class.getClassLoader());
+            return true;
+        } catch (ClassNotFoundException e) {
+            return false;
+        }
+    }
+
     @Override
     public void initializeHadoopStorageConfig() {
         super.initializeHadoopStorageConfig();
-        hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        // obs is not compatible with s3a well; prefer native OBSFileSystem if available on the classpath
+        if (OBS_FILE_SYSTEM_AVAILABLE) {
+            hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.obs.OBSFileSystem");
+            hadoopStorageConfig.set("fs.AbstractFileSystem.obs.impl", "org.apache.hadoop.fs.obs.OBS");
+        } else {
+            hadoopStorageConfig.set("fs.obs.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem");
+        }
         hadoopStorageConfig.set("fs.obs.access.key", accessKey);
         hadoopStorageConfig.set("fs.obs.secret.key", secretKey);
         hadoopStorageConfig.set("fs.obs.endpoint", endpoint);

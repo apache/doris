@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -103,10 +102,9 @@ public class MetaInfoAction extends RestBaseController {
         }
         List<String> dbNames = catalog.getDbNames();
         List<String> dbNameSet = Lists.newArrayList();
-        for (String fullName : dbNames) {
-            final String db = ClusterNamespace.getNameFromFullName(fullName);
+        for (String db : dbNames) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullName,
+                    .checkDbPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, db,
                             PrivPredicate.SHOW)) {
                 continue;
             }
@@ -144,10 +142,9 @@ public class MetaInfoAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-        String fullDbName = getFullDbName(dbName);
         Database db;
         try {
-            db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());
         }
@@ -155,7 +152,7 @@ public class MetaInfoAction extends RestBaseController {
         List<String> tblNames = Lists.newArrayList();
         for (Table tbl : db.getTables()) {
             if (!Env.getCurrentEnv().getAccessManager()
-                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, fullDbName,
+                    .checkTblPriv(ConnectContext.get(), InternalCatalog.INTERNAL_CATALOG_NAME, dbName,
                             tbl.getName(),
                             PrivPredicate.SHOW)) {
                 continue;
@@ -222,7 +219,7 @@ public class MetaInfoAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
         }
 
-        String fullDbName = getFullDbName(dbName);
+        String fullDbName = dbName;
         checkTblAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, tblName, PrivPredicate.SHOW);
 
         String withMvPara = request.getParameter(PARAM_WITH_MV);

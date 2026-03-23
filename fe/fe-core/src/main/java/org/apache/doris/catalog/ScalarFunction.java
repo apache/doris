@@ -17,14 +17,10 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TDictFunction;
-import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
-import org.apache.doris.thrift.TScalarFunction;
 
-import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -206,65 +202,12 @@ public class ScalarFunction extends Function {
         return closeFnSymbol;
     }
 
+    public TDictFunction getDictFunction() {
+        return dictFunction;
+    }
+
     public void setDictFunction(TDictFunction dictFunction) {
         this.dictFunction = dictFunction;
     }
 
-    @Override
-    public String toSql(boolean ifNotExists) {
-        StringBuilder sb = new StringBuilder("CREATE ");
-        if (this.isGlobal) {
-            sb.append("GLOBAL ");
-        }
-        sb.append("FUNCTION ");
-
-        if (ifNotExists) {
-            sb.append("IF NOT EXISTS ");
-        }
-        sb.append(signatureString())
-                .append(" RETURNS " + getReturnType())
-                .append(" PROPERTIES (");
-        sb.append("\n  \"SYMBOL\"=").append("\"" + getSymbolName() + "\"");
-        if (getPrepareFnSymbol() != null) {
-            sb.append(",\n  \"PREPARE_FN\"=").append("\"" + getPrepareFnSymbol() + "\"");
-        }
-        if (getCloseFnSymbol() != null) {
-            sb.append(",\n  \"CLOSE_FN\"=").append("\"" + getCloseFnSymbol() + "\"");
-        }
-
-        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
-            sb.append(",\n  \"FILE\"=")
-                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
-            boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
-            sb.append(",\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\"");
-        } else {
-            sb.append(",\n  \"OBJECT_FILE\"=")
-                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\"");
-        }
-        sb.append(",\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
-        sb.append("\n);");
-        return sb.toString();
-    }
-
-    @Override
-    public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
-        TFunction fn = super.toThrift(realReturnType, realArgTypes, realArgTypeNullables);
-        fn.setScalarFn(new TScalarFunction());
-        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF || getBinaryType() == TFunctionBinaryType.RPC
-                || getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
-            fn.getScalarFn().setSymbol(symbolName);
-        } else {
-            fn.getScalarFn().setSymbol("");
-        }
-        if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
-            if (!Strings.isNullOrEmpty(functionCode)) {
-                fn.setFunctionCode(functionCode);
-            }
-            fn.setRuntimeVersion(runtimeVersion);
-        }
-        if (dictFunction != null) {
-            fn.setDictFunction(dictFunction);
-        }
-        return fn;
-    }
 }

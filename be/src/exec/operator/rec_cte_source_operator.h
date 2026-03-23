@@ -30,11 +30,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
-namespace pipeline {
 class DataQueue;
 
 class RecCTESourceOperatorX;
@@ -100,7 +97,7 @@ public:
         return {ExchangeType::NOOP};
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
         auto& ctx = local_state._shared_state;
         ctx->update_ready_to_return();
@@ -204,7 +201,7 @@ private:
     }
 
     friend class RecCTESourceLocalState;
-    std::vector<vectorized::DataTypePtr> _hash_table_key_types;
+    std::vector<DataTypePtr> _hash_table_key_types;
 
     const bool _is_union_all = false;
     std::vector<TRecCTETarget> _targets;
@@ -218,6 +215,5 @@ private:
     bool _is_used_by_other_rec_cte = false;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

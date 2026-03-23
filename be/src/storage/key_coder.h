@@ -80,11 +80,10 @@ template <FieldType field_type, typename Enable = void>
 class KeyCoderTraits {};
 
 template <FieldType field_type>
-class KeyCoderTraits<
-        field_type,
-        typename std::enable_if<
-                IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
-                vectorized::IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
+class KeyCoderTraits<field_type,
+                     typename std::enable_if<
+                             IsIntegral<typename CppTypeTraits<field_type>::CppType>::value ||
+                             IsDecimalNumber<typename CppTypeTraits<field_type>::CppType>>::type> {
 public:
     using CppType = typename CppTypeTraits<field_type>::CppType;
     using UnsignedCppType = typename CppTypeTraits<field_type>::UnsignedCppType;

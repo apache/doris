@@ -32,7 +32,7 @@
 #include "core/field.h"
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 inline std::string generate_random_string(size_t max_length) {
     std::srand(std::time(nullptr)); // use current time as seed for random generator
@@ -58,11 +58,11 @@ inline MutableColumnPtr create_null_map(size_t input_rows_count, bool all_null =
     auto null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (all_null) {
-            null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         } else if (all_not_null) {
-            null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(rand() % 2));
+            null_map->insert(Field::create_field<TYPE_BOOLEAN>(rand() % 2));
         }
     }
     return null_map;
@@ -104,4 +104,4 @@ inline ColumnNullable::MutablePtr create_column_nullable(size_t input_rows_count
     auto nested_column = create_nested_column<T>(input_rows_count);
     return ColumnNullable::create(std::move(nested_column), std::move(null_map));
 }
-} // namespace doris::vectorized
+} // namespace doris

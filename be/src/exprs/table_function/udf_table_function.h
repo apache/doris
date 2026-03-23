@@ -25,7 +25,7 @@
 #include "jni.h"
 #include "util/jni-util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class UDFTableFunction final : public TableFunction {
@@ -97,4 +97,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

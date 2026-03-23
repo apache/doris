@@ -119,15 +119,15 @@ suite("test_file_cache_statistics", "p0,external") {
 
     // ===== Hit Ratio Metrics Check =====
     // Check overall hit ratio hits_ratio
-    def hitsRatioResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics where METRIC_NAME = 'hits_ratio' limit 1;"""
+    def hitsRatioResult = sql """select MAX(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics where METRIC_NAME = 'hits_ratio';"""
     logger.info("hits_ratio result: " + hitsRatioResult)
 
     // Check 1-hour hit ratio hits_ratio_1h
-    def hitsRatio1hResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics where METRIC_NAME = 'hits_ratio_1h' limit 1;"""
+    def hitsRatio1hResult = sql """select MAX(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics where METRIC_NAME = 'hits_ratio_1h';"""
     logger.info("hits_ratio_1h result: " + hitsRatio1hResult)
 
     // Check 5-minute hit ratio hits_ratio_5m
-    def hitsRatio5mResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics where METRIC_NAME = 'hits_ratio_5m' limit 1;"""
+    def hitsRatio5mResult = sql """select MAX(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics where METRIC_NAME = 'hits_ratio_5m';"""
     logger.info("hits_ratio_5m result: " + hitsRatio5mResult)
 
     // Check if all three metrics exist and are greater than 0
@@ -154,21 +154,21 @@ suite("test_file_cache_statistics", "p0,external") {
 
     // ===== Normal Queue Metrics Check =====
     // Check normal queue current size and max size
-    def normalQueueCurrSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'normal_queue_curr_size' limit 1;"""
+    def normalQueueCurrSizeResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'normal_queue_curr_size';"""
     logger.info("normal_queue_curr_size result: " + normalQueueCurrSizeResult)
 
-    def normalQueueMaxSizeResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'normal_queue_max_size' limit 1;"""
+    def normalQueueMaxSizeResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'normal_queue_max_size';"""
     logger.info("normal_queue_max_size result: " + normalQueueMaxSizeResult)
 
     // Check normal queue current elements and max elements
-    def normalQueueCurrElementsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'normal_queue_curr_elements' limit 1;"""
+    def normalQueueCurrElementsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'normal_queue_curr_elements';"""
     logger.info("normal_queue_curr_elements result: " + normalQueueCurrElementsResult)
 
-    def normalQueueMaxElementsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'normal_queue_max_elements' limit 1;"""
+    def normalQueueMaxElementsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'normal_queue_max_elements';"""
     logger.info("normal_queue_max_elements result: " + normalQueueMaxElementsResult)
 
     // Check normal queue size metrics
@@ -202,12 +202,12 @@ suite("test_file_cache_statistics", "p0,external") {
 
     // ===== Hit and Read Counts Metrics Check =====
     // Get initial values for hit and read counts
-    def initialHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_hit_counts' limit 1;"""
+    def initialHitCountsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'total_hit_counts';"""
     logger.info("Initial total_hit_counts result: " + initialHitCountsResult)
 
-    def initialReadCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_read_counts' limit 1;"""
+    def initialReadCountsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'total_read_counts';"""
     logger.info("Initial total_read_counts result: " + initialReadCountsResult)
 
     // Check if initial values exist and are greater than 0
@@ -236,12 +236,12 @@ suite("test_file_cache_statistics", "p0,external") {
         where l_orderkey=1 and l_partkey=1534 limit 1;"""
 
     // Get updated values after cache operations
-    def updatedHitCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_hit_counts' limit 1;"""
+    def updatedHitCountsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'total_hit_counts';"""
     logger.info("Updated total_hit_counts result: " + updatedHitCountsResult)
 
-    def updatedReadCountsResult = sql """select METRIC_VALUE from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_read_counts' limit 1;"""
+    def updatedReadCountsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+        where METRIC_NAME = 'total_read_counts';"""
     logger.info("Updated total_read_counts result: " + updatedReadCountsResult)
 
     // Check if updated values are greater than initial values

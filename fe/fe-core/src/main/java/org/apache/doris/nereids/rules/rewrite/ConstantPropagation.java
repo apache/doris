@@ -238,6 +238,9 @@ public class ConstantPropagation extends DefaultPlanRewriter<CascadesContext> im
         // update: BE not support nested loop mark join, so mark join condition need to be an equation,
         // but constant propagation may rewrite an equal to TRUE/FALSE/NULL, so we don't rewrite mark join condition.
         join = visitChildren(this, join, context);
+        if (join.getJoinType().isAsofJoin()) {
+            return join;
+        }
 
         List<Expression> newHashJoinConjuncts = join.getHashJoinConjuncts();
         List<Expression> newOtherJoinConjuncts = join.getOtherJoinConjuncts();

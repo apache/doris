@@ -27,7 +27,7 @@
 #include "format/transformer/vorc_transformer.h"
 #include "format/transformer/vparquet_transformer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState* state,
                                      io::FileWriter* file_writer,
@@ -105,4 +105,4 @@ Status create_tvf_format_transformer(const TTVFTableSink& tvf_sink, RuntimeState
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

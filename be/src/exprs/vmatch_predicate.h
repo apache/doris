@@ -35,13 +35,11 @@ namespace doris {
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
-namespace vectorized {
 class Block;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class VMatchPredicate final : public VExpr {
     ENABLE_FACTORY_CREATOR(VMatchPredicate);
@@ -75,4 +73,4 @@ private:
     // Runtime context: holds raw pointer to analyzer and necessary runtime info
     InvertedIndexAnalyzerCtxSPtr _analyzer_ctx;
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -37,11 +37,11 @@
 #include "testutil/mock/mock_slot_ref.h"
 #include "util/debug_points.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 
-using doris::pipeline::OperatorContext;
+using doris::OperatorContext;
 
 struct VRowDistributionHarness {
     std::shared_ptr<OlapTableSchemaParam> schema;
@@ -450,4 +450,4 @@ TEST(VRowDistributionTest, ReplaceOverwritingPartitionInjectedRequestDedupAndRep
 
 } // namespace
 
-} // namespace doris::vectorized
+} // namespace doris

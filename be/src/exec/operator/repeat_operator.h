@@ -26,8 +26,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
-
 class RepeatOperatorX;
 
 class RepeatLocalState final : public PipelineXLocalState<FakeSharedState> {
@@ -40,21 +38,20 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
 
-    Status get_repeated_block(vectorized::Block* child_block, int repeat_id_idx,
-                              vectorized::Block* output_block);
+    Status get_repeated_block(Block* child_block, int repeat_id_idx, Block* output_block);
 
-    Status add_grouping_id_column(std::size_t rows, std::size_t& cur_col,
-                                  vectorized::MutableColumns& columns, int repeat_id_idx);
+    Status add_grouping_id_column(std::size_t rows, std::size_t& cur_col, MutableColumns& columns,
+                                  int repeat_id_idx);
 
 private:
     friend class RepeatOperatorX;
     template <typename LocalStateType>
     friend class StatefulOperatorX;
-    std::unique_ptr<vectorized::Block> _child_block;
+    std::unique_ptr<Block> _child_block;
     bool _child_eos = false;
     int _repeat_id_idx;
-    std::unique_ptr<vectorized::Block> _intermediate_block;
-    vectorized::VExprContextSPtrs _expr_ctxs;
+    std::unique_ptr<Block> _intermediate_block;
+    VExprContextSPtrs _expr_ctxs;
 
     RuntimeProfile::Counter* _evaluate_input_timer = nullptr;
     RuntimeProfile::Counter* _get_repeat_data_timer = nullptr;
@@ -74,8 +71,8 @@ public:
     Status prepare(RuntimeState* state) override;
 
     bool need_more_input_data(RuntimeState* state) const override;
-    Status pull(RuntimeState* state, vectorized::Block* output_block, bool* eos) const override;
-    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
+    Status pull(RuntimeState* state, Block* output_block, bool* eos) const override;
+    Status push(RuntimeState* state, Block* input_block, bool eos) const override;
 
 private:
     friend class RepeatLocalState;
@@ -91,9 +88,8 @@ private:
 
     std::vector<SlotDescriptor*> _output_slots;
 
-    vectorized::VExprContextSPtrs _expr_ctxs;
+    VExprContextSPtrs _expr_ctxs;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -142,8 +142,7 @@ Status ColumnReaderCache::get_column_reader(int32_t col_uid,
     return Status::OK();
 }
 
-Status ColumnReaderCache::get_path_column_reader(int32_t col_uid,
-                                                 vectorized::PathInData relative_path,
+Status ColumnReaderCache::get_path_column_reader(int32_t col_uid, PathInData relative_path,
                                                  std::shared_ptr<ColumnReader>* column_reader,
                                                  OlapReaderStatistics* stats,
                                                  const SubcolumnColumnMetaInfo::Node* node_hint) {

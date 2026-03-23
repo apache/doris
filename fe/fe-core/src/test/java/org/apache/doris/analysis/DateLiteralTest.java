@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
@@ -51,12 +52,12 @@ public class DateLiteralTest {
             timeZone = "+08:00";
             context.getSessionVariable().setTimeZone(timeZone);
             expected = "2020-02-02 20:00:03.123456+08:00";
-            Assertions.assertEquals(expected, dateLiteral.getStringValueForQuery(null));
+            Assertions.assertEquals(expected, dateLiteral.accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
 
             timeZone = "-08:00";
             context.getSessionVariable().setTimeZone(timeZone);
             expected = "2020-02-02 04:00:03.123456-08:00";
-            Assertions.assertEquals(expected, dateLiteral.getStringValueForQuery(null));
+            Assertions.assertEquals(expected, dateLiteral.accept(ExprToStringValueVisitor.INSTANCE, StringValueContext.forQuery(FormatOptions.getDefault())));
         } finally {
             ConnectContext.remove();
         }

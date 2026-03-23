@@ -26,7 +26,7 @@
 #include "exec/common/hash_table/ph_hash_map.h"
 #include "exec/common/hash_table/ph_hash_set.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace ColumnsHashing {
 
@@ -153,4 +153,4 @@ protected:
 
 } // namespace ColumnsHashing
 
-} // namespace doris::vectorized
+} // namespace doris

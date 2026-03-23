@@ -32,7 +32,7 @@
 #include "util/thrift_util.h"
 #include "util/time.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 struct ScheduleRecord {
     TUniqueId query_id;
@@ -106,4 +106,4 @@ private:
     decltype(MonotonicSeconds()) _dump_interval_s =
             60; // effective iff Periodic mode. 1 minute default.
 };
-} // namespace doris::pipeline
+} // namespace doris

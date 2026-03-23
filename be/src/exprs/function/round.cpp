@@ -19,7 +19,7 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // We split round funcs from register_function_math() in math.cpp to here,
 // so that to speed up compile time and make code more readable.
@@ -67,4 +67,4 @@ void register_function_round(SimpleFunctionFactory& factory) {
     factory.register_alias("round", "dround");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

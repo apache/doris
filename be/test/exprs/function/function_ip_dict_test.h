@@ -30,7 +30,7 @@
 #include "exprs/function/dictionary.h"
 #include "exprs/function/ip_address_dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct IPRecord {
     IPAddressCIDR ip_with_cidr;
@@ -247,4 +247,4 @@ void test_for_ip_type(std::vector<std::string> ips, std::vector<std::string> ip_
         }
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

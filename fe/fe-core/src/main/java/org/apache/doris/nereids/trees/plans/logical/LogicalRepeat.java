@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
@@ -226,49 +227,58 @@ public class LogicalRepeat<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
     @Override
     public LogicalRepeat<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, type, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, type, children.get(0)));
     }
 
     @Override
     public LogicalRepeat<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression,
-                Optional.of(getLogicalProperties()), groupingId, withInProjection, type, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression,
+                Optional.of(getLogicalProperties()), groupingId, withInProjection, type, child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
-                groupingId, withInProjection, type, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressions, groupExpression, logicalProperties,
+                groupingId, withInProjection, type, children.get(0)));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSets(List<List<Expression>> groupingSets) {
-        return new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, type, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressions, groupingId, type, child()));
     }
 
     public LogicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
-        return new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, type, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, type, child()));
     }
 
     @Override
     public LogicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return new LogicalRepeat<>(groupingSets, newOutput, groupingId, type, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, newOutput, groupingId, type, child()));
     }
 
     public LogicalRepeat<Plan> withNormalizedExpr(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList, SlotReference groupingId, Plan child) {
-        return new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, type, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressionList, groupingId, type, child));
     }
 
     public LogicalRepeat<Plan> withAggOutputAndChild(List<NamedExpression> newOutput, Plan child) {
-        return new LogicalRepeat<>(groupingSets, newOutput, groupingId, type, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, newOutput, groupingId, type, child));
     }
 
     public LogicalRepeat<CHILD_TYPE> withInProjection(boolean withInProjection) {
-        return new LogicalRepeat<>(groupingSets, outputExpressions,
-                Optional.empty(), Optional.empty(), groupingId, withInProjection, type, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalRepeat<>(groupingSets, outputExpressions,
+                Optional.empty(), Optional.empty(), groupingId, withInProjection, type, child()));
     }
 
     @Override

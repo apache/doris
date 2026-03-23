@@ -130,10 +130,10 @@ public:
                 std::make_unique<IndexFileWriter>(fs, *index_path_prefix, std::string {rowset_id},
                                                   seg_id, format, std::move(file_writer));
 
-        // Get c2 column Field
+        // Get c2 column StorageField
         const TabletColumn& column = tablet_schema->column(1);
         ASSERT_NE(&column, nullptr);
-        std::unique_ptr<Field> field(FieldFactory::create(column));
+        std::unique_ptr<StorageField> field(StorageFieldFactory::create(column));
         ASSERT_NE(field.get(), nullptr);
 
         // Create column writer

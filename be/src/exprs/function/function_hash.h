@@ -22,7 +22,7 @@
 
 #include "core/types.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 #ifdef BE_TEST
 const char* murmur_hash3_get_name_type_int_for_test();
@@ -30,4 +30,4 @@ const char* murmur_hash3_get_name_type_bigint_for_test();
 const char* murmur_hash3_get_name_type_bigint_v2_for_test();
 #endif
 
-} // namespace doris::vectorized
+} // namespace doris

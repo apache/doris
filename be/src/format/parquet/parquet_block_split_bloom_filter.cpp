@@ -22,7 +22,6 @@
 #include "format/parquet/vparquet_column_reader.h"
 
 namespace doris {
-namespace vectorized {
 
 // for write
 Status ParquetBlockSplitBloomFilter::init(uint64_t filter_size,
@@ -130,5 +129,4 @@ bool ParquetBlockSplitBloomFilter::test_hash(uint64_t hash) const {
     return true;
 }
 
-} // namespace vectorized
 } // namespace doris

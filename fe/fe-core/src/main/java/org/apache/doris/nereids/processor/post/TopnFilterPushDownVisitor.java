@@ -195,7 +195,7 @@ public class TopnFilterPushDownVisitor extends PlanVisitor<Boolean, PushDownCont
     @Override
     public Boolean visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             PushDownContext ctx) {
-        if (ctx.nullsFirst && join.getJoinType().isOuterJoin()) {
+        if (ctx.nullsFirst && (join.getJoinType().isOuterJoin() || join.getJoinType().isAsofOuterJoin())) {
             // topn-filter can be pushed down to the left child of leftOuterJoin
             // and to the right child of rightOuterJoin,
             // but PushDownTopNThroughJoin rule already pushes topn to the left and right side.

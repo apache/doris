@@ -31,7 +31,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionNullable : public IFunction {
 public:
@@ -106,4 +106,4 @@ void register_function_nullables(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNonNullable>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

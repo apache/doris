@@ -43,7 +43,7 @@
 #include "storage/tablet/tablet_schema.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
@@ -197,7 +197,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
     for (size_t idx = 0; idx < _return_columns.size(); ++idx) {
         AggregateFunctionPtr function =
                 tablet_schema.column(_return_columns.at(idx))
-                        .get_aggregate_function(vectorized::AGG_READER_SUFFIX,
+                        .get_aggregate_function(AGG_READER_SUFFIX,
                                                 read_params.get_be_exec_version());
         DCHECK(function != nullptr);
         _agg_functions.push_back(function);
@@ -727,4 +727,4 @@ void VerticalBlockReader::_process_sparse_column(ColumnNullable* nullable_dst,
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

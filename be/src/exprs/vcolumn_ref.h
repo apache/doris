@@ -24,7 +24,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-namespace vectorized {
 class VColumnRef final : public VExpr {
     ENABLE_FACTORY_CREATOR(VColumnRef);
 
@@ -96,5 +95,4 @@ private:
     std::atomic<int> _gap = 0;
     std::string _column_name;
 };
-} // namespace vectorized
 } // namespace doris

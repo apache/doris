@@ -36,7 +36,7 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 class Arena;
 #include "common/compile_check_begin.h"
 Status DataTypeNullableSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
@@ -427,8 +427,7 @@ Status DataTypeNullableSerDe::write_column_to_mysql_binary(const IColumn& column
 Status DataTypeNullableSerDe::write_column_to_orc(const std::string& timezone,
                                                   const IColumn& column, const NullMap* null_map,
                                                   orc::ColumnVectorBatch* orc_col_batch,
-                                                  int64_t start, int64_t end,
-                                                  vectorized::Arena& arena,
+                                                  int64_t start, int64_t end, Arena& arena,
                                                   const FormatOptions& options) const {
     const auto& column_nullable = assert_cast<const ColumnNullable&>(column);
     orc_col_batch->hasNulls = true;
@@ -476,7 +475,7 @@ void DataTypeNullableSerDe::to_string(const IColumn& column, size_t row_num, Buf
     }
 }
 
-std::string DataTypeNullableSerDe::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeNullableSerDe::to_olap_string(const Field& field) const {
     return nested_serde->to_olap_string(field);
 }
 
@@ -495,9 +494,17 @@ Status DataTypeNullableSerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
-Status DataTypeNullableSerDe::from_olap_string(const std::string& str, Field& field,
-                                               const FormatOptions& options) const {
-    if (!nested_serde->from_olap_string(str, field, options).ok()) {
+Status DataTypeNullableSerDe::from_zonemap_string(const std::string& str, Field& field) const {
+    if (!nested_serde->from_zonemap_string(str, field).ok()) {
+        // fill null if fail
+        field = Field();
+        return Status::OK();
+    }
+    return Status::OK();
+}
+
+Status DataTypeNullableSerDe::from_fe_string(const std::string& str, Field& field) const {
+    if (!nested_serde->from_fe_string(str, field).ok()) {
         // fill null if fail
         field = Field();
         return Status::OK();
@@ -515,4 +522,4 @@ Status DataTypeNullableSerDe::from_string_strict_mode(StringRef& str, IColumn& c
     null_column.get_null_map_data().push_back(0);
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

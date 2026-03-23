@@ -61,38 +61,34 @@ Status SparseColumnMergeIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 void SparseColumnMergeIterator::_serialize_nullable_column_to_sparse(
-        const SubstreamReaderTree::Node* src_subcolumn,
-        vectorized::ColumnString& dst_sparse_column_paths,
-        vectorized::ColumnString& dst_sparse_column_values, const StringRef& src_path, size_t row) {
+        const SubstreamReaderTree::Node* src_subcolumn, ColumnString& dst_sparse_column_paths,
+        ColumnString& dst_sparse_column_values, const StringRef& src_path, size_t row) {
     // every subcolumn is always Nullable
-    const auto& nullable_serde =
-            assert_cast<vectorized::DataTypeNullableSerDe&>(*src_subcolumn->data.serde);
-    const auto& nullable_col =
-            assert_cast<const vectorized::ColumnNullable&, TypeCheckOnRelease::DISABLE>(
-                    *src_subcolumn->data.column);
+    const auto& nullable_serde = assert_cast<DataTypeNullableSerDe&>(*src_subcolumn->data.serde);
+    const auto& nullable_col = assert_cast<const ColumnNullable&, TypeCheckOnRelease::DISABLE>(
+            *src_subcolumn->data.column);
     if (nullable_col.is_null_at(row)) {
         return;
     }
     // insert key
     dst_sparse_column_paths.insert_data(src_path.data, src_path.size);
     // insert value
-    vectorized::ColumnString::Chars& chars = dst_sparse_column_values.get_chars();
+    ColumnString::Chars& chars = dst_sparse_column_values.get_chars();
     nullable_serde.get_nested_serde()->write_one_cell_to_binary(nullable_col.get_nested_column(),
                                                                 chars, row);
     dst_sparse_column_values.get_offsets().push_back(chars.size());
 }
 
-void SparseColumnMergeIterator::_process_data_without_sparse_column(
-        vectorized::MutableColumnPtr& dst, size_t num_rows) {
+void SparseColumnMergeIterator::_process_data_without_sparse_column(MutableColumnPtr& dst,
+                                                                    size_t num_rows) {
     if (_src_subcolumns_for_sparse.empty()) {
         dst->insert_many_defaults(num_rows);
     } else {
         // merge subcolumns to sparse column
         // Otherwise insert required src dense columns into sparse column.
-        auto& map_column = assert_cast<vectorized::ColumnMap&>(*dst);
-        auto& sparse_column_keys = assert_cast<vectorized::ColumnString&>(map_column.get_keys());
-        auto& sparse_column_values =
-                assert_cast<vectorized::ColumnString&>(map_column.get_values());
+        auto& map_column = assert_cast<ColumnMap&>(*dst);
+        auto& sparse_column_keys = assert_cast<ColumnString&>(map_column.get_keys());
+        auto& sparse_column_values = assert_cast<ColumnString&>(map_column.get_values());
         auto& sparse_column_offsets = map_column.get_offsets();
         for (size_t i = 0; i != num_rows; ++i) {
             // Paths in sorted_src_subcolumn_for_sparse_column are already sorted.
@@ -106,19 +102,18 @@ void SparseColumnMergeIterator::_process_data_without_sparse_column(
     }
 }
 
-void SparseColumnMergeIterator::_merge_to(vectorized::MutableColumnPtr& dst) {
-    auto& column_map = assert_cast<vectorized::ColumnMap&>(*dst);
-    auto& dst_sparse_column_paths = assert_cast<vectorized::ColumnString&>(column_map.get_keys());
-    auto& dst_sparse_column_values =
-            assert_cast<vectorized::ColumnString&>(column_map.get_values());
+void SparseColumnMergeIterator::_merge_to(MutableColumnPtr& dst) {
+    auto& column_map = assert_cast<ColumnMap&>(*dst);
+    auto& dst_sparse_column_paths = assert_cast<ColumnString&>(column_map.get_keys());
+    auto& dst_sparse_column_values = assert_cast<ColumnString&>(column_map.get_values());
     auto& dst_sparse_column_offsets = column_map.get_offsets();
 
     const auto& src_column_map =
-            assert_cast<const vectorized::ColumnMap&>(*_sparse_column_cache->binary_column);
+            assert_cast<const ColumnMap&>(*_sparse_column_cache->binary_column);
     const auto& src_sparse_column_paths =
-            assert_cast<const vectorized::ColumnString&>(*src_column_map.get_keys_ptr());
+            assert_cast<const ColumnString&>(*src_column_map.get_keys_ptr());
     const auto& src_sparse_column_values =
-            assert_cast<const vectorized::ColumnString&>(*src_column_map.get_values_ptr());
+            assert_cast<const ColumnString&>(*src_column_map.get_values_ptr());
     const auto& src_serialized_sparse_column_offsets = src_column_map.get_offsets();
     DCHECK_EQ(src_sparse_column_paths.size(), src_sparse_column_values.size());
     // Src object column contains some paths in serialized sparse column in specified range.

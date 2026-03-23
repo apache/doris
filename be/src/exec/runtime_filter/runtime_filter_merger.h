@@ -38,8 +38,8 @@ public:
     static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
                          std::shared_ptr<RuntimeFilterMerger>* res) {
         *res = std::shared_ptr<RuntimeFilterMerger>(new RuntimeFilterMerger(query_ctx, desc));
-        vectorized::VExprContextSPtr build_ctx;
-        RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(desc->src_expr, build_ctx));
+        VExprContextSPtr build_ctx;
+        RETURN_IF_ERROR(VExpr::create_expr_tree(desc->src_expr, build_ctx));
         (*res)->_wrapper = std::make_shared<RuntimeFilterWrapper>(
                 build_ctx->root()->data_type()->get_primitive_type(), (*res)->_runtime_filter_type,
                 desc->filter_id, RuntimeFilterWrapper::State::UNINITED);

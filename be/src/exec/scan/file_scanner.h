@@ -38,7 +38,9 @@
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "storage/olap_common.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris {
 class RuntimeState;
@@ -46,14 +48,12 @@ class TFileRangeDesc;
 class TFileScanRange;
 class TFileScanRangeParams;
 
-namespace vectorized {
 class ShardedKVCache;
 class VExpr;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FileScanner : public Scanner {
     ENABLE_FACTORY_CREATOR(FileScanner);
@@ -65,9 +65,9 @@ public:
     static const std::string FileReadBytesProfile;
     static const std::string FileReadTimeProfile;
 
-    FileScanner(RuntimeState* state, pipeline::FileScanLocalState* parent, int64_t limit,
-                std::shared_ptr<vectorized::SplitSourceConnector> split_source,
-                RuntimeProfile* profile, ShardedKVCache* kv_cache,
+    FileScanner(RuntimeState* state, FileScanLocalState* parent, int64_t limit,
+                std::shared_ptr<SplitSourceConnector> split_source, RuntimeProfile* profile,
+                ShardedKVCache* kv_cache,
                 const std::unordered_map<std::string, int>* colname_to_slot_id);
 
     Status _open_impl(RuntimeState* state) override;
@@ -117,7 +117,7 @@ protected:
 
 protected:
     const TFileScanRangeParams* _params = nullptr;
-    std::shared_ptr<vectorized::SplitSourceConnector> _split_source;
+    std::shared_ptr<SplitSourceConnector> _split_source;
     bool _first_scan_range = false;
     TFileRangeDesc _current_range;
 
@@ -139,7 +139,7 @@ protected:
     // dest slot name to index in _dest_vexpr_ctx;
     std::unordered_map<std::string, int> _dest_slot_name_to_idx;
     // col name to default value expr
-    std::unordered_map<std::string, vectorized::VExprContextSPtr> _col_default_value_ctx;
+    std::unordered_map<std::string, VExprContextSPtr> _col_default_value_ctx;
     // the map values of dest slot id to src slot desc
     // if there is not key of dest slot id in dest_sid_to_src_sid_without_trans, it will be set to nullptr
     std::vector<SlotDescriptor*> _src_slot_descs_order_by_dest;
@@ -158,7 +158,7 @@ protected:
     std::map<std::string, DataTypePtr> _source_file_col_name_types;
 
     // For load task
-    vectorized::VExprContextSPtrs _pre_conjunct_ctxs;
+    VExprContextSPtrs _pre_conjunct_ctxs;
     std::unique_ptr<RowDescriptor> _src_row_desc;
     std::unique_ptr<RowDescriptor> _dest_row_desc;
     // row desc for default exprs
@@ -234,7 +234,13 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
-private:
+    // Condition cache for external tables
+    uint64_t _condition_cache_digest = 0;
+    segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    int64_t _condition_cache_hit_count = 0;
+
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
     Status _check_output_block_types();
@@ -279,6 +285,10 @@ private:
         _counter.num_rows_filtered = 0;
     }
 
+    bool _should_enable_condition_cache();
+    void _init_reader_condition_cache();
+    void _finalize_reader_condition_cache();
+
     TPushAggOp::type _get_push_down_agg_type() {
         return _local_state == nullptr ? TPushAggOp::type::NONE
                                        : _local_state->get_push_down_agg_type();
@@ -293,4 +303,4 @@ private:
                _split_source->num_scan_ranges() < config::max_external_file_meta_cache_num / 3;
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -34,10 +34,8 @@ class Schema;
 namespace segment_v2 {
 class SegmentWriter;
 } // namespace segment_v2
-namespace vectorized {
 class RowSourcesBuffer;
 class VerticalBlockReader;
-} // namespace vectorized
 struct OlapReaderStatistics;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
@@ -82,11 +80,10 @@ private:
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint32_t begin, uint32_t end);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, std::shared_ptr<Schema> schema,
-                                     OlapReaderStatistics* stat,
-                                     vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
-                                     std::vector<uint32_t>& return_columns,
+                                     OlapReaderStatistics* stat, RowSourcesBuffer& row_sources_buf,
+                                     bool is_key, std::vector<uint32_t>& return_columns,
                                      std::vector<uint32_t>& key_group_cluster_key_idxes,
-                                     std::unique_ptr<vectorized::VerticalBlockReader>* reader);
+                                     std::unique_ptr<VerticalBlockReader>* reader);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint32_t begin,
                                                                             uint32_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);

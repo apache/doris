@@ -21,7 +21,7 @@
 #include "exprs/function/functions_comparison.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 using FunctionLess = FunctionComparison<LessOp, NameLess>;
 using FunctionLessOrEquals = FunctionComparison<LessOrEqualsOp, NameLessOrEquals>;
 
@@ -29,4 +29,4 @@ void register_function_comparison_less(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionLess>();
     factory.register_function<FunctionLessOrEquals>();
 }
-} // namespace doris::vectorized
+} // namespace doris

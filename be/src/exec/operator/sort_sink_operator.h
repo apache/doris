@@ -22,7 +22,7 @@
 #include "core/field.h"
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class SortSinkOperatorX;
@@ -43,12 +43,12 @@ private:
     friend class SortSinkOperatorX;
 
     // Expressions and parameters used for build _sort_description
-    vectorized::VSortExecExprs _vsort_exec_exprs;
+    VSortExecExprs _vsort_exec_exprs;
 
     RuntimeProfile::Counter* _sort_blocks_memory_usage = nullptr;
 
     // topn top value
-    vectorized::Field old_top {PrimitiveType::TYPE_NULL};
+    Field old_top {PrimitiveType::TYPE_NULL};
     RuntimeProfile::Counter* _append_blocks_timer = nullptr;
     RuntimeProfile::Counter* _update_runtime_predicate_timer = nullptr;
 };
@@ -76,7 +76,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* /*state*/) const override {
         if (_is_analytic_sort) {
             return _is_colocate && _require_bucket_distribution
@@ -98,8 +98,8 @@ public:
 
     Status prepare_for_spill(RuntimeState* state);
 
-    Status merge_sort_read_for_spill(RuntimeState* state, doris::vectorized::Block* block,
-                                     int batch_size, bool* eos);
+    Status merge_sort_read_for_spill(RuntimeState* state, doris::Block* block, int batch_size,
+                                     bool* eos);
     Status reset(RuntimeState* state) override;
 
     int64_t limit() const { return _limit; }
@@ -113,7 +113,7 @@ private:
     ObjectPool* _pool = nullptr;
 
     // Expressions and parameters used for build _sort_description
-    vectorized::VSortExecExprs _vsort_exec_exprs;
+    VSortExecExprs _vsort_exec_exprs;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
 
@@ -130,4 +130,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

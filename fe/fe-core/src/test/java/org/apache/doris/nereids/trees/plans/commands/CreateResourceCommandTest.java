@@ -46,27 +46,37 @@ public class CreateResourceCommandTest extends TestWithFeService {
         };
 
         // test validate normal
-        ImmutableMap<String, String> properties = ImmutableMap.of("type", "es", "host", "http://127.0.0.1:29200");
-        CreateResourceInfo info = new CreateResourceInfo(true, false, "test", properties);
-        CreateResourceCommand createResourceCommand = new CreateResourceCommand(info);
-        Assertions.assertDoesNotThrow(() -> createResourceCommand.getInfo().validate());
+        final ImmutableMap<String, String> esProperties =
+                ImmutableMap.of("type", "es", "host", "http://127.0.0.1:29200");
+        final CreateResourceInfo esInfo = new CreateResourceInfo(true, false, "test", esProperties);
+        final CreateResourceCommand esCommand = new CreateResourceCommand(esInfo);
+        Assertions.assertDoesNotThrow(() -> esCommand.getInfo().validate());
+
+        // jfs/juicefs should be treated as HDFS-compatible resource type
+        final ImmutableMap<String, String> jfsProperties =
+                ImmutableMap.of("type", "jfs", "fs.defaultFS", "jfs://cluster");
+        final CreateResourceInfo jfsInfo = new CreateResourceInfo(true, false, "test_jfs", jfsProperties);
+        final CreateResourceCommand jfsCommand = new CreateResourceCommand(jfsInfo);
+        Assertions.assertDoesNotThrow(() -> jfsCommand.getInfo().validate());
 
         // test validate abnormal
         // test properties
-        info = new CreateResourceInfo(false, false, "test", null);
-        CreateResourceCommand createResourceCommand1 = new CreateResourceCommand(info);
+        final CreateResourceInfo nullPropertiesInfo = new CreateResourceInfo(false, false, "test", null);
+        final CreateResourceCommand createResourceCommand1 = new CreateResourceCommand(nullPropertiesInfo);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand1.getInfo().validate());
 
         // test resource type
-        properties = ImmutableMap.of("host", "http://127.0.0.1:29200");
-        info = new CreateResourceInfo(false, false, "test", properties);
-        CreateResourceCommand createResourceCommand2 = new CreateResourceCommand(info);
+        final ImmutableMap<String, String> noTypeProperties = ImmutableMap.of("host", "http://127.0.0.1:29200");
+        final CreateResourceInfo noTypeInfo = new CreateResourceInfo(false, false, "test", noTypeProperties);
+        final CreateResourceCommand createResourceCommand2 = new CreateResourceCommand(noTypeInfo);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand2.getInfo().validate());
 
         // test unsupported resource type
-        properties = ImmutableMap.of("type", "flink", "host", "http://127.0.0.1:29200");
-        info = new CreateResourceInfo(false, false, "test", properties);
-        CreateResourceCommand createResourceCommand3 = new CreateResourceCommand(info);
+        final ImmutableMap<String, String> unsupportedTypeProperties =
+                ImmutableMap.of("type", "flink", "host", "http://127.0.0.1:29200");
+        final CreateResourceInfo unsupportedTypeInfo =
+                new CreateResourceInfo(false, false, "test", unsupportedTypeProperties);
+        final CreateResourceCommand createResourceCommand3 = new CreateResourceCommand(unsupportedTypeInfo);
         Assertions.assertThrows(AnalysisException.class, () -> createResourceCommand3.getInfo().validate());
     }
 

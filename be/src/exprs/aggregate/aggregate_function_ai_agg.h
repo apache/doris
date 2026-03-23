@@ -30,7 +30,7 @@
 #include "runtime/runtime_state.h"
 #include "service/http/http_client.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class AggregateFunctionAIAggData {
@@ -307,4 +307,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

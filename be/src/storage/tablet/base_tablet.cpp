@@ -55,7 +55,6 @@
 #include "util/bvar_helper.h"
 #include "util/debug_points.h"
 #include "util/jsonb/serialize.h"
-#include "util/key_util.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -421,11 +420,11 @@ Status BaseTablet::lookup_row_data(const Slice& encoded_key, const RowLocation& 
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, row_location.segment_id, column,
                                                  &segment_cache_handle, &column_iterator, &stats));
     // get and parse tuple row
-    vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
+    MutableColumnPtr column_ptr = ColumnString::create();
     std::vector<segment_v2::rowid_t> rowids {static_cast<segment_v2::rowid_t>(row_location.row_id)};
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
     assert(column_ptr->size() == 1);
-    auto* string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
+    auto* string_column = static_cast<ColumnString*>(column_ptr.get());
     StringRef value = string_column->get_data_at(0);
     values = value.to_string();
     if (write_to_cache) {
@@ -468,8 +467,8 @@ Status BaseTablet::lookup_row_key(const Slice& encoded_key, TabletSchema* latest
         DCHECK_EQ(segments_key_bounds.size(), num_segments);
         std::vector<uint32_t> picked_segments;
         for (int j = num_segments - 1; j >= 0; j--) {
-            if (key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
-                                      rs->rowset_meta()->is_segments_key_bounds_truncated())) {
+            if (_key_is_not_in_segment(key_without_seq, segments_key_bounds[j],
+                                       rs->rowset_meta()->is_segments_key_bounds_truncated())) {
                 continue;
             }
             picked_segments.emplace_back(j);
@@ -597,8 +596,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
 
     std::map<RowsetId, RowsetSharedPtr> rsid_to_rowset;
     rsid_to_rowset[rowset_id] = rowset;
-    vectorized::Block block = rowset_schema->create_block();
-    vectorized::Block ordered_block = block.clone_empty();
+    Block block = rowset_schema->create_block();
+    Block ordered_block = block.clone_empty();
     uint32_t pos = 0;
 
     RETURN_IF_ERROR(seg->load_pk_index_and_bf(nullptr)); // We need index blocks to iterate
@@ -618,8 +617,8 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
         RETURN_IF_ERROR(pk_idx->new_iterator(&iter, nullptr));
 
         size_t num_to_read = std::min<int64_t>(batch_size, remaining);
-        auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
-                pk_idx->type_info()->type(), 1, 0);
+        auto index_type =
+                DataTypeFactory::instance().create_data_type(pk_idx->type_info()->type(), 1, 0);
         auto index_column = index_type->create_column();
         Slice last_key_slice(last_key);
         RETURN_IF_ERROR(iter->seek_at_or_after(&last_key_slice, &exact_match));
@@ -828,11 +827,9 @@ Status BaseTablet::calc_segment_delete_bitmap(RowsetSharedPtr rowset,
     return Status::OK();
 }
 
-Status BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& output_block) {
-    vectorized::MutableBlock mutable_input_block =
-            vectorized::MutableBlock::build_mutable_block(&in_block);
-    vectorized::MutableBlock mutable_output_block =
-            vectorized::MutableBlock::build_mutable_block(&output_block);
+Status BaseTablet::sort_block(Block& in_block, Block& output_block) {
+    MutableBlock mutable_input_block = MutableBlock::build_mutable_block(&in_block);
+    MutableBlock mutable_output_block = MutableBlock::build_mutable_block(&output_block);
 
     std::shared_ptr<RowInBlockComparator> vec_row_comparator =
             std::make_shared<RowInBlockComparator>(_tablet_meta->tablet_schema());
@@ -865,8 +862,7 @@ Status BaseTablet::sort_block(vectorized::Block& in_block, vectorized::Block& ou
 Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
                                                   const TabletSchema& tablet_schema, uint32_t segid,
                                                   const std::vector<uint32_t>& rowids,
-                                                  const std::vector<uint32_t>& cids,
-                                                  vectorized::Block& block) {
+                                                  const std::vector<uint32_t>& cids, Block& block) {
     MonotonicStopWatch watch;
     watch.start();
     Defer _defer([&]() {
@@ -884,32 +880,30 @@ Status BaseTablet::fetch_value_through_row_column(RowsetSharedPtr input_rowset,
     RETURN_IF_ERROR(_get_segment_column_iterator(rowset, segid, column, &segment_cache_handle,
                                                  &column_iterator, &stats));
     // get and parse tuple row
-    vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
+    MutableColumnPtr column_ptr = ColumnString::create();
     RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), rowids.size(), column_ptr));
     assert(column_ptr->size() == rowids.size());
-    auto* string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
-    vectorized::DataTypeSerDeSPtrs serdes;
+    auto* string_column = static_cast<ColumnString*>(column_ptr.get());
+    DataTypeSerDeSPtrs serdes;
     serdes.resize(cids.size());
     std::unordered_map<uint32_t, uint32_t> col_uid_to_idx;
     std::vector<std::string> default_values;
     default_values.resize(cids.size());
     for (int i = 0; i < cids.size(); ++i) {
         const TabletColumn& tablet_column = tablet_schema.column(cids[i]);
-        vectorized::DataTypePtr type =
-                vectorized::DataTypeFactory::instance().create_data_type(tablet_column);
+        DataTypePtr type = DataTypeFactory::instance().create_data_type(tablet_column);
         col_uid_to_idx[tablet_column.unique_id()] = i;
         default_values[i] = tablet_column.default_value();
         serdes[i] = type->get_serde();
     }
-    RETURN_IF_ERROR(vectorized::JsonbSerializeUtil::jsonb_to_block(
-            serdes, *string_column, col_uid_to_idx, block, default_values, {}));
+    RETURN_IF_ERROR(JsonbSerializeUtil::jsonb_to_block(serdes, *string_column, col_uid_to_idx,
+                                                       block, default_values, {}));
     return Status::OK();
 }
 
 Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t segid,
                                          const std::vector<uint32_t>& rowids,
-                                         const TabletColumn& tablet_column,
-                                         vectorized::MutableColumnPtr& dst) {
+                                         const TabletColumn& tablet_column, MutableColumnPtr& dst) {
     MonotonicStopWatch watch;
     watch.start();
     Defer _defer([&]() {
@@ -929,12 +923,11 @@ Status BaseTablet::fetch_value_by_rowids(RowsetSharedPtr input_rowset, uint32_t 
     return Status::OK();
 }
 
-const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Block& block,
+const signed char* BaseTablet::get_delete_sign_column_data(const Block& block,
                                                            size_t rows_at_least) {
     if (int pos = block.get_position_by_name(DELETE_SIGN); pos != -1) {
-        const vectorized::ColumnWithTypeAndName& delete_sign_column = block.get_by_position(pos);
-        const auto& delete_sign_col =
-                assert_cast<const vectorized::ColumnInt8&>(*(delete_sign_column.column));
+        const ColumnWithTypeAndName& delete_sign_column = block.get_by_position(pos);
+        const auto& delete_sign_col = assert_cast<const ColumnInt8&>(*(delete_sign_column.column));
         if (delete_sign_col.size() >= rows_at_least) {
             return delete_sign_col.get_data().data();
         }
@@ -945,8 +938,8 @@ const signed char* BaseTablet::get_delete_sign_column_data(const vectorized::Blo
 Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
                                                 const std::vector<uint32_t>& cids,
                                                 const std::vector<std::string>& default_values,
-                                                const vectorized::Block& ref_block,
-                                                vectorized::Block& default_value_block) {
+                                                const Block& ref_block,
+                                                Block& default_value_block) {
     auto mutable_default_value_columns = default_value_block.mutate_columns();
     for (auto i = 0; i < cids.size(); ++i) {
         const auto& column = schema.column(cids[i]);
@@ -964,8 +957,7 @@ Status BaseTablet::generate_default_value_block(const TabletSchema& schema,
 Status BaseTablet::generate_new_block_for_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         const FixedReadPlan& read_plan_ori, const FixedReadPlan& read_plan_update,
-        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-        vectorized::Block* output_block) {
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block* output_block) {
     // do partial update related works
     // 1. read columns by read plan
     // 2. generate new block
@@ -1062,7 +1054,7 @@ Status BaseTablet::generate_new_block_for_partial_update(
                         mutable_column->insert_from(*default_value_block.get_by_position(i).column,
                                                     0);
                     } else if (rs_column.is_nullable()) {
-                        assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(
+                        assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(
                                 mutable_column.get())
                                 ->insert_default();
                     } else {
@@ -1084,10 +1076,9 @@ static void fill_cell_for_flexible_partial_update(
         std::map<uint32_t, uint32_t>& read_index_old,
         std::map<uint32_t, uint32_t>& read_index_update, const TabletSchemaSPtr& rowset_schema,
         const PartialUpdateInfo* partial_update_info, const TabletColumn& tablet_column,
-        std::size_t idx, vectorized::MutableColumnPtr& new_col,
-        const vectorized::IColumn& default_value_col, const vectorized::IColumn& old_value_col,
-        const vectorized::IColumn& cur_col, bool skipped, bool row_has_sequence_col,
-        const signed char* delete_sign_column_data) {
+        std::size_t idx, MutableColumnPtr& new_col, const IColumn& default_value_col,
+        const IColumn& old_value_col, const IColumn& cur_col, bool skipped,
+        bool row_has_sequence_col, const signed char* delete_sign_column_data) {
     if (skipped) {
         bool use_default = false;
         bool old_row_delete_sign =
@@ -1109,7 +1100,7 @@ static void fill_cell_for_flexible_partial_update(
             if (tablet_column.has_default_value()) {
                 new_col->insert_from(default_value_col, 0);
             } else if (tablet_column.is_nullable()) {
-                assert_cast<vectorized::ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
+                assert_cast<ColumnNullable*, TypeCheckOnRelease::DISABLE>(new_col.get())
                         ->insert_many_defaults(1);
             } else if (tablet_column.is_auto_increment()) {
                 // For auto-increment column, its default value(generated value) is filled in current block in flush phase
@@ -1133,8 +1124,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
         TabletSchemaSPtr rowset_schema, const PartialUpdateInfo* partial_update_info,
         std::set<uint32_t>& rids_be_overwritten, const FixedReadPlan& read_plan_ori,
         const FixedReadPlan& read_plan_update,
-        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset,
-        vectorized::Block* output_block) {
+        const std::map<RowsetId, RowsetSharedPtr>& rsid_to_rowset, Block* output_block) {
     CHECK(output_block);
 
     int32_t seq_col_unique_id = -1;
@@ -1186,7 +1176,7 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     DCHECK(rowset_schema->has_skip_bitmap_col());
     auto skip_bitmap_col_idx = rowset_schema->skip_bitmap_col_idx();
     const std::vector<BitmapValue>* skip_bitmaps =
-            &(assert_cast<const vectorized::ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
+            &(assert_cast<const ColumnBitmap*, TypeCheckOnRelease::DISABLE>(
                       update_block.get_by_position(skip_bitmap_col_idx).column->get_ptr().get())
                       ->get_data());
 
@@ -1205,18 +1195,18 @@ Status BaseTablet::generate_new_block_for_flexible_partial_update(
     }
 
     for (std::size_t cid {0}; cid < rowset_schema->num_columns(); cid++) {
-        vectorized::MutableColumnPtr& new_col = full_mutable_columns[cid];
-        const vectorized::IColumn& cur_col = *update_block.get_by_position(cid).column;
+        MutableColumnPtr& new_col = full_mutable_columns[cid];
+        const IColumn& cur_col = *update_block.get_by_position(cid).column;
         const auto& rs_column = rowset_schema->column(cid);
         auto col_uid = rs_column.unique_id();
         for (auto idx = 0; idx < update_rows; ++idx) {
             if (cid < rowset_schema->num_key_columns()) {
                 new_col->insert_from(cur_col, read_index_update[idx]);
             } else {
-                const vectorized::IColumn& default_value_col =
+                const IColumn& default_value_col =
                         *default_value_block.get_by_position(cid - rowset_schema->num_key_columns())
                                  .column;
-                const vectorized::IColumn& old_value_col =
+                const IColumn& old_value_col =
                         *old_block.get_by_position(cid - rowset_schema->num_key_columns()).column;
                 if (rids_be_overwritten.contains(idx)) {
                     new_col->insert_from(old_value_col, read_index_old[idx]);
@@ -2142,6 +2132,17 @@ void BaseTablet::prefill_dbm_agg_cache_after_compaction(const RowsetSharedPtr& o
             prefill_dbm_agg_cache(output_rowset, cur_max_version);
         }
     }
+}
+
+bool BaseTablet::_key_is_not_in_segment(Slice key, const KeyBoundsPB& segment_key_bounds,
+                                        bool is_segments_key_bounds_truncated) {
+    Slice maybe_truncated_min_key {segment_key_bounds.min_key()};
+    Slice maybe_truncated_max_key {segment_key_bounds.max_key()};
+    bool res1 = Slice::lhs_is_strictly_less_than_rhs(key, false, maybe_truncated_min_key,
+                                                     is_segments_key_bounds_truncated);
+    bool res2 = Slice::lhs_is_strictly_less_than_rhs(maybe_truncated_max_key,
+                                                     is_segments_key_bounds_truncated, key, false);
+    return res1 || res2;
 }
 
 } // namespace doris

@@ -29,7 +29,7 @@
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -266,8 +266,7 @@ template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, const IColumn& column,
                                                  const NullMap* null_map,
                                                  orc::ColumnVectorBatch* orc_col_batch,
-                                                 int64_t start, int64_t end,
-                                                 vectorized::Arena& arena,
+                                                 int64_t start, int64_t end, Arena& arena,
                                                  const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
@@ -396,6 +395,18 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Deserializes a DateV1 or DateTimeV1 value from its OLAP string representation
+// (e.g. from ZoneMap protobuf). This is the inverse of to_olap_string().
+//
+// Uses CastToDateOrDatetime::from_string_non_strict_mode which accepts flexible date/time formats.
+//
+// Note: DateTimeV1 (VecDateTimeValue) does NOT support microsecond precision.
+//   VecDateTimeValue::microsecond() always returns 0 — the _microsecond field was removed
+//   to reduce memory footprint. So the round-trip format is always second-level precision.
+//
+// Expected input formats:
+//   DateV1:     "YYYY-MM-DD"              e.g. "2023-10-15"
+//   DateTimeV1: "YYYY-MM-DD HH:MM:SS"    e.g. "2023-10-15 14:30:00"
 template <PrimitiveType T>
 Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& field,
                                               const FormatOptions& options) const {
@@ -577,8 +588,16 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
     return Status::OK();
 }
 
+// Serializes a DateV1 or DateTimeV1 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Internally calls VecDateTimeValue::to_string(buf) which produces:
+//   DateV1:     "YYYY-MM-DD"              e.g. "2023-10-15"
+//   DateTimeV1: "YYYY-MM-DD HH:MM:SS"    e.g. "2023-10-15 14:30:00"
+//
+// Note: DateTimeV1 never includes microseconds (VecDateTimeValue::microsecond() always returns 0).
 template <PrimitiveType T>
-std::string DataTypeDateSerDe<T>::to_olap_string(const vectorized::Field& field) const {
+std::string DataTypeDateSerDe<T>::to_olap_string(const Field& field) const {
     char buf[64];
     char* pos = field.get<T>().to_string(buf);
     return std::string(buf, pos - buf - 1);
@@ -689,4 +708,4 @@ DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal
 template Status
 DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
-} // namespace doris::vectorized
+} // namespace doris

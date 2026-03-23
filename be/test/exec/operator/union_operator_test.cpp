@@ -29,9 +29,7 @@
 #include "testutil/mock/mock_descriptors.h"
 #include "testutil/mock/mock_literal_expr.h"
 #include "testutil/mock/mock_slot_ref.h"
-namespace doris::pipeline {
-
-using namespace vectorized;
+namespace doris {
 
 struct MockUnionSourceOperator : public UnionSourceOperatorX {
     MockUnionSourceOperator(int32_t child_size, DataTypes types, ObjectPool* pool)
@@ -293,4 +291,4 @@ TEST_F(UnionOperatorTest, test_sink_and_source) {
                 block, ColumnHelper::create_block<DataTypeInt64>({1, 2}, {3, 4})));
     }
 }
-} // namespace doris::pipeline
+} // namespace doris

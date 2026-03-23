@@ -154,7 +154,7 @@ Status AnnIndexColumnWriter::finish() {
     // train/add the remaining data
     if (!_float_array.empty()) {
         DCHECK(_float_array.size() % _vector_index->get_dimension() == 0);
-        vectorized::Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
+        Int64 num_rows = _float_array.size() / _vector_index->get_dimension();
         RETURN_IF_ERROR(_vector_index->train(num_rows, _float_array.data()));
         RETURN_IF_ERROR(_vector_index->add(num_rows, _float_array.data()));
         _float_array.clear();

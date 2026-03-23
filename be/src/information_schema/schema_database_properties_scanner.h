@@ -25,9 +25,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-}
 
 class SchemaDatabasePropertiesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaDatabasePropertiesScanner);
@@ -37,7 +35,7 @@ public:
     ~SchemaDatabasePropertiesScanner() override = default;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
@@ -49,7 +47,7 @@ private:
     int _total_rows = 0;
     int _db_index = 0;
     TGetDbsResult _db_result;
-    std::unique_ptr<vectorized::Block> _dbproperties_block = nullptr;
+    std::unique_ptr<Block> _dbproperties_block = nullptr;
     int _rpc_timeout_ms = 3000;
 };
 } // namespace doris

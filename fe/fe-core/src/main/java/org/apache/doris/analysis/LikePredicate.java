@@ -20,9 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
@@ -88,11 +85,6 @@ public class LikePredicate extends Predicate {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitLikePredicate(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.FUNCTION_CALL;
     }
 
     @Override

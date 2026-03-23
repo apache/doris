@@ -45,7 +45,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 using namespace FunctionsLogicalDetail;
@@ -289,4 +289,4 @@ void register_function_logical(SimpleFunctionFactory& instance) {
     instance.register_function<FunctionXor>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

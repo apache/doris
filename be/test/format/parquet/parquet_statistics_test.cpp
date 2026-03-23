@@ -22,7 +22,6 @@
 #include "format/parquet/parquet_predicate.h"
 
 namespace doris {
-namespace vectorized {
 class ParquetStatisticsTest : public testing::Test {
 public:
     ParquetStatisticsTest() = default;
@@ -151,5 +150,4 @@ TEST_F(ParquetStatisticsTest, test_try_read_old_utf8_stats) {
     }
 }
 
-} // namespace vectorized
 } // namespace doris

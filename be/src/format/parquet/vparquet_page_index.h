@@ -27,9 +27,7 @@ namespace cctz {
 class time_zone;
 } // namespace cctz
 namespace doris {
-namespace vectorized {
 struct FieldSchema;
-} // namespace vectorized
 } // namespace doris
 namespace tparquet {
 class ColumnChunk;
@@ -37,7 +35,7 @@ class ColumnIndex;
 class OffsetIndex;
 } // namespace tparquet
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class PageIndex {
 public:
@@ -58,4 +56,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

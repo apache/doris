@@ -34,7 +34,6 @@ struct IOContext;
 } // namespace io
 
 namespace doris {
-namespace vectorized {
 class DeletionVectorReader {
     ENABLE_FACTORY_CREATOR(DeletionVectorReader);
 
@@ -65,5 +64,4 @@ private:
     int64_t _file_size = 0;
     bool _is_opened = false;
 };
-} // namespace vectorized
 } // namespace doris

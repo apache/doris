@@ -23,7 +23,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class PartitionerBase {
@@ -114,7 +114,18 @@ struct ShuffleChannelIds {
 
 struct SpillPartitionChannelIds {
     using HashValType = PartitionerBase::HashValType;
+    // Default spill partition mapping used by level-0 partitioning:
+    // rotate hash bits and apply modulo to get a channel id directly.
     HashValType operator()(HashValType l, size_t r) { return ((l >> 16) | (l << 16)) % r; }
+};
+
+struct SpillRePartitionChannelIds {
+    using HashValType = PartitionerBase::HashValType;
+
+    // Repartition mode: return the raw hash value without modulo.
+    // The caller (SpillRepartitioner) will apply level-aware hash mixing and
+    // final channel mapping, so repartition behavior can vary by level.
+    HashValType operator()(HashValType l, size_t /*r*/) { return l; }
 };
 
 static inline PartitionerBase::HashValType crc32c_shuffle_mix(PartitionerBase::HashValType h) {
@@ -154,4 +165,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

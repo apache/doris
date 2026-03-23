@@ -53,7 +53,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Transform>
 class FunctionDateTimeStringToString : public IFunction {
@@ -249,6 +249,6 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

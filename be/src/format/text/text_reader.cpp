@@ -38,7 +38,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void HiveTextFieldSplitter::do_split(const Slice& line, std::vector<Slice>* splitted_values) {
@@ -183,4 +183,4 @@ Status TextReader::_deserialize_nullable_string(IColumn& column, Slice& slice) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

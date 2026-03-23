@@ -42,9 +42,7 @@ struct SegmentStatistics;
 using SegmentStatisticsSharedPtr = std::shared_ptr<SegmentStatistics>;
 class BaseRowsetBuilder;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 // Builder from segments (load, index, tablet).
 class LoadStreamWriter {

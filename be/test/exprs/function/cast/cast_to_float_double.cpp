@@ -30,7 +30,7 @@
 #include "core/value/time_value.h"
 #include "exprs/function/cast/cast_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 struct FunctionCastToFloatTest : public FunctionCastTest {
     const std::vector<std::string> white_spaces = {" ", "\t", "\r", "\n", "\f", "\v"};
@@ -1724,4 +1724,4 @@ TEST_F(FunctionCastToFloatTest, test_from_time) {
     from_time_test_func<TYPE_FLOAT>();
     from_time_test_func<TYPE_DOUBLE>();
 }
-} // namespace doris::vectorized
+} // namespace doris

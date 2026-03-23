@@ -44,7 +44,7 @@
 #include "util/io_helper.h"
 #include "util/var_int.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <PrimitiveType T, bool HasLimit>
 struct AggregateFunctionCollectSetData {
@@ -474,6 +474,6 @@ private:
     DataTypePtr return_type;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

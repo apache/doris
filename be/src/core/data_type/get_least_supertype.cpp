@@ -44,7 +44,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void get_numeric_type(const PrimitiveTypeSet& types, DataTypePtr* type) {
     bool all_numbers = true;
@@ -322,4 +322,4 @@ void get_least_supertype_jsonb(const PrimitiveTypeSet& types, DataTypePtr* type)
     *type = std::make_shared<DataTypeJsonb>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -34,7 +34,6 @@ import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.EsResource;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -128,22 +127,22 @@ public final class QueryBuilders {
                         .build(), column2typeMap);
     }
 
-    private static TExprOpcode flipOpCode(TExprOpcode opCode) {
+    private static BinaryPredicate.Operator flipOpCode(BinaryPredicate.Operator opCode) {
         switch (opCode) {
             case GE:
-                return TExprOpcode.LE;
+                return BinaryPredicate.Operator.LE;
             case GT:
-                return TExprOpcode.LT;
+                return BinaryPredicate.Operator.LT;
             case LE:
-                return TExprOpcode.GE;
+                return BinaryPredicate.Operator.GE;
             case LT:
-                return TExprOpcode.GT;
+                return BinaryPredicate.Operator.GT;
             default:
                 return opCode;
         }
     }
 
-    private static QueryBuilder parseBinaryPredicate(LiteralExpr expr, TExprOpcode opCode, String column,
+    private static QueryBuilder parseBinaryPredicate(LiteralExpr expr, BinaryPredicate.Operator opCode, String column,
             boolean needDateCompat) {
         Object value = toDorisLiteral(expr);
         if (needDateCompat) {
@@ -282,7 +281,6 @@ public final class QueryBuilders {
         if (expr instanceof CompoundPredicate) {
             return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions, column2typeMap);
         }
-        TExprOpcode opCode = expr.getOpcode();
         boolean isFlip = false;
         Expr leftExpr = expr.getChild(0);
         String column = getColumnFromExpr(leftExpr);
@@ -290,7 +288,6 @@ public final class QueryBuilders {
         if (StringUtils.isEmpty(column)) {
             Expr rightExpr = expr.getChild(1);
             column = getColumnFromExpr(rightExpr);
-            opCode = flipOpCode(opCode);
             isFlip = true;
         }
 
@@ -307,6 +304,10 @@ public final class QueryBuilders {
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
             BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            BinaryPredicate.Operator opCode = binaryPredicate.getOp();
+            if (isFlip) {
+                opCode = flipOpCode(opCode);
+            }
             Expr value;
             if (isFlip) {
                 value = binaryPredicate.getChild(0);

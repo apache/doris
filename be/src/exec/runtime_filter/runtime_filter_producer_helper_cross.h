@@ -35,7 +35,7 @@ public:
 
     RuntimeFilterProducerHelperCross() : RuntimeFilterProducerHelper(true, false) {}
 
-    Status process(RuntimeState* state, vectorized::Blocks& blocks) {
+    Status process(RuntimeState* state, Blocks& blocks) {
         for (auto& block : blocks) {
             RETURN_IF_ERROR(_process_block(&block));
         }
@@ -47,7 +47,7 @@ public:
     }
 
 private:
-    Status _process_block(vectorized::Block* block) {
+    Status _process_block(Block* block) {
         for (const auto& vexpr_ctx : _filter_expr_contexts) {
             int result_column_id = -1;
             RETURN_IF_ERROR(vexpr_ctx->execute(block, &result_column_id));
@@ -65,7 +65,7 @@ private:
         return Status::OK();
     }
 
-    void _init_expr(const vectorized::VExprContextSPtrs& build_expr_ctxs,
+    void _init_expr(const VExprContextSPtrs& build_expr_ctxs,
                     const std::vector<TRuntimeFilterDesc>& runtime_filter_descs) override {
         _filter_expr_contexts = build_expr_ctxs;
     }

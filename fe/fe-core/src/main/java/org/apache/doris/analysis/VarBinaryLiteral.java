@@ -19,15 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TVarBinaryLiteral;
 
 import com.google.common.io.BaseEncoding;
 import com.google.gson.annotations.SerializedName;
 
-import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 
 public class VarBinaryLiteral extends LiteralExpr {
@@ -54,6 +49,9 @@ public class VarBinaryLiteral extends LiteralExpr {
         this.value = other.value;
     }
 
+    public byte[] getValue() {
+        return value;
+    }
 
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
@@ -65,11 +63,6 @@ public class VarBinaryLiteral extends LiteralExpr {
         return "X'" + hex + "'";
     }
 
-    @Override
-    public void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.VARBINARY_LITERAL;
-        msg.varbinary_literal = new TVarBinaryLiteral(ByteBuffer.wrap(this.value));
-    }
 
     @Override
     public Expr clone() {
@@ -127,8 +120,4 @@ public class VarBinaryLiteral extends LiteralExpr {
         return new String(value, StandardCharsets.ISO_8859_1);
     }
 
-    @Override
-    public String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
-    }
 }

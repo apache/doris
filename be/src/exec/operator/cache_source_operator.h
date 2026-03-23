@@ -28,11 +28,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
-namespace pipeline {
 class DataQueue;
 
 class CacheSourceOperatorX;
@@ -56,14 +53,14 @@ private:
 
     std::string _cache_key {};
     int64_t _version = 0;
-    std::vector<vectorized::BlockUPtr> _local_cache_blocks;
+    std::vector<BlockUPtr> _local_cache_blocks;
     std::vector<int> _slot_orders;
     int64_t _current_query_cache_bytes = 0;
     int64_t _current_query_cache_rows = 0;
     bool _need_insert_cache = true;
 
     QueryCacheHandle _query_cache_handle;
-    std::vector<vectorized::BlockUPtr>* _hit_cache_results = nullptr;
+    std::vector<BlockUPtr>* _hit_cache_results = nullptr;
     std::vector<int> _hit_cache_column_orders;
     int _hit_cache_pos = 0;
 };
@@ -82,7 +79,7 @@ public:
 #endif
 
     ~CacheSourceOperatorX() override = default;
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -101,6 +98,5 @@ private:
     friend class CacheSourceLocalState;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

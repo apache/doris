@@ -33,7 +33,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // NOTE:
 // The implementatin of random generator is inspired by the RandImpl::execute of ClickHouse.
@@ -153,4 +153,4 @@ void register_function_uuid_numeric(SimpleFunctionFactory& factory) {
     factory.register_function<UuidNumeric>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

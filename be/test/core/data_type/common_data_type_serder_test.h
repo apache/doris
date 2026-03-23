@@ -66,7 +66,7 @@
 //  write_column_to_arrow (const IColumn &column, const NullMap *null_map, arrow::ArrayBuilder *array_builder, int start, int end, const cctz::time_zone &ctz) const =0
 //  read_column_from_arrow (IColumn &column, const arrow::Array *arrow_array, int start, int end, const cctz::time_zone &ctz) const =0
 
-namespace doris::vectorized {
+namespace doris {
 
 class CommonDataTypeSerdeTest : public ::testing::Test {
 public:
@@ -428,4 +428,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

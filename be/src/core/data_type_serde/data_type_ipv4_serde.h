@@ -33,7 +33,7 @@
 #include "core/value/ipv4_value.h"
 #include "storage/olap_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeIPv4SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4> {
 public:
@@ -65,8 +65,6 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
@@ -74,6 +72,10 @@ public:
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
+
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 };
-} // namespace doris::vectorized
+} // namespace doris

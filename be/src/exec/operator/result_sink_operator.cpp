@@ -34,7 +34,7 @@
 #include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 Status ResultSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
@@ -77,13 +77,13 @@ Status ResultSinkLocalState::open(RuntimeState* state) {
     // create writer based on sink type
     switch (p._sink_type) {
     case TResultSinkType::MYSQL_PROTOCOL: {
-        _writer.reset(new (std::nothrow) vectorized::VMysqlResultWriter(
+        _writer.reset(new (std::nothrow) VMysqlResultWriter(
                 _sender, _output_vexpr_ctxs, custom_profile(), state->mysql_row_binary_format()));
         break;
     }
     case TResultSinkType::ARROW_FLIGHT_PROTOCOL: {
-        _writer.reset(new (std::nothrow) vectorized::VArrowFlightResultWriter(
-                _sender, _output_vexpr_ctxs, custom_profile()));
+        _writer.reset(new (std::nothrow) VArrowFlightResultWriter(_sender, _output_vexpr_ctxs,
+                                                                  custom_profile()));
         break;
     }
     default:
@@ -115,9 +115,9 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(DataSinkOperatorX<ResultSinkLocalState>::prepare(state));
     // prepare output_expr
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     // Prepare the exprs to run.
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
 
     if (state->query_options().enable_parallel_result_sink) {
         std::shared_ptr<arrow::Schema> arrow_schema;
@@ -130,10 +130,10 @@ Status ResultSinkOperatorX::prepare(RuntimeState* state) {
                 state->query_id(), _result_sink_buffer_size_rows, &_sender, state,
                 _sink_type == TResultSinkType::ARROW_FLIGHT_PROTOCOL, arrow_schema));
     }
-    return vectorized::VExpr::open(_output_vexpr_ctxs, state);
+    return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
+Status ResultSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
@@ -153,8 +153,7 @@ Status ResultSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, 
     return Status::OK();
 }
 
-Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state,
-                                                     vectorized::Block* final_block) {
+Status ResultSinkOperatorX::_second_phase_fetch_data(RuntimeState* state, Block* final_block) {
     auto row_id_col = final_block->get_by_position(final_block->columns() - 1);
     CHECK(row_id_col.name == BeConsts::ROWID_COL);
     auto* tuple_desc = _row_desc.tuple_descriptors()[0];
@@ -208,4 +207,4 @@ Status ResultSinkLocalState::close(RuntimeState* state, Status exec_status) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

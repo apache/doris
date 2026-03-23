@@ -31,7 +31,7 @@
 #include "gtest/gtest_pred_impl.h" // IWYU pragma: keep
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(VFieldTest, field_string) {
     Field f;
 
@@ -280,4 +280,4 @@ TEST(VFieldTest, field_create) {
     bitmap_value_copy = bitmap_value_f;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

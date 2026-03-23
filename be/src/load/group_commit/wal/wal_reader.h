@@ -20,7 +20,7 @@
 #include "load/group_commit/wal/wal_file_reader.h"
 #include "runtime/descriptors.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 struct ScannerCounter;
 class WalReader : public GenericReader {
@@ -53,4 +53,4 @@ private:
     uint32_t _version = 0;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -196,7 +196,7 @@ suite("unnest_from_list_test", "unnest") {
             3, 
             'Search_Target', 
             to_bitmap(1), 
-            array_union(collect_list(CONCAT('val_', number)), ['tech'])
+            array_sort(array_union(collect_list(CONCAT('val_', number)), ['tech']))
         FROM numbers("number" = "500");"""
 
     // Stress test UNNEST on a large bitmap and perform a COUNT aggregation.

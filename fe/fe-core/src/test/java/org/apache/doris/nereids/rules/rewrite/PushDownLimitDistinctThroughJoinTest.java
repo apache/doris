@@ -85,7 +85,35 @@ class PushDownLimitDistinctThroughJoinTest extends TestWithFeService implements 
                 );
 
         plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.ASOF_LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .distinct(ImmutableList.of(0, 1))
+                .limit(10)
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushDownLimitDistinctThroughJoin())
+                .matches(
+                        logicalJoin(
+                                logicalLimit(logicalAggregate(logicalOlapScan())).when(l -> l.getLimit() == 10),
+                                logicalOlapScan()
+                        )
+                );
+
+        plan = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))
+                .distinct(ImmutableList.of(2, 3))
+                .limit(10)
+                .build();
+        PlanChecker.from(connectContext, plan)
+                .applyTopDown(new PushDownLimitDistinctThroughJoin())
+                .matches(
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalLimit(logicalAggregate(logicalOlapScan())).when(l -> l.getLimit() == 10)
+                        )
+                );
+
+        plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.ASOF_RIGHT_OUTER_JOIN, Pair.of(0, 0))
                 .distinct(ImmutableList.of(2, 3))
                 .limit(10)
                 .build();
@@ -143,8 +171,13 @@ class PushDownLimitDistinctThroughJoinTest extends TestWithFeService implements 
 
     @Test
     void badCaseJoinType() {
+        badCaseJoinTypeHelper(JoinType.LEFT_OUTER_JOIN);
+        badCaseJoinTypeHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void badCaseJoinTypeHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .distinct(ImmutableList.of(2))
                 .limit(10)
                 .build();
@@ -155,9 +188,14 @@ class PushDownLimitDistinctThroughJoinTest extends TestWithFeService implements 
 
     @Test
     void badCaseOutput() {
+        badCaseOutputHelper(JoinType.LEFT_OUTER_JOIN);
+        badCaseOutputHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void badCaseOutputHelper(JoinType joinType) {
         // distinct agg don't output all group by columns of left child
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, joinType, Pair.of(0, 0))
                 .distinct(ImmutableList.of(0))
                 .limit(10)
                 .build();

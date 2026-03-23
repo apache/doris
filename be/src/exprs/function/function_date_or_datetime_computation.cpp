@@ -21,7 +21,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct NowFunctionName {
     static constexpr auto name = "now";
@@ -345,4 +345,4 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDatetimeToWeekTwoArgs>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

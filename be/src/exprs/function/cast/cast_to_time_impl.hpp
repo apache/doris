@@ -29,7 +29,7 @@
 #include "core/value/vdatetime_value.h"
 #include "exprs/function/cast/cast_base.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -633,4 +633,4 @@ inline bool CastToTimeV2::from_string_non_strict_mode_impl(const StringRef& str,
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

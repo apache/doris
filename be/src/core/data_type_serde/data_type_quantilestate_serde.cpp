@@ -19,7 +19,7 @@
 
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 Status DataTypeQuantileStateSerDe::from_olap_string(const std::string& str, Field& field,
                                                     const FormatOptions& options) const {
@@ -72,4 +72,4 @@ bool DataTypeQuantileStateSerDe::write_column_to_mysql_text(const IColumn& colum
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

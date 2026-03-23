@@ -32,7 +32,6 @@
 #include "util/jsonb_document.h"
 #include "util/jsonb_writer.h"
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 DataTypeSerDe::~DataTypeSerDe() = default;
 
@@ -137,7 +136,7 @@ void DataTypeSerDe::to_string(const IColumn& column, size_t row_num, BufferWrita
                            "Data type {} to_string_batch not implement.", get_name());
 }
 
-std::string DataTypeSerDe::to_olap_string(const vectorized::Field& value) const {
+std::string DataTypeSerDe::to_olap_string(const Field& value) const {
     throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                            "Data type {} to_olap_string not implement.", get_name());
     return "";
@@ -292,5 +291,4 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
     return end;
 }
 
-} // namespace vectorized
 } // namespace doris

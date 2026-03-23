@@ -21,11 +21,13 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
@@ -197,12 +199,17 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public void computeUnique(DataTrait.Builder builder) {
         Set<Slot> outputSet = Utils.fastToImmutableSet(getOutputSet());
-        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
+        TableNameInfo tableNameInfo = TableNameInfo.createOrNull(table);
+        if (tableNameInfo == null) {
+            return;
+        }
+        ConstraintManager cm = Env.getCurrentEnv().getConstraintManager();
+        for (PrimaryKeyConstraint c : cm.getPrimaryKeyConstraints(tableNameInfo)) {
             Set<Column> columns = c.getPrimaryKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
 
-        for (UniqueConstraint c : table.getUniqueConstraints()) {
+        for (UniqueConstraint c : cm.getUniqueConstraints(tableNameInfo)) {
             Set<Column> columns = c.getUniqueKeys(table);
             builder.addUniqueSlot((ImmutableSet) findSlotsByColumn(outputSet, columns));
         }
@@ -215,8 +222,13 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
 
     private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
         ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
+        TableNameInfo tableNameInfo = TableNameInfo.createOrNull(table);
+        if (tableNameInfo == null) {
+            return builder.build();
+        }
+        ConstraintManager cm = Env.getCurrentEnv().getConstraintManager();
 
-        for (PrimaryKeyConstraint c : table.getPrimaryKeyConstraints()) {
+        for (PrimaryKeyConstraint c : cm.getPrimaryKeyConstraints(tableNameInfo)) {
             Set<Column> columns = c.getPrimaryKeys(this.getTable());
             ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
             TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
@@ -224,7 +236,7 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
             builder.add(tableFdItem);
         }
 
-        for (UniqueConstraint c : table.getUniqueConstraints()) {
+        for (UniqueConstraint c : cm.getUniqueConstraints(tableNameInfo)) {
             Set<Column> columns = c.getUniqueKeys(this.getTable());
             boolean allNotNull = true;
 

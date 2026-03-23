@@ -23,7 +23,6 @@ import org.apache.doris.analysis.TlsOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -133,7 +132,7 @@ public class AlterUserInfo {
         }
 
         if (userDesc.getUserIdent().getQualifiedUser().equals(Auth.ROOT_USER)
-                && !ClusterNamespace.getNameFromFullName(ConnectContext.get().getQualifiedUser())
+                && !ConnectContext.get().getQualifiedUser()
                 .equals(Auth.ROOT_USER)) {
             throw new AnalysisException("Only root user can modify root user");
         }

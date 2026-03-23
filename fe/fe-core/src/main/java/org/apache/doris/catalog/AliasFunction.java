@@ -18,10 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprToSqlVisitor;
-import org.apache.doris.analysis.FunctionName;
-import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.gson.annotations.SerializedName;
@@ -33,7 +29,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.stream.Collectors;
 
 /**
  * Internal representation of an alias function.
@@ -89,48 +84,6 @@ public class AliasFunction extends Function {
 
     public void setSessionVariables(Map<String, String> sessionVariables) {
         this.sessionVariables = sessionVariables;
-    }
-
-    @Override
-    public String toSql(boolean ifNotExists) {
-        setSlotRefLabel(originFunction);
-        StringBuilder sb = new StringBuilder("CREATE ");
-
-        if (this.isGlobal) {
-            sb.append("GLOBAL ");
-        }
-        sb.append("ALIAS FUNCTION ");
-
-        if (ifNotExists) {
-            sb.append("IF NOT EXISTS ");
-        }
-        sb.append(signatureString())
-                .append(" WITH PARAMETER(")
-                .append(getParamsSting(parameters))
-                .append(") AS ")
-                .append(originFunction.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE))
-                .append(";");
-        return sb.toString();
-    }
-
-    /**
-     * set slotRef label to column name
-     *
-     * @param expr
-     */
-    private void setSlotRefLabel(Expr expr) {
-        for (Expr e : expr.getChildren()) {
-            setSlotRefLabel(e);
-        }
-        if (expr instanceof SlotRef) {
-            ((SlotRef) expr).setLabel("`" + ((SlotRef) expr).getColumnName() + "`");
-        }
-    }
-
-    private String getParamsSting(List<String> parameters) {
-        return parameters.stream()
-                .map(String::toString)
-                .collect(Collectors.joining(", "));
     }
 
     @Override

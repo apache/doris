@@ -32,13 +32,11 @@ namespace doris {
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
-namespace vectorized {
 class Block;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class VCastExpr : public VExpr {
     ENABLE_FACTORY_CREATOR(VCastExpr);
 
@@ -108,4 +106,4 @@ private:
     bool _original_cast_return_is_nullable = false;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

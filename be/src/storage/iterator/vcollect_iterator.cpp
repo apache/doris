@@ -51,7 +51,6 @@
 namespace doris {
 using namespace ErrorCode;
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 #define RETURN_IF_NOT_EOF_AND_OK(stmt)                                 \
@@ -282,7 +281,7 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
         }
     }
-    MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+    MutableBlock mutable_block = MutableBlock::build_mutable_block(&clone_block);
 
     if (!_reader->_reader_context.read_orderby_key_columns) {
         return Status::Error<ErrorCode::INTERNAL_ERROR>(
@@ -407,7 +406,7 @@ Status VCollectIterator::_topn_next(Block* block) {
                                << mutable_block.rows() << " rows";
                     Block tmp_block = mutable_block.to_block();
                     clone_block = tmp_block.clone_empty();
-                    mutable_block = vectorized::MutableBlock::build_mutable_block(&clone_block);
+                    mutable_block = MutableBlock::build_mutable_block(&clone_block);
                     for (auto it = sorted_row_pos.begin(); it != sorted_row_pos.end(); it++) {
                         mutable_block.add_row(&tmp_block, cast_set<int>(*it));
                     }
@@ -913,5 +912,4 @@ Status VCollectIterator::Level1Iterator::current_block_row_locations(
 }
 
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

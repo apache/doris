@@ -67,7 +67,7 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     // Batch processing using template method
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+    Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override {
         // read subcolumns first
         RETURN_IF_ERROR(_read_subcolumns([&](SubstreamReaderTree::Node* entry) {
             bool has_null = false;
@@ -80,7 +80,7 @@ public:
 
     // RowID-based read using template method
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
-                          vectorized::MutableColumnPtr& dst) override {
+                          MutableColumnPtr& dst) override {
         // read subcolumns first
         RETURN_IF_ERROR(_read_subcolumns([&](SubstreamReaderTree::Node* entry) {
             return entry->data.iterator->read_by_rowids(rowids, count, entry->data.column);
@@ -114,19 +114,18 @@ private:
             _sorted_src_subcolumn_for_sparse;
 
     // Path filtering implementation
-    void _process_data_with_existing_sparse_column(vectorized::MutableColumnPtr& dst,
+    void _process_data_with_existing_sparse_column(MutableColumnPtr& dst,
                                                    size_t num_rows) override {
         _merge_to(dst);
     }
 
-    void _merge_to(vectorized::MutableColumnPtr& dst);
+    void _merge_to(MutableColumnPtr& dst);
 
-    void _process_data_without_sparse_column(vectorized::MutableColumnPtr& dst,
-                                             size_t num_rows) override;
+    void _process_data_without_sparse_column(MutableColumnPtr& dst, size_t num_rows) override;
 
     void _serialize_nullable_column_to_sparse(const SubstreamReaderTree::Node* src_subcolumn,
-                                              vectorized::ColumnString& dst_sparse_column_paths,
-                                              vectorized::ColumnString& dst_sparse_column_values,
+                                              ColumnString& dst_sparse_column_paths,
+                                              ColumnString& dst_sparse_column_values,
                                               const StringRef& src_path, size_t row);
 };
 

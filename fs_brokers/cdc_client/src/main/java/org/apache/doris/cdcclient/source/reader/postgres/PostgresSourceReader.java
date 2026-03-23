@@ -19,6 +19,7 @@ package org.apache.doris.cdcclient.source.reader.postgres;
 
 import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.exception.CdcClientException;
+import org.apache.doris.cdcclient.source.deserialize.PostgresDebeziumJsonDeserializer;
 import org.apache.doris.cdcclient.source.factory.DataSource;
 import org.apache.doris.cdcclient.source.reader.JdbcIncrementalSourceReader;
 import org.apache.doris.cdcclient.utils.ConfigUtil;
@@ -55,6 +56,7 @@ import org.apache.flink.table.types.DataType;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +64,7 @@ import java.util.Properties;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import io.debezium.connector.postgresql.PostgresOffsetContext;
 import io.debezium.connector.postgresql.SourceInfo;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
@@ -84,6 +87,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     public PostgresSourceReader() {
         super();
+        this.setSerializer(new PostgresDebeziumJsonDeserializer());
     }
 
     @Override
@@ -95,6 +99,12 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
             createSlotForGlobalStreamSplit(dialect);
         }
         super.initialize(jobId, dataSource, config);
+        // Inject PG schema refresher so the deserializer can fetch accurate column types on DDL
+        if (serializer instanceof PostgresDebeziumJsonDeserializer) {
+            ((PostgresDebeziumJsonDeserializer) serializer)
+                    .setPgSchemaRefresher(
+                            tableId -> refreshSingleTableSchema(tableId, config, jobId));
+        }
     }
 
     /**
@@ -359,6 +369,29 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         }
     }
 
+    /**
+     * Fetch the current schema for a single table directly from PostgreSQL via JDBC.
+     *
+     * <p>Called by {@link PostgresDebeziumJsonDeserializer} when a schema change (ADD/DROP column)
+     * is detected, to obtain accurate PG column types for DDL generation.
+     *
+     * @return the fresh {@link TableChanges.TableChange}
+     */
+    private TableChanges.TableChange refreshSingleTableSchema(
+            TableId tableId, Map<String, String> config, long jobId) {
+        PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
+        PostgresDialect dialect = new PostgresDialect(sourceConfig);
+        try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
+            CustomPostgresSchema customPostgresSchema =
+                    new CustomPostgresSchema((PostgresConnection) jdbcConnection, sourceConfig);
+            Map<TableId, TableChanges.TableChange> schemas =
+                    customPostgresSchema.getTableSchema(Collections.singletonList(tableId));
+            return schemas.get(tableId);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     @Override
     protected FetchTask<SourceSplitBase> createFetchTaskFromSplit(
             JobBaseConfig jobConfig, SourceSplitBase split) {
@@ -396,6 +429,25 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     e.getMessage(),
                     e);
         }
+    }
+
+    /**
+     * Strip lsn_proc and lsn_commit from the binlog state offset before it is passed to debezium's
+     * WalPositionLocator. In pgoutput non-streaming mode (proto_version=1, used by debezium 1.9.x
+     * even on PG14), BEGIN and DML messages within a transaction share the same XLogData.data_start
+     * as the transaction's begin_lsn. When begin_lsn equals the previous transaction's commit_lsn
+     * (i.e. no other WAL write exists between them), WalPositionLocator adds that lsn to lsnSeen
+     * during the find phase and then incorrectly filters the DML as already-processed during actual
+     * streaming. Removing these keys sets lastCommitStoredLsn=null, so the find phase exits
+     * immediately at the first received message and switch-off happens before any DML is filtered.
+     * See https://issues.apache.org/jira/browse/FLINK-39265.
+     */
+    @Override
+    public Map<String, String> extractBinlogStateOffset(Object splitState) {
+        Map<String, String> offset = super.extractBinlogStateOffset(splitState);
+        offset.remove(PostgresOffsetContext.LAST_COMPLETELY_PROCESSED_LSN_KEY);
+        offset.remove(PostgresOffsetContext.LAST_COMMIT_LSN_KEY);
+        return offset;
     }
 
     @Override

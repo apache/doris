@@ -45,12 +45,10 @@
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct AggregateFunctionArrayAggTest : public AggregateFunctiontest {};
 
@@ -194,4 +192,4 @@ TEST_F(AggregateFunctionArrayAggTest, test_array_agg_aint64_foreach) {
             ColumnWithTypeAndName(std::move(array_array_column), array_array_data_type, "column"));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

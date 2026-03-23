@@ -36,7 +36,7 @@
 
 using namespace doris::segment_v2;
 
-namespace doris::vectorized {
+namespace doris {
 
 // Test saving and loading an index
 TEST_F(VectorSearchTest, TestSaveAndLoad) {
@@ -1350,4 +1350,4 @@ TEST_F(VectorSearchTest, InnerProductRangeSearchZeroAndNegativeRadius) {
     ASSERT_GE(res_gen.roaring->cardinality(), static_cast<size_t>(n * 0.9));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

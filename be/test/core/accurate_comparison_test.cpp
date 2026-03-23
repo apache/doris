@@ -19,7 +19,7 @@
 
 #include <gtest/gtest.h>
 
-namespace doris::vectorized {
+namespace doris {
 TEST(VAccurateComparison, TestsOP) {
     EXPECT_TRUE((EqualsOp<TYPE_INT>::apply(1, 1)));
     EXPECT_FALSE((EqualsOp<TYPE_INT>::apply(1, 2)));
@@ -36,4 +36,4 @@ TEST(VAccurateComparison, TestsOP) {
     EXPECT_TRUE((GreaterOrEqualsOp<TYPE_INT>::apply(1, 1)));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

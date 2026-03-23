@@ -97,7 +97,7 @@ private:
     const TypeInfo* _type_info = nullptr;
     io::FileWriter* _file_writer = nullptr;
     // only used for `_first_value`
-    vectorized::Arena _arena;
+    Arena _arena;
 
     ordinal_t _num_values;
     uint32_t _num_data_pages;

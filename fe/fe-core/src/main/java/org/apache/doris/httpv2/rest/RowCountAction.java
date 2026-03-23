@@ -63,11 +63,10 @@ public class RowCountAction extends RestBaseController {
             return ResponseEntityBuilder.badRequest("No table selected");
         }
 
-        String fullDbName = getFullDbName(dbName);
         Map<String, Long> indexRowCountMap = Maps.newHashMap();
         OlapTable olapTable;
         try {
-            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(fullDbName);
+            Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
             olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
         } catch (MetaNotFoundException e) {
             return ResponseEntityBuilder.okWithCommonError(e.getMessage());

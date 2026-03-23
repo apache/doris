@@ -24,7 +24,7 @@
 
 #include "exprs/aggregate/aggregate_function_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFactory& factory);
@@ -142,4 +142,4 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
     return instance;
 }
 
-} // namespace doris::vectorized
+} // namespace doris

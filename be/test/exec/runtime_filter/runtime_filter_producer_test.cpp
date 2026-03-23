@@ -71,7 +71,7 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size) {
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
     auto mocked_dependency =
-            std::make_shared<pipeline::CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
+            std::make_shared<CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
     producer->latch_dependency(mocked_dependency);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->send_size(_runtime_states[0].get(), 100));
     // local mode, single rf get size directly into WAITING_FOR_DATA
@@ -90,7 +90,7 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size_local_no_merge) {
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
     auto mocked_dependency =
-            std::make_shared<pipeline::CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
+            std::make_shared<CountedFinishDependency>(0, 0, "MOCKED_FINISH_DEPENDENCY");
     producer->latch_dependency(mocked_dependency);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->send_size(_runtime_states[0].get(), 100));
     // local mode, single rf get size directly into WAITING_FOR_DATA
@@ -118,7 +118,7 @@ TEST_F(RuntimeFilterProducerTest, sync_filter_size_local_merge) {
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
-    auto dependency = std::make_shared<pipeline::CountedFinishDependency>(0, 0, "");
+    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "");
 
     producer->latch_dependency(dependency);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->send_size(_runtime_states[0].get(), 123));
@@ -154,7 +154,7 @@ TEST_F(RuntimeFilterProducerTest, set_disable) {
     ASSERT_EQ(producer->_need_sync_filter_size, true);
     ASSERT_EQ(producer->_rf_state, RuntimeFilterProducer::State::WAITING_FOR_SEND_SIZE);
 
-    auto dependency = std::make_shared<pipeline::CountedFinishDependency>(0, 0, "");
+    auto dependency = std::make_shared<CountedFinishDependency>(0, 0, "");
 
     producer->latch_dependency(dependency);
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(producer->send_size(_runtime_states[0].get(), 123));

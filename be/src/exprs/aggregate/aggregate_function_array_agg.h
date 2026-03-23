@@ -32,7 +32,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 
@@ -405,6 +405,6 @@ private:
     DataTypePtr return_type;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

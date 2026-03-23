@@ -23,7 +23,7 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_arrays_overlap_test, arrays_overlap) {
     std::string func_name = "arrays_overlap";
@@ -152,4 +152,4 @@ TEST(function_arrays_overlap_test, arrays_overlap) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -56,7 +56,7 @@
 #include "exprs/table_function/table_function.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // NOLINTBEGIN(readability-function-size)
 // return consumed slots in input_types(for nested types it may greater than 1)
@@ -619,7 +619,7 @@ static Block* process_table_function(TableFunction* fn, Block* input_block,
     }
 
     // prepare output column
-    vectorized::MutableColumnPtr column = descs[0].data_type->create_column();
+    MutableColumnPtr column = descs[0].data_type->create_column();
     if (column->is_nullable()) {
         fn->set_nullable();
     }
@@ -674,4 +674,4 @@ void check_vec_table_function(TableFunction* fn, const InputTypeSet& input_types
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

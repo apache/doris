@@ -102,7 +102,7 @@ public:
 private:
     BloomFilterOptions _bf_options;
     const TypeInfo* _type_info = nullptr;
-    vectorized::Arena _arena;
+    Arena _arena;
     bool _has_null;
     uint64_t _bf_buffer_size;
     // distinct values
@@ -128,7 +128,7 @@ private:
     BloomFilterOptions _bf_options;
     uint8_t _gram_size;
     uint16_t _bf_size;
-    vectorized::Arena _arena;
+    Arena _arena;
     uint64_t _bf_buffer_size;
     NgramTokenExtractor _token_extractor;
     std::unique_ptr<BloomFilter> _bf;

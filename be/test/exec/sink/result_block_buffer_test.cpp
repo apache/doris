@@ -31,7 +31,7 @@
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class MysqlResultBlockBufferTest : public ::testing::Test {
 public:
@@ -65,7 +65,7 @@ TEST_F(MysqlResultBlockBufferTest, TestMySQLResultBlockBuffer) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
-    auto dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+    auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
     bool fail = false;
     bool close = false;
@@ -190,7 +190,7 @@ TEST_F(MysqlResultBlockBufferTest, TestCancelMySQLResultBlockBuffer) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
-    auto dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+    auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
     bool fail = false;
     bool close = false;
@@ -265,7 +265,7 @@ TEST_F(MysqlResultBlockBufferTest, TestErrorClose) {
     MockRuntimeState state;
     state.batsh_size = 1;
     int buffer_size = 16;
-    auto dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+    auto dep = Dependency::create_shared(0, 0, "Test", true);
     auto ins_id = TUniqueId();
     bool fail = false;
     bool close = false;
@@ -306,7 +306,7 @@ TEST_F(MysqlResultBlockBufferTest, TestErrorClose) {
     {
         auto new_ins_id = TUniqueId();
         new_ins_id.lo = 1;
-        auto new_dep = pipeline::Dependency::create_shared(0, 0, "Test", true);
+        auto new_dep = Dependency::create_shared(0, 0, "Test", true);
         buffer.set_dependency(new_ins_id, new_dep);
         EXPECT_EQ(buffer.close(ins_id, Status::InternalError(""), 0).code(),
                   ErrorCode::INTERNAL_ERROR);
@@ -316,4 +316,4 @@ TEST_F(MysqlResultBlockBufferTest, TestErrorClose) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -21,7 +21,6 @@
 #include <mutex>
 
 namespace doris {
-namespace vectorized {
 
 class Ticker {
 public:
@@ -45,5 +44,4 @@ public:
     }
 };
 
-} // namespace vectorized
 } // namespace doris

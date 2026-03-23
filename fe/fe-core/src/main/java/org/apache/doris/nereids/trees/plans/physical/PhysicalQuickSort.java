@@ -22,6 +22,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -80,27 +81,29 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     @Override
     public PhysicalQuickSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalQuickSort<>(orderKeys, phase, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, getLogicalProperties(), child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalQuickSort<>(orderKeys, phase, groupExpression,
+                getLogicalProperties(), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, logicalProperties.get(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalQuickSort<>(orderKeys, phase, groupExpression,
+                logicalProperties.get(), children.get(0)));
     }
 
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, getLogicalProperties(), physicalProperties,
-                statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalQuickSort<>(orderKeys, phase, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

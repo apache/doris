@@ -27,8 +27,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 
-namespace vectorized {
-
 // IPartitionWriterBase
 //     ├── VIcebergPartitionWriter
 //     └── VIcebergSortWriter
@@ -50,7 +48,7 @@ public:
     virtual Status open(RuntimeState* state, RuntimeProfile* profile,
                         const RowDescriptor* row_desc) = 0;
 
-    virtual Status write(vectorized::Block& block) = 0;
+    virtual Status write(Block& block) = 0;
 
     virtual Status close(const Status& status) = 0;
 
@@ -60,5 +58,4 @@ public:
 
     virtual size_t written_len() const = 0;
 };
-} // namespace vectorized
 } // namespace doris

@@ -26,7 +26,7 @@
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
 #include "runtime/thread_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 IDictionary::IDictionary(std::string name, std::vector<DictionaryAttribute> attributes)
         : _dict_name(std::move(name)), _attributes(std::move(attributes)) {
@@ -70,7 +70,7 @@ bool IDictionary::attribute_is_nullable(size_t idx) const {
 
 std::variant<std::false_type, std::true_type> IDictionary::attribute_nullable_variant(
         size_t idx) const {
-    return vectorized::make_bool_variant(_attributes[idx].type->is_nullable());
+    return make_bool_variant(_attributes[idx].type->is_nullable());
 }
 
 DataTypePtr IDictionary::get_attribute_type(const std::string& name) const {
@@ -150,4 +150,4 @@ void IDictionary::load_values(const std::vector<ColumnPtr>& values_column) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

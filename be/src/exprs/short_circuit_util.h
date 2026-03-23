@@ -24,7 +24,7 @@
 #include "core/field.h"
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Used to store a column along with its null_map and whether it is a const column.
 // If the input column is not nullable, then null_map will be nullptr.
@@ -496,4 +496,4 @@ struct ConditionColumnNullView : ColumnNullConstView, ConditionColumnViewHelper 
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -39,11 +39,9 @@
 #include "util/slice.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
 class IOlapColumnDataAccessor;
 class OlapBlockDataConvertor;
-} // namespace vectorized
 
 // TODO(lingbin): Should be a conf that can be dynamically adjusted, or a member in the context
 const uint32_t MAX_SEGMENT_SIZE = static_cast<uint32_t>(OLAP_MAX_COLUMN_SEGMENT_FILE_SIZE *
@@ -91,10 +89,9 @@ public:
     // for vertical compaction
     Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
-    template <typename RowType>
-    Status append_row(const RowType& row);
+    Status append_row(const RowCursor& row);
 
-    Status append_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status append_block(const Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                              bool have_delete_sign,
                              const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -105,8 +102,7 @@ public:
                              const std::function<Status()>& not_found_cb,
                              PartialUpdateStats& stats);
     Status partial_update_preconditions_check(size_t row_pos);
-    Status append_block_with_partial_content(const vectorized::Block* block, size_t row_pos,
-                                             size_t num_rows);
+    Status append_block_with_partial_content(const Block* block, size_t row_pos, size_t num_rows);
 
     int64_t max_row_to_add(size_t row_avg_size_in_bytes);
 
@@ -171,31 +167,28 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key);
-    std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-                             size_t pos);
+    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos, bool null_first = true);
 
-    static std::string _full_encode_keys(
-            const std::vector<const KeyCoder*>& key_coders,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
-            bool null_first = true);
+    static std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
+                                         const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                         size_t pos, bool null_first = true);
 
     // used for unique-key with merge on write
-    void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+    void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
                             std::string* encoded_keys);
     void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(const vectorized::Block& block);
+    void _serialize_block_to_row_column(const Block& block);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
-    Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
+            IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
+    Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
     bool _is_mow();
     bool _is_mow_with_cluster_key();
@@ -223,7 +216,7 @@ private:
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
+    std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     // for mow table with cluster keys, this is cluster keys
     std::vector<const KeyCoder*> _key_coders;

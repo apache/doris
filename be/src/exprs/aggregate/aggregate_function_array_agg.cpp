@@ -22,7 +22,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
@@ -64,4 +64,4 @@ AggregateFunctionPtr create_aggregate_function_array_agg(const std::string& name
 void register_aggregate_function_array_agg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("array_agg", create_aggregate_function_array_agg);
 }
-} // namespace doris::vectorized
+} // namespace doris

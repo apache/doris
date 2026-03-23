@@ -21,21 +21,25 @@
 #include "exec/operator/operator.h"
 #include "exec/pipeline/dependency.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 std::string MultiCastDataStreamSinkLocalState::name_suffix() {
     auto* parent = static_cast<MultiCastDataStreamSinkOperatorX*>(_parent);
     auto& dest_ids = parent->dests_id();
-    std::string result = "(";
+    std::string dest_list;
     for (size_t i = 0; i < dest_ids.size(); ++i) {
         if (i > 0) {
-            result += ", ";
+            dest_list += ",";
         }
-        result += fmt::format("dest_id={}", dest_ids[i]);
+        dest_list += std::to_string(dest_ids[i]);
     }
-    result += ")";
-    return fmt::format(result + operator_name_suffix, parent->operator_id());
+    if (_parent->nereids_id() == -1) {
+        return fmt::format("(id={}, dest_ids=[{}])", parent->operator_id(), dest_list);
+    } else {
+        return fmt::format("(nereids_id={}, id={}, dest_ids=[{}])", _parent->nereids_id(),
+                           parent->operator_id(), dest_list);
+    }
 }
 
 std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_shared_state() const {
@@ -52,7 +56,6 @@ std::shared_ptr<BasicSharedState> MultiCastDataStreamSinkOperatorX::create_share
 Status MultiCastDataStreamSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     _shared_state->multi_cast_data_streamer->set_sink_profile(operator_profile());
-    _shared_state->setup_shared_profile(custom_profile());
     _shared_state->multi_cast_data_streamer->set_write_dependency(_dependency);
     return Status::OK();
 }
@@ -64,8 +67,7 @@ std::string MultiCastDataStreamSinkLocalState::debug_string(int indentation_leve
     return fmt::to_string(debug_string_buffer);
 }
 
-Status MultiCastDataStreamSinkOperatorX::sink(RuntimeState* state, vectorized::Block* in_block,
-                                              bool eos) {
+Status MultiCastDataStreamSinkOperatorX::sink(RuntimeState* state, Block* in_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     if (in_block->rows() > 0 || eos) {
@@ -77,4 +79,4 @@ Status MultiCastDataStreamSinkOperatorX::sink(RuntimeState* state, vectorized::B
     return Status::OK();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

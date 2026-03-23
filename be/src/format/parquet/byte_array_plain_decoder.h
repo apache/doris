@@ -34,13 +34,11 @@
 #include "util/slice.h"
 
 namespace doris {
-namespace vectorized {
 template <PrimitiveType T>
 class ColumnDecimal;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class ByteArrayPlainDecoder final : public Decoder {
 public:
@@ -58,4 +56,4 @@ public:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

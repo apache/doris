@@ -17,9 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-
 public final class MaxLiteral extends LiteralExpr {
 
     public static final MaxLiteral MAX_VALUE = new MaxLiteral();
@@ -47,11 +44,6 @@ public final class MaxLiteral extends LiteralExpr {
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {
-        // TODO: complete this type
-    }
-
-    @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitMaxLiteral(this, context);
     }
@@ -66,8 +58,4 @@ public final class MaxLiteral extends LiteralExpr {
         return null;
     }
 
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return null;
-    }
 }

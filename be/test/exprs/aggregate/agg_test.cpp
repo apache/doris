@@ -43,7 +43,7 @@
 
 const int agg_test_batch_size = 4096;
 
-namespace doris::vectorized {
+namespace doris {
 // declare function
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory);
 void register_aggregate_function_topn(AggregateFunctionSimpleFactory& factory);
@@ -154,7 +154,7 @@ TEST(AggTest, window_function_test2) {
     auto agg_function_topn = factory.get(
             "topn", {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()},
             nullptr, true, -1, {.is_window_function = is_window_function, .column_names = {}});
-    std::vector<vectorized::AggregateFunctionPtr> _agg_functions;
+    std::vector<AggregateFunctionPtr> _agg_functions;
     _agg_functions.push_back(agg_function_sum);
     _agg_functions.push_back(agg_function_group);
     _agg_functions.push_back(agg_function_topn);
@@ -190,8 +190,8 @@ TEST(AggTest, window_function_test2) {
             }
         }
 
-        vectorized::Arena _agg_arena_pool;
-        vectorized::AggregateDataPtr _fn_place_ptr = _agg_arena_pool.aligned_alloc(
+        Arena _agg_arena_pool;
+        AggregateDataPtr _fn_place_ptr = _agg_arena_pool.aligned_alloc(
                 _total_size_of_aggregate_states, _align_aggregate_states);
         EXPECT_TRUE(_fn_place_ptr != nullptr);
 
@@ -367,4 +367,4 @@ TEST(AggTest, datetime_replace_if_not_null_test) {
     agg_function->destroy(place);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

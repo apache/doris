@@ -22,7 +22,7 @@
 #include "core/column/column_nothing.h"
 #include "core/field.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(DataTypeNothingTest, GetFieldWithDataTypeTest) {
     // 1. Create a DataTypeNothing instance and a corresponding column
@@ -46,4 +46,4 @@ TEST(DataTypeNothingTest, GetFieldWithDataTypeTest) {
     EXPECT_EQ(fdt.scale, -1);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

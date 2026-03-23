@@ -23,9 +23,8 @@
 
 namespace doris {
 
-inline std::vector<vectorized::DataTypePtr> get_data_types(
-        const vectorized::VExprContextSPtrs& expr_contexts) {
-    std::vector<vectorized::DataTypePtr> data_types;
+inline std::vector<DataTypePtr> get_data_types(const VExprContextSPtrs& expr_contexts) {
+    std::vector<DataTypePtr> data_types;
     for (const auto& ctx : expr_contexts) {
         data_types.emplace_back(ctx->root()->data_type());
     }
@@ -33,7 +32,7 @@ inline std::vector<vectorized::DataTypePtr> get_data_types(
 }
 
 template <typename DataVariants>
-Status init_hash_method(DataVariants* data, const std::vector<vectorized::DataTypePtr>& data_types,
+Status init_hash_method(DataVariants* data, const std::vector<DataTypePtr>& data_types,
                         bool is_first_phase) {
     auto type = HashKeyType::EMPTY;
     try {

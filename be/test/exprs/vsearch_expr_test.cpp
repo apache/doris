@@ -45,7 +45,7 @@
 #pragma clang diagnostic pop
 #endif
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace {
 
@@ -1440,4 +1440,4 @@ TEST_F(VSearchExprTest, EvaluateInvertedIndexPropagatesFunctionFailure) {
 // would require complex setup and is better suited for integration tests
 // The tests above cover the main execution paths in evaluate_inverted_index
 
-} // namespace doris::vectorized
+} // namespace doris

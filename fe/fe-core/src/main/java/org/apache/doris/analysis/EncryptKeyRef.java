@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -50,11 +49,6 @@ public class EncryptKeyRef extends Expr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitEncryptKeyRef(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        // no operation
     }
 
     @Override

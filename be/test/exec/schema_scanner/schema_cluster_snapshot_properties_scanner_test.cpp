@@ -35,7 +35,7 @@ TEST_F(SchemaClusterSnapshotPropertiesScannerTest, test_get_next_block_internal)
     scanner._max_reserved_snapshots = 30;
     scanner._snapshot_interval_seconds = 3600;
 
-    auto data_block = vectorized::Block::create_unique();
+    auto data_block = Block::create_unique();
     scanner._init_block(data_block.get());
 
     auto st = scanner._fill_block_impl(data_block.get());

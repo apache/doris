@@ -21,8 +21,10 @@ import org.apache.doris.cdcclient.common.Constants;
 import org.apache.doris.cdcclient.common.Env;
 import org.apache.doris.cdcclient.model.response.RecordWithMeta;
 import org.apache.doris.cdcclient.sink.DorisBatchStreamLoad;
+import org.apache.doris.cdcclient.source.deserialize.DeserializeResult;
 import org.apache.doris.cdcclient.source.reader.SourceReader;
 import org.apache.doris.cdcclient.source.reader.SplitReadResult;
+import org.apache.doris.cdcclient.utils.SchemaChangeManager;
 import org.apache.doris.job.cdc.request.FetchRecordRequest;
 import org.apache.doris.job.cdc.request.WriteRecordRequest;
 import org.apache.doris.job.cdc.split.BinlogSplit;
@@ -166,11 +168,12 @@ public class PipelineCoordinator {
                     }
 
                     // Process data messages
-                    List<String> serializedRecords =
+                    DeserializeResult result =
                             sourceReader.deserialize(fetchRecord.getConfig(), element);
-                    if (!CollectionUtils.isEmpty(serializedRecords)) {
+                    if (result.getType() == DeserializeResult.Type.DML
+                            && !CollectionUtils.isEmpty(result.getRecords())) {
                         recordCount++;
-                        recordResponse.getRecords().addAll(serializedRecords);
+                        recordResponse.getRecords().addAll(result.getRecords());
                         hasReceivedData = true;
                         lastMessageIsHeartbeat = false;
                     }
@@ -236,21 +239,34 @@ public class PipelineCoordinator {
      * <p>Heartbeat events will carry the latest offset.
      */
     public void writeRecords(WriteRecordRequest writeRecordRequest) throws Exception {
+        // Extract connection parameters up front for use throughout this method
+        String feAddr = writeRecordRequest.getFrontendAddress();
+        String targetDb = writeRecordRequest.getTargetDb();
+        String token = writeRecordRequest.getToken();
+
+        // Enrich the source config with the Doris target DB so the deserializer can build
+        // DDL referencing the correct Doris database, not the upstream source database.
+        Map<String, String> deserializeContext = new HashMap<>(writeRecordRequest.getConfig());
+        deserializeContext.put(Constants.DORIS_TARGET_DB, targetDb);
+
         SourceReader sourceReader = Env.getCurrentEnv().getReader(writeRecordRequest);
         DorisBatchStreamLoad batchStreamLoad = null;
         long scannedRows = 0L;
         int heartbeatCount = 0;
         SplitReadResult readResult = null;
+        boolean hasExecuteDDL = false;
+        boolean isSnapshotSplit = false;
         try {
             // 1. submit split async
             readResult = sourceReader.prepareAndSubmitSplit(writeRecordRequest);
             batchStreamLoad = getOrCreateBatchStreamLoad(writeRecordRequest);
 
-            boolean isSnapshotSplit = sourceReader.isSnapshotSplit(readResult.getSplit());
+            isSnapshotSplit = sourceReader.isSnapshotSplit(readResult.getSplit());
             long startTime = System.currentTimeMillis();
             long maxIntervalMillis = writeRecordRequest.getMaxInterval() * 1000;
             boolean shouldStop = false;
             boolean lastMessageIsHeartbeat = false;
+
             LOG.info(
                     "Start polling records for jobId={} taskId={}, isSnapshotSplit={}",
                     writeRecordRequest.getJobId(),
@@ -309,15 +325,22 @@ public class PipelineCoordinator {
                     }
 
                     // Process data messages
-                    List<String> serializedRecords =
-                            sourceReader.deserialize(writeRecordRequest.getConfig(), element);
+                    DeserializeResult result =
+                            sourceReader.deserialize(deserializeContext, element);
 
-                    if (!CollectionUtils.isEmpty(serializedRecords)) {
-                        String database = writeRecordRequest.getTargetDb();
+                    if (result.getType() == DeserializeResult.Type.SCHEMA_CHANGE) {
+                        // Flush pending data before DDL
+                        batchStreamLoad.forceFlush();
+                        SchemaChangeManager.executeDdls(feAddr, targetDb, token, result.getDdls());
+                        hasExecuteDDL = true;
+                        sourceReader.applySchemaChange(result.getUpdatedSchemas());
+                        lastMessageIsHeartbeat = false;
+                    }
+                    if (!CollectionUtils.isEmpty(result.getRecords())) {
                         String table = extractTable(element);
-                        for (String record : serializedRecords) {
+                        for (String record : result.getRecords()) {
                             scannedRows++;
-                            batchStreamLoad.writeRecord(database, table, record.getBytes());
+                            batchStreamLoad.writeRecord(targetDb, table, record.getBytes());
                         }
                         // Mark last message as data (not heartbeat)
                         lastMessageIsHeartbeat = false;
@@ -346,8 +369,22 @@ public class PipelineCoordinator {
         // The offset must be reset before commitOffset to prevent the next taskId from being create
         // by the fe.
         batchStreamLoad.resetTaskId();
+
+        // Serialize tableSchemas back to FE when:
+        // 1. A DDL was executed (in-memory schema was updated), OR
+        // 2. It's a binlog split AND FE had no schema (FE tableSchemas was null) — this covers
+        //    incremental-only startup and the first binlog round after snapshot completes.
+        String tableSchemas = null;
+        boolean feHadNoSchema = writeRecordRequest.getTableSchemas() == null;
+        if (hasExecuteDDL || (!isSnapshotSplit && feHadNoSchema)) {
+            tableSchemas = sourceReader.serializeTableSchemas();
+        }
         batchStreamLoad.commitOffset(
-                currentTaskId, metaResponse, scannedRows, batchStreamLoad.getLoadStatistic());
+                currentTaskId,
+                metaResponse,
+                scannedRows,
+                batchStreamLoad.getLoadStatistic(),
+                tableSchemas);
     }
 
     public static boolean isHeartbeatEvent(SourceRecord record) {

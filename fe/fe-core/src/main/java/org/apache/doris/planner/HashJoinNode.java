@@ -23,6 +23,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.ToSqlParams;
@@ -67,8 +68,10 @@ public class HashJoinNode extends JoinNodeBase {
     // TODO: need review
     private final Map<ExprId, SlotId> hashOutputExprSlotIdMap = Maps.newHashMap();
 
+    private final Expr matchCondition;
+
     public HashJoinNode(PlanNodeId id, PlanNode outer, PlanNode inner, JoinOperator joinOp,
-            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts,
+            List<Expr> eqJoinConjuncts, List<Expr> otherJoinConjuncts, Expr matchCondition,
             List<Expr> markJoinConjuncts, boolean isMarkJoin) {
         super(id, "HASH JOIN", joinOp, isMarkJoin);
         Preconditions.checkArgument((eqJoinConjuncts != null && !eqJoinConjuncts.isEmpty())
@@ -92,6 +95,7 @@ public class HashJoinNode extends JoinNodeBase {
         }
         this.distrMode = DistributionMode.NONE;
         this.otherJoinConjuncts = otherJoinConjuncts;
+        this.matchCondition = matchCondition;
         this.markJoinConjuncts = markJoinConjuncts;
         children.add(outer);
         children.add(inner);
@@ -141,13 +145,19 @@ public class HashJoinNode extends JoinNodeBase {
         msg.hash_join_node.setIsBroadcastJoin(distrMode == DistributionMode.BROADCAST);
         msg.hash_join_node.setIsMark(isMarkJoin());
         for (BinaryPredicate eqJoinPredicate : eqJoinConjuncts) {
-            TEqJoinCondition eqJoinCondition = new TEqJoinCondition(eqJoinPredicate.getChild(0).treeToThrift(),
-                    eqJoinPredicate.getChild(1).treeToThrift());
-            eqJoinCondition.setOpcode(eqJoinPredicate.getOp().getOpcode());
+            TEqJoinCondition eqJoinCondition = new TEqJoinCondition(
+                    ExprToThriftVisitor.treeToThrift(eqJoinPredicate.getChild(0)),
+                    ExprToThriftVisitor.treeToThrift(eqJoinPredicate.getChild(1)));
+            eqJoinCondition.setOpcode(ExprToThriftVisitor.toThriftOpcode(eqJoinPredicate.getOp()));
             msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
         }
         for (Expr e : otherJoinConjuncts) {
-            msg.hash_join_node.addToOtherJoinConjuncts(e.treeToThrift());
+            msg.hash_join_node.addToOtherJoinConjuncts(ExprToThriftVisitor.treeToThrift(e));
+        }
+        if (matchCondition != null) {
+            Preconditions.checkState(joinOp == JoinOperator.ASOF_LEFT_OUTER_JOIN
+                    || joinOp == JoinOperator.ASOF_LEFT_INNER_JOIN, "match condition is not allowed in " + joinOp);
+            msg.hash_join_node.setMatchCondition(ExprToThriftVisitor.treeToThrift(matchCondition));
         }
 
         if (markJoinConjuncts != null) {
@@ -160,13 +170,14 @@ public class HashJoinNode extends JoinNodeBase {
                     Preconditions.checkState(e instanceof BinaryPredicate,
                             "mark join conjunct must be BinaryPredicate");
                     TEqJoinCondition eqJoinCondition = new TEqJoinCondition(
-                            e.getChild(0).treeToThrift(), e.getChild(1).treeToThrift());
-                    eqJoinCondition.setOpcode(((BinaryPredicate) e).getOp().getOpcode());
+                            ExprToThriftVisitor.treeToThrift(e.getChild(0)),
+                            ExprToThriftVisitor.treeToThrift(e.getChild(1)));
+                    eqJoinCondition.setOpcode(ExprToThriftVisitor.toThriftOpcode(((BinaryPredicate) e).getOp()));
                     msg.hash_join_node.addToEqJoinConjuncts(eqJoinCondition);
                 }
             } else {
                 for (Expr e : markJoinConjuncts) {
-                    msg.hash_join_node.addToMarkJoinConjuncts(e.treeToThrift());
+                    msg.hash_join_node.addToMarkJoinConjuncts(ExprToThriftVisitor.treeToThrift(e));
                 }
             }
         }
@@ -209,6 +220,10 @@ public class HashJoinNode extends JoinNodeBase {
         if (!otherJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("other join predicates: ")
                     .append(getExplainString(otherJoinConjuncts)).append("\n");
+        }
+        if (matchCondition != null) {
+            output.append(detailPrefix).append("match condition: ")
+                    .append(matchCondition.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
         if (markJoinConjuncts != null && !markJoinConjuncts.isEmpty()) {
             output.append(detailPrefix).append("mark join predicates: ")

@@ -332,16 +332,15 @@ Status BetaRowsetReader::_init_iterator() {
                 }
             }
         }
-        _iterator = vectorized::new_merge_iterator(std::move(iterators), sequence_loc,
-                                                   _read_context->is_unique,
-                                                   _read_context->read_orderby_key_reverse,
-                                                   _read_context->merged_rows, _output_schema);
+        _iterator = new_merge_iterator(std::move(iterators), sequence_loc, _read_context->is_unique,
+                                       _read_context->read_orderby_key_reverse,
+                                       _read_context->merged_rows, _output_schema);
     } else {
         if (_read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC
             std::reverse(iterators.begin(), iterators.end());
         }
-        _iterator = vectorized::new_union_iterator(std::move(iterators), _output_schema);
+        _iterator = new_union_iterator(std::move(iterators), _output_schema);
     }
 
     auto s = _iterator->init(_read_options);
@@ -361,7 +360,8 @@ bool BetaRowsetReader::_should_push_down_value_predicates() const {
            (((_rowset->start_version() == 0 || _rowset->start_version() == 2) &&
              !_rowset->_rowset_meta->is_segments_overlapping() &&
              _read_context->sequence_id_idx == -1) ||
-            _read_context->enable_unique_key_merge_on_write);
+            _read_context->enable_unique_key_merge_on_write ||
+            _read_context->enable_mor_value_predicate_pushdown);
 }
 #include "common/compile_check_end.h"
 } // namespace doris

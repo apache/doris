@@ -28,13 +28,12 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 VHiveTableWriter::VHiveTableWriter(const TDataSink& t_sink,
                                    const VExprContextSPtrs& output_expr_ctxs,
-                                   std::shared_ptr<pipeline::Dependency> dep,
-                                   std::shared_ptr<pipeline::Dependency> fin_dep)
+                                   std::shared_ptr<Dependency> dep,
+                                   std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_expr_ctxs, dep, fin_dep), _t_sink(t_sink) {
     DCHECK(_t_sink.__isset.hive_table_sink);
 }
@@ -86,15 +85,15 @@ Status VHiveTableWriter::open(RuntimeState* state, RuntimeProfile* operator_prof
     return Status::OK();
 }
 
-Status VHiveTableWriter::write(RuntimeState* state, vectorized::Block& block) {
+Status VHiveTableWriter::write(RuntimeState* state, Block& block) {
     SCOPED_RAW_TIMER(&_send_data_ns);
 
     if (block.rows() == 0) {
         return Status::OK();
     }
     Block output_block;
-    RETURN_IF_ERROR(vectorized::VExprContext::get_output_block_after_execute_exprs(
-            _vec_output_expr_ctxs, block, &output_block, false));
+    RETURN_IF_ERROR(VExprContext::get_output_block_after_execute_exprs(_vec_output_expr_ctxs, block,
+                                                                       &output_block, false));
     materialize_block_inplace(output_block);
 
     std::unordered_map<std::shared_ptr<VHivePartitionWriter>, IColumn::Filter> writer_positions;
@@ -220,12 +219,11 @@ Status VHiveTableWriter::write(RuntimeState* state, vectorized::Block& block) {
     return Status::OK();
 }
 
-Status VHiveTableWriter::_filter_block(doris::vectorized::Block& block,
-                                       const vectorized::IColumn::Filter* filter,
-                                       doris::vectorized::Block* output_block) {
+Status VHiveTableWriter::_filter_block(doris::Block& block, const IColumn::Filter* filter,
+                                       doris::Block* output_block) {
     const ColumnsWithTypeAndName& columns_with_type_and_name =
             block.get_columns_with_type_and_name();
-    vectorized::ColumnsWithTypeAndName result_columns;
+    ColumnsWithTypeAndName result_columns;
     for (int i = 0; i < columns_with_type_and_name.size(); ++i) {
         const auto& col = columns_with_type_and_name[i];
         result_columns.emplace_back(col.column->clone_resized(col.column->size()), col.type,
@@ -277,7 +275,7 @@ Status VHiveTableWriter::close(Status status) {
 }
 
 std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer(
-        vectorized::Block& block, int position, const std::string* file_name, int file_name_index) {
+        Block& block, int position, const std::string* file_name, int file_name_index) {
     auto& hive_table_sink = _t_sink.hive_table_sink;
     std::vector<std::string> partition_values;
     std::string partition_name;
@@ -396,13 +394,11 @@ std::shared_ptr<VHivePartitionWriter> VHiveTableWriter::_create_partition_writer
             hive_table_sink.hadoop_config);
 }
 
-std::vector<std::string> VHiveTableWriter::_create_partition_values(vectorized::Block& block,
-                                                                    int position) {
+std::vector<std::string> VHiveTableWriter::_create_partition_values(Block& block, int position) {
     std::vector<std::string> partition_values;
     for (int i = 0; i < _partition_columns_input_index.size(); ++i) {
         int partition_column_idx = _partition_columns_input_index[i];
-        vectorized::ColumnWithTypeAndName partition_column =
-                block.get_by_position(partition_column_idx);
+        ColumnWithTypeAndName partition_column = block.get_by_position(partition_column_idx);
         std::string value = _to_partition_value(
                 _vec_output_expr_ctxs[partition_column_idx]->root()->data_type(), partition_column,
                 position);
@@ -452,8 +448,7 @@ std::string VHiveTableWriter::_to_partition_value(const DataTypePtr& type_desc,
     auto [item, size] = column->get_data_at(position);
     switch (type_desc->get_primitive_type()) {
     case TYPE_BOOLEAN: {
-        vectorized::Field field =
-                vectorized::check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
+        Field field = check_and_get_column<const ColumnUInt8>(*column)->operator[](position);
         return std::to_string(field.get<TYPE_BOOLEAN>());
     }
     case TYPE_TINYINT: {
@@ -544,5 +539,4 @@ std::string VHiveTableWriter::_compute_file_name() {
     return fmt::format("{}_{}", print_id(_state->query_id()), uuid_str);
 }
 
-} // namespace vectorized
 } // namespace doris

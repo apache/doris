@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.analysis.ExprToStringValueVisitor;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.nereids.CascadesContext;
@@ -32,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ComputeResultSet;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -96,15 +99,15 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOneRowRelation(relationId, projects,
+                groupExpression, logicalPropertiesSupplier.get(), physicalProperties, statistics));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOneRowRelation(relationId, projects,
+                groupExpression, logicalProperties.get(), physicalProperties, statistics));
     }
 
     @Override
@@ -154,8 +157,8 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
     @Override
     public PhysicalOneRowRelation withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalOneRowRelation(relationId, projects, groupExpression,
-                logicalPropertiesSupplier.get(), physicalProperties, statistics);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalOneRowRelation(relationId, projects,
+                groupExpression, logicalPropertiesSupplier.get(), physicalProperties, statistics));
     }
 
     @Override
@@ -176,7 +179,7 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
                     columns.add(new Column(output.getName(), output.getDataType().toCatalogDataType()));
                     if (output.getDataType().toCatalogDataType().isVarbinaryType()) {
                         // The FE (computeResultInFe) can currently only build a ResultSet<List<List<String>>>.
-                        // If we materialize a VARBINARY literal via legacyExpr.getStringValueForQuery():
+                        // If we materialize a VARBINARY literal via ExprToStringValueVisitor:
                         //   1) We first wrap the raw bytes in a Java String.
                         //   2) Later StmtExecutor.sendTextResultRow re-encodes that String as UTF-8 when
                         //      writing the MySQL wire protocol. This may expand bytes (e.g. 0xAB becomes
@@ -187,8 +190,9 @@ public class PhysicalOneRowRelation extends PhysicalRelation implements OneRowRe
                         // so we can VARBINARY safely and remove this early return.
                         return Optional.empty();
                     }
-                    data.add(legacyExpr.getStringValueForQuery(
-                            cascadesContext.getStatementContext().getFormatOptions()));
+                    data.add(legacyExpr.accept(ExprToStringValueVisitor.INSTANCE,
+                            StringValueContext.forQuery(
+                                    cascadesContext.getStatementContext().getFormatOptions())));
                 } else {
                     return Optional.empty();
                 }

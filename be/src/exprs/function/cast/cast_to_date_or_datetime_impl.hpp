@@ -32,7 +32,7 @@
 #include "util/asan_util.h"
 #include "util/string_parser.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
@@ -889,4 +889,4 @@ inline bool CastToDateOrDatetime::from_string_non_strict_mode_impl(
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

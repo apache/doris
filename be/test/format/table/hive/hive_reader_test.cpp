@@ -54,7 +54,7 @@
 #include "storage/olap_scan_common.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized::table {
+namespace doris::table {
 
 class HiveReaderTest : public ::testing::Test {
 protected:
@@ -741,4 +741,4 @@ TEST_F(HiveReaderTest, read_hive_rrc_file) {
     verify_test_results(block, read_rows);
 }
 
-} // namespace doris::vectorized::table
+} // namespace doris::table

@@ -43,7 +43,7 @@ class GroupNode;
 } // namespace schema
 } // namespace parquet
 
-namespace doris::vectorized {
+namespace doris {
 
 class ParquetOutputStream : public arrow::io::OutputStream {
 public:
@@ -132,6 +132,6 @@ private:
     const iceberg::Schema* _iceberg_schema;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

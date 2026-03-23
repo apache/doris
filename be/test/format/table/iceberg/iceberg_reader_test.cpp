@@ -54,7 +54,7 @@
 #include "storage/olap_scan_common.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class IcebergReaderTest : public ::testing::Test {
 protected:
@@ -739,4 +739,4 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     verify_test_results(block, read_rows);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

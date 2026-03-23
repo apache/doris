@@ -24,8 +24,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class TExpr;
 
-namespace vectorized {
-
 DeltaWriterV2Map::DeltaWriterV2Map(UniqueId load_id, int num_use, DeltaWriterV2Pool* pool)
         : _load_id(load_id), _use_cnt(num_use), _pool(pool) {}
 
@@ -103,5 +101,4 @@ void DeltaWriterV2Pool::erase(UniqueId load_id) {
     _pool.erase(load_id);
 }
 
-} // namespace vectorized
 } // namespace doris

@@ -24,7 +24,7 @@
 #include "parquet/types.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class LevelDecoderTest : public ::testing::Test {
 protected:
@@ -222,4 +222,4 @@ TEST_F(LevelDecoderTest, test_rle_decoder) {
     EXPECT_NE(&rle_decoder, nullptr);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

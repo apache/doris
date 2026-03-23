@@ -35,7 +35,7 @@
 #include "exprs/function/cast/cast_test.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 template <typename KeyDataType, typename ValueDataType>
@@ -179,4 +179,4 @@ TEST_F(FunctionCastTest, test_from_string_to_map_string_string) {
                builder.build(), false);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

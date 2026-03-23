@@ -33,17 +33,17 @@ class PythonUDFMetaTest : public ::testing::Test {
 protected:
     void SetUp() override {
         // Create common test data types using PrimitiveType
-        nullable_int32_ = vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_INT, true);
-        nullable_string_ = vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_STRING, true);
-        nullable_double_ = vectorized::DataTypeFactory::instance().create_data_type(
-                PrimitiveType::TYPE_DOUBLE, true);
+        nullable_int32_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, true);
+        nullable_string_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_STRING, true);
+        nullable_double_ =
+                DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_DOUBLE, true);
     }
 
-    vectorized::DataTypePtr nullable_int32_;
-    vectorized::DataTypePtr nullable_string_;
-    vectorized::DataTypePtr nullable_double_;
+    DataTypePtr nullable_int32_;
+    DataTypePtr nullable_string_;
+    DataTypePtr nullable_double_;
 };
 
 // ============================================================================
@@ -406,7 +406,7 @@ TEST_F(PythonUDFMetaTest, SerializeToJsonMultipleInputTypes) {
 // ============================================================================
 
 TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaBasic) {
-    vectorized::DataTypes types = {nullable_int32_, nullable_string_};
+    DataTypes types = {nullable_int32_, nullable_string_};
     std::shared_ptr<arrow::Schema> schema;
 
     Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,
@@ -419,7 +419,7 @@ TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaBasic) {
 }
 
 TEST_F(PythonUDFMetaTest, ConvertTypesToSchemaSingleType) {
-    vectorized::DataTypes types = {nullable_double_};
+    DataTypes types = {nullable_double_};
     std::shared_ptr<arrow::Schema> schema;
 
     Status status = PythonUDFMeta::convert_types_to_schema(types, TimezoneUtils::default_time_zone,

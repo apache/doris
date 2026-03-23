@@ -19,7 +19,7 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 FAISS_PRAGMA_IMPRECISE_FUNCTION_BEGIN
 float CosineDistance::distance(const float* x, const float* y, size_t d) {
@@ -65,4 +65,4 @@ void register_function_array_distance(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayDistance<InnerProductApproximate>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

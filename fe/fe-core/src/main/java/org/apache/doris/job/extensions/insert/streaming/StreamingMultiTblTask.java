@@ -198,6 +198,12 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
         String feAddr = Env.getCurrentEnv().getMasterHost() + ":" + Env.getCurrentEnv().getMasterHttpPort();
         request.setFrontendAddress(feAddr);
         request.setMaxInterval(jobProperties.getMaxIntervalSecond());
+        if (offsetProvider instanceof JdbcSourceOffsetProvider) {
+            String schemas = ((JdbcSourceOffsetProvider) offsetProvider).getTableSchemas();
+            if (schemas != null) {
+                request.setTableSchemas(schemas);
+            }
+        }
         return request;
     }
 
@@ -351,7 +357,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 log.warn("Failed to get task timeout reason, response: {}", response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Send get task fail reason request failed: ", ex);
+            log.warn("Send get task fail reason request failed: ", ex);
         }
         return "";
     }

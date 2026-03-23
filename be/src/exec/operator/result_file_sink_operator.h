@@ -20,18 +20,18 @@
 #include "exec/operator/operator.h"
 #include "exec/sink/writer/vfile_result_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class BroadcastPBlockHolder;
-} // namespace doris::vectorized
+} // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class ResultFileSinkOperatorX;
 class ResultFileSinkLocalState final
-        : public AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX> {
+        : public AsyncWriterSink<VFileResultWriter, ResultFileSinkOperatorX> {
 public:
-    using Base = AsyncWriterSink<vectorized::VFileResultWriter, ResultFileSinkOperatorX>;
+    using Base = AsyncWriterSink<VFileResultWriter, ResultFileSinkOperatorX>;
     ENABLE_FACTORY_CREATOR(ResultFileSinkLocalState);
     ResultFileSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state);
     ~ResultFileSinkLocalState() override;
@@ -46,7 +46,7 @@ private:
 
     std::shared_ptr<ResultBlockBufferBase> _sender;
 
-    std::shared_ptr<vectorized::BroadcastPBlockHolder> _block_holder;
+    std::shared_ptr<BroadcastPBlockHolder> _block_holder;
     int _sender_id;
 };
 
@@ -62,12 +62,12 @@ public:
 
     Status prepare(RuntimeState* state) override;
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
 
 private:
     friend class ResultFileSinkLocalState;
     template <typename Writer, typename Parent>
-        requires(std::is_base_of_v<vectorized::AsyncResultWriter, Writer>)
+        requires(std::is_base_of_v<AsyncResultWriter, Writer>)
     friend class AsyncWriterSink;
 
     const RowDescriptor& _row_desc;
@@ -85,9 +85,9 @@ private:
     std::string _header;
     std::string _header_type;
 
-    vectorized::VExprContextSPtrs _output_vexpr_ctxs;
+    VExprContextSPtrs _output_vexpr_ctxs;
     std::shared_ptr<ResultBlockBufferBase> _sender = nullptr;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

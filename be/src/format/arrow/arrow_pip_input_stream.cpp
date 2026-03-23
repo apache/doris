@@ -23,7 +23,7 @@
 #include "arrow/io/buffered.h"
 #include "arrow/result.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 ArrowPipInputStream::ArrowPipInputStream(io::FileReaderSPtr file_reader)
@@ -93,4 +93,4 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ArrowPipInputStream::Read(int64_t 
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

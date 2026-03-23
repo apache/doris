@@ -47,14 +47,12 @@
 namespace doris {
 template <PrimitiveType type>
 struct PrimitiveTypeTraits;
-namespace vectorized {
 template <typename T>
 struct TypeName;
-} // namespace vectorized
 struct PackedInt128;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class Field;
 
@@ -324,11 +322,11 @@ struct FieldWithDataType {
     int scale = -1;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 template <>
-struct std::hash<doris::vectorized::Field> {
-    size_t operator()(const doris::vectorized::Field& field) const {
+struct std::hash<doris::Field> {
+    size_t operator()(const doris::Field& field) const {
         if (field.is_null()) {
             return 0;
         }

@@ -37,9 +37,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
 // FIXME: This file contains widespread UB due to unsafe type-punning casts.
@@ -51,7 +49,7 @@ class IColumn;
 #pragma GCC diagnostic ignored "-Wcast-user-defined"
 #endif
 
-namespace doris::vectorized {
+namespace doris {
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
@@ -164,7 +162,7 @@ DataTypePtr create_datetimev2(UInt64 scale_value) {
     return std::make_shared<DataTypeDateTimeV2>(scale_value);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #if defined(__GNUC__) && (__GNUC__ >= 15)
 #pragma GCC diagnostic pop

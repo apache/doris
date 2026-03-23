@@ -59,7 +59,6 @@ inline HashKeyType get_hash_key_type_with_phase(HashKeyType t, bool phase2) {
 }
 
 inline HashKeyType get_hash_key_type_with_fixed(size_t size) {
-    using namespace vectorized;
     if (size <= sizeof(UInt64)) {
         return HashKeyType::fixed64;
     } else if (size <= sizeof(UInt72)) {
@@ -79,8 +78,8 @@ inline HashKeyType get_hash_key_type_with_fixed(size_t size) {
     }
 }
 
-inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTypePtr>& data_types) {
-    if (data_types.size() >= vectorized::BITSIZE) {
+inline HashKeyType get_hash_key_type_fixed(const std::vector<DataTypePtr>& data_types) {
+    if (data_types.size() >= BITSIZE) {
         return HashKeyType::serialized;
     }
 
@@ -101,7 +100,7 @@ inline HashKeyType get_hash_key_type_fixed(const std::vector<vectorized::DataTyp
     return get_hash_key_type_with_fixed(has_null + key_byte_size);
 }
 
-inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>& data_types) {
+inline HashKeyType get_hash_key_type(const std::vector<DataTypePtr>& data_types) {
     if (data_types.size() > 1) {
         return get_hash_key_type_fixed(data_types);
     }
@@ -123,17 +122,17 @@ inline HashKeyType get_hash_key_type(const std::vector<vectorized::DataTypePtr>&
     }
 
     size_t size = t->get_size_of_value_in_memory();
-    if (size == sizeof(vectorized::UInt8)) {
+    if (size == sizeof(UInt8)) {
         return HashKeyType::int8_key;
-    } else if (size == sizeof(vectorized::UInt16)) {
+    } else if (size == sizeof(UInt16)) {
         return HashKeyType::int16_key;
-    } else if (size == sizeof(vectorized::UInt32)) {
+    } else if (size == sizeof(UInt32)) {
         return HashKeyType::int32_key;
-    } else if (size == sizeof(vectorized::UInt64)) {
+    } else if (size == sizeof(UInt64)) {
         return HashKeyType::int64_key;
-    } else if (size == sizeof(vectorized::UInt128)) {
+    } else if (size == sizeof(UInt128)) {
         return HashKeyType::int128_key;
-    } else if (size == sizeof(vectorized::UInt256)) {
+    } else if (size == sizeof(UInt256)) {
         return HashKeyType::int256_key;
     } else {
         throw Exception(ErrorCode::INTERNAL_ERROR, "meet invalid type size, size={}, type={}", size,

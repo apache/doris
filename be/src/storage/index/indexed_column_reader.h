@@ -142,7 +142,7 @@ public:
     }
 
     // After one seek, we can only call this function once to read data
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst);
+    Status next_batch(size_t* n, MutableColumnPtr& dst);
 
 private:
     Status _read_data_page(const PagePointer& pp);

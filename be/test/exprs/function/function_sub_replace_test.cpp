@@ -22,7 +22,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/function_string.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST(SubReplaceTest, test) {
     const int rows = 10240;
     auto str = ColumnString::create();
@@ -48,4 +48,4 @@ TEST(SubReplaceTest, test) {
 
     EXPECT_TRUE(SubReplaceImpl::replace_execute(block, ColumnNumbers {0, 1, 2, 3}, 4, rows));
 }
-} // namespace doris::vectorized
+} // namespace doris

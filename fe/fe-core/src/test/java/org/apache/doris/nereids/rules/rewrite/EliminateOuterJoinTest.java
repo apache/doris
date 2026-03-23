@@ -49,8 +49,13 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
 
     @Test
     void testEliminateLeft() {
+        testEliminateLeftHelper(JoinType.LEFT_OUTER_JOIN);
+        testEliminateLeftHelper(JoinType.ASOF_LEFT_OUTER_JOIN);
+    }
+
+    private void testEliminateLeftHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .join(scan2, joinType, Pair.of(0, 0))  // t1.id = t2.id
                 .filter(new GreaterThan(scan2.getOutput().get(0), Literal.of(1)))
                 .build();
 
@@ -61,15 +66,21 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
                 .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
-                                logicalJoin().when(join -> join.getJoinType().isInnerJoin())
-                        ).when(filter -> filter.getConjuncts().size() == 1)
+                                logicalJoin().when(join -> join.getJoinType().isInnerJoin()
+                                        || join.getJoinType().isAsofInnerJoin()))
+                                .when(filter -> filter.getConjuncts().size() == 1)
                 );
     }
 
     @Test
     void testEliminateRight() {
+        testEliminateRightHelper(JoinType.RIGHT_OUTER_JOIN);
+        testEliminateRightHelper(JoinType.ASOF_RIGHT_OUTER_JOIN);
+    }
+
+    private void testEliminateRightHelper(JoinType joinType) {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .join(scan2, JoinType.RIGHT_OUTER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .join(scan2, joinType, Pair.of(0, 0))  // t1.id = t2.id
                 .filter(new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(1)))
                 .build();
 
@@ -80,9 +91,11 @@ class EliminateOuterJoinTest implements MemoPatternMatchSupported {
                 .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
-                                logicalJoin().when(join -> join.getJoinType().isInnerJoin())
-                        ).when(filter -> filter.getConjuncts().size() == 1)
-                                .when(filter -> Objects.equals(filter.getConjuncts().iterator().next(), new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(1))))
+                                logicalJoin().when(join -> join.getJoinType().isInnerJoin()
+                                        || join.getJoinType().isAsofInnerJoin()))
+                                .when(filter -> filter.getConjuncts().size() == 1)
+                                .when(filter -> Objects.equals(filter.getConjuncts().iterator().next(),
+                                        new GreaterThan(scan1.getOutput().get(0), new IntegerLiteral(1))))
                 );
     }
 

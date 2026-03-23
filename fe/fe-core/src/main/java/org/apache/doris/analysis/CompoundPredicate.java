@@ -20,10 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TExprOpcode;
-
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 
@@ -87,32 +83,20 @@ public class CompoundPredicate extends Predicate {
         return visitor.visitCompoundPredicate(this, context);
     }
 
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.COMPOUND_PRED;
-        msg.setOpcode(op.toThrift());
-    }
-
     public enum Operator {
-        AND("AND", TExprOpcode.COMPOUND_AND),
-        OR("OR", TExprOpcode.COMPOUND_OR),
-        NOT("NOT", TExprOpcode.COMPOUND_NOT);
+        AND("AND"),
+        OR("OR"),
+        NOT("NOT");
 
-        private final String      description;
-        private final TExprOpcode thriftOp;
+        private final String description;
 
-        Operator(String description, TExprOpcode thriftOp) {
+        Operator(String description) {
             this.description = description;
-            this.thriftOp = thriftOp;
         }
 
         @Override
         public String toString() {
             return description;
-        }
-
-        public TExprOpcode toThrift() {
-            return thriftOp;
         }
     }
 

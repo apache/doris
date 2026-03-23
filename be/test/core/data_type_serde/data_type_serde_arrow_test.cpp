@@ -77,7 +77,7 @@
 #include "runtime/descriptors.cpp"
 #include "util/string_parser.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 
 std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int row_num,
                                          bool is_nullable) {
@@ -111,21 +111,20 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
         }
         switch (cols[i]) {
         case TYPE_BOOLEAN: {
-            auto vec = vectorized::ColumnVector<TYPE_BOOLEAN>::create();
+            auto vec = ColumnVector<TYPE_BOOLEAN>::create();
             auto& data = vec->get_data();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(i % 2);
             }
-            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeUInt8>());
-            vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            DataTypePtr data_type(std::make_shared<DataTypeUInt8>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
             block->insert(std::move(type_and_name));
         } break;
         case TYPE_INT:
             if (is_nullable) {
                 {
-                    auto column_vector_int32 = vectorized::ColumnVector<TYPE_INT>::create();
-                    auto column_nullable_vector =
-                            vectorized::make_nullable(std::move(column_vector_int32));
+                    auto column_vector_int32 = ColumnVector<TYPE_INT>::create();
+                    auto column_nullable_vector = make_nullable(std::move(column_vector_int32));
                     auto mutable_nullable_vector = std::move(*column_nullable_vector).mutate();
                     for (int i = 0; i < row_num; i++) {
                         if (i % 2 == 0) {
@@ -135,29 +134,27 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                                     Field::create_field<TYPE_INT>(int32_t(i)));
                         }
                     }
-                    auto data_type = vectorized::make_nullable(
-                            std::make_shared<vectorized::DataTypeInt32>());
-                    vectorized::ColumnWithTypeAndName type_and_name(
-                            mutable_nullable_vector->get_ptr(), data_type, col_name);
+                    auto data_type = make_nullable(std::make_shared<DataTypeInt32>());
+                    ColumnWithTypeAndName type_and_name(mutable_nullable_vector->get_ptr(),
+                                                        data_type, col_name);
                     block->insert(type_and_name);
                 }
             } else {
-                auto vec = vectorized::ColumnVector<TYPE_INT>::create();
+                auto vec = ColumnVector<TYPE_INT>::create();
                 auto& data = vec->get_data();
                 for (int i = 0; i < row_num; ++i) {
                     data.push_back(i);
                 }
-                vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeInt32>());
-                vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type,
-                                                                col_name);
+                DataTypePtr data_type(std::make_shared<DataTypeInt32>());
+                ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
                 block->insert(std::move(type_and_name));
             }
             break;
         case TYPE_DECIMAL32: {
-            vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal32>(9, 2);
+            DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal32>(9, 2);
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
-            auto& data = ((vectorized::ColumnDecimal32*)decimal_column.get())->get_data();
+            auto& data = ((ColumnDecimal32*)decimal_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 if (i == 0) {
                     data.push_back(Int32(0));
@@ -175,15 +172,15 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 data.push_back(val);
             }
 
-            vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                            decimal_data_type, col_name);
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_DECIMAL64: {
-            vectorized::DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal64>(18, 6);
+            DataTypePtr decimal_data_type = std::make_shared<DataTypeDecimal64>(18, 6);
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
-            auto& data = ((vectorized::ColumnDecimal64*)decimal_column.get())->get_data();
+            auto& data = ((ColumnDecimal64*)decimal_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 if (i == 0) {
                     data.push_back(Int64(0));
@@ -199,93 +196,89 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
                 EXPECT_TRUE(result == StringParser::PARSE_SUCCESS);
                 data.push_back(val);
             }
-            vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                            decimal_data_type, col_name);
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_DECIMAL128I: {
-            vectorized::DataTypePtr decimal_data_type(
-                    doris::vectorized::create_decimal(27, 9, true));
+            DataTypePtr decimal_data_type(doris::create_decimal(27, 9, true));
             type_desc = decimal_data_type;
             auto decimal_column = decimal_data_type->create_column();
-            auto& data = ((vectorized::ColumnDecimal128V3*)decimal_column.get())->get_data();
+            auto& data = ((ColumnDecimal128V3*)decimal_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 auto value = __int128_t(i * pow(10, 9) + i * pow(10, 8));
                 data.push_back(value);
             }
-            vectorized::ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(),
-                                                            decimal_data_type, col_name);
+            ColumnWithTypeAndName type_and_name(decimal_column->get_ptr(), decimal_data_type,
+                                                col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_STRING: {
-            auto strcol = vectorized::ColumnString::create();
+            auto strcol = ColumnString::create();
             for (int i = 0; i < row_num; ++i) {
                 std::string is = std::to_string(i);
                 strcol->insert_data(is.c_str(), is.size());
             }
-            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-            vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
+            DataTypePtr data_type(std::make_shared<DataTypeString>());
+            ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_HLL: {
-            vectorized::DataTypePtr hll_data_type(std::make_shared<vectorized::DataTypeHLL>());
+            DataTypePtr hll_data_type(std::make_shared<DataTypeHLL>());
             auto hll_column = hll_data_type->create_column();
-            std::vector<HyperLogLog>& container =
-                    ((vectorized::ColumnHLL*)hll_column.get())->get_data();
+            std::vector<HyperLogLog>& container = ((ColumnHLL*)hll_column.get())->get_data();
             for (int i = 0; i < row_num; ++i) {
                 HyperLogLog hll;
                 hll.update(i);
                 container.push_back(hll);
             }
-            vectorized::ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type,
-                                                            col_name);
+            ColumnWithTypeAndName type_and_name(hll_column->get_ptr(), hll_data_type, col_name);
 
             block->insert(type_and_name);
         } break;
         case TYPE_DATEV2: {
-            auto column_vector_date_v2 = vectorized::ColumnVector<TYPE_DATEV2>::create();
+            auto column_vector_date_v2 = ColumnVector<TYPE_DATEV2>::create();
             auto& date_v2_data = column_vector_date_v2->get_data();
             for (int i = 0; i < row_num; ++i) {
                 DateV2Value<DateV2ValueType> value;
                 value.from_date_int64(20210501);
-                date_v2_data.push_back(*reinterpret_cast<vectorized::UInt32*>(&value));
+                date_v2_data.push_back(*reinterpret_cast<UInt32*>(&value));
             }
-            vectorized::DataTypePtr date_v2_type(std::make_shared<vectorized::DataTypeDateV2>());
-            vectorized::ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(),
-                                                           date_v2_type, col_name);
+            DataTypePtr date_v2_type(std::make_shared<DataTypeDateV2>());
+            ColumnWithTypeAndName test_date_v2(column_vector_date_v2->get_ptr(), date_v2_type,
+                                               col_name);
             block->insert(test_date_v2);
         } break;
         case TYPE_DATE: // int64
         {
-            auto column_vector_date = vectorized::ColumnVector<TYPE_DATE>::create();
+            auto column_vector_date = ColumnVector<TYPE_DATE>::create();
             auto& date_data = column_vector_date->get_data();
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
                 value.from_date_int64(20210501);
                 date_data.push_back(value);
             }
-            vectorized::DataTypePtr date_type(std::make_shared<vectorized::DataTypeDate>());
-            vectorized::ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type,
-                                                        col_name);
+            DataTypePtr date_type(std::make_shared<DataTypeDate>());
+            ColumnWithTypeAndName test_date(column_vector_date->get_ptr(), date_type, col_name);
             block->insert(test_date);
         } break;
         case TYPE_DATETIME: // int64
         {
-            auto column_vector_datetime = vectorized::ColumnVector<TYPE_DATETIME>::create();
+            auto column_vector_datetime = ColumnVector<TYPE_DATETIME>::create();
             auto& datetime_data = column_vector_datetime->get_data();
             for (int i = 0; i < row_num; ++i) {
                 VecDateTimeValue value;
                 value.from_date_int64(20210501080910);
                 datetime_data.push_back(value);
             }
-            vectorized::DataTypePtr datetime_type(std::make_shared<vectorized::DataTypeDateTime>());
-            vectorized::ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(),
-                                                            datetime_type, col_name);
+            DataTypePtr datetime_type(std::make_shared<DataTypeDateTime>());
+            ColumnWithTypeAndName test_datetime(column_vector_datetime->get_ptr(), datetime_type,
+                                                col_name);
             block->insert(test_datetime);
         } break;
         case TYPE_DATETIMEV2: // uint64
         {
-            auto column_vector_datetimev2 = vectorized::ColumnVector<TYPE_DATETIMEV2>::create();
+            auto column_vector_datetimev2 = ColumnVector<TYPE_DATETIMEV2>::create();
             DateV2Value<DateTimeV2ValueType> value;
             std::string date_literal = "2022-01-01 11:11:11.111";
             cctz::time_zone ctz;
@@ -296,10 +289,9 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             for (int i = 0; i < row_num; ++i) {
                 column_vector_datetimev2->insert(Field::create_field<TYPE_DATETIMEV2>(value));
             }
-            vectorized::DataTypePtr datetimev2_type(
-                    std::make_shared<vectorized::DataTypeDateTimeV2>(3));
-            vectorized::ColumnWithTypeAndName test_datetimev2(column_vector_datetimev2->get_ptr(),
-                                                              datetimev2_type, col_name);
+            DataTypePtr datetimev2_type(std::make_shared<DataTypeDateTimeV2>(3));
+            ColumnWithTypeAndName test_datetimev2(column_vector_datetimev2->get_ptr(),
+                                                  datetimev2_type, col_name);
             block->insert(test_datetimev2);
         } break;
         case TYPE_ARRAY: // array
@@ -318,7 +310,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             array_column->reserve(2);
             array_column->insert(Field::create_field<TYPE_ARRAY>(a1));
             array_column->insert(Field::create_field<TYPE_ARRAY>(a2));
-            vectorized::ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au, col_name);
+            ColumnWithTypeAndName type_and_name(array_column->get_ptr(), au, col_name);
             block->insert(type_and_name);
             type_desc = au;
             break;
@@ -352,7 +344,7 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             map_column->reserve(2);
             map_column->insert(Field::create_field<TYPE_MAP>(m1));
             map_column->insert(Field::create_field<TYPE_MAP>(m2));
-            vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
+            ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_STRUCT: {
@@ -372,27 +364,27 @@ std::shared_ptr<Block> create_test_block(std::vector<PrimitiveType> cols, int ro
             struct_column->reserve(2);
             struct_column->insert(Field::create_field<TYPE_STRUCT>(t1));
             struct_column->insert(Field::create_field<TYPE_STRUCT>(t2));
-            vectorized::ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
+            ColumnWithTypeAndName type_and_name(struct_column->get_ptr(), st, col_name);
             block->insert(type_and_name);
         } break;
         case TYPE_IPV4: {
-            auto vec = vectorized::ColumnIPv4::create();
+            auto vec = ColumnIPv4::create();
             auto& data = vec->get_data();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(i);
             }
-            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv4>());
-            vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            DataTypePtr data_type(std::make_shared<DataTypeIPv4>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
             block->insert(std::move(type_and_name));
         } break;
         case TYPE_IPV6: {
-            auto vec = vectorized::ColumnIPv6::create();
+            auto vec = ColumnIPv6::create();
             auto& data = vec->get_data();
             for (int i = 0; i < row_num; ++i) {
                 data.push_back(i);
             }
-            vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeIPv6>());
-            vectorized::ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
+            DataTypePtr data_type(std::make_shared<DataTypeIPv6>());
+            ColumnWithTypeAndName type_and_name(vec->get_ptr(), data_type, col_name);
             block->insert(std::move(type_and_name));
         } break;
         default:
@@ -481,7 +473,7 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
         map_column->insert(Field::create_field<TYPE_MAP>(m1));
         map_column->insert(Field::create_field<TYPE_MAP>(m2));
         map_column->insert(Field::create_field<TYPE_MAP>(m3));
-        vectorized::ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
+        ColumnWithTypeAndName type_and_name(map_column->get_ptr(), m, col_name);
         block->insert(type_and_name);
     }
 
@@ -495,14 +487,14 @@ TEST(DataTypeSerDeArrowTest, DataTypeMapNullKeySerDeTest) {
 TEST(DataTypeSerDeArrowTest, BigStringSerDeTest) {
     std::string col_name = "big_string";
     auto block = std::make_shared<Block>();
-    auto strcol = vectorized::ColumnString::create();
+    auto strcol = ColumnString::create();
     // 2G, if > 4G report string column length is too large: total_length=4402341462
     for (int i = 0; i < 20; ++i) {
         std::string is(107374182, '0'); // 100M
         strcol->insert_data(is.c_str(), is.size());
     }
-    vectorized::DataTypePtr data_type(std::make_shared<vectorized::DataTypeString>());
-    vectorized::ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
+    DataTypePtr data_type(std::make_shared<DataTypeString>());
+    ColumnWithTypeAndName type_and_name(strcol->get_ptr(), data_type, col_name);
     block->insert(type_and_name);
 
     std::shared_ptr<arrow::RecordBatch> record_batch =
@@ -522,4 +514,4 @@ TEST(DataTypeSerDeArrowTest, BlockConverterTest) {
     block_converter_test(cols, 7, false);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

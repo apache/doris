@@ -42,7 +42,7 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-#define ROTL(x, b) static_cast<vectorized::UInt64>(((x) << (b)) | ((x) >> (64 - (b))))
+#define ROTL(x, b) static_cast<UInt64>(((x) << (b)) | ((x) >> (64 - (b))))
 
 #define SIPROUND           \
     do {                   \
@@ -65,18 +65,18 @@ namespace doris {
 class SipHash {
 private:
     /// State.
-    vectorized::UInt64 v0;
-    vectorized::UInt64 v1;
-    vectorized::UInt64 v2;
-    vectorized::UInt64 v3;
+    UInt64 v0;
+    UInt64 v1;
+    UInt64 v2;
+    UInt64 v3;
 
     /// How many bytes have been processed.
-    vectorized::UInt64 cnt;
+    UInt64 cnt;
 
     /// The current 8 bytes of input data.
     union {
-        vectorized::UInt64 current_word;
-        vectorized::UInt8 current_bytes[8];
+        UInt64 current_word;
+        UInt8 current_bytes[8];
     };
 
     ALWAYS_INLINE void finalize() {
@@ -97,7 +97,7 @@ private:
 
 public:
     /// Arguments - seed.
-    SipHash(vectorized::UInt64 k0 = 0, vectorized::UInt64 k1 = 0) {
+    SipHash(UInt64 k0 = 0, UInt64 k1 = 0) {
         /// Initialize the state with some random bytes and seed.
         v0 = 0x736f6d6570736575ULL ^ k0;
         v1 = 0x646f72616e646f6dULL ^ k1;
@@ -108,7 +108,7 @@ public:
         current_word = 0;
     }
 
-    void update(const char* data, vectorized::UInt64 size) {
+    void update(const char* data, UInt64 size) {
         const char* end = data + size;
 
         /// We'll finish to process the remainder of the previous update, if any.
@@ -131,7 +131,7 @@ public:
         cnt += end - data;
 
         while (data + 8 <= end) {
-            current_word = unaligned_load<vectorized::UInt64>(data);
+            current_word = unaligned_load<UInt64>(data);
 
             v3 ^= current_word;
             SIPROUND;
@@ -182,8 +182,8 @@ public:
 
     void get128(char* out) {
         finalize();
-        reinterpret_cast<vectorized::UInt64*>(out)[0] = v0 ^ v1;
-        reinterpret_cast<vectorized::UInt64*>(out)[1] = v2 ^ v3;
+        reinterpret_cast<UInt64*>(out)[0] = v0 ^ v1;
+        reinterpret_cast<UInt64*>(out)[1] = v2 ^ v3;
     }
 
     /// template for avoiding 'unsigned long long' vs 'unsigned long' problem on old poco in macos
@@ -195,7 +195,7 @@ public:
         hi = v2 ^ v3;
     }
 
-    vectorized::UInt64 get64() {
+    UInt64 get64() {
         finalize();
         return v0 ^ v1 ^ v2 ^ v3;
     }

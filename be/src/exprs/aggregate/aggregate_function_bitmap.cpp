@@ -22,7 +22,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <bool nullable, template <bool, typename> class AggregateFunctionTemplate>
@@ -85,4 +85,4 @@ void register_aggregate_function_bitmap(AggregateFunctionSimpleFactory& factory)
                                    create_aggregate_function_bitmap_union_count);
     factory.register_function_both("bitmap_union_int", create_aggregate_function_bitmap_union_int);
 }
-} // namespace doris::vectorized
+} // namespace doris

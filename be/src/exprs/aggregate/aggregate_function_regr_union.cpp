@@ -22,7 +22,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <PrimitiveType> class StatFunctionTemplate>
@@ -64,4 +64,4 @@ void register_aggregate_function_regr_union(AggregateFunctionSimpleFactory& fact
     factory.register_function_both("regr_syy", create_aggregate_function_regr<RegrSyyFunc>);
     factory.register_function_both("regr_sxy", create_aggregate_function_regr<RegrSxyFunc>);
 }
-} // namespace doris::vectorized
+} // namespace doris

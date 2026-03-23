@@ -27,8 +27,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
@@ -247,6 +247,23 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             }
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
+            int numColumnsPerGroup;
+            String numColumnsPerGroupStr = properties
+                    .get(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP);
+            try {
+                numColumnsPerGroup = Integer.parseInt(numColumnsPerGroupStr);
+                if (numColumnsPerGroup < 1 || numColumnsPerGroup > 50) {
+                    throw new AnalysisException(
+                            "vertical_compaction_num_columns_per_group must be between 1 and 50: "
+                                    + numColumnsPerGroupStr);
+                }
+            } catch (NumberFormatException e) {
+                throw new AnalysisException("Invalid vertical_compaction_num_columns_per_group format: "
+                        + numColumnsPerGroupStr);
+            }
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             if (properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")) {
                 throw new AnalysisException(
@@ -310,33 +327,15 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
-            long groupCommitIntervalMs;
-            String groupCommitIntervalMsStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS);
-            try {
-                groupCommitIntervalMs = Long.parseLong(groupCommitIntervalMsStr);
-                if (groupCommitIntervalMs < 0) {
-                    throw new AnalysisException("group_commit_interval_ms can not be less than 0:"
-                            + groupCommitIntervalMsStr);
-                }
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid group_commit_interval_ms format: "
-                        + groupCommitIntervalMsStr);
-            }
+            PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, false);
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
-            long groupCommitDataBytes;
-            String groupCommitDataBytesStr = properties.get(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES);
-            try {
-                groupCommitDataBytes = Long.parseLong(groupCommitDataBytesStr);
-                if (groupCommitDataBytes < 0) {
-                    throw new AnalysisException("group_commit_data_bytes can not be less than 0:"
-                            + groupCommitDataBytesStr);
-                }
-            } catch (NumberFormatException e) {
-                throw new AnalysisException("Invalid group_commit_data_bytes format: "
-                        + groupCommitDataBytesStr);
-            }
+            PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, false);
+            this.needTableStable = false;
+            this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
+        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)) {
+            PropertyAnalyzer.analyzeGroupCommitMode(properties, false);
             this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
@@ -429,7 +428,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("PROPERTIES (");
-        sb.append(new PrintableMap<String, String>(properties, "=", true, false));
+        sb.append(new DatasourcePrintableMap<String, String>(properties, "=", true, false));
         sb.append(")");
 
         return sb.toString();

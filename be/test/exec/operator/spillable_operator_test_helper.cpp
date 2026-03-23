@@ -30,7 +30,7 @@
 
 #include "testutil/creators.h"
 
-namespace doris::pipeline {
+namespace doris {
 void SpillableOperatorTestHelper::SetUp() {
     runtime_state = std::make_unique<MockRuntimeState>();
     obj_pool = std::make_unique<ObjectPool>();
@@ -73,29 +73,38 @@ void SpillableOperatorTestHelper::SetUp() {
     runtime_state->resize_op_id_to_local_state(-100);
     runtime_state->set_max_operator_id(-100);
 
+    // Configure spill partition counts to match TEST_PARTITION_COUNT
+    runtime_state->_query_options.__isset.spill_hash_join_partition_count = true;
+    runtime_state->_query_options.spill_hash_join_partition_count = TEST_PARTITION_COUNT;
+    runtime_state->_query_options.__isset.spill_aggregation_partition_count = true;
+    runtime_state->_query_options.spill_aggregation_partition_count = TEST_PARTITION_COUNT;
+    // Set a low min_revocable_mem so small test data can still trigger spill
+    runtime_state->_query_options.__isset.min_revocable_mem = true;
+    runtime_state->_query_options.min_revocable_mem = 1;
+
     auto desc_table = create_test_table_descriptor(false);
     auto st = DescriptorTbl::create(obj_pool.get(), desc_table, &desc_tbl);
     DCHECK(!desc_table.slotDescriptors.empty());
     EXPECT_TRUE(st.ok()) << "create descriptor table failed: " << st.to_string();
     runtime_state->set_desc_tbl(desc_tbl);
 
-    auto spill_data_dir =
-            std::make_unique<vectorized::SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
+    auto spill_data_dir = std::make_unique<SpillDataDir>("./ut_dir/spill_test", 1024L * 1024 * 4);
     st = io::global_local_filesystem()->create_directory(spill_data_dir->path(), false);
     EXPECT_TRUE(st.ok()) << "create directory: " << spill_data_dir->path()
                          << " failed: " << st.to_string();
-    std::unordered_map<std::string, std::unique_ptr<vectorized::SpillDataDir>> data_map;
+    std::unordered_map<std::string, std::unique_ptr<SpillDataDir>> data_map;
     data_map.emplace("test", std::move(spill_data_dir));
-    auto* spill_stream_manager = new vectorized::SpillStreamManager(std::move(data_map));
-    ExecEnv::GetInstance()->_spill_stream_mgr = spill_stream_manager;
-    st = spill_stream_manager->init();
-    EXPECT_TRUE(st.ok()) << "init spill stream manager failed: " << st.to_string();
+
+    auto* spill_file_manager = new SpillFileManager(std::move(data_map));
+    ExecEnv::GetInstance()->_spill_file_mgr = spill_file_manager;
+    st = spill_file_manager->init();
+    EXPECT_TRUE(st.ok()) << "init spill file manager failed: " << st.to_string();
 }
 
 void SpillableOperatorTestHelper::TearDown() {
-    doris::ExecEnv::GetInstance()->spill_stream_mgr()->stop();
-    SAFE_DELETE(ExecEnv::GetInstance()->_spill_stream_mgr);
     runtime_state.reset();
+    doris::ExecEnv::GetInstance()->spill_file_mgr()->stop();
+    SAFE_DELETE(ExecEnv::GetInstance()->_spill_file_mgr);
 }
 
-} // namespace doris::pipeline
+} // namespace doris

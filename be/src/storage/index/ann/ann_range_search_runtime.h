@@ -133,7 +133,7 @@ struct AnnRangeSearchRuntime {
     double radius = 0.0;                       ///< Search radius/distance threshold
     AnnIndexMetric metric_type;                ///< Distance metric (L2, Inner Product, etc.)
     doris::VectorSearchUserParams user_params; ///< User-defined search parameters
-    vectorized::IColumn::Ptr query_value;      ///< Query vector data (deep copied)
+    IColumn::Ptr query_value;                  ///< Query vector data (deep copied)
 };
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2

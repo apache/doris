@@ -20,7 +20,7 @@ package org.apache.doris.planner;
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.thrift.TDataSink;
 import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -64,7 +64,7 @@ public class ExportSink extends DataSink {
         sb.append(prefix + "  lineDelimiter="
                 + StringEscapeUtils.escapeJava(lineDelimiter) + "\n");
         sb.append(prefix + "  broker_name=" + brokerDesc.getName() + " property("
-                + new PrintableMap<String, String>(
+                + new DatasourcePrintableMap<String, String>(
                         brokerDesc.getProperties(), "=", true, false)
                 + ")");
         sb.append("\n");

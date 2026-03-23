@@ -17,6 +17,7 @@
 
 #include <gen_cpp/cloud.pb.h>
 #include <gtest/gtest.h>
+#include <sys/resource.h>
 
 #include "io/fs/s3_file_system.h"
 #include "storage/rowset/rowset_meta.h"
@@ -78,7 +79,13 @@ TEST(StorageResourceTest, RemotePath) {
               "data/611/10005/10006.13.meta");
 
     path_format->set_path_version(2);
-    ASSERT_DEATH(StorageResource(res.value(), storage_vault_pb.path_format()), "unknown");
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
+    ASSERT_DEATH(({
+                     struct rlimit core_limit {};
+                     setrlimit(RLIMIT_CORE, &core_limit);
+                     StorageResource(res.value(), storage_vault_pb.path_format());
+                 }),
+                 "unknown");
 }
 
 TEST(StorageResourceTest, ParseTabletIdFromPath) {

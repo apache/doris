@@ -20,9 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TTimeV2Literal;
 
 public class TimeV2Literal extends LiteralExpr {
     public static final TimeV2Literal MIN_VALUE = new TimeV2Literal(838, 59, 59, 999999, 6, true);
@@ -81,12 +78,6 @@ public class TimeV2Literal extends LiteralExpr {
     @Override
     public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
         return visitor.visitTimeV2Literal(this, context);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.TIMEV2_LITERAL;
-        msg.timev2_literal = new TTimeV2Literal(getValue());
     }
 
     @Override

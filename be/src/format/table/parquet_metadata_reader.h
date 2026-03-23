@@ -37,7 +37,7 @@ class FileReader;
 } // namespace io
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class Block;
 
 // Lightweight reader that surfaces Parquet footer metadata as a table-valued scan.
@@ -79,4 +79,4 @@ private:
     std::unique_ptr<ModeHandler> _mode_handler;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

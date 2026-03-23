@@ -19,7 +19,7 @@
 
 #include "exec/operator/join/process_hash_table_probe_impl.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 INSTANTIATION_FOR(TJoinOp::LEFT_SEMI_JOIN);
 

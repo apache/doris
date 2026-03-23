@@ -30,7 +30,7 @@
 #include "exprs/function/match.h"
 #include "storage/index/inverted/analyzer/analyzer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Helper structure to manage analyzer lifetime
 struct TestInvertedIndexCtx {
@@ -841,4 +841,4 @@ TEST(FunctionMatchTest, function_registration) {
     EXPECT_TRUE(true);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

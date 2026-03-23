@@ -43,8 +43,7 @@ namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
 Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_uid,
-                                        vectorized::PathInData path,
-                                        const SubcolumnColumnMetaInfo::Node* node,
+                                        PathInData path, const SubcolumnColumnMetaInfo::Node* node,
                                         std::unique_ptr<SubstreamIterator>&& binary_column_reader,
                                         std::unique_ptr<SubstreamIterator>&& root_column_reader,
                                         ColumnReaderCache* column_reader_cache,
@@ -54,7 +53,7 @@ Status HierarchicalDataIterator::create(ColumnIteratorUPtr* reader, int32_t col_
             new HierarchicalDataIterator(path, read_type));
     if (node != nullptr && read_type == ReadType::SUBCOLUMNS_AND_SPARSE) {
         std::vector<const SubcolumnColumnMetaInfo::Node*> leaves;
-        vectorized::PathsInData leaves_paths;
+        PathsInData leaves_paths;
         SubcolumnColumnMetaInfo::get_leaves_of_node(node, leaves, leaves_paths);
         for (size_t i = 0; i < leaves_paths.size(); ++i) {
             if (leaves_paths[i].empty()) {
@@ -114,11 +113,9 @@ Status HierarchicalDataIterator::seek_to_ordinal(ordinal_t ord) {
     return Status::OK();
 }
 
-Status HierarchicalDataIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                            bool* has_null) {
+Status HierarchicalDataIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) {
     return process_read(
-            [&](SubstreamIterator& reader, const vectorized::PathInData& path,
-                const vectorized::DataTypePtr& type) {
+            [&](SubstreamIterator& reader, const PathInData& path, const DataTypePtr& type) {
                 CHECK(reader.inited);
                 RETURN_IF_ERROR(reader.iterator->next_batch(n, reader.column, has_null));
                 VLOG_DEBUG << fmt::format("{} next_batch {} rows, type={}", path.get_path(), *n,
@@ -130,10 +127,9 @@ Status HierarchicalDataIterator::next_batch(size_t* n, vectorized::MutableColumn
 }
 
 Status HierarchicalDataIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                                vectorized::MutableColumnPtr& dst) {
+                                                MutableColumnPtr& dst) {
     return process_read(
-            [&](SubstreamIterator& reader, const vectorized::PathInData& path,
-                const vectorized::DataTypePtr& type) {
+            [&](SubstreamIterator& reader, const PathInData& path, const DataTypePtr& type) {
                 CHECK(reader.inited);
                 RETURN_IF_ERROR(reader.iterator->read_by_rowids(rowids, count, reader.column));
                 VLOG_DEBUG << fmt::format("{} read_by_rowids {} rows, type={}", path.get_path(),
@@ -206,8 +202,7 @@ void HierarchicalDataIterator::collect_prefetchers(
 }
 
 Status HierarchicalDataIterator::_process_sub_columns(
-        vectorized::ColumnVariant& container_variant,
-        const PathsWithColumnAndType& non_nested_subcolumns) {
+        ColumnVariant& container_variant, const PathsWithColumnAndType& non_nested_subcolumns) {
     for (const auto& entry : non_nested_subcolumns) {
         DCHECK(!entry.path.has_nested_part());
         bool add = container_variant.add_sub_column(entry.path, entry.column->assume_mutable(),
@@ -221,10 +216,8 @@ Status HierarchicalDataIterator::_process_sub_columns(
 }
 
 Status HierarchicalDataIterator::_process_nested_columns(
-        vectorized::ColumnVariant& container_variant,
-        const std::map<vectorized::PathInData, PathsWithColumnAndType>& nested_subcolumns,
-        size_t nrows) {
-    using namespace vectorized;
+        ColumnVariant& container_variant,
+        const std::map<PathInData, PathsWithColumnAndType>& nested_subcolumns, size_t nrows) {
     // Iterate nested subcolumns and flatten them, the entry contains the nested subcolumns of the same nested parent
     // first we pick the first subcolumn as base array and using it's offset info. Then we flatten all nested subcolumns
     // into a new object column and wrap it with array column using the first element offsets.The wrapped array column
@@ -277,19 +270,17 @@ Status HierarchicalDataIterator::_process_nested_columns(
     return Status::OK();
 }
 
-Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& container,
-                                                 size_t nrows, int32_t max_subcolumns_count) {
-    using namespace vectorized;
-
+Status HierarchicalDataIterator::_init_container(MutableColumnPtr& container, size_t nrows,
+                                                 int32_t max_subcolumns_count) {
     // build variant as container
     // add root first
     if (_path.get_parts().empty() && _root_reader) {
         // auto& root_var =
         //         _root_reader->column->is_nullable()
-        //                 ? assert_cast<vectorized::ColumnVariant&>(
-        //                           assert_cast<vectorized::ColumnNullable&>(*_root_reader->column)
+        //                 ? assert_cast<ColumnVariant&>(
+        //                           assert_cast<ColumnNullable&>(*_root_reader->column)
         //                                   .get_nested_column())
-        //                 : assert_cast<vectorized::ColumnVariant&>(*_root_reader->column);
+        //                 : assert_cast<ColumnVariant&>(*_root_reader->column);
         // auto column = root_var.get_root();
         // auto type = root_var.get_root_type();
 
@@ -302,8 +293,8 @@ Status HierarchicalDataIterator::_init_container(vectorized::MutableColumnPtr& c
         container = ColumnVariant::create(max_subcolumns_count, type,
                                           nullable_column->assume_mutable());
     } else {
-        DataTypePtr root_type = std::make_shared<vectorized::DataTypeNothing>();
-        auto column = vectorized::ColumnNothing::create(nrows);
+        DataTypePtr root_type = std::make_shared<DataTypeNothing>();
+        auto column = ColumnNothing::create(nrows);
         container = ColumnVariant::create(max_subcolumns_count, root_type, std::move(column));
     }
 
@@ -361,9 +352,8 @@ static std::optional<std::string_view> get_sub_path(const std::string_view& path
     return path.substr(prefix.size() + 1);
 }
 
-Status HierarchicalDataIterator::_process_sparse_column(
-        vectorized::ColumnVariant& container_variant, size_t nrows) {
-    using namespace vectorized;
+Status HierarchicalDataIterator::_process_sparse_column(ColumnVariant& container_variant,
+                                                        size_t nrows) {
     container_variant.clear_sparse_column();
     // process sparse column
     if (_path.get_parts().empty()) {
@@ -419,9 +409,8 @@ Status HierarchicalDataIterator::_process_sparse_column(
             for (size_t i = 0; i != src_sparse_data_offsets.size(); ++i) {
                 size_t start = src_sparse_data_offsets[ssize_t(i) - 1];
                 size_t end = src_sparse_data_offsets[ssize_t(i)];
-                size_t lower_bound_index =
-                        vectorized::ColumnVariant::find_path_lower_bound_in_sparse_data(
-                                prefix_ref, src_sparse_data_paths, start, end);
+                size_t lower_bound_index = ColumnVariant::find_path_lower_bound_in_sparse_data(
+                        prefix_ref, src_sparse_data_paths, start, end);
                 for (; lower_bound_index != end; ++lower_bound_index) {
                     auto path_ref = src_sparse_data_paths.get_data_at(lower_bound_index);
                     std::string_view path(path_ref.data, path_ref.size);
@@ -509,9 +498,9 @@ Status HierarchicalDataIterator::_process_sparse_column(
     return Status::OK();
 }
 
-Status HierarchicalDataIterator::_init_null_map_and_clear_columns(
-        vectorized::MutableColumnPtr& container, vectorized::MutableColumnPtr& dst, size_t nrows) {
-    using namespace vectorized;
+Status HierarchicalDataIterator::_init_null_map_and_clear_columns(MutableColumnPtr& container,
+                                                                  MutableColumnPtr& dst,
+                                                                  size_t nrows) {
     // clear data in nodes
     RETURN_IF_ERROR(tranverse([&](SubstreamReaderTree::Node& node) {
         node.data.column->clear();

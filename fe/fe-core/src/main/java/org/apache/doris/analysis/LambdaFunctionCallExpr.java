@@ -18,8 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Function;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 public class LambdaFunctionCallExpr extends FunctionCallExpr {
 
@@ -39,11 +37,6 @@ public class LambdaFunctionCallExpr extends FunctionCallExpr {
     @Override
     public Expr clone() {
         return new LambdaFunctionCallExpr(this);
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
     }
 
     @Override

@@ -20,10 +20,10 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 void register_aggregate_function_retention(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("retention",
                                    creator_without_type::creator<AggregateFunctionRetention>);
 }
-} // namespace doris::vectorized
+} // namespace doris

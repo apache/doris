@@ -1332,8 +1332,36 @@ Status SnapshotLoader::_check_local_snapshot_paths(
             LOG(WARNING) << ss.str();
             return Status::RuntimeError(ss.str());
         }
+        if (check_src) {
+            RETURN_IF_ERROR(_check_snapshot_path_on_broken_storage(path));
+        }
     }
     LOG(INFO) << "all local snapshot paths are existing. num: " << src_to_dest_path.size();
+    return Status::OK();
+}
+
+Status SnapshotLoader::_check_snapshot_path_on_broken_storage(const std::string& path) {
+    std::string canonical_path;
+    RETURN_IF_ERROR(io::global_local_filesystem()->canonicalize(path, &canonical_path));
+
+    auto broken_paths = _engine.get_broken_paths();
+    for (auto* store : _engine.get_stores(true)) {
+        std::string canonical_store_path;
+        RETURN_IF_ERROR(
+                io::global_local_filesystem()->canonicalize(store->path(), &canonical_store_path));
+        if (!io::LocalFileSystem::equal_or_sub_path(canonical_store_path, canonical_path)) {
+            continue;
+        }
+        if (!store->is_used() || broken_paths.contains(store->path()) ||
+            broken_paths.contains(canonical_store_path)) {
+            return Status::IOError(
+                    "snapshot path is on broken storage path, snapshot_path={}, "
+                    "storage_path={}",
+                    canonical_path, canonical_store_path);
+        }
+        break;
+    }
+
     return Status::OK();
 }
 

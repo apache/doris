@@ -24,9 +24,9 @@
 #include "common/config.h"
 #include "core/string_ref.h"
 
-using doris::vectorized::JSONDataParser;
-using doris::vectorized::SimdJSONParser;
-using doris::vectorized::ParseConfig;
+using doris::JSONDataParser;
+using doris::SimdJSONParser;
+using doris::ParseConfig;
 
 TEST(JsonParserTest, ParseSimpleTypes) {
     JSONDataParser<SimdJSONParser> parser;
@@ -139,7 +139,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     EXPECT_EQ(result->paths.size(), 1);
 
     // Test complex nested structure
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     std::string json1 = R"({"a":[[1,2],[3],[4,5,6]]})";
     // multi level nested array in object
     result = parser.parse(json1.c_str(), json1.size(), config);
@@ -165,7 +165,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
 
     // test flatten nested
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
     // TODO: checkAmbiguousStructure is only called when has_nested_in_flatten && is_top_array.
     // These JSONs are objects (not top-level arrays), so is_top_array=false and the check is skipped.
     // EXPECT_ANY_THROW(parser.parse(json.c_str(), json.size(), config));
@@ -184,14 +184,14 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
 TEST(JsonParserTest, ParseNestedAndFlatten) {
     JSONDataParser<SimdJSONParser> parser;
     ParseConfig config;
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
 
     std::string json = R"({"a":[{"b":1},{"b":2}]})";
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
     EXPECT_GT(result->values.size(), 0);
 
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     std::string json2 = R"({"a":[{"b":1},{"b":2}]})";
     result = parser.parse(json2.c_str(), json2.size(), config);
     ASSERT_TRUE(result.has_value());
@@ -249,7 +249,7 @@ TEST(JsonParserTest, TestIsPrefixFunction) {
 TEST(JsonParserTest, TestAmbiguousStructureDetection) {
     JSONDataParser<SimdJSONParser> parser;
     ParseConfig config;
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
 
     // TODO: The following 3 cases no longer throw because checkAmbiguousStructure requires
     // has_nested_in_flatten && is_top_array. "b" contains plain arrays (not nested objects),
@@ -276,7 +276,7 @@ TEST(JsonParserTest, TestAmbiguousStructureDetection) {
 TEST(JsonParserTest, TestNestedArrayHandling) {
     JSONDataParser<SimdJSONParser> parser;
     ParseConfig config;
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
 
     // Test case 1: Simple nested array handling
     std::string json1 = R"([{"b": 1}, {"c": 2}])";
@@ -296,7 +296,7 @@ TEST(JsonParserTest, TestNestedArrayWithDifferentConfigs) {
 
     // Test with flatten_nested = false
     ParseConfig config1;
-    config1.enable_flatten_nested = false;
+    config1.deprecated_enable_flatten_nested = false;
 
     std::string json1 = R"([{"b": [1, 2]}, {"b": [3, 4]}])";
     auto result1 = parser.parse(json1.c_str(), json1.size(), config1);
@@ -306,7 +306,7 @@ TEST(JsonParserTest, TestNestedArrayWithDifferentConfigs) {
 
     // Test with flatten_nested = true
     ParseConfig config2;
-    config2.enable_flatten_nested = true;
+    config2.deprecated_enable_flatten_nested = true;
 
     // TODO: "b" contains plain arrays (no nested objects), so has_nested=false,
     // has_nested_in_flatten=false, and checkAmbiguousStructure is not called.
@@ -325,20 +325,19 @@ TEST(JsonParserTest, TestHandleNewPathDirectCall) {
     ctx.is_top_array = true;
 
     // Create a path with nested parts
-    doris::vectorized::PathInData::Parts path;
+    doris::PathInData::Parts path;
     // Create a nested part (is_nested = true)
     path.emplace_back("nested_key", true, 0); // is_nested = true
     path.emplace_back("inner_key", false, 0); // is_nested = false
 
     // Create a Field with array type (required for getNameOfNested to return non-empty)
-    doris::vectorized::Array array_data;
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(1));
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(2));
-    doris::vectorized::Field value =
-            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+    doris::Array array_data;
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(1));
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(2));
+    doris::Field value = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
 
     // Create hash for the path
-    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+    UInt128 hash = doris::PathInData::get_parts_hash(path);
 
     // Call handleNewPath directly
     // This should trigger the if (!nested_key.empty()) branch
@@ -364,19 +363,18 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
     ctx.is_top_array = true;
 
     // Create a path with nested parts
-    doris::vectorized::PathInData::Parts path;
+    doris::PathInData::Parts path;
     path.emplace_back("nested_key", true, 0);
     path.emplace_back("inner_key", false, 0);
 
     // Create a Field with array type
-    doris::vectorized::Array array_data;
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(1));
-    array_data.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(2));
-    doris::vectorized::Field value =
-            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
+    doris::Array array_data;
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(1));
+    array_data.push_back(doris::Field::create_field<doris::TYPE_INT>(2));
+    doris::Field value = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data));
 
     // Create hash for the path
-    UInt128 hash = doris::vectorized::PathInData::get_parts_hash(path);
+    UInt128 hash = doris::PathInData::get_parts_hash(path);
 
     // First call to populate nested_sizes_by_key
     parser.handleNewPath(hash, path, value, ctx);
@@ -386,11 +384,10 @@ TEST(JsonParserTest, TestHandleNewPathElseBranch) {
     EXPECT_EQ(ctx.nested_sizes_by_key.at(doris::StringRef("nested_key"))[0], 0);
 
     // Create another array with same size
-    doris::vectorized::Array array_data2;
-    array_data2.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(3));
-    array_data2.push_back(doris::vectorized::Field::create_field<doris::TYPE_INT>(4));
-    doris::vectorized::Field value2 =
-            doris::vectorized::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
+    doris::Array array_data2;
+    array_data2.push_back(doris::Field::create_field<doris::TYPE_INT>(3));
+    array_data2.push_back(doris::Field::create_field<doris::TYPE_INT>(4));
+    doris::Field value2 = doris::Field::create_field<doris::TYPE_ARRAY>(std::move(array_data2));
 
     // Second call should trigger the else branch (nested_sizes is not empty)
     ctx.is_top_array = false;
@@ -429,7 +426,7 @@ TEST(JsonParserTest, ParseUInt64) {
     EXPECT_EQ(array_field[0].get<doris::PrimitiveType::TYPE_LARGEINT>(), 18446744073709551615ULL);
 
     std::string nested_json = R"({"a": [{"b": 18446744073709551615}]})";
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
     result = parser.parse(nested_json.c_str(), nested_json.size(), config);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
@@ -461,7 +458,7 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
         std::string obj_json = "{\"" + key11 + "\": 1}";
         EXPECT_ANY_THROW(parser.parse(obj_json.c_str(), obj_json.size(), config));
 
-        config.enable_flatten_nested = false;
+        config.deprecated_enable_flatten_nested = false;
         std::string jsonb_json = "{\"a\": [{\"" + key11 + "\": 1}]}";
         EXPECT_ANY_THROW(parser.parse(jsonb_json.c_str(), jsonb_json.size(), config));
     }
@@ -474,7 +471,7 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
         auto result = parser.parse(obj_json.c_str(), obj_json.size(), config);
         ASSERT_TRUE(result.has_value());
 
-        config.enable_flatten_nested = false;
+        config.deprecated_enable_flatten_nested = false;
         std::string jsonb_json = "{\"a\": [{\"" + key255 + "\": 1}]}";
         result = parser.parse(jsonb_json.c_str(), jsonb_json.size(), config);
         ASSERT_TRUE(result.has_value());

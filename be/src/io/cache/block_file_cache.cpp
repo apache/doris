@@ -557,17 +557,48 @@ Status BlockFileCache::initialize_unlocked(std::lock_guard<std::mutex>& cache_lo
 
 void BlockFileCache::update_block_lru(FileBlockSPtr block,
                                       std::lock_guard<std::mutex>& cache_lock) {
-    FileBlockCell* cell = block->cell;
-    if (cell) {
-        if (cell->queue_iterator) {
-            auto& queue = get_queue(block->cache_type());
+    if (!block) {
+        return;
+    }
+
+    FileBlockCell* cell = get_cell(block->get_hash_value(), block->offset(), cache_lock);
+    if (!cell || cell->file_block.get() != block.get()) {
+        return;
+    }
+
+    if (cell->queue_iterator) {
+        auto& queue = get_queue(block->cache_type());
+        if (block->cache_type() == FileCacheType::COLD_NORMAL) {
+            auto now_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+                                    std::chrono::steady_clock::now().time_since_epoch())
+                                    .count();
+            if (now_time - cell->atime > config::file_cache_2qlru_cold_blocks_promotion_ms) {
+                queue.remove(*cell->queue_iterator, cache_lock);
+                _lru_recorder->record_queue_event(
+                        FileCacheType::COLD_NORMAL, CacheLRULogType::REMOVE,
+                        block->_key.hash, block->_key.offset, block->_block_range.size());
+                auto& normal_queue = get_queue(FileCacheType::NORMAL);
+                cell->queue_iterator =
+                        normal_queue.add(block->_key.hash, block->_key.offset,
+                                         block->_block_range.size(), cache_lock);
+                _lru_recorder->record_queue_event(FileCacheType::NORMAL, CacheLRULogType::ADD,
+                                                  block->_key.hash,
+                                                  block->_key.offset, block->_block_range.size());
+                block->set_cache_type(FileCacheType::NORMAL);
+            } else {
+                queue.move_to_end(*cell->queue_iterator, cache_lock);
+                _lru_recorder->record_queue_event(
+                        block->cache_type(), CacheLRULogType::MOVETOBACK,
+                        block->_key.hash, block->_key.offset, block->_block_range.size());
+            }
+        } else {
             queue.move_to_end(*cell->queue_iterator, cache_lock);
             _lru_recorder->record_queue_event(block->cache_type(), CacheLRULogType::MOVETOBACK,
                                               block->_key.hash, block->_key.offset,
                                               block->_block_range.size());
         }
-        cell->update_atime();
     }
+    cell->update_atime();
 }
 
 void BlockFileCache::use_cell(FileBlockCell& cell, FileBlocks* result, bool move_iter_flag,
@@ -2308,65 +2339,98 @@ void BlockFileCache::clear_need_update_lru_blocks() {
     *_need_update_lru_blocks_length_recorder << _need_update_lru_blocks.size();
 }
 
+void BlockFileCache::pause_ttl_manager() {
+    if (_ttl_mgr) {
+        _ttl_mgr->stop();
+    }
+}
+
+void BlockFileCache::resume_ttl_manager() {
+    if (_ttl_mgr) {
+        _ttl_mgr->resume();
+    }
+}
+
 std::string BlockFileCache::clear_file_cache_directly() {
+    pause_ttl_manager();
     _lru_dumper->remove_lru_dump_files();
     using namespace std::chrono;
     std::stringstream ss;
     auto start = steady_clock::now();
-    SCOPED_CACHE_LOCK(_mutex, this);
-    LOG_INFO("start clear_file_cache_directly").tag("path", _cache_base_path);
-
-    std::string clear_msg;
-    auto s = _storage->clear(clear_msg);
-    if (!s.ok()) {
-        return clear_msg;
-    }
-
-    int64_t num_files = _files.size();
-    int64_t cache_size = _cur_cache_size;
-    int64_t index_queue_size = _index_queue.get_elements_num(cache_lock);
-    int64_t normal_queue_size = _normal_queue.get_elements_num(cache_lock);
-    int64_t disposable_queue_size = _disposable_queue.get_elements_num(cache_lock);
-    int64_t ttl_queue_size = _ttl_queue.get_elements_num(cache_lock);
-    int64_t cold_normal_queue_size = _cold_normal_queue.get_elements_num(cache_lock);
-
-    int64_t clear_fd_duration = 0;
+    std::string result;
     {
-        // clear FDCache to release fd
-        SCOPED_RAW_TIMER(&clear_fd_duration);
-        for (const auto& [file_key, file_blocks] : _files) {
-            for (const auto& [offset, file_block_cell] : file_blocks) {
-                AccessKeyAndOffset access_key_and_offset(file_key, offset);
-                FDCache::instance()->remove_file_reader(access_key_and_offset);
+        SCOPED_CACHE_LOCK(_mutex, this);
+        LOG_INFO("start clear_file_cache_directly").tag("path", _cache_base_path);
+
+        std::string clear_msg;
+        auto s = _storage->clear(clear_msg);
+        if (!s.ok()) {
+            result = clear_msg;
+        } else {
+            int64_t num_files = _files.size();
+            int64_t cache_size = _cur_cache_size;
+            int64_t index_queue_size = _index_queue.get_elements_num(cache_lock);
+            int64_t normal_queue_size = _normal_queue.get_elements_num(cache_lock);
+            int64_t disposable_queue_size = _disposable_queue.get_elements_num(cache_lock);
+            int64_t ttl_queue_size = _ttl_queue.get_elements_num(cache_lock);
+            int64_t cold_normal_queue_size = _cold_normal_queue.get_elements_num(cache_lock);
+
+            int64_t clear_fd_duration = 0;
+            {
+                // clear FDCache to release fd
+                SCOPED_RAW_TIMER(&clear_fd_duration);
+                for (const auto& [file_key, file_blocks] : _files) {
+                    for (const auto& [offset, file_block_cell] : file_blocks) {
+                        AccessKeyAndOffset access_key_and_offset(file_key, offset);
+                        FDCache::instance()->remove_file_reader(access_key_and_offset);
+                    }
+                }
             }
+
+            _files.clear();
+            _cur_cache_size = 0;
+            _cur_ttl_size = 0;
+            _time_to_key.clear();
+            _key_to_time.clear();
+            _index_queue.clear(cache_lock);
+            _normal_queue.clear(cache_lock);
+            _disposable_queue.clear(cache_lock);
+            _ttl_queue.clear(cache_lock);
+            _cold_normal_queue.clear(cache_lock);
+
+            // Update cache metrics immediately so consumers observe the cleared state
+            // without waiting for the next background monitor round.
+            _cur_cache_size_metrics->set_value(0);
+            _cur_ttl_cache_size_metrics->set_value(0);
+            _cur_ttl_cache_lru_queue_cache_size_metrics->set_value(0);
+            _cur_ttl_cache_lru_queue_element_count_metrics->set_value(0);
+            _cur_normal_queue_cache_size_metrics->set_value(0);
+            _cur_normal_queue_element_count_metrics->set_value(0);
+            _cur_index_queue_cache_size_metrics->set_value(0);
+            _cur_index_queue_element_count_metrics->set_value(0);
+            _cur_disposable_queue_cache_size_metrics->set_value(0);
+            _cur_disposable_queue_element_count_metrics->set_value(0);
+            _cur_cold_normal_queue_cache_size_metrics->set_value(0);
+            _cur_cold_normal_queue_element_count_metrics->set_value(0);
+
+            clear_need_update_lru_blocks();
+
+            ss << "finish clear_file_cache_directly"
+               << " path=" << _cache_base_path << " time_elapsed_ms="
+               << duration_cast<milliseconds>(steady_clock::now() - start).count()
+               << " fd_clear_time_ms=" << (clear_fd_duration / 1000000)
+               << " num_files=" << num_files << " cache_size=" << cache_size
+               << " index_queue_size=" << index_queue_size
+               << " normal_queue_size=" << normal_queue_size
+               << " disposable_queue_size=" << disposable_queue_size
+               << " ttl_queue_size=" << ttl_queue_size
+               << " cold_normal_queue_size=" << cold_normal_queue_size;
+            result = ss.str();
+            LOG(INFO) << result;
         }
     }
-
-    _files.clear();
-    _cur_cache_size = 0;
-    _cur_ttl_size = 0;
-    _time_to_key.clear();
-    _key_to_time.clear();
-    _index_queue.clear(cache_lock);
-    _normal_queue.clear(cache_lock);
-    _disposable_queue.clear(cache_lock);
-    _ttl_queue.clear(cache_lock);
-    _cold_normal_queue.clear(cache_lock);
-
-    clear_need_update_lru_blocks();
-
-    ss << "finish clear_file_cache_directly"
-       << " path=" << _cache_base_path
-       << " time_elapsed_ms=" << duration_cast<milliseconds>(steady_clock::now() - start).count()
-       << " fd_clear_time_ms=" << (clear_fd_duration / 1000000) << " num_files=" << num_files
-       << " cache_size=" << cache_size << " index_queue_size=" << index_queue_size
-       << " normal_queue_size=" << normal_queue_size
-       << " disposable_queue_size=" << disposable_queue_size << "ttl_queue_size=" << ttl_queue_size
-       << " cold_normal_queue_size=" << cold_normal_queue_size;
-    auto msg = ss.str();
-    LOG(INFO) << msg;
-    _lru_dumper->remove_lru_dump_files();
-    return msg;
+    resume_ttl_manager();
+    return result;
 }
 
 std::map<size_t, FileBlockSPtr> BlockFileCache::get_blocks_by_key(const UInt128Wrapper& hash) {

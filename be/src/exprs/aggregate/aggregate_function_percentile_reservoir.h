@@ -26,7 +26,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "util/reservoir_sampler.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class Arena;
 class BufferReadable;
@@ -110,4 +110,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

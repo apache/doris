@@ -49,7 +49,6 @@ namespace io {
 struct IOContext;
 } // namespace io
 
-namespace vectorized {
 struct ScannerCounter;
 class Block;
 
@@ -212,8 +211,8 @@ protected:
     std::string _line_delimiter;
     size_t _line_delimiter_length;
     char _escape = 0;
-    vectorized::DataTypeSerDeSPtrs _serdes;
-    vectorized::DataTypeSerDe::FormatOptions _options;
+    DataTypeSerDeSPtrs _serdes;
+    DataTypeSerDe::FormatOptions _options;
     std::unique_ptr<LineFieldSplitterIf> _fields_splitter;
     int64_t _start_offset;
     int64_t _size;
@@ -286,6 +285,5 @@ private:
     std::vector<Slice> _split_values;
     std::vector<int> _use_nullable_string_opt;
 };
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -27,7 +27,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl, typename Name>
 class FunctionStringToString : public IFunction {
@@ -76,4 +76,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

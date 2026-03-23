@@ -22,7 +22,7 @@
 
 #include "exec/common/string_utils/string_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace Nested {
 
@@ -68,4 +68,4 @@ std::string extract_table_name(const std::string& nested_name) {
 
 } // namespace Nested
 
-} // namespace doris::vectorized
+} // namespace doris

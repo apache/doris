@@ -25,7 +25,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_to_basic_number_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // Types that can be cast to int: string, bool, int, float, double, decimal, date, datetime and time.
@@ -267,4 +267,4 @@ WrapperType create_int_wrapper(FunctionContext* context, const DataTypePtr& from
 }
 } // namespace CastWrapper
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

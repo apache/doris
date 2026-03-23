@@ -29,7 +29,6 @@ class Type;
 class PartitionField;
 }; // namespace iceberg
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 class IColumn;
@@ -215,7 +214,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -272,7 +271,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -390,7 +389,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -451,7 +450,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -514,7 +513,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -588,7 +587,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -654,7 +653,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -732,7 +731,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -794,7 +793,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -863,7 +862,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -932,7 +931,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -1001,7 +1000,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -1070,7 +1069,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -1144,7 +1143,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -1217,7 +1216,7 @@ public:
         bool is_nullable = false;
         if (column_ptr->is_nullable()) {
             const ColumnNullable* nullable_column =
-                    reinterpret_cast<const vectorized::ColumnNullable*>(column_ptr.get());
+                    reinterpret_cast<const ColumnNullable*>(column_ptr.get());
             is_nullable = true;
             null_map_column_ptr = nullable_column->get_null_map_column_ptr();
             column_ptr = nullable_column->get_nested_column_ptr();
@@ -1296,6 +1295,5 @@ private:
     DataTypePtr _target_type;
 };
 
-} // namespace vectorized
 } // namespace doris
 #include "common/compile_check_end.h"

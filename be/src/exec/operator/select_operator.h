@@ -21,7 +21,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class SelectOperatorX;
@@ -43,7 +43,7 @@ public:
                     const DescriptorTbl& descs)
             : StreamingOperatorX<SelectLocalState>(pool, tnode, operator_id, descs) {}
 
-    Status pull(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status pull(RuntimeState* state, Block* block, bool* eos) override {
         auto& local_state = get_local_state(state);
         SCOPED_TIMER(local_state.exec_time_counter());
         RETURN_IF_CANCELLED(state);
@@ -56,4 +56,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

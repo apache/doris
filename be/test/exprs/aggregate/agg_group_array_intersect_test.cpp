@@ -35,7 +35,7 @@
 #include "gtest/gtest_pred_impl.h"
 const int agg_test_batch_size = 2;
 
-namespace doris::vectorized {
+namespace doris {
 void register_aggregate_function_group_array_set_op(AggregateFunctionSimpleFactory& factory);
 
 template <PrimitiveType T>
@@ -156,8 +156,8 @@ void validate_numeric_test(MutableColumnPtr& test_col_data) {
     null_map_column->get_data().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(6));
 
     // array nested column should be nullable
     test_col_data = ColumnArray::create(
@@ -228,82 +228,78 @@ void validate_numeric_nullable_test(MutableColumnPtr& test_col_data) {
         int64_t tmp0 = 1;
         int64_t tmp1 = 3;
         int64_t tmp2 = 11;
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
         int64_t tmp_exp2 = 3;
-        expected_result = {vectorized::Field(),
-                           vectorized::Field::create_field<T>(
-                                   *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
+        expected_result = {Field(), Field::create_field<T>(
+                                            *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
     } else if constexpr (T == TYPE_DATEV2) {
         uint32_t tmp0 = 1;
         uint32_t tmp1 = 3;
         uint32_t tmp2 = 11;
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
         uint32_t tmp_exp2 = 3;
-        expected_result = {vectorized::Field(),
-                           vectorized::Field::create_field<T>(
-                                   *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
+        expected_result = {Field(), Field::create_field<T>(
+                                            *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
     } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
         uint64_t tmp0 = 1;
         uint64_t tmp1 = 3;
         uint64_t tmp2 = 11;
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
         uint64_t tmp_exp2 = 3;
-        expected_result = {vectorized::Field(),
-                           vectorized::Field::create_field<T>(
-                                   *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
+        expected_result = {Field(), Field::create_field<T>(
+                                            *(typename PrimitiveTypeTraits<T>::CppType*)&tmp_exp2)};
     } else {
         typename PrimitiveTypeTraits<T>::CppType tmp0 = 1;
         typename PrimitiveTypeTraits<T>::CppType tmp1 = 3;
         typename PrimitiveTypeTraits<T>::CppType tmp2 = 11;
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
-        nullable_nested_column->insert(vectorized::Field());
-        nullable_nested_column->insert(vectorized::Field::create_field<T>(
-                *(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp0));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp2));
+        nullable_nested_column->insert(Field());
+        nullable_nested_column->insert(
+                Field::create_field<T>(*(typename PrimitiveTypeTraits<T>::CppType*)&tmp1));
 
-        expected_result = {
-                vectorized::Field(),
-                vectorized::Field::create_field<T>((typename PrimitiveTypeTraits<T>::CppType)3)};
+        expected_result = {Field(),
+                           Field::create_field<T>((typename PrimitiveTypeTraits<T>::CppType)3)};
     }
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(6));
 
     test_col_data =
             ColumnArray::create(std::move(nullable_nested_column), std::move(offsets_column));
@@ -402,8 +398,8 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     null_map_column->get_data().resize_fill(nested_column->size(), 0);
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(6));
 
     // array nested column should be nullable
     auto column_array_string = ColumnArray::create(
@@ -443,8 +439,8 @@ TEST(AggGroupArrayIntersectTest, string_test) {
     ans.get(0, actual_field);
     const auto& actual_result = actual_field.get<TYPE_ARRAY>();
 
-    Array expected_result = {vectorized::Field::create_field<TYPE_STRING>("b"),
-                             vectorized::Field::create_field<TYPE_STRING>("c")};
+    Array expected_result = {Field::create_field<TYPE_STRING>("b"),
+                             Field::create_field<TYPE_STRING>("c")};
 
     Array sorted_actual_result = actual_result;
     Array sorted_expected_result = expected_result;
@@ -466,16 +462,16 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     auto nullable_nested_column =
             ColumnNullable::create(std::move(nested_column), ColumnUInt8::create());
 
-    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("a"));
-    nullable_nested_column->insert(vectorized::Field());
-    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("c"));
-    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("aaaa"));
-    nullable_nested_column->insert(vectorized::Field());
-    nullable_nested_column->insert(vectorized::Field::create_field<TYPE_STRING>("c"));
+    nullable_nested_column->insert(Field::create_field<TYPE_STRING>("a"));
+    nullable_nested_column->insert(Field());
+    nullable_nested_column->insert(Field::create_field<TYPE_STRING>("c"));
+    nullable_nested_column->insert(Field::create_field<TYPE_STRING>("aaaa"));
+    nullable_nested_column->insert(Field());
+    nullable_nested_column->insert(Field::create_field<TYPE_STRING>("c"));
 
     auto offsets_column = ColumnArray::ColumnOffsets::create();
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(3));
-    offsets_column->insert(vectorized::Field::create_field<TYPE_UINT64>(6));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(3));
+    offsets_column->insert(Field::create_field<TYPE_UINT64>(6));
 
     auto column_array_string_nullable =
             ColumnArray::create(std::move(nullable_nested_column), std::move(offsets_column));
@@ -511,8 +507,7 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     ans.get(0, actual_field);
     const auto& actual_result = actual_field.get<TYPE_ARRAY>();
 
-    Array expected_result = {vectorized::Field(),
-                             vectorized::Field::create_field<TYPE_STRING>("c")};
+    Array expected_result = {Field(), Field::create_field<TYPE_STRING>("c")};
 
     Array sorted_actual_result = actual_result;
     Array sorted_expected_result = expected_result;
@@ -531,4 +526,4 @@ TEST(AggGroupArrayIntersectTest, string_nullable_test) {
     agg_function->destroy(place);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -36,9 +36,7 @@
 namespace doris {
 class FunctionContext;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
 /** Logical functions AND, OR and NOT support three-valued (or ternary) logic
@@ -51,7 +49,7 @@ class Block;
   * Functions AND and OR provide their own special implementations for ternary logic
   */
 
-namespace doris::vectorized {
+namespace doris {
 namespace FunctionsLogicalDetail {
 namespace Ternary {
 using ResultType = UInt8;
@@ -172,4 +170,4 @@ using FunctionNot =
 
 using FunctionXor =
         FunctionsLogicalDetail::FunctionAnyArityLogical<FunctionsLogicalDetail::XorImpl, NameXor>;
-} // namespace doris::vectorized
+} // namespace doris

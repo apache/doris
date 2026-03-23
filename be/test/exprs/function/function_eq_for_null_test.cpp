@@ -35,7 +35,7 @@
 #include "exprs/function_context.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(EqForNullFunctionTest, both_only_null) {
     const size_t input_rows_count = 100;
@@ -200,9 +200,9 @@ TEST(EqForNullFunctionTest, left_only_null_right_nullable) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -247,9 +247,9 @@ TEST(EqForNullFunctionTest, left_only_null_right_not_nullable) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -287,9 +287,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_only_null) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -335,9 +335,9 @@ TEST(EqForNullFunctionTest, left_not_nullable_right_only_null) {
     auto common_null_map = ColumnUInt8::create();
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -376,9 +376,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -419,9 +419,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_not_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -464,9 +464,9 @@ TEST(EqForNullFunctionTest, left_not_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -508,9 +508,9 @@ TEST(EqForNullFunctionTest, left_const_not_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -555,9 +555,9 @@ TEST(EqForNullFunctionTest, left_const_nullable_right_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -604,9 +604,9 @@ TEST(EqForNullFunctionTest, left_nullable_right_const_nullable) {
 
     for (size_t i = 0; i < input_rows_count; ++i) {
         if (i % 2 == 0) {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(0));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(0));
         } else {
-            common_null_map->insert(vectorized::Field::create_field<TYPE_BOOLEAN>(1));
+            common_null_map->insert(Field::create_field<TYPE_BOOLEAN>(1));
         }
     }
 
@@ -643,4 +643,4 @@ TEST(EqForNullFunctionTest, left_nullable_right_const_nullable) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

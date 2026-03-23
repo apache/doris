@@ -25,7 +25,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <template <typename> class Function, typename Name,
@@ -98,4 +98,4 @@ void register_aggregate_function_stddev_variance_samp(AggregateFunctionSimpleFac
     factory.register_function_both("stddev_samp", create_aggregate_function_stddev_samp);
     register_aggregate_function_stddev_variance_samp_old(factory);
 }
-} // namespace doris::vectorized
+} // namespace doris

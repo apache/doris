@@ -30,12 +30,10 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class FileScanner;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class FileScanOperatorX;
 class FileScanLocalState final : public ScanLocalState<FileScanLocalState> {
@@ -49,24 +47,24 @@ public:
     Status init(RuntimeState* state, LocalStateInfo& info) override;
 
     Status _process_conjuncts(RuntimeState* state) override;
-    Status _init_scanners(std::list<vectorized::ScannerSPtr>* scanners) override;
+    Status _init_scanners(std::list<ScannerSPtr>* scanners) override;
     void set_scan_ranges(RuntimeState* state,
                          const std::vector<TScanRangeParams>& scan_ranges) override;
     int parent_id() { return _parent->node_id(); }
     std::string name_suffix() const override;
     int max_scanners_concurrency(RuntimeState* state) const override;
     int min_scanners_concurrency(RuntimeState* state) const override;
-    vectorized::ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
+    ScannerScheduler* scan_scheduler(RuntimeState* state) const override;
 
 private:
-    friend class vectorized::FileScanner;
+    friend class FileScanner;
     PushDownType _should_push_down_bloom_filter() const override {
         return PushDownType::UNACCEPTABLE;
     }
     PushDownType _should_push_down_topn_filter() const override {
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
-    bool _push_down_topn(const vectorized::RuntimePredicate& predicate) override {
+    bool _push_down_topn(const RuntimePredicate& predicate) override {
         // For external table/ file scan, first try push down the predicate,
         // and then determine whether it can be pushed down within the (parquet/orc) reader.
         return true;
@@ -75,8 +73,7 @@ private:
     PushDownType _should_push_down_bitmap_filter() const override {
         return PushDownType::UNACCEPTABLE;
     }
-    PushDownType _should_push_down_is_null_predicate(
-            vectorized::VectorizedFnCall* fn_call) const override {
+    PushDownType _should_push_down_is_null_predicate(VectorizedFnCall* fn_call) const override {
         return fn_call->fn().name.function_name == "is_null_pred" ||
                                fn_call->fn().name.function_name == "is_not_null_pred"
                        ? PushDownType::PARTIAL_ACCEPTABLE
@@ -86,16 +83,16 @@ private:
         return PushDownType::PARTIAL_ACCEPTABLE;
     }
     PushDownType _should_push_down_binary_predicate(
-            vectorized::VectorizedFnCall* fn_call, vectorized::VExprContext* expr_ctx,
-            vectorized::Field& constant_val, const std::set<std::string> fn_name) const override;
-    std::shared_ptr<vectorized::SplitSourceConnector> _split_source = nullptr;
+            VectorizedFnCall* fn_call, VExprContext* expr_ctx, Field& constant_val,
+            const std::set<std::string> fn_name) const override;
+    std::shared_ptr<SplitSourceConnector> _split_source = nullptr;
     int _max_scanners;
     // A in memory cache to save some common components
     // of the this scan node. eg:
     // 1. iceberg delete file
     // 2. parquet file meta
     // KVCache<std::string> _kv_cache;
-    std::unique_ptr<vectorized::ShardedKVCache> _kv_cache;
+    std::unique_ptr<ShardedKVCache> _kv_cache;
     TupleId _output_tuple_id = -1;
 };
 
@@ -135,4 +132,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

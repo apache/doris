@@ -38,7 +38,7 @@
 #include "udf/python/python_server.h"
 #include "util/timezone_utils.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 Status AggregatePythonUDAFData::create(int64_t place) {
     DCHECK(client) << "Client must be set before calling create";
@@ -427,4 +427,4 @@ void AggregatePythonUDAF::insert_result_into(ConstAggregateDataPtr __restrict pl
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

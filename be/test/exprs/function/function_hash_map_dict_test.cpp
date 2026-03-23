@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_string.h"
 #include "exprs/function/dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using KeyTypes =
         std::tuple<DataTypeUInt8, DataTypeInt8, DataTypeInt16, DataTypeInt32, DataTypeInt64,
@@ -65,4 +65,4 @@ TEST(HashMapDictTest, Test4) {
     CartesianProduct<KeyTypes, ValueTypes, 100, true>::execute();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -22,7 +22,6 @@
 #include <memory>
 
 namespace doris {
-namespace vectorized {
 
 class SimulationTask;
 class SimulationSplit;
@@ -76,5 +75,4 @@ private:
     const int64_t _between_quanta_nanos;
 };
 
-} // namespace vectorized
 } // namespace doris

@@ -29,7 +29,7 @@
 #include "exprs/function/function_test_util.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(FunctionDictGetTest, test_without_dict_function) {
     FunctionBasePtr function = SimpleFunctionFactory::instance().get_function(
@@ -86,4 +86,4 @@ TEST(FunctionDictGetTest, test_without_dict_id) {
         std::cout << e.what() << std::endl;
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

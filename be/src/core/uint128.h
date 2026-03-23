@@ -30,7 +30,7 @@
 #include "util/hash/city.h"
 #include "util/sse_util.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 
 using UInt128 = wide::UInt128;
 
@@ -99,12 +99,12 @@ struct UInt136 {
 };
 #pragma pack()
 
-} // namespace doris::vectorized
+} // namespace doris
 
 /// Overload hash for type casting
 template <>
-struct std::hash<doris::vectorized::UInt128> {
-    size_t operator()(const doris::vectorized::UInt128& u) const {
+struct std::hash<doris::UInt128> {
+    size_t operator()(const doris::UInt128& u) const {
         return doris::util_hash::HashLen16(u.low(), u.high());
     }
 };

@@ -35,10 +35,10 @@
 #include "runtime/runtime_state.h"
 #include "storage/field.h"
 
-namespace doris::vectorized {
-static doris::vectorized::Field construct_variant_map(
-        const std::vector<std::pair<std::string, doris::vectorized::Field>>& key_and_values) {
-    doris::vectorized::Field res = Field::create_field<TYPE_VARIANT>(VariantMap {});
+namespace doris {
+static doris::Field construct_variant_map(
+        const std::vector<std::pair<std::string, doris::Field>>& key_and_values) {
+    doris::Field res = Field::create_field<TYPE_VARIANT>(VariantMap {});
     auto& object = res.get<TYPE_VARIANT>();
     for (const auto& [k, v] : key_and_values) {
         PathInData path(k);
@@ -51,7 +51,7 @@ static auto construct_basic_varint_column() {
     // 1. create an empty variant column
     auto variant = ColumnVariant::create(5);
 
-    std::vector<std::pair<std::string, doris::vectorized::Field>> data;
+    std::vector<std::pair<std::string, doris::Field>> data;
 
     // 2. subcolumn path
     data.emplace_back("v.a", Field::create_field<TYPE_INT>(20));
@@ -340,10 +340,9 @@ TEST(FunctionVariantCast, CastFromVariantWithEmptyRoot) {
         auto int32_type = std::make_shared<DataTypeInt32>();
         MutableColumnPtr root = ColumnInt32::create();
         root->insert(Field::create_field<TYPE_INT>(42));
-        vectorized::ColumnVariant::Subcolumns dynamic_subcolumns;
-        dynamic_subcolumns.add(
-                vectorized::PathInData(ColumnVariant::COLUMN_NAME_DUMMY),
-                vectorized::ColumnVariant::Subcolumn {root->get_ptr(), int32_type, true, true});
+        ColumnVariant::Subcolumns dynamic_subcolumns;
+        dynamic_subcolumns.add(PathInData(ColumnVariant::COLUMN_NAME_DUMMY),
+                               ColumnVariant::Subcolumn {root->get_ptr(), int32_type, true, true});
         auto variant_col = ColumnVariant::create(0, std::move(dynamic_subcolumns));
 
         variant_col->finalize();
@@ -613,4 +612,4 @@ TEST(FunctionVariantCast, CastFromVariantStrictModeRegression) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

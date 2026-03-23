@@ -26,19 +26,17 @@
 #include <vector>
 
 #include "common/status.h"
-#include "format/jni_reader.h"
-#include "storage/olap_scan_common.h"
+#include "format/jni/jni_reader.h"
+#include "storage/olap_common.h"
 
 namespace doris {
 class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class IcebergSysTableJniReader : public JniReader {
@@ -52,10 +50,7 @@ public:
     ~IcebergSysTableJniReader() override = default;
 
     Status init_reader();
-
-private:
-    const TMetaScanRange& _meta_scan_range;
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

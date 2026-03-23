@@ -804,6 +804,19 @@ public class Alter {
             throws DdlException {
         String oldTblName = origTable.getName();
         String newTblName = newTbl.getName();
+
+        // Handle constraints for table replacement
+        TableNameInfo origTableInfo = new TableNameInfo(origTable);
+        TableNameInfo newTableInfo = new TableNameInfo(newTbl);
+        if (swapTable) {
+            Env.getCurrentEnv().getConstraintManager().swapTableConstraints(origTableInfo, newTableInfo);
+        } else {
+            if (!isReplay) {
+                Env.getCurrentEnv().getConstraintManager().checkNoReferencingForeignKeys(origTableInfo);
+            }
+            Env.getCurrentEnv().getConstraintManager().dropAndRenameConstraints(origTableInfo, newTableInfo);
+        }
+
         // drop origin table and new table
         db.unregisterTable(oldTblName);
         db.unregisterTable(newTblName);

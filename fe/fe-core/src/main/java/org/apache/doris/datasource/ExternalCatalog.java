@@ -29,7 +29,6 @@ import org.apache.doris.catalog.info.CreateOrReplaceTagInfo;
 import org.apache.doris.catalog.info.DropBranchInfo;
 import org.apache.doris.catalog.info.DropTagInfo;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -39,7 +38,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -58,6 +56,7 @@ import org.apache.doris.datasource.test.TestExternalCatalog;
 import org.apache.doris.datasource.test.TestExternalDatabase;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateTableInfo;
 import org.apache.doris.persist.CreateDbInfo;
 import org.apache.doris.persist.DropDbInfo;
@@ -396,7 +395,7 @@ public abstract class ExternalCatalog
             if (LOG.isDebugEnabled()) {
                 LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
             }
-            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().legacyMetaCacheFactory().build(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
@@ -577,14 +576,16 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public synchronized void resetToUninitialized(boolean invalidCache) {
-        this.objectCreated = false;
-        this.initialized = false;
-        synchronized (this.confLock) {
-            this.cachedConf = null;
+    public void resetToUninitialized(boolean invalidCache) {
+        synchronized (this) {
+            this.objectCreated = false;
+            this.initialized = false;
+            synchronized (this.confLock) {
+                this.cachedConf = null;
+            }
+            this.lowerCaseToDatabaseName.clear();
+            onClose();
         }
-        this.lowerCaseToDatabaseName.clear();
-        onClose();
         onRefreshCache(invalidCache);
     }
 
@@ -597,7 +598,7 @@ public abstract class ExternalCatalog
         setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
         }
     }
 
@@ -696,25 +697,24 @@ public abstract class ExternalCatalog
             LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
             return null;
         }
-        String realDbName = ClusterNamespace.getNameFromFullName(dbName);
 
         // information_schema db name is case-insensitive.
         // So, we first convert it to standard database name.
-        if (realDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
-            realDbName = InfoSchemaDb.DATABASE_NAME;
-        } else if (realDbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
-            realDbName = MysqlDb.DATABASE_NAME;
+        if (dbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
+            dbName = InfoSchemaDb.DATABASE_NAME;
+        } else if (dbName.equalsIgnoreCase(MysqlDb.DATABASE_NAME)) {
+            dbName = MysqlDb.DATABASE_NAME;
         } else {
             // Apply case-insensitive lookup for non-system databases
-            String localDbName = getLocalDatabaseName(realDbName, false);
+            String localDbName = getLocalDatabaseName(dbName, false);
             if (localDbName != null) {
-                realDbName = localDbName;
+                dbName = localDbName;
             }
         }
 
         // must use full qualified name to generate id.
         // otherwise, if 2 catalogs have the same db name, the id will be the same.
-        return metaCache.getMetaObj(realDbName, Util.genIdByName(name, realDbName)).orElse(null);
+        return metaCache.getMetaObj(dbName, Util.genIdByName(name, dbName)).orElse(null);
     }
 
     @Nullable
@@ -1056,6 +1056,9 @@ public abstract class ExternalCatalog
         }
         try {
             metadataOps.renameTable(dbName, oldTableName, newTableName);
+            Env.getCurrentEnv().getConstraintManager().renameTable(
+                    new TableNameInfo(getName(), dbName, oldTableName),
+                    new TableNameInfo(getName(), dbName, newTableName));
             Env.getCurrentEnv().getEditLog()
                     .logRefreshExternalTable(
                             ExternalObjectLog.createForRenameTable(getId(), dbName, oldTableName, newTableName));
@@ -1113,7 +1116,7 @@ public abstract class ExternalCatalog
         if (isInitialized()) {
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1333,7 +1336,8 @@ public abstract class ExternalCatalog
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            extMetaCacheMgr.removeCatalog(id);
         }
     }
 

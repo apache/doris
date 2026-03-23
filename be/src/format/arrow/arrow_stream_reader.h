@@ -38,7 +38,6 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 
-namespace vectorized {
 #include "common/compile_check_begin.h"
 
 struct ScannerCounter;
@@ -67,9 +66,8 @@ private:
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     io::IOContext* _io_ctx;
     io::FileReaderSPtr _file_reader;
-    std::unique_ptr<doris::vectorized::ArrowPipInputStream> _pip_stream;
+    std::unique_ptr<doris::ArrowPipInputStream> _pip_stream;
     cctz::time_zone _ctzz;
 };
-} // namespace vectorized
 #include "common/compile_check_end.h"
 } // namespace doris

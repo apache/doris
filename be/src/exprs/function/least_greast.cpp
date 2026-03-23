@@ -48,7 +48,7 @@ namespace doris {
 class DecimalV2Value;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <template <PrimitiveType> class Op, typename Impl>
 struct CompareMultiImpl {
@@ -367,4 +367,4 @@ void register_function_least_greast(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionGreaest>();
     factory.register_function<FunctionField>();
 }
-}; // namespace doris::vectorized
+}; // namespace doris

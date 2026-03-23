@@ -23,7 +23,6 @@ import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.DebugUtil;
@@ -246,10 +245,10 @@ public class AuditLogHelper {
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
                 .setTimestamp(ctx.getStartTime())
                 .setClientIp(ctx.getClientIP())
-                .setUser(ClusterNamespace.getNameFromFullName(ctx.getQualifiedUser()))
+                .setUser(ctx.getQualifiedUser())
                 .setFeIp(FrontendOptions.getLocalHostAddress())
                 .setCtl(catalog == null ? InternalCatalog.INTERNAL_CATALOG_NAME : catalog.getName())
-                .setDb(ClusterNamespace.getNameFromFullName(ctx.getDatabase()))
+                .setDb(ctx.getDatabase())
                 .setState(ctx.getState().toString())
                 .setErrorCode(ctx.getState().getErrorCode() == null ? 0 : ctx.getState().getErrorCode().getCode())
                 .setErrorMessage((ctx.getState().getErrorMessage() == null ? "" :

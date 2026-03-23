@@ -29,7 +29,7 @@
 
 using ::testing::HasSubstr;
 
-namespace doris::vectorized {
+namespace doris {
 
 // These tests target uncovered error branches in AnnTopNRuntime::prepare and
 // evaluate_vector_ann_search using the existing VectorSearchTest fixture setup.
@@ -133,7 +133,7 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluate_DimensionMismatch) {
     }
 
     roaring::Roaring bitmap;
-    vectorized::IColumn::MutablePtr result_col = ColumnFloat32::create(0);
+    IColumn::MutablePtr result_col = ColumnFloat32::create(0);
     std::unique_ptr<std::vector<uint64_t>> row_ids;
     doris::segment_v2::AnnIndexStats stats;
     Status st = runtime->evaluate_vector_ann_search(_ann_index_iterator.get(), &bitmap, 10,
@@ -142,4 +142,4 @@ TEST_F(VectorSearchTest, AnnTopNRuntimeEvaluate_DimensionMismatch) {
     EXPECT_THAT(st.to_string(), HasSubstr("dimension"));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

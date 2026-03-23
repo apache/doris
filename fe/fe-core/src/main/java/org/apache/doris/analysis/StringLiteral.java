@@ -21,10 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TStringLiteral;
 
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
@@ -120,23 +116,8 @@ public class StringLiteral extends LiteralExpr {
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {
-        if (value == null) {
-            msg.node_type = TExprNodeType.NULL_LITERAL;
-        } else {
-            msg.string_literal = new TStringLiteral(value);
-            msg.node_type = TExprNodeType.STRING_LITERAL;
-        }
-    }
-
-    @Override
     public String getStringValue() {
         return value;
-    }
-
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return options.getNestedStringWrapper() + getStringValueForQuery(options) + options.getNestedStringWrapper();
     }
 
     @Override
