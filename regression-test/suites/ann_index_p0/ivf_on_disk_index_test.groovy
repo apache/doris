@@ -143,8 +143,7 @@ suite ("ivf_on_disk_index_test") {
     PROPERTIES ("replication_num" = "1");
     """
 
-    // NOTE: stream load to ivf_on_disk currently fails in BE with index builder error.
-    // Keep this case to cover the stream load path and assert current behavior explicitly.
+    // Stream load to ivf_on_disk should succeed.
     streamLoad {
         table "tbl_ivf_on_disk_stream_load"
         file "ivf_on_disk_stream_load.json"
@@ -158,8 +157,10 @@ suite ("ivf_on_disk_index_test") {
             }
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
-            assertEquals("fail", json.Status.toLowerCase())
-            assertTrue(json.Message.contains("FulltextIndexSearcherBuilder build error"))
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(6, json.NumberTotalRows)
+            assertEquals(6, json.NumberLoadedRows)
+            assertEquals(0, json.NumberFilteredRows)
         }
     }
 
