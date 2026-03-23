@@ -105,8 +105,10 @@ struct WindowFunnelStateV2 {
     /// Check if this event is a continuation of the same row as the previous event.
     static bool is_continuation(UInt8 raw) { return (raw & CONTINUATION_FLAG) != 0; }
 
+    static constexpr int64_t WINDOW_UNSET = -1;
+
     int event_count = 0;
-    int64_t window = 0;
+    int64_t window = WINDOW_UNSET;
     WindowFunnelMode window_funnel_mode = WindowFunnelMode::INVALID;
     bool sorted = true;
     std::vector<TimestampEvent> events_list;
@@ -182,7 +184,7 @@ struct WindowFunnelStateV2 {
         }
 
         event_count = event_count > 0 ? event_count : other.event_count;
-        window = window > 0 ? window : other.window;
+        window = window != WINDOW_UNSET ? window : other.window;
         window_funnel_mode = window_funnel_mode == WindowFunnelMode::INVALID
                                      ? other.window_funnel_mode
                                      : window_funnel_mode;

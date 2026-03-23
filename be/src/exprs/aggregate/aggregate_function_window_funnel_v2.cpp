@@ -33,8 +33,10 @@ AggregateFunctionPtr create_aggregate_function_window_funnel_v2(const std::strin
                                                                 const DataTypePtr& result_type,
                                                                 const bool result_is_nullable,
                                                                 const AggregateFunctionAttr& attr) {
-    if (argument_types.size() < 3) {
-        LOG(WARNING) << "window_funnel_v2's argument less than 3.";
+    if (argument_types.size() < 4) {
+        LOG(WARNING) << "window_funnel_v2 requires at least 4 arguments (window, mode, timestamp, "
+                        "and at least 1 boolean condition), but got "
+                     << argument_types.size() << ".";
         return nullptr;
     }
     if (argument_types[2]->get_primitive_type() == TYPE_DATETIMEV2) {
