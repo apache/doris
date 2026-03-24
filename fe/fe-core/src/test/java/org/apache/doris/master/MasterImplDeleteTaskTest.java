@@ -66,7 +66,7 @@ public class MasterImplDeleteTaskTest {
 
         new MockUp<Env>() {
             @Mock
-            public static SystemInfoService getCurrentSystemInfo() {
+            public SystemInfoService getCurrentSystemInfo() {
                 return systemInfoService;
             }
         };
