@@ -183,6 +183,7 @@ public class BinlogConfigCache {
         lock.writeLock().lock();
         try {
             dbTableBinlogEnableMap.remove(id);
+            tableTypeMap.remove(id);
         } finally {
             lock.writeLock().unlock();
         }

@@ -206,6 +206,20 @@ public class StatisticsCache {
             new PartitionColumnStatisticCacheKey(ctlId, dbId, tblId, idxId, partName, colName));
     }
 
+    /**
+     * Invalidate all cached stats (column stats, histogram, partition stats) for a given table.
+     * This is used as a fallback when the table has already been dropped and we cannot enumerate
+     * its columns/partitions to do fine-grained invalidation.
+     */
+    public void invalidateAllCacheForTable(long catalogId, long dbId, long tableId) {
+        columnStatisticsCache.synchronous().asMap().keySet()
+                .removeIf(k -> k.catalogId == catalogId && k.dbId == dbId && k.tableId == tableId);
+        histogramCache.synchronous().asMap().keySet()
+                .removeIf(k -> k.catalogId == catalogId && k.dbId == dbId && k.tableId == tableId);
+        partitionColumnStatisticCache.synchronous().asMap().keySet()
+                .removeIf(k -> k.catalogId == catalogId && k.dbId == dbId && k.tableId == tableId);
+    }
+
     public void invalidateAllPartitionStatsCache() {
         partitionColumnStatisticCache.synchronous().invalidateAll();
     }

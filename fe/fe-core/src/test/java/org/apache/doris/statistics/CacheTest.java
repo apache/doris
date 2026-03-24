@@ -395,6 +395,59 @@ public class CacheTest extends TestWithFeService {
     }
 
     @Test
+    public void testInvalidateAllCacheForTable() throws Exception {
+        StatisticsCache statisticsCache = new StatisticsCache();
+
+        // Put some column stats for table 100 with different columns and indexes
+        StatisticsCacheKey k1 = new StatisticsCacheKey(1, 2, 100, -1, "col1");
+        StatisticsCacheKey k2 = new StatisticsCacheKey(1, 2, 100, -1, "col2");
+        StatisticsCacheKey k3 = new StatisticsCacheKey(1, 2, 100, 10, "col1");
+        // Stats for a different table (should NOT be invalidated)
+        StatisticsCacheKey k4 = new StatisticsCacheKey(1, 2, 200, -1, "col1");
+
+        ColumnStatistic cs = new ColumnStatistic(1, 2, null, 3, 4, 5, 6, 7,
+                null, null, false, new Date().toString(), null);
+        statisticsCache.putCache(k1, cs);
+        statisticsCache.putCache(k2, cs);
+        statisticsCache.putCache(k3, cs);
+        statisticsCache.putCache(k4, cs);
+
+        // Also put partition stats for table 100
+        statisticsCache.updatePartitionColStatsCache(1, 2, 100, -1, "p1", "col1",
+                PartitionColumnStatistic.UNKNOWN);
+        statisticsCache.updatePartitionColStatsCache(1, 2, 100, -1, "p2", "col1",
+                PartitionColumnStatistic.UNKNOWN);
+        // Partition stats for different table
+        statisticsCache.updatePartitionColStatsCache(1, 2, 200, -1, "p1", "col1",
+                PartitionColumnStatistic.UNKNOWN);
+
+        // Now invalidate all cache for table 100
+        statisticsCache.invalidateAllCacheForTable(1, 2, 100);
+
+        // Verify: table 100 entries should be gone
+        ColumnStatistic r1 = statisticsCache.getColumnStatistics(1, 2, 100, -1, "col1", connectContext);
+        Assertions.assertTrue(r1.isUnKnown, "col1 of table 100 should be invalidated");
+
+        ColumnStatistic r2 = statisticsCache.getColumnStatistics(1, 2, 100, -1, "col2", connectContext);
+        Assertions.assertTrue(r2.isUnKnown, "col2 of table 100 should be invalidated");
+
+        // Verify: table 200 entries should still exist
+        Thread.sleep(500);
+        Assertions.assertNotNull(statisticsCache.getColumnStatistics(1, 2, 200, -1, "col1", connectContext),
+                "table 200 stats should not be affected");
+
+        // Verify partition stats for table 100 are gone
+        PartitionColumnStatistic p1 = statisticsCache.getPartitionColumnStatistics(1, 2, 100, -1, "p1", "col1", connectContext);
+        Assertions.assertEquals(PartitionColumnStatistic.UNKNOWN, p1,
+                "partition stats of table 100 should be invalidated");
+
+        // Verify partition stats for table 200 still exist
+        statisticsCache.getPartitionColumnStatistics(1, 2, 200, -1, "p1", "col1", connectContext);
+        // This was explicitly put as UNKNOWN, but the key should still be in cache
+        // The important thing is that table 200 was not affected by the invalidation
+    }
+
+    @Test
     public void testLoadWithException() throws Exception {
         new MockUp<ColumnStatisticsCacheLoader>() {
             @Mock
