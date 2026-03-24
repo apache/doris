@@ -18,8 +18,8 @@
 package org.apache.doris.sdk.load.model;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.junit.Test;
-import static org.junit.Assert.*;
+import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class LoadResponseTest {
 

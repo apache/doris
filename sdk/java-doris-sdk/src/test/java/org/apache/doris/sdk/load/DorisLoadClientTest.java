@@ -22,12 +22,12 @@ import org.apache.doris.sdk.load.exception.StreamLoadException;
 import org.apache.doris.sdk.load.internal.StreamLoader;
 import org.apache.doris.sdk.load.model.LoadResponse;
 import org.apache.doris.sdk.load.model.RespContent;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.Arrays;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 public class DorisLoadClientTest {
@@ -124,6 +124,6 @@ public class DorisLoadClientTest {
         assertEquals(4000, DorisLoadClient.calculateBackoffMs(3, 1000, 60000, 0));
         // constrained by remaining total time
         long constrained = DorisLoadClient.calculateBackoffMs(4, 1000, 60000, 55000);
-        assertTrue("constrained interval should be <= remaining time", constrained <= 5000);
+        assertTrue(constrained <= 5000, "constrained interval should be <= remaining time");
     }
 }

@@ -19,9 +19,9 @@ package org.apache.doris.sdk.load.internal;
 
 import org.apache.doris.sdk.load.config.*;
 import org.apache.http.client.methods.HttpPut;
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import java.util.Arrays;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class RequestBuilderTest {
 
@@ -95,7 +95,7 @@ public class RequestBuilderTest {
         HttpPut req1 = RequestBuilder.build(config, "test".getBytes(), 1);
         String label0 = req0.getFirstHeader("label").getValue();
         String label1 = req1.getFirstHeader("label").getValue();
-        assertTrue("retry label must contain 'retry'", label1.contains("retry"));
+        assertTrue(label1.contains("retry"), "retry label must contain 'retry'");
         assertNotEquals(label0, label1);
     }
 

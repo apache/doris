@@ -17,9 +17,9 @@
 
 package org.apache.doris.sdk.load.config;
 
-import org.junit.Test;
+import org.junit.jupiter.api.Test;
 import java.util.Arrays;
-import static org.junit.Assert.*;
+import static org.junit.jupiter.api.Assertions.*;
 
 public class DorisConfigTest {
 
@@ -42,47 +42,57 @@ public class DorisConfigTest {
         assertEquals("users", config.getTable());
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testMissingUserThrows() {
-        DorisConfig.builder()
-                .endpoints(Arrays.asList("http://127.0.0.1:8030"))
-                .database("db").table("t")
-                .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
-                .build();
+        assertThrows(IllegalArgumentException.class, () ->
+            DorisConfig.builder()
+                    .endpoints(Arrays.asList("http://127.0.0.1:8030"))
+                    .database("db").table("t")
+                    .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
+                    .build()
+        );
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testMissingDatabaseThrows() {
-        DorisConfig.builder()
-                .endpoints(Arrays.asList("http://127.0.0.1:8030"))
-                .user("root").table("t")
-                .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
-                .build();
+        assertThrows(IllegalArgumentException.class, () ->
+            DorisConfig.builder()
+                    .endpoints(Arrays.asList("http://127.0.0.1:8030"))
+                    .user("root").table("t")
+                    .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
+                    .build()
+        );
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testMissingTableThrows() {
-        DorisConfig.builder()
-                .endpoints(Arrays.asList("http://127.0.0.1:8030"))
-                .user("root").database("db")
-                .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
-                .build();
+        assertThrows(IllegalArgumentException.class, () ->
+            DorisConfig.builder()
+                    .endpoints(Arrays.asList("http://127.0.0.1:8030"))
+                    .user("root").database("db")
+                    .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
+                    .build()
+        );
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testEmptyEndpointsThrows() {
-        DorisConfig.builder()
-                .user("root").database("db").table("t")
-                .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
-                .build();
+        assertThrows(IllegalArgumentException.class, () ->
+            DorisConfig.builder()
+                    .user("root").database("db").table("t")
+                    .format(new JsonFormat(JsonFormat.Type.OBJECT_LINE))
+                    .build()
+        );
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testNullFormatThrows() {
-        DorisConfig.builder()
-                .endpoints(Arrays.asList("http://127.0.0.1:8030"))
-                .user("root").database("db").table("t")
-                .build();
+        assertThrows(IllegalArgumentException.class, () ->
+            DorisConfig.builder()
+                    .endpoints(Arrays.asList("http://127.0.0.1:8030"))
+                    .user("root").database("db").table("t")
+                    .build()
+        );
     }
 
     @Test
@@ -93,8 +103,10 @@ public class DorisConfigTest {
         assertEquals(60000L, retry.getMaxTotalTimeMs());
     }
 
-    @Test(expected = IllegalArgumentException.class)
+    @Test
     public void testNegativeRetryTimesThrows() {
-        RetryConfig.builder().maxRetryTimes(-1).baseIntervalMs(1000).maxTotalTimeMs(60000).build();
+        assertThrows(IllegalArgumentException.class, () ->
+            RetryConfig.builder().maxRetryTimes(-1).baseIntervalMs(1000).maxTotalTimeMs(60000).build()
+        );
     }
 }
