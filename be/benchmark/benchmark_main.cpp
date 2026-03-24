@@ -20,14 +20,15 @@
 #include "benchmark_bit_pack.hpp"
 #include "benchmark_bits.hpp"
 #include "benchmark_block_bloom_filter.hpp"
+#include "benchmark_column_view.hpp"
 #include "benchmark_fastunion.hpp"
 #include "benchmark_hll_merge.hpp"
 #include "benchmark_string.hpp"
 #include "binary_cast_benchmark.hpp"
 #include "core/block/block.h"
-#include "vec/columns/column_string.h"
-#include "vec/data_types/data_type.h"
-#include "vec/data_types/data_type_string.h"
+#include "core/column/column_string.h"
+#include "core/data_type/data_type.h"
+#include "core/data_type/data_type_string.h"
 
 namespace doris { // change if need
 
