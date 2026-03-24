@@ -234,6 +234,7 @@ JFS_META_FORMATTED=0
 DORIS_ROOT="${DORIS_ROOT:-$(cd "${ROOT}/../.." &>/dev/null && pwd)}"
 JUICEFS_DEFAULT_VERSION="${JUICEFS_DEFAULT_VERSION:-1.3.1}"
 JUICEFS_HADOOP_MAVEN_REPO="${JUICEFS_HADOOP_MAVEN_REPO:-https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop}"
+JUICEFS_RUNTIME_ROOT="${ROOT}/juicefs"
 
 # Keep the minimal JuiceFS helpers local because CI may package docker/thirdparties alone.
 juicefs_find_hadoop_jar_by_globs() {
@@ -298,10 +299,12 @@ juicefs_download_hadoop_jar_to_cache() {
     return 1
 }
 
-JUICEFS_LOCAL_BIN="${DORIS_ROOT}/thirdparty/installed/juicefs_bin/juicefs"
+JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 
 find_juicefs_hadoop_jar() {
     local -a jar_globs=(
+        "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
+        "${ROOT}/docker-compose/hive/scripts/auxlib/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
@@ -321,13 +324,13 @@ detect_juicefs_version() {
 
 download_juicefs_hadoop_jar() {
     local juicefs_version="$1"
-    local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_libs"
+    local cache_dir="${JUICEFS_RUNTIME_ROOT}/lib"
     juicefs_download_hadoop_jar_to_cache "${juicefs_version}" "${cache_dir}"
 }
 
 install_juicefs_cli() {
     local juicefs_version="$1"
-    local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_bin"
+    local cache_dir="${JUICEFS_RUNTIME_ROOT}/bin"
     local archive_name="juicefs-${juicefs_version}-linux-amd64.tar.gz"
     local download_url="https://github.com/juicedata/juicefs/releases/download/v${juicefs_version}/${archive_name}"
     local tmp_dir
