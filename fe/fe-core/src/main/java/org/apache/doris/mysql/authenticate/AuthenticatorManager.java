@@ -161,8 +161,12 @@ public class AuthenticatorManager {
                                 MysqlSerializer serializer,
                                 MysqlAuthPacket authPacket,
                                 MysqlHandshakePacket handshakePacket) throws IOException {
+
         String remoteIp = context.getMysqlChannel().getRemoteIp();
         Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
+        LOG.info("[LDAP-AUTH] AuthenticatorManager: user={}, authenticator={}",
+                userName, primaryAuthenticator.getClass().getSimpleName());
+        long resolveStart = System.currentTimeMillis();
         Optional<AuthenticateRequest> primaryRequest = resolveAuthenticateRequest(primaryAuthenticator, userName,
                 context, channel, serializer, authPacket, handshakePacket);
         if (!primaryRequest.isPresent()) {
@@ -177,6 +181,8 @@ public class AuthenticatorManager {
                     new ArrayList<>());
         }
         AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, request);
+        long resolveElapsed = System.currentTimeMillis() - resolveStart;
+        LOG.info("[LDAP-AUTH] resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
         if (primaryResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);
         }

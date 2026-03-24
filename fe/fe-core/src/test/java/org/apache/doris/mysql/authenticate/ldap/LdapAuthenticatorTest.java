@@ -27,11 +27,19 @@ import org.apache.doris.mysql.privilege.Auth;
 import com.google.common.collect.Lists;
 import mockit.Expectations;
 import mockit.Mocked;
+import org.apache.logging.log4j.Level;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.core.LogEvent;
+import org.apache.logging.log4j.core.Logger;
+import org.apache.logging.log4j.core.appender.AbstractAppender;
+import org.apache.logging.log4j.core.config.Property;
+import org.apache.logging.log4j.core.layout.PatternLayout;
 import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 public class LdapAuthenticatorTest {
     private static final String USER_NAME = "user";
@@ -112,6 +120,20 @@ public class LdapAuthenticatorTest {
     }
 
     @Test
+    public void testAuthenticateLogsInfoWithoutThreshold() throws IOException {
+        setCheckPassword(true);
+        setGetUserInDoris(true);
+        try (LdapTestLogAppender appender = LdapTestLogAppender.attach(LdapAuthenticator.class)) {
+            AuthenticateResponse response = ldapAuthenticator.authenticate(request);
+            Assert.assertTrue(response.isSuccess());
+            Assert.assertTrue(appender.contains(Level.INFO,
+                    "[LDAP-AUTH] LdapAuthenticator.authenticate: user=user, success=true, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "[LDAP-AUTH] LdapAuthenticator.authenticate slow: user=user"));
+        }
+    }
+
+    @Test
     public void testAuthenticateWithCheckPasswordException() throws IOException {
         setCheckPasswordException();
         setGetUserInDoris(true);
@@ -140,7 +162,63 @@ public class LdapAuthenticatorTest {
     }
 
     @Test
+    public void testCanDealLogsInfoWithoutThreshold() {
+        setLdapUserExist(true);
+        try (LdapTestLogAppender appender = LdapTestLogAppender.attach(LdapAuthenticator.class)) {
+            Assert.assertTrue(ldapAuthenticator.canDeal("ss"));
+            Assert.assertTrue(appender.contains(Level.INFO,
+                    "[LDAP-AUTH] LdapAuthenticator.canDeal: user=ss, result=true, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "[LDAP-AUTH] LdapAuthenticator.canDeal slow: user=ss"));
+        }
+    }
+
+    @Test
     public void testGetPasswordResolver() {
         Assert.assertTrue(ldapAuthenticator.getPasswordResolver() instanceof ClearPasswordResolver);
+    }
+
+    static class LdapTestLogAppender extends AbstractAppender implements AutoCloseable {
+        private final Logger logger;
+        private final Level originalLevel;
+        private final List<LogEvent> events = new CopyOnWriteArrayList<>();
+
+        private LdapTestLogAppender(String name, Logger logger) {
+            super(name, null, PatternLayout.createDefaultLayout(), false, Property.EMPTY_ARRAY);
+            this.logger = logger;
+            this.originalLevel = logger.getLevel();
+        }
+
+        public static LdapTestLogAppender attach(Class<?> loggerClass) {
+            Logger logger = (Logger) LogManager.getLogger(loggerClass);
+            LdapTestLogAppender appender = new LdapTestLogAppender(
+                    "LdapTestLogAppender-" + loggerClass.getSimpleName() + "-" + System.nanoTime(), logger);
+            appender.start();
+            logger.addAppender(appender);
+            logger.setLevel(Level.INFO);
+            return appender;
+        }
+
+        @Override
+        public void append(LogEvent event) {
+            events.add(event.toImmutable());
+        }
+
+        public boolean contains(Level level, String messageFragment) {
+            for (LogEvent event : events) {
+                if (event.getLevel().equals(level)
+                        && event.getMessage().getFormattedMessage().contains(messageFragment)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public void close() {
+            logger.removeAppender(this);
+            logger.setLevel(originalLevel);
+            stop();
+        }
     }
 }

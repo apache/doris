@@ -58,6 +58,7 @@ public class LdapAuthenticator implements Authenticator {
      */
     @Override
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
+        long start = System.currentTimeMillis();
         if (LOG.isDebugEnabled()) {
             LOG.debug("user:{} start to ldap authenticate.", request.getUserName());
         }
@@ -66,7 +67,12 @@ public class LdapAuthenticator implements Authenticator {
             return AuthenticateResponse.failedResponse;
         }
         ClearPassword clearPassword = (ClearPassword) password;
-        return internalAuthenticate(clearPassword.getPassword(), request.getUserName(), request.getRemoteIp());
+        AuthenticateResponse response = internalAuthenticate(clearPassword.getPassword(),
+                request.getUserName(), request.getRemoteIp());
+        long elapsed = System.currentTimeMillis() - start;
+        LOG.info("[LDAP-AUTH] LdapAuthenticator.authenticate: user={}, success={}, elapsed={}ms",
+                request.getUserName(), response.isSuccess(), elapsed);
+        return response;
     }
 
     @Override
@@ -74,11 +80,12 @@ public class LdapAuthenticator implements Authenticator {
         if (qualifiedUser.equals(Auth.ROOT_USER) || qualifiedUser.equals(Auth.ADMIN_USER)) {
             return false;
         }
-        // Fixme Note: LdapManager should be managed internally within the Ldap plugin
-        // and not be placed inside the Env class. This ensures that Ldap-related
-        // logic and dependencies are encapsulated within the plugin, promoting
-        // better modularity and maintainability.
-        return Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser);
+        long start = System.currentTimeMillis();
+        boolean result = Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser);
+        long elapsed = System.currentTimeMillis() - start;
+        LOG.info("[LDAP-AUTH] LdapAuthenticator.canDeal: user={}, result={}, elapsed={}ms",
+                qualifiedUser, result, elapsed);
+        return result;
     }
 
     /**
@@ -114,12 +121,13 @@ public class LdapAuthenticator implements Authenticator {
         AuthenticateResponse response = new AuthenticateResponse(true);
         if (userIdentities.isEmpty()) {
             response.setUserIdentity(tempUserIdentity);
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("User:{} does not exists in doris, login as temporary users.", userName);
-            }
             response.setTemp(true);
+            LOG.info("[LDAP-AUTH] internalAuthenticate: user={}, tempUser=true, identity={}",
+                    userName, tempUserIdentity);
         } else {
             response.setUserIdentity(userIdentities.get(0));
+            LOG.info("[LDAP-AUTH] internalAuthenticate: user={}, tempUser=false, identity={}",
+                    userName, userIdentities.get(0));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("ldap authentication success: identity:{}", response.getUserIdentity());

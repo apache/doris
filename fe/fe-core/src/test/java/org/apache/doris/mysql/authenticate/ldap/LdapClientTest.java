@@ -23,6 +23,7 @@ import org.apache.doris.common.util.NetUtils;
 
 import mockit.Expectations;
 import mockit.Tested;
+import org.apache.logging.log4j.Level;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -98,6 +99,28 @@ public class LdapClientTest {
             }
         };
         Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
+    }
+
+    @Test
+    public void testGetGroupsLogsInfoWithoutThreshold() {
+        List<String> userDns = Arrays.asList("uid=zhangsan,dc=example,dc=com");
+        List<String> groupDns = Arrays.asList("cn=groupName,ou=groups,dc=example,dc=com");
+        new Expectations(ldapClient) {
+            {
+                ldapClient.getDn((LdapQuery) any);
+                result = userDns;
+                result = groupDns;
+            }
+        };
+
+        try (LdapAuthenticatorTest.LdapTestLogAppender appender =
+                     LdapAuthenticatorTest.LdapTestLogAppender.attach(LdapClient.class)) {
+            Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
+            Assert.assertTrue(appender.contains(Level.INFO,
+                    "[LDAP-AUTH] LdapClient.getGroups: user=zhangsan, groups=1, elapsed="));
+            Assert.assertFalse(appender.contains(Level.WARN,
+                    "[LDAP-AUTH] LdapClient.getGroups slow: user=zhangsan"));
+        }
     }
 
     @Test

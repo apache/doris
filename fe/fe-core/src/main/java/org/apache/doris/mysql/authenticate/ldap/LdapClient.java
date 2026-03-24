@@ -39,7 +39,9 @@ import org.springframework.ldap.query.LdapQuery;
 import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.ldap.transaction.compensating.manager.TransactionAwareContextSourceProxy;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 // This class is used to connect to the LDAP service.
 public class LdapClient {
@@ -60,7 +62,15 @@ public class LdapClient {
         public ClientInfo(String ldapPassword) {
             this.ldapPassword = ldapPassword;
             setLdapTemplateNoPool(ldapPassword);
-            setLdapTemplatePool(ldapPassword);
+            if (LdapConfig.ldap_search_use_pool) {
+                setLdapTemplatePool(ldapPassword);
+            }
+        }
+
+        // Returns the LdapTemplate for search operations:
+        // pooled if ldap_search_use_pool=true, non-pooled otherwise.
+        public LdapTemplate getSearchTemplate() {
+            return ldapTemplatePool != null ? ldapTemplatePool : ldapTemplateNoPool;
         }
 
         private void setLdapTemplateNoPool(String ldapPassword) {
@@ -71,6 +81,7 @@ public class LdapClient {
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
             contextSource.setPassword(ldapPassword);
+            setLdapTimeoutProperties(contextSource);
             contextSource.afterPropertiesSet();
             ldapTemplateNoPool = new LdapTemplate(contextSource);
             ldapTemplateNoPool.setIgnorePartialResultException(true);
@@ -84,7 +95,7 @@ public class LdapClient {
             contextSource.setUrl(url);
             contextSource.setUserDn(LdapConfig.ldap_admin_name);
             contextSource.setPassword(ldapPassword);
-            contextSource.setPooled(true);
+            setLdapTimeoutProperties(contextSource);
             contextSource.afterPropertiesSet();
 
             PoolingContextSource poolingContextSource = new PoolingContextSource();
@@ -107,6 +118,21 @@ public class LdapClient {
 
         public boolean checkUpdate(String ldapPassword) {
             return this.ldapPassword == null || !this.ldapPassword.equals(ldapPassword);
+        }
+
+        private void setLdapTimeoutProperties(LdapContextSource contextSource) {
+            Map<String, Object> baseEnv = new HashMap<>();
+            if (LdapConfig.ldap_read_timeout_ms > 0) {
+                baseEnv.put("com.sun.jndi.ldap.read.timeout",
+                        String.valueOf(LdapConfig.ldap_read_timeout_ms));
+            }
+            if (LdapConfig.ldap_connect_timeout_ms > 0) {
+                baseEnv.put("com.sun.jndi.ldap.connect.timeout",
+                        String.valueOf(LdapConfig.ldap_connect_timeout_ms));
+            }
+            if (!baseEnv.isEmpty()) {
+                contextSource.setBaseEnvironmentProperties(baseEnv);
+            }
         }
 
     }
@@ -143,19 +169,26 @@ public class LdapClient {
 
     boolean checkPassword(String userName, String password) {
         init();
+        long start = System.currentTimeMillis();
         try {
             clientInfo.getLdapTemplateNoPool().authenticate(org.springframework.ldap.query.LdapQueryBuilder.query()
                     .base(LdapConfig.ldap_user_basedn)
                     .filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)), password);
+            long elapsed = System.currentTimeMillis() - start;
+            LOG.info("[LDAP-AUTH] LdapClient.checkPassword: user={}, success=true, elapsed={}ms",
+                    userName, elapsed);
             return true;
         } catch (Exception e) {
-            LOG.info("ldap client checkPassword failed, userName: {}", userName, e);
+            long elapsed = System.currentTimeMillis() - start;
+            LOG.warn("[LDAP-AUTH] LdapClient.checkPassword failed: user={}, elapsed={}ms, error={}",
+                    userName, elapsed, e.getMessage());
             return false;
         }
     }
 
     // Search group DNs by 'member' attribution.
     List<String> getGroups(String userName) {
+        long start = System.currentTimeMillis();
         List<String> groups = Lists.newArrayList();
         if (LdapConfig.ldap_group_basedn.isEmpty()) {
             return groups;
@@ -190,6 +223,9 @@ public class LdapClient {
                 groups.add(strings[1]);
             }
         }
+        long elapsed = System.currentTimeMillis() - start;
+        LOG.info("[LDAP-AUTH] LdapClient.getGroups: user={}, groups={}, elapsed={}ms",
+                userName, groups.size(), elapsed);
         return groups;
     }
 
@@ -211,18 +247,25 @@ public class LdapClient {
 
     public List<String> getDn(LdapQuery query) {
         init();
+        long start = System.currentTimeMillis();
         try {
-            return clientInfo.getLdapTemplatePool().search(query,
+            List<String> result = clientInfo.getSearchTemplate().search(query,
                     new AbstractContextMapper<String>() {
                         protected String doMapFromContext(DirContextOperations ctx) {
                             return ctx.getNameInNamespace();
                         }
                     });
+            long elapsed = System.currentTimeMillis() - start;
+            LOG.info("[LDAP-AUTH] LdapClient.getDn: base={}, elapsed={}ms, results={}",
+                    query.base(), elapsed, result == null ? 0 : result.size());
+            return result;
         } catch (Exception e) {
+            long elapsed = System.currentTimeMillis() - start;
             String msg
                     = "Failed to retrieve the user's Distinguished Name (DN),"
                     + "This may be due to incorrect LDAP configuration or an unset/incorrect LDAP admin password.";
-            LOG.error(msg, e);
+            LOG.error("[LDAP-AUTH] LdapClient.getDn failed: base={}, elapsed={}ms, error={}",
+                    query.base(), elapsed, e.getMessage(), e);
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
             throw new RuntimeException(msg);
         }
