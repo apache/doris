@@ -386,6 +386,14 @@ prepare_juicefs_meta_for_hive() {
         return 0
     fi
 
+    # Clean stale bucket data before formatting. When meta is not formatted,
+    # any leftover data in the bucket directory is orphaned from a previous run
+    # and will cause "juicefs format" to fail with "Storage ... is not empty".
+    if [[ -d "${bucket_dir}" ]]; then
+        echo "Cleaning stale JuiceFS bucket directory: ${bucket_dir}"
+        sudo rm -rf "${bucket_dir:?}"/*
+    fi
+
     if ! run_juicefs_cli \
         format --storage file --bucket "${bucket_dir}" "${jfs_meta}" "${jfs_cluster_name}"; then
         # If format reports conflict on rerun, verify by status and continue.
