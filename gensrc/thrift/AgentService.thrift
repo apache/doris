@@ -506,6 +506,11 @@ struct TCalcDeleteBitmapRequest {
     3: optional bool enable_mow_async_publish
 }
 
+struct TCalcDeleteBitmapAsyncPublishRequest {
+    1: required Types.TTransactionId transaction_id
+    2: required list<TCalcDeleteBitmapPartitionInfo> partitions
+}
+
 struct TClearAlterTaskRequest {
     1: required Types.TTabletId tablet_id
     2: required Types.TSchemaHash schema_hash
@@ -623,6 +628,7 @@ struct TAgentTaskRequest {
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req
     1001: optional TMakeCloudTmpRsVisibleRequest make_cloud_tmp_rs_visible_req
+    1002: optional TCalcDeleteBitmapAsyncPublishRequest calc_delete_bitmap_async_publish_req
 }
 
 struct TAgentResult {

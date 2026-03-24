@@ -30,15 +30,16 @@
 
 namespace doris {
 
-class CloudEngineCalcDeleteBitmapTask;
 class MemTrackerLimiter;
 
-class CloudTabletCalcDeleteBitmapTask {
+class CloudTabletCalcDeleteBitmapAsyncPublishTask {
 public:
-    CloudTabletCalcDeleteBitmapTask(CloudStorageEngine& engine, int64_t tablet_id,
-                                    int64_t transaction_id, int64_t version,
-                                    const std::vector<int64_t>& sub_txn_ids);
-    ~CloudTabletCalcDeleteBitmapTask() = default;
+    CloudTabletCalcDeleteBitmapAsyncPublishTask(CloudStorageEngine& engine, int64_t tablet_id,
+                                                int64_t transaction_id, int64_t version,
+                                                const std::vector<int64_t>& sub_txn_ids,
+                                                int64_t db_id, int64_t table_id, int64_t index_id,
+                                                int64_t partition_id);
+    ~CloudTabletCalcDeleteBitmapAsyncPublishTask() = default;
 
     void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
                               int64_t ms_cumulative_point);
@@ -52,6 +53,14 @@ private:
                           std::vector<RowsetSharedPtr>* invisible_rowsets = nullptr,
                           DeleteBitmapPtr tablet_delete_bitmap = nullptr) const;
 
+    Status _handle_async_publish(std::shared_ptr<CloudTablet> tablet, int64_t version) const;
+
+    Status _apply_rowset_to_tablet(std::shared_ptr<CloudTablet> tablet, int64_t version,
+                                   RowsetSharedPtr& rowset,
+                                   const std::shared_ptr<DeleteBitmap>& delete_bitmap,
+                                   int64_t visible_ts_ms,
+                                   std::unique_lock<std::shared_mutex>& meta_lock) const;
+
     CloudStorageEngine& _engine;
 
     int64_t _tablet_id;
@@ -64,14 +73,20 @@ private:
     int64_t _ms_cumulative_point {-1};
     std::optional<int64_t> _ms_tablet_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
+
+    int64_t _db_id;
+    int64_t _table_id;
+    int64_t _index_id;
+    int64_t _partition_id;
 };
 
-class CloudEngineCalcDeleteBitmapTask : public EngineTask {
+class CloudCalcDeleteBitmapAsyncPublishTask : public EngineTask {
 public:
-    CloudEngineCalcDeleteBitmapTask(CloudStorageEngine& engine,
-                                    const TCalcDeleteBitmapRequest& cal_delete_bitmap_req,
-                                    std::vector<TTabletId>* error_tablet_ids,
-                                    std::vector<TTabletId>* succ_tablet_ids = nullptr);
+    CloudCalcDeleteBitmapAsyncPublishTask(
+            CloudStorageEngine& engine,
+            const TCalcDeleteBitmapAsyncPublishRequest& request,
+            std::vector<TTabletId>* error_tablet_ids,
+            std::vector<TTabletId>* succ_tablet_ids = nullptr);
     Status execute() override;
 
     void add_error_tablet_id(int64_t tablet_id, const Status& err);
@@ -79,7 +94,7 @@ public:
 
 private:
     CloudStorageEngine& _engine;
-    const TCalcDeleteBitmapRequest& _cal_delete_bitmap_req;
+    const TCalcDeleteBitmapAsyncPublishRequest& _request;
     std::mutex _mutex;
     std::vector<TTabletId>* _error_tablet_ids;
     std::vector<TTabletId>* _succ_tablet_ids;

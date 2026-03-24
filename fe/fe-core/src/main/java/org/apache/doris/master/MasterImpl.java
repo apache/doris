@@ -40,6 +40,7 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.task.AlterReplicaTask;
+import org.apache.doris.task.CalcDeleteBitmapAsyncPublishTask;
 import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
@@ -174,6 +175,7 @@ public class MasterImpl {
                         && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
                         && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
                         && taskType != TTaskType.CALCULATE_DELETE_BITMAP
+                        && taskType != TTaskType.CALC_DELETE_BITMAP_ASYNC_PUBLISH
                         && taskType != TTaskType.REALTIME_PUSH) {
                     return result;
                 }
@@ -241,6 +243,9 @@ public class MasterImpl {
                     break;
                 case CALCULATE_DELETE_BITMAP:
                     finishCalcDeleteBitmap(task, request);
+                    break;
+                case CALC_DELETE_BITMAP_ASYNC_PUBLISH:
+                    finishCalcDeleteBitmapAsyncPublish(task, request);
                     break;
                 default:
                     break;
@@ -704,48 +709,6 @@ public class MasterImpl {
 
     private void finishCalcDeleteBitmap(AgentTask task, TFinishTaskRequest request) {
         CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
-
-        if (calcDeleteBitmapTask.isAsyncPublish()) {
-            finishCalcDeleteBitmapAsync(calcDeleteBitmapTask, request);
-        } else {
-            finishCalcDeleteBitmapSync(calcDeleteBitmapTask, request);
-        }
-    }
-
-    /**
-     * Async publish mode: on success mark finished and remove from queue;
-     * on failure keep in queue for heartbeat auto-retry.
-     */
-    private void finishCalcDeleteBitmapAsync(CalcDeleteBitmapTask task, TFinishTaskRequest request) {
-        if (request.isSetRespPartitions()
-                && task.isFinishRequestStale(request.getRespPartitions())) {
-            LOG.warn("async publish: stale response from be={}, txn_id={}, will auto-retry",
-                    task.getBackendId(), task.getTransactionId());
-            return;
-        }
-
-        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
-            LOG.warn("async publish calc delete bitmap failed, will auto-retry. txn_id={}, be={}, err={}",
-                    task.getTransactionId(), task.getBackendId(),
-                    request.getTaskStatus().getErrorMsgs());
-            return;
-        }
-
-        // Success: mark finished and remove from queue
-        task.setIsFinished(true);
-        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CALCULATE_DELETE_BITMAP,
-                task.getSignature());
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("async publish finish calc delete bitmap. txn_id={}, be={}",
-                    task.getTransactionId(), task.getBackendId());
-        }
-    }
-
-    /**
-     * Sync (original) mode: always remove from queue, count down latch.
-     */
-    private void finishCalcDeleteBitmapSync(CalcDeleteBitmapTask calcDeleteBitmapTask,
-            TFinishTaskRequest request) {
         try {
             if (request.isSetRespPartitions()
                     && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
@@ -775,6 +738,33 @@ public class MasterImpl {
         } finally {
             AgentTaskQueue.removeTask(calcDeleteBitmapTask.getBackendId(),
                     TTaskType.CALCULATE_DELETE_BITMAP, calcDeleteBitmapTask.getSignature());
+        }
+    }
+
+    private void finishCalcDeleteBitmapAsyncPublish(AgentTask task, TFinishTaskRequest request) {
+        CalcDeleteBitmapAsyncPublishTask asyncPublishTask = (CalcDeleteBitmapAsyncPublishTask) task;
+
+        if (request.isSetRespPartitions()
+                && asyncPublishTask.isFinishRequestStale(request.getRespPartitions())) {
+            LOG.warn("async publish: stale response from be={}, txn_id={}, will auto-retry",
+                    asyncPublishTask.getBackendId(), asyncPublishTask.getTransactionId());
+            return;
+        }
+
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            LOG.warn("async publish calc delete bitmap failed, will auto-retry. txn_id={}, be={}, err={}",
+                    asyncPublishTask.getTransactionId(), asyncPublishTask.getBackendId(),
+                    request.getTaskStatus().getErrorMsgs());
+            return;
+        }
+
+        // Success: mark finished and remove from queue
+        asyncPublishTask.setIsFinished(true);
+        AgentTaskQueue.removeTask(asyncPublishTask.getBackendId(),
+                TTaskType.CALC_DELETE_BITMAP_ASYNC_PUBLISH, asyncPublishTask.getSignature());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("async publish finish calc delete bitmap. txn_id={}, be={}",
+                    asyncPublishTask.getTransactionId(), asyncPublishTask.getBackendId());
         }
     }
 }

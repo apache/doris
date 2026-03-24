@@ -31,7 +31,7 @@ import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.AgentTaskQueue;
-import org.apache.doris.task.CalcDeleteBitmapTask;
+import org.apache.doris.task.CalcDeleteBitmapAsyncPublishTask;
 import org.apache.doris.thrift.TCalcDeleteBitmapPartitionInfo;
 import org.apache.doris.thrift.TTaskType;
 import org.apache.doris.transaction.TabletCommitInfo;
@@ -71,9 +71,9 @@ public class CloudPublishDaemon extends MasterDaemon {
     private final CommittedTxnManager committedTxnManager;
     private final TxnStateCallbackFactory callbackFactory;
 
-    // txnId -> Map<backendId, CalcDeleteBitmapTask>
-    // Tracks sent CalcDeleteBitmapTasks per transaction
-    private final ConcurrentHashMap<Long, Map<Long, CalcDeleteBitmapTask>> txnCalcTasks
+    // txnId -> Map<backendId, CalcDeleteBitmapAsyncPublishTask>
+    // Tracks sent CalcDeleteBitmapAsyncPublishTasks per transaction
+    private final ConcurrentHashMap<Long, Map<Long, CalcDeleteBitmapAsyncPublishTask>> txnCalcTasks
             = new ConcurrentHashMap<>();
 
     // txnIds currently doing lightweight publish (avoid duplicate submission)
@@ -127,7 +127,7 @@ public class CloudPublishDaemon extends MasterDaemon {
         tryFinishTxns(tableIds);
     }
 
-    // ========== Phase 1: Dispatch CalcDeleteBitmapTask ==========
+    // ========== Phase 1: Dispatch CalcDeleteBitmapAsyncPublishTask ==========
 
     private void dispatchCalcDeleteBitmapTasks(Collection<Long> tableIds) {
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -139,7 +139,8 @@ public class CloudPublishDaemon extends MasterDaemon {
                     continue; // Already sent
                 }
                 try {
-                    Map<Long, CalcDeleteBitmapTask> tasks = buildAndSendCalcTasks(entry, batchTask);
+                    Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks =
+                            buildAndSendCalcTasks(entry, batchTask);
                     txnCalcTasks.put(txnId, tasks);
                     LOG.info("dispatched calc delete bitmap tasks for txnId={}, beCount={}",
                             txnId, tasks.size());
@@ -154,10 +155,10 @@ public class CloudPublishDaemon extends MasterDaemon {
     }
 
     /**
-     * Build CalcDeleteBitmapTask per-BE for a committed transaction.
+     * Build CalcDeleteBitmapAsyncPublishTask per-BE for a committed transaction.
      * Similar to CloudGlobalTransactionMgr.sendCalcDeleteBitmaptask() but async (no latch).
      */
-    private Map<Long, CalcDeleteBitmapTask> buildAndSendCalcTasks(
+    private Map<Long, CalcDeleteBitmapAsyncPublishTask> buildAndSendCalcTasks(
             CommittedTxnEntry entry, AgentBatchTask batchTask) {
         long txnId = entry.getTxnId();
         long dbId = entry.getDbId();
@@ -182,7 +183,7 @@ public class CloudPublishDaemon extends MasterDaemon {
         }
 
         Map<Long, Long> partitionCommitVersions = entry.getPartitionCommitVersions();
-        Map<Long, CalcDeleteBitmapTask> tasks = new HashMap<>();
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks = new HashMap<>();
         long signature = txnId; // Use txnId as signature
 
         for (Map.Entry<Long, Map<Long, List<TabletCommitInfo>>> beEntry : beToPartitionTablets.entrySet()) {
@@ -225,10 +226,8 @@ public class CloudPublishDaemon extends MasterDaemon {
                 partitionInfos.add(partitionInfo);
             }
 
-            // latch=null means async publish mode
-            CalcDeleteBitmapTask task = new CalcDeleteBitmapTask(
-                    backendId, txnId, dbId, partitionInfos, signature, null);
-            task.setEnableMowAsyncPublish(true);
+            CalcDeleteBitmapAsyncPublishTask task = new CalcDeleteBitmapAsyncPublishTask(
+                    backendId, txnId, dbId, partitionInfos, signature);
             AgentTaskQueue.addTask(task);
             batchTask.addTask(task);
             tasks.put(backendId, task);
@@ -243,14 +242,14 @@ public class CloudPublishDaemon extends MasterDaemon {
             List<CommittedTxnEntry> txnEntries = committedTxnManager.getByTableId(tableId);
             for (CommittedTxnEntry entry : txnEntries) {
                 long txnId = entry.getTxnId();
-                Map<Long, CalcDeleteBitmapTask> tasks = txnCalcTasks.get(txnId);
+                Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks = txnCalcTasks.get(txnId);
                 if (tasks == null) {
                     continue; // Not dispatched yet
                 }
 
-                // Check if all CalcDeleteBitmapTasks are finished
+                // Check if all CalcDeleteBitmapAsyncPublishTasks are finished
                 boolean allFinished = true;
-                for (CalcDeleteBitmapTask task : tasks.values()) {
+                for (CalcDeleteBitmapAsyncPublishTask task : tasks.values()) {
                     if (!task.isFinished()) {
                         allFinished = false;
                         break;
@@ -355,12 +354,13 @@ public class CloudPublishDaemon extends MasterDaemon {
         TxnUtil.executeCommitCallbacks(txnId, txnCommitAttachment, txnState, callbackFactory, true, true);
 
         // Success: clean up tracking, remove from committed set, wake up import thread
-        Map<Long, CalcDeleteBitmapTask> tasks = txnCalcTasks.remove(txnId);
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks = txnCalcTasks.remove(txnId);
         if (tasks != null) {
             // Remove tasks from AgentTaskQueue (they're already finished)
-            for (Map.Entry<Long, CalcDeleteBitmapTask> taskEntry : tasks.entrySet()) {
+            for (Map.Entry<Long, CalcDeleteBitmapAsyncPublishTask> taskEntry : tasks.entrySet()) {
                 AgentTaskQueue.removeTask(taskEntry.getKey(),
-                        TTaskType.CALCULATE_DELETE_BITMAP, taskEntry.getValue().getSignature());
+                        TTaskType.CALC_DELETE_BITMAP_ASYNC_PUBLISH,
+                        taskEntry.getValue().getSignature());
             }
         }
         committedTxnManager.removeCommittedTxn(txnId);
@@ -370,7 +370,7 @@ public class CloudPublishDaemon extends MasterDaemon {
     }
 
     // Visible for testing
-    public ConcurrentHashMap<Long, Map<Long, CalcDeleteBitmapTask>> getTxnCalcTasks() {
+    public ConcurrentHashMap<Long, Map<Long, CalcDeleteBitmapAsyncPublishTask>> getTxnCalcTasks() {
         return txnCalcTasks;
     }
 }

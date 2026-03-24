@@ -28,9 +28,9 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.CalcDeleteBitmapTask;
+import org.apache.doris.task.CalcDeleteBitmapAsyncPublishTask;
+import org.apache.doris.thrift.TCalcDeleteBitmapAsyncPublishRequest;
 import org.apache.doris.thrift.TCalcDeleteBitmapPartitionInfo;
-import org.apache.doris.thrift.TCalcDeleteBitmapRequest;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
@@ -120,10 +120,10 @@ public class CloudPublishDaemonTest {
     }
 
     /**
-     * Test: dispatch creates CalcDeleteBitmapTask per-BE and adds to tracking map.
+     * Test: dispatch creates CalcDeleteBitmapAsyncPublishTask per-BE and adds to tracking map.
      */
     @Test
-    public void testDispatchCalcDeleteBitmapTasks() {
+    public void testDispatchCalcDeleteBitmapAsyncPublishTasks() {
         CommittedTxnEntry entry = buildEntryTwoBEs(TXN_ID_1);
         committedTxnManager.addCommittedTxn(entry);
 
@@ -131,15 +131,13 @@ public class CloudPublishDaemonTest {
         daemon.runAfterCatalogReady();
 
         // Verify tasks were created for both backends
-        Map<Long, CalcDeleteBitmapTask> tasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
         Assert.assertNotNull("tasks should be created", tasks);
         Assert.assertEquals("should have 2 BE tasks", 2, tasks.size());
         Assert.assertTrue("should have task for BE1", tasks.containsKey(BACKEND_ID_1));
         Assert.assertTrue("should have task for BE2", tasks.containsKey(BACKEND_ID_2));
 
-        TCalcDeleteBitmapRequest req = tasks.get(BACKEND_ID_1).toThrift();
-        Assert.assertTrue("async publish flag should be set", req.isSetEnableMowAsyncPublish());
-        Assert.assertTrue("async publish should be enabled", req.isEnableMowAsyncPublish());
+        TCalcDeleteBitmapAsyncPublishRequest req = tasks.get(BACKEND_ID_1).toThrift();
         TCalcDeleteBitmapPartitionInfo partitionInfo = req.getPartitions().get(0);
         Assert.assertTrue("db id should be propagated", partitionInfo.isSetDbId());
         Assert.assertEquals(DB_ID, partitionInfo.getDbId());
@@ -166,12 +164,12 @@ public class CloudPublishDaemonTest {
         committedTxnManager.addCommittedTxn(entry);
 
         daemon.runAfterCatalogReady();
-        Map<Long, CalcDeleteBitmapTask> firstTasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> firstTasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
         Assert.assertNotNull(firstTasks);
 
         // Run again - should not create new tasks
         daemon.runAfterCatalogReady();
-        Map<Long, CalcDeleteBitmapTask> sameTasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> sameTasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
         Assert.assertSame("should be same task objects", firstTasks, sameTasks);
     }
 
@@ -200,7 +198,7 @@ public class CloudPublishDaemonTest {
         daemon.runAfterCatalogReady();
 
         // Mark only one BE task as finished
-        Map<Long, CalcDeleteBitmapTask> tasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
         tasks.get(BACKEND_ID_1).setIsFinished(true);
 
         // Run again - should NOT trigger lightweight publish
@@ -243,7 +241,7 @@ public class CloudPublishDaemonTest {
 
         // Phase 1: dispatch
         daemon.runAfterCatalogReady();
-        Map<Long, CalcDeleteBitmapTask> tasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
         Assert.assertNotNull(tasks);
 
         // Simulate BE completing all tasks
@@ -332,22 +330,14 @@ public class CloudPublishDaemonTest {
     }
 
     /**
-     * Test: CalcDeleteBitmapTask.isAsyncPublish() returns true when latch is null.
+     * Test: CalcDeleteBitmapAsyncPublishTask basic behavior.
      */
     @Test
-    public void testCalcDeleteBitmapTaskAsyncMode() {
-        // Async mode: latch = null
-        CalcDeleteBitmapTask asyncTask = new CalcDeleteBitmapTask(
-                BACKEND_ID_1, TXN_ID_1, DB_ID, Lists.newArrayList(), TXN_ID_1, null);
-        Assert.assertTrue("should be async publish", asyncTask.isAsyncPublish());
+    public void testCalcDeleteBitmapAsyncPublishTaskAsyncMode() {
+        // Async publish task
+        CalcDeleteBitmapAsyncPublishTask asyncTask = new CalcDeleteBitmapAsyncPublishTask(
+                BACKEND_ID_1, TXN_ID_1, DB_ID, Lists.newArrayList(), TXN_ID_1);
         Assert.assertFalse("should not be finished initially", asyncTask.isFinished());
-
-        // Sync mode: latch != null
-        org.apache.doris.common.MarkedCountDownLatch<Long, Long> latch =
-                new org.apache.doris.common.MarkedCountDownLatch<>(1);
-        CalcDeleteBitmapTask syncTask = new CalcDeleteBitmapTask(
-                BACKEND_ID_1, TXN_ID_1, DB_ID, Lists.newArrayList(), TXN_ID_1, latch);
-        Assert.assertFalse("should not be async publish", syncTask.isAsyncPublish());
     }
 
     /**

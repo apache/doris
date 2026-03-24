@@ -209,6 +209,9 @@ void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* clust
 
 void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
+void calc_delete_bitmap_async_publish_callback(CloudStorageEngine& engine,
+                                               const TAgentTaskRequest& req);
+
 void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
                                               const TAgentTaskRequest& req);
 

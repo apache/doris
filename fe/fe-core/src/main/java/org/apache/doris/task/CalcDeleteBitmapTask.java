@@ -37,7 +37,6 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     private long transactionId;
     private List<TCalcDeleteBitmapPartitionInfo> partitionInfos;
     private List<Long> errorTablets;
-    private boolean enableMowAsyncPublish;
 
     public CalcDeleteBitmapTask(long backendId, long transactionId, long dbId,
             List<TCalcDeleteBitmapPartitionInfo> partitionInfos, long signature,
@@ -48,7 +47,6 @@ public class CalcDeleteBitmapTask extends AgentTask  {
         this.errorTablets = new ArrayList<Long>();
         this.isFinished = false;
         this.latch = latch;
-        this.enableMowAsyncPublish = false;
     }
 
     public void countDownLatch(long backendId, long transactionId) {
@@ -92,14 +90,7 @@ public class CalcDeleteBitmapTask extends AgentTask  {
     public TCalcDeleteBitmapRequest toThrift() {
         TCalcDeleteBitmapRequest calcDeleteBitmapRequest = new TCalcDeleteBitmapRequest(transactionId,
                 partitionInfos);
-        if (enableMowAsyncPublish) {
-            calcDeleteBitmapRequest.setEnableMowAsyncPublish(true);
-        }
         return calcDeleteBitmapRequest;
-    }
-
-    public void setEnableMowAsyncPublish(boolean enableMowAsyncPublish) {
-        this.enableMowAsyncPublish = enableMowAsyncPublish;
     }
 
     public long getTransactionId() {
@@ -128,13 +119,5 @@ public class CalcDeleteBitmapTask extends AgentTask  {
 
     public boolean isFinished() {
         return isFinished;
-    }
-
-    /**
-     * Whether this task is in async publish mode (no synchronous latch waiting).
-     * In async mode, the task stays in AgentTaskQueue on failure for auto-retry.
-     */
-    public boolean isAsyncPublish() {
-        return latch == null;
     }
 }
