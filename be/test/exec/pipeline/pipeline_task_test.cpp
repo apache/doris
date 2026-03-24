@@ -1238,9 +1238,7 @@ TEST_F(PipelineTaskTest, TEST_SHOULD_TRIGGER_REVOKING) {
         query_mem_tracker->set_limit(wg_mem_limit);
     }
     // Case 4: reserve_size too small (reserve * parallelism <= query_limit / 5) -> false
-    {
-        EXPECT_FALSE(task->_should_trigger_revoking(wg_mem_limit / 5));
-    }
+    { EXPECT_FALSE(task->_should_trigger_revoking(wg_mem_limit / 5)); }
     // Case 5: no memory pressure (neither query tracker nor wg watermark) -> false
     {
         // consumption + reserve = 100MB + 250MB = 350MB < 90% of 1GB (900MB); wg not at watermark
