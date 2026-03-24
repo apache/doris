@@ -132,7 +132,6 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         size_t pos = _url.find(placeholder);
         if (pos != std::string::npos) {
             _url.replace(pos, placeholder.size(), std::to_string(doris::config::cdc_client_port));
-            _path = Path(_url); // keep _path in sync with resolved _url
         }
         LOG(INFO) << "CDC client started successfully for " << _url;
     }
