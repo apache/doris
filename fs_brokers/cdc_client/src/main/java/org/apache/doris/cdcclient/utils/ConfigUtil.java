@@ -45,7 +45,8 @@ public class ConfigUtil {
 
     public static String getServerId(String jobId) {
         // Use bitwise AND with Integer.MAX_VALUE to strip the sign bit,
-        // which avoids the edge case where Math.abs(Integer.MIN_VALUE) returns MIN_VALUE (negative).
+        // which avoids the edge case where Math.abs(Integer.MIN_VALUE) returns MIN_VALUE
+        // (negative).
         return String.valueOf(jobId.hashCode() & Integer.MAX_VALUE);
     }
 
