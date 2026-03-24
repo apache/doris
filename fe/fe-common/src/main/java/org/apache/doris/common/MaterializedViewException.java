@@ -15,25 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.metric;
+package org.apache.doris.common;
 
-import java.util.concurrent.atomic.DoubleAdder;
+/**
+ * MaterializedViewException
+ */
+public class MaterializedViewException extends UserException {
 
-public class DoubleCounterMetric extends CounterMetric<Double> {
-
-    public DoubleCounterMetric(String name, MetricUnit unit, String description) {
-        super(name, unit, description);
+    public MaterializedViewException(String msg) {
+        super(msg);
     }
 
-    private DoubleAdder value = new DoubleAdder();
-
-    @Override
-    public void increase(Double delta) {
-        value.add(delta);
-    }
-
-    @Override
-    public Double getValue() {
-        return value.doubleValue();
-    }
 }

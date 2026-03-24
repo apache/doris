@@ -100,10 +100,10 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.common.lock.MonitoredReentrantLock;
+import org.apache.doris.common.util.BufferSizeUtil;
 import org.apache.doris.common.util.DbUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
-import org.apache.doris.common.util.IdGeneratorUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
@@ -2290,7 +2290,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             replicaAlloc = ReplicaAllocation.DEFAULT_ALLOCATION;
         }
 
-        long bufferSize = IdGeneratorUtil.getBufferSizeForCreateTable(createTableInfo, replicaAlloc);
+        long bufferSize = BufferSizeUtil.getBufferSizeForCreateTable(createTableInfo, replicaAlloc);
         IdGeneratorBuffer idGeneratorBuffer = Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
 
         // create partition info
@@ -3551,7 +3551,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
         };
         try {
-            long bufferSize = IdGeneratorUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
+            long bufferSize = BufferSizeUtil.getBufferSizeForTruncateTable(copiedTbl, origPartitions.values());
             IdGeneratorBuffer idGeneratorBuffer =
                     origPartitions.isEmpty() ? null : Env.getCurrentEnv().getIdGeneratorBuffer(bufferSize);
 

@@ -17,29 +17,15 @@
 
 package org.apache.doris.common;
 
+import java.io.IOException;
+
 /**
- * MaterializedViewException
+ * This is a special exception.
+ * If this exception is thrown, it means that the connection to the server is abnormal.
+ * We need to kill the connection actively.
  */
-public class MaterializedViewException extends UserException {
-
-    public MaterializedViewException(String msg, Throwable cause) {
-        super(msg, cause);
-    }
-
-    public MaterializedViewException(Throwable cause) {
-        super(cause);
-    }
-
-    public MaterializedViewException(String msg, Throwable cause, boolean enableSuppression,
-            boolean writableStackTrace) {
-        super(msg, cause, enableSuppression, writableStackTrace);
-    }
-
-    public MaterializedViewException(String msg) {
-        super(msg);
-    }
-
-    public MaterializedViewException(InternalErrorCode errCode, String msg) {
-        super(errCode, msg);
+public class ConnectionException extends IOException {
+    public ConnectionException(String message) {
+        super(message);
     }
 }

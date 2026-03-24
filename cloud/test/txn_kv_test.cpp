@@ -59,6 +59,9 @@ int main(int argc, char** argv) {
     config::init(nullptr, true);
     ::testing::InitGoogleTest(&argc, argv);
     init_txn_kv();
+    DORIS_CLOUD_DEFER {
+        txn_kv.reset();
+    };
     return RUN_ALL_TESTS();
 }
 

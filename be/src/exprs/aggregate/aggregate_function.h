@@ -263,6 +263,8 @@ public:
 
     virtual bool is_blockable() const { return false; }
 
+    virtual bool is_simple_count() const { return false; }
+
     /**
     * Executes the aggregate function in incremental mode.
     * This is a virtual function that should be overridden by aggregate functions supporting incremental calculation.

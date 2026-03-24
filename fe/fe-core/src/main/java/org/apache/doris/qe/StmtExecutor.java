@@ -848,7 +848,7 @@ public class StmtExecutor {
                     MetricRepo.HISTO_PLAN_OPTIMIZE_DURATION.update(nereidsOptimizeTimeMs);
                 }
                 int nereidsTranslateTimeMs = summaryProfile.getNereidsTranslateTimeMs();
-                if (nereidsOptimizeTimeMs >= 0) {
+                if (nereidsTranslateTimeMs >= 0) {
                     MetricRepo.HISTO_PLAN_TRANSLATE_DURATION.update(nereidsTranslateTimeMs);
                 }
                 long initScanNodeTimeMs = summaryProfile.getInitScanNodeTimeMs();

@@ -28,8 +28,6 @@ import org.apache.doris.thrift.TFileType;
 import com.google.common.base.Strings;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.Path;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.UnsupportedEncodingException;
 import java.net.URI;
@@ -58,7 +56,6 @@ import java.util.UUID;
  * This class is often used by Frontend to pass normalized locations and storage metadata to Backend (BE).
  */
 public class LocationPath {
-    private static final Logger LOG = LogManager.getLogger(LocationPath.class);
     private static final String SCHEME_DELIM = "://";
     private static final String NONSTANDARD_SCHEME_DELIM = ":/";
 

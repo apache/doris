@@ -860,10 +860,6 @@ public class Env {
         }
     }
 
-    public static Map<String, Long> getSessionReportTimeMap() {
-        return sessionReportTimeMap;
-    }
-
     public void registerTempTableAndSession(Table table) {
         if (ConnectContext.get() != null) {
             ConnectContext.get().addTempTableToDB(table.getQualifiedDbName(), table.getName());
