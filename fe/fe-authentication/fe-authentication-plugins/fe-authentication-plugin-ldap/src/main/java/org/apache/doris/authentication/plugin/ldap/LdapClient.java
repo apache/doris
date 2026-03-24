@@ -17,17 +17,16 @@
 
 package org.apache.doris.authentication.plugin.ldap;
 
-
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.ldap.core.DirContextOperations;
-import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.AbstractContextMapper;
 import org.springframework.ldap.core.support.LdapContextSource;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.ldap.support.LdapEncoder;
 
 import java.util.List;
 import java.util.Map;

@@ -25,19 +25,18 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.LdapInfo;
 
-
 import com.google.common.collect.Lists;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.ldap.core.DirContextOperations;
-import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.AbstractContextMapper;
 import org.springframework.ldap.core.support.LdapContextSource;
 import org.springframework.ldap.pool.factory.PoolingContextSource;
 import org.springframework.ldap.pool.validation.DefaultDirContextValidator;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.ldap.transaction.compensating.manager.TransactionAwareContextSourceProxy;
 
 import java.util.List;
@@ -210,7 +209,6 @@ public class LdapClient {
         return userDns.get(0);
     }
 
-    @VisibleForTesting
     public List<String> getDn(LdapQuery query) {
         init();
         try {
