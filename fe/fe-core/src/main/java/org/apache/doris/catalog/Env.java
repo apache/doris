@@ -3887,6 +3887,11 @@ public class Env {
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
+        if (olapTable.isEnableTwoPhaseCommit()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH).append("\" = \"");
+            sb.append(true).append("\"");
+        }
+
         // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && olapTable.getEnableUniqueKeySkipBitmap()) {

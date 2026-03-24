@@ -2649,6 +2649,24 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         olapTable.setEnableMowLightDelete(enableDeleteOnDeletePredicate);
 
+        boolean enableMowAsyncPublish = false;
+        try {
+            enableMowAsyncPublish = PropertyAnalyzer.analyzeEnableMowAsyncPublish(properties);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        if (enableMowAsyncPublish) {
+            if (Config.isNotCloudMode()) {
+                throw new DdlException(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH
+                        + " property is only supported in cloud mode");
+            }
+            if (!enableUniqueKeyMergeOnWrite) {
+                throw new DdlException(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH
+                        + " property is only supported for unique merge-on-write table");
+            }
+        }
+        olapTable.setEnableMowAsyncPublish(enableMowAsyncPublish);
+
         boolean enableSingleReplicaCompaction = false;
         try {
             enableSingleReplicaCompaction = PropertyAnalyzer.analyzeEnableSingleReplicaCompaction(properties);

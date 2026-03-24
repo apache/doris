@@ -3030,6 +3030,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         getOrCreatTableProperty().setEnableUniqueKeyMergeOnWrite(speedup);
     }
 
+    public void setEnableMowAsyncPublish(boolean enable) {
+        getOrCreatTableProperty().setEnableMowAsyncPublish(enable);
+    }
+
     public boolean getEnableUniqueKeySkipBitmap() {
         return hasSkipBitmapColumn();
     }
