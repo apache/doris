@@ -22,9 +22,9 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "olap/iterators.h"
-#include "olap/rowset/segment_v2/column_reader.h"
-#include "olap/rowset/segment_v2/ordinal_page_index.h"
+#include "storage/index/ordinal_page_index.h"
+#include "storage/iterators.h"
+#include "storage/segment/column_reader.h"
 
 namespace doris::segment_v2 {
 
