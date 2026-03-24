@@ -147,11 +147,13 @@ supportedDmlStatement
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
-        whereClause?                                                   #update
+        whereClause?
+        queryOrganization                                              #update
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
-        whereClause?                                                   #delete
+        whereClause?
+        queryOrganization                                              #delete
     | explain? cte? MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
