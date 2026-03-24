@@ -18,6 +18,20 @@
 
 set -e -x
 
+wait_for_metastore_db() {
+    local schematool_log="/tmp/hive-schematool.log"
+
+    for i in {1..60}; do
+        if timeout 10s /opt/hive/bin/schematool -dbType postgres -info >"${schematool_log}" 2>&1; then
+            return 0
+        fi
+        sleep 5s
+    done
+
+    tail -n 200 "${schematool_log}" || true
+    return 1
+}
+
 
 AUX_LIB="/mnt/scripts/auxlib"
 for file in "${AUX_LIB}"/*.tar.gz; do
@@ -27,7 +41,7 @@ for file in "${AUX_LIB}"/*.tar.gz; do
 done
 ls "${AUX_LIB}/"
 
-# Keep existing behavior for Hive metastore classpath.
+# copy auxiliary jars to hive lib, avoid jars copy
 cp -r "${AUX_LIB}"/* /opt/hive/lib/
 
 # Add JuiceFS jar into Hadoop classpath for `hadoop fs jfs://...`.
@@ -41,6 +55,28 @@ if (( ${#juicefs_jars[@]} > 0 )); then
     done
 fi
 shopt -u nullglob
+
+if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" == "true" ]]; then
+    echo "ENABLE_HIVE3_TEZ_RUNTIME is true, prepare Tez runtime and YARN services"
+    mkdir -p /etc/tez/conf
+    cp -f /mnt/scripts/tez-conf/tez-site.xml /etc/tez/conf/tez-site.xml
+    nohup yarn resourcemanager >/tmp/yarn-resourcemanager.log 2>&1 &
+    nohup yarn nodemanager >/tmp/yarn-nodemanager.log 2>&1 &
+
+    for i in {1..60}; do
+        if nc -z localhost "${YARN_RM_PORT:-8032}" && nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}"; then
+            break
+        fi
+        sleep 5s
+    done
+    nc -z localhost "${YARN_RM_PORT:-8032}"
+    nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}"
+
+    # Tez write jobs create scratch directories on HDFS. Make sure HDFS is writable.
+    hdfs dfsadmin -safemode leave >/dev/null 2>&1 || true
+fi
+
+wait_for_metastore_db
 
 # start metastore
 nohup /opt/hive/bin/hive --service metastore &

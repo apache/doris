@@ -556,11 +556,64 @@ start_hive2() {
     fi
 }
 
+port_is_available() {
+    local port="$1"
+    local reserved_ports="${2:-}"
+
+    if [[ " ${reserved_ports} " == *" ${port} "* ]]; then
+        return 1
+    fi
+
+    if ss -H -tan | awk '{print $4}' | grep -Eq "[:.]${port}$"; then
+        return 1
+    fi
+
+    return 0
+}
+
+pick_free_port() {
+    local reserved_ports="${1:-}"
+    local port
+
+    while true; do
+        port="$(( (RANDOM % 12000) + 20000 ))"
+        if port_is_available "${port}" "${reserved_ports}"; then
+            printf '%s\n' "${port}"
+            return 0
+        fi
+    done
+}
+
+assign_hive3_yarn_ports() {
+    local reserved_ports=""
+    local port_var current_port
+
+    for port_var in \
+        YARN_RM_SCHEDULER_PORT \
+        YARN_RM_TRACKER_PORT \
+        YARN_RM_PORT \
+        YARN_RM_ADMIN_PORT \
+        YARN_RM_WEBAPP_PORT \
+        YARN_NM_LOCAL_PORT \
+        YARN_NM_WEBAPP_PORT; do
+        current_port="${!port_var:-}"
+        if [[ -n "${current_port}" ]] && port_is_available "${current_port}" "${reserved_ports}"; then
+            reserved_ports="${reserved_ports} ${current_port}"
+            continue
+        fi
+
+        current_port="$(pick_free_port "${reserved_ports}")"
+        export "${port_var}=${current_port}"
+        reserved_ports="${reserved_ports} ${current_port}"
+    done
+}
+
 start_hive3() {
     # hive3
     # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
+    assign_hive3_yarn_ports
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
@@ -765,10 +818,19 @@ reserve_ports
 
 # Ensure hive data is downloaded before starting hive2/hive3, but only once
 need_prepare_hive_data=0
+need_prepare_hive3_tez_runtime=0
+if [[ "${RUN_HIVE3}" -eq 1 ]] && [[ "${NEED_LOAD_DATA}" -eq 0 ]]; then
+    need_prepare_hive3_tez_runtime=1
+fi
 if [[ "$NEED_LOAD_DATA" -eq 1 ]]; then
     if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
         need_prepare_hive_data=1
     fi
+fi
+
+if [[ $need_prepare_hive3_tez_runtime -eq 1 ]]; then
+    echo "prepare hive3 tez runtime"
+    HIVE_PREPARE_MODE=tez-runtime bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
 fi
 
 if [[ $need_prepare_hive_data -eq 1 ]]; then

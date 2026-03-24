@@ -32,8 +32,6 @@ HIVE_SITE_CONF_hive_stats_column_autogather=false
 HIVE_SITE_CONF_hive_exec_parallel=true
 
 CORE_CONF_fs_defaultFS=hdfs://${IP_HOST}:${FS_PORT}
-CORE_CONF_fs_jfs_impl=io.juicefs.JuiceFileSystem
-CORE_CONF_juicefs_cluster_meta=${JFS_CLUSTER_META}
 CORE_CONF_hadoop_http_staticuser_user=root
 CORE_CONF_hadoop_proxyuser_hue_hosts=*
 CORE_CONF_hadoop_proxyuser_hue_groups=*
@@ -55,7 +53,7 @@ YARN_CONF_yarn_resourcemanager_hostname=resourcemanager
 YARN_CONF_yarn_timeline___service_hostname=historyserver
 YARN_CONF_yarn_resourcemanager_address=resourcemanager:8032
 YARN_CONF_yarn_resourcemanager_scheduler_address=resourcemanager:8030
-YARN_CONF_yarn_resourcemanager_resource__tracker_address=resourcemanager:8031
+YARN_CONF_yarn_resourcemanager_resource___tracker_address=resourcemanager:8031
 
 MAPRED_CONF_mapreduce_map_maxattempts=6
 MAPRED_CONF_mapreduce_reduce_maxattempts=6
