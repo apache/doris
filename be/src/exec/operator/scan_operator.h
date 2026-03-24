@@ -424,6 +424,10 @@ protected:
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
 
+    // Shared remaining limit across all parallel instances and their scanners.
+    // Initialized to _limit (SQL LIMIT); -1 means no limit.
+    std::atomic<int64_t> _shared_scan_limit {-1};
+
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 
     TPushAggOp::type _push_down_agg_type;
