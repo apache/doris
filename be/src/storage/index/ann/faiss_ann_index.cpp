@@ -62,6 +62,7 @@ namespace doris::segment_v2 {
 namespace {
 
 std::mutex g_omp_thread_mutex;
+std::condition_variable g_omp_thread_cv;
 int g_index_threads_in_use = 0;
 
 // Guard that ensures the total OpenMP threads used by concurrent index builds
@@ -71,7 +72,11 @@ public:
     // For each index build, reserve at most half of the remaining threads, at least 1 thread.
     ScopedOmpThreadBudget() {
         std::unique_lock<std::mutex> lock(g_omp_thread_mutex);
-        auto thread_cap = config::omp_threads_limit - g_index_threads_in_use;
+        auto omp_threads_limit = get_omp_threads_limit();
+        // Block until there is at least one OpenMP slot available under the global cap.
+        g_omp_thread_cv.wait(lock, [&] { return g_index_threads_in_use < omp_threads_limit; });
+        auto thread_cap = omp_threads_limit - g_index_threads_in_use;
+        // Keep headroom for other concurrent index builds: take up to half of remaining budget.
         _reserved_threads = std::max(1, thread_cap / 2);
         g_index_threads_in_use += _reserved_threads;
         DorisMetrics::instance()->ann_index_build_index_threads->increment(_reserved_threads);
@@ -88,6 +93,8 @@ public:
         if (g_index_threads_in_use < 0) {
             g_index_threads_in_use = 0;
         }
+        // Wake waiting index builders so they can compete for the released OpenMP budget.
+        g_omp_thread_cv.notify_all();
         VLOG_DEBUG << fmt::format(
                 "ScopedOmpThreadBudget release threads reserved={}, remaining_in_use={}, limit={}",
                 _reserved_threads, g_index_threads_in_use, get_omp_threads_limit());
