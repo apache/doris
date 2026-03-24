@@ -23,6 +23,7 @@
 #include <atomic>
 #include <vector>
 
+#include "common/metrics/doris_metrics.h"
 #include "common/status.h"
 #include "core/block/block.h"
 #include "runtime/exec_env.h"

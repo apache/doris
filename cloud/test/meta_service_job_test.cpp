@@ -439,10 +439,10 @@ TEST(MetaServiceJobTest, StartCompactionArguments) {
             << res.status().msg();
 
     auto* idx = job->mutable_idx();
-    constexpr int64_t table_id = 10001;
-    constexpr int64_t index_id = 10002;
-    constexpr int64_t partition_id = 10003;
-    constexpr int64_t tablet_id = 10004;
+    constexpr int64_t table_id = 11001;
+    constexpr int64_t index_id = 11002;
+    constexpr int64_t partition_id = 11003;
+    constexpr int64_t tablet_id = 11004;
     idx->set_tablet_id(tablet_id);
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND) << res.status().msg();
@@ -488,10 +488,10 @@ TEST(MetaServiceJobTest, StartFullCompaction) {
     sp->enable_processing();
 
     auto meta_service = get_meta_service();
-    constexpr int64_t table_id = 10001;
-    constexpr int64_t index_id = 10002;
-    constexpr int64_t partition_id = 10003;
-    constexpr int64_t tablet_id = 10004;
+    constexpr int64_t table_id = 14001;
+    constexpr int64_t index_id = 14002;
+    constexpr int64_t partition_id = 14003;
+    constexpr int64_t tablet_id = 14004;
     create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id, false);
 
     StartTabletJobResponse res;
@@ -596,8 +596,8 @@ TEST(MetaServiceJobTest, StartSchemaChangeArguments) {
     EXPECT_NE(res.status().msg().find("new_tablet_id same with base_tablet_id"), std::string::npos)
             << res.status().msg();
 
-    constexpr int64_t new_index_id = 10005;
-    constexpr int64_t new_tablet_id = 10006;
+    constexpr int64_t new_index_id = 14005;
+    constexpr int64_t new_tablet_id = 14006;
     new_idx->set_tablet_id(new_tablet_id);
     meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND) << res.status().msg();
@@ -665,10 +665,10 @@ TEST(MetaServiceJobTest, ProcessCompactionArguments) {
             << res.status().msg();
 
     auto* idx = job->mutable_idx();
-    constexpr int64_t table_id = 10001;
-    constexpr int64_t index_id = 10002;
-    constexpr int64_t partition_id = 10003;
-    constexpr int64_t tablet_id = 10004;
+    constexpr int64_t table_id = 12001;
+    constexpr int64_t index_id = 12002;
+    constexpr int64_t partition_id = 12003;
+    constexpr int64_t tablet_id = 12004;
     idx->set_tablet_id(tablet_id);
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND) << res.status().msg();
@@ -765,10 +765,10 @@ TEST(MetaServiceJobTest, ProcessSchemaChangeArguments) {
             << res.status().msg();
 
     auto* idx = job->mutable_idx();
-    constexpr int64_t table_id = 10001;
-    constexpr int64_t index_id = 10002;
-    constexpr int64_t partition_id = 10003;
-    constexpr int64_t tablet_id = 10004;
+    constexpr int64_t table_id = 13001;
+    constexpr int64_t index_id = 13002;
+    constexpr int64_t partition_id = 13003;
+    constexpr int64_t tablet_id = 13004;
     idx->set_tablet_id(tablet_id);
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND) << res.status().msg();
@@ -797,8 +797,8 @@ TEST(MetaServiceJobTest, ProcessSchemaChangeArguments) {
     EXPECT_NE(res.status().msg().find("new_tablet_id same with base_tablet_id"), std::string::npos)
             << res.status().msg();
 
-    constexpr int64_t new_index_id = 10005;
-    constexpr int64_t new_tablet_id = 10006;
+    constexpr int64_t new_index_id = 13005;
+    constexpr int64_t new_tablet_id = 13006;
     new_idx->set_tablet_id(new_tablet_id);
     meta_service->finish_tablet_job(&cntl, &req, &res, nullptr);
     ASSERT_EQ(res.status().code(), MetaServiceCode::TABLET_NOT_FOUND) << res.status().msg();
@@ -1204,6 +1204,9 @@ TEST(MetaServiceJobTest, CompactionJobTest) {
         auto compaction = req.mutable_job()->add_compaction();
         compaction->set_id(job_id);
         compaction->set_initiator("ip:port");
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
         req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
         req.set_action(FinishTabletJobRequest::ABORT);
         meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -1684,8 +1687,23 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         stats.set_cumulative_compaction_cnt(19);
         txn->put(stats_key, stats.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-        start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 9, 19, type, res);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        StartTabletJobRequest req;
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator("ip:port");
+        compaction->set_base_compaction_cnt(9);
+        compaction->set_cumulative_compaction_cnt(19);
+        compaction->set_type(type);
+        long now = time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 3);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
     };
     FinishTabletJobResponse res;
     auto test_commit_compaction_job = [&](int64_t table_id, int64_t index_id, int64_t partition_id,
@@ -1822,6 +1840,9 @@ TEST(MetaServiceJobTest, DeleteBitmapUpdateLockCompatibilityTest) {
         compaction->set_id(job_id);
         compaction->set_initiator("ip:port");
         compaction->set_delete_bitmap_lock_initiator(initiator);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
         req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
         req.set_action(FinishTabletJobRequest::ABORT);
         meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
@@ -3251,8 +3272,23 @@ void testCompactionJobWithMoWTest(int lock_version) {
         stats.set_cumulative_compaction_cnt(19);
         txn->put(stats_key, stats.SerializeAsString());
         ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
-        start_compaction_job(meta_service.get(), tablet_id, job_id, "ip:port", 9, 19, type, res);
-        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+        StartTabletJobRequest req;
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
+        req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
+        auto compaction = req.mutable_job()->add_compaction();
+        compaction->set_id(job_id);
+        compaction->set_initiator("ip:port");
+        compaction->set_base_compaction_cnt(9);
+        compaction->set_cumulative_compaction_cnt(19);
+        compaction->set_type(type);
+        long now = time(nullptr);
+        compaction->set_expiration(now + 12);
+        compaction->set_lease(now + 3);
+        meta_service->start_tablet_job(&cntl, &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
     };
 
     FinishTabletJobResponse res;
@@ -3404,6 +3440,9 @@ void testCompactionJobWithMoWTest(int lock_version) {
         compaction->set_id(job_id);
         compaction->set_initiator("ip:port");
         compaction->set_delete_bitmap_lock_initiator(12345);
+        req.mutable_job()->mutable_idx()->set_table_id(table_id);
+        req.mutable_job()->mutable_idx()->set_index_id(index_id);
+        req.mutable_job()->mutable_idx()->set_partition_id(partition_id);
         req.mutable_job()->mutable_idx()->set_tablet_id(tablet_id);
         req.set_action(FinishTabletJobRequest::ABORT);
         meta_service->finish_tablet_job(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),

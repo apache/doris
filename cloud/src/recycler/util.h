@@ -24,6 +24,7 @@
 #include <string>
 
 #include "common/defer.h"
+#include "common/kv_cache.h"
 
 namespace doris::cloud {
 
@@ -97,4 +98,13 @@ int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet
 
 int get_tablet_meta(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
                     TabletMetaCloudPB& tablet_meta);
+
+TabletIndexCache* recycler_cache_manager();
+
+bool get_tablet_idx_from_recycler_cache(std::string_view instance_id, int64_t tablet_id,
+                                        TabletIndexPB* tablet_idx);
+
+void put_tablet_idx_to_recycler_cache(std::string_view instance_id, int64_t tablet_id,
+                                      const TabletIndexPB& tablet_idx);
+
 } // namespace doris::cloud

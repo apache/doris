@@ -21,6 +21,8 @@
 
 #include <cstdint>
 
+#include "common/config.h"
+#include "common/kv_cache.h"
 #include "common/util.h"
 #include "meta-service/meta_service_schema.h"
 #include "meta-store/keys.h"
@@ -28,6 +30,17 @@
 #include "meta-store/txn_kv_error.h"
 
 namespace doris::cloud {
+
+TabletIndexCache* recycler_cache_manager() {
+    if (!config::enable_tablet_index_cache) {
+        return nullptr;
+    }
+    static TabletIndexCache cache(config::recycler_tablet_index_cache_capacity,
+                                  config::tablet_index_cache_ttl_seconds,
+                                  "recycler_tablet_index_cache");
+    return &cache;
+}
+
 namespace config {
 extern int32_t recycle_job_lease_expired_ms;
 } // namespace config
@@ -234,9 +247,37 @@ int lease_instance_recycle_job(TxnKv* txn_kv, std::string_view key, const std::s
     return 0;
 }
 
+bool get_tablet_idx_from_recycler_cache(std::string_view instance_id, int64_t tablet_id,
+                                        TabletIndexPB* tablet_idx) {
+    TabletIndexCache* cache = recycler_cache_manager();
+    if (cache == nullptr) {
+        return false;
+    }
+    auto cache_key = std::make_tuple(std::string(instance_id), tablet_id);
+    return cache->get(cache_key, tablet_idx);
+}
+
+void put_tablet_idx_to_recycler_cache(std::string_view instance_id, int64_t tablet_id,
+                                      const TabletIndexPB& tablet_idx) {
+    TabletIndexCache* cache = recycler_cache_manager();
+    if (cache == nullptr || !tablet_idx.has_db_id()) {
+        return;
+    }
+    auto cache_key = std::make_tuple(std::string(instance_id), tablet_id);
+    cache->put(cache_key, tablet_idx);
+}
+
 // ret: 0: success, 1: tablet not found, -1: failed
 int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet_id,
                    TabletIndexPB& tablet_idx) {
+    // Cache lookup
+    auto cache_key = std::make_tuple(instance_id, tablet_id);
+    TabletIndexCache* cache = recycler_cache_manager();
+    if (cache != nullptr && cache->get(cache_key, &tablet_idx)) {
+        LOG(INFO) << "finish get tablet index from cache, tablet_id= " << tablet_id;
+        return 0;
+    }
+
     std::unique_ptr<Transaction> txn;
     TxnErrorCode err = txn_kv->create_txn(&txn);
     if (err != TxnErrorCode::TXN_OK) {
@@ -265,6 +306,11 @@ int get_tablet_idx(TxnKv* txn_kv, const std::string& instance_id, int64_t tablet
         LOG(WARNING) << "unexpected error given_tablet_id=" << tablet_id
                      << " idx_pb_tablet_id=" << tablet_idx.tablet_id() << " key=" << hex(key);
         return -1;
+    }
+
+    // Cache put
+    if (cache != nullptr) {
+        cache->put(cache_key, tablet_idx);
     }
     return 0;
 }

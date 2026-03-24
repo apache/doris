@@ -41,6 +41,7 @@
 #include "common/status.h"
 #include "core/block/block.h"
 #include "core/data_type_serde/data_type_serde.h"
+#include "cpp/lru_cache.h"
 #include "exprs/vexpr_fwd.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
@@ -49,7 +50,6 @@
 #include "storage/rowset/rowset.h"
 #include "storage/tablet/tablet.h"
 #include "storage/utils.h"
-#include "util/lru_cache.h"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 

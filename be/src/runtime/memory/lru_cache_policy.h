@@ -22,11 +22,12 @@
 #include <memory>
 
 #include "common/be_mock_util.h"
+#include "cpp/lru_cache.h"
 #include "runtime/memory/cache_policy.h"
 #include "runtime/memory/lru_cache_value_base.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "runtime/thread_context.h"
-#include "util/lru_cache.h"
+#include "util/be_lru_cache_metrics.h"
 #include "util/time.h"
 
 namespace doris {
@@ -40,9 +41,12 @@ public:
             : CachePolicy(type, capacity, stale_sweep_time_s, enable_prune),
               _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
-            _cache = std::shared_ptr<ShardedLRUCache>(
+            auto cache = std::shared_ptr<ShardedLRUCache>(
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
                                         element_count_capacity, is_lru_k));
+            cache->set_metrics_recorder(
+                    create_be_lru_cache_metrics_recorder(type_string(type), cache.get()));
+            _cache = std::move(cache);
         } else {
             _cache = std::make_shared<doris::DummyLRUCache>();
         }
@@ -58,10 +62,13 @@ public:
             : CachePolicy(type, capacity, stale_sweep_time_s, enable_prune),
               _lru_cache_type(lru_cache_type) {
         if (check_capacity(capacity, num_shards)) {
-            _cache = std::shared_ptr<ShardedLRUCache>(
+            auto cache = std::shared_ptr<ShardedLRUCache>(
                     new ShardedLRUCache(type_string(type), capacity, lru_cache_type, num_shards,
                                         cache_value_time_extractor, cache_value_check_timestamp,
                                         element_count_capacity, is_lru_k));
+            cache->set_metrics_recorder(
+                    create_be_lru_cache_metrics_recorder(type_string(type), cache.get()));
+            _cache = std::move(cache);
         } else {
             _cache = std::make_shared<doris::DummyLRUCache>();
         }
@@ -126,7 +133,7 @@ public:
                     ->set_tracking_bytes(tracking_bytes, _mem_tracker, value_tracking_bytes,
                                          _value_mem_tracker);
         }
-        return _cache->insert(key, value, charge, priority);
+        return _cache->insert(key, value, charge, priority, cache_value_deleter<LRUCacheValueBase>);
     }
 
     void for_each_entry(const std::function<void(const LRUHandle*)>& visitor) {

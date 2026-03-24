@@ -1405,16 +1405,27 @@ std::pair<MetaServiceCode, std::string> get_tablet_indexes(
         Transaction* txn, std::unordered_map<int64_t, TabletIndexPB>* tablet_indexes,
         std::string_view instance_id, const std::vector<int64_t>& tablet_ids,
         bool snapshot = false) {
-    std::vector<std::string> tablet_idx_keys;
-    std::vector<std::optional<std::string>> tablet_idx_values;
-    tablet_idx_keys.reserve(tablet_ids.size());
-    tablet_idx_values.resize(tablet_idx_keys.size());
+    std::vector<int64_t> missed_tablet_ids;
+    std::vector<std::string> missed_tablet_idx_keys;
+    missed_tablet_ids.reserve(tablet_ids.size());
+    missed_tablet_idx_keys.reserve(tablet_ids.size());
 
     for (int64_t tablet_id : tablet_ids) {
-        tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, tablet_id}));
+        TabletIndexPB tablet_index;
+        if (get_tablet_idx_from_ms_cache(instance_id, tablet_id, &tablet_index)) {
+            tablet_indexes->emplace(tablet_id, std::move(tablet_index));
+            continue;
+        }
+        missed_tablet_ids.push_back(tablet_id);
+        missed_tablet_idx_keys.push_back(meta_tablet_idx_key({instance_id, tablet_id}));
     }
 
-    TxnErrorCode err = txn->batch_get(&tablet_idx_values, tablet_idx_keys,
+    if (missed_tablet_ids.empty()) {
+        return {MetaServiceCode::OK, ""};
+    }
+
+    std::vector<std::optional<std::string>> missed_tablet_idx_values;
+    TxnErrorCode err = txn->batch_get(&missed_tablet_idx_values, missed_tablet_idx_keys,
                                       Transaction::BatchGetOptions(snapshot));
     if (err != TxnErrorCode::TXN_OK) {
         auto msg = fmt::format("failed to get tablet table index ids, err={}", err);
@@ -1422,26 +1433,27 @@ std::pair<MetaServiceCode, std::string> get_tablet_indexes(
         return {cast_as<ErrCategory::READ>(err), msg};
     }
 
-    size_t total_tablets = tablet_idx_values.size();
+    size_t total_tablets = missed_tablet_idx_values.size();
     for (size_t i = 0; i < total_tablets; i++) {
-        int64_t tablet_id = tablet_ids[i];
-        if (!tablet_idx_values[i].has_value()) [[unlikely]] {
+        int64_t tablet_id = missed_tablet_ids[i];
+        if (!missed_tablet_idx_values[i].has_value()) [[unlikely]] {
             // The value must existed
             auto msg = fmt::format(
                     "failed to get tablet table index ids, err=not found tablet_id={} ", tablet_id);
-            LOG_WARNING(msg).tag("err", err).tag("key", hex(tablet_idx_keys[i]));
+            LOG_WARNING(msg).tag("err", err).tag("key", hex(missed_tablet_idx_keys[i]));
             return {MetaServiceCode::KV_TXN_GET_ERR, msg};
         }
 
         TabletIndexPB tablet_index;
-        if (!tablet_index.ParseFromString(tablet_idx_values[i].value())) [[unlikely]] {
+        if (!tablet_index.ParseFromString(missed_tablet_idx_values[i].value())) [[unlikely]] {
             auto msg = fmt::format("malformed tablet index value tablet_id={} snapshot={}",
                                    tablet_id, snapshot);
-            LOG_WARNING(msg).tag("key", hex(tablet_idx_keys[i]));
+            LOG_WARNING(msg).tag("key", hex(missed_tablet_idx_keys[i]));
             return {MetaServiceCode::PROTOBUF_PARSE_ERR, msg};
         }
 
         VLOG_DEBUG << "tablet_id:" << tablet_id << " value:" << tablet_index.ShortDebugString();
+        put_tablet_idx_to_ms_cache(instance_id, tablet_id, tablet_index);
         tablet_indexes->emplace(tablet_id, std::move(tablet_index));
     }
 

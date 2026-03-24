@@ -71,6 +71,12 @@ void notify_refresh_instance(std::shared_ptr<TxnKv> txn_kv, const std::string& i
 } // namespace doris::cloud
 
 TEST(MetaServerTest, FQDNRefreshInstance) {
+    auto old_enable_tablet_index_cache = config::enable_tablet_index_cache;
+    DORIS_CLOUD_DEFER {
+        config::enable_tablet_index_cache = old_enable_tablet_index_cache;
+    };
+    config::enable_tablet_index_cache = false;
+
     class MockMetaService : public cloud::MetaServiceImpl {
     public:
         MockMetaService(std::shared_ptr<TxnKv> txn_kv,

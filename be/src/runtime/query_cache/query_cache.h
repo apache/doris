@@ -30,12 +30,12 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "core/block/block.h"
+#include "cpp/lru_cache.h"
 #include "io/fs/file_system.h"
 #include "io/fs/path.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/lru_cache.h"
 #include "util/slice.h"
 #include "util/time.h"
 

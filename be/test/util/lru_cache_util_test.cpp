@@ -20,8 +20,8 @@
 
 #include <memory>
 
+#include "cpp/lru_cache.hpp"
 #include "gtest/gtest_pred_impl.h"
-#include "util/lru_cache.hpp"
 
 namespace doris {
 

@@ -26,13 +26,13 @@
 #include <thread>
 
 #include "common/status.h"
+#include "cpp/lru_cache.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/local_file_system.h"
 #include "storage/index/inverted/inverted_index_cache.h"
 #include "storage/index/inverted/inverted_index_desc.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 #include "storage/olap_common.h"
-#include "util/lru_cache.h"
 #include "util/time.h"
 
 namespace doris {

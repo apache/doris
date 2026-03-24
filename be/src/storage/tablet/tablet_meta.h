@@ -40,6 +40,7 @@
 
 #include "common/logging.h"
 #include "common/status.h"
+#include "cpp/lru_cache.h"
 #include "io/fs/file_system.h"
 #include "runtime/memory/lru_cache_policy.h"
 #include "storage/binlog_config.h"
@@ -47,7 +48,6 @@
 #include "storage/olap_common.h"
 #include "storage/rowset/rowset_meta.h"
 #include "storage/tablet/tablet_schema.h"
-#include "util/lru_cache.h"
 #include "util/uid_util.h"
 
 namespace json2pb {

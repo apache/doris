@@ -158,6 +158,12 @@ CONF_mBool(enable_mvcc_meta_check, "false");
 
 CONF_mInt64(mow_job_key_check_expiration_diff_seconds, "600"); // 10min
 
+// KV cache config
+CONF_mBool(enable_tablet_index_cache, "true");
+CONF_mInt64(ms_tablet_index_cache_capacity, "10000");
+CONF_mInt64(recycler_tablet_index_cache_capacity, "10000");
+CONF_mInt64(tablet_index_cache_ttl_seconds, "0"); // 0 means no TTL
+
 CONF_String(test_s3_ak, "");
 CONF_String(test_s3_sk, "");
 CONF_String(test_s3_endpoint, "");
