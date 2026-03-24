@@ -132,7 +132,6 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     new CheckPolicy(),
                     new BindExpression()
             ),
-            custom(RuleType.IVM_NORMALIZE_MTMV_PLAN, IvmNormalizeMtmvPlan::new),
             topDown(new BindSink()),
             bottomUp(new CheckAnalysis(false)),
             topDown(new FillUpQualifyMissingSlot()),
@@ -222,6 +221,7 @@ public class Analyzer extends AbstractBatchJobExecutor {
                     // merge normal filter and hidden column filter
                     new MergeFilters()
             ),
+            custom(RuleType.IVM_NORMALIZE_MTMV_PLAN, IvmNormalizeMtmvPlan::new),
             // for cte: analyze producer -> analyze consumer -> rewrite consumer -> rewrite producer,
             // in order to ensure cte consumer had right nullable attribute, need adjust nullable at analyze phase.
             custom(RuleType.ADJUST_NULLABLE, () -> new AdjustNullable(true))

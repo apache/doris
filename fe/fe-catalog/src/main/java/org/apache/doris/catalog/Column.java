@@ -51,6 +51,7 @@ public class Column implements GsonPostProcessable {
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
     // all shadow indexes should have this prefix in name
     public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
+    public static final String IVM_HIDDEN_COLUMN_PREFIX = "__DORIS_IVM_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
@@ -269,6 +270,10 @@ public class Column implements GsonPostProcessable {
             String comment, boolean visible, int colUniqueId) {
         this(name, type, isKey, aggregateType, isAllowNull, -1, null, comment, visible, null, colUniqueId, null,
                 false, null, null,  Sets.newHashSet(), null);
+    }
+
+    public static boolean isIvmHiddenColumn(String columnName) {
+        return StringUtils.startsWith(columnName, IVM_HIDDEN_COLUMN_PREFIX);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,

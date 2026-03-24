@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.ivm.IvmContext;
 import org.apache.doris.nereids.jobs.JobContext;
@@ -35,6 +34,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
@@ -44,7 +44,9 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
@@ -60,7 +62,7 @@ import java.util.stream.Collectors;
  * - visitLogicalFilter recurses into the child and preserves filter predicates/output shape.
  * - visitLogicalResultSink recurses into the child and prepends the row-id to output exprs.
  * - Whitelists supported plan nodes; throws AnalysisException for unsupported nodes.
- * Supported: OlapScan, filter, project, result sink, unbound table sink.
+ * Supported: OlapScan, filter, project, result sink, logical olap table sink.
  * TODO: avg rewrite, join support.
  */
 public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implements CustomRewriter {
@@ -103,11 +105,11 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
     @Override
     public Plan visitLogicalProject(LogicalProject<? extends Plan> project, IvmContext ivmContext) {
         Plan newChild = project.child().accept(this, ivmContext);
-        if (hasRowIdInOutputs(project.getProjects())) {
-            return newChild == project.child() ? project : project.withChildren(ImmutableList.of(newChild));
+        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, project.getProjects());
+        if (newChild == project.child() && newOutputs.equals(project.getProjects())) {
+            return project;
         }
-        List<NamedExpression> newOutputs = prependRowId(newChild, project.getProjects());
-        return new LogicalProject<>(newOutputs, newChild);
+        return project.withProjectsAndChild(newOutputs, newChild);
     }
 
     @Override
@@ -120,34 +122,80 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
     @Override
     public Plan visitLogicalResultSink(LogicalResultSink<? extends Plan> sink, IvmContext ivmContext) {
         Plan newChild = sink.child().accept(this, ivmContext);
-        if (hasRowIdInOutputs(sink.getOutputExprs())) {
-            return newChild == sink.child() ? sink : sink.withChildren(ImmutableList.of(newChild));
+        List<NamedExpression> newOutputs = rewriteOutputsWithIvmHiddenColumns(newChild, sink.getOutputExprs());
+        if (newChild == sink.child() && newOutputs.equals(sink.getOutputExprs())) {
+            return sink;
         }
-        List<NamedExpression> newOutputs = prependRowId(newChild, sink.getOutputExprs());
         return sink.withOutputExprs(newOutputs).withChildren(ImmutableList.of(newChild));
     }
 
     @Override
-    public Plan visitUnboundTableSink(UnboundTableSink<? extends Plan> sink, IvmContext ivmContext) {
+    public Plan visitLogicalOlapTableSink(LogicalOlapTableSink<? extends Plan> sink, IvmContext ivmContext) {
         Plan newChild = sink.child().accept(this, ivmContext);
-        return newChild == sink.child() ? sink : sink.withChildren(ImmutableList.of(newChild));
+        if (newChild == sink.child()) {
+            return sink;
+        }
+        return sink.withChildAndUpdateOutput(newChild, sink.getPartitionExprList(),
+                sink.getSyncMvWhereClauses(), sink.getTargetTableSlots());
     }
 
-    private boolean hasRowIdInOutputs(List<NamedExpression> outputs) {
+    private boolean hasIvmHiddenOutputInOutputs(List<NamedExpression> outputs) {
         return outputs.stream()
-                .anyMatch(e -> e instanceof Slot && Column.IVM_ROW_ID_COL.equals(((Slot) e).getName()));
+                .anyMatch(this::isIvmHiddenOutput);
     }
 
-    private List<NamedExpression> prependRowId(Plan normalizedChild, List<NamedExpression> outputs) {
-        Slot rowId = normalizedChild.getOutput().stream()
-                .filter(s -> Column.IVM_ROW_ID_COL.equals(s.getName()))
-                .findFirst()
-                .orElseThrow(() -> new AnalysisException(
-                        "IVM normalization error: child plan has no row-id slot after normalization"));
-        return ImmutableList.<NamedExpression>builder()
-                .add(rowId)
-                .addAll(outputs)
-                .build();
+    private boolean isIvmHiddenOutput(NamedExpression expression) {
+        return Column.isIvmHiddenColumn(expression.getName());
+    }
+
+    private List<NamedExpression> rewriteOutputsWithIvmHiddenColumns(Plan normalizedChild, List<NamedExpression> outputs) {
+        Map<String, Slot> ivmHiddenSlotsByName = collectIvmHiddenSlots(normalizedChild);
+        if (!ivmHiddenSlotsByName.containsKey(Column.IVM_ROW_ID_COL)) {
+            throw new AnalysisException("IVM normalization error: child plan has no row-id slot after normalization");
+        }
+        ImmutableList.Builder<NamedExpression> rewrittenOutputs = ImmutableList.builder();
+        if (!hasIvmHiddenOutputInOutputs(outputs)) {
+            rewrittenOutputs.addAll(ivmHiddenSlotsByName.values());
+            rewrittenOutputs.addAll(outputs);
+            return rewrittenOutputs.build();
+        }
+        for (Slot ivmHiddenSlot : ivmHiddenSlotsByName.values()) {
+            if (outputs.stream().noneMatch(output -> ivmHiddenSlot.getName().equals(output.getName()))) {
+                rewrittenOutputs.add(ivmHiddenSlot);
+            }
+        }
+        for (NamedExpression output : outputs) {
+            if (!isIvmHiddenOutput(output)) {
+                rewrittenOutputs.add(output);
+                continue;
+            }
+            rewrittenOutputs.add(rewriteIvmHiddenOutput(output, ivmHiddenSlotsByName));
+        }
+        return rewrittenOutputs.build();
+    }
+
+    private Map<String, Slot> collectIvmHiddenSlots(Plan normalizedChild) {
+        return normalizedChild.getOutput().stream()
+                .filter(slot -> Column.isIvmHiddenColumn(slot.getName()))
+                .collect(Collectors.toMap(Slot::getName, slot -> slot, (left, right) -> left, LinkedHashMap::new));
+    }
+
+    private NamedExpression rewriteIvmHiddenOutput(NamedExpression output, Map<String, Slot> ivmHiddenSlotsByName) {
+        Slot ivmHiddenSlot = ivmHiddenSlotsByName.get(output.getName());
+        if (ivmHiddenSlot == null) {
+            throw new AnalysisException("IVM normalization error: child plan has no hidden slot named "
+                    + output.getName() + " after normalization");
+        }
+        if (output instanceof Slot) {
+            return ivmHiddenSlot;
+        }
+        if (output instanceof Alias) {
+            Alias alias = (Alias) output;
+            return new Alias(alias.getExprId(), ImmutableList.of(ivmHiddenSlot), alias.getName(),
+                    alias.getQualifier(), alias.isNameFromChild());
+        }
+        throw new AnalysisException("IVM normalization error: unsupported hidden output expression: "
+                + output.getClass().getSimpleName());
     }
 
     /**
