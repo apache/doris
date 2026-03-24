@@ -148,7 +148,8 @@ public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implem
         return Column.isIvmHiddenColumn(expression.getName());
     }
 
-    private List<NamedExpression> rewriteOutputsWithIvmHiddenColumns(Plan normalizedChild, List<NamedExpression> outputs) {
+    private List<NamedExpression> rewriteOutputsWithIvmHiddenColumns(
+            Plan normalizedChild, List<NamedExpression> outputs) {
         Map<String, Slot> ivmHiddenSlotsByName = collectIvmHiddenSlots(normalizedChild);
         if (!ivmHiddenSlotsByName.containsKey(Column.IVM_ROW_ID_COL)) {
             throw new AnalysisException("IVM normalization error: child plan has no row-id slot after normalization");
