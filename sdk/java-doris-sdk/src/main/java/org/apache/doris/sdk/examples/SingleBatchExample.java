@@ -43,7 +43,7 @@ public class SingleBatchExample {
         log.info("Starting large batch loading demo with {} order records", BATCH_SIZE);
 
         DorisConfig config = DorisConfig.builder()
-                .endpoints(Arrays.asList("http://10.16.10.6:38535"))
+                .endpoints(Arrays.asList("http://localhost:8030"))
                 .user("root")
                 .password("")
                 .database("test")

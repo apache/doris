@@ -80,7 +80,7 @@ public class ConcurrentExample {
 
         // Single shared client — thread-safe
         DorisConfig config = DorisConfig.builder()
-                .endpoints(Arrays.asList("http://10.16.10.6:38535"))
+                .endpoints(Arrays.asList("http://localhost:8030"))
                 .user("root")
                 .password("")
                 .database("test")
