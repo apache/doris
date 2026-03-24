@@ -146,7 +146,8 @@ public class PushDownProject implements RewriteRuleFactory, NormalizeToSlot {
         LogicalFilter<LogicalJoin<Plan, Plan>> filter = ctx.root;
         LogicalJoin<Plan, Plan> join = filter.child();
         PushdownProjectHelper pushdownProjectHelper = new PushdownProjectHelper(ctx.statementContext, join);
-        Pair<Boolean, Set<Expression>> pushPredicates = pushdownProjectHelper.pushDownExpressions(filter.getConjuncts());
+        Pair<Boolean, Set<Expression>> pushPredicates
+                = pushdownProjectHelper.pushDownExpressions(filter.getConjuncts());
         if (!pushPredicates.first) {
             return filter;
         }
