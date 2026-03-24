@@ -84,6 +84,21 @@ public class IcebergRestPropertiesTest {
     }
 
     @Test
+    public void testCustomHeaderPropertiesForwarding() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.header.x-goog-user-project", "billing-project");
+        props.put("iceberg.rest.header.X-Catalog-Name", "default");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertEquals("billing-project", catalogProps.get("header.x-goog-user-project"));
+        Assertions.assertEquals("default", catalogProps.get("header.X-Catalog-Name"));
+    }
+
+    @Test
     public void testOAuth2CredentialFlow() {
         Map<String, String> props = new HashMap<>();
         props.put("iceberg.rest.uri", "http://localhost:8080");
