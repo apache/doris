@@ -3301,8 +3301,8 @@ public class Config extends ConfigBase {
     public static int mow_async_publish_publish_timeout_seconds = 300;
 
     @ConfField(mutable = true, masterOnly = true,
-            description = {"CloudPublishDaemon scheduling interval in milliseconds. Default is 100ms."})
-    public static long cloud_publish_interval_ms = 100;
+            description = {"CloudPublishDaemon scheduling interval in milliseconds. Default is 10ms."})
+    public static long cloud_publish_interval_ms = 10;
 
     @ConfField(mutable = true, masterOnly = true,
             description = {"Thread pool size for cloud publish executor. Default is 32."})
