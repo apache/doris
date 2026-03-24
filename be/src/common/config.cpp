@@ -1730,8 +1730,8 @@ DEFINE_mBool(enable_prefill_all_dbm_agg_cache_after_compaction, "true");
 // Cache for ANN index IVF on-disk list data.
 // Default "70%" means 70% of total physical memory.
 DEFINE_String(ann_index_ivf_list_cache_limit, "70%");
-// Stale sweep time for ANN index IVF list cache in seconds.
-DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "300");
+// Stale sweep time for ANN index IVF list cache in seconds. 3600s is 1 hour.
+DEFINE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec, "3600");
 
 // Chunk size for ANN/vector index building per training/adding batch
 // 1M By default.

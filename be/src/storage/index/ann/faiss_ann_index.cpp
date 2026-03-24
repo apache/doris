@@ -1030,7 +1030,40 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
         }
 
         auto reader = std::make_unique<FaissIndexReader>(idx_input);
-        faiss::Index* idx = faiss::read_index(reader.get(), faiss::IO_FLAG_SKIP_IVF_DATA);
+         // IO_FLAG_SKIP_IVF_DATA: read only index metadata (quantizer, PQ codebook,
+        //   inverted-list slot table) without loading the bulk inverted-list data.
+        //
+        // IO_FLAG_SKIP_PRECOMPUTE_TABLE: skip rebuilding the IVFPQ precomputed
+        //   distance table.  The table is NOT serialized on disk; FAISS recomputes
+        //   it from quantizer centroids and PQ codebook on every read_index() call
+        //   (see index_read.cpp read_ivfpq(), IndexIVFPQ.cpp precompute_table()).
+        //
+        //   Per-segment table memory:
+        //     logical_elems = nlist * pq.M * pq.ksub         (floats)
+        //     logical_bytes = logical_elems * sizeof(float)   (bytes)
+        //     actual_bytes  = next_power_of_2(logical_elems) * sizeof(float)
+        //                     (AlignedTable rounds up to next power of two)
+        //
+        //   Concrete example  (nlist=1024, pq_m=384, pq_nbits=8, ksub=2^8=256):
+        //     logical_elems = 1024 * 384 * 256 = 100,663,296
+        //     logical_bytes = 100,663,296 * 4  = 402,653,184  (384 MiB)
+        //     next_pow2     = 2^27             = 134,217,728
+        //     actual_bytes  = 134,217,728 * 4  = 536,870,912  (512 MiB per segment)
+        //
+        //   With 146 segments loaded simultaneously:
+        //     total = 146 * 512 MiB = 74,752 MiB  (~73 GiB untracked RSS)
+        //
+        //   FAISS has a per-table guard (precomputed_table_max_bytes = 2 GiB) but
+        //   it checks only the single-table logical size (384 MiB << 2 GiB), so it
+        //   cannot prevent the multi-segment accumulation.
+        //
+        //   For IVF_ON_DISK the search bottleneck is disk/network I/O, not per-list
+        //   CPU distance computation.  Skipping the table makes search fall back to
+        //   on-the-fly compute_residual() + compute_distance_table() per (query,
+        //   inverted-list) pair, which is functionally identical and correct.
+        constexpr int kIVFOnDiskReadFlags =
+                faiss::IO_FLAG_SKIP_IVF_DATA | faiss::IO_FLAG_SKIP_PRECOMPUTE_TABLE;
+        faiss::Index* idx = faiss::read_index(reader.get(), kIVFOnDiskReadFlags);
 
         // Replace OnDiskInvertedLists (metadata-only) with PreadInvertedLists
         faiss::PreadInvertedLists* pread = faiss::replace_with_pread_invlists(idx);
