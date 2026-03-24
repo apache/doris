@@ -2772,13 +2772,15 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"Specifies the primary MySQL authenticator name, either a built-in authenticator or an "
-                    + "authentication plugin name"},
+    @ConfField(description = {
+            "Specifies the primary MySQL authenticator name, either a built-in authenticator "
+                    + "or an authentication plugin name"},
             options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
 
-    @ConfField(description = {"Specifies the authentication chain used after primary authentication failure, multiple integration "
-                    + "names are comma-separated"})
+    @ConfField(description = {
+            "Specifies the authentication chain used after primary authentication failure, "
+                    + "multiple integration names are comma-separated"})
     public static String authentication_chain = "";
 
     @ConfField(mutable = true, masterOnly = false, description = {
