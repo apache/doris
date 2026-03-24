@@ -107,11 +107,7 @@ HttpFileReader::~HttpFileReader() {
 }
 
 Status HttpFileReader::open(const FileReaderOptions& opts) {
-    if (_initialized) {
-        return Status::OK();
-    }
-
-    // start CDC client
+    // CDC client setup must run before the _initialized guard
     auto enable_cdc_iter = _extend_kv.find("enable_cdc_client");
     if (enable_cdc_iter != _extend_kv.end() && enable_cdc_iter->second == "true") {
         LOG(INFO) << "CDC client is enabled, starting CDC client for " << _url;
@@ -136,11 +132,20 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         LOG(INFO) << "CDC client started successfully for " << _url;
     }
 
+    // Skip metadata detection when file size was pre-supplied by the caller.
+    if (_initialized) {
+        return Status::OK();
+    }
+
     // Step 1: HEAD request to get file metadata (skip for chunk response)
     if (_enable_chunk_response) {
         // Chunk streaming response: size is unknown until the stream completes.
         // _range_supported is already false (set in constructor).
         _size_known = false;
+        // Reset _file_size from the SIZE_MAX default to 0 so that any caller of
+        // size() (e.g. NewJsonReader::_read_one_message) does not attempt to
+        // allocate SIZE_MAX bytes before the download completes.
+        _file_size = 0;
         LOG(INFO) << "Chunk response mode enabled, skipping HEAD request for " << _url;
     } else {
         // Normal mode: execute HEAD request to get file metadata
@@ -377,6 +382,11 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         // Cache the complete file content for subsequent reads
         _full_file_cache = std::move(buf);
         _full_file_cached = true;
+        // Now that the full content is in hand, update _file_size to the actual
+        // byte count. This replaces the 0 placeholder set in open() for chunk
+        // response mode, so subsequent calls to size() return a correct value.
+        _file_size = _full_file_cache.size();
+        _size_known = true;
 
         VLOG(2) << "Cached full file: " << _full_file_cache.size() << " bytes";
 

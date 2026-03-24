@@ -30,7 +30,6 @@ import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.google.common.base.Preconditions;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -42,10 +41,8 @@ import java.util.UUID;
 public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunction {
     private static final ObjectMapper objectMapper = new ObjectMapper();
     private static final String URI = "http://127.0.0.1:CDC_CLIENT_PORT/api/fetchRecordStream";
-    private final Map<String, String> originProps;
 
     public CdcStreamTableValuedFunction(Map<String, String> properties) throws AnalysisException {
-        this.originProps = properties;
         validate(properties);
         processProps(properties);
     }
@@ -79,11 +76,19 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         }
     }
 
-    private void validate(Map<String, String> properties) {
-        Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.JDBC_URL), "jdbc_url is required");
-        Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.TYPE), "type is required");
-        Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.TABLE), "table is required");
-        Preconditions.checkArgument(properties.containsKey(DataSourceConfigKeys.OFFSET), "offset is required");
+    private void validate(Map<String, String> properties) throws AnalysisException {
+        if (!properties.containsKey(DataSourceConfigKeys.JDBC_URL)) {
+            throw new AnalysisException("jdbc_url is required");
+        }
+        if (!properties.containsKey(DataSourceConfigKeys.TYPE)) {
+            throw new AnalysisException("type is required");
+        }
+        if (!properties.containsKey(DataSourceConfigKeys.TABLE)) {
+            throw new AnalysisException("table is required");
+        }
+        if (!properties.containsKey(DataSourceConfigKeys.OFFSET)) {
+            throw new AnalysisException("offset is required");
+        }
     }
 
     private void generateFileStatus() {
@@ -96,11 +101,16 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         DataSourceType dataSourceType =
                 DataSourceType.valueOf(processedParams.get(DataSourceConfigKeys.TYPE).toUpperCase());
         JdbcClient jdbcClient = StreamingJobUtils.getJdbcClient(dataSourceType, processedParams);
-        String database = StreamingJobUtils.getRemoteDbName(dataSourceType, processedParams);
-        String table = processedParams.get(DataSourceConfigKeys.TABLE);
-        boolean tableExist = jdbcClient.isTableExist(database, table);
-        Preconditions.checkArgument(tableExist, "Table does not exist: " + table);
-        return jdbcClient.getColumnsFromJdbc(database, table);
+        try {
+            String database = StreamingJobUtils.getRemoteDbName(dataSourceType, processedParams);
+            String table = processedParams.get(DataSourceConfigKeys.TABLE);
+            if (!jdbcClient.isTableExist(database, table)) {
+                throw new AnalysisException("Table does not exist: " + table);
+            }
+            return jdbcClient.getColumnsFromJdbc(database, table);
+        } finally {
+            jdbcClient.closeClient();
+        }
     }
 
     @Override
@@ -115,7 +125,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("CdcStreamTvfBroker", StorageType.HTTP, originProps);
+        return new BrokerDesc("CdcStreamTvfBroker", StorageType.HTTP, processedParams);
     }
 
     @Override

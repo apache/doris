@@ -216,6 +216,9 @@ public class PipelineCoordinator {
             // TVF requires closing the window after each execution,
             // while PG requires dropping the slot.
             sourceReader.close(fetchRecord);
+            // Clean up the job context so it does not accumulate in Env.jobContexts.
+            // Each TVF call uses a fresh UUID job ID, so without this the map grows unboundedly.
+            Env.getCurrentEnv().close(fetchRecord.getJobId());
         }
     }
 

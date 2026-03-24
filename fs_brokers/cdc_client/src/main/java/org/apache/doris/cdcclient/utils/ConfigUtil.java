@@ -44,7 +44,9 @@ public class ConfigUtil {
     private static final Logger LOG = LoggerFactory.getLogger(ConfigUtil.class);
 
     public static String getServerId(String jobId) {
-        return String.valueOf(Math.abs(jobId.hashCode()));
+        // Use bitwise AND with Integer.MAX_VALUE to strip the sign bit,
+        // which avoids the edge case where Math.abs(Integer.MIN_VALUE) returns MIN_VALUE (negative).
+        return String.valueOf(jobId.hashCode() & Integer.MAX_VALUE);
     }
 
     public static ZoneId getServerTimeZoneFromJdbcUrl(String jdbcUrl) {

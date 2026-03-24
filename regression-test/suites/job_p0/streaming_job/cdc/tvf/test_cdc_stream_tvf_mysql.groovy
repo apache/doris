@@ -60,7 +60,7 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
                 "database" = "${mysqlDb}",
                 "table" = "${table1}",
                 "offset" = '${offset}'
-            )
+            ) order by name
         """
 
         test {
