@@ -21,14 +21,14 @@
 
 #include <memory>
 #include <random>
+#include <ranges>
 #include <thread>
 #include <type_traits>
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "common/status.h"
-#include "util/defer_op.h"
-#include "storage/rowset/rowset_factory.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/olap_common.h"
 #include "storage/rowset/beta_rowset.h"
@@ -38,6 +38,7 @@
 #include "storage/tablet/tablet_meta.h"
 #include "storage/txn/txn_manager.h"
 #include "storage/utils.h"
+#include "util/defer_op.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -96,16 +97,14 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
             if (has_tablet_states) {
                 tablet_calc_delete_bitmap_ptr->set_tablet_state(partition.tablet_states[i]);
             }
-            bool enable_async_publish =
-                    _cal_delete_bitmap_req.__isset.enable_mow_async_publish &&
-                    _cal_delete_bitmap_req.enable_mow_async_publish;
+            bool enable_async_publish = _cal_delete_bitmap_req.__isset.enable_mow_async_publish &&
+                                        _cal_delete_bitmap_req.enable_mow_async_publish;
             if (enable_async_publish) {
                 int64_t db_id = partition.__isset.db_id ? partition.db_id : -1;
                 int64_t table_id = partition.__isset.table_id ? partition.table_id : -1;
-                int64_t index_id =
-                        (partition.__isset.index_ids && i < partition.index_ids.size())
-                                ? partition.index_ids[i]
-                                : -1;
+                int64_t index_id = (partition.__isset.index_ids && i < partition.index_ids.size())
+                                           ? partition.index_ids[i]
+                                           : -1;
                 tablet_calc_delete_bitmap_ptr->set_async_publish_info(db_id, table_id, index_id,
                                                                       partition.partition_id);
             }
@@ -159,8 +158,9 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
     _ms_tablet_state = tablet_state;
 }
 
-void CloudTabletCalcDeleteBitmapTask::set_async_publish_info(
-        int64_t db_id, int64_t table_id, int64_t index_id, int64_t partition_id) {
+void CloudTabletCalcDeleteBitmapTask::set_async_publish_info(int64_t db_id, int64_t table_id,
+                                                             int64_t index_id,
+                                                             int64_t partition_id) {
     _enable_async_publish = true;
     _db_id = db_id;
     _table_id = table_id;
@@ -188,8 +188,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     // For async publish: acquire MS tablet-level lock right after memory lock,
     // before delete bitmap calculation, to ensure mutual exclusion with compaction
     if (_enable_async_publish) {
-        auto lock_st = _engine.meta_mgr().get_delete_bitmap_tablet_lock(
-                *tablet, _transaction_id, -1);
+        auto lock_st =
+                _engine.meta_mgr().get_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
         if (!lock_st.ok()) {
             return lock_st;
         }
@@ -274,13 +274,14 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     });
     Status status;
     if (_sub_txn_ids.empty()) {
-        // Check empty rowset for non-sub_txn case
+        // Non-sub_txn case: check if empty rowset
         if (_engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
             LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
                       << " is empty rowset, skip delete bitmap calculation";
-            return Status::OK();
+            status = Status::OK();
+        } else {
+            status = _handle_rowset(tablet, _version);
         }
-        status = _handle_rowset(tablet, _version);
     } else {
         std::stringstream ss;
         for (const auto& sub_txn_id : _sub_txn_ids) {
@@ -453,32 +454,97 @@ Status CloudTabletCalcDeleteBitmapTask::_handle_rowset(
     return Status::OK();
 }
 
-Status CloudTabletCalcDeleteBitmapTask::_handle_async_publish(
-        std::shared_ptr<CloudTablet> tablet, int64_t version) const {
+Status CloudTabletCalcDeleteBitmapTask::_apply_rowset_to_tablet(
+        std::shared_ptr<CloudTablet> tablet, int64_t version, RowsetSharedPtr& rowset,
+        const std::shared_ptr<DeleteBitmap>& delete_bitmap, int64_t visible_ts_ms,
+        std::unique_lock<std::shared_mutex>& meta_lock) const {
+    bool is_empty_rowset = (rowset == nullptr);
+
+    if (is_empty_rowset) {
+        // Empty rowset: create hole filler rowset locally
+        Versions existing_versions;
+        for (const auto& [_, rs] : tablet->tablet_meta()->all_rs_metas()) {
+            existing_versions.emplace_back(rs->version());
+        }
+        if (existing_versions.empty()) {
+            return Status::InternalError<false>("no existing rowsets for empty rowset");
+        }
+        auto max_version = std::ranges::max(existing_versions, {}, &Version::first);
+        auto prev_rowset = tablet->get_rowset_by_version(max_version);
+        RETURN_IF_ERROR(_engine.meta_mgr().create_empty_rowset_for_hole(
+                tablet.get(), version, prev_rowset->rowset_meta(), &rowset));
+    } else {
+        // Non-empty rowset: merge delete bitmap
+        if (delete_bitmap) {
+            for (const auto& [delete_bitmap_key, bitmap_value] : delete_bitmap->delete_bitmap) {
+                // Skip sentinel mark
+                if (std::get<1>(delete_bitmap_key) != DeleteBitmap::INVALID_SEGMENT_ID) {
+                    tablet->tablet_meta()->delete_bitmap().merge(
+                            {std::get<0>(delete_bitmap_key), std::get<1>(delete_bitmap_key), version},
+                            bitmap_value);
+                }
+            }
+        }
+    }
+
+    // Set version fields and add rowset to tablet
+    rowset->rowset_meta()->set_cloud_fields_after_visible(version, visible_ts_ms);
+    tablet->add_rowsets({rowset}, false /* version_overlap */, meta_lock);
+    return Status::OK();
+}
+
+Status CloudTabletCalcDeleteBitmapTask::_handle_async_publish(std::shared_ptr<CloudTablet> tablet,
+                                                              int64_t version) const {
     // MS tablet-level lock is already held (acquired in handle() before delete bitmap calculation)
 
-    // Step 1: Call MS convert_tmp_rowset
-    RowsetMetaSharedPtr rowset_meta;
-    RETURN_IF_ERROR(_engine.meta_mgr().convert_tmp_rowset(
-            _transaction_id, _tablet_id, version, _db_id, _table_id, _index_id, _partition_id,
-            &rowset_meta));
+    // Step 1: Get rowset and delete bitmap from local cache
+    auto res = _engine.txn_delete_bitmap_cache().get_rowset_and_delete_bitmap(_transaction_id,
+                                                                              _tablet_id);
+    if (!res.has_value()) {
+        LOG(WARNING) << "async publish cache entry not found, tablet_id=" << _tablet_id
+                     << ", txn_id=" << _transaction_id << ", version=" << version;
+        return Status::InternalError<false>("rowset not found in txn_delete_bitmap_cache");
+    }
+    auto [rowset, delete_bitmap] = res.value();
+    bool is_empty_rowset = (rowset == nullptr);
 
-    // Step 2: Create RowsetSharedPtr from returned rowset_meta
-    RowsetSharedPtr rowset;
-    RETURN_IF_ERROR(RowsetFactory::create_rowset(nullptr, "", rowset_meta, &rowset));
-
-    // Step 3: Local apply - add rowset to tablet, update max_version
+    // Step 2: Local apply - merge delete bitmap and add rowset to tablet (best-effort)
     {
         std::unique_lock meta_lock(tablet->get_header_lock());
         if (tablet->max_version_unlocked() >= version) {
             LOG(INFO) << "tablet=" << _tablet_id << " already applied version=" << version;
             return Status::OK();
         }
-        tablet->add_rowsets({rowset}, false /* version_overlap */, meta_lock);
+
+        int64_t visible_ts_ms;
+        if (is_empty_rowset) {
+            // Empty rowset: use local time
+            visible_ts_ms = ::time(nullptr) * 1000;
+        } else {
+            // Non-empty rowset: call MS convert_tmp_rowset (only this error propagates)
+            RowsetMetaSharedPtr ms_rowset_meta;
+            RETURN_IF_ERROR(_engine.meta_mgr().convert_tmp_rowset(
+                    _transaction_id, _tablet_id, version, _db_id, _table_id, _index_id,
+                    _partition_id, &ms_rowset_meta));
+            visible_ts_ms = ms_rowset_meta->visible_ts_ms();
+        }
+
+        // Local apply is best-effort
+        auto st = _apply_rowset_to_tablet(tablet, version, rowset, delete_bitmap, visible_ts_ms,
+                                          meta_lock);
+        if (!st.ok()) {
+            LOG(WARNING) << "async publish local apply failed, tablet_id=" << _tablet_id
+                         << ", txn_id=" << _transaction_id << ", version=" << version
+                         << ", st=" << st.to_string();
+        }
     }
 
+    // Step 3: Clean up the cache entry
+    _engine.txn_delete_bitmap_cache().remove_unused_tablet_txn_info(_transaction_id, _tablet_id);
+
     LOG(INFO) << "async publish apply succeeded, tablet_id=" << _tablet_id
-              << ", txn_id=" << _transaction_id << ", version=" << version;
+              << ", txn_id=" << _transaction_id << ", version=" << version
+              << ", is_empty_rowset=" << is_empty_rowset;
     return Status::OK();
 }
 

@@ -20,6 +20,7 @@
 #include <gen_cpp/AgentService_types.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 
 #include "cloud/cloud_storage_engine.h"
@@ -54,6 +55,12 @@ private:
                           DeleteBitmapPtr tablet_delete_bitmap = nullptr) const;
 
     Status _handle_async_publish(std::shared_ptr<CloudTablet> tablet, int64_t version) const;
+
+    Status _apply_rowset_to_tablet(std::shared_ptr<CloudTablet> tablet, int64_t version,
+                                   RowsetSharedPtr& rowset,
+                                   const std::shared_ptr<DeleteBitmap>& delete_bitmap,
+                                   int64_t visible_ts_ms,
+                                   std::unique_lock<std::shared_mutex>& meta_lock) const;
 
     CloudStorageEngine& _engine;
 
