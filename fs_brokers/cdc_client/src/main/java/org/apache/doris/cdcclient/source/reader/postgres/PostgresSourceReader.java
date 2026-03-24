@@ -205,6 +205,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.initial());
+        } else if (DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startupMode)) {
+            configFactory.startupOptions(StartupOptions.snapshot());
         } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
         } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
