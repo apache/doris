@@ -451,7 +451,7 @@ public class MTMV extends OlapTable {
         List<Column> columns = getBaseSchema(true);
         List<String> columnNames = Lists.newArrayListWithExpectedSize(columns.size());
         for (Column column : columns) {
-            if (column.isVisible() || column.getName().startsWith("__DORIS_IVM_")) {
+            if (column.isVisible() || Column.isIvmHiddenColumn(column.getName())) {
                 columnNames.add(column.getName());
             }
         }

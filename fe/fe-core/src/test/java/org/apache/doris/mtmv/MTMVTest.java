@@ -27,6 +27,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.info.TableNameInfo;
+import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.job.common.IntervalUnit;
@@ -45,6 +46,7 @@ import org.junit.Assert;
 import org.junit.Test;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -197,5 +199,26 @@ public class MTMVTest {
         mtmv.alterStatus(new MTMVStatus(MTMVState.SCHEMA_CHANGE, "base table"));
         Assert.assertEquals(MTMVState.SCHEMA_CHANGE, status.getState());
         Assert.assertEquals(MTMVRefreshState.SUCCESS, status.getRefreshState());
+    }
+
+    @Test
+    public void testGetInsertedColumnNamesIncludesAllIvmHiddenColumns() {
+        MTMV mtmv = new MTMV();
+        List<Column> schema = Lists.newArrayList(
+                new Column(Column.IVM_ROW_ID_COL, PrimitiveType.LARGEINT, false),
+                new Column(Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__", PrimitiveType.BIGINT, false),
+                new Column("k1", PrimitiveType.INT, true),
+                new Column("hidden", ScalarType.createType(PrimitiveType.INT), false, null,
+                        false, "comment", false, Column.COLUMN_UNIQUE_ID_INIT_VALUE)
+        );
+        mtmv.setBaseIndexId(1L);
+        mtmv.setIndexMeta(1L, "mv", schema, 0, 0, (short) 1, TStorageType.COLUMN, org.apache.doris.catalog.KeysType.DUP_KEYS);
+
+        List<String> insertedColumnNames = mtmv.getInsertedColumnNames();
+
+        Assert.assertEquals(Lists.newArrayList(
+                Column.IVM_ROW_ID_COL,
+                Column.IVM_HIDDEN_COLUMN_PREFIX + "SNAPSHOT_COL__",
+                "k1"), insertedColumnNames);
     }
 }

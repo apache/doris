@@ -18,32 +18,40 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableProperty;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.analyzer.UnboundTableSink;
 import org.apache.doris.nereids.ivm.IvmContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
+import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
+import org.apache.doris.thrift.TPartialUpdateNewRowPolicy;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 class IvmNormalizeMtmvPlanTest {
 
@@ -99,19 +107,46 @@ class IvmNormalizeMtmvPlanTest {
     }
 
     @Test
-    void testUnboundTableSinkKeepsSinkShapeAndNormalizesChild() {
-        UnboundTableSink<Plan> sink = new UnboundTableSink<>(
-                ImmutableList.of("internal", "db", "mv"),
-                ImmutableList.of("col1"),
-                ImmutableList.of(),
-                ImmutableList.of(),
+    void testProjectReplacesRowIdPlaceholderAndKeepsExprId() {
+        Alias placeholder = new Alias(new NullLiteral(LargeIntType.INSTANCE), Column.IVM_ROW_ID_COL);
+        ExprId placeholderExprId = placeholder.getExprId();
+        Slot slot = scan.getOutput().get(0);
+        LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(placeholder, slot), scan);
+
+        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(project, newJobContext(true));
+
+        Assertions.assertInstanceOf(LogicalProject.class, result);
+        LogicalProject<?> rewrittenProject = (LogicalProject<?>) result;
+        Assertions.assertInstanceOf(Alias.class, rewrittenProject.getProjects().get(0));
+        Alias rewrittenRowId = (Alias) rewrittenProject.getProjects().get(0);
+        Assertions.assertEquals(placeholderExprId, rewrittenRowId.getExprId());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenRowId.getName());
+        Assertions.assertInstanceOf(Slot.class, rewrittenRowId.child());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, ((Slot) rewrittenRowId.child()).getName());
+    }
+
+    @Test
+    void testLogicalOlapTableSinkKeepsSinkShapeAndNormalizesChild() {
+        Slot slot = scan.getOutput().get(0);
+        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(
+                new Database(),
+                scan.getTable(),
+                ImmutableList.of(scan.getTable().getBaseSchema().get(0)),
+                new ArrayList<>(),
+                ImmutableList.of(slot),
+                false,
+                TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.NONE,
                 scan);
 
         Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(sink, newJobContextForRoot(sink, true));
 
-        Assertions.assertInstanceOf(UnboundTableSink.class, result);
-        UnboundTableSink<?> rewrittenSink = (UnboundTableSink<?>) result;
-        Assertions.assertEquals(ImmutableList.of("col1"), rewrittenSink.getColNames());
+        Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
+        LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
+        Assertions.assertEquals(ImmutableList.of(slot.getName()),
+                rewrittenSink.getCols().stream().map(org.apache.doris.catalog.Column::getName)
+                        .collect(Collectors.toList()));
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenSink.getOutputExprs().get(0).getName());
         Assertions.assertInstanceOf(LogicalProject.class, rewrittenSink.child());
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenSink.child().getOutput().get(0).getName());
     }
