@@ -132,6 +132,8 @@ public class MasterImplDeleteTaskTest {
         TStatus taskStatus = new TStatus(statusCode);
         taskStatus.setErrorMsgs(Lists.newArrayList("delete failed"));
         TBackend tBackend = new TBackend(HOST, BE_PORT, 0);
-        return new TFinishTaskRequest(tBackend, TTaskType.REALTIME_PUSH, SIGNATURE, taskStatus);
+        TFinishTaskRequest request = new TFinishTaskRequest(tBackend, TTaskType.REALTIME_PUSH, SIGNATURE, taskStatus);
+        request.setReportVersion(1L);
+        return request;
     }
 }
