@@ -67,7 +67,10 @@ public class GraphSimplifier {
     private PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
 
     /**
-     * GraphSimplifier
+     * Initializes the GraphSimplifier with the given hypergraph.
+     * Sets up join dependencies, simplifications, and caches.
+     *
+     * @param graph The hypergraph to simplify.
      */
     public GraphSimplifier(HyperGraph graph) {
         this.graph = graph;
@@ -97,7 +100,11 @@ public class GraphSimplifier {
     }
 
     /**
-     * Checks if the current hypergraph is joinable, i.e., all tables can be connected via joins.
+     * Checks if the hypergraph is joinable, ensuring all tables are connected via joins.
+     *
+     * @param graph The hypergraph to check.
+     * @param cycles The cycle detector for the graph.
+     * @return True if the graph is joinable, false otherwise.
      */
     private static boolean graphIsJoinable(HyperGraph graph, CircleDetector cycles) {
         int nodeCount = graph.getNodes().size();
@@ -112,7 +119,13 @@ public class GraphSimplifier {
     }
 
     /**
-     * Connects components through join edges, calling callback on each join.
+     * Connects components in the hypergraph through join edges.
+     *
+     * @param graph The hypergraph to process.
+     * @param cycles The cycle detector for the graph.
+     * @param components Array representing connected components.
+     * @param inComponent Array mapping nodes to their components.
+     * @return The number of connected components.
      */
     private static int connectComponentsThroughJoins(
             HyperGraph graph,
@@ -134,9 +147,7 @@ public class GraphSimplifier {
                     continue;
                 }
                 if (LongBitmap.isOverlap(rightNodes, components[leftComponent])) {
-                    //TODO return ???
                     return -1;
-                    //                    continue;
                 }
                 int rightComponent = getComponent(components, inComponent, e.getRightExtendedNodes());
                 if (rightComponent == -1
@@ -288,13 +299,6 @@ public class GraphSimplifier {
      */
     public boolean isTotalOrder() {
         return cycles.getOrder().length == graph.getJoinEdges().size() && graphIsJoinable(graph, cycles);
-    }
-
-    private boolean isOverlap(Edge edge1, Edge edge2) {
-        return (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getLeftExtendedNodes())
-                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getRightExtendedNodes()))
-                || (LongBitmap.isOverlap(edge1.getLeftExtendedNodes(), edge2.getRightExtendedNodes())
-                && LongBitmap.isOverlap(edge1.getRightExtendedNodes(), edge2.getLeftExtendedNodes()));
     }
 
     private boolean unApplySimplificationStep() {

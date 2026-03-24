@@ -38,7 +38,8 @@ import java.util.Map;
 import java.util.Set;
 
 /**
- * This is a conflict rule maker to
+ * ConflictRulesMaker is responsible for generating conflict rules for join reordering.
+ * It uses the CD-C algorithm to ensure correctness and completeness.
  */
 public class ConflictRulesMaker {
     private static ValEntry[][] assocTable = {
@@ -72,8 +73,12 @@ public class ConflictRulesMaker {
     }
 
     /**
-     * Make edge's conflict rule by CD-C algorithm in
-     * On the correct and complete enumeration of the core search
+     * Generates conflict rules for the given edge using the CD-C algorithm.
+     * This ensures correct join reordering by analyzing subtree edges.
+     *
+     * @param edgeB The edge for which conflict rules are generated.
+     * @param joinEdges List of all join edges in the hypergraph.
+     * @param ctx Context for expression rewriting.
      */
     public static void makeConflictRules(Edge edgeB, List<Edge> joinEdges, ExpressionRewriteContext ctx) {
         // find all left and right subtree edges and ready for CD-C check
@@ -114,6 +119,13 @@ public class ConflictRulesMaker {
         edgeB.setConflictRules(conflictRules);
     }
 
+    /**
+     * Simplifies conflict rules by iteratively applying them to the given nodes.
+     *
+     * @param tes The initial set of nodes to simplify.
+     * @param conflictRules List of conflict rules to apply.
+     * @return The simplified set of nodes.
+     */
     private static long simplifyConflictRules(long tes, List<Pair<Long, Long>> conflictRules) {
         long oldTes;
         do {
