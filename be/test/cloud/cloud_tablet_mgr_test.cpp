@@ -29,7 +29,7 @@
 
 #include "cloud/cloud_storage_engine.h"
 #include "cpp/sync_point.h"
-#include "olap/tablet_meta.h"
+#include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
 
 namespace doris {
