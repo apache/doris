@@ -25,12 +25,13 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.LdapInfo;
 
-import com.google.common.annotations.VisibleForTesting;
+
 import com.google.common.collect.Lists;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.springframework.ldap.core.DirContextOperations;
+import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.AbstractContextMapper;
 import org.springframework.ldap.core.support.LdapContextSource;
@@ -233,37 +234,6 @@ public class LdapClient {
         if (filter == null) {
             return null;
         }
-        return filter.replace("{login}", escapeLdapFilterValue(userName));
-    }
-
-    @VisibleForTesting
-    static String escapeLdapFilterValue(String value) {
-        if (value == null) {
-            return null;
-        }
-        StringBuilder escaped = new StringBuilder(value.length());
-        for (int i = 0; i < value.length(); i++) {
-            char ch = value.charAt(i);
-            switch (ch) {
-                case '*':
-                    escaped.append("\\2a");
-                    break;
-                case '(':
-                    escaped.append("\\28");
-                    break;
-                case ')':
-                    escaped.append("\\29");
-                    break;
-                case '\\':
-                    escaped.append("\\5c");
-                    break;
-                case '\0':
-                    escaped.append("\\00");
-                    break;
-                default:
-                    escaped.append(ch);
-            }
-        }
-        return escaped.toString();
+        return filter.replace("{login}", LdapEncoder.filterEncode(userName));
     }
 }
