@@ -253,8 +253,8 @@ doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int pa
     return rowset;
 }
 
-static void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
-                           CreateRowsetResponse& res) {
+void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                    CreateRowsetResponse& res) {
     brpc::Controller cntl;
     auto arena = res.GetArena();
     auto req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
