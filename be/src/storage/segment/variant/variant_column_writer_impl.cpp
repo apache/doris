@@ -1308,7 +1308,7 @@ Status VariantColumnWriterImpl::finalize() {
                        column->parent_unique_id() == current_variant_uid;
             });
     if (!has_extracted_columns) {
-        if (_tablet_column->variant_enable_nested_group()) {
+        if (false) {
             RETURN_IF_ERROR(build_nested_group_routing_plan(*ptr, &_nested_group_routing_plan));
 
             // Root NG dedup is handled in _process_root_column() — see the
@@ -1344,7 +1344,7 @@ Status VariantColumnWriterImpl::finalize() {
 
     // NestedGroup write behavior is determined by the injected provider implementation.
     // Only invoke the provider when nested group writing is enabled.
-    if (_tablet_column->variant_enable_nested_group()) {
+    if (false) {
         RETURN_IF_ERROR(_nested_group_provider->prepare(
                 *ptr, /*include_jsonb_subcolumns=*/true, _tablet_column, _opts,
                 olap_data_convertor.get(), num_rows, &column_id, &_statistics));
@@ -1563,7 +1563,7 @@ Status VariantSubcolumnWriter::finalize() {
     _opts.meta->set_num_rows(ptr->rows());
     ++column_id;
 
-    if (parent_column.variant_enable_nested_group()) {
+    if (false) {
         RETURN_IF_ERROR(_nested_group_provider->prepare(
                 *ptr, /*include_jsonb_subcolumns=*/false, &flush_column, _opts,
                 olap_data_convertor.get(), ptr->rows(), &column_id, &_statistics));

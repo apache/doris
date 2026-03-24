@@ -1169,7 +1169,8 @@ Status VariantColumnReader::init(const ColumnReaderOptions& opts, ColumnMetaAcce
     // while enabled providers populate nested group readers from segment footer.
     if (_nested_group_read_provider->should_enable_nested_group_read_path()) {
         RETURN_IF_ERROR(_nested_group_read_provider->init_readers(opts, footer, file_reader,
-                                                                  num_rows, _nested_group_readers));
+                                                                  accessor, num_rows,
+                                                                  _nested_group_readers));
     }
 
     return Status::OK();

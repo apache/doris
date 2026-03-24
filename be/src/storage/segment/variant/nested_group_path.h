@@ -51,7 +51,9 @@ inline std::string strip_nested_group_marker(std::string_view path) {
     }
     return out;
 }
-
+inline bool is_root_nested_group_path(std::string_view path) {
+    return path == kRootNestedGroupPath;
+}
 inline std::string build_nested_group_offsets_column_name(std::string_view variant_name,
                                                           std::string_view full_path) {
     std::string name;

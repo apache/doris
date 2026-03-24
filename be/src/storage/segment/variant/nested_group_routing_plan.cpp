@@ -177,9 +177,7 @@ Status build_nested_group_routing_plan(const vectorized::ColumnVariant& variant,
 }
 
 NestedGroupConflictPolicy get_nested_group_conflict_policy() {
-    if (config::variant_nested_group_discard_scalar_on_conflict) {
-        return NestedGroupConflictPolicy::DISCARD_SCALAR;
-    }
+    // variant_nested_group_discard_scalar_on_conflict config not available in this branch
     return NestedGroupConflictPolicy::ERROR;
 }
 
