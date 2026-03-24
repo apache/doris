@@ -74,7 +74,7 @@ TEST_F(MaterializationSharedStateTest, TestCreateMultiGetResult) {
     columns.push_back(std::move(rowid_col));
 
     // Test creating multiget result
-    Status st = _shared_state->create_muiltget_result(columns, true, true);
+    Status st = _shared_state->create_muiltget_result(columns, true);
     EXPECT_TRUE(st.ok());
 
     // Verify block_order_results
