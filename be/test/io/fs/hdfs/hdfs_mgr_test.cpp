@@ -157,28 +157,28 @@ TEST_F(HdfsMgrTest, GetOrCreateFsFailure) {
     ASSERT_TRUE(handler == nullptr);
 }
 
-// Test _hdfs_hash_code with different inputs
-TEST_F(HdfsMgrTest, HdfsHashCode) {
-    // Same inputs should produce same hash
+// Test _hdfs_cache_key with different inputs
+TEST_F(HdfsMgrTest, HdfsCacheKey) {
+    // Same inputs should produce same cache key
     THdfsParams params1 = create_test_params("user1", "principal1", "keytab1");
-    uint64_t hash1 = _hdfs_mgr->_hdfs_hash_code(params1, "fs1");
-    uint64_t hash2 = _hdfs_mgr->_hdfs_hash_code(params1, "fs1");
-    ASSERT_EQ(hash1, hash2);
+    std::string key1 = _hdfs_mgr->_hdfs_cache_key(params1, "fs1");
+    std::string key2 = _hdfs_mgr->_hdfs_cache_key(params1, "fs1");
+    ASSERT_EQ(key1, key2);
 
-    // Different inputs should produce different hashes
+    // Different inputs should produce different cache keys
     THdfsParams params2 = create_test_params("user2", "principal1", "keytab1");
     THdfsParams params3 = create_test_params("user1", "principal2", "keytab1");
     THdfsParams params4 = create_test_params("user1", "principal1", "keytab2");
 
-    uint64_t hash3 = _hdfs_mgr->_hdfs_hash_code(params2, "fs1");
-    uint64_t hash4 = _hdfs_mgr->_hdfs_hash_code(params3, "fs1");
-    uint64_t hash5 = _hdfs_mgr->_hdfs_hash_code(params4, "fs1");
-    uint64_t hash6 = _hdfs_mgr->_hdfs_hash_code(params1, "fs2");
+    std::string key3 = _hdfs_mgr->_hdfs_cache_key(params2, "fs1");
+    std::string key4 = _hdfs_mgr->_hdfs_cache_key(params3, "fs1");
+    std::string key5 = _hdfs_mgr->_hdfs_cache_key(params4, "fs1");
+    std::string key6 = _hdfs_mgr->_hdfs_cache_key(params1, "fs2");
 
-    ASSERT_NE(hash1, hash3);
-    ASSERT_NE(hash1, hash4);
-    ASSERT_NE(hash1, hash5);
-    ASSERT_NE(hash1, hash6);
+    ASSERT_NE(key1, key3);
+    ASSERT_NE(key1, key4);
+    ASSERT_NE(key1, key5);
+    ASSERT_NE(key1, key6);
 }
 
 // Test cleanup of expired handlers
