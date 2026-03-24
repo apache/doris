@@ -88,12 +88,15 @@ HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url, in
         }
     }
 
-    // Parse chunk response configuration
+    // Parse chunk response configuration; chunk response implies no Range support
     auto chunk_iter = _extend_kv.find("http.enable.chunk.response");
     if (chunk_iter != _extend_kv.end()) {
         std::string value = chunk_iter->second;
         std::transform(value.begin(), value.end(), value.begin(), ::tolower);
         _enable_chunk_response = (value == "true" || value == "1");
+        if (_enable_chunk_response) {
+            _range_supported = false;
+        }
     }
 
     _read_buffer = std::make_unique<char[]>(READ_BUFFER_SIZE);
@@ -130,15 +133,14 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         if (pos != std::string::npos) {
             _url.replace(pos, placeholder.size(), std::to_string(doris::config::cdc_client_port));
         }
-        _range_supported = false;
         LOG(INFO) << "CDC client started successfully for " << _url;
     }
 
     // Step 1: HEAD request to get file metadata (skip for chunk response)
     if (_enable_chunk_response) {
-        // Chunk streaming response, skip HEAD request
+        // Chunk streaming response: size is unknown until the stream completes.
+        // _range_supported is already false (set in constructor).
         _size_known = false;
-        _range_supported = false;
         LOG(INFO) << "Chunk response mode enabled, skipping HEAD request for " << _url;
     } else {
         // Normal mode: execute HEAD request to get file metadata
@@ -153,28 +155,22 @@ Status HttpFileReader::open(const FileReaderOptions& opts) {
         _size_known = true;
     }
 
-    // Step 2: Check if Range request is disabled by configuration
-    if (!_enable_range_request || _enable_chunk_response) {
-        // User explicitly disabled Range requests or chunk response mode, use non-Range mode
+    // Step 2: Check if Range request is disabled by configuration.
+    // Chunk response mode always has _range_supported=false (set in constructor), so only
+    // the non-chunk non-Range path needs the file size guard.
+    if (_enable_chunk_response) {
+        // Nothing to do: _range_supported already false, size check not applicable
+    } else if (!_enable_range_request) {
         _range_supported = false;
-        LOG(INFO) << "Range requests disabled for " << _url << " (config=" << !_enable_range_request
-                  << ", chunk_response=" << _enable_chunk_response << ")";
-
-        // Skip file size check for chunk response (size unknown at this point)
-        if (_enable_chunk_response) {
-            LOG(INFO) << "Chunk response mode, file size check skipped for " << _url;
-        } else {
-            // Check if file size exceeds limit for non-Range mode (non-chunk only)
-            if (_file_size > _max_request_size_bytes) {
-                return Status::InternalError(
-                        "Non-Range mode: file size ({} bytes) exceeds maximum allowed size ({} "
-                        "bytes, "
-                        "configured by http.max.request.size.bytes). URL: {}",
-                        _file_size, _max_request_size_bytes, _url);
-            }
-            LOG(INFO) << "Non-Range mode validated for " << _url << ", file size: " << _file_size
-                      << " bytes, max allowed: " << _max_request_size_bytes << " bytes";
+        LOG(INFO) << "Range requests disabled by configuration for " << _url;
+        if (_file_size > _max_request_size_bytes) {
+            return Status::InternalError(
+                    "Non-Range mode: file size ({} bytes) exceeds maximum allowed size ({} "
+                    "bytes, configured by http.max.request.size.bytes). URL: {}",
+                    _file_size, _max_request_size_bytes, _url);
         }
+        LOG(INFO) << "Non-Range mode validated for " << _url << ", file size: " << _file_size
+                  << " bytes, max allowed: " << _max_request_size_bytes << " bytes";
     } else {
         // Step 3: Range request is enabled (default), detect Range support
         VLOG(1) << "Detecting Range support for URL: " << _url;
