@@ -224,6 +224,12 @@ public class PushTask extends AgentTask {
         }
     }
 
+    @Override
+    public void failedWithMsg(String errMsg) {
+        super.failedWithMsg(errMsg);
+        countDownLatch(getBackendId(), getTabletId());
+    }
+
     // call this always means one of tasks is failed. count down to zero to finish entire task
     public void countDownToZero(TStatusCode code, String errMsg) {
         if (this.latch != null) {
