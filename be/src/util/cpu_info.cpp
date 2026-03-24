@@ -101,6 +101,8 @@ int CpuInfo::max_num_numa_nodes_;
 std::unique_ptr<int[]> CpuInfo::core_to_numa_node_;
 std::vector<std::vector<int>> CpuInfo::numa_node_to_cores_;
 std::vector<int> CpuInfo::numa_node_core_idx_;
+long CpuInfo::cache_sizes_[CpuInfo::NUM_CACHE_LEVELS];
+long CpuInfo::cache_line_sizes_[CpuInfo::NUM_CACHE_LEVELS];
 
 static struct {
     std::string name;
@@ -203,6 +205,7 @@ void CpuInfo::init() {
 #endif
 
     _init_numa();
+    _get_cache_info(cache_sizes_, cache_line_sizes_);
     initialized_ = true;
 }
 
@@ -377,28 +380,28 @@ void CpuInfo::_get_cache_info(long cache_sizes[NUM_CACHE_LEVELS],
 }
 
 std::string CpuInfo::debug_string() {
-    DCHECK(initialized_);
     std::stringstream stream;
-    long cache_sizes[NUM_CACHE_LEVELS];
-    long cache_line_sizes[NUM_CACHE_LEVELS];
-    _get_cache_info(cache_sizes, cache_line_sizes);
+    if (!initialized_) {
+        return stream.str();
+    }
 
     std::string L1 = absl::Substitute(
             "L1 Cache: $0 (Line: $1)",
-            PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L1_CACHE]), TUnit::BYTES),
-            PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L1_CACHE]), TUnit::BYTES));
+            PrettyPrinter::print(static_cast<int64_t>(cache_sizes_[L1_CACHE]), TUnit::BYTES),
+            PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes_[L1_CACHE]), TUnit::BYTES));
     std::string L2 = absl::Substitute(
             "L2 Cache: $0 (Line: $1)",
-            PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L2_CACHE]), TUnit::BYTES),
-            PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L2_CACHE]), TUnit::BYTES));
+            PrettyPrinter::print(static_cast<int64_t>(cache_sizes_[L2_CACHE]), TUnit::BYTES),
+            PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes_[L2_CACHE]), TUnit::BYTES));
     std::string L3 =
-            cache_sizes[L3_CACHE]
+            cache_sizes_[L3_CACHE]
                     ? absl::Substitute(
                               "L3 Cache: $0 (Line: $1)",
-                              PrettyPrinter::print(static_cast<int64_t>(cache_sizes[L3_CACHE]),
+                              PrettyPrinter::print(static_cast<int64_t>(cache_sizes_[L3_CACHE]),
                                                    TUnit::BYTES),
-                              PrettyPrinter::print(static_cast<int64_t>(cache_line_sizes[L3_CACHE]),
-                                                   TUnit::BYTES))
+                              PrettyPrinter::print(
+                                      static_cast<int64_t>(cache_line_sizes_[L3_CACHE]),
+                                      TUnit::BYTES))
                     : "";
     stream << "Cpu Info:" << std::endl
            << "  Model: " << model_name_ << std::endl

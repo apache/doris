@@ -31,7 +31,6 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vslot_ref.h"
-#include "util/cpu_info.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
