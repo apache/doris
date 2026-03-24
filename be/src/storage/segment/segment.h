@@ -300,6 +300,7 @@ private:
     DorisCallOnce<Status> _index_file_reader_open;
 
     InvertedIndexFileInfo _idx_file_info;
+    int64_t _tablet_id = -1;
 
     int _be_exec_version = BeExecVersionManager::get_newest_version();
 };

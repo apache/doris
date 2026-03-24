@@ -21,18 +21,18 @@
 #include "util/hash_util.hpp"
 
 namespace doris {
-    static uint64_t hash(uint64_t value) {
-        return HashUtil::murmur_hash64A(&value, 8, 0);
-    }
+static uint64_t hash(uint64_t value) {
+    return HashUtil::murmur_hash64A(&value, 8, 0);
+}
 
-    static std::pair<HyperLogLog, HyperLogLog> prepare_test_data() {
-        HyperLogLog hll1, hll2;
-        for (int i = 0; i < 64 * 1024; ++i) {
-            hll1.update(hash(i));
-            hll2.update(hash(i + 1));
-        }
-        return {std::move(hll1), std::move(hll2)};
+static std::pair<HyperLogLog, HyperLogLog> prepare_test_data() {
+    HyperLogLog hll1, hll2;
+    for (int i = 0; i < 64 * 1024; ++i) {
+        hll1.update(hash(i));
+        hll2.update(hash(i + 1));
     }
+    return {std::move(hll1), std::move(hll2)};
+}
 } // namespace doris
 
 static auto [hll1, hll2] = doris::prepare_test_data();

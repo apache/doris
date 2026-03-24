@@ -633,6 +633,7 @@ Status BetaRowset::check_current_rowset_segment() {
                 .is_doris_table = true,
                 .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
+                .tablet_id = _rowset_meta->tablet_id(),
         };
 
         auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id,
