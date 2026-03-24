@@ -1170,7 +1170,7 @@ public class SummaryProfile {
     }
 
     public void addNereidsPartitiionPruneTime(long ms) {
-        this.externalTvfInitTime += ms;
+        this.nereidsPartitiionPruneTime += ms;
     }
 
     public long getNereidsPartitiionPruneTimeMs() {
