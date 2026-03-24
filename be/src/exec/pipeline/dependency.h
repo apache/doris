@@ -321,6 +321,7 @@ public:
     bool enable_spill = false;
     bool reach_limit = false;
 
+    bool use_simple_count = false;
     int64_t limit = -1;
     bool do_sort_limit = false;
     MutableColumns limit_columns;
@@ -393,6 +394,11 @@ private:
                                  // Do nothing
                              },
                              [&](auto& agg_method) -> void {
+                                 if (use_simple_count) {
+                                     // Inline count: mapped slots hold UInt64,
+                                     // not real agg state pointers. Skip destroy.
+                                     return;
+                                 }
                                  auto& data = *agg_method.hash_table;
                                  data.for_each_mapped([&](auto& mapped) {
                                      if (mapped) {
