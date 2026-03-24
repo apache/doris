@@ -71,8 +71,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
         try {
             return objectMapper.writeValueAsString(recordRequest);
         } catch (IOException e) {
-            LOG.info("Failed to serialize fetch record request," + e.getMessage());
-            throw new AnalysisException(e.getMessage());
+            LOG.warn("Failed to serialize fetch record request", e);
+            throw new AnalysisException("Failed to serialize fetch record request: " + e.getMessage(), e);
         }
     }
 
