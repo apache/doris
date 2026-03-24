@@ -89,6 +89,8 @@ private:
     // Full file cache for non-Range mode to avoid repeated downloads
     std::string _full_file_cache;   // Cache complete file content
     bool _full_file_cached = false; // Whether full file has been cached
+
+    bool _enable_chunk_response = false; // Whether server returns chunk streaming response
 };
 
 } // namespace doris::io
