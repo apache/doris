@@ -3128,9 +3128,10 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"指定 mysql 登录身份认证类型",
-            "Specifies the authentication type"},
-            options = {"default", "ldap"})
+    @ConfField(description = {"指定 mysql 登录身份认证类型，可以是内置认证类型或认证插件名",
+            "Specifies the primary MySQL authenticator name, either a built-in authenticator "
+                    + "or an authentication plugin name"},
+            options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
 
     @ConfField(mutable = true, description = {

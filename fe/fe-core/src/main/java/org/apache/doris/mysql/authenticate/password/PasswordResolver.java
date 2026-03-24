@@ -28,6 +28,8 @@ import java.io.IOException;
 import java.util.Optional;
 
 public interface PasswordResolver {
+    // TODO(authentication): rename this interface to CredentialResolver after legacy
+    // password-only authenticators are migrated.
     Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel,
             MysqlSerializer serializer,
             MysqlAuthPacket authPacket,

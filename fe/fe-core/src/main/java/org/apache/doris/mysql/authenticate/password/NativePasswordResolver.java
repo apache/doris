@@ -93,4 +93,5 @@ public class NativePasswordResolver implements PasswordResolver {
                 .property(MYSQL_RANDOM_STRING_PROPERTY, nativePassword.getRandomString())
                 .build());
     }
+
 }
