@@ -33,11 +33,11 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.UuidNumeric;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
-import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -123,6 +123,45 @@ class IvmNormalizeMtmvPlanTest {
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenRowId.getName());
         Assertions.assertInstanceOf(Slot.class, rewrittenRowId.child());
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, ((Slot) rewrittenRowId.child()).getName());
+    }
+
+    @Test
+    void testSinkWithPlaceholderChildReplacesRowIdAndPreservesExprId() {
+        // Simulate what BindSink produces for an incremental MTMV full-refresh:
+        // a project child with user columns + a NULL placeholder for the IVM row-id at the end.
+        Slot k1Slot = scan.getOutput().get(0);
+        Alias rowIdPlaceholder = new Alias(new NullLiteral(LargeIntType.INSTANCE), Column.IVM_ROW_ID_COL);
+        ExprId placeholderExprId = rowIdPlaceholder.getExprId();
+        LogicalProject<Plan> projectWithPlaceholder = new LogicalProject<>(
+                ImmutableList.of(k1Slot, rowIdPlaceholder), scan);
+        LogicalOlapTableSink<Plan> sink = new LogicalOlapTableSink<>(
+                new Database(),
+                scan.getTable(),
+                ImmutableList.of(scan.getTable().getBaseSchema().get(0)),
+                new ArrayList<>(),
+                ImmutableList.of(k1Slot, rowIdPlaceholder.toSlot()),
+                false,
+                TPartialUpdateNewRowPolicy.APPEND,
+                DMLCommandType.NONE,
+                projectWithPlaceholder);
+
+        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(sink, newJobContextForRoot(sink, true));
+
+        Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
+        LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
+        // child is a project with the placeholder replaced
+        Assertions.assertInstanceOf(LogicalProject.class, rewrittenSink.child());
+        LogicalProject<?> rewrittenProject = (LogicalProject<?>) rewrittenSink.child();
+        // non-IVM column unchanged at index 0
+        Assertions.assertEquals(k1Slot.getName(), rewrittenProject.getProjects().get(0).getName());
+        // IVM placeholder at index 1 is now an Alias wrapping the real row-id scan slot
+        Assertions.assertInstanceOf(Alias.class, rewrittenProject.getProjects().get(1));
+        Alias rewrittenRowId = (Alias) rewrittenProject.getProjects().get(1);
+        Assertions.assertEquals(placeholderExprId, rewrittenRowId.getExprId());
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenRowId.getName());
+        Assertions.assertInstanceOf(Slot.class, rewrittenRowId.child());
+        // sink outputExprs updated via withChildAndUpdateOutput — row-id slot at index 1
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, rewrittenSink.getOutputExprs().get(1).getName());
     }
 
     @Test
