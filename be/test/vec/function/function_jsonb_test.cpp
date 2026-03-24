@@ -921,7 +921,8 @@ TEST(FunctionJsonbTEST, JsonContains) {
 // the function returns NULL.
 TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
     std::string func_name = "json_extract_string";
-    InputTypeSet input_types = {Nullable {TypeIndex::String}, Nullable {TypeIndex::String}};
+    InputTypeSet input_types = {Nullable {PrimitiveType::TYPE_VARCHAR},
+                                Nullable {PrimitiveType::TYPE_VARCHAR}};
 
     // json_extract_string from varchar - object key extraction
     // This is the primary use case for this function - extracting values from JSON objects
@@ -1010,14 +1011,10 @@ TEST(FunctionJsonbTEST, JsonExtractStringFromVarcharTest) {
     // json_extract_string from varchar - non-object root JSON returns null
     // The implementation uses get_object() which requires root to be an object
     data_set = {
-            {{STRING("null"), STRING("$")}, Null()},
-            {{STRING("true"), STRING("$")}, Null()},
-            {{STRING("false"), STRING("$")}, Null()},
-            {{STRING("100"), STRING("$")}, Null()},
-            {{STRING("6.18"), STRING("$")}, Null()},
-            {{STRING(R"("abcd")"), STRING("$")}, Null()},
-            {{STRING("[]"), STRING("$")}, Null()},
-            {{STRING("[123, 456]"), STRING("$")}, Null()},
+            {{STRING("null"), STRING("$")}, Null()},  {{STRING("true"), STRING("$")}, Null()},
+            {{STRING("false"), STRING("$")}, Null()}, {{STRING("100"), STRING("$")}, Null()},
+            {{STRING("6.18"), STRING("$")}, Null()},  {{STRING(R"("abcd")"), STRING("$")}, Null()},
+            {{STRING("[]"), STRING("$")}, Null()},    {{STRING("[123, 456]"), STRING("$")}, Null()},
     };
 
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
