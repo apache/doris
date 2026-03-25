@@ -729,8 +729,8 @@ static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller* cntl) {
         if (!query_params.empty()) query_params += "&";
         query_params += it->first + "=" + it->second;
     }
-    LOG(WARNING) << "unknown http request path=" << uri.path()
-                 << " query_params=[" << query_params << "]";
+    LOG(WARNING) << "unknown http request path=" << uri.path() << " query_params=[" << query_params
+                 << "]";
     return http_json_reply(MetaServiceCode::OK, "no handler found for path: " + uri.path());
 }
 
