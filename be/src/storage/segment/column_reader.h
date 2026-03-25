@@ -413,12 +413,28 @@ public:
     static constexpr const char* ACCESS_ALL = "*";
     static constexpr const char* ACCESS_MAP_KEYS = "KEYS";
     static constexpr const char* ACCESS_MAP_VALUES = "VALUES";
+    static constexpr const char* ACCESS_NULL = "NULL";
+
+    // Meta-only read modes:
+    // - OFFSET_ONLY: only read offset information (e.g., for array_size/map_size/string_length)
+    // - NULL_MAP_ONLY: only read null map (e.g., for IS NULL / IS NOT NULL predicates)
+    // When these modes are enabled, actual content data is skipped.
+    enum class ReadMode : int { DEFAULT, OFFSET_ONLY, NULL_MAP_ONLY };
+
+    bool read_offset_only() const { return _read_mode == ReadMode::OFFSET_ONLY; }
+    bool read_null_map_only() const { return _read_mode == ReadMode::NULL_MAP_ONLY; }
 
 protected:
+    // Checks sub access paths for OFFSET or NULL meta-only modes and
+    // updates _read_mode accordingly. Use the accessor helpers
+    // read_offset_only() / read_null_map_only() to query the current mode.
+    void _check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths);
+
     Result<TColumnAccessPaths> _get_sub_access_paths(const TColumnAccessPaths& access_paths);
     ColumnIteratorOptions _opts;
 
     ReadingFlag _reading_flag {ReadingFlag::NORMAL_READING};
+    ReadMode _read_mode = ReadMode::DEFAULT;
     std::string _column_name;
 };
 
@@ -478,7 +494,6 @@ private:
 
     std::shared_ptr<ColumnReader> _reader = nullptr;
 
-    // iterator owned compress codec, should NOT be shared by threads, initialized in init()
     BlockCompressionCodec* _compress_codec = nullptr;
 
     // 1. The _page represents current page.
@@ -514,55 +529,11 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
-// MetaOnlyColumnIterator is a mixin class for column types that support
-// meta-only reading modes:
-// - OFFSET_ONLY: only read offset information (e.g., for array_size/length)
-// - NULL_MAP_ONLY: only read null map (e.g., for IS NULL predicate)
-// When these modes are enabled, actual content data is skipped.
-// This class intentionally does NOT inherit from ColumnIterator so that it can
-// be combined with FileColumnIterator via multiple inheritance without creating
-// a diamond.
-class MetaOnlyColumnIterator {
-public:
-    MetaOnlyColumnIterator() = default;
-    ~MetaOnlyColumnIterator() = default;
-
-    enum class ReadMode : int { NONE, OFFSET_ONLY, NULL_MAP_ONLY };
-
-    bool read_offset_only() const { return _read_mode == ReadMode::OFFSET_ONLY; }
-    bool read_null_map_only() const { return _read_mode == ReadMode::NULL_MAP_ONLY; }
-
-protected:
-    // Checks sub access paths for OFFSET or NULL meta-only modes and
-    // updates the internal read mode. This does not return the mode; use
-    // the accessor helpers `read_offset_only()` / `read_null_map_only()` to
-    // query the current mode.
-    void _check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths) {
-        for (const auto& path : sub_all_access_paths) {
-            if (!path.data_access_path.path.empty()) {
-                if (StringCaseEqual()(path.data_access_path.path[0],
-                                      ColumnIterator::ACCESS_OFFSET)) {
-                    _read_mode = ReadMode::OFFSET_ONLY;
-                    return;
-                } else if (StringCaseEqual()(path.data_access_path.path[0], "NULL")) {
-                    _read_mode = ReadMode::NULL_MAP_ONLY;
-                    return;
-                }
-            }
-        }
-        _read_mode = ReadMode::NONE;
-    }
-
-    ReadMode _read_mode = ReadMode::NONE;
-};
-
 // StringFileColumnIterator extends FileColumnIterator with meta-only reading
 // support for string/binary column types. When the OFFSET path is detected in
 // set_access_paths, it sets only_read_offsets on the ColumnIteratorOptions so
 // that the BinaryPlainPageDecoder skips chars memcpy and only fills offsets.
-// Uses multiple inheritance: FileColumnIterator provides all scalar file reading
-// logic, MetaOnlyColumnIterator provides the meta-only mode flags/helper.
-class StringFileColumnIterator final : public FileColumnIterator, public MetaOnlyColumnIterator {
+class StringFileColumnIterator final : public FileColumnIterator {
 public:
     explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~StringFileColumnIterator() override = default;
@@ -614,7 +585,7 @@ private:
 };
 
 // This iterator is used to read map value column
-class MapFileColumnIterator final : public ColumnIterator, public MetaOnlyColumnIterator {
+class MapFileColumnIterator final : public ColumnIterator {
 public:
     explicit MapFileColumnIterator(std::shared_ptr<ColumnReader> reader,
                                    ColumnIteratorUPtr null_iterator,
@@ -634,6 +605,9 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _offsets_iterator->get_current_ordinal();
     }
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
@@ -674,6 +648,9 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _sub_column_iterators[0]->get_current_ordinal();
     }
 
@@ -695,7 +672,7 @@ private:
     std::vector<ColumnIteratorUPtr> _sub_column_iterators;
 };
 
-class ArrayFileColumnIterator final : public ColumnIterator, public MetaOnlyColumnIterator {
+class ArrayFileColumnIterator final : public ColumnIterator {
 public:
     explicit ArrayFileColumnIterator(std::shared_ptr<ColumnReader> reader,
                                      OffsetFileColumnIteratorUPtr offset_reader,
@@ -714,6 +691,9 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     ordinal_t get_current_ordinal() const override {
+        if (read_null_map_only() && _null_iterator) {
+            return _null_iterator->get_current_ordinal();
+        }
         return _offset_iterator->get_current_ordinal();
     }
 
