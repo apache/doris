@@ -2076,7 +2076,8 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
 }
 
 Status CloudMetaMgr::get_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
-                                                   int64_t initiator) {
+                                                   int64_t initiator,
+                                                   DeleteBitmapTabletLockInfo* lock_info) {
     LOG(INFO) << "get_delete_bitmap_tablet_lock, tablet_id=" << tablet.tablet_id()
               << ", lock_id=" << lock_id << ", initiator=" << initiator;
     GetDeleteBitmapUpdateLockRequest req;
@@ -2088,6 +2089,14 @@ Status CloudMetaMgr::get_delete_bitmap_tablet_lock(const CloudTablet& tablet, in
     req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
     req.set_tablet_level_lock(true);
     req.add_lock_tablet_ids(tablet.tablet_id());
+    if (lock_info != nullptr) {
+        req.set_require_compaction_stats(true);
+        auto* tablet_index = req.add_tablet_indexes();
+        tablet_index->set_table_id(tablet.table_id());
+        tablet_index->set_index_id(tablet.index_id());
+        tablet_index->set_partition_id(tablet.partition_id());
+        tablet_index->set_tablet_id(tablet.tablet_id());
+    }
 
     int retry_times = 0;
     Status st;
@@ -2111,6 +2120,23 @@ Status CloudMetaMgr::get_delete_bitmap_tablet_lock(const CloudTablet& tablet, in
                 "lock conflict when get delete bitmap tablet lock, tablet_id {}, lock_id {}, "
                 "initiator {}",
                 tablet.tablet_id(), lock_id, initiator);
+    }
+    RETURN_IF_ERROR(st);
+    if (lock_info != nullptr) {
+        if (res.base_compaction_cnts_size() != 1 || res.cumulative_compaction_cnts_size() != 1 ||
+            res.cumulative_points_size() != 1 || res.tablet_states_size() != 1) {
+            return Status::InternalError<false>(
+                    "invalid delete bitmap tablet lock response, tablet_id={}, "
+                    "base_compaction_cnts_size={}, cumulative_compaction_cnts_size={}, "
+                    "cumulative_points_size={}, tablet_states_size={}",
+                    tablet.tablet_id(), res.base_compaction_cnts_size(),
+                    res.cumulative_compaction_cnts_size(), res.cumulative_points_size(),
+                    res.tablet_states_size());
+        }
+        lock_info->base_compaction_cnt = res.base_compaction_cnts(0);
+        lock_info->cumulative_compaction_cnt = res.cumulative_compaction_cnts(0);
+        lock_info->cumulative_point = res.cumulative_points(0);
+        lock_info->tablet_state = res.tablet_states(0);
     }
     return st;
 }

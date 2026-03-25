@@ -312,6 +312,32 @@ static void get_delete_bitmap_update_lock(MetaServiceProxy* meta_service,
             reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
 }
 
+static void get_delete_bitmap_tablet_lock(MetaServiceProxy* meta_service,
+                                          GetDeleteBitmapUpdateLockResponse& res, int64_t db_id,
+                                          int64_t table_id, int64_t index_id,
+                                          int64_t partition_id, int64_t tablet_id,
+                                          int64_t expiration, int64_t lock_id,
+                                          int64_t initiator, bool require_compaction_stats) {
+    brpc::Controller cntl;
+    GetDeleteBitmapUpdateLockRequest req;
+    req.set_cloud_unique_id("test_cloud_unique_id");
+    req.set_table_id(table_id);
+    req.set_expiration(expiration);
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    req.set_require_compaction_stats(require_compaction_stats);
+    req.set_tablet_level_lock(true);
+    req.add_lock_tablet_ids(tablet_id);
+    TabletIndexPB* idx = req.add_tablet_indexes();
+    idx->set_db_id(db_id);
+    idx->set_table_id(table_id);
+    idx->set_index_id(index_id);
+    idx->set_partition_id(partition_id);
+    idx->set_tablet_id(tablet_id);
+    meta_service->get_delete_bitmap_update_lock(
+            reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req, &res, nullptr);
+}
+
 void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
                    int64_t table_id, int64_t partition_id, int64_t tablet_id) {
     int64_t txn_id = 0;
@@ -5280,6 +5306,44 @@ TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsNormal) {
             ASSERT_EQ(cumulative_point, 30);
         }
     }
+}
+
+TEST(MetaServiceTest, GetDeleteBitmapTabletLockTabletStatsNormal) {
+    auto meta_service = get_meta_service();
+
+    std::string instance_id = "test_get_delete_bitmap_tablet_lock_normal";
+    [[maybe_unused]] auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->disable_processing();
+        SyncPoint::get_instance()->clear_all_call_backs();
+    };
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t db_id = 1000;
+    int64_t table_id = 2001;
+    int64_t index_id = 3001;
+    int64_t partition_id = 70001;
+    int64_t tablet_id = 12345;
+    add_tablet_metas(meta_service.get(), instance_id, table_id, index_id,
+                     {{partition_id, tablet_id}});
+
+    GetDeleteBitmapUpdateLockResponse res;
+    get_delete_bitmap_tablet_lock(meta_service.get(), res, db_id, table_id, index_id, partition_id,
+                                  tablet_id, 5, 999999, -1, true);
+    ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    ASSERT_EQ(res.base_compaction_cnts_size(), 1);
+    ASSERT_EQ(res.base_compaction_cnts(0), 10);
+    ASSERT_EQ(res.cumulative_compaction_cnts_size(), 1);
+    ASSERT_EQ(res.cumulative_compaction_cnts(0), 20);
+    ASSERT_EQ(res.cumulative_points_size(), 1);
+    ASSERT_EQ(res.cumulative_points(0), 30);
+    ASSERT_EQ(res.tablet_states_size(), 1);
+    ASSERT_EQ(res.tablet_states(0), static_cast<int64_t>(TabletStatePB::PB_RUNNING));
 }
 
 TEST(MetaServiceTest, GetDeleteBitmapUpdateLockTabletStatsLockExpired) {

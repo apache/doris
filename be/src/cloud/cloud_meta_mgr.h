@@ -20,6 +20,7 @@
 
 #include <future>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <variant>
@@ -65,6 +66,13 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
 
 class CloudMetaMgr {
 public:
+    struct DeleteBitmapTabletLockInfo {
+        int64_t base_compaction_cnt {-1};
+        int64_t cumulative_compaction_cnt {-1};
+        int64_t cumulative_point {-1};
+        std::optional<int64_t> tablet_state;
+    };
+
     CloudMetaMgr() = default;
     ~CloudMetaMgr() = default;
     CloudMetaMgr(const CloudMetaMgr&) = delete;
@@ -164,7 +172,8 @@ public:
 
     // Tablet-level lock for async publish tables
     Status get_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
-                                         int64_t initiator);
+                                         int64_t initiator,
+                                         DeleteBitmapTabletLockInfo* lock_info = nullptr);
 
     void remove_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
                                           int64_t initiator);

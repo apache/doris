@@ -5434,6 +5434,7 @@ void MetaServiceImpl::get_delete_bitmap_tablet_lock(
         std::string& instance_id, MetaServiceCode& code, std::string& msg, std::stringstream& ss,
         KVStats& stats) {
     auto table_id = request->table_id();
+    std::string lock_key;
     LOG(INFO) << "get_delete_bitmap_tablet_lock table_id=" << table_id
               << " lock_id=" << request->lock_id() << " initiator=" << request->initiator()
               << " tablet_count=" << request->lock_tablet_ids_size();
@@ -5466,8 +5467,7 @@ void MetaServiceImpl::get_delete_bitmap_tablet_lock(
         int64_t now = duration_cast<seconds>(system_clock::now().time_since_epoch()).count();
 
         for (auto tablet_id : request->lock_tablet_ids()) {
-            std::string lock_key =
-                    meta_delete_bitmap_tablet_lock_key({instance_id, table_id, tablet_id});
+            lock_key = meta_delete_bitmap_tablet_lock_key({instance_id, table_id, tablet_id});
             std::string lock_val;
             DeleteBitmapUpdateLockPB lock_info;
 
@@ -5537,6 +5537,120 @@ void MetaServiceImpl::get_delete_bitmap_tablet_lock(
         }
         break;
     }
+
+    bool require_tablet_stats =
+            request->has_require_compaction_stats() ? request->require_compaction_stats() : false;
+    if (!require_tablet_stats) {
+        return;
+    }
+    if (request->lock_tablet_ids_size() != request->tablet_indexes_size()) {
+        code = MetaServiceCode::INVALID_ARGUMENT;
+        msg = fmt::format("lock_tablet_ids size={} not equal to tablet_indexes size={}",
+                          request->lock_tablet_ids_size(), request->tablet_indexes_size());
+        return;
+    }
+
+    std::unique_ptr<Transaction> txn;
+    TxnErrorCode err = txn_kv_->create_txn(&txn);
+    if (err != TxnErrorCode::TXN_OK) {
+        code = cast_as<ErrCategory::CREATE>(err);
+        msg = "failed to init txn when get tablet stats for tablet-level lock";
+        return;
+    }
+    DORIS_CLOUD_DEFER {
+        if (txn == nullptr) return;
+        stats.get_bytes += txn->get_bytes();
+        stats.put_bytes += txn->put_bytes();
+        stats.del_bytes += txn->delete_bytes();
+        stats.get_counter += txn->num_get_keys();
+        stats.put_counter += txn->num_put_keys();
+        stats.del_counter += txn->num_del_keys();
+    };
+
+    StopWatch read_stats_sw;
+    for (int i = 0; i < request->tablet_indexes_size(); ++i) {
+        const auto& tablet_idx = request->tablet_indexes(i);
+        auto tablet_id = request->lock_tablet_ids(i);
+        if (tablet_id != tablet_idx.tablet_id()) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            msg = fmt::format("lock_tablet_ids[{}]={} not equal to tablet_indexes[{}].tablet_id={}",
+                              i, tablet_id, i, tablet_idx.tablet_id());
+            return;
+        }
+
+        std::string stats_key =
+                stats_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                  tablet_idx.partition_id(), tablet_idx.tablet_id()});
+        std::string stats_val;
+        err = txn->get(stats_key, &stats_val);
+        TEST_SYNC_POINT_CALLBACK("get_delete_bitmap_update_lock.get_compaction_cnts_inject_error",
+                                 &err);
+        if (err != TxnErrorCode::TXN_OK) {
+            code = cast_as<ErrCategory::READ>(err);
+            msg = fmt::format("failed to get tablet stats, err={} tablet_id={}", err,
+                              tablet_idx.tablet_id());
+            return;
+        }
+        TabletStatsPB tablet_stat;
+        if (!tablet_stat.ParseFromString(stats_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("marformed tablet stats value, tablet_id={}",
+                              tablet_idx.tablet_id());
+            return;
+        }
+
+        std::string tablet_meta_key =
+                meta_tablet_key({instance_id, tablet_idx.table_id(), tablet_idx.index_id(),
+                                 tablet_idx.partition_id(), tablet_idx.tablet_id()});
+        std::string tablet_meta_val;
+        err = txn->get(tablet_meta_key, &tablet_meta_val);
+        if (err != TxnErrorCode::TXN_OK) {
+            ss << "failed to get tablet meta"
+               << (err == TxnErrorCode::TXN_KEY_NOT_FOUND ? " (not found)" : "")
+               << " instance_id=" << instance_id << " tablet_id=" << tablet_idx.tablet_id()
+               << " key=" << hex(tablet_meta_key) << " err=" << err;
+            msg = ss.str();
+            code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TABLET_NOT_FOUND
+                                                          : cast_as<ErrCategory::READ>(err);
+            return;
+        }
+        doris::TabletMetaCloudPB tablet_meta;
+        if (!tablet_meta.ParseFromString(tablet_meta_val)) {
+            code = MetaServiceCode::PROTOBUF_PARSE_ERR;
+            msg = fmt::format("marformed tablet meta value, tablet_id={}",
+                              tablet_idx.tablet_id());
+            return;
+        }
+
+        std::string tablet_lock_key =
+                meta_delete_bitmap_tablet_lock_key({instance_id, table_id, tablet_id});
+        DeleteBitmapUpdateLockPB lock_info_tmp;
+        std::stringstream check_lock_ss;
+        std::string check_lock_msg;
+        if (!check_delete_bitmap_lock(code, check_lock_msg, check_lock_ss, txn, instance_id,
+                                      table_id, request->lock_id(), request->initiator(),
+                                      tablet_lock_key, lock_info_tmp, "", "", true)) {
+            msg = check_lock_msg;
+            LOG(WARNING) << "failed to check tablet-level delete bitmap lock after get tablet "
+                            "stats and tablet state, table_id="
+                         << table_id << " tablet_id=" << tablet_id
+                         << " request lock_id=" << request->lock_id()
+                         << " request initiator=" << request->initiator() << " code=" << code
+                         << " msg=" << msg;
+            return;
+        }
+
+        response->add_base_compaction_cnts(tablet_stat.base_compaction_cnt());
+        response->add_cumulative_compaction_cnts(tablet_stat.cumulative_compaction_cnt());
+        response->add_cumulative_points(tablet_stat.cumulative_point());
+        response->add_tablet_states(
+                static_cast<std::underlying_type_t<TabletStatePB>>(tablet_meta.tablet_state()));
+    }
+    read_stats_sw.pause();
+    LOG(INFO) << fmt::format(
+            "table_id={}, tablet_idxes.size()={}, read tablet-level lock compaction cnts and "
+            "tablet states cost={} ms",
+            table_id, request->tablet_indexes().size(), read_stats_sw.elapsed_us() / 1000);
 }
 
 void MetaServiceImpl::remove_delete_bitmap_tablet_lock(

@@ -21,7 +21,6 @@
 
 #include <memory>
 #include <mutex>
-#include <optional>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
@@ -40,12 +39,13 @@ public:
                                                 int64_t partition_id);
     ~CloudTabletCalcDeleteBitmapAsyncPublishTask() = default;
 
-    void set_tablet_state(int64_t tablet_state);
-
     Status handle() const;
 
 private:
-    Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version) const;
+    Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version,
+                          int64_t ms_base_compaction_cnt,
+                          int64_t ms_cumulative_compaction_cnt,
+                          int64_t ms_cumulative_point) const;
 
     Status _handle_async_publish(std::shared_ptr<CloudTablet> tablet, int64_t version) const;
 
@@ -60,7 +60,6 @@ private:
     int64_t _tablet_id;
     int64_t _transaction_id;
     int64_t _version;
-    std::optional<int64_t> _ms_tablet_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
     int64_t _db_id;
