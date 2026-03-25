@@ -898,7 +898,9 @@ std::string Field::to_debug_string(int scale) const {
     case PrimitiveType::TYPE_IPV6:
         return CastToString::from_ip(get<TYPE_IPV6>());
     default:
-        return get_type_name();
+        throw Exception(Status::FatalError("type not supported for to_debug_string, type={}",
+                                           get_type_name()));
+        __builtin_unreachable();
     }
 }
 
