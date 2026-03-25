@@ -491,20 +491,34 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // order by table keys optimization for topn
-        // will only read head/tail of data file since it's already sorted by keys
-        if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
-            _limit = _local_state->limit_per_scanner();
-            _tablet_reader_params.read_orderby_key = true;
-            if (!olap_scan_node.sort_info.is_asc_order[0]) {
-                _tablet_reader_params.read_orderby_key_reverse = true;
-            }
-            _tablet_reader_params.read_orderby_key_num_prefix_columns =
-                    olap_scan_node.sort_info.is_asc_order.size();
-            _tablet_reader_params.read_orderby_key_limit = _limit;
+        // Skip topn / general-limit storage-layer optimizations when runtime
+        // filters exist.  Late-arriving filters would re-populate _conjuncts
+        // at the scanner level while the storage layer has already committed
+        // to a row budget counted before those filters, causing the scan to
+        // return fewer rows than the limit requires.
+        if (_total_rf_num == 0) {
+            // order by table keys optimization for topn
+            // will only read head/tail of data file since it's already sorted by keys
+            if (olap_scan_node.__isset.sort_info &&
+                !olap_scan_node.sort_info.is_asc_order.empty()) {
+                _limit = _local_state->limit_per_scanner();
+                _tablet_reader_params.read_orderby_key = true;
+                if (!olap_scan_node.sort_info.is_asc_order[0]) {
+                    _tablet_reader_params.read_orderby_key_reverse = true;
+                }
+                _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                        olap_scan_node.sort_info.is_asc_order.size();
+                _tablet_reader_params.read_orderby_key_limit = _limit;
 
-            if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                olap_scan_local_state->_storage_no_merge()) {
+                if (_tablet_reader_params.read_orderby_key_limit > 0 &&
+                    olap_scan_local_state->_storage_no_merge()) {
+                    _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+                    _conjuncts.clear();
+                }
+            } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
+                // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
+                // (non-merge path). Only when topn optimization is NOT active.
+                _tablet_reader_params.general_read_limit = _limit;
                 _tablet_reader_params.filter_block_conjuncts = _conjuncts;
                 _conjuncts.clear();
             }
