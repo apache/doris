@@ -4024,8 +4024,9 @@ void MetaServiceImpl::update_delete_bitmap(google::protobuf::RpcController* cont
     }
 
     // 3. check if partition's version matches
-    if (request->lock_id() > 0 && request->has_txn_id() && request->partition_id() &&
-        request->has_next_visible_version()) {
+    // For async publish, we don't need to check partition version here
+    if (!request->is_mow_async_publish() && request->lock_id() > 0 && request->has_txn_id() &&
+        request->partition_id() && request->has_next_visible_version()) {
         bool is_versioned_read = is_version_read_enabled(instance_id);
         if (!check_partition_version_when_update_delete_bitmap(
                     code, msg, txn, instance_id, table_id, request->partition_id(), tablet_id,
