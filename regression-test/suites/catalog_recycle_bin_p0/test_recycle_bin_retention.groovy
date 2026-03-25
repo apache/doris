@@ -134,9 +134,9 @@ suite("test_recycle_bin_retention", "p0") {
             ) ENGINE=OLAP
             DUPLICATE KEY(k1)
             PARTITION BY RANGE(k1) (
-                PARTITION p1 VALUES LESS THAN ('100'),
-                PARTITION p2 VALUES LESS THAN ('200'),
-                PARTITION p3 VALUES LESS THAN ('300')
+                PARTITION test_recycle_p1 VALUES LESS THAN ('100'),
+                PARTITION test_recycle_p2 VALUES LESS THAN ('200'),
+                PARTITION test_recycle_p3 VALUES LESS THAN ('300')
             )
             DISTRIBUTED BY HASH(k1) BUCKETS 1
             PROPERTIES ('replication_allocation' = 'tag.location.default: 1')
@@ -145,60 +145,60 @@ suite("test_recycle_bin_retention", "p0") {
 
         order_qt_partition_before """ SELECT * FROM test_retention_partition """
 
-        // Drop partition p2
-        sql """ ALTER TABLE test_retention_partition DROP PARTITION p2 """
+        // Drop partition test_recycle_p2
+        sql """ ALTER TABLE test_retention_partition DROP PARTITION test_recycle_p2 """
         def partitionsAfterDropP2 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
-        assertTrue(partitionsAfterDropP2.find { it.PartitionName == "p2" } == null, "Dropped partition p2 should not be visible in SHOW PARTITIONS")
+        assertTrue(partitionsAfterDropP2.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible in SHOW PARTITIONS")
 
         // Partition should appear in recycle bin
-        def partRecycle = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'p2' """
-        assertTrue(partRecycle.size() > 0, "Dropped partition p2 should be visible in recycle bin")
+        def partRecycle = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
+        assertTrue(partRecycle.size() > 0, "Dropped partition test_recycle_p2 should be visible in recycle bin")
 
         connect("${recoverNormalUser}", "123456", context.config.jdbcUrl) {
-            sql """ USE ${currentDbName}; RECOVER PARTITION p2 FROM test_retention_partition """
+            sql """ USE ${currentDbName}; RECOVER PARTITION test_recycle_p2 FROM test_retention_partition """
         }
         def partitionsAfterRecoverP2 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
-        assertTrue(partitionsAfterRecoverP2.find { it.PartitionName == "p2" } != null, "Recovered partition p2 should be visible in SHOW PARTITIONS")
+        assertTrue(partitionsAfterRecoverP2.find { it.PartitionName == "test_recycle_p2" } != null, "Recovered partition test_recycle_p2 should be visible in SHOW PARTITIONS")
         order_qt_partition_recover """ SELECT * FROM test_retention_partition """
 
         // Drop partition again and wait for FE expire
-        sql """ ALTER TABLE test_retention_partition DROP PARTITION p2 """
+        sql """ ALTER TABLE test_retention_partition DROP PARTITION test_recycle_p2 """
         def partitionsAfterDropP2Phase2 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
-        assertTrue(partitionsAfterDropP2Phase2.find { it.PartitionName == "p2" } == null, "Dropped partition p2 should not be visible before Phase 2 checks")
+        assertTrue(partitionsAfterDropP2Phase2.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible before Phase 2 checks")
         sleep(35000)
 
         // Partition should be hidden from SHOW
-        def partRecycleHidden = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'p2' """
-        assertTrue(partRecycleHidden.size() == 0, "Partition p2 should be hidden after FE expire")
+        def partRecycleHidden = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
+        assertTrue(partRecycleHidden.size() == 0, "Partition test_recycle_p2 should be hidden after FE expire")
 
         connect("${recoverNormalUser}", "123456", context.config.jdbcUrl) {
             test {
-                sql """ USE ${currentDbName}; RECOVER PARTITION p2 FROM test_retention_partition """
+                sql """ USE ${currentDbName}; RECOVER PARTITION test_recycle_p2 FROM test_retention_partition """
                 exception "ADMIN"
             }
         }
-        sql """ RECOVER PARTITION p2 FROM test_retention_partition """
+        sql """ RECOVER PARTITION test_recycle_p2 FROM test_retention_partition """
         def partitionsAfterRecoverP2Phase2 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
-        assertTrue(partitionsAfterRecoverP2Phase2.find { it.PartitionName == "p2" } != null, "Phase 2 recovered partition p2 should be visible in SHOW PARTITIONS")
+        assertTrue(partitionsAfterRecoverP2Phase2.find { it.PartitionName == "test_recycle_p2" } != null, "Phase 2 recovered partition test_recycle_p2 should be visible in SHOW PARTITIONS")
         order_qt_partition_recover_phase2 """ SELECT * FROM test_retention_partition """
 
         // ===== Partition Phase 3: Physical deletion =====
         sql """ ADMIN SET FRONTEND CONFIG ('catalog_trash_ignore_min_erase_latency' = 'true') """
-        sql """ ALTER TABLE test_retention_partition DROP PARTITION p2 """
+        sql """ ALTER TABLE test_retention_partition DROP PARTITION test_recycle_p2 """
         def partitionsAfterDropP2Phase3 = sql_return_maparray """ SHOW PARTITIONS FROM test_retention_partition """
-        assertTrue(partitionsAfterDropP2Phase3.find { it.PartitionName == "p2" } == null, "Dropped partition p2 should not be visible before Phase 3 checks")
+        assertTrue(partitionsAfterDropP2Phase3.find { it.PartitionName == "test_recycle_p2" } == null, "Dropped partition test_recycle_p2 should not be visible before Phase 3 checks")
         sleep(70000)
 
-        def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'p2' """
-        assertTrue(partRecyclePhase3.size() == 0, "Partition Phase 3: p2 should not be visible after physical deletion")
+        def partRecyclePhase3 = sql """ SHOW CATALOG RECYCLE BIN WHERE NAME = 'test_recycle_p2' """
+        assertTrue(partRecyclePhase3.size() == 0, "Partition Phase 3: test_recycle_p2 should not be visible after physical deletion")
 
         // After physical deletion, RECOVER should fail
         test {
-            sql """ RECOVER PARTITION p2 FROM test_retention_partition """
+            sql """ RECOVER PARTITION test_recycle_p2 FROM test_retention_partition """
             exception "No partition named"
         }
 
-        // Verify table still has p1 and p3 data, but p2 is gone
+        // Verify table still has test_recycle_p1 and test_recycle_p3 data, but test_recycle_p2 is gone
         order_qt_partition_phase3 """ SELECT * FROM test_retention_partition """
 
         } finally {
