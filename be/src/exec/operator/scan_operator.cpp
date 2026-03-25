@@ -1000,7 +1000,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx.store(ScannerContext::create_shared(state(), this, p._output_tuple_desc,
                                                      p.output_row_descriptor(), scanners, p.limit(),
-                                                     _scan_dependency
+                                                     _scan_dependency, &p._shared_scan_limit
 #ifdef BE_TEST
                                                      ,
                                                      max_scanners_concurrency(state())
@@ -1158,6 +1158,7 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
+    _shared_scan_limit.store(this->_limit, std::memory_order_relaxed);
 }
 
 template <typename LocalStateType>

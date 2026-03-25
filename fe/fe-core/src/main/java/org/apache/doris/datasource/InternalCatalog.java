@@ -42,11 +42,9 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.LocalReplica;
@@ -59,7 +57,6 @@ import org.apache.doris.catalog.MetaIdGenerator.IdGeneratorBuffer;
 import org.apache.doris.catalog.MysqlCompatibleDatabase;
 import org.apache.doris.catalog.MysqlDb;
 import org.apache.doris.catalog.MysqlTable;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.OlapTable.OlapTableState;
 import org.apache.doris.catalog.OlapTableFactory;
@@ -108,7 +105,6 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.es.EsRepository;
 import org.apache.doris.event.DropPartitionEvent;
 import org.apache.doris.foundation.type.ResultOr;
 import org.apache.doris.info.TableNameInfo;
@@ -163,7 +159,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import lombok.Getter;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.time.StopWatch;
@@ -203,9 +198,7 @@ public class InternalCatalog implements CatalogIf<Database> {
     private transient ConcurrentHashMap<Long, Database> idToDb = new ConcurrentHashMap<>();
     private transient ConcurrentHashMap<String, Database> fullNameToDb = new ConcurrentHashMap<>();
 
-    // Add transient to fix gson issue.
-    @Getter
-    private transient EsRepository esRepository = new EsRepository();
+
 
     public InternalCatalog() {
         // create internal databases
@@ -1014,9 +1007,6 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,
             long recycleTime) throws DdlException {
-        if (table.getType() == TableType.ELASTICSEARCH) {
-            esRepository.deRegisterTable(table.getId());
-        }
         if (table instanceof MTMV) {
             Env.getCurrentEnv().getMtmvService().dropJob((MTMV) table, isReplay);
         }
@@ -1244,7 +1234,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             return createOlapTable(db, createTableInfo);
         }
         if (engineName.equals("odbc")) {
-            return createOdbcTable(db, createTableInfo);
+            throw new DdlException(
+                    "ODBC table is no longer supported. Please use JDBC Catalog instead.");
         }
         if (engineName.equals("mysql")) {
             return createMysqlTable(db, createTableInfo);
@@ -1253,14 +1244,16 @@ public class InternalCatalog implements CatalogIf<Database> {
             return createBrokerTable(db, createTableInfo);
         }
         if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
-            return createEsTable(db, createTableInfo);
+            throw new UserException(
+                    "Cannot create Elasticsearch table in internal catalog. Please use ES Catalog instead.");
         }
         if (engineName.equalsIgnoreCase("hive")) {
             // should use hive catalog to create external hive table
             throw new UserException("Cannot create hive table in internal catalog, should switch to hive catalog.");
         }
         if (engineName.equalsIgnoreCase("jdbc")) {
-            return createJdbcTable(db, createTableInfo);
+            throw new DdlException(
+                    "JDBC table is no longer supported. Please use JDBC Catalog instead.");
 
         } else {
             ErrorReport.reportDdlException(ErrorCode.ERR_UNKNOWN_STORAGE_ENGINE, engineName);
@@ -1606,6 +1599,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                     if (hashDistributionInfo.getBucketNum() <= 0) {
                         throw new DdlException("Cannot assign hash distribution buckets less than 1");
                     }
+                    if (Config.max_bucket_num_per_partition > 0
+                            && hashDistributionInfo.getBucketNum() > Config.max_bucket_num_per_partition) {
+                        throw new DdlException(String.format(
+                                "Number of buckets (%d) exceeds the maximum allowed value (%d). "
+                                        + "Generally, a large number of buckets is not needed. "
+                                        + "If you have a specific use case requiring more buckets, "
+                                        + "please review your schema design or modify the FE config "
+                                        + "'max_bucket_num_per_partition' to adjust this limit.",
+                                hashDistributionInfo.getBucketNum(), Config.max_bucket_num_per_partition));
+                    }
                     if (!hashDistributionInfo.sameDistributionColumns((HashDistributionInfo) defaultDistributionInfo)) {
                         throw new DdlException("Cannot assign hash distribution with different distribution cols. "
                                 + "new is: " + hashDistributionInfo.getDistributionColumns() + " default is: "
@@ -1615,6 +1618,16 @@ public class InternalCatalog implements CatalogIf<Database> {
                     RandomDistributionInfo randomDistributionInfo = (RandomDistributionInfo) distributionInfo;
                     if (randomDistributionInfo.getBucketNum() <= 0) {
                         throw new DdlException("Cannot assign random distribution buckets less than 1");
+                    }
+                    if (Config.max_bucket_num_per_partition > 0
+                            && randomDistributionInfo.getBucketNum() > Config.max_bucket_num_per_partition) {
+                        throw new DdlException(String.format(
+                                "Number of buckets (%d) exceeds the maximum allowed value (%d). "
+                                        + "Generally, a large number of buckets is not needed. "
+                                        + "If you have a specific use case requiring more buckets, "
+                                        + "please review your schema design or modify the FE config "
+                                        + "'max_bucket_num_per_partition' to adjust this limit.",
+                                randomDistributionInfo.getBucketNum(), Config.max_bucket_num_per_partition));
                     }
                 }
             } else {
@@ -3228,54 +3241,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         return checkCreateTableResult(tableName, tableId, result);
     }
 
-    private boolean createOdbcTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
-        String tableName = createTableInfo.getTableName();
-        List<Column> columns = createTableInfo.getColumns();
-
-        long tableId = Env.getCurrentEnv().getNextId();
-        OdbcTable odbcTable = new OdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
-        odbcTable.setComment(createTableInfo.getComment());
-        Pair<Boolean, Boolean> result = db.createTableWithLock(odbcTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-    }
-
-    private boolean createEsTable(Database db, CreateTableInfo createTableInfo) throws DdlException, AnalysisException {
-        String tableName = createTableInfo.getTableName();
-
-        // validate props to get column from es.
-        EsTable esTable = new EsTable(tableName, createTableInfo.getProperties());
-
-        // create columns
-        List<Column> baseSchema = createTableInfo.getColumns();
-
-        if (baseSchema.isEmpty()) {
-            baseSchema = esTable.genColumnsFromEs();
-        }
-        validateColumns(baseSchema, true);
-        esTable.setNewFullSchema(baseSchema);
-
-        // create partition info
-        PartitionDesc partitionDesc = createTableInfo.getPartitionDesc();
-        PartitionInfo partitionInfo;
-        Map<String, Long> partitionNameToId = Maps.newHashMap();
-        if (partitionDesc != null) {
-            partitionInfo = partitionDesc.toPartitionInfo(baseSchema, partitionNameToId, false);
-        } else {
-            long partitionId = Env.getCurrentEnv().getNextId();
-            // use table name as single partition name
-            partitionNameToId.put(tableName, partitionId);
-            partitionInfo = new SinglePartitionInfo();
-        }
-        esTable.setPartitionInfo(partitionInfo);
-
-        long tableId = Env.getCurrentEnv().getNextId();
-        esTable.setId(tableId);
-        esTable.setComment(createTableInfo.getComment());
-        esTable.syncTableMetaData();
-        Pair<Boolean, Boolean> result = db.createTableWithLock(esTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-    }
-
     private boolean createBrokerTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
         String tableName = createTableInfo.getTableName();
 
@@ -3286,20 +3251,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         brokerTable.setComment(createTableInfo.getComment());
         brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
         Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
-        return checkCreateTableResult(tableName, tableId, result);
-
-    }
-
-    private boolean createJdbcTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
-        String tableName = createTableInfo.getTableName();
-        List<Column> columns = createTableInfo.getColumns();
-
-        long tableId = Env.getCurrentEnv().getNextId();
-
-        JdbcTable jdbcTable = new JdbcTable(tableId, tableName, columns, createTableInfo.getProperties());
-        jdbcTable.setComment(createTableInfo.getComment());
-        // check table if exists
-        Pair<Boolean, Boolean> result = db.createTableWithLock(jdbcTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
 
@@ -3868,8 +3819,6 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         // ATTN: this should be done after load Db, and before loadAlterJob
         recreateTabletInvertIndex();
-        // rebuild es state state
-        getEsRepository().loadTableFromCatalog();
         LOG.info("finished replay databases from image");
         return newChecksum;
     }

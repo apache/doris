@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource.es;
 
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.common.UserException;
 
 import org.apache.logging.log4j.LogManager;
@@ -41,7 +40,7 @@ public class EsMetaStateTracker {
     private List<SearchPhase> builtinSearchPhase = new LinkedList<>();
     private SearchContext searchContext;
 
-    public EsMetaStateTracker(EsRestClient client, EsTable esTable) {
+    public EsMetaStateTracker(EsRestClient client, EsExternalTable esTable) {
         builtinSearchPhase.add(new MappingPhase(client));
         builtinSearchPhase.add(new PartitionPhase(client));
         searchContext = new SearchContext(esTable);

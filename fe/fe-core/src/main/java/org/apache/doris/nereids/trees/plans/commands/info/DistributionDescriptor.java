@@ -22,6 +22,7 @@ import org.apache.doris.analysis.HashDistributionDesc;
 import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import com.google.common.collect.Lists;
@@ -76,6 +77,20 @@ public class DistributionDescriptor {
             throw new AnalysisException(isHash ? "Number of hash distribution should be greater than zero."
                     : "Number of random distribution should be greater than zero.");
         }
+
+        // Check bucket max limit for non-auto-bucket cases
+        // auto bucket is limited by autobucket_max_buckets during calculation
+        if (!isAutoBucket && Config.max_bucket_num_per_partition > 0
+                && bucketNum > Config.max_bucket_num_per_partition) {
+            throw new AnalysisException(String.format(
+                    "Number of buckets (%d) exceeds the maximum allowed value (%d). "
+                            + "Generally, a large number of buckets is not needed. "
+                            + "If you have a specific use case requiring more buckets, "
+                            + "please review your schema design or modify the FE config "
+                            + "'max_bucket_num_per_partition' to adjust this limit.",
+                    bucketNum, Config.max_bucket_num_per_partition));
+        }
+
         if (isHash) {
             Set<String> colSet = Sets.newHashSet(cols);
             if (colSet.size() != cols.size()) {

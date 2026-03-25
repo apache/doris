@@ -56,7 +56,8 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
                                const TupleDescriptor* output_tuple_desc,
                                const RowDescriptor* output_row_descriptor,
                                const std::list<std::shared_ptr<ScannerDelegate>>& scanners,
-                               int64_t limit_, std::shared_ptr<Dependency> dependency
+                               int64_t limit_, std::shared_ptr<Dependency> dependency,
+                               std::atomic<int64_t>* shared_scan_limit
 #ifdef BE_TEST
                                ,
                                int num_parallel_instances
@@ -71,6 +72,7 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
           _output_row_descriptor(output_row_descriptor),
           _batch_size(state->batch_size()),
           limit(limit_),
+          _shared_scan_limit(shared_scan_limit),
           _all_scanners(scanners.begin(), scanners.end()),
 #ifndef BE_TEST
           _scanner_scheduler(local_state->scan_scheduler(state)),
@@ -100,6 +102,27 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
     if (auto ctx = task_exec_ctx(); ctx) {
         ctx->ref_task_execution_ctx();
+    }
+}
+
+int64_t ScannerContext::acquire_limit_quota(int64_t desired) {
+    DCHECK(desired > 0);
+    int64_t remaining = _shared_scan_limit->load(std::memory_order_acquire);
+    while (true) {
+        if (remaining < 0) {
+            // No limit set, grant all desired rows.
+            return desired;
+        }
+        if (remaining == 0) {
+            return 0;
+        }
+        int64_t granted = std::min(desired, remaining);
+        if (_shared_scan_limit->compare_exchange_weak(remaining, remaining - granted,
+                                                      std::memory_order_acq_rel,
+                                                      std::memory_order_acquire)) {
+            return granted;
+        }
+        // CAS failed, `remaining` is updated to current value, retry.
     }
 }
 
@@ -331,7 +354,12 @@ Status ScannerContext::get_block_from_queue(RuntimeState* state, Block* block, b
         }
     }
 
-    if (_num_finished_scanners == _all_scanners.size() && _tasks_queue.empty()) {
+    // Mark finished when either:
+    // (1) all scanners completed normally, or
+    // (2) shared limit exhausted and no scanners are still running.
+    if (_tasks_queue.empty() && (_num_finished_scanners == _all_scanners.size() ||
+                                 (_shared_scan_limit->load(std::memory_order_acquire) == 0 &&
+                                  _num_scheduled_scanners == 0))) {
         _set_scanner_done();
         _is_finished = true;
     }
@@ -440,11 +468,12 @@ std::string ScannerContext::debug_string() {
     return fmt::format(
             "id: {}, total scanners: {}, pending tasks: {},"
             " _should_stop: {}, _is_finished: {}, free blocks: {},"
-            " limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
+            " limit: {}, remaining_limit: {}, _num_running_scanners: {}, _max_thread_num: {},"
             " _max_bytes_in_queue: {}, query_id: {}",
             ctx_id, _all_scanners.size(), _tasks_queue.size(), _should_stop, _is_finished,
-            _free_blocks.size_approx(), limit, _num_scheduled_scanners, _max_scan_concurrency,
-            _max_bytes_in_queue, print_id(_query_id));
+            _free_blocks.size_approx(), limit, _shared_scan_limit->load(std::memory_order_relaxed),
+            _num_scheduled_scanners, _max_scan_concurrency, _max_bytes_in_queue,
+            print_id(_query_id));
 }
 
 void ScannerContext::_set_scanner_done() {
@@ -607,6 +636,11 @@ std::shared_ptr<ScanTask> ScannerContext::_pull_next_scan_task(
     }
 
     if (!_pending_scanners.empty()) {
+        // If shared limit quota is exhausted, do not submit new scanners from pending queue.
+        int64_t remaining = _shared_scan_limit->load(std::memory_order_acquire);
+        if (remaining == 0) {
+            return nullptr;
+        }
         std::shared_ptr<ScanTask> next_scan_task;
         next_scan_task = _pending_scanners.top();
         _pending_scanners.pop();
