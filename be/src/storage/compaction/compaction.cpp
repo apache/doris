@@ -192,7 +192,15 @@ void Compaction::submit_profile_record(bool success, int64_t start_time_ms,
     }
     auto* tracker = CompactionTaskTracker::instance();
     CompletionStats stats;
+    // Input stats for backfill: local compaction fills these in build_basic_info()
+    // which runs inside execute_compact_impl(), so they are available now.
     stats.input_version_range = input_version_range_str();
+    stats.input_rowsets_count = static_cast<int64_t>(_input_rowsets.size());
+    stats.input_row_num = _input_row_num;
+    stats.input_data_size = _input_rowsets_data_size;
+    stats.input_index_size = _input_rowsets_index_size;
+    stats.input_total_size = _input_rowsets_total_size;
+    stats.input_segments_num = input_segments_num_value();
     stats.end_time_ms = UnixMillis();
     stats.merged_rows = _stats.merged_rows;
     stats.filtered_rows = _stats.filtered_rows;
@@ -604,8 +612,16 @@ Status CompactionMixin::execute_compact() {
         data_dir->disks_compaction_score_increment(-permits);
         data_dir->disks_compaction_num_increment(-1);
     };
+    // Handler for execute_compact_impl failure (both Status error and C++ exception).
+    // The macro calls this then returns, so submit_profile_record(false) must be here.
+    auto on_compact_impl_failure = [&](const doris::Exception& ex) {
+        record_compaction_stats(ex);
+        submit_profile_record(false, profile_start_time_ms,
+                              ex.what() ? std::string(ex.what()) : "");
+    };
 
-    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), record_compaction_stats);
+    HANDLE_EXCEPTION_IF_CATCH_EXCEPTION(execute_compact_impl(permits), on_compact_impl_failure);
+    // Only reached on success (macro returns on failure).
     record_compaction_stats(doris::Exception());
 
     if (enable_compaction_checksum) {

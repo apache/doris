@@ -174,9 +174,29 @@ void CompactionTaskTracker::_apply_completion(CompactionTaskInfo& info,
     info.bytes_read_from_local = stats.bytes_read_from_local;
     info.bytes_read_from_remote = stats.bytes_read_from_remote;
     info.peak_memory_bytes = stats.peak_memory_bytes;
-    // Backfill input_version_range if it was empty at register time.
+    // Backfill input stats if they were 0 at register time.
+    // Local compaction populates _input_rowsets_data_size etc. in build_basic_info()
+    // which runs inside execute_compact_impl(), after register_task().
     if (info.input_version_range.empty() && !stats.input_version_range.empty()) {
         info.input_version_range = stats.input_version_range;
+    }
+    if (info.input_rowsets_count == 0 && stats.input_rowsets_count > 0) {
+        info.input_rowsets_count = stats.input_rowsets_count;
+    }
+    if (info.input_row_num == 0 && stats.input_row_num > 0) {
+        info.input_row_num = stats.input_row_num;
+    }
+    if (info.input_data_size == 0 && stats.input_data_size > 0) {
+        info.input_data_size = stats.input_data_size;
+    }
+    if (info.input_index_size == 0 && stats.input_index_size > 0) {
+        info.input_index_size = stats.input_index_size;
+    }
+    if (info.input_total_size == 0 && stats.input_total_size > 0) {
+        info.input_total_size = stats.input_total_size;
+    }
+    if (info.input_segments_num == 0 && stats.input_segments_num > 0) {
+        info.input_segments_num = stats.input_segments_num;
     }
 }
 

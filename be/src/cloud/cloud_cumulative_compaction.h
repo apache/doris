@@ -41,6 +41,7 @@ public:
     std::optional<CompactionProfileType> profile_type() const override {
         return CompactionProfileType::CUMULATIVE;
     }
+    int64_t input_segments_num_value() const override { return _input_segments; }
 
     void do_lease();
 

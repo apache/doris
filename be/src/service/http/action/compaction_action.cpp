@@ -324,6 +324,16 @@ Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
                                   .count();
             info.scheduled_time_ms = now_ms;
             info.start_time_ms = now_ms;
+            info.compaction_score = tablet->get_real_compaction_score();
+            info.input_rowsets_count = compaction.input_rowsets_count();
+            info.input_row_num = compaction.input_row_num_value();
+            info.input_data_size = compaction.input_rowsets_data_size();
+            info.input_index_size = compaction.input_rowsets_index_size();
+            info.input_total_size = compaction.input_rowsets_total_size();
+            info.input_segments_num = compaction.input_segments_num_value();
+            info.input_version_range = compaction.input_version_range_str();
+            info.is_vertical = compaction.is_vertical();
+            info.backend_id = BackendOptions::get_backend_id();
             tracker->register_task(std::move(info));
         }
         auto st = compaction.execute_compact();

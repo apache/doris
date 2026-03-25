@@ -35,8 +35,8 @@
 #include "cloud/cloud_tablet.h"
 #include "common/status.h"
 #include "io/io_common.h"
-#include "storage/compaction_task_tracker.h"
 #include "runtime/runtime_profile.h"
+#include "storage/compaction_task_tracker.h"
 #include "storage/merger.h"
 #include "storage/olap_common.h"
 #include "storage/rowid_conversion.h"
@@ -88,7 +88,7 @@ public:
     int64_t input_rowsets_total_size() const { return _input_rowsets_total_size; }
     int64_t input_row_num_value() const { return _input_row_num; }
     int64_t input_rowsets_count() const { return static_cast<int64_t>(_input_rowsets.size()); }
-    int64_t input_segments_num_value() const { return _input_num_segments; }
+    virtual int64_t input_segments_num_value() const { return _input_num_segments; }
     bool is_vertical() const { return _is_vertical; }
     std::string input_version_range_str() const;
 

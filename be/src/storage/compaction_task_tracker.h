@@ -64,7 +64,15 @@ struct RunningStats {
 
 // Result info collected when a task completes or fails.
 struct CompletionStats {
-    std::string input_version_range; // backfill: may not be available at register time
+    // Input stats backfill: local compaction populates these in build_basic_info()
+    // which runs inside execute_compact_impl(), after register_task().
+    std::string input_version_range;
+    int64_t input_rowsets_count {0};
+    int64_t input_row_num {0};
+    int64_t input_data_size {0};
+    int64_t input_index_size {0};
+    int64_t input_total_size {0};
+    int64_t input_segments_num {0};
     int64_t end_time_ms {0};
     int64_t merged_rows {0};
     int64_t filtered_rows {0};

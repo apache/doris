@@ -88,8 +88,10 @@ suite("test_be_compaction_tasks", "p0") {
                    COMPACTION_TYPE, STATUS, TRIGGER_METHOD, COMPACTION_SCORE,
                    SCHEDULED_TIME, START_TIME, END_TIME, ELAPSED_TIME_MS,
                    INPUT_ROWSETS_COUNT, INPUT_ROW_NUM, INPUT_DATA_SIZE,
-                   INPUT_SEGMENTS_NUM, OUTPUT_ROW_NUM, OUTPUT_DATA_SIZE,
-                   OUTPUT_SEGMENTS_NUM, IS_VERTICAL
+                   INPUT_INDEX_SIZE, INPUT_TOTAL_SIZE, INPUT_SEGMENTS_NUM,
+                   INPUT_VERSION_RANGE,
+                   OUTPUT_ROW_NUM, OUTPUT_DATA_SIZE, OUTPUT_SEGMENTS_NUM,
+                   IS_VERTICAL
             FROM information_schema.be_compaction_tasks
             WHERE TABLET_ID = ${tablet_id} AND STATUS = 'FINISHED'
             ORDER BY COMPACTION_ID DESC
@@ -125,6 +127,18 @@ suite("test_be_compaction_tasks", "p0") {
                 "OUTPUT_ROW_NUM should be non-negative")
         assertTrue(record.OUTPUT_DATA_SIZE != null && Long.parseLong(record.OUTPUT_DATA_SIZE.toString()) >= 0,
                 "OUTPUT_DATA_SIZE should be non-negative")
+
+        // Verify fields from Finding 2/3 fix: these were previously always 0
+        assertTrue(record.INPUT_INDEX_SIZE != null && Long.parseLong(record.INPUT_INDEX_SIZE.toString()) >= 0,
+                "INPUT_INDEX_SIZE should be non-negative")
+        assertTrue(record.INPUT_TOTAL_SIZE != null && Long.parseLong(record.INPUT_TOTAL_SIZE.toString()) > 0,
+                "INPUT_TOTAL_SIZE should be positive")
+        assertTrue(record.INPUT_SEGMENTS_NUM != null && Long.parseLong(record.INPUT_SEGMENTS_NUM.toString()) > 0,
+                "INPUT_SEGMENTS_NUM should be positive")
+        assertTrue(record.INPUT_VERSION_RANGE != null && record.INPUT_VERSION_RANGE.toString().length() > 0,
+                "INPUT_VERSION_RANGE should be non-empty, got: " + record.INPUT_VERSION_RANGE)
+        assertTrue(record.COMPACTION_SCORE != null && Long.parseLong(record.COMPACTION_SCORE.toString()) >= 0,
+                "COMPACTION_SCORE should be non-negative")
 
         // Step 9: TRIGGER_METHOD check - manual triggered should show 'MANUAL'
         assertTrue(record.TRIGGER_METHOD != null && record.TRIGGER_METHOD.toString() == "MANUAL",

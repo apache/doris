@@ -840,10 +840,16 @@ Status CloudStorageEngine::_submit_base_compaction_task(const CloudTabletSPtr& t
         info.trigger_method = static_cast<TriggerMethod>(trigger_method);
         info.scheduled_time_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        info.backend_id = BackendOptions::get_backend_id();
+        info.compaction_score = tablet->get_real_compaction_score();
         info.input_rowsets_count = compaction->input_rowsets_count();
         info.input_row_num = compaction->input_row_num_value();
         info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_index_size = compaction->input_rowsets_index_size();
+        info.input_total_size = compaction->input_rowsets_total_size();
         info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        info.is_vertical = compaction->is_vertical();
         tracker->register_task(std::move(info));
     }
     {
@@ -947,10 +953,16 @@ Status CloudStorageEngine::_submit_cumulative_compaction_task(const CloudTabletS
         info.trigger_method = static_cast<TriggerMethod>(trigger_method);
         info.scheduled_time_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        info.backend_id = BackendOptions::get_backend_id();
+        info.compaction_score = tablet->get_real_compaction_score();
         info.input_rowsets_count = compaction->input_rowsets_count();
         info.input_row_num = compaction->input_row_num_value();
         info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_index_size = compaction->input_rowsets_index_size();
+        info.input_total_size = compaction->input_rowsets_total_size();
         info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        info.is_vertical = compaction->is_vertical();
         tracker->register_task(std::move(info));
     }
     {
@@ -1121,10 +1133,16 @@ Status CloudStorageEngine::_submit_full_compaction_task(const CloudTabletSPtr& t
         info.trigger_method = static_cast<TriggerMethod>(trigger_method);
         info.scheduled_time_ms =
                 duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+        info.backend_id = BackendOptions::get_backend_id();
+        info.compaction_score = tablet->get_real_compaction_score();
         info.input_rowsets_count = compaction->input_rowsets_count();
         info.input_row_num = compaction->input_row_num_value();
         info.input_data_size = compaction->input_rowsets_data_size();
+        info.input_index_size = compaction->input_rowsets_index_size();
+        info.input_total_size = compaction->input_rowsets_total_size();
         info.input_segments_num = compaction->input_segments_num_value();
+        info.input_version_range = compaction->input_version_range_str();
+        info.is_vertical = compaction->is_vertical();
         tracker->register_task(std::move(info));
     }
     {
