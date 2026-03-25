@@ -1236,38 +1236,6 @@ Status TabletManager::start_trash_sweep() {
 }
 
 bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
-    // If force deleted, directly delete tablet data without moving to trash
-    if (tablet->is_force_deleted()) {
-        LOG(INFO) << "force delete tablet directly, skip trash. tablet_id=" << tablet->tablet_id();
-        RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "force delete"));
-        Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "force delete"); }};
-        tablet->clear_cache();
-        const auto& tablet_path = tablet->tablet_path();
-        bool exists = false;
-        Status exists_st = io::global_local_filesystem()->exists(tablet_path, &exists);
-        if (!exists_st) {
-            return false;
-        }
-        if (exists) {
-            Status del_st = io::global_local_filesystem()->delete_directory(tablet_path);
-            if (!del_st.ok()) {
-                LOG(WARNING) << "fail to force delete tablet dir. " << tablet_path;
-                return false;
-            }
-            RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_path));
-        }
-        auto remove_st = TabletMetaManager::remove(tablet->data_dir(), tablet->tablet_id(),
-                                                   tablet->schema_hash());
-        if (!remove_st.ok()) {
-            LOG(WARNING) << "failed to remove meta after force delete, tablet_id="
-                         << tablet->tablet_id() << ", error=" << remove_st;
-            return false;
-        }
-        LOG(INFO) << "successfully force deleted tablet. tablet_id=" << tablet->tablet_id()
-                  << ", tablet_path=" << tablet_path;
-        return true;
-    }
-
     RETURN_IF_ERROR(register_transition_tablet(tablet->tablet_id(), "move to trash"));
     Defer defer {[&]() { unregister_transition_tablet(tablet->tablet_id(), "move to trash"); }};
 
@@ -1284,7 +1252,17 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << tablet_in_not_shutdown->tablet_id()
                           << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
                           << ", shutdown tablet path=" << tablet->tablet_path();
-                return tablet->data_dir()->move_to_trash(tablet->tablet_path());
+                if (tablet->is_force_deleted()) {
+                    Status del_st = io::global_local_filesystem()->delete_directory(tablet->tablet_path());
+                    if (!del_st.ok()) {
+                        LOG(WARNING) << "fail to force delete tablet dir. " << tablet->tablet_path();
+                        return false;
+                    }
+                    RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet->tablet_path()));
+                    return true;
+                } else {
+                    return tablet->data_dir()->move_to_trash(tablet->tablet_path());
+                }
             } else {
                 LOG(INFO) << "tablet path eq shutdown tablet path, not move to trash, tablet_id="
                           << tablet_in_not_shutdown->tablet_id()
@@ -1320,24 +1298,34 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
             return false;
         }
         if (exists) {
-            // take snapshot of tablet meta
-            auto meta_file_path = fmt::format("{}/{}.hdr", tablet_path, tablet->tablet_id());
-            int64_t save_meta_ts = MonotonicMicros();
-            auto save_st = tablet->tablet_meta()->save(meta_file_path);
-            if (!save_st.ok()) {
-                LOG(WARNING) << "failed to save meta, tablet_id=" << tablet_meta->tablet_id()
-                             << ", tablet_uid=" << tablet_meta->tablet_uid()
-                             << ", error=" << save_st;
-                return false;
-            }
-            int64_t now = MonotonicMicros();
-            LOG(INFO) << "start to move tablet to trash. " << tablet_path
-                      << ". rocksdb get meta cost " << (save_meta_ts - get_meta_ts)
-                      << " us, rocksdb save meta cost " << (now - save_meta_ts) << " us";
-            Status rm_st = tablet->data_dir()->move_to_trash(tablet_path);
-            if (!rm_st.ok()) {
-                LOG(WARNING) << "fail to move dir to trash. " << tablet_path;
-                return false;
+            if (tablet->is_force_deleted()) {
+                LOG(INFO) << "start to force delete tablet dir. " << tablet_path;
+                Status del_st = io::global_local_filesystem()->delete_directory(tablet_path);
+                if (!del_st.ok()) {
+                    LOG(WARNING) << "fail to force delete tablet dir. " << tablet_path;
+                    return false;
+                }
+                RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet_path));
+            } else {
+                // take snapshot of tablet meta
+                auto meta_file_path = fmt::format("{}/{}.hdr", tablet_path, tablet->tablet_id());
+                int64_t save_meta_ts = MonotonicMicros();
+                auto save_st = tablet->tablet_meta()->save(meta_file_path);
+                if (!save_st.ok()) {
+                    LOG(WARNING) << "failed to save meta, tablet_id=" << tablet_meta->tablet_id()
+                                 << ", tablet_uid=" << tablet_meta->tablet_uid()
+                                 << ", error=" << save_st;
+                    return false;
+                }
+                int64_t now = MonotonicMicros();
+                LOG(INFO) << "start to move tablet to trash. " << tablet_path
+                          << ". rocksdb get meta cost " << (save_meta_ts - get_meta_ts)
+                          << " us, rocksdb save meta cost " << (now - save_meta_ts) << " us";
+                Status rm_st = tablet->data_dir()->move_to_trash(tablet_path);
+                if (!rm_st.ok()) {
+                    LOG(WARNING) << "fail to move dir to trash. " << tablet_path;
+                    return false;
+                }
             }
         }
         // remove tablet meta

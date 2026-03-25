@@ -918,6 +918,7 @@ public class Backend implements Writable {
                 this.beMemory = hbResponse.getBeMemory();
             }
             if (this.trashFileExpireTimeSec != hbResponse.getTrashFileExpireTimeSec()) {
+                isChanged = true;
                 this.trashFileExpireTimeSec = hbResponse.getTrashFileExpireTimeSec();
             }
 

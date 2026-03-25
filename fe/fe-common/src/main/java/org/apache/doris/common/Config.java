@@ -690,7 +690,7 @@ public class Config extends ConfigBase {
             "This specifies the maximum data retention time. After this time, the data will be deleted permanently."})
     public static long catalog_trash_expire_second = 86400L; // 1day
 
-    @ConfField
+    @ConfField(mutable = true, masterOnly = true)
     public static boolean catalog_trash_ignore_min_erase_latency = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {

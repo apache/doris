@@ -830,6 +830,10 @@ public class CloudInternalCatalog extends InternalCatalog {
 
     @Override
     public void eraseTableDropBackendReplicas(long dbId, OlapTable olapTable, boolean isReplay, boolean isForce) {
+        // Keep method signature aligned with the unified erase interface:
+        // Env.onEraseOlapTable(...) -> InternalCatalog.eraseTableDropBackendReplicas(..., isForce).
+        // In cloud mode, deletion is handled by meta-service + recycler with expiration semantics.
+        // Therefore, `isForce` is currently not consumed in this path and has no behavior change here.
         if (!Env.getCurrentEnv().isMaster()) {
             return;
         }

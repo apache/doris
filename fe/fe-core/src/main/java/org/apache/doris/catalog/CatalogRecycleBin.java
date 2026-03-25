@@ -21,6 +21,8 @@ import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.io.Text;
@@ -29,8 +31,10 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RecoverInfo;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -894,6 +898,11 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 throw new DdlException("Unknown table '" + tableName + "' or table id '" + tableId + "' in "
                     + db.getFullName());
             }
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null && isFEViewExpire(table.getId(), System.currentTimeMillis())
+                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
+            }
 
             if (table.getType() == TableType.MATERIALIZED_VIEW) {
                 throw new DdlException("Can not recover materialized view '" + tableName + "' or table id '"
@@ -1026,6 +1035,12 @@ public class CatalogRecycleBin extends MasterDaemon implements Writable {
                 throw new DdlException("No partition named '" + partitionName
                         + "' or partition id '" + partitionIdToRecover
                         + "' in table " + table.getName());
+            }
+            ConnectContext connectContext = ConnectContext.get();
+            if (connectContext != null && isFEViewExpire(recoverPartitionInfo.getPartition().getId(),
+                    System.currentTimeMillis())
+                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(connectContext, PrivPredicate.ADMIN)) {
+                ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
             }
 
             PartitionInfo partitionInfo = table.getPartitionInfo();
