@@ -18,13 +18,9 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.qe.ConnectContext;
-
-import com.google.common.base.Strings;
 
 import java.util.Map;
 
@@ -52,17 +48,9 @@ public class ModifyEngineOp extends AlterTableOp {
 
     @Override
     public void validate(ConnectContext ctx) throws UserException {
-        if (Strings.isNullOrEmpty(engine)) {
-            throw new AnalysisException("Engine name is missing");
-        }
-
-        if (!engine.equalsIgnoreCase(Table.TableType.ODBC.name())) {
-            throw new AnalysisException("Only support alter table engine from MySQL to ODBC");
-        }
-
-        if (properties == null || !properties.containsKey(OdbcTable.ODBC_DRIVER)) {
-            throw new AnalysisException("Need specify 'driver' property");
-        }
+        throw new AnalysisException(
+                "Modify engine from MySQL to ODBC is no longer supported. "
+                + "ODBC tables have been deprecated. Please use JDBC Catalog instead.");
     }
 
     @Override

@@ -80,6 +80,14 @@ Status MaterializationSharedState::merge_multi_response() {
             }
         }
 
+        // return error if any column in response block is not compatible with source block column
+        for (int k = 0; k < response_blocks[i].columns(); ++k) {
+            const auto& resp_col_type = response_blocks[i].get_datatype_by_position(k);
+            for (const auto& [_, source_block_rows] : block_maps) {
+                RETURN_IF_ERROR(resp_col_type->check_column(
+                        *source_block_rows.first.get_by_position(k).column));
+            }
+        }
         for (int j = 0; j < block_order_results[i].size(); ++j) {
             auto backend_id = block_order_results[i][j];
             if (backend_id) {

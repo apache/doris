@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.parser.NereidsParser;
@@ -45,11 +46,13 @@ public class CreateResourceCommandTest extends TestWithFeService {
             }
         };
 
-        // test validate normal
+        // ES resource is no longer supported, validation should throw
         final ImmutableMap<String, String> esProperties =
                 ImmutableMap.of("type", "es", "host", "http://127.0.0.1:29200");
         final CreateResourceInfo esInfo = new CreateResourceInfo(true, false, "test", esProperties);
         final CreateResourceCommand esCommand = new CreateResourceCommand(esInfo);
+        // validate() itself doesn't reject ES type, but resource creation does.
+        // The validate step just checks type parsing, which still succeeds for ES.
         Assertions.assertDoesNotThrow(() -> esCommand.getInfo().validate());
 
         // jfs/juicefs should be treated as HDFS-compatible resource type
@@ -102,7 +105,8 @@ public class CreateResourceCommandTest extends TestWithFeService {
                 + " \"driver_class\" = \"com.mysql.cj.jdbc.Driver\"\n"
                 + ");";
 
-        Assertions.assertDoesNotThrow(() -> createResource(es));
+        // ES resource creation should fail since ES resources are no longer supported
+        Assertions.assertThrows(DdlException.class, () -> createResource(es));
         Assertions.assertDoesNotThrow(() -> createResource(jdbc));
     }
 

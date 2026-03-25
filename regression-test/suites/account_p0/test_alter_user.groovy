@@ -122,6 +122,33 @@ suite("test_alter_user", "account,nonConcurrent") {
         sql 'select 1'
     }
 
+    // DORIS-24183: test re-locking after lock expiry
+    // after lock expires, entering wrong passwords again should trigger lock again
+    try {
+        connect('test_auth_user3', 'wrong', context.config.jdbcUrl) {}
+        assertTrue(false, "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3"), e.getMessage())
+    }
+    try {
+        connect('test_auth_user3', 'wrong', context.config.jdbcUrl) {}
+        assertTrue(false, "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Access denied for user 'test_auth_user3"), e.getMessage())
+    }
+    // account should be locked again
+    try {
+        connect('test_auth_user3', '12345', context.config.jdbcUrl) {}
+        assertTrue(false, "should not be able to login")
+    } catch (Exception e) {
+        assertTrue(e.getMessage().contains("Account is blocked"), e.getMessage())
+    }
+    // wait for lock to expire again
+    sleep(5000)
+    result1 = connect('test_auth_user3', '12345', context.config.jdbcUrl) {
+        sql 'select 1'
+    }
+
     // 4. test password validation
     sql """set global validate_password_policy=STRONG"""
     test {

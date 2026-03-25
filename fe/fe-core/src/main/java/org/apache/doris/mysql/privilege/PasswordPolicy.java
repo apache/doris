@@ -358,7 +358,11 @@ public class PasswordPolicy {
                 return false;
             }
             if (failedLoginCounter.get() >= numFailedLogin) {
-                return true;
+                if (isLocked()) {
+                    return true;
+                }
+                // Lock has expired, reset counter to allow re-locking on new failed attempts
+                unlock();
             }
             if (failedLoginCounter.incrementAndGet() >= numFailedLogin) {
                 lockTime.set(System.currentTimeMillis());

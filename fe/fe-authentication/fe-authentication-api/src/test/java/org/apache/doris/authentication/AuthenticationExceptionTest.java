@@ -40,6 +40,7 @@ class AuthenticationExceptionTest {
         Assertions.assertNotNull(exception);
         Assertions.assertEquals(message, exception.getMessage());
         Assertions.assertNull(exception.getCause());
+        Assertions.assertEquals(AuthenticationFailureType.INTERNAL_ERROR, exception.getFailureType());
     }
 
     @Test
@@ -58,6 +59,7 @@ class AuthenticationExceptionTest {
         Assertions.assertNotNull(exception.getCause());
         Assertions.assertEquals(cause, exception.getCause());
         Assertions.assertEquals("Connection timeout", exception.getCause().getMessage());
+        Assertions.assertEquals(AuthenticationFailureType.INTERNAL_ERROR, exception.getFailureType());
     }
 
     @Test
@@ -73,6 +75,7 @@ class AuthenticationExceptionTest {
         Assertions.assertNotNull(exception);
         Assertions.assertNotNull(exception.getCause());
         Assertions.assertEquals(cause, exception.getCause());
+        Assertions.assertEquals(AuthenticationFailureType.INTERNAL_ERROR, exception.getFailureType());
     }
 
     @Test
@@ -99,5 +102,14 @@ class AuthenticationExceptionTest {
         Assertions.assertTrue(stackTrace.length > 0);
         Assertions.assertTrue(exception.toString().contains("AuthenticationException"));
         Assertions.assertTrue(exception.toString().contains("Test exception"));
+    }
+
+    @Test
+    @DisplayName("UT-API-AE-006: Create exception with explicit failure type")
+    void testCreateException_WithFailureType() {
+        AuthenticationException exception = new AuthenticationException(
+                "User does not exist", AuthenticationFailureType.USER_NOT_FOUND);
+
+        Assertions.assertEquals(AuthenticationFailureType.USER_NOT_FOUND, exception.getFailureType());
     }
 }

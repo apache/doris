@@ -23,8 +23,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.EsResource;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.LocalReplica;
 import org.apache.doris.catalog.LocalTablet;
@@ -79,9 +77,7 @@ import java.io.IOException;
 import java.net.ServerSocket;
 import java.nio.file.Files;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 
@@ -186,30 +182,7 @@ public abstract class DorisHttpTestCase {
         return table;
     }
 
-    private static EsTable newEsTable(String name) {
-        Column k1 = new Column("k1", PrimitiveType.BIGINT);
-        Column k2 = new Column("k2", PrimitiveType.DOUBLE);
-        List<Column> columns = new ArrayList<>();
-        columns.add(k1);
-        columns.add(k2);
-        PartitionInfo partitionInfo = new SinglePartitionInfo();
-        partitionInfo.setDataProperty(testPartitionId + 100,
-                new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
-        partitionInfo.setReplicaAllocation(testPartitionId + 100, ReplicaAllocation.DEFAULT_ALLOCATION);
-        EsTable table = null;
-        Map<String, String> props = new HashMap<>();
-        props.put(EsResource.HOSTS, "http://node-1:8080");
-        props.put(EsResource.USER, "root");
-        props.put(EsResource.PASSWORD, "root");
-        props.put(EsResource.INDEX, "test");
-        props.put(EsResource.TYPE, "doc");
-        try {
-            table = new EsTable(testTableId + 1, name, columns, props, partitionInfo);
-        } catch (DdlException e) {
-            e.printStackTrace();
-        }
-        return table;
-    }
+
 
     private static Env newDelegateCatalog() {
         try {
@@ -222,8 +195,7 @@ public abstract class DorisHttpTestCase {
             db.registerTable(table);
             OlapTable table1 = newTable(TABLE_NAME + 1);
             db.registerTable(table1);
-            EsTable esTable = newEsTable("es_table");
-            db.registerTable(esTable);
+
 
             InternalCatalog internalCatalog = Deencapsulation.newInstance(InternalCatalog.class);
             new Expectations(internalCatalog) {
