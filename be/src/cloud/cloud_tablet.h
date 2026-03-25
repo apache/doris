@@ -314,6 +314,9 @@ public:
     // if spec_version = 12, it will return [6-7],[10-12]
     Versions calc_missed_versions(int64_t spec_version, Versions existing_versions) const override;
 
+    std::mutex& get_delete_bitmap_and_rowset_layout_lock() {
+        return _delete_bitmap_and_rowset_layout_lock;
+    }
     std::mutex& get_rowset_update_lock() { return _rowset_update_lock; }
 
     bthread::Mutex& get_sync_meta_lock() { return _sync_meta_lock; }
@@ -481,6 +484,10 @@ private:
 
     std::mutex _base_compaction_lock;
     std::mutex _cumulative_compaction_lock;
+
+    // Serializes cloud async publish and cloud compaction across the full span from
+    // delete bitmap calculation to local rowset layout update.
+    mutable std::mutex _delete_bitmap_and_rowset_layout_lock;
 
     // To avoid multiple calc delete bitmap tasks on same (txn_id, tablet_id) with different
     // signatures being executed concurrently, we use _rowset_update_lock to serialize them

@@ -244,6 +244,15 @@ Status CloudCumulativeCompaction::execute_compact() {
 }
 
 Status CloudCumulativeCompaction::modify_rowsets() {
+    bool hold_delete_bitmap_and_rowset_layout_lock =
+            _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write() && _tablet->enable_mow_async_publish();
+    std::unique_lock<std::mutex> delete_bitmap_and_rowset_layout_lock(
+            cloud_tablet()->get_delete_bitmap_and_rowset_layout_lock(), std::defer_lock);
+    if (hold_delete_bitmap_and_rowset_layout_lock) {
+        delete_bitmap_and_rowset_layout_lock.lock();
+    }
+
     // calculate new cumulative point
     int64_t input_cumulative_point = cloud_tablet()->cumulative_layer_point();
     auto compaction_policy = cloud_tablet()->tablet_meta()->compaction_policy();
@@ -409,6 +418,9 @@ Status CloudCumulativeCompaction::modify_rowsets() {
             cloud_tablet()->reset_approximate_stats(stats.num_rowsets(), stats.num_segments(),
                                                     stats.num_rows(), stats.data_size());
         }
+    }
+    if (delete_bitmap_and_rowset_layout_lock.owns_lock()) {
+        delete_bitmap_and_rowset_layout_lock.unlock();
     }
     // agg delete bitmap for pre rowsets
     if (config::enable_agg_and_remove_pre_rowsets_delete_bitmap &&

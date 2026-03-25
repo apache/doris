@@ -1283,8 +1283,10 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     // 2. calc delete bitmap for incremental data
-    // For async publish tables: acquire rowset_update_lock first (same-BE mutex),
-    // then acquire MS tablet-level lock (cross-BE mutex)
+    // For async publish tables, caller already holds
+    // _delete_bitmap_and_rowset_layout_lock to cover the later local rowset layout update.
+    // We still acquire _rowset_update_lock before the MS tablet-level lock to preserve the
+    // existing serialization among local calc delete bitmap tasks.
     // For legacy tables: use MS table-level lock only
     std::unique_lock<std::mutex> rowset_update_lock(get_rowset_update_lock(), std::defer_lock);
     int64_t t1 = MonotonicMicros();

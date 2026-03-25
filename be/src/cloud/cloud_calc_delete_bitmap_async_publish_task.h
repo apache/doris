@@ -36,22 +36,16 @@ class CloudTabletCalcDeleteBitmapAsyncPublishTask {
 public:
     CloudTabletCalcDeleteBitmapAsyncPublishTask(CloudStorageEngine& engine, int64_t tablet_id,
                                                 int64_t transaction_id, int64_t version,
-                                                const std::vector<int64_t>& sub_txn_ids,
                                                 int64_t db_id, int64_t table_id, int64_t index_id,
                                                 int64_t partition_id);
     ~CloudTabletCalcDeleteBitmapAsyncPublishTask() = default;
 
-    void set_compaction_stats(int64_t ms_base_compaction_cnt, int64_t ms_cumulative_compaction_cnt,
-                              int64_t ms_cumulative_point);
     void set_tablet_state(int64_t tablet_state);
 
     Status handle() const;
 
 private:
-    Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version,
-                          int64_t sub_txn_id = -1,
-                          std::vector<RowsetSharedPtr>* invisible_rowsets = nullptr,
-                          DeleteBitmapPtr tablet_delete_bitmap = nullptr) const;
+    Status _handle_rowset(std::shared_ptr<CloudTablet> tablet, int64_t version) const;
 
     Status _handle_async_publish(std::shared_ptr<CloudTablet> tablet, int64_t version) const;
 
@@ -66,11 +60,6 @@ private:
     int64_t _tablet_id;
     int64_t _transaction_id;
     int64_t _version;
-    std::vector<int64_t> _sub_txn_ids;
-
-    int64_t _ms_base_compaction_cnt {-1};
-    int64_t _ms_cumulative_compaction_cnt {-1};
-    int64_t _ms_cumulative_point {-1};
     std::optional<int64_t> _ms_tablet_state;
     std::shared_ptr<MemTrackerLimiter> _mem_tracker;
 
