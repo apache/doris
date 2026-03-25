@@ -62,6 +62,10 @@ private:
     // Returns OK on success with _range_supported set appropriately
     Status detect_range_support();
 
+    // Start the CDC client process
+    // Called at the start of open() when enable_cdc_client=true.
+    Status setup_cdc_client();
+
     std::unique_ptr<char[]> _read_buffer;
     static constexpr size_t READ_BUFFER_SIZE = 1 << 20; // 1MB
     // Default maximum file size for servers that don't support Range requests

@@ -106,31 +106,39 @@ HttpFileReader::~HttpFileReader() {
     static_cast<void>(close());
 }
 
-Status HttpFileReader::open(const FileReaderOptions& opts) {
-    // CDC client setup must run before the _initialized guard
+Status HttpFileReader::setup_cdc_client() {
     auto enable_cdc_iter = _extend_kv.find("enable_cdc_client");
-    if (enable_cdc_iter != _extend_kv.end() && enable_cdc_iter->second == "true") {
-        LOG(INFO) << "CDC client is enabled, starting CDC client for " << _url;
-        ExecEnv* env = ExecEnv::GetInstance();
-        if (env == nullptr || env->cdc_client_mgr() == nullptr) {
-            return Status::InternalError("ExecEnv or CdcClientMgr is not initialized");
-        }
-
-        PRequestCdcClientResult result;
-        Status start_st = env->cdc_client_mgr()->start_cdc_client(&result);
-        if (!start_st.ok()) {
-            LOG(ERROR) << "Failed to start CDC client, status=" << start_st.to_string();
-            return start_st;
-        }
-
-        // Replace CDC_CLIENT_PORT placeholder with actual CDC client port
-        const std::string placeholder = "CDC_CLIENT_PORT";
-        size_t pos = _url.find(placeholder);
-        if (pos != std::string::npos) {
-            _url.replace(pos, placeholder.size(), std::to_string(doris::config::cdc_client_port));
-        }
-        LOG(INFO) << "CDC client started successfully for " << _url;
+    if (enable_cdc_iter == _extend_kv.end() || enable_cdc_iter->second != "true") {
+        return Status::OK();
     }
+
+    LOG(INFO) << "CDC client is enabled, starting CDC client for " << _url;
+    ExecEnv* env = ExecEnv::GetInstance();
+    if (env == nullptr || env->cdc_client_mgr() == nullptr) {
+        return Status::InternalError("ExecEnv or CdcClientMgr is not initialized");
+    }
+
+    PRequestCdcClientResult result;
+    Status start_st = env->cdc_client_mgr()->start_cdc_client(&result);
+    if (!start_st.ok()) {
+        LOG(ERROR) << "Failed to start CDC client, status=" << start_st.to_string();
+        return start_st;
+    }
+
+    // Replace CDC_CLIENT_PORT placeholder with actual CDC client port
+    const std::string placeholder = "CDC_CLIENT_PORT";
+    size_t pos = _url.find(placeholder);
+    if (pos != std::string::npos) {
+        _url.replace(pos, placeholder.size(), std::to_string(doris::config::cdc_client_port));
+    }
+    LOG(INFO) << "CDC client started successfully for " << _url;
+    return Status::OK();
+}
+
+Status HttpFileReader::open(const FileReaderOptions& opts) {
+    // CDC client setup must run before the _initialized guard.
+    // See setup_cdc_client() for lifecycle details.
+    RETURN_IF_ERROR(setup_cdc_client());
 
     // Skip metadata detection when file size was pre-supplied by the caller.
     if (_initialized) {

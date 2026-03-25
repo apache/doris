@@ -77,5 +77,6 @@ suite("test_cdc_stream_tvf_postgres", "p0,external,pg,external_docker,external_d
                 "offset" = 'latest')
             """
         log.info("result:", result)
+        assertNotNull(result)
     }
 }

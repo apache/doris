@@ -28,8 +28,51 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
         String bucket = getS3BucketName()
         String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
         def offset = ""
+        def dmlOffset = ""
 
-        // create test
+        // --- Validation error tests (no JDBC connection needed) ---
+
+        test {
+            sql """select * from cdc_stream("type" = "mysql")"""
+            exception "jdbc_url is required"
+        }
+
+        test {
+            sql """select * from cdc_stream("jdbc_url" = "jdbc:mysql://localhost:3306")"""
+            exception "type is required"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306")"""
+            exception "table is required"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://localhost:3306",
+                "table" = "t1")"""
+            exception "offset is required"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user" = "root",
+                "password" = "123456",
+                "database" = "${mysqlDb}",
+                "table" = "${table1}",
+                "offset" = 'notjson')"""
+            exception "Unsupported offset: notjson"
+        }
+
+        // --- Data setup ---
+
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
             sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
             sql """DROP TABLE IF EXISTS ${mysqlDb}.${table1}"""
@@ -47,7 +90,15 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             offset = """{"file":"${file}","pos":"${position}"}"""
             sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('C1', 3);"""
             sql """INSERT INTO ${mysqlDb}.${table1} (name, age) VALUES ('D1', 4);"""
+
+            // capture offset before UPDATE/DELETE events
+            def result2 = sql_return_maparray "show master status"
+            dmlOffset = """{"file":"${result2[0]["File"]}","pos":"${result2[0]["Position"]}"}"""
+            sql """UPDATE ${mysqlDb}.${table1} SET age = 99 WHERE name = 'C1';"""
+            sql """DELETE FROM ${mysqlDb}.${table1} WHERE name = 'D1';"""
         }
+
+        // --- INSERT-only: read C1 and D1 from binlog offset ---
 
         log.info("offset: " + offset)
         qt_select_tvf """select * from cdc_stream(
@@ -63,6 +114,40 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             ) order by name
         """
 
+        // --- UPDATE and DELETE events: read from dmlOffset ---
+
+        log.info("dmlOffset: " + dmlOffset)
+        qt_select_tvf_dml """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user" = "root",
+                "password" = "123456",
+                "database" = "${mysqlDb}",
+                "table" = "${table1}",
+                "offset" = '${dmlOffset}'
+            ) order by name
+        """
+
+        // --- offset=earliest: should return all rows (no exception) ---
+
+        def earliestResult = sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user" = "root",
+                "password" = "123456",
+                "database" = "${mysqlDb}",
+                "table" = "${table1}",
+                "offset" = 'earliest'
+            ) limit 1
+        """
+        assertNotNull(earliestResult)
+
+        // --- offset=initial: unsupported ---
+
         test {
             sql """
             select * from cdc_stream(
@@ -77,6 +162,57 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
                 "offset" = 'initial')
             """
             exception "Unsupported offset: initial"
+        }
+
+        // --- Non-existent table ---
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user" = "root",
+                "password" = "123456",
+                "database" = "${mysqlDb}",
+                "table" = "no_such_table",
+                "offset" = '${offset}')
+            """
+            exception "Table does not exist: no_such_table"
+        }
+
+        // --- Wrong credentials ---
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user" = "wronguser",
+                "password" = "wrongpass",
+                "database" = "${mysqlDb}",
+                "table" = "${table1}",
+                "offset" = '${offset}')
+            """
+            exception "can not connect to jdbc"
+        }
+
+        // --- Unreachable JDBC URL (closed port) ---
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://10.0.0.1:19999",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user" = "root",
+                "password" = "123456",
+                "database" = "${mysqlDb}",
+                "table" = "${table1}",
+                "offset" = '${offset}')
+            """
+            exception "can not connect to jdbc"
         }
     }
 }

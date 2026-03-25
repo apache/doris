@@ -81,7 +81,7 @@ public class PipelineCoordinator {
     private final ThreadPoolExecutor executor;
     private static final int MAX_CONCURRENT_TASKS = 10;
     private static final int QUEUE_CAPACITY = 128;
-    private static ObjectMapper objectMapper = new ObjectMapper();
+    private static final ObjectMapper objectMapper = new ObjectMapper();
     private final byte[] LINE_DELIMITER = "\n".getBytes(StandardCharsets.UTF_8);
 
     public PipelineCoordinator() {
@@ -212,6 +212,11 @@ public class PipelineCoordinator {
             taskOffsetCache.put(fetchRecord.getTaskId(), lastMeta);
         }
 
+        // Convention: standalone TVF uses a UUID jobId; job-driven TVF will use a numeric Long jobId
+        // (set via rewriteTvfParams). When the job-driven path is implemented, rewriteTvfParams must
+        // inject the job's Long jobId into the TVF properties so that generateParams() can read it,
+        // keeping isLong() correct. TODO: replace isLong() with an explicit field in FetchRecordRequest
+        // once the job-driven TVF path is fully implemented.
         if (!isLong(fetchRecord.getJobId())) {
             // TVF requires closing the window after each execution,
             // while PG requires dropping the slot.

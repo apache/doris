@@ -448,8 +448,7 @@ public class StreamingJobUtils {
      * The remoteDB implementation differs for each data source;
      * refer to the hierarchical mapping in the JDBC catalog.
      */
-    public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties)
-            throws RuntimeException {
+    public static String getRemoteDbName(DataSourceType sourceType, Map<String, String> properties) {
         String remoteDb = null;
         switch (sourceType) {
             case MYSQL:
