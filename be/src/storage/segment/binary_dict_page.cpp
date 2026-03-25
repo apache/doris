@@ -29,7 +29,6 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/column/column.h"
-#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
 #include "storage/segment/binary_plain_page_v2.h"
 #include "storage/segment/bitshuffle_page.h"
@@ -323,8 +322,6 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
     if (_options.only_read_offsets) {
         // OFFSET_ONLY mode: resolve dict codes to get real string lengths
         // without copying actual char data. This allows length() to work.
-        auto& column_str = assert_cast<ColumnStr<uint32_t>&, TypeCheckOnRelease::DISABLE>(
-                dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column() : *dst);
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
         size_t start_index = _bit_shuffle_ptr->_cur_index;
         // Reuse _buffer (int32_t vector) to store uint32_t lengths.
@@ -335,8 +332,8 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
             int32_t codeword = data_array[start_index + i];
             _buffer[i] = static_cast<int32_t>(_dict_word_info[codeword].size);
         }
-        column_str.insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
-                                               max_fetch);
+        dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
+                                         max_fetch);
     } else {
         const auto* data_array = reinterpret_cast<const int32_t*>(_bit_shuffle_ptr->get_data(0));
         size_t start_index = _bit_shuffle_ptr->_cur_index;
@@ -382,11 +379,8 @@ Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t pa
             read_count++;
         }
         if (read_count > 0) {
-            auto& column_str = assert_cast<ColumnStr<uint32_t>&, TypeCheckOnRelease::DISABLE>(
-                    dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column()
-                                       : *dst);
-            column_str.insert_offsets_from_lengths(
-                    reinterpret_cast<const uint32_t*>(_buffer.data()), read_count);
+            dst->insert_offsets_from_lengths(reinterpret_cast<const uint32_t*>(_buffer.data()),
+                                             read_count);
         }
         *n = read_count;
         return Status::OK();

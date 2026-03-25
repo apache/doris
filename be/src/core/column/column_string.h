@@ -283,37 +283,20 @@ public:
     // with zero-filled padding to maintain the invariant chars.size() == offsets.back().
     // Used by OFFSET_ONLY reading mode where actual string content is not needed
     // but length information must be preserved (e.g., for length() function).
-    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) {
+    void insert_offsets_from_lengths(const uint32_t* lengths, size_t num) override {
         if (UNLIKELY(num == 0)) {
             return;
         }
         const auto old_rows = offsets.size();
-        const auto old_chars_size = chars.size();
-
-        // Compute total length for chars expansion
-        size_t total_length = 0;
-        for (size_t i = 0; i < num; ++i) {
-            total_length += lengths[i];
-        }
-
-        const size_t new_chars_size = old_chars_size + total_length;
-        check_chars_length(new_chars_size, old_rows + num);
-
-        // Extend chars with zeros (no real content, just maintains invariant)
-        if (total_length > 0) {
-            chars.resize_fill(new_chars_size, 0);
-        }
-
         // Build cumulative offsets from lengths
         offsets.resize(old_rows + num);
         auto* offsets_ptr = &offsets[old_rows];
-        size_t running_offset = old_chars_size;
+        size_t running_offset = offsets[old_rows - 1];
         for (size_t i = 0; i < num; ++i) {
             running_offset += lengths[i];
             offsets_ptr[i] = static_cast<T>(running_offset);
         }
-        DCHECK(chars.size() == offsets.back());
-        sanity_check_simple();
+        chars.resize(offsets[old_rows + num - 1]);
     }
 
     void insert_many_strings(const StringRef* strings, size_t num) override {

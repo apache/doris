@@ -918,7 +918,7 @@ Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
         RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
     }
     RETURN_IF_ERROR(_offsets_iterator->seek_to_ordinal(ord));
-    if (_read_offset_only) {
+    if (read_offset_only()) {
         // In OFFSET_ONLY mode, key/value iterators are SKIP_READING, no need to seek them
         return Status::OK();
     }
@@ -978,7 +978,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool*
     auto val_ptr = column_map.get_values().assume_mutable();
 
     if (num_items > 0) {
-        if (_read_offset_only) {
+        if (read_offset_only()) {
             // OFFSET_ONLY mode: skip reading actual key/value data, fill with defaults
             key_ptr->insert_many_defaults(num_items);
             val_ptr->insert_many_defaults(num_items);
@@ -1209,14 +1209,20 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
         return Status::OK();
     }
 
-    // Check for OFFSET_ONLY mode: if "OFFSET" path is present, we only need
-    // offset data (for map_size), skip reading key/value data.
-    _check_and_set_offset_only(sub_all_access_paths);
-    if (_read_offset_only) {
+    // Check for meta-only modes (OFFSET_ONLY or NULL_MAP_ONLY)
+    _check_and_set_meta_read_mode(sub_all_access_paths);
+    if (read_offset_only()) {
         _key_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
         _val_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
         DLOG(INFO) << "Map column iterator set column " << _column_name
                    << " to OFFSET_ONLY reading mode, key/value columns set to SKIP_READING";
+        return Status::OK();
+    }
+    if (read_null_map_only()) {
+        _key_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        _val_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Map column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY reading mode, key/value columns set to SKIP_READING";
         return Status::OK();
     }
 
@@ -1592,7 +1598,7 @@ Status ArrayFileColumnIterator::init(const ColumnIteratorOptions& opts) {
 }
 
 Status ArrayFileColumnIterator::_seek_by_offsets(ordinal_t ord) {
-    if (_read_offset_only) {
+    if (read_offset_only()) {
         // In OFFSET_ONLY mode, item iterator is SKIP_READING, no need to seek it
         return Status::OK();
     }
@@ -1639,7 +1645,7 @@ Status ArrayFileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, boo
             column_offsets.get_data().back() - column_offsets.get_data()[start - 1]; // -1 is valid
     auto column_items_ptr = column_array->get_data().assume_mutable();
     if (num_items > 0) {
-        if (_read_offset_only) {
+        if (read_offset_only()) {
             // OFFSET_ONLY mode: skip reading actual item data, fill with defaults
             column_items_ptr->insert_many_defaults(num_items);
         } else {
@@ -1735,13 +1741,18 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
     auto sub_predicate_access_paths = DORIS_TRY(_get_sub_access_paths(predicate_access_paths));
 
-    // Check for OFFSET_ONLY mode: if "OFFSET" path is present, we only need
-    // offset data (for array_size/length), skip reading item data.
-    _check_and_set_offset_only(sub_all_access_paths);
-    if (_read_offset_only) {
+    // Check for meta-only modes (OFFSET_ONLY or NULL_MAP_ONLY)
+    _check_and_set_meta_read_mode(sub_all_access_paths);
+    if (read_offset_only()) {
         _item_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
         DLOG(INFO) << "Array column iterator set column " << _column_name
                    << " to OFFSET_ONLY reading mode, item column set to SKIP_READING";
+        return Status::OK();
+    }
+    if (read_null_map_only()) {
+        _item_iterator->set_reading_flag(ReadingFlag::SKIP_READING);
+        DLOG(INFO) << "Array column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY reading mode, item column set to SKIP_READING";
         return Status::OK();
     }
 
@@ -1780,7 +1791,7 @@ StringFileColumnIterator::StringFileColumnIterator(std::shared_ptr<ColumnReader>
         : FileColumnIterator(std::move(reader)) {}
 
 Status StringFileColumnIterator::init(const ColumnIteratorOptions& opts) {
-    if (_read_offset_only) {
+    if (read_offset_only()) {
         // Propagate only_read_offsets to the FileColumnIterator's options
         auto modified_opts = opts;
         modified_opts.only_read_offsets = true;
@@ -1800,13 +1811,16 @@ Status StringFileColumnIterator::set_access_paths(
         set_reading_flag(ReadingFlag::READING_FOR_PREDICATE);
     }
 
-    // Strip the column name from path[0] before checking for OFFSET.
-    // Raw paths look like ["col_name", "OFFSET"]; after stripping we get ["OFFSET"].
+    // Strip the column name from path[0] before checking for meta-only modes.
+    // Raw paths look like ["col_name", "OFFSET"] or ["col_name", "NULL"].
     auto sub_all_access_paths = DORIS_TRY(_get_sub_access_paths(all_access_paths));
-    _check_and_set_offset_only(sub_all_access_paths);
-    if (_read_offset_only) {
+    _check_and_set_meta_read_mode(sub_all_access_paths);
+    if (read_offset_only()) {
         DLOG(INFO) << "String column iterator set column " << _column_name
                    << " to OFFSET_ONLY reading mode";
+    } else if (read_null_map_only()) {
+        DLOG(INFO) << "String column iterator set column " << _column_name
+                   << " to NULL_MAP_ONLY reading mode";
     }
 
     return Status::OK();

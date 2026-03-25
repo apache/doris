@@ -514,43 +514,55 @@ public:
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
-// OffsetBasedColumnIterator is a mixin class for column types that support
-// OFFSET_ONLY reading mode (Array, Map, String).
-// When _read_offset_only is true, only offset information is read and the
-// actual content data (Array items, Map keys/values, String chars) is skipped.
+// MetaOnlyColumnIterator is a mixin class for column types that support
+// meta-only reading modes:
+// - OFFSET_ONLY: only read offset information (e.g., for array_size/length)
+// - NULL_MAP_ONLY: only read null map (e.g., for IS NULL predicate)
+// When these modes are enabled, actual content data is skipped.
 // This class intentionally does NOT inherit from ColumnIterator so that it can
 // be combined with FileColumnIterator via multiple inheritance without creating
 // a diamond.
-class OffsetBasedColumnIterator {
+class MetaOnlyColumnIterator {
 public:
-    OffsetBasedColumnIterator() = default;
-    ~OffsetBasedColumnIterator() = default;
+    MetaOnlyColumnIterator() = default;
+    ~MetaOnlyColumnIterator() = default;
 
-    bool read_offset_only() const { return _read_offset_only; }
+    enum class ReadMode : int { NONE, OFFSET_ONLY, NULL_MAP_ONLY };
+
+    bool read_offset_only() const { return _read_mode == ReadMode::OFFSET_ONLY; }
+    bool read_null_map_only() const { return _read_mode == ReadMode::NULL_MAP_ONLY; }
 
 protected:
-    // Checks whether any of the sub access paths contain "OFFSET" and sets
-    // _read_offset_only accordingly.
-    void _check_and_set_offset_only(const TColumnAccessPaths& sub_all_access_paths) {
+    // Checks sub access paths for OFFSET or NULL meta-only modes and
+    // updates the internal read mode. This does not return the mode; use
+    // the accessor helpers `read_offset_only()` / `read_null_map_only()` to
+    // query the current mode.
+    void _check_and_set_meta_read_mode(const TColumnAccessPaths& sub_all_access_paths) {
         for (const auto& path : sub_all_access_paths) {
-            if (!path.data_access_path.path.empty() &&
-                StringCaseEqual()(path.data_access_path.path[0], ColumnIterator::ACCESS_OFFSET)) {
-                _read_offset_only = true;
-                return;
+            if (!path.data_access_path.path.empty()) {
+                if (StringCaseEqual()(path.data_access_path.path[0],
+                                      ColumnIterator::ACCESS_OFFSET)) {
+                    _read_mode = ReadMode::OFFSET_ONLY;
+                    return;
+                } else if (StringCaseEqual()(path.data_access_path.path[0], "NULL")) {
+                    _read_mode = ReadMode::NULL_MAP_ONLY;
+                    return;
+                }
             }
         }
+        _read_mode = ReadMode::NONE;
     }
 
-    bool _read_offset_only = false;
+    ReadMode _read_mode = ReadMode::NONE;
 };
 
-// StringFileColumnIterator extends FileColumnIterator with OFFSET_ONLY reading
+// StringFileColumnIterator extends FileColumnIterator with meta-only reading
 // support for string/binary column types. When the OFFSET path is detected in
 // set_access_paths, it sets only_read_offsets on the ColumnIteratorOptions so
 // that the BinaryPlainPageDecoder skips chars memcpy and only fills offsets.
 // Uses multiple inheritance: FileColumnIterator provides all scalar file reading
-// logic, OffsetBasedColumnIterator provides the _read_offset_only flag/helper.
-class StringFileColumnIterator final : public FileColumnIterator, public OffsetBasedColumnIterator {
+// logic, MetaOnlyColumnIterator provides the meta-only mode flags/helper.
+class StringFileColumnIterator final : public FileColumnIterator, public MetaOnlyColumnIterator {
 public:
     explicit StringFileColumnIterator(std::shared_ptr<ColumnReader> reader);
     ~StringFileColumnIterator() override = default;
@@ -602,7 +614,7 @@ private:
 };
 
 // This iterator is used to read map value column
-class MapFileColumnIterator final : public ColumnIterator, public OffsetBasedColumnIterator {
+class MapFileColumnIterator final : public ColumnIterator, public MetaOnlyColumnIterator {
 public:
     explicit MapFileColumnIterator(std::shared_ptr<ColumnReader> reader,
                                    ColumnIteratorUPtr null_iterator,
@@ -683,7 +695,7 @@ private:
     std::vector<ColumnIteratorUPtr> _sub_column_iterators;
 };
 
-class ArrayFileColumnIterator final : public ColumnIterator, public OffsetBasedColumnIterator {
+class ArrayFileColumnIterator final : public ColumnIterator, public MetaOnlyColumnIterator {
 public:
     explicit ArrayFileColumnIterator(std::shared_ptr<ColumnReader> reader,
                                      OffsetFileColumnIteratorUPtr offset_reader,

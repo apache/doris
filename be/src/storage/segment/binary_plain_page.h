@@ -30,7 +30,6 @@
 
 #include "common/logging.h"
 #include "core/column/column_complex.h"
-#include "core/column/column_nullable.h"
 #include "storage/olap_common.h"
 #include "storage/segment/options.h"
 #include "storage/segment/page_builder.h"
@@ -247,16 +246,13 @@ public:
         if (_options.only_read_offsets) {
             // OFFSET_ONLY mode: read string lengths from page offset trailer
             // without copying actual char data. This allows length() to work.
-            auto& column_str = assert_cast<ColumnStr<uint32_t>&, TypeCheckOnRelease::DISABLE>(
-                    dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column()
-                                       : *dst);
             _offsets.resize(max_fetch);
             for (size_t i = 0; i < max_fetch; ++i) {
                 uint32_t str_start = offset(_cur_idx + i);
                 uint32_t str_end = offset(_cur_idx + i + 1);
                 _offsets[i] = str_end - str_start;
             }
-            column_str.insert_offsets_from_lengths(_offsets.data(), max_fetch);
+            dst->insert_offsets_from_lengths(_offsets.data(), max_fetch);
             _cur_idx += max_fetch;
             *n = max_fetch;
             return Status::OK();
@@ -314,10 +310,7 @@ public:
                 read_count++;
             }
             if (read_count > 0) {
-                auto& column_str = assert_cast<ColumnStr<uint32_t>&, TypeCheckOnRelease::DISABLE>(
-                        dst->is_nullable() ? static_cast<ColumnNullable&>(*dst).get_nested_column()
-                                           : *dst);
-                column_str.insert_offsets_from_lengths(_offsets.data(), read_count);
+                dst->insert_offsets_from_lengths(_offsets.data(), read_count);
             }
             *n = read_count;
             return Status::OK();
