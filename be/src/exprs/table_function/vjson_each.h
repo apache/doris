@@ -54,6 +54,12 @@ public:
     void get_same_many_values(MutableColumnPtr& column, int length) override;
     int get_value(MutableColumnPtr& column, int max_step) override;
 
+#ifdef BE_TEST
+    const ColumnPtr& test_json_column() const { return _json_column; }
+    const MutableColumnPtr& test_kv_pairs_first() const { return _kv_pairs.first; }
+    const MutableColumnPtr& test_kv_pairs_second() const { return _kv_pairs.second; }
+#endif
+
 private:
     ColumnPtr _json_column;
     // _kv_pairs.first  : ColumnNullable<ColumnString>  key (always plain text)
