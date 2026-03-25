@@ -21,16 +21,16 @@
 #include "exprs/block_bloom_filter.hpp"
 
 namespace doris {
-static std::unique_ptr<BlockBloomFilter> create_bloom_filter(int batch, int log_space_bytes = 20) {
-    auto bloom_filter = std::make_unique<BlockBloomFilter>();
-    [[maybe_unused]] Status status = bloom_filter->init(log_space_bytes, 0);
+    static std::unique_ptr<BlockBloomFilter> create_bloom_filter(int batch, int log_space_bytes = 20) {
+        auto bloom_filter = std::make_unique<BlockBloomFilter>();
+        [[maybe_unused]] Status status = bloom_filter->init(log_space_bytes, 0);
 
-    for (int i = 0; i < batch; i++) {
-        bloom_filter->insert(i);
+        for (int i = 0; i < batch; i++) {
+            bloom_filter->insert(i);
+        }
+
+        return bloom_filter;
     }
-
-    return bloom_filter;
-}
 } // namespace doris
 
 static void BM_BBF_BucketInsert(benchmark::State& state) {
@@ -75,23 +75,23 @@ static void BM_BBF_BucketFind_Miss(benchmark::State& state) {
 }
 
 BENCHMARK(BM_BBF_BucketInsert)
-        ->Unit(benchmark::kNanosecond)
-        ->Arg(1 << 12)
-        ->Arg(1 << 15)
-        ->Arg(1 << 18)
-        ->Repetitions(5)
-        ->DisplayAggregatesOnly();
+    ->Unit(benchmark::kNanosecond)
+    ->Arg(1 << 12)
+    ->Arg(1 << 15)
+    ->Arg(1 << 18)
+    ->Repetitions(5)
+    ->DisplayAggregatesOnly();
 BENCHMARK(BM_BBF_BucketFind_Hit)
-        ->Unit(benchmark::kNanosecond)
-        ->Arg(1 << 12)
-        ->Arg(1 << 15)
-        ->Arg(1 << 18)
-        ->Repetitions(5)
-        ->DisplayAggregatesOnly();
+    ->Unit(benchmark::kNanosecond)
+    ->Arg(1 << 12)
+    ->Arg(1 << 15)
+    ->Arg(1 << 18)
+    ->Repetitions(5)
+    ->DisplayAggregatesOnly();
 BENCHMARK(BM_BBF_BucketFind_Miss)
-        ->Unit(benchmark::kNanosecond)
-        ->Arg(1 << 12)
-        ->Arg(1 << 15)
-        ->Arg(1 << 18)
-        ->Repetitions(5)
-        ->DisplayAggregatesOnly();
+    ->Unit(benchmark::kNanosecond)
+    ->Arg(1 << 12)
+    ->Arg(1 << 15)
+    ->Arg(1 << 18)
+    ->Repetitions(5)
+    ->DisplayAggregatesOnly();
