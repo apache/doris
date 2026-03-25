@@ -218,11 +218,8 @@ void AgentServer::cloud_start_workers(CloudStorageEngine& engine, ExecEnv* exec_
             "CALC_DBM_TASK", config::calc_delete_bitmap_worker_count,
             [&engine](auto&& task) { return calc_delete_bitmap_callback(engine, task); });
 
-    _workers[TTaskType::CALC_DELETE_BITMAP_ASYNC_PUBLISH] = std::make_unique<TaskWorkerPool>(
-            "CALC_DBM_ASYNC_PUB", config::calc_delete_bitmap_worker_count,
-            [&engine](auto&& task) {
-                return calc_delete_bitmap_async_publish_callback(engine, task);
-            });
+    _workers[TTaskType::CALC_DELETE_BITMAP_ASYNC_PUBLISH] =
+            std::make_unique<CloudCalcDeleteBitmapAsyncPublishWorkerPool>(engine);
 
     // cloud, drop tablet just clean clear_cache, so just one thread do it
     _workers[TTaskType::DROP] = std::make_unique<TaskWorkerPool>(

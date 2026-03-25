@@ -56,7 +56,8 @@ void CloudCalcDeleteBitmapAsyncPublishTask::add_error_tablet_id(int64_t tablet_i
                                                                 const Status& err) {
     std::lock_guard<std::mutex> lck(_mutex);
     _error_tablet_ids->push_back(tablet_id);
-    if (_res.ok() || _res.is<ErrorCode::DELETE_BITMAP_LOCK_ERROR>()) {
+    if (_res.ok() || _res.is<ErrorCode::DELETE_BITMAP_LOCK_ERROR>() ||
+        _res.is<ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS>()) {
         _res = err;
     }
 }
@@ -165,6 +166,15 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
     std::unique_lock delete_bitmap_and_rowset_layout_lock(
             tablet->get_delete_bitmap_and_rowset_layout_lock());
 
+    {
+        std::shared_lock rlock(tablet->get_header_lock());
+        if (tablet->max_version_unlocked() >= _version) {
+            LOG(INFO) << "tablet already has version " << _version
+                      << ", skip calc delete bitmap for async publish, tablet_id=" << _tablet_id;
+            return Status::OK();
+        }
+    }
+
     // Acquire MS tablet-level lock right after the cloud async publish lock,
     // before delete bitmap calculation, to ensure mutual exclusion with compaction
     auto lock_st = _engine.meta_mgr().get_delete_bitmap_tablet_lock(*tablet, _transaction_id, -1);
@@ -179,11 +189,7 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
     int64_t max_version = tablet->max_version_unlocked();
     int64_t t2 = MonotonicMicros();
 
-    auto should_sync_rowsets = [&]() {
-        if (_version != max_version + 1) {
-            return true;
-        }
-    };
+    auto should_sync_rowsets = [&]() { return _version != max_version + 1; };
     if (should_sync_rowsets()) {
         auto sync_st = tablet->sync_rowsets();
         if (!sync_st.ok()) {
@@ -216,7 +222,10 @@ Status CloudTabletCalcDeleteBitmapAsyncPublishTask::handle() const {
             LOG(WARNING) << "version not continuous, current max version=" << max_version
                          << ", request_version=" << _version << " tablet_id=" << _tablet_id;
         }
-        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>("version not continuous");
+        return Status::Error<ErrorCode::PUBLISH_VERSION_NOT_CONTINUOUS>(
+                "version not continuous for cloud async publish, tablet_id={}, "
+                "tablet_max_version={}, publish_version={}",
+                _tablet_id, max_version, _version);
     }
 
     int64_t t3 = MonotonicMicros();

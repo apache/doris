@@ -78,6 +78,18 @@ private:
     StorageEngine& _engine;
 };
 
+class CloudCalcDeleteBitmapAsyncPublishWorkerPool final : public TaskWorkerPool {
+public:
+    CloudCalcDeleteBitmapAsyncPublishWorkerPool(CloudStorageEngine& engine);
+
+    ~CloudCalcDeleteBitmapAsyncPublishWorkerPool() override;
+
+private:
+    void calc_delete_bitmap_async_publish_callback(const TAgentTaskRequest& task);
+
+    CloudStorageEngine& _engine;
+};
+
 class PriorTaskWorkerPool final : public TaskWorkerPoolIf {
 public:
     PriorTaskWorkerPool(const std::string& name, int normal_worker_count,
@@ -208,9 +220,6 @@ void report_tablet_callback(StorageEngine& engine, const ClusterInfo* cluster_in
 void report_tablet_callback(CloudStorageEngine& engine, const ClusterInfo* cluster_info);
 
 void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
-
-void calc_delete_bitmap_async_publish_callback(CloudStorageEngine& engine,
-                                               const TAgentTaskRequest& req);
 
 void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
                                               const TAgentTaskRequest& req);

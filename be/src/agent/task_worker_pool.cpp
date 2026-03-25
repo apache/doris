@@ -2169,6 +2169,78 @@ void PublishVersionWorkerPool::publish_version_callback(const TAgentTaskRequest&
     remove_task_info(req.task_type, req.signature);
 }
 
+CloudCalcDeleteBitmapAsyncPublishWorkerPool::CloudCalcDeleteBitmapAsyncPublishWorkerPool(
+        CloudStorageEngine& engine)
+        : TaskWorkerPool("CALC_DBM_ASYNC_PUB", config::calc_delete_bitmap_worker_count,
+                         [this](const TAgentTaskRequest& task) {
+                             calc_delete_bitmap_async_publish_callback(task);
+                         }),
+          _engine(engine) {}
+
+CloudCalcDeleteBitmapAsyncPublishWorkerPool::~CloudCalcDeleteBitmapAsyncPublishWorkerPool() =
+        default;
+
+void CloudCalcDeleteBitmapAsyncPublishWorkerPool::calc_delete_bitmap_async_publish_callback(
+        const TAgentTaskRequest& req) {
+    std::vector<TTabletId> error_tablet_ids;
+    std::vector<TTabletId> succ_tablet_ids;
+    const auto& async_publish_req = req.calc_delete_bitmap_async_publish_req;
+    if (req.signature != async_publish_req.transaction_id) {
+        LOG_INFO("begin to execute calc delete bitmap async publish task")
+                .tag("signature", req.signature)
+                .tag("transaction_id", async_publish_req.transaction_id);
+    }
+
+    CloudCalcDeleteBitmapAsyncPublishTask engine_task(
+            _engine, async_publish_req, &error_tablet_ids, &succ_tablet_ids);
+    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
+    Status status = engine_task.execute();
+    if (status.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
+        LOG_EVERY_SECOND(INFO) << "wait for previous cloud publish task to be done, "
+                               << "transaction_id: " << async_publish_req.transaction_id;
+
+        int64_t enqueue_time = req.__isset.recv_time ? req.recv_time : time(nullptr);
+        int64_t time_elapsed = time(nullptr) - enqueue_time;
+        if (time_elapsed > config::publish_version_task_timeout_s) {
+            LOG(INFO) << "calc delete bitmap async publish task elapsed " << time_elapsed
+                      << " seconds since it is inserted to queue, it is timeout";
+        } else {
+            CALC_DELETE_BITMAP_ASYNC_PUBLISH_count << 1;
+            auto st = _thread_pool->submit_func([this, req] {
+                this->calc_delete_bitmap_async_publish_callback(req);
+                CALC_DELETE_BITMAP_ASYNC_PUBLISH_count << -1;
+            });
+            if (!st.ok()) [[unlikely]] {
+                CALC_DELETE_BITMAP_ASYNC_PUBLISH_count << -1;
+                status = std::move(st);
+            } else {
+                return;
+            }
+        }
+    }
+
+    TFinishTaskRequest finish_task_request;
+    if (!status) {
+        DorisMetrics::instance()->publish_task_failed_total->increment(1);
+        LOG_WARNING("failed to calculate delete bitmap for async publish")
+                .tag("signature", req.signature)
+                .tag("transaction_id", async_publish_req.transaction_id)
+                .tag("error_tablets_num", error_tablet_ids.size())
+                .error(status);
+    }
+
+    status.to_thrift(&finish_task_request.task_status);
+    finish_task_request.__set_backend(BackendOptions::get_local_backend());
+    finish_task_request.__set_task_type(req.task_type);
+    finish_task_request.__set_signature(req.signature);
+    finish_task_request.__set_report_version(s_report_version);
+    finish_task_request.__set_error_tablet_ids(error_tablet_ids);
+    finish_task_request.__set_resp_partitions(async_publish_req.partitions);
+
+    finish_task(finish_task_request);
+    remove_task_info(req.task_type, req.signature);
+}
+
 void clear_transaction_task_callback(StorageEngine& engine, const TAgentTaskRequest& req) {
     const auto& clear_transaction_task_req = req.clear_transaction_task_req;
     LOG(INFO) << "get clear transaction task. signature=" << req.signature
@@ -2437,43 +2509,6 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     finish_task_request.__set_report_version(s_report_version);
     finish_task_request.__set_error_tablet_ids(error_tablet_ids);
     finish_task_request.__set_resp_partitions(calc_delete_bitmap_req.partitions);
-
-    finish_task(finish_task_request);
-    remove_task_info(req.task_type, req.signature);
-}
-
-void calc_delete_bitmap_async_publish_callback(CloudStorageEngine& engine,
-                                               const TAgentTaskRequest& req) {
-    std::vector<TTabletId> error_tablet_ids;
-    std::vector<TTabletId> succ_tablet_ids;
-    const auto& async_publish_req = req.calc_delete_bitmap_async_publish_req;
-    CloudCalcDeleteBitmapAsyncPublishTask engine_task(engine, async_publish_req, &error_tablet_ids,
-                                                      &succ_tablet_ids);
-    SCOPED_ATTACH_TASK(engine_task.mem_tracker());
-    if (req.signature != async_publish_req.transaction_id) {
-        LOG_INFO("begin to execute calc delete bitmap async publish task")
-                .tag("signature", req.signature)
-                .tag("transaction_id", async_publish_req.transaction_id);
-    }
-    Status status = engine_task.execute();
-
-    TFinishTaskRequest finish_task_request;
-    if (!status) {
-        DorisMetrics::instance()->publish_task_failed_total->increment(1);
-        LOG_WARNING("failed to calculate delete bitmap for async publish")
-                .tag("signature", req.signature)
-                .tag("transaction_id", async_publish_req.transaction_id)
-                .tag("error_tablets_num", error_tablet_ids.size())
-                .error(status);
-    }
-
-    status.to_thrift(&finish_task_request.task_status);
-    finish_task_request.__set_backend(BackendOptions::get_local_backend());
-    finish_task_request.__set_task_type(req.task_type);
-    finish_task_request.__set_signature(req.signature);
-    finish_task_request.__set_report_version(s_report_version);
-    finish_task_request.__set_error_tablet_ids(error_tablet_ids);
-    finish_task_request.__set_resp_partitions(async_publish_req.partitions);
 
     finish_task(finish_task_request);
     remove_task_info(req.task_type, req.signature);

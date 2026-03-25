@@ -744,13 +744,6 @@ public class MasterImpl {
     private void finishCalcDeleteBitmapAsyncPublish(AgentTask task, TFinishTaskRequest request) {
         CalcDeleteBitmapAsyncPublishTask asyncPublishTask = (CalcDeleteBitmapAsyncPublishTask) task;
 
-        if (request.isSetRespPartitions()
-                && asyncPublishTask.isFinishRequestStale(request.getRespPartitions())) {
-            LOG.warn("async publish: stale response from be={}, txn_id={}, will auto-retry",
-                    asyncPublishTask.getBackendId(), asyncPublishTask.getTransactionId());
-            return;
-        }
-
         if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
             LOG.warn("async publish calc delete bitmap failed, will auto-retry. txn_id={}, be={}, err={}",
                     asyncPublishTask.getTransactionId(), asyncPublishTask.getBackendId(),
