@@ -26,14 +26,43 @@ under the License.
         <artifactId>fe-authentication</artifactId>
         <relativePath>../pom.xml</relativePath>
     </parent>
-    <artifactId>fe-authentication-plugins</artifactId>
-    <packaging>pom</packaging>
-    <name>Doris FE Authentication Plugins</name>
-    <description>Authentication plugins (password, ldap, oidc, etc.)</description>
+    <artifactId>fe-authentication-role-mapping</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Authentication Role Mapping</name>
 
-    <modules>
-        <module>fe-authentication-plugin-ldap</module>
-        <module>fe-authentication-plugin-oidc</module>
-        <module>fe-authentication-plugin-password</module>
-    </modules>
+    <dependencies>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>fe-authentication-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>dev.cel</groupId>
+            <artifactId>cel</artifactId>
+            <version>0.11.1</version>
+        </dependency>
+        <dependency>
+            <groupId>com.google.protobuf</groupId>
+            <artifactId>protobuf-java</artifactId>
+            <version>4.33.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>9</source>
+                    <target>9</target>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
 </project>
