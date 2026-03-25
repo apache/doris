@@ -57,20 +57,6 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
             exception "offset is required"
         }
 
-        test {
-            sql """select * from cdc_stream(
-                "type" = "mysql",
-                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
-                "driver_url" = "${driver_url}",
-                "driver_class" = "com.mysql.cj.jdbc.Driver",
-                "user" = "root",
-                "password" = "123456",
-                "database" = "${mysqlDb}",
-                "table" = "${table1}",
-                "offset" = 'notjson')"""
-            exception "Unsupported offset: notjson"
-        }
-
         // --- Data setup ---
 
         connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
@@ -162,6 +148,20 @@ suite("test_cdc_stream_tvf_mysql", "p0,external,mysql,external_docker,external_d
                 "offset" = 'initial')
             """
             exception "Unsupported offset: initial"
+        }
+
+        test {
+            sql """select * from cdc_stream(
+                "type" = "mysql",
+                "jdbc_url" = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
+                "driver_url" = "${driver_url}",
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user" = "root",
+                "password" = "123456",
+                "database" = "${mysqlDb}",
+                "table" = "${table1}",
+                "offset" = 'notjson')"""
+            exception "Unsupported offset: notjson"
         }
 
         // --- Non-existent table ---
