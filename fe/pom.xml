@@ -219,6 +219,9 @@ under the License.
         <module>fe-core</module>
         <module>hive-udf</module>
         <module>be-java-extensions</module>
+        <module>fe-extension-loader</module>
+        <module>fe-extension-spi</module>
+        <module>fe-authentication</module>
     </modules>
     <properties>
         <doris.hive.catalog.shade.version>3.1.0</doris.hive.catalog.shade.version>
