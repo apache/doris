@@ -18,6 +18,39 @@
 
 set -e -x
 
+wait_for_yarn_services() {
+    local rm_pid="$1"
+    local nm_pid="$2"
+    local yarn_startup_timeout_seconds="${YARN_STARTUP_TIMEOUT_SECONDS:-90}"
+    local waited=0
+
+    while (( waited < yarn_startup_timeout_seconds )); do
+        if nc -z localhost "${YARN_RM_PORT:-8032}" && nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}"; then
+            return 0
+        fi
+
+        if ! kill -0 "${rm_pid}" 2>/dev/null; then
+            echo "ERROR: yarn resourcemanager exited before becoming ready"
+            break
+        fi
+
+        if ! kill -0 "${nm_pid}" 2>/dev/null; then
+            echo "ERROR: yarn nodemanager exited before becoming ready"
+            break
+        fi
+
+        sleep 5s
+        waited=$((waited + 5))
+    done
+
+    echo "ERROR: yarn services failed to start within ${yarn_startup_timeout_seconds} seconds"
+    ps -ef | grep -E "ResourceManager|NodeManager" || true
+    ss -ltnp | grep -E ":(${YARN_RM_PORT:-8032}|${YARN_NM_WEBAPP_PORT:-8042}|${YARN_RM_TRACKER_PORT:-8031}|${YARN_RM_ADMIN_PORT:-8033})" || true
+    tail -n 200 /tmp/yarn-resourcemanager.log || true
+    tail -n 200 /tmp/yarn-nodemanager.log || true
+    return 1
+}
+
 wait_for_metastore_db() {
     local schematool_log="/tmp/hive-schematool.log"
 
@@ -61,16 +94,10 @@ if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" == "true" ]]; then
     mkdir -p /etc/tez/conf
     cp -f /mnt/scripts/tez-conf/tez-site.xml /etc/tez/conf/tez-site.xml
     nohup yarn resourcemanager >/tmp/yarn-resourcemanager.log 2>&1 &
+    local rm_pid=$!
     nohup yarn nodemanager >/tmp/yarn-nodemanager.log 2>&1 &
-
-    for i in {1..60}; do
-        if nc -z localhost "${YARN_RM_PORT:-8032}" && nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}"; then
-            break
-        fi
-        sleep 5s
-    done
-    nc -z localhost "${YARN_RM_PORT:-8032}"
-    nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}"
+    local nm_pid=$!
+    wait_for_yarn_services "${rm_pid}" "${nm_pid}"
 
     # Tez write jobs create scratch directories on HDFS. Make sure HDFS is writable.
     hdfs dfsadmin -safemode leave >/dev/null 2>&1 || true
