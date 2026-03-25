@@ -25,6 +25,7 @@ import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
@@ -137,6 +138,21 @@ public class OlapTableTest {
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+    }
+
+    @Test
+    public void testBuildVariantEnableFlattenNestedWithLegacyPropertyKey() throws IOException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "true");
+
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.gsonPostProcess();
+
+        Assert.assertTrue(tableProperty.variantEnableFlattenNested());
+        Assert.assertEquals("true",
+                tableProperty.getProperties().get(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+        Assert.assertFalse(
+                tableProperty.getProperties().containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
     }
 
     @Test

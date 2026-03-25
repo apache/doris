@@ -2616,6 +2616,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         return false;
     }
 
+    @Deprecated
     public void setVariantEnableFlattenNested(boolean flattenNested) throws AnalysisException {
         TableProperty tableProperty = getOrCreatTableProperty();
         tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED,
@@ -2623,6 +2624,7 @@ public class OlapTable extends Table implements MTMVRelatedTableIf, GsonPostProc
         tableProperty.buildVariantEnableFlattenNested();
     }
 
+    @Deprecated
     public Boolean variantEnableFlattenNested() {
         if (tableProperty != null) {
             return tableProperty.variantEnableFlattenNested();
