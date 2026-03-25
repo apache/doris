@@ -22,7 +22,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.hint.DistributeHint;
-import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
+import org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.expressions.Add;
@@ -124,19 +124,7 @@ public class HyperGraphBuilder {
     public HyperGraph build() {
         assert plans.size() == 1 : "there are cross join";
         Plan plan = plans.values().iterator().next();
-        return buildHyperGraph(plan);
-    }
-
-    public org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph buildv2() {
-        assert plans.size() == 1 : "there are cross join";
-        Plan plan = plans.values().iterator().next();
         return buildHyperGraphv2(plan);
-    }
-
-    public Plan buildPlan() {
-        assert plans.size() == 1 : "there are cross join";
-        Plan plan = plans.values().iterator().next();
-        return plan;
     }
 
     public Plan buildJoinPlan() {
@@ -156,27 +144,10 @@ public class HyperGraphBuilder {
         return this.buildJoinPlan();
     }
 
-    public HyperGraph randomBuildWith(int tableNum, int edgeNum) {
-        randomBuildInit(tableNum, edgeNum);
-        return this.build();
-    }
-
-    public org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph randomBuildWithv2(int tableNum,
+    public HyperGraph randomBuildWith(int tableNum,
             int edgeNum) {
         randomBuildInit(tableNum, edgeNum);
-        return this.buildv2();
-    }
-
-    public Plan buildJoinPlanWithJoinHint(int tableNum, int edgeNum) {
-        randomBuildInit(tableNum, edgeNum);
-        assert plans.size() == 1 : "there are cross join";
-        Plan plan = plans.values().iterator().next();
-        crossJoinCount = 0;
-        Plan result = buildPlanWithJoinType(plan, new BitSet(), true);
-        if (result.getOutput().size() > 10) {
-            return new LogicalProject(result.getOutput().subList(0, 10), result);
-        }
-        return result;
+        return this.build();
     }
 
     private void randomBuildInit(int tableNum, int edgeNum) {
@@ -457,7 +428,7 @@ public class HyperGraphBuilder {
         return bitSet.equals(bitSet2);
     }
 
-    private HyperGraph buildHyperGraph(Plan plan) {
+    private HyperGraph buildHyperGraphv2(Plan plan) {
         CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
                 plan);
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
@@ -465,29 +436,7 @@ public class HyperGraphBuilder {
             MemoTestUtils.initMemoAndValidState(cascadesContext);
         }
         injectRowcount(cascadesContext.getMemo().getRoot());
-        return HyperGraph.builderForDPhyper(cascadesContext.getMemo().getRoot()).build();
-    }
-
-    private org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph buildHyperGraphv2(Plan plan) {
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
-                plan);
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (cascadesContext.getMemo() == null) {
-            MemoTestUtils.initMemoAndValidState(cascadesContext);
-        }
-        injectRowcount(cascadesContext.getMemo().getRoot());
-        return org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph.builderForDPhyper(
-                cascadesContext.getMemo().getRoot(), cascadesContext).build();
-    }
-
-    public static org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph buildHyperGraphFromPlan(Plan plan) {
-        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(MemoTestUtils.createConnectContext(),
-                plan);
-        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (cascadesContext.getMemo() == null) {
-            MemoTestUtils.initMemoAndValidState(cascadesContext);
-        }
-        return org.apache.doris.nereids.jobs.joinorder.hypergraphv2.HyperGraph.builderForDPhyper(
+        return HyperGraph.builderForDPhyper(
                 cascadesContext.getMemo().getRoot(), cascadesContext).build();
     }
 

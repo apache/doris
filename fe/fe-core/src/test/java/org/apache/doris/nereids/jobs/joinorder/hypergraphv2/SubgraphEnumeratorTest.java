@@ -44,7 +44,7 @@ public class SubgraphEnumeratorTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
-                .buildv2();
+                .build();
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
         subgraphEnumerator.enumerate();
@@ -67,7 +67,7 @@ public class SubgraphEnumeratorTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 3)
                 .addEdge(JoinType.INNER_JOIN, 1, 2)
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
-                .buildv2();
+                .build();
         long fullSet = LongBitmap.newBitmapBetween(0, 4);
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
@@ -82,7 +82,7 @@ public class SubgraphEnumeratorTest {
         int edgeNum = 40;
         long fullSet = LongBitmap.newBitmapBetween(0, tableNum);
         for (int i = 0; i < 10; i++) {
-            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWithv2(tableNum, edgeNum);
+            HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
             Counter counter = new Counter();
             SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
             subgraphEnumerator.enumerate();
@@ -95,7 +95,7 @@ public class SubgraphEnumeratorTest {
     void testTime() {
         int tableNum = 20;
         int edgeNum = 21;
-        HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWithv2(tableNum, edgeNum);
+        HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
 
         Counter counter = new Counter();
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(counter, hyperGraph);
