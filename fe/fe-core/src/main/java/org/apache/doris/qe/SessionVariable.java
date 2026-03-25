@@ -201,6 +201,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_QUERY_CACHE = "enable_query_cache";
     public static final String QUERY_CACHE_FORCE_REFRESH = "query_cache_force_refresh";
     public static final String QUERY_CACHE_ENTRY_MAX_BYTES = "query_cache_entry_max_bytes";
+    public static final String REMOTE_SLOW_TASK_THRESHOLD = "remote_slow_task_threshold";
     public static final String QUERY_CACHE_ENTRY_MAX_ROWS = "query_cache_entry_max_rows";
     public static final String ENABLE_CONDITION_CACHE = "enable_condition_cache";
 
@@ -1451,6 +1452,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VarAttrDef.VarAttr(name = QUERY_CACHE_ENTRY_MAX_ROWS)
     private long queryCacheEntryMaxRows = 500000;
+
+    @VarAttr(name = REMOTE_SLOW_TASK_THRESHOLD)
+    private long remoteSlowTaskThreshold = 512;
 
     @VarAttrDef.VarAttr(name = ENABLE_CONDITION_CACHE)
     public boolean enableConditionCache = true;
@@ -5319,6 +5323,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setMemLimit(maxExecMemByte);
         tResult.setMaxScanMemRatio(maxScanMemRatio);
         tResult.setEnableAdaptiveScan(enableAdaptiveScan);
+        tResult.setRemoteSlowTaskThreshold(remoteSlowTaskThreshold);
         tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);

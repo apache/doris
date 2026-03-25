@@ -916,7 +916,7 @@ Status RowIdStorageReader::read_batch_external_row(
                                                 colname_to_slot_id, producer_count,
                                                 scan_rows.size(), semaphore, cv, mtx, tuple_desc);
                                     },
-                                    nullptr, nullptr),
+                                    nullptr, nullptr, false),
                             fmt::format("{}-read_batch_external_row-{}", print_id(query_id), idx)));
                     idx++;
                 }

@@ -84,7 +84,9 @@ Status ScannerScheduler::submit(std::shared_ptr<ScannerContext> ctx,
             }
             return scanner_ref->is_eos();
         };
-        SimplifiedScanTask simple_scan_task = {work_func, ctx, scan_task};
+        SimplifiedScanTask simple_scan_task = {
+                work_func, ctx, scan_task,
+                config::enable_slow_scanner_pool && scanner_delegate->_scanner->is_slow_task()};
         return this->submit_scan_task(simple_scan_task);
     };
 

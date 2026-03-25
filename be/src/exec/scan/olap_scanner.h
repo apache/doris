@@ -32,6 +32,7 @@
 #include "common/status.h"
 #include "core/data_type/data_type.h"
 #include "exec/scan/scanner.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "runtime/runtime_state.h"
 #include "storage/data_dir.h"
 #include "storage/rowset/rowset_meta.h"
@@ -74,6 +75,8 @@ public:
     Status _open_impl(RuntimeState* state) override;
 
     Status close(RuntimeState* state) override;
+
+    bool is_slow_task() const override;
 
     doris::TabletStorageType get_storage_type() override;
 

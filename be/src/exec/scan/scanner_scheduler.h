@@ -48,15 +48,17 @@ struct SimplifiedScanTask {
     SimplifiedScanTask() = default;
     SimplifiedScanTask(std::function<bool()> scan_func,
                        std::shared_ptr<ScannerContext> scanner_context,
-                       std::shared_ptr<ScanTask> scan_task) {
+                       std::shared_ptr<ScanTask> scan_task, bool slow_task_) {
         this->scan_func = scan_func;
         this->scanner_context = scanner_context;
         this->scan_task = scan_task;
+        this->slow_task = slow_task_;
     }
 
     std::function<bool()> scan_func;
     std::shared_ptr<ScannerContext> scanner_context = nullptr;
     std::shared_ptr<ScanTask> scan_task = nullptr;
+    bool slow_task = false;
 };
 
 class ScannerSplitRunner : public SplitRunner {
@@ -167,6 +169,8 @@ public:
         _is_stop.store(true);
         _scan_thread_pool->shutdown();
         _scan_thread_pool->wait();
+        _slow_scan_thread_pool->shutdown();
+        _slow_scan_thread_pool->wait();
     }
 
     Status start(int max_thread_num, int min_thread_num, int queue_size,
@@ -178,12 +182,22 @@ public:
                                 .set_max_queue_size(queue_size)
                                 .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
                                 .build(&_scan_thread_pool));
+        RETURN_IF_ERROR(ThreadPoolBuilder(_sched_name, _workload_group)
+                                .set_min_threads(min_thread_num)
+                                .set_max_threads(max_thread_num)
+                                .set_max_queue_size(queue_size)
+                                .set_cgroup_cpu_ctl(_cgroup_cpu_ctl)
+                                .build(&_slow_scan_thread_pool));
         return Status::OK();
     }
 
     Status submit_scan_task(SimplifiedScanTask scan_task) override {
         if (!_is_stop) {
-            return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+            if (scan_task.slow_task) {
+                return _slow_scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+            } else {
+                return _scan_thread_pool->submit_func([scan_task] { scan_task.scan_func(); });
+            }
         } else {
             return Status::InternalError<false>("scanner pool {} is shutdown.", _sched_name);
         }
@@ -213,6 +227,16 @@ public:
                 LOG(WARNING) << "Failed to set min threads for scan thread pool: "
                              << st_min.to_string();
             }
+            st_max = _slow_scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for slow scan thread pool: "
+                             << st_max.to_string();
+            }
+            st_min = _slow_scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for slow scan thread pool: "
+                             << st_min.to_string();
+            }
         } else {
             Status st_min = _scan_thread_pool->set_min_threads(new_min_thread_num);
             if (!st_min.ok()) {
@@ -222,6 +246,16 @@ public:
             Status st_max = _scan_thread_pool->set_max_threads(new_max_thread_num);
             if (!st_max.ok()) {
                 LOG(WARNING) << "Failed to set max threads for scan thread pool: "
+                             << st_max.to_string();
+            }
+            st_min = _slow_scan_thread_pool->set_min_threads(new_min_thread_num);
+            if (!st_min.ok()) {
+                LOG(WARNING) << "Failed to set min threads for slow scan thread pool: "
+                             << st_min.to_string();
+            }
+            st_max = _slow_scan_thread_pool->set_max_threads(new_max_thread_num);
+            if (!st_max.ok()) {
+                LOG(WARNING) << "Failed to set max threads for slow scan thread pool: "
                              << st_max.to_string();
             }
         }
@@ -239,6 +273,7 @@ public:
 
 private:
     std::unique_ptr<ThreadPool> _scan_thread_pool;
+    std::unique_ptr<ThreadPool> _slow_scan_thread_pool;
     std::atomic<bool> _is_stop;
     std::weak_ptr<CgroupCpuCtl> _cgroup_cpu_ctl;
     std::string _sched_name;

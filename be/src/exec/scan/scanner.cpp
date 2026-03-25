@@ -41,7 +41,12 @@ Scanner::Scanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t l
           _profile(profile),
           _output_tuple_desc(_local_state->output_tuple_desc()),
           _output_row_descriptor(_local_state->_parent->output_row_descriptor()),
-          _has_prepared(false) {
+          _has_prepared(false),
+          _remote_slow_task_threshold(
+                  state->query_options().__isset.remote_slow_task_threshold &&
+                                  state->query_options().remote_slow_task_threshold > 0
+                          ? state->query_options().remote_slow_task_threshold
+                          : INT64_MAX) {
     _total_rf_num = cast_set<int>(_local_state->_helper.runtime_filter_nums());
     DorisMetrics::instance()->scanner_cnt->increment(1);
 }

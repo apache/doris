@@ -25,6 +25,7 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
+#include "io/cache/block_file_cache_profile.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "storage/tablet/tablet.h"
@@ -197,6 +198,8 @@ public:
 
     void update_block_avg_bytes(size_t block_avg_bytes) { _block_avg_bytes = block_avg_bytes; }
 
+    virtual bool is_slow_task() const { return false; }
+
 protected:
     RuntimeState* _state = nullptr;
     ScanLocalStateBase* _local_state = nullptr;
@@ -263,6 +266,7 @@ protected:
     int64_t _projection_timer = 0;
 
     bool _should_stop = false;
+    const int64_t _remote_slow_task_threshold = 0;
 };
 
 using ScannerSPtr = std::shared_ptr<Scanner>;

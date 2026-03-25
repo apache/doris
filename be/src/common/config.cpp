@@ -380,6 +380,7 @@ DEFINE_mInt32(pending_data_expire_time_sec, "1800");
 DEFINE_mInt32(tablet_rowset_stale_sweep_time_sec, "600");
 // tablet stale rowset sweep by threshold size
 DEFINE_Bool(tablet_rowset_stale_sweep_by_size, "false");
+DEFINE_Bool(enable_slow_scanner_pool, "true");
 DEFINE_mInt32(tablet_rowset_stale_sweep_threshold_size, "100");
 // garbage sweep policy
 DEFINE_Int32(max_garbage_sweep_interval, "3600");

@@ -660,6 +660,14 @@ Status OlapScanner::_init_return_columns() {
     return Status::OK();
 }
 
+bool OlapScanner::is_slow_task() const {
+    if (_tablet_reader == nullptr) {
+        return false;
+    }
+    const auto& stats = _tablet_reader->stats();
+    return stats.file_cache_stats.num_remote_io_total > _remote_slow_task_threshold;
+}
+
 doris::TabletStorageType OlapScanner::get_storage_type() {
     if (config::is_cloud_mode()) {
         // we don't have cold storage in cloud mode, all storage is treated as local
