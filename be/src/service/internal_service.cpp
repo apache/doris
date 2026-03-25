@@ -977,9 +977,18 @@ void PInternalService::test_jdbc_connection(google::protobuf::RpcController* con
                                             const PJdbcTestConnectionRequest* request,
                                             PJdbcTestConnectionResult* result,
                                             google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, result, done]() {
+    bool ret = _heavy_work_pool.try_offer([this, request, result, done]() {
         VLOG_RPC << "test jdbc connection";
         brpc::ClosureGuard closure_guard(done);
+        if (request->token().empty()) {
+            Status::NotAuthorized("token is not specified.").to_protobuf(result->mutable_status());
+            return;
+        }
+        if (!_exec_env->check_auth_token(request->token())) {
+            Status::NotAuthorized("invalid token for test_jdbc_connection.")
+                    .to_protobuf(result->mutable_status());
+            return;
+        }
         std::shared_ptr<MemTrackerLimiter> mem_tracker = MemTrackerLimiter::create_shared(
                 MemTrackerLimiter::Type::OTHER,
                 fmt::format("InternalService::test_jdbc_connection"));
