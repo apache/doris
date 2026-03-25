@@ -734,6 +734,23 @@ static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Contro
     return http_json_reply_message(resp.status(), resp);
 }
 
+static HttpResponse process_drop_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string snapshot_id(http_query(uri, "snapshot_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    if (snapshot_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "snapshot_id is empty");
+    }
+    DropSnapshotRequest req;
+    req.set_snapshot_id(snapshot_id);
+    DropSnapshotResponse resp;
+    service->snapshot_manager()->drop_snapshot(instance_id, req, &resp);
+    return http_json_reply(resp.status());
+}
+
 static HttpResponse process_compact_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
     auto& uri = ctrl->http_request().uri();
     std::string instance_id(http_query(uri, "instance_id"));
@@ -988,10 +1005,12 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/get_cluster_status", process_get_cluster_status},
             // snapshot related
             {"list_snapshot", process_list_snapshot},
+            {"drop_snapshot", process_drop_snapshot},
             {"set_snapshot_property", process_set_snapshot_property},
             {"get_snapshot_property", process_get_snapshot_property},
             {"set_multi_version_status", process_set_multi_version_status},
             {"v1/list_snapshot", process_list_snapshot},
+            {"v1/drop_snapshot", process_drop_snapshot},
             {"v1/set_snapshot_property", process_set_snapshot_property},
             {"v1/get_snapshot_property", process_get_snapshot_property},
             {"v1/set_multi_version_status", process_set_multi_version_status},
