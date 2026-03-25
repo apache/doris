@@ -346,6 +346,9 @@ ensure_juicefs_hadoop_jar_for_hive() {
     local auxlib_dir="${ROOT}/docker-compose/hive/scripts/auxlib"
     local source_jar
     local juicefs_version
+    local target_jar
+    local source_realpath
+    local target_realpath
 
     source_jar=$(find_juicefs_hadoop_jar || true)
     if [[ -z "${source_jar}" ]]; then
@@ -359,7 +362,17 @@ ensure_juicefs_hadoop_jar_for_hive() {
     fi
 
     mkdir -p "${auxlib_dir}"
-    cp -f "${source_jar}" "${auxlib_dir}/"
+    target_jar="${auxlib_dir}/$(basename "${source_jar}")"
+    source_realpath=$(realpath "${source_jar}")
+    if [[ -e "${target_jar}" ]]; then
+        target_realpath=$(realpath "${target_jar}")
+        if [[ "${source_realpath}" == "${target_realpath}" ]]; then
+            echo "JuiceFS Hadoop jar already present in hive auxlib: $(basename "${source_jar}")"
+            return 0
+        fi
+    fi
+
+    cp -f "${source_jar}" "${target_jar}"
     echo "Synced JuiceFS Hadoop jar to hive auxlib: $(basename "${source_jar}")"
 }
 
