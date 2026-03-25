@@ -357,7 +357,7 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_DeterministicByIndexId) {
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_100);
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_50);
 
-        auto col_type = std::make_shared<DataTypeString>();
+        auto col_type = std::make_shared<vectorized::DataTypeString>();
         auto result =
                 iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
         ASSERT_TRUE(result.has_value());
@@ -370,7 +370,7 @@ TEST_F(InvertedIndexIteratorTest, SelectBestReader_DeterministicByIndexId) {
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_50);
         iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_100);
 
-        auto col_type = std::make_shared<DataTypeString>();
+        auto col_type = std::make_shared<vectorized::DataTypeString>();
         auto result =
                 iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
         ASSERT_TRUE(result.has_value());
