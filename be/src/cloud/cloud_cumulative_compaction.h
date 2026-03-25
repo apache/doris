@@ -18,10 +18,12 @@
 #pragma once
 
 #include <memory>
+#include <optional>
 
 #include "cloud/cloud_storage_engine.h"
 #include "cloud/cloud_tablet.h"
 #include "storage/compaction/compaction.h"
+#include "storage/compaction_task_tracker.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -35,6 +37,10 @@ public:
     Status prepare_compact() override;
     Status execute_compact() override;
     Status request_global_lock();
+
+    std::optional<CompactionProfileType> profile_type() const override {
+        return CompactionProfileType::CUMULATIVE;
+    }
 
     void do_lease();
 

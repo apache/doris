@@ -355,7 +355,7 @@ public:
     void get_compaction_status_json(std::string* result);
 
     Status submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                  bool force, bool eager = true);
+                                  bool force, bool eager = true, int trigger_method = 0);
     Status submit_seg_compaction_task(std::shared_ptr<SegcompactionWorker> worker,
                                       SegCompactionCandidatesSharedPtr segments);
 
@@ -451,10 +451,11 @@ private:
                                                CompactionType compaction_type);
 
     Status _submit_compaction_task(TabletSharedPtr tablet, CompactionType compaction_type,
-                                   bool force);
+                                   bool force, int trigger_method = 0);
 
     void _handle_compaction(TabletSharedPtr tablet, std::shared_ptr<CompactionMixin> compaction,
-                            CompactionType compaction_type, int64_t permits, bool force);
+                            CompactionType compaction_type, int64_t permits, bool force,
+                            int64_t compaction_id = 0);
 
     Status _submit_single_replica_compaction_task(TabletSharedPtr tablet,
                                                   CompactionType compaction_type);
