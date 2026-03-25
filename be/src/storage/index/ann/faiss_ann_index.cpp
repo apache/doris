@@ -1030,7 +1030,7 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
         }
 
         auto reader = std::make_unique<FaissIndexReader>(idx_input);
-         // IO_FLAG_SKIP_IVF_DATA: read only index metadata (quantizer, PQ codebook,
+        // IO_FLAG_SKIP_IVF_DATA: read only index metadata (quantizer, PQ codebook,
         //   inverted-list slot table) without loading the bulk inverted-list data.
         //
         // IO_FLAG_SKIP_PRECOMPUTE_TABLE: skip rebuilding the IVFPQ precomputed
