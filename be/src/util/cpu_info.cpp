@@ -381,9 +381,7 @@ void CpuInfo::_get_cache_info(long cache_sizes[NUM_CACHE_LEVELS],
 
 std::string CpuInfo::debug_string() {
     std::stringstream stream;
-    if (!initialized_) {
-        return stream.str();
-    }
+    DCHECK(initialized_);
 
     std::string L1 = absl::Substitute(
             "L1 Cache: $0 (Line: $1)",

@@ -148,9 +148,15 @@ public:
 
     static std::string debug_string();
 
-    static long get_cache_size(CacheLevel level) { return cache_sizes_[level]; }
+    static long get_cache_size(CacheLevel level) {
+        DCHECK(initialized_);
+        return cache_sizes_[level];
+    }
 
-    static long get_cache_line_size(CacheLevel level) { return cache_line_sizes_[level]; }
+    static long get_cache_line_size(CacheLevel level) {
+        DCHECK(initialized_);
+        return cache_line_sizes_[level];
+    }
 
     /// A utility class for temporarily disabling CPU features. Usage:
     ///
