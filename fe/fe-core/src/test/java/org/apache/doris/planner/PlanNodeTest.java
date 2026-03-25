@@ -28,6 +28,7 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Function.NullableMode;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TPlanNode;
 
 import com.google.common.collect.Lists;
@@ -55,12 +56,11 @@ public class PlanNodeTest {
         planNode.addIntermediateOutputTupleDescList(intermediateTuple);
         planNode.addIntermediateProjectList(Lists.newArrayList(
                 new SlotRef(scanSlotA),
-                new ArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(scanSlotB),
-                        new IntLiteral(1), Type.BIGINT, NullableMode.DEPEND_ON_ARGUMENT, true)));
+                new AnalyzedArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(scanSlotB),
+                        new IntLiteral(1), Type.BIGINT, NullableMode.DEPEND_ON_ARGUMENT)));
         planNode.setProjectList(Lists.newArrayList(
-                new ArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(projectedSlotA),
-                        new SlotRef(projectedExprSlot), Type.BIGINT,
-                        NullableMode.DEPEND_ON_ARGUMENT, true)));
+                new AnalyzedArithmeticExpr(ArithmeticExpr.Operator.ADD, new SlotRef(projectedSlotA),
+                        new SlotRef(projectedExprSlot), Type.BIGINT, NullableMode.DEPEND_ON_ARGUMENT)));
 
         List<Expr> pointQueryProjectList = planNode.getPointQueryProjectList();
         Assertions.assertEquals(1, pointQueryProjectList.size());
@@ -92,11 +92,18 @@ public class PlanNodeTest {
 
     private static class TestPlanNode extends PlanNode {
         TestPlanNode() {
-            super(new PlanNodeId(0), "TEST");
+            super(new PlanNodeId(0), "TEST", StatisticalType.DEFAULT);
         }
 
         @Override
         protected void toThrift(TPlanNode msg) {
+        }
+    }
+
+    private static class AnalyzedArithmeticExpr extends ArithmeticExpr {
+        AnalyzedArithmeticExpr(Operator op, Expr e1, Expr e2, Type returnType, NullableMode nullableMode) {
+            super(op, e1, e2, returnType, nullableMode);
+            analysisDone();
         }
     }
 }
