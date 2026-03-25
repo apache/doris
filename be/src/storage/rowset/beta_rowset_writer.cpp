@@ -1108,7 +1108,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
-                std::move(idx_file_writer));
+                std::move(idx_file_writer), true /* can_use_ram_dir */, _context.tablet_id);
     }
 
     segment_v2::SegmentWriterOptions writer_options;
