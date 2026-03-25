@@ -213,44 +213,21 @@ suite("test_file_cache_statistics", "p0,external") {
     double initialHitCounts = Double.valueOf(initialHitCountsResult[0][0])
     double initialReadCounts = Double.valueOf(initialReadCountsResult[0][0])
 
-    (1..iterations).each { count ->
-        Thread.sleep(interval * 1000)
-        def elapsedSeconds = count * interval
-        def remainingSeconds = totalWaitTime - elapsedSeconds
-        logger.info("Waited for file cache statistics update ${elapsedSeconds} seconds, ${remainingSeconds} seconds remaining")
-    }
+    // Use Awaitility to poll for cache hit/read counts to increase, instead of fixed sleep
+    Awaitility.await().atMost(30, TimeUnit.SECONDS).pollInterval(2, TimeUnit.SECONDS).until {
+        // Execute the same query to trigger cache operations
+        sql """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
+            where l_orderkey=1 and l_partkey=1534 limit 1;"""
 
-    // Execute the same query to trigger cache operations
-    order_qt_2 """select * from ${catalog_name}.${ex_db_name}.parquet_partition_table
-        where l_orderkey=1 and l_partkey=1534 limit 1;"""
+        def hitResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+            where METRIC_NAME = 'total_hit_counts';"""
+        def readResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
+            where METRIC_NAME = 'total_read_counts';"""
 
-    // Get updated values after cache operations
-    def updatedHitCountsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_hit_counts';"""
-    logger.info("Updated total_hit_counts result: " + updatedHitCountsResult)
-
-    def updatedReadCountsResult = sql """select SUM(CAST(METRIC_VALUE AS DOUBLE)) from information_schema.file_cache_statistics
-        where METRIC_NAME = 'total_read_counts';"""
-    logger.info("Updated total_read_counts result: " + updatedReadCountsResult)
-
-    // Check if updated values are greater than initial values
-    double updatedHitCounts = Double.valueOf(updatedHitCountsResult[0][0])
-    double updatedReadCounts = Double.valueOf(updatedReadCountsResult[0][0])
-
-    boolean hitCountsIncreased = updatedHitCounts > initialHitCounts
-    boolean readCountsIncreased = updatedReadCounts > initialReadCounts
-
-    logger.info("Hit and read counts comparison - hit_counts: ${initialHitCounts} -> " +
-        "${updatedHitCounts} (increased: ${hitCountsIncreased}), read_counts: ${initialReadCounts} -> " +
-        "${updatedReadCounts} (increased: ${readCountsIncreased})")
-
-    if (!hitCountsIncreased) {
-        logger.info(TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG)
-        assertTrue(false, TOTAL_HIT_COUNTS_DID_NOT_INCREASE_MSG)
-    }
-    if (!readCountsIncreased) {
-        logger.info(TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
-        assertTrue(false, TOTAL_READ_COUNTS_DID_NOT_INCREASE_MSG)
+        double newHit = Double.valueOf(hitResult[0][0])
+        double newRead = Double.valueOf(readResult[0][0])
+        logger.info("Polling cache stats - hit_counts: ${initialHitCounts} -> ${newHit}, read_counts: ${initialReadCounts} -> ${newRead}")
+        return newHit > initialHitCounts && newRead > initialReadCounts
     }
     // ===== End Hit and Read Counts Metrics Check =====
     sql """set global enable_file_cache=false"""

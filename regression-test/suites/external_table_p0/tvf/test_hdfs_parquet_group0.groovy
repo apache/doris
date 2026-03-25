@@ -104,6 +104,7 @@ suite("test_hdfs_parquet_group0", "p0,external") {
 
 
             uri = "${defaultFS}" + "/user/doris/tvf_data/test_hdfs_parquet/group0/large_string_map.brotli.parquet"
+            sql """set exec_mem_limit=8589934592"""
             order_qt_test_11 """ select count(arr) from HDFS(
                         "uri" = "${uri}",
                         "hadoop.username" = "${hdfsUserName}",

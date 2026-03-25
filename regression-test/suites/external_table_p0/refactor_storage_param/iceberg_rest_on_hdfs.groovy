@@ -290,6 +290,14 @@ suite("iceberg_rest_on_hdfs", "p0,external") {
     }
     
     String rest_port_hdfs = context.config.otherConfigs.get("iceberg_rest_uri_port_hdfs")
+    // Check REST catalog port connectivity before proceeding
+    try {
+        def socket = new Socket()
+        socket.connect(new InetSocketAddress(externalEnvIp, Integer.parseInt(rest_port_hdfs)), 3000)
+        socket.close()
+    } catch (Exception e) {
+        assertTrue(false, "Iceberg REST catalog on HDFS (${externalEnvIp}:${rest_port_hdfs}) is not reachable: ${e.message}")
+    }
     String iceberg_rest_type_prop_hdfs = """
             'type'='iceberg',
             'iceberg.catalog.type'='rest',
