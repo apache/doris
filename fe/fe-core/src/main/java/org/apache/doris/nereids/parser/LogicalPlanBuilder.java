@@ -581,6 +581,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.EncryptKeyRef
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Now;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SessionUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SysDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Xor;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
@@ -3062,6 +3063,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     @Override
     public Expression visitCurrentDate(DorisParser.CurrentDateContext ctx) {
         return new CurrentDate();
+    }
+
+    @Override
+    public Expression visitSysDate(DorisParser.SysDateContext ctx) {
+        return new SysDate();
     }
 
     @Override

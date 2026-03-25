@@ -41,11 +41,16 @@ FunctionBuilderPtr createCurDateFunctionBuilderFunction() {
     return std::make_shared<CurrentDateFunctionBuilder<CurDateFunctionName>>();
 }
 
+struct SysDateFunctionName {
+    static constexpr auto name = "sysdate";
+};
+
 struct CurTimeFunctionName {
     static constexpr auto name = "curtime";
 };
 
 using FunctionCurTime = FunctionCurrentDateOrDateTime<CurrentTimeImpl<CurTimeFunctionName>>;
+using FunctionSysDate = FunctionCurrentDateOrDateTime<SysDateImpl<SysDateFunctionName>>;
 using FunctionUtcTimeStamp = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATETIMEV2>>;
 using FunctionUtcDate = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_DATEV2>>;
 using FunctionUtcTime = FunctionCurrentDateOrDateTime<UtcImpl<PrimitiveType::TYPE_TIMEV2>>;
@@ -214,6 +219,7 @@ void register_function_date_time_computation(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionNowWithPrecision>();
     factory.register_function(CurDateFunctionName::name, &createCurDateFunctionBuilderFunction);
     factory.register_function<FunctionCurTime>();
+    factory.register_function<FunctionSysDate>();
     factory.register_function<FunctionUtcTimeStamp>();
     factory.register_function<FunctionUtcDate>();
     factory.register_function<FunctionUtcTime>();

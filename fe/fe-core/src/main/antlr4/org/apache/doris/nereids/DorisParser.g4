@@ -1642,6 +1642,7 @@ valueExpression
 
 primaryExpression
     : name=CURRENT_DATE                                                                        #currentDate
+    | name=SYSDATE                                                                             #sysDate
     | name=CURRENT_TIME                                                                        #currentTime
     | name=CURRENT_TIMESTAMP                                                                   #currentTimestamp
     | name=LOCALTIME                                                                           #localTime
@@ -2281,6 +2282,7 @@ nonReserved
     | SUBSTR
     | SUBSTRING
     | SUM
+    | SYSDATE
     | TABLES
     | TAG
     | TASK

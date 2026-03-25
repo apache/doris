@@ -1175,6 +1175,52 @@ struct CurrentTimeImpl {
     }
 };
 
+template <typename FunctionName>
+struct SysDateImpl {
+    static constexpr PrimitiveType ReturnType = TYPE_VARCHAR;
+    static constexpr auto name = FunctionName::name;
+    static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                          size_t result, size_t input_rows_count) {
+        DCHECK(arguments.size() > 1) << "function: sysdate, arguments should not more than one";
+        auto res_col = ColumnString::create();
+        ColumnString::Chars& res_buff = res_col->get_chars();
+        ColumnString::Offsets& res_offset = res_col->get_offsets();
+        res_buff.resize(12 + SAFE_FORMAT_STRING_MARGIN);
+        res_offset.resize(1);
+        auto* begin = reinterpret_cast<char*>(res_buff.data());
+        auto* pos = begin;
+        const cctz::time_zone& time_zone = context->state()->timezone_obj();
+        int64_t curr_ts = context->state()->timestamp_ms() / 1000;
+        int64_t delta_time = 0;
+        std::string format = "%Y-%m-%d";
+        if (arguments.size() > 0) {
+            const auto& arg_col = block.get_by_position(arguments[0]).column;
+            const auto& arg_data = assert_cast<const ColumnInt32&>(*arg_col);
+            delta_time = static_cast<int64_t>(arg_data.get_element(0));
+            delta_time = delta_time * 3600 * 24;
+        }
+        auto new_time = curr_ts + delta_time;
+        // Date range [0000-01-01, 9999-12-31]
+        if (new_time < -62167199351) {
+            new_time = -62167199351;
+        }
+        if (new_time > 253402233988) {
+            new_time = 253402233988;
+        }
+        VecDateTimeValue dt;
+        dt.from_unixtime(new_time, time_zone);
+        char buf[12 + SAFE_FORMAT_STRING_MARGIN];
+        dt.to_format_string_conservative(format.c_str(), format.size(), buf,
+                                         12 + SAFE_FORMAT_STRING_MARGIN);
+        auto len = strlen(buf);
+        memcpy(pos, buf, len);
+        pos += len;
+        res_offset[0] = pos - begin;
+        block.replace_by_position(result, std::move(res_col));
+        return Status::OK();
+    }
+};
+
 struct TimeToSecImpl {
     // rethink the func should return int32
     static constexpr PrimitiveType ReturnType = TYPE_INT;

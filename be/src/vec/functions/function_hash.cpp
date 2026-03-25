@@ -227,8 +227,74 @@ struct XxHashImpl {
     }
 };
 
+static Int32 StringHash(const char* s, size_t len) {
+    Int32 result = 0;
+    for (size_t i = 0; i < len; i++) {
+        result = result * 31 + s[i];
+    }
+    return result;
+}
+
+struct HashImpl {
+    static constexpr auto name = "hash";
+    static Status empty_apply(IColumn& icolumn, size_t input_rows_count) {
+        ColumnVector<TYPE_INT>& vec_to = assert_cast<ColumnVector<TYPE_INT>&>(icolumn);
+        vec_to.get_data().assign(
+                input_rows_count,
+                static_cast<typename PrimitiveTypeTraits<TYPE_INT>::CppType>(emtpy_value));
+        return Status::OK();
+    }
+
+    static Status first_apply(const IDataType* type, const IColumn* column, size_t input_rows_count,
+                              IColumn& icolumn) {
+        return execute<true>(type, column, input_rows_count, icolumn);
+    }
+
+    static Status combine_apply(const IDataType* type, const IColumn* column,
+                                size_t input_rows_count, IColumn& icolumn) {
+        return execute<false>(type, column, input_rows_count, icolumn);
+    }
+
+    template <bool first>
+    static Status execute(const IDataType* type, const IColumn* column, size_t input_rows_count,
+                          IColumn& col_to) {
+        auto& to_column = assert_cast<ColumnVector<TYPE_INT>&>(col_to);
+        if constexpr (first) {
+            to_column.insert_many_defaults(input_rows_count);
+        }
+        auto& col_to_data = to_column.get_data();
+        if (const auto* col_from = check_and_get_column<ColumnString>(column)) {
+            const typename ColumnString::Chars& data = col_from->get_chars();
+            const typename ColumnString::Offsets& offsets = col_from->get_offsets();
+            size_t size = offsets.size();
+            ColumnString::Offset current_offset = 0;
+            for (size_t i = 0; i < size; ++i) {
+                col_to_data[i] = StringHash(reinterpret_cast<const char*>(&data[current_offset]),
+                                            offsets[i] - current_offset);
+                current_offset = offsets[i];
+            }
+        } else if (const auto* col_from_const_str =
+                           check_and_get_column_const_string_or_fixedstring(column)) {
+            auto value = col_from_const_str->get_value<TYPE_VARCHAR>();
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                col_to_data[i] = StringHash(value.data(), value.size());
+            }
+        } else if (const auto* col_from_const_int = check_and_get_column<ColumnInt32>(column)) {
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                col_to_data[i] = col_from_const_int->get_element(i);
+            }
+        } else {
+            DCHECK(false);
+            return Status::NotSupported("Illegal column {} of argument of function {}",
+                                        column->get_name(), name);
+        }
+        return Status::OK();
+    }
+};
+
 using FunctionXxHash_32 = FunctionVariadicArgumentsBase<DataTypeInt32, XxHashImpl<TYPE_INT>>;
 using FunctionXxHash_64 = FunctionVariadicArgumentsBase<DataTypeInt64, XxHashImpl<TYPE_BIGINT>>;
+using FunctionHash = FunctionVariadicArgumentsBase<DataTypeInt32, HashImpl>;
 
 void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash3_32>();
@@ -238,5 +304,6 @@ void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionXxHash_32>();
     factory.register_function<FunctionXxHash_64>();
     factory.register_alias("xxhash_64", "xxhash3_64");
+    factory.register_function<FunctionHash>();
 }
 } // namespace doris::vectorized

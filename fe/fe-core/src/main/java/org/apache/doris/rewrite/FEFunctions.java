@@ -38,7 +38,10 @@ import org.apache.logging.log4j.Logger;
 
 import java.math.BigDecimal;
 import java.math.BigInteger;
+import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
+import java.util.Calendar;
+import java.util.Date;
 
 /**
  * compute functions in FE.
@@ -426,6 +429,31 @@ public class FEFunctions {
     @FEFunction(name = "current_date", argTypes = {}, returnType = "DATE")
     public static DateLiteral currentDate() {
         return curDate();
+    }
+
+    @FEFunction(name = "sysdate", argTypes = {}, returnType = "VARCHAR")
+    public static StringLiteral sysDate() {
+        Calendar cl = Calendar.getInstance();
+        Long clTemp = Long.valueOf(cl.getTimeInMillis());
+        cl.setTimeInMillis(clTemp.longValue());
+        Date date = cl.getTime();
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
+        String result = format.format(date);
+        return new StringLiteral(result);
+    }
+
+    @FEFunction(name = "sysdate", argTypes = { "INT" }, returnType = "VARCHAR")
+    public static StringLiteral sysDate(LiteralExpr arg) {
+        Calendar cl = Calendar.getInstance();
+        Long clTemp = Long.valueOf(cl.getTimeInMillis() + arg.getLongValue() * 24L * 60L * 60L * 1000L);
+        if (clTemp < 0L) {
+            clTemp = 0L;
+        }
+        cl.setTimeInMillis(clTemp.longValue());
+        Date date = cl.getTime();
+        SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd");
+        String result = format.format(date);
+        return new StringLiteral(result);
     }
 
     @FEFunction(name = "curtime", argTypes = {}, returnType = "TIMEV2")
