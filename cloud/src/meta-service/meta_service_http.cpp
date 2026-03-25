@@ -134,7 +134,7 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
     d.SetObject();
     if (code == MetaServiceCode::OK) {
         d.AddMember("code", "OK", d.GetAllocator());
-        d.AddMember("msg", "", d.GetAllocator());
+        d.AddMember("msg", rapidjson::StringRef(msg.data(), msg.size()), d.GetAllocator());
     } else {
         d.AddMember("code", rapidjson::StringRef(status_msg.data(), status_msg.size()),
                     d.GetAllocator());
