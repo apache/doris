@@ -212,10 +212,11 @@ public class PipelineCoordinator {
             taskOffsetCache.put(fetchRecord.getTaskId(), lastMeta);
         }
 
-        // Convention: standalone TVF uses a UUID jobId; job-driven TVF will use a numeric Long jobId
-        // (set via rewriteTvfParams). When the job-driven path is implemented, rewriteTvfParams must
-        // inject the job's Long jobId into the TVF properties so that generateParams() can read it,
-        // keeping isLong() correct. TODO: replace isLong() with an explicit field in FetchRecordRequest
+        // Convention: standalone TVF uses a UUID jobId; job-driven TVF will use a numeric Long
+        // jobId (set via rewriteTvfParams). When the job-driven path is implemented,
+        // rewriteTvfParams must inject the job's Long jobId into the TVF properties
+        // so that generateParams() can read it, keeping isLong() correct.
+        // TODO: replace isLong() with an explicit field in FetchRecordRequest
         // once the job-driven TVF path is fully implemented.
         if (!isLong(fetchRecord.getJobId())) {
             // TVF requires closing the window after each execution,
