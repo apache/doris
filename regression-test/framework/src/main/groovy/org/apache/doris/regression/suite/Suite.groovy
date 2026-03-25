@@ -2102,7 +2102,7 @@ class Suite implements GroovyInterceptable {
                 logger.info("The state of ${showTasks} is ${status}, taskId is ${toCheckTaskRow.get(0)}")
                 lastLoggedStatus = status
             }
-            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL') {
+            if (status == 'PENDING' || status == 'RUNNING' || status == 'NULL' || status == 'CANCELED') {
                 Thread.sleep(500);
             }
         }
