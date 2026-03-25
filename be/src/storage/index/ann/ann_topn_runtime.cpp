@@ -191,15 +191,12 @@ Status AnnTopNRuntime::prepare(RuntimeState* state, const RowDescriptor& row_des
     return Status::OK();
 }
 
-Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann_index_iterator,
+Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::AnnIndexIterator* ann_index_iterator,
                                                   roaring::Roaring* roaring, size_t rows_of_segment,
                                                   IColumn::MutablePtr& result_column,
                                                   std::unique_ptr<std::vector<uint64_t>>& row_ids,
                                                   segment_v2::AnnIndexStats& ann_index_stats) {
     DCHECK(ann_index_iterator != nullptr);
-    segment_v2::AnnIndexIterator* ann_index_iterator_casted =
-            dynamic_cast<segment_v2::AnnIndexIterator*>(ann_index_iterator);
-    DCHECK(ann_index_iterator_casted != nullptr);
     DCHECK(_order_by_expr_ctx != nullptr);
     DCHECK(_order_by_expr_ctx->root() != nullptr);
     size_t query_array_size = _query_array->size();
@@ -209,7 +206,7 @@ Status AnnTopNRuntime::evaluate_vector_ann_search(segment_v2::IndexIterator* ann
 
     // TODO:(zhiqiang) Maybe we can move this dimension check to prepare phase.
 
-    auto index_reader = ann_index_iterator_casted->get_reader(AnnIndexReaderType::ANN);
+    auto index_reader = ann_index_iterator->get_reader(AnnIndexReaderType::ANN);
     auto ann_index_reader = std::dynamic_pointer_cast<AnnIndexReader>(index_reader);
     DCHECK(ann_index_reader != nullptr);
     if (ann_index_reader->get_dimension() != query_array_size) {
