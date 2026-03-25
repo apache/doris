@@ -20,7 +20,7 @@
 //   Phase 2: Hidden retention period - user cannot see, and only ADMIN can RECOVER
 //   Phase 3: Physical deletion with is_force=true - data is permanently gone
 
-suite("test_recycle_bin_retention") {
+suite("test_recycle_bin_retention", "p0") {
 
     // Save original FE config values
     def origExpireResult = sql_return_maparray """ ADMIN SHOW FRONTEND CONFIG LIKE 'catalog_trash_expire_second' """

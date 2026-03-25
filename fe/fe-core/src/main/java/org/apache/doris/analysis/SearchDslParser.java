@@ -277,6 +277,37 @@ public class SearchDslParser {
         }
     }
 
+    private static String buildFieldPath(SearchParser.FieldPathContext ctx) {
+        if (ctx == null) {
+            throw new RuntimeException("Invalid field query: missing field path");
+        }
+
+        StringBuilder fullPath = new StringBuilder();
+        List<SearchParser.FieldSegmentContext> segments = ctx.fieldSegment();
+        for (int i = 0; i < segments.size(); i++) {
+            if (i > 0) {
+                fullPath.append('.');
+            }
+            String segment = segments.get(i).getText();
+            if (segment.startsWith("\"") && segment.endsWith("\"")) {
+                segment = segment.substring(1, segment.length() - 1);
+            }
+            fullPath.append(segment);
+        }
+        return fullPath.toString();
+    }
+
+    private static String normalizeNestedFieldPath(String fieldPath, @Nullable String nestedPath) {
+        if (nestedPath == null || nestedPath.isEmpty()) {
+            return fieldPath;
+        }
+        if (fieldPath.equals(nestedPath) || fieldPath.startsWith(nestedPath + ".")) {
+            throw new SearchDslSyntaxException("Fields in NESTED predicates must be relative to nested path: "
+                    + nestedPath + ", but got: " + fieldPath);
+        }
+        return nestedPath + "." + fieldPath;
+    }
+
     /**
      * Collect all field names from an AST node recursively.
      * @param node The AST node to collect from
@@ -472,6 +503,7 @@ public class SearchDslParser {
             // Build AST using first field as placeholder for bare queries, with default operator
             QsAstBuilder visitor = new QsAstBuilder(fields.get(0), defaultOperator);
             QsNode root = visitor.visit(tree);
+            validateNestedTopLevelOnly(root);
 
             // Apply multi-field expansion based on type
             QsNode expandedRoot;
@@ -563,6 +595,7 @@ public class SearchDslParser {
             // Use constructor with override to avoid mutating shared options object (thread-safety)
             QsLuceneModeAstBuilder visitor = new QsLuceneModeAstBuilder(effectiveOptions, fields.get(0));
             QsNode root = visitor.visit(tree);
+            validateNestedTopLevelOnly(root);
 
             // In ES query_string, both best_fields and cross_fields use per-clause expansion
             // (each clause is independently expanded across fields). The difference is only
@@ -646,6 +679,8 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         private final Set<String> fieldNames = new LinkedHashSet<>();
         // Context stack to track current field name during parsing
         private String currentFieldName = null;
+        // Current nested path when visiting NESTED(path, predicates)
+        private String currentNestedPath = null;
         // Default field for bare queries (without field: prefix)
         private final String defaultField;
         // Default operator for implicit conjunction (space-separated terms): "AND" or "OR"
@@ -822,6 +857,9 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
 
         @Override
         public QsNode visitBareQuery(SearchParser.BareQueryContext ctx) {
+            if (currentNestedPath != null && (currentFieldName == null || currentFieldName.isEmpty())) {
+                throw new SearchDslSyntaxException("Bare queries are not supported inside NESTED predicates");
+            }
             // Use currentFieldName if inside a field group context (set by visitFieldGroupQuery),
             // otherwise fall back to the configured defaultField.
             String effectiveField = (currentFieldName != null && !currentFieldName.isEmpty())
@@ -858,60 +896,29 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             if (ctx.NESTED_PATH() == null) {
                 throw new RuntimeException("Invalid NESTED clause: missing path");
             }
+            if (currentNestedPath != null) {
+                throw new SearchDslSyntaxException("Nested NESTED() is not supported");
+            }
             String nestedPath = ctx.NESTED_PATH().getText();
-            QsNode innerQuery = visit(ctx.clause());
-            if (innerQuery == null) {
-                throw new RuntimeException("Invalid NESTED clause: missing inner query");
-            }
-
-            validateNestedFieldPaths(innerQuery, nestedPath);
-
-            QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
-            node.nestedPath = nestedPath;
-            return node;
-        }
-
-        private void validateNestedFieldPaths(QsNode node, String nestedPath) {
-            if (node == null) {
-                return;
-            }
-            if (node.type == QsClauseType.NESTED) {
-                throw new RuntimeException("Nested NESTED() is not supported: " + nestedPath);
-            }
-            if (node.field != null && !node.field.startsWith(nestedPath + ".")) {
-                throw new RuntimeException("Fields in NESTED query must start with nested path: "
-                        + nestedPath + ", but got: " + node.field);
-            }
-            if (node.children != null) {
-                for (QsNode child : node.children) {
-                    validateNestedFieldPaths(child, nestedPath);
+            String previousNestedPath = currentNestedPath;
+            currentNestedPath = nestedPath;
+            try {
+                QsNode innerQuery = visit(ctx.clause());
+                if (innerQuery == null) {
+                    throw new RuntimeException("Invalid NESTED clause: missing inner query");
                 }
+
+                QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
+                node.nestedPath = nestedPath;
+                return node;
+            } finally {
+                currentNestedPath = previousNestedPath;
             }
         }
 
         @Override
         public QsNode visitFieldQuery(SearchParser.FieldQueryContext ctx) {
-            if (ctx.fieldPath() == null) {
-                throw new RuntimeException("Invalid field query: missing field path");
-            }
-
-            // Build complete field path from segments (support field.subcolumn syntax)
-            StringBuilder fullPath = new StringBuilder();
-            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
-
-            for (int i = 0; i < segments.size(); i++) {
-                if (i > 0) {
-                    fullPath.append('.');
-                }
-                String segment = segments.get(i).getText();
-                // Remove quotes if present
-                if (segment.startsWith("\"") && segment.endsWith("\"")) {
-                    segment = segment.substring(1, segment.length() - 1);
-                }
-                fullPath.append(segment);
-            }
-
-            String fieldPath = fullPath.toString();
+            String fieldPath = normalizeNestedFieldPath(buildFieldPath(ctx.fieldPath()), currentNestedPath);
             fieldNames.add(fieldPath);
 
             // Set current field context before visiting search value
@@ -941,21 +948,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 throw new SearchDslSyntaxException("Invalid field group query: missing field path");
             }
 
-            // Build complete field path from segments (support field.subcolumn syntax)
-            StringBuilder fullPath = new StringBuilder();
-            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
-            for (int i = 0; i < segments.size(); i++) {
-                if (i > 0) {
-                    fullPath.append('.');
-                }
-                String segment = segments.get(i).getText();
-                if (segment.startsWith("\"") && segment.endsWith("\"")) {
-                    segment = segment.substring(1, segment.length() - 1);
-                }
-                fullPath.append(segment);
-            }
-
-            String fieldPath = fullPath.toString();
+            String fieldPath = normalizeNestedFieldPath(buildFieldPath(ctx.fieldPath()), currentNestedPath);
             fieldNames.add(fieldPath);
 
             // Set field group context so bare terms inside use this field
@@ -2075,6 +2068,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
         private final Set<String> fieldNames = new LinkedHashSet<>();
         private final SearchOptions options;
         private String currentFieldName = null;
+        private String currentNestedPath = null;
         // Override for default field - used in multi-field mode to avoid mutating options
         private final String overrideDefaultField;
         private int nestingLevel = 0;
@@ -2301,6 +2295,8 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 } finally {
                     nestingLevel--;
                 }
+            } else if (atomCtx.nestedQuery() != null) {
+                node = visit(atomCtx.nestedQuery());
             } else if (atomCtx.fieldGroupQuery() != null) {
                 // Field group query (e.g., title:(rock OR jazz))
                 node = visit(atomCtx.fieldGroupQuery());
@@ -2464,6 +2460,9 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
 
         @Override
         public QsNode visitBareQuery(SearchParser.BareQueryContext ctx) {
+            if (currentNestedPath != null && (currentFieldName == null || currentFieldName.isEmpty())) {
+                throw new SearchDslSyntaxException("Bare queries are not supported inside NESTED predicates");
+            }
             // Use currentFieldName if inside a field group context (set by visitFieldGroupQuery),
             // otherwise fall back to the effective default field.
             String defaultField = getEffectiveDefaultField();
@@ -2501,55 +2500,29 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             if (ctx.NESTED_PATH() == null) {
                 throw new RuntimeException("Invalid NESTED clause: missing path");
             }
+            if (currentNestedPath != null) {
+                throw new SearchDslSyntaxException("Nested NESTED() is not supported");
+            }
             String nestedPath = ctx.NESTED_PATH().getText();
-            QsNode innerQuery = visit(ctx.clause());
-            if (innerQuery == null) {
-                throw new RuntimeException("Invalid NESTED clause: missing inner query");
-            }
-
-            validateNestedFieldPaths(innerQuery, nestedPath);
-
-            QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
-            node.nestedPath = nestedPath;
-            return node;
-        }
-
-        private void validateNestedFieldPaths(QsNode node, String nestedPath) {
-            if (node == null) {
-                return;
-            }
-            if (node.type == QsClauseType.NESTED) {
-                throw new RuntimeException("Nested NESTED() is not supported: " + nestedPath);
-            }
-            if (node.field != null && !node.field.startsWith(nestedPath + ".")) {
-                throw new RuntimeException("Fields in NESTED query must start with nested path: "
-                        + nestedPath + ", but got: " + node.field);
-            }
-            if (node.children != null) {
-                for (QsNode child : node.children) {
-                    validateNestedFieldPaths(child, nestedPath);
+            String previousNestedPath = currentNestedPath;
+            currentNestedPath = nestedPath;
+            try {
+                QsNode innerQuery = visit(ctx.clause());
+                if (innerQuery == null) {
+                    throw new RuntimeException("Invalid NESTED clause: missing inner query");
                 }
+
+                QsNode node = new QsNode(QsClauseType.NESTED, Collections.singletonList(innerQuery));
+                node.nestedPath = nestedPath;
+                return node;
+            } finally {
+                currentNestedPath = previousNestedPath;
             }
         }
 
         @Override
         public QsNode visitFieldQuery(SearchParser.FieldQueryContext ctx) {
-            // Build complete field path
-            StringBuilder fullPath = new StringBuilder();
-            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
-
-            for (int i = 0; i < segments.size(); i++) {
-                if (i > 0) {
-                    fullPath.append('.');
-                }
-                String segment = segments.get(i).getText();
-                if (segment.startsWith("\"") && segment.endsWith("\"")) {
-                    segment = segment.substring(1, segment.length() - 1);
-                }
-                fullPath.append(segment);
-            }
-
-            String fieldPath = fullPath.toString();
+            String fieldPath = normalizeNestedFieldPath(buildFieldPath(ctx.fieldPath()), currentNestedPath);
             fieldNames.add(fieldPath);
 
             String previousFieldName = currentFieldName;
@@ -2571,21 +2544,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
                 throw new SearchDslSyntaxException("Invalid field group query: missing field path");
             }
 
-            // Build complete field path from segments (support field.subcolumn syntax)
-            StringBuilder fullPath = new StringBuilder();
-            List<SearchParser.FieldSegmentContext> segments = ctx.fieldPath().fieldSegment();
-            for (int i = 0; i < segments.size(); i++) {
-                if (i > 0) {
-                    fullPath.append('.');
-                }
-                String segment = segments.get(i).getText();
-                if (segment.startsWith("\"") && segment.endsWith("\"")) {
-                    segment = segment.substring(1, segment.length() - 1);
-                }
-                fullPath.append(segment);
-            }
-
-            String fieldPath = fullPath.toString();
+            String fieldPath = normalizeNestedFieldPath(buildFieldPath(ctx.fieldPath()), currentNestedPath);
             fieldNames.add(fieldPath);
 
             // Set field group context so bare terms inside use this field
@@ -2724,7 +2683,7 @@ MATCH_ALL_DOCS, // Matches all documents (used for pure NOT query rewriting)
             return;
         }
         if (node.type == QsClauseType.NESTED && !isRoot) {
-            throw new RuntimeException("NESTED clause must be evaluated at top level");
+            throw new SearchDslSyntaxException("NESTED clause must be evaluated at top level");
         }
         if (node.children == null || node.children.isEmpty()) {
             return;
