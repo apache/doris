@@ -259,10 +259,14 @@ public class IcebergTransaction implements Transaction {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
-                // Format version validation is handled by the Iceberg library itself
-                // (e.g., RowDelta.commit() will reject position deletes on v1 tables).
-                // Do NOT check table.properties().get("format-version") here — that property
-                // is not always present even for v2 tables (e.g., Trino-created tables).
+                if (table instanceof org.apache.iceberg.HasTableOperations) {
+                    int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
+                            .current().formatVersion();
+                    if (formatVersion < 2) {
+                        throw new IllegalArgumentException("Iceberg table " + dorisTable.getName()
+                                + " must have format version 2 or higher for position deletes");
+                    }
+                }
                 this.transaction = table.newTransaction();
                 LOG.info("Started delete transaction for table: {}", dorisTable.getName());
             });
@@ -281,6 +285,14 @@ public class IcebergTransaction implements Transaction {
                 this.branchName = null;
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
                 this.baseSnapshotId = getSnapshotIdIfPresent(table);
+                if (table instanceof org.apache.iceberg.HasTableOperations) {
+                    int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
+                            .current().formatVersion();
+                    if (formatVersion < 2) {
+                        throw new IllegalArgumentException("Iceberg table " + dorisTable.getName()
+                                + " must have format version 2 or higher for position deletes");
+                    }
+                }
                 this.transaction = table.newTransaction();
                 LOG.info("Started merge transaction for table: {}", dorisTable.getName());
                 return null;

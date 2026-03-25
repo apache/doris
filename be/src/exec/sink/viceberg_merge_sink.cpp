@@ -25,6 +25,7 @@
 #include "core/block/block.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "exec/sink/sink_common.h"
 #include "exec/sink/viceberg_delete_sink.h"
 #include "exec/sink/writer/iceberg/viceberg_table_writer.h"
 #include "format/table/iceberg/schema.h"
@@ -34,15 +35,7 @@
 
 namespace doris {
 
-namespace {
-constexpr int8_t kInsertOperation = 1;
-constexpr int8_t kDeleteOperation = 2;
-constexpr int8_t kUpdateOperation = 3;
-constexpr int8_t kUpdateInsertOperation = 4;
-constexpr int8_t kUpdateDeleteOperation = 5;
-
-constexpr const char* kOperationColumnName = "operation";
-} // namespace
+namespace {} // namespace
 
 VIcebergMergeSink::VIcebergMergeSink(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                      std::shared_ptr<Dependency> dep,
@@ -118,8 +111,8 @@ Status VIcebergMergeSink::write(RuntimeState* state, Block& block) {
 
     for (size_t i = 0; i < output_block.rows(); ++i) {
         int8_t op = static_cast<int8_t>(op_data->get_int(i));
-        bool delete_op = _is_delete_op(op);
-        bool insert_op = _is_insert_op(op);
+        bool delete_op = is_delete_op(op);
+        bool insert_op = is_insert_op(op);
         if (!delete_op && !insert_op) {
             return Status::InternalError("Unknown Iceberg merge operation {}", op);
         }
@@ -342,29 +335,7 @@ Status VIcebergMergeSink::_prepare_output_layout() {
         _table_output_expr_ctxs.emplace_back(_vec_output_expr_ctxs[i]);
     }
 
-    if (_t_sink.iceberg_merge_sink.__isset.schema_json) {
-        try {
-            std::unique_ptr<iceberg::Schema> schema =
-                    iceberg::SchemaParser::from_json(_t_sink.iceberg_merge_sink.schema_json);
-            if (_table_output_expr_ctxs.size() != schema->columns().size()) {
-                return Status::InternalError(
-                        "Iceberg merge sink data columns {} do not match schema columns {}",
-                        _table_output_expr_ctxs.size(), schema->columns().size());
-            }
-        } catch (doris::Exception& e) {
-            return e.to_status();
-        }
-    }
-
     return Status::OK();
-}
-
-bool VIcebergMergeSink::_is_delete_op(int8_t op) const {
-    return op == kDeleteOperation || op == kUpdateDeleteOperation || op == kUpdateOperation;
-}
-
-bool VIcebergMergeSink::_is_insert_op(int8_t op) const {
-    return op == kInsertOperation || op == kUpdateInsertOperation || op == kUpdateOperation;
 }
 
 } // namespace doris

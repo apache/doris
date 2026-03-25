@@ -60,8 +60,6 @@ public:
 private:
     Status _build_inner_sinks();
     Status _prepare_output_layout();
-    bool _is_delete_op(int8_t op) const;
-    bool _is_insert_op(int8_t op) const;
 
     TDataSink _t_sink;
     TDataSink _table_sink;

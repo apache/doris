@@ -89,6 +89,12 @@ Status VIcebergTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
         partition_idx_set.insert(iceberg_partition_column.source_idx());
     }
 
+    if (_vec_output_expr_ctxs.size() != _schema->columns().size()) {
+        return Status::InternalError(
+                "Iceberg table writer data columns {} do not match schema columns {}",
+                _vec_output_expr_ctxs.size(), _schema->columns().size());
+    }
+
     for (int i = 0; i < _schema->columns().size(); ++i) {
         _write_output_vexpr_ctxs.emplace_back(_vec_output_expr_ctxs[i]);
     }

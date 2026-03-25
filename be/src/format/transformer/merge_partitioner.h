@@ -44,8 +44,6 @@ private:
     void _apply_insert_rebalance(const std::vector<int8_t>& ops,
                                  std::vector<uint32_t>& insert_hashes, size_t block_bytes) const;
     void _init_insert_scaling(RuntimeState* state);
-    bool _is_insert_op(int8_t op) const;
-    bool _is_delete_op(int8_t op) const;
     uint32_t _next_rr_channel() const;
     Status _clone_expr_ctxs(RuntimeState* state, const VExprContextSPtrs& src,
                             VExprContextSPtrs& dst) const;

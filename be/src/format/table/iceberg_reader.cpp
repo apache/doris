@@ -100,16 +100,6 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
 Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(_expand_block_if_need(block));
 
-    if (_need_row_id_column) {
-        if (auto* parquet_reader = dynamic_cast<ParquetReader*>(_file_format_reader.get())) {
-            parquet_reader->set_iceberg_rowid_params(_current_file_path, _partition_spec_id,
-                                                     _partition_data_json, _row_id_column_position);
-        } else if (auto* orc_reader = dynamic_cast<OrcReader*>(_file_format_reader.get())) {
-            orc_reader->set_iceberg_rowid_params(_current_file_path, _partition_spec_id,
-                                                 _partition_data_json, _row_id_column_position);
-        }
-    }
-
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
 
     if (_equality_delete_impls.size() > 0) {
@@ -151,7 +141,13 @@ Status IcebergTableReader::init_row_filters() {
             partition_data_json = table_desc.partition_data_json;
         }
 
-        set_current_file_info(file_path, partition_spec_id, partition_data_json);
+        if (auto* parquet_reader = dynamic_cast<ParquetReader*>(_file_format_reader.get())) {
+            parquet_reader->set_iceberg_rowid_params(file_path, partition_spec_id,
+                                                     partition_data_json, _row_id_column_position);
+        } else if (auto* orc_reader = dynamic_cast<OrcReader*>(_file_format_reader.get())) {
+            orc_reader->set_iceberg_rowid_params(file_path, partition_spec_id, partition_data_json,
+                                                 _row_id_column_position);
+        }
         LOG(INFO) << "Initialized $row_id generation for file: " << file_path
                   << ", partition_spec_id: " << partition_spec_id;
     }

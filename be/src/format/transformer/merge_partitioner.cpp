@@ -28,18 +28,13 @@
 #include "core/column/column_const.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_vector.h"
+#include "exec/sink/sink_common.h"
 #include "format/transformer/iceberg_partition_function.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
 namespace {
-constexpr int8_t kInsertOperation = 1;
-constexpr int8_t kDeleteOperation = 2;
-constexpr int8_t kUpdateOperation = 3;
-constexpr int8_t kUpdateInsertOperation = 4;
-constexpr int8_t kUpdateDeleteOperation = 5;
-
 int64_t scale_threshold_by_task(int64_t value, int task_num) {
     if (task_num <= 0) {
         return value;
@@ -146,10 +141,10 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
     for (size_t i = 0; i < rows; ++i) {
         int8_t op = static_cast<int8_t>(op_data->get_int(i));
         ops[i] = op;
-        if (_is_insert_op(op)) {
+        if (is_insert_op(op)) {
             has_insert = true;
         }
-        if (_is_delete_op(op)) {
+        if (is_delete_op(op)) {
             has_delete = true;
         }
         if (op == kUpdateOperation) {
@@ -202,9 +197,9 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
             _channel_ids[i] = delete_hashes[i];
             continue;
         }
-        if (_is_insert_op(op)) {
+        if (is_insert_op(op)) {
             _channel_ids[i] = _insert_random ? _next_rr_channel() : insert_hashes[i];
-        } else if (_is_delete_op(op)) {
+        } else if (is_delete_op(op)) {
             _channel_ids[i] = delete_hashes[i];
         } else {
             return Status::InternalError("Unknown Iceberg merge operation {}", op);
@@ -250,9 +245,10 @@ Status MergePartitioner::do_partitioning(RuntimeState* state, Block* block) cons
         }
         // Mark the newly appended rows as INSERT and assign their channels.
         DCHECK(_insert_random || !insert_hashes.empty());
-        for (size_t row : update_rows) {
-            op_values[op_values.size() - update_rows.size() + (&row - &update_rows[0])] =
-                    kUpdateInsertOperation;
+        const size_t appended_update_begin = rows;
+        for (size_t idx = 0; idx < update_rows.size(); ++idx) {
+            const size_t row = update_rows[idx];
+            op_values[appended_update_begin + idx] = kUpdateInsertOperation;
             const uint32_t insert_channel =
                     _insert_random ? _next_rr_channel() : insert_hashes[row];
             _channel_ids.push_back(insert_channel);
@@ -293,7 +289,7 @@ void MergePartitioner::_apply_insert_rebalance(const std::vector<int8_t>& ops,
     }
     std::vector<uint8_t> mask(ops.size(), 0);
     for (size_t i = 0; i < ops.size(); ++i) {
-        if (_is_insert_op(ops[i])) {
+        if (is_insert_op(ops[i])) {
             mask[i] = 1;
         }
     }
@@ -340,14 +336,6 @@ void MergePartitioner::_init_insert_scaling(RuntimeState* state) {
             static_cast<int>(_insert_partition_count), static_cast<int>(_partition_count), 1,
             min_partition_threshold, min_data_threshold);
     _enable_insert_rebalance = true;
-}
-
-bool MergePartitioner::_is_insert_op(int8_t op) const {
-    return op == kInsertOperation || op == kUpdateInsertOperation || op == kUpdateOperation;
-}
-
-bool MergePartitioner::_is_delete_op(int8_t op) const {
-    return op == kDeleteOperation || op == kUpdateDeleteOperation || op == kUpdateOperation;
 }
 
 uint32_t MergePartitioner::_next_rr_channel() const {

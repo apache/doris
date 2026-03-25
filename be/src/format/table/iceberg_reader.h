@@ -77,12 +77,6 @@ public:
     void set_need_row_id_column(bool need) { _need_row_id_column = need; }
     bool need_row_id_column() const { return _need_row_id_column; }
     void set_row_id_column_position(int position) { _row_id_column_position = position; }
-    void set_current_file_info(const std::string& file_path, int32_t partition_spec_id,
-                               const std::string& partition_data_json) {
-        _current_file_path = file_path;
-        _partition_spec_id = partition_spec_id;
-        _partition_data_json = partition_data_json;
-    }
 
     Status init_row_filters() final;
 
@@ -117,9 +111,6 @@ protected:
     // $row_id metadata column generation state
     bool _need_row_id_column = false;
     int _row_id_column_position = -1;
-    std::string _current_file_path;
-    int32_t _partition_spec_id = 0;
-    std::string _partition_data_json;
     /**
      * https://iceberg.apache.org/spec/#position-delete-files
      * The rows in the delete file must be sorted by file_path then position to optimize filtering rows while scanning.
