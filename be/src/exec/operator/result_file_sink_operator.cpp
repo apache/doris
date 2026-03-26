@@ -135,9 +135,13 @@ Status ResultFileSinkLocalState::close(RuntimeState* state, Status exec_status) 
         state->get_query_ctx()->resource_ctx()->io_context()->update_returned_rows(written_rows);
         RETURN_IF_ERROR(_sender->close(state->fragment_instance_id(), final_status, written_rows));
     }
+    // In parallel outfile mode, the buffer is registered under query_id; otherwise
+    // it is registered under fragment_instance_id.  Pass the matching key so the
+    // deferred cancel actually finds and removes the buffer entry.
     state->exec_env()->result_mgr()->cancel_at_time(
             time(nullptr) + config::result_buffer_cancelled_interval_time,
-            state->fragment_instance_id());
+            state->query_options().enable_parallel_outfile ? state->query_id()
+                                                           : state->fragment_instance_id());
 
     return Base::close(state, exec_status);
 }
