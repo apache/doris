@@ -229,30 +229,24 @@ static void init_slot_value_range(
         slot_id_to_value_range[slot->id()] = std::move(range);                         \
         break;                                                                         \
     }
-#define APPLY_FOR_SCALAR_TYPE(M) \
-    M(TINYINT)                   \
-    M(SMALLINT)                  \
-    M(INT)                       \
-    M(BIGINT)                    \
-    M(LARGEINT)                  \
-    M(FLOAT)                     \
-    M(DOUBLE)                    \
-    M(CHAR)                      \
-    M(DATE)                      \
-    M(DATETIME)                  \
-    M(DATEV2)                    \
-    M(DATETIMEV2)                \
-    M(TIMESTAMPTZ)               \
-    M(VARCHAR)                   \
-    M(STRING)                    \
-    M(DECIMAL32)                 \
-    M(DECIMAL64)                 \
-    M(DECIMAL128I)               \
-    M(DECIMAL256)                \
-    M(DECIMALV2)                 \
-    M(BOOLEAN)                   \
-    M(IPV4)                      \
-    M(IPV6)
+#define APPLY_FOR_SCALAR_TYPE(M)                                                             \
+    M(TINYINT)                                                                               \
+    M(SMALLINT)                                                                              \
+    M(INT)                                                                                   \
+    M(BIGINT)                                                                                \
+    M(LARGEINT)                                                                              \
+    M(FLOAT)                                                                                 \
+    M(DOUBLE)                                                                                \
+    M(CHAR)                                                                                  \
+    M(DATE)                                                                                  \
+    M(DATETIME)                                                                              \
+    M(DATEV2)                                                                                \
+    M(DATETIMEV2)                                                                            \
+    M(TIMESTAMPTZ)                                                                           \
+    M(VARCHAR)                                                                               \
+    M(VARCHAR)                   \ 
+    M(STRING) M(DECIMAL32) M(DECIMAL64) M(DECIMAL128I) M(DECIMAL256) M(DECIMALV2) M(BOOLEAN) \
+            M(IPV4) M(IPV6)
         APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
     default: {
