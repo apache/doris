@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
@@ -45,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.planner.AggregationNode;
@@ -384,5 +387,33 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         Assertions.assertEquals(1, rootFragment.getOutputExprs().size());
         Assertions.assertInstanceOf(SlotRef.class, rootFragment.getOutputExprs().get(0));
         Assertions.assertEquals("Status", ((SlotRef) rootFragment.getOutputExprs().get(0)).getColumnName());
+    }
+
+    @Test
+    public void testCollectGroupBySlotsReuseOutputAliasForNullLiteral() throws Exception {
+        NullLiteral nullLiteral = new NullLiteral(TinyIntType.INSTANCE);
+        Alias nullAlias = new Alias(nullLiteral);
+        Method collectGroupBySlots = PhysicalPlanTranslator.class.getDeclaredMethod(
+                "collectGroupBySlots", List.class, List.class);
+        collectGroupBySlots.setAccessible(true);
+
+        @SuppressWarnings("unchecked")
+        List<SlotReference> groupSlots = (List<SlotReference>) collectGroupBySlots.invoke(
+                new PhysicalPlanTranslator(),
+                ImmutableList.of(nullLiteral),
+                ImmutableList.of(nullAlias));
+
+        Assertions.assertEquals(1, groupSlots.size());
+        Assertions.assertEquals(nullAlias.toSlot().getExprId(), groupSlots.get(0).getExprId());
+    }
+
+    @Test
+    public void testCountDistinctNullCanTranslate() throws Exception {
+        Planner planner = getSQLPlanner("select count(distinct null) from test_db.t");
+
+        Assertions.assertNotNull(planner);
+        Assertions.assertFalse(planner.getFragments().isEmpty());
+        Assertions.assertEquals(1, planner.getFragments().get(0).getOutputExprs().size());
+        Assertions.assertInstanceOf(SlotRef.class, planner.getFragments().get(0).getOutputExprs().get(0));
     }
 }
