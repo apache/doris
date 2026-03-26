@@ -51,6 +51,8 @@ struct CastFromVariant {
             DCHECK(!data_type_to->is_nullable());
             auto new_context = context->clone();
             new_context->set_jsonb_string_as_string(true);
+            // Strict mode is for user INSERT validation, not variant internal conversion.
+            new_context->set_enable_strict_mode(false);
             // dst type nullable has been removed, so we should remove the inner nullable of root column
             auto wrapper = prepare_impl(new_context.get(), remove_nullable(nested_from_type),
                                         data_type_to);

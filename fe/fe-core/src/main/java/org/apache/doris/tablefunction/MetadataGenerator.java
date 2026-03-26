@@ -87,6 +87,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QeProcessorImpl.QueryInfo;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.workloadgroup.WorkloadGroupMgr;
+import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.FrontendService;
@@ -94,6 +95,7 @@ import org.apache.doris.thrift.TBackendsMetadataParams;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TFetchSchemaTableDataRequest;
 import org.apache.doris.thrift.TFetchSchemaTableDataResult;
+import org.apache.doris.thrift.TFrontendsMetadataParams;
 import org.apache.doris.thrift.THudiMetadataParams;
 import org.apache.doris.thrift.THudiQueryType;
 import org.apache.doris.thrift.TJobsMetadataParams;
@@ -534,11 +536,12 @@ public class MetadataGenerator {
             return errorResult("frontends metadata param is not set.");
         }
 
+        TFrontendsMetadataParams frontendsParam = params.getFrontendsMetadataParams();
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
 
         List<TRow> dataBatch = Lists.newArrayList();
         List<List<String>> infos = Lists.newArrayList();
-        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos);
+        FrontendsProcNode.getFrontendsInfo(Env.getCurrentEnv(), infos, frontendsParam.getCurrentConnectedFeHost());
         for (List<String> info : infos) {
             TRow trow = new TRow();
             for (String item : info) {
@@ -1575,8 +1578,8 @@ public class MetadataGenerator {
         return result;
     }
 
-    private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity,
-            CatalogIf catalog, DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone) {
+    private static void partitionsForInternalCatalog(UserIdentity currentUserIdentity, CatalogIf catalog,
+            DatabaseIf database, List<TableIf> tables, List<TRow> dataBatch, String timeZone, Long threadId) {
         for (TableIf table : tables) {
             if (!(table instanceof OlapTable)) {
                 continue;
@@ -1663,7 +1666,16 @@ public class MetadataGenerator {
                     trow.addToColumnValue(new TCell().setIntVal(partition.getDistributionInfo()
                             .getBucketNum())); // BUCKET_NUM
                     trow.addToColumnValue(new TCell().setLongVal(partition.getCommittedVersion())); // COMMITTED_VERSION
-                    trow.addToColumnValue(new TCell().setLongVal(partition.getVisibleVersion())); // VISIBLE_VERSION
+                    ConnectContext ctx =
+                            ExecuteEnv.getInstance().getScheduler().getContext(threadId.intValue());
+                    boolean useCachedVisibleVersion = ctx != null
+                            && ctx.getSessionVariable().getCloudPartitionsTableUseCachedVisibleVersion();
+                    if (useCachedVisibleVersion) {
+                        trow.addToColumnValue(
+                                new TCell().setLongVal(partition.getCachedVisibleVersion())); // VISIBLE_VERSION
+                    } else {
+                        trow.addToColumnValue(new TCell().setLongVal(partition.getVisibleVersion())); // VISIBLE_VERSION
+                    }
                     if (partitionInfo.getType() == PartitionType.RANGE
                             || partitionInfo.getType() == PartitionType.LIST) {
                         List<Column> partitionColumns = partitionInfo.getPartitionColumns();
@@ -1736,6 +1748,7 @@ public class MetadataGenerator {
         TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
         Long dbId = params.getDbId();
         String clg = params.getCatalog();
+        Long threadId = params.getThreadId();
         List<TRow> dataBatch = Lists.newArrayList();
         CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(clg);
         if (catalog == null) {
@@ -1758,7 +1771,7 @@ public class MetadataGenerator {
         List<TableIf> tables = database.getTables();
         if (catalog instanceof InternalCatalog) {
             // only olap tables
-            partitionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone);
+            partitionsForInternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone, threadId);
         } else if (catalog instanceof ExternalCatalog) {
             partitionsForExternalCatalog(currentUserIdentity, catalog, database, tables, dataBatch, timezone);
         }

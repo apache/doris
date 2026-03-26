@@ -82,6 +82,7 @@ enum class InvertedIndexQueryType {
     WILDCARD_QUERY = 12,
     RANGE_QUERY = 13,
     LIST_QUERY = 14,
+    SEARCH_DSL_QUERY = 15,
 };
 
 inline bool is_equal_query(InvertedIndexQueryType query_type) {
@@ -153,6 +154,9 @@ inline std::string query_type_to_string(InvertedIndexQueryType query_type) {
     }
     case InvertedIndexQueryType::LIST_QUERY: {
         return "LIST";
+    }
+    case InvertedIndexQueryType::SEARCH_DSL_QUERY: {
+        return "SEARCH_DSL";
     }
     default:
         return "";

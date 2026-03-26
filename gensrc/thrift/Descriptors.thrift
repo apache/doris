@@ -271,6 +271,9 @@ struct TOlapTablePartition {
     11: optional i64 load_tablet_idx
     12: optional i32 total_replica_num
     13: optional i32 load_required_replica_num
+    // tablet_id -> list of backend_ids that have version gaps (lastFailedVersion >= 0)
+    // used by BE to exclude these backends from success counting in majority write
+    14: optional map<i64, list<i64>> tablet_version_gap_backends
 }
 
 struct TOlapTablePartitionParam {
@@ -437,13 +440,14 @@ struct TMCTable {
   1: optional string region // deprecated
   2: optional string project
   3: optional string table
-  4: optional string access_key
-  5: optional string secret_key
+  4: optional string access_key // deprecated
+  5: optional string secret_key // deprecated
   6: optional string public_access // deprecated
   7: optional string odps_url   // deprecated
   8: optional string tunnel_url // deprecated 
   9: optional string endpoint
   10: optional string quota
+  11: optional map<string, string> properties // contains authentication properties
 }
 
 struct TTrinoConnectorTable {

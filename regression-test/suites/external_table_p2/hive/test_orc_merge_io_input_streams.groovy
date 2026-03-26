@@ -17,22 +17,23 @@
 
 suite("test_orc_merge_io_input_streams", "p2,external,hive,external_remote,external_remote_hive") {
 
-    String enabled = context.config.otherConfigs.get("enableExternalHudiTest")
+    String enabled = context.config.otherConfigs.get("enableExternalEmrTest")
     //hudi hive use same catalog in p2.
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("disable test")
         return;
     }
 
-    String props = context.config.otherConfigs.get("hudiEmrCatalog")
+    String props = context.config.otherConfigs.get("emrCatalogCommonProp")
     String hms_catalog_name = "test_orc_merge_io_input_streams"
 
     sql """drop catalog if exists ${hms_catalog_name};"""
     sql """
         CREATE CATALOG IF NOT EXISTS ${hms_catalog_name}
         PROPERTIES (
+            "type" = "hms",
+            'hive.version' = '3.1.3', 
             ${props}
-            ,'hive.version' = '3.1.3'
         );
     """
 
@@ -50,3 +51,13 @@ suite("test_orc_merge_io_input_streams", "p2,external,hive,external_remote,exter
     sql """drop catalog ${hms_catalog_name};"""
 }
 
+// create table test_orc_merge_io_input_streams_table (
+//     dt string, 
+//     type string,
+//     risk_flow_id string,
+//     trace_id string,
+//     created_time string,
+//     created_ts bigint,
+//     subflow_decision string
+// )stored as orc;
+// load data local inpath '004691_0' into table test_orc_merge_io_input_streams_table;

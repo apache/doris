@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_inverted_index") {
+suite("test_search_inverted_index", "p0") {
     def tableWithIndex = "search_index_test_table"
     def tableWithoutIndex = "search_no_index_test_table"
 

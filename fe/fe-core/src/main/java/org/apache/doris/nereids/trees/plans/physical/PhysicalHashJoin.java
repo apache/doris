@@ -289,11 +289,11 @@ public class PhysicalHashJoin<
         // left/right outer join propagate left/right uniforms slots
         // And if the right/left hash keys is unique,
         // join can propagate left/right functional dependencies
-        if (joinType.isLeftOuterJoin() && isRightUnique) {
+        if ((joinType.isLeftOuterJoin() || joinType.isAsofLeftOuterJoin()) && isRightUnique) {
             builder.addUniqueSlot(left().getLogicalProperties().getTrait());
-        } else if (joinType.isRightOuterJoin() && isLeftUnique) {
+        } else if ((joinType.isRightOuterJoin() || joinType.isAsofRightOuterJoin()) && isLeftUnique) {
             builder.addUniqueSlot(right().getLogicalProperties().getTrait());
-        } else if (joinType.isInnerJoin() && isLeftUnique && isRightUnique) {
+        } else if ((joinType.isInnerJoin() || joinType.isAsofInnerJoin()) && isLeftUnique && isRightUnique) {
             // inner join propagate uniforms slots
             // And if the hash keys is unique, inner join can propagate all functional dependencies
             builder.addDataTrait(left().getLogicalProperties().getTrait());
@@ -347,7 +347,7 @@ public class PhysicalHashJoin<
         if (!joinType.isRightSemiOrAntiJoin()) {
             builder.addEqualSet(left().getLogicalProperties().getTrait());
         }
-        if (joinType.isInnerJoin()) {
+        if (joinType.isInnerJoin() || joinType.isAsofInnerJoin()) {
             for (Expression expression : getHashJoinConjuncts()) {
                 Optional<Pair<Slot, Slot>> equalSlot = ExpressionUtils.extractEqualSlot(expression);
                 equalSlot.ifPresent(slotSlotPair -> builder.addEqualPair(slotSlotPair.first, slotSlotPair.second));

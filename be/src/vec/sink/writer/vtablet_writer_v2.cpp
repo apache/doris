@@ -57,6 +57,8 @@
 namespace doris::vectorized {
 #include "common/compile_check_begin.h"
 
+extern bvar::Adder<int64_t> g_sink_load_back_pressure_version_time_ms;
+
 VTabletWriterV2::VTabletWriterV2(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
                                  std::shared_ptr<pipeline::Dependency> dep,
                                  std::shared_ptr<pipeline::Dependency> fin_dep)
@@ -243,6 +245,8 @@ Status VTabletWriterV2::_init(RuntimeState* state, RuntimeProfile* profile) {
     _close_timer = ADD_TIMER(_operator_profile, "CloseWaitTime");
     _close_writer_timer = ADD_CHILD_TIMER(_operator_profile, "CloseWriterTime", "CloseWaitTime");
     _close_load_timer = ADD_CHILD_TIMER(_operator_profile, "CloseLoadTime", "CloseWaitTime");
+    _load_back_pressure_version_time_ms =
+            ADD_TIMER(_operator_profile, "LoadBackPressureVersionTimeMs");
 
     if (config::share_delta_writers) {
         _delta_writer_for_tablet = ExecEnv::GetInstance()->delta_writer_v2_pool()->get_or_create(
@@ -367,6 +371,11 @@ void VTabletWriterV2::_build_tablet_replica_info(const int64_t tablet_id,
                                                  : partition->load_required_replica_num;
         _tablet_replica_info[tablet_id] =
                 std::make_pair(total_replicas_num, load_required_replicas_num);
+        // Copy version gap backends info for this tablet
+        if (auto it = partition->tablet_version_gap_backends.find(tablet_id);
+            it != partition->tablet_version_gap_backends.end()) {
+            _tablet_version_gap_backends[tablet_id] = it->second;
+        }
     } else {
         _tablet_replica_info[tablet_id] = std::make_pair(_num_replicas, (_num_replicas + 1) / 2);
     }
@@ -465,6 +474,21 @@ Status VTabletWriterV2::write(RuntimeState* state, Block& input_block) {
 
     if (_state->query_options().dry_run_query) {
         return status;
+    }
+
+    int64_t total_wait_time_ms = 0;
+    auto streams_for_node = _load_stream_map->get_streams_for_node();
+    for (const auto& [dst_id, streams] : streams_for_node) {
+        for (const auto& stream : streams->streams()) {
+            auto wait_time_ms = stream->get_and_reset_load_back_pressure_version_wait_time_ms();
+            if (wait_time_ms > 0) {
+                total_wait_time_ms = std::max(total_wait_time_ms, wait_time_ms);
+            }
+        }
+    }
+    if (UNLIKELY(total_wait_time_ms > 0)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(total_wait_time_ms));
+        _load_back_pressure_version_block_ms.fetch_add(total_wait_time_ms);
     }
 
     // check out of limit
@@ -641,6 +665,9 @@ Status VTabletWriterV2::close(Status exec_status) {
         COUNTER_SET(_send_data_timer, _send_data_ns);
         COUNTER_SET(_row_distribution_timer, (int64_t)_row_distribution_watch.elapsed_time());
         COUNTER_SET(_validate_data_timer, _block_convertor->validate_data_ns());
+        auto back_pressure_time_ms = _load_back_pressure_version_block_ms.load();
+        COUNTER_SET(_load_back_pressure_version_time_ms, back_pressure_time_ms);
+        g_sink_load_back_pressure_version_time_ms << back_pressure_time_ms;
 
         // close DeltaWriters
         {
@@ -854,7 +881,13 @@ bool VTabletWriterV2::_quorum_success(
             continue;
         }
         for (const auto& tablet_id : _tablets_by_node[dst_id]) {
-            finished_tablets_replica[tablet_id]++;
+            // Only count non-gap backends for quorum success.
+            // Gap backends' success doesn't count toward majority write.
+            auto gap_it = _tablet_version_gap_backends.find(tablet_id);
+            if (gap_it == _tablet_version_gap_backends.end() ||
+                gap_it->second.find(dst_id) == gap_it->second.end()) {
+                finished_tablets_replica[tablet_id]++;
+            }
         }
     }
 
@@ -993,13 +1026,15 @@ void VTabletWriterV2::_calc_tablets_to_commit() {
 
 Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tablet_commit_infos,
                                             std::shared_ptr<LoadStreamMap> load_stream_map) {
-    std::unordered_map<int64_t, int> failed_tablets;
+    // Track per-tablet non-gap success count and failure reasons
+    std::unordered_map<int64_t, int> success_tablets_replica;
+    std::unordered_set<int64_t> failed_tablets;
     std::unordered_map<int64_t, Status> failed_reason;
     load_stream_map->for_each([&](int64_t dst_id, LoadStreamStubs& streams) {
         size_t num_success_tablets = 0;
         size_t num_failed_tablets = 0;
         for (auto [tablet_id, reason] : streams.failed_tablets()) {
-            failed_tablets[tablet_id]++;
+            failed_tablets.insert(tablet_id);
             failed_reason[tablet_id] = reason;
             num_failed_tablets++;
         }
@@ -1008,20 +1043,25 @@ Status VTabletWriterV2::_create_commit_info(std::vector<TTabletCommitInfo>& tabl
             commit_info.tabletId = tablet_id;
             commit_info.backendId = dst_id;
             tablet_commit_infos.emplace_back(std::move(commit_info));
+            // Only count non-gap backends toward success
+            auto gap_it = _tablet_version_gap_backends.find(tablet_id);
+            if (gap_it == _tablet_version_gap_backends.end() ||
+                gap_it->second.find(dst_id) == gap_it->second.end()) {
+                success_tablets_replica[tablet_id]++;
+            }
             num_success_tablets++;
         }
         LOG(INFO) << "streams to dst_id: " << dst_id << ", success tablets: " << num_success_tablets
                   << ", failed tablets: " << num_failed_tablets;
     });
 
-    for (auto [tablet_id, replicas] : failed_tablets) {
-        auto [total_replicas_num, load_required_replicas_num] = _tablet_replica_info[tablet_id];
-        int max_failed_replicas = total_replicas_num == 0
-                                          ? (_num_replicas - 1) / 2
-                                          : total_replicas_num - load_required_replicas_num;
-        if (replicas > max_failed_replicas) {
+    for (auto tablet_id : failed_tablets) {
+        int succ_count = success_tablets_replica[tablet_id];
+        int required = _load_required_replicas_num(tablet_id);
+        if (succ_count < required) {
             LOG(INFO) << "tablet " << tablet_id
-                      << " failed on majority backends: " << failed_reason[tablet_id];
+                      << " failed on majority backends (success=" << succ_count
+                      << ", required=" << required << "): " << failed_reason[tablet_id];
             return Status::InternalError("tablet {} failed on majority backends: {}", tablet_id,
                                          failed_reason[tablet_id]);
         }

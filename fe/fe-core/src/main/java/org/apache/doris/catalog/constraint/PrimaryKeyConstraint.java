@@ -24,12 +24,16 @@ import com.google.common.base.Objects;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
 public class PrimaryKeyConstraint extends Constraint {
+    public static final Logger LOG = LogManager.getLogger(PrimaryKeyConstraint.class);
+
     @SerializedName(value = "cols")
     private final Set<String> columns;
 
@@ -55,9 +59,15 @@ public class PrimaryKeyConstraint extends Constraint {
     }
 
     public List<TableIf> getForeignTables() {
-        return foreignTables.stream()
-                .map(TableIdentifier::toTableIf)
-                .collect(ImmutableList.toImmutableList());
+        ImmutableList.Builder<TableIf> tableIfBuilder = ImmutableList.builder();
+        for (TableIdentifier tableIdentifier : foreignTables) {
+            try {
+                tableIfBuilder.add(tableIdentifier.toTableIf());
+            } catch (Exception e) {
+                LOG.warn("get foreign table failed", e);
+            }
+        }
+        return tableIfBuilder.build();
     }
 
     public void removeForeignTable(TableIdentifier tableIdentifier) {

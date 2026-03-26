@@ -15,8 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_search_exact_lowercase") {
+suite("test_search_exact_lowercase", "p0") {
     def tableName = "exact_lowercase_test"
+
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 

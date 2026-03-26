@@ -313,6 +313,10 @@ public class LocationPath {
                 && storagePropertiesMap.containsKey(StorageProperties.Type.MINIO)) {
             return storagePropertiesMap.get(StorageProperties.Type.MINIO);
         }
+        if (type == StorageProperties.Type.S3
+                && storagePropertiesMap.containsKey(StorageProperties.Type.OZONE)) {
+            return storagePropertiesMap.get(StorageProperties.Type.OZONE);
+        }
 
         // Step 3: Compatibility fallback based on schema
         // In previous configurations, the schema name may not strictly match the actual storage type.

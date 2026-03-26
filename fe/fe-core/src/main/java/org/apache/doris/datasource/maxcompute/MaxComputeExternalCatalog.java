@@ -19,18 +19,16 @@ package org.apache.doris.datasource.maxcompute;
 
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.common.credentials.CloudCredential;
+import org.apache.doris.common.maxcompute.MCProperties;
+import org.apache.doris.common.maxcompute.MCUtils;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.datasource.property.constants.MCProperties;
 
 import com.aliyun.odps.Odps;
 import com.aliyun.odps.Partition;
-import com.aliyun.odps.account.Account;
 import com.aliyun.odps.account.AccountFormat;
-import com.aliyun.odps.account.AliyunAccount;
 import com.aliyun.odps.table.TableIdentifier;
 import com.aliyun.odps.table.configuration.RestOptions;
 import com.aliyun.odps.table.configuration.SplitOptions;
@@ -54,9 +52,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     // you can ref : https://help.aliyun.com/zh/maxcompute/user-guide/endpoints
     private static final String endpointTemplate = "http://service.{}.maxcompute.aliyun-inc.com/api";
 
+    private Map<String, String> props;
     private Odps odps;
-    private String accessKey;
-    private String secretKey;
     private String endpoint;
     private String defaultProject;
     private String quota;
@@ -158,7 +155,7 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        Map<String, String> props = catalogProperty.getProperties();
+        props = catalogProperty.getProperties();
 
         generatorEndpoint();
 
@@ -198,16 +195,11 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 .withReadTimeout(readTimeout)
                 .withRetryTimes(retryTimes).build();
 
-        CloudCredential credential = MCProperties.getCredential(props);
-        accessKey = credential.getAccessKey();
-        secretKey = credential.getSecretKey();
-
         dateTimePredicatePushDown = Boolean.parseBoolean(
                 props.getOrDefault(MCProperties.DATETIME_PREDICATE_PUSH_DOWN,
                         MCProperties.DEFAULT_DATETIME_PREDICATE_PUSH_DOWN));
 
-        Account account = new AliyunAccount(accessKey, secretKey);
-        this.odps = new Odps(account);
+        odps = MCUtils.createMcClient(props);
         odps.setDefaultProject(defaultProject);
         odps.setEndpoint(endpoint);
 
@@ -288,14 +280,9 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
         return mcStructureHelper.listTableNames(getClient(), dbName);
     }
 
-    public String getAccessKey() {
+    public Map<String, String> getProperties() {
         makeSureInitialized();
-        return accessKey;
-    }
-
-    public String getSecretKey() {
-        makeSureInitialized();
-        return secretKey;
+        return props;
     }
 
     public String getEndpoint() {
@@ -449,10 +436,6 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                     + MCProperties.READ_TIMEOUT + "/" + MCProperties.RETRY_COUNT + "must be an integer");
         }
 
-        CloudCredential credential = MCProperties.getCredential(props);
-        if (!credential.isWhole()) {
-            throw new DdlException("Max-Compute credential properties '"
-                    + MCProperties.ACCESS_KEY + "' and  '" + MCProperties.SECRET_KEY + "' are required.");
-        }
+        MCUtils.checkAuthProperties(props);
     }
 }

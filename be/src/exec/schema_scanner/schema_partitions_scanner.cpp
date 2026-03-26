@@ -126,6 +126,9 @@ Status SchemaPartitionsScanner::get_onedb_info_from_fe(int64_t dbId) {
     schema_table_request_params.__set_current_user_ident(*_param->common_param->current_user_ident);
     schema_table_request_params.__set_catalog(*_param->common_param->catalog);
     schema_table_request_params.__set_dbId(dbId);
+    if (_param->common_param->thread_id > 0) {
+        schema_table_request_params.__set_thread_id(_param->common_param->thread_id);
+    }
     schema_table_request_params.__set_time_zone(_timezone);
 
     TFetchSchemaTableDataRequest request;

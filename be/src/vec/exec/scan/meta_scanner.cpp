@@ -64,9 +64,9 @@ MetaScanner::MetaScanner(RuntimeState* state, pipeline::ScanLocalStateBase* loca
           _user_identity(user_identity),
           _scan_range(scan_range.scan_range) {}
 
-Status MetaScanner::open(RuntimeState* state) {
+Status MetaScanner::_open_impl(RuntimeState* state) {
     VLOG_CRITICAL << "MetaScanner::open";
-    RETURN_IF_ERROR(Scanner::open(state));
+    RETURN_IF_ERROR(Scanner::_open_impl(state));
     if (_scan_range.meta_scan_range.metadata_type == TMetadataType::ICEBERG) {
         // TODO: refactor this code
         auto reader = IcebergSysTableJniReader::create_unique(_tuple_desc->slots(), state, _profile,

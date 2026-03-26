@@ -226,6 +226,14 @@ public class PlanChecker {
         return planChecker;
     }
 
+    public PlanChecker applyTopDown(RuleFactory... ruleFactories) {
+        List<Rule> allRules = new ArrayList<>();
+        for (RuleFactory factory : ruleFactories) {
+            allRules.addAll(factory.buildRules());
+        }
+        return applyTopDown(allRules);
+    }
+
     public PlanChecker applyTopDown(List<Rule> rule) {
         Rewriter.getWholeTreeRewriterWithCustomJobs(cascadesContext,
                         ImmutableList.of(new RootPlanTreeRewriteJob(new FilteredRules(rule), PlanTreeRewriteTopDownJob::new, true)))

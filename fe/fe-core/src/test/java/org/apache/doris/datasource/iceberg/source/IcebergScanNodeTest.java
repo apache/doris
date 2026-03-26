@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.SessionVariable;
 
 import org.apache.iceberg.DataFile;
@@ -37,7 +38,7 @@ public class IcebergScanNodeTest {
 
     private static class TestIcebergScanNode extends IcebergScanNode {
         TestIcebergScanNode(SessionVariable sv) {
-            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv);
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
         }
 
         @Override

@@ -42,7 +42,8 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
     public Rule build() {
         // TODO: maybe consider ANTI?
         return logicalJoin(any(), any())
-            .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
+            .when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin()
+                    || join.getJoinType().isSemiJoin())
             .whenNot(LogicalJoin::isMarkJoin)
             .thenApply(ctx -> {
                 LogicalJoin<Plan, Plan> join = ctx.root;
@@ -52,7 +53,7 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
 
                 Plan left = join.left();
                 Plan right = join.right();
-                if (join.getJoinType().isInnerJoin()) {
+                if (join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin()) {
                     Set<Expression> leftNotNull = ExpressionUtils.inferNotNull(
                             conjuncts, join.left().getOutputSet(), ctx.cascadesContext);
                     Set<Expression> rightNotNull = ExpressionUtils.inferNotNull(

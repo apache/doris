@@ -232,6 +232,13 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
           _decompress_timer(nullptr) {
     _bytes_decompress_counter = ADD_COUNTER(_profile, "BytesDecompressed", TUnit::BYTES);
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
+
+    DBUG_EXECUTE_IF("NewPlainTextLineReader.shrink_output_buf", {
+        size_t new_size = dp->param<int64_t>("output_buf_size", 64 * 1024);
+        delete[] _output_buf;
+        _output_buf = new uint8_t[new_size];
+        _output_buf_size = new_size;
+    });
 }
 
 NewPlainTextLineReader::~NewPlainTextLineReader() {
@@ -467,7 +474,7 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
                 COUNTER_UPDATE(_bytes_decompress_counter, decompressed_len);
 
                 // TODO(cmy): watch this case
-                if ((input_read_bytes == 0 /*decompressed_len == 0*/) && _more_input_bytes == 0 &&
+                if (input_read_bytes == 0 && decompressed_len == 0 && _more_input_bytes == 0 &&
                     _more_output_bytes == 0) {
                     // decompress made no progress, may be
                     // A. input data is not enough to decompress data to output

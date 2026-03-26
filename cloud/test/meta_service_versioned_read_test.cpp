@@ -46,6 +46,7 @@
 #include "meta-store/versioned_value.h"
 #include "mock_resource_manager.h"
 #include "rate-limiter/rate_limiter.h"
+#include "recycler/util.h"
 #include "resource-manager/resource_manager.h"
 
 namespace doris::cloud {
@@ -57,6 +58,8 @@ extern void create_tablet(MetaServiceProxy* meta_service, int64_t table_id, int6
                           int64_t partition_id, int64_t tablet_id);
 extern doris::RowsetMetaCloudPB create_rowset(int64_t txn_id, int64_t tablet_id, int partition_id,
                                               int64_t version, int num_rows);
+extern void prepare_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
+                           CreateRowsetResponse& res);
 extern void commit_rowset(MetaServiceProxy* meta_service, const doris::RowsetMetaCloudPB& rowset,
                           CreateRowsetResponse& res);
 extern void insert_rowset(MetaServiceProxy* meta_service, int64_t db_id, const std::string& label,
@@ -126,6 +129,20 @@ void compact_rowset(TxnKv* txn_kv, std::string instance_id, int64_t tablet_id, i
     ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK);
 }
 
+static void get_table_version(MetaServiceProxy* meta_service, int64_t db_id, int64_t table_id,
+                              int64_t& version) {
+    brpc::Controller ctrl;
+    GetVersionRequest req;
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_is_table_version(true);
+    GetVersionResponse resp;
+    meta_service->get_version(&ctrl, &req, &resp, nullptr);
+    ASSERT_EQ(resp.status().code(), MetaServiceCode::OK)
+            << ", get table version res=" << resp.ShortDebugString();
+    version = resp.version();
+}
+
 // Create a MULTI_VERSION_READ_WRITE instance and refresh the resource manager.
 static void create_and_refresh_instance(MetaServiceProxy* service, std::string instance_id) {
     // write instance
@@ -191,6 +208,7 @@ TEST(MetaServiceVersionedReadTest, CommitTxn) {
             create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id_base + i);
             auto tmp_rowset = create_rowset(txn_id, tablet_id_base + i, partition_id, -1, 100);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res);
             commit_rowset(meta_service.get(), tmp_rowset, res);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -220,6 +238,11 @@ TEST(MetaServiceVersionedReadTest, CommitTxn) {
             meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
                                      &req, &res, nullptr);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+
+            ASSERT_EQ(res.table_stats().size(), 1);
+            int64_t table_version = 0;
+            get_table_version(meta_service.get(), db_id, table_id, table_version);
+            ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
         }
 
         // doubly commit txn
@@ -423,6 +446,14 @@ TEST(MetaServiceVersionedReadTest, CommitTxnWithSubTxnTest) {
                                    << ", res=" << res.DebugString();
             }
         }
+
+        ASSERT_EQ(res.table_stats().size(), 2);
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, t2, table_version);
+        ASSERT_EQ(res.table_stats()[0].table_version(), table_version);
+        table_version = 0;
+        get_table_version(meta_service.get(), db_id, t1, table_version);
+        ASSERT_EQ(res.table_stats()[1].table_version(), table_version);
     }
 
     // doubly commit txn
@@ -1140,6 +1171,11 @@ TEST(MetaServiceVersionedReadTest, IndexRequest) {
         req.set_is_new_table(true);
         meta_service->commit_index(&ctrl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+
+        ASSERT_TRUE(res.has_table_version());
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, table_id, table_version);
+        ASSERT_EQ(table_version, res.table_version());
     }
 
     {
@@ -1166,6 +1202,8 @@ TEST(MetaServiceVersionedReadTest, IndexRequest) {
         req.set_is_new_table(true);
         meta_service->commit_index(&ctrl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+
+        ASSERT_FALSE(res.has_table_version());
     }
 }
 
@@ -1205,6 +1243,11 @@ TEST(MetaServiceVersionedReadTest, PartitionRequest) {
         req.add_partition_ids(partition_id);
         meta_service->commit_partition(&ctrl, &req, &res, nullptr);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().DebugString();
+
+        ASSERT_TRUE(res.has_table_version());
+        int64_t table_version = 0;
+        get_table_version(meta_service.get(), db_id, table_id, table_version);
+        ASSERT_EQ(table_version, res.table_version());
     }
 
     {

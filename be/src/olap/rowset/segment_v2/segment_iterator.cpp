@@ -998,6 +998,25 @@ Status SegmentIterator::_apply_index_expr() {
         }
     }
 
+    // Evaluate inverted index for virtual column MATCH expressions (projections).
+    // Unlike common exprs which filter rows, these only compute index result bitmaps
+    // for later materialization via fast_execute().
+    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+        if (expr_ctx->get_index_context() == nullptr) {
+            continue;
+        }
+        if (Status st = expr_ctx->evaluate_inverted_index(num_rows()); !st.ok()) {
+            if (_downgrade_without_index(st) || st.code() == ErrorCode::NOT_IMPLEMENTED_ERROR) {
+                continue;
+            } else {
+                LOG(WARNING) << "failed to evaluate inverted index for virtual column expr: "
+                             << expr_ctx->root()->debug_string()
+                             << ", error msg: " << st.to_string();
+                return st;
+            }
+        }
+    }
+
     // Apply ann range search
     segment_v2::AnnIndexStats ann_index_stats;
     for (const auto& expr_ctx : _common_expr_ctxs_push_down) {
@@ -1324,6 +1343,8 @@ Status SegmentIterator::_init_index_iterators() {
     if (_score_runtime) {
         _index_query_context->collection_statistics = _opts.collection_statistics;
         _index_query_context->collection_similarity = std::make_shared<CollectionSimilarity>();
+        _index_query_context->query_limit = _score_runtime->get_limit();
+        _index_query_context->is_asc = _score_runtime->is_asc();
     }
 
     // Inverted index iterators
@@ -2456,6 +2477,19 @@ Status SegmentIterator::_next_batch_internal(vectorized::Block* block) {
 
     // step5: output columns
     RETURN_IF_ERROR(_output_non_pred_columns(block));
+    // Convert inverted index bitmaps to result columns for virtual column exprs
+    // (e.g., MATCH projections). This must run before _materialization_of_virtual_column
+    // so that fast_execute() can find the pre-computed result columns.
+    if (!_virtual_column_exprs.empty()) {
+        bool use_sel = _is_need_vec_eval || _is_need_short_eval || _is_need_expr_eval;
+        uint16_t* sel_rowid_idx = use_sel ? _sel_rowid_idx.data() : nullptr;
+        std::vector<vectorized::VExprContext*> vir_ctxs;
+        vir_ctxs.reserve(_virtual_column_exprs.size());
+        for (auto& [cid, ctx] : _virtual_column_exprs) {
+            vir_ctxs.push_back(ctx.get());
+        }
+        _output_index_result_column(vir_ctxs, sel_rowid_idx, _selected_size, block);
+    }
     RETURN_IF_ERROR(_materialization_of_virtual_column(block));
     // shrink char_type suffix zero data
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
@@ -2501,16 +2535,19 @@ Status SegmentIterator::_check_output_block(vectorized::Block* block) {
                     idx, block->columns(), _schema->num_column_ids(), _virtual_column_exprs.size());
         } else if (vectorized::check_and_get_column<vectorized::ColumnNothing>(
                            entry.column.get())) {
-            std::vector<std::string> vcid_to_idx;
-            for (const auto& pair : _vir_cid_to_idx_in_block) {
-                vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+            if (rows > 0) {
+                std::vector<std::string> vcid_to_idx;
+                for (const auto& pair : _vir_cid_to_idx_in_block) {
+                    vcid_to_idx.push_back(fmt::format("{}-{}", pair.first, pair.second));
+                }
+                std::string vir_cid_to_idx_in_block_msg =
+                        fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
+                return Status::InternalError(
+                        "Column in idx {} is nothing, block columns {}, normal_columns {}, "
+                        "vir_cid_to_idx_in_block_msg {}",
+                        idx, block->columns(), _schema->num_column_ids(),
+                        vir_cid_to_idx_in_block_msg);
             }
-            std::string vir_cid_to_idx_in_block_msg =
-                    fmt::format("_vir_cid_to_idx_in_block:[{}]", fmt::join(vcid_to_idx, ","));
-            return Status::InternalError(
-                    "Column in idx {} is nothing, block columns {}, normal_columns {}, "
-                    "vir_cid_to_idx_in_block_msg {}",
-                    idx, block->columns(), _schema->num_column_ids(), vir_cid_to_idx_in_block_msg);
         } else if (entry.column->size() != rows) {
             return Status::InternalError(
                     "Unmatched size {}, expected {}, column: {}, type: {}, idx_in_block: {}, "
@@ -2561,7 +2598,12 @@ Status SegmentIterator::_process_common_expr(uint16_t* sel_rowid_idx, uint16_t& 
                            _selected_size));
     }
 
-    _output_index_result_column_for_expr(_sel_rowid_idx.data(), _selected_size, block);
+    std::vector<vectorized::VExprContext*> common_ctxs;
+    common_ctxs.reserve(_common_expr_ctxs_push_down.size());
+    for (auto& ctx : _common_expr_ctxs_push_down) {
+        common_ctxs.push_back(ctx.get());
+    }
+    _output_index_result_column(common_ctxs, _sel_rowid_idx.data(), _selected_size, block);
     block->shrink_char_type_column_suffix_zero(_char_type_idx);
     RETURN_IF_ERROR(_execute_common_expr(_sel_rowid_idx.data(), _selected_size, block));
 
@@ -2634,16 +2676,19 @@ uint16_t SegmentIterator::_evaluate_common_expr_filter(uint16_t* sel_rowid_idx,
     }
 }
 
-void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_idx,
-                                                           uint16_t select_size,
-                                                           vectorized::Block* block) {
+void SegmentIterator::_output_index_result_column(
+        const std::vector<vectorized::VExprContext*>& expr_ctxs, uint16_t* sel_rowid_idx,
+        uint16_t select_size, vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_opts.stats->output_index_result_column_timer);
     if (block->rows() == 0) {
         return;
     }
-    for (auto& expr_ctx : _common_expr_ctxs_push_down) {
-        for (auto& inverted_index_result_bitmap_for_expr :
-             expr_ctx->get_index_context()->get_index_result_bitmap()) {
+    for (auto* expr_ctx_ptr : expr_ctxs) {
+        auto index_ctx = expr_ctx_ptr->get_index_context();
+        if (index_ctx == nullptr) {
+            continue;
+        }
+        for (auto& inverted_index_result_bitmap_for_expr : index_ctx->get_index_result_bitmap()) {
             const auto* expr = inverted_index_result_bitmap_for_expr.first;
             const auto& result_bitmap = inverted_index_result_bitmap_for_expr.second;
             const auto& index_result_bitmap = result_bitmap.get_data_bitmap();
@@ -2681,12 +2726,11 @@ void SegmentIterator::_output_index_result_column_for_expr(uint16_t* sel_rowid_i
             DCHECK(block->rows() == vec_match_pred.size());
 
             if (null_map_column) {
-                expr_ctx->get_index_context()->set_index_result_column_for_expr(
+                index_ctx->set_index_result_column_for_expr(
                         expr, vectorized::ColumnNullable::create(std::move(index_result_column),
                                                                  std::move(null_map_column)));
             } else {
-                expr_ctx->get_index_context()->set_index_result_column_for_expr(
-                        expr, std::move(index_result_column));
+                index_ctx->set_index_result_column_for_expr(expr, std::move(index_result_column));
             }
         }
     }
@@ -2740,15 +2784,32 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
 }
 
 Status SegmentIterator::_construct_compound_expr_context() {
+    ColumnIteratorOptions iter_opts {
+            .use_page_cache = _opts.use_page_cache,
+            .file_reader = _file_reader.get(),
+            .stats = _opts.stats,
+            .io_ctx = _opts.io_ctx,
+    };
     auto inverted_index_context = std::make_shared<vectorized::IndexExecContext>(
             _schema->column_ids(), _index_iterators, _storage_name_and_type,
-            _common_expr_index_exec_status, _score_runtime);
+            _common_expr_index_exec_status, _score_runtime, _segment.get(), iter_opts);
+    inverted_index_context->set_index_query_context(_index_query_context);
     for (const auto& expr_ctx : _opts.common_expr_ctxs_push_down) {
         vectorized::VExprContextSPtr context;
         // _ann_range_search_runtime will do deep copy.
         RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
         context->set_index_context(inverted_index_context);
         _common_expr_ctxs_push_down.emplace_back(context);
+    }
+    // Clone virtual column exprs before setting IndexExecContext, because
+    // IndexExecContext holds segment-specific index iterator references.
+    // Without cloning, shared VExprContext would be overwritten per-segment
+    // and could point to the wrong segment's context.
+    for (auto& [cid, expr_ctx] : _virtual_column_exprs) {
+        vectorized::VExprContextSPtr context;
+        RETURN_IF_ERROR(expr_ctx->clone(_opts.runtime_state, context));
+        context->set_index_context(inverted_index_context);
+        expr_ctx = context;
     }
     return Status::OK();
 }
@@ -2969,6 +3030,12 @@ void SegmentIterator::_prepare_score_column_materialization() {
         return;
     }
 
+    ScoreRangeFilterPtr filter;
+    if (_score_runtime->has_score_range_filter()) {
+        const auto& range_info = _score_runtime->get_score_range_info();
+        filter = std::make_shared<ScoreRangeFilter>(range_info->op, range_info->threshold);
+    }
+
     vectorized::IColumn::MutablePtr result_column;
     auto result_row_ids = std::make_unique<std::vector<uint64_t>>();
     if (_score_runtime->get_limit() > 0 && _col_predicates.empty() &&
@@ -2976,10 +3043,10 @@ void SegmentIterator::_prepare_score_column_materialization() {
         OrderType order_type = _score_runtime->is_asc() ? OrderType::ASC : OrderType::DESC;
         _index_query_context->collection_similarity->get_topn_bm25_scores(
                 &_row_bitmap, result_column, result_row_ids, order_type,
-                _score_runtime->get_limit());
+                _score_runtime->get_limit(), filter);
     } else {
         _index_query_context->collection_similarity->get_bm25_scores(&_row_bitmap, result_column,
-                                                                     result_row_ids);
+                                                                     result_row_ids, filter);
     }
     const size_t dst_col_idx = _score_runtime->get_dest_column_idx();
     auto* column_iter = _column_iterators[_schema->column_id(dst_col_idx)].get();

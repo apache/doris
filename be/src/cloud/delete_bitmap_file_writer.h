@@ -20,6 +20,7 @@
 #include "cloud/cloud_storage_engine.h"
 #include "common/status.h"
 #include "io/fs/file_reader_writer_fwd.h"
+#include "io/fs/packed_file_manager.h"
 
 namespace doris {
 
@@ -29,11 +30,19 @@ class DeleteBitmapFileWriter {
 public:
     explicit DeleteBitmapFileWriter(int64_t tablet_id, const std::string& rowset_id,
                                     std::optional<StorageResource>& storage_resource);
+    // Constructor with packed file support
+    explicit DeleteBitmapFileWriter(int64_t tablet_id, const std::string& rowset_id,
+                                    std::optional<StorageResource>& storage_resource,
+                                    bool enable_packed_file, int64_t txn_id);
     ~DeleteBitmapFileWriter();
 
     Status init();
     Status write(const DeleteBitmapPB& delete_bitmap);
     Status close();
+
+    // Get packed slice location after close
+    Status get_packed_slice_location(io::PackedSliceLocation* location) const;
+    bool is_packed() const { return _is_packed; }
 
 public:
     static constexpr const char* DELETE_BITMAP_MAGIC = "DBM1";
@@ -47,6 +56,12 @@ private:
     std::optional<StorageResource> _storage_resource;
     std::string _path;
     io::FileWriterPtr _file_writer;
+
+    // Packed file support
+    bool _enable_packed_file = false;
+    int64_t _txn_id = 0;
+    bool _is_packed = false;
+    io::PackedSliceLocation _packed_location;
 };
 
 } // namespace doris

@@ -81,4 +81,17 @@ bool OrderedSloppyPhraseMatcher::advance_position(PostingsAndPosition& posting, 
     return true;
 }
 
+float OrderedSloppyPhraseMatcher::sloppy_weight() const {
+    return 1.0F / (1.0F + static_cast<float>(_match_width));
+}
+
+float OrderedSloppyPhraseMatcher::phrase_freq(int32_t doc) {
+    reset(doc);
+    float freq = 0.0F;
+    while (next_match()) {
+        freq += sloppy_weight();
+    }
+    return freq;
+}
+
 } // namespace doris::segment_v2::inverted_index

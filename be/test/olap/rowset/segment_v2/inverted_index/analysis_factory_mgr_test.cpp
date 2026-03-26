@@ -19,6 +19,10 @@
 
 #include <gtest/gtest.h>
 
+#include <atomic>
+#include <thread>
+#include <vector>
+
 #include "olap/rowset/segment_v2/inverted_index/char_filter/char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/char_filter/empty_char_filter_factory.h"
 #include "olap/rowset/segment_v2/inverted_index/token_filter/empty_token_filter_factory.h"
@@ -244,6 +248,46 @@ TEST_F(AnalysisFactoryMgrTest, TypeSafetyForDifferentFactoryTypes) {
     EXPECT_THROW(AnalysisFactoryMgr::instance().create<TokenFilterFactory>("char_replace",
                                                                            empty_settings),
                  Exception);
+}
+
+TEST_F(AnalysisFactoryMgrTest, ConcurrentCreateIsThreadSafe) {
+    constexpr int kNumThreads = 16;
+    constexpr int kIterationsPerThread = 100;
+
+    std::vector<std::thread> threads;
+    std::atomic<int> success_count {0};
+    std::atomic<int> failure_count {0};
+
+    for (int i = 0; i < kNumThreads; ++i) {
+        threads.emplace_back([&]() {
+            Settings empty_settings;
+            std::vector<std::string> tokenizer_names = {"standard", "keyword", "basic", "icu"};
+            std::vector<std::string> filter_names = {"lowercase", "asciifolding"};
+
+            for (int j = 0; j < kIterationsPerThread; ++j) {
+                try {
+                    auto tk = AnalysisFactoryMgr::instance().create<TokenizerFactory>(
+                            tokenizer_names[j % tokenizer_names.size()], empty_settings);
+                    ASSERT_NE(tk, nullptr);
+
+                    auto tf = AnalysisFactoryMgr::instance().create<TokenFilterFactory>(
+                            filter_names[j % filter_names.size()], empty_settings);
+                    ASSERT_NE(tf, nullptr);
+
+                    success_count.fetch_add(1, std::memory_order_relaxed);
+                } catch (...) {
+                    failure_count.fetch_add(1, std::memory_order_relaxed);
+                }
+            }
+        });
+    }
+
+    for (auto& t : threads) {
+        t.join();
+    }
+
+    EXPECT_EQ(failure_count.load(), 0) << "Concurrent create() should not throw any exceptions";
+    EXPECT_EQ(success_count.load(), kNumThreads * kIterationsPerThread);
 }
 
 } // namespace doris::segment_v2::inverted_index

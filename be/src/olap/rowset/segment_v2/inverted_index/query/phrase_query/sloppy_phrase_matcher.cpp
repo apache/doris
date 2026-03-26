@@ -315,5 +315,18 @@ bool SloppyPhraseMatcher::init_complex() {
     return true;
 }
 
+float SloppyPhraseMatcher::sloppy_weight() const {
+    return 1.0F / (1.0F + static_cast<float>(_match_length));
+}
+
+float SloppyPhraseMatcher::phrase_freq(int32_t doc) {
+    reset(doc);
+    float freq = 0.0F;
+    while (next_match()) {
+        freq += sloppy_weight();
+    }
+    return freq;
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris::segment_v2::inverted_index

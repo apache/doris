@@ -25,12 +25,15 @@
 #include <set>
 #include <vector>
 
+#include "olap/rowset/segment_v2/inverted_index/analyzer/custom_analyzer.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/all_query/all_query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/boolean_query/occur_boolean_weight.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/query.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
+#include "olap/rowset/segment_v2/inverted_index/query_v2/segment_postings.h"
 #include "olap/rowset/segment_v2/inverted_index/query_v2/weight.h"
+#include "olap/rowset/segment_v2/inverted_index/similarity/bm25_similarity.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
 namespace {
@@ -713,7 +716,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs1));
         clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs2));
 
-        OccurBooleanQuery query(std::move(clauses), 2);
+        OccurBooleanQuery query(std::move(clauses), {}, 2);
         auto weight = query.weight(false);
         auto scorer = weight->scorer(_ctx);
 
@@ -727,7 +730,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
         clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs));
 
-        OccurBooleanQuery query(std::move(clauses), 2);
+        OccurBooleanQuery query(std::move(clauses), {}, 2);
         auto weight = query.weight(false);
         auto scorer = weight->scorer(_ctx);
 
@@ -743,7 +746,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs1));
         clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs2));
 
-        OccurBooleanQuery query(std::move(clauses), 2);
+        OccurBooleanQuery query(std::move(clauses), {}, 2);
         auto weight = query.weight(false);
         auto scorer = weight->scorer(_ctx);
         auto result = collect_docs(scorer);
@@ -760,7 +763,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchExceedsShouldClausesReturnsEmpty
         clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
         clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
-        OccurBooleanQuery query(std::move(clauses), 2);
+        OccurBooleanQuery query(std::move(clauses), {}, 2);
         auto weight = query.weight(false);
         auto scorer = weight->scorer(_ctx);
 
@@ -777,7 +780,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchZeroWithNoShouldClausesReturnsIg
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs1));
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs2));
 
-    OccurBooleanQuery query(std::move(clauses), 0);
+    OccurBooleanQuery query(std::move(clauses), {}, 0);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
@@ -796,7 +799,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchEqualsNumShouldWithMustClause) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should1_docs));
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should2_docs));
 
-    OccurBooleanQuery query(std::move(clauses), 2);
+    OccurBooleanQuery query(std::move(clauses), {}, 2);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
@@ -819,7 +822,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchEqualsNumShouldWithMultipleMustC
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should2_docs));
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should3_docs));
 
-    OccurBooleanQuery query(std::move(clauses), 3);
+    OccurBooleanQuery query(std::move(clauses), {}, 3);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
@@ -838,7 +841,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchEqualsNumShouldOnlyShould) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should2_docs));
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should3_docs));
 
-    OccurBooleanQuery query(std::move(clauses), 3);
+    OccurBooleanQuery query(std::move(clauses), {}, 3);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
@@ -859,7 +862,7 @@ TEST_F(OccurBooleanQueryTest, MinimumShouldMatchEqualsNumShouldWithMustNot) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should2_docs));
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
-    OccurBooleanQuery query(std::move(clauses), 2);
+    OccurBooleanQuery query(std::move(clauses), {}, 2);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
@@ -874,7 +877,7 @@ TEST_F(OccurBooleanQueryTest, AllQueryWithMustClause) {
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
-    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>(100));
+    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>());
 
     OccurBooleanQuery query(std::move(clauses));
     auto weight = query.weight(false);
@@ -891,7 +894,7 @@ TEST_F(OccurBooleanQueryTest, AllQueryWithShouldClause) {
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs));
-    clauses.emplace_back(Occur::SHOULD, std::make_shared<AllQuery>(50));
+    clauses.emplace_back(Occur::SHOULD, std::make_shared<AllQuery>());
 
     OccurBooleanQuery query(std::move(clauses));
     auto weight = query.weight(false);
@@ -909,7 +912,7 @@ TEST_F(OccurBooleanQueryTest, AllQueryWithMustNotClause) {
     auto must_not_docs = std::vector<uint32_t> {10, 20, 30, 40, 50};
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
-    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>(100));
+    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>());
     clauses.emplace_back(Occur::MUST_NOT, std::make_shared<MockQuery>(must_not_docs));
 
     OccurBooleanQuery query(std::move(clauses));
@@ -930,8 +933,8 @@ TEST_F(OccurBooleanQueryTest, MultipleAllQueriesWithMust) {
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
-    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>(100));
-    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>(100));
+    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>());
+    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>());
 
     OccurBooleanQuery query(std::move(clauses));
     auto weight = query.weight(false);
@@ -945,7 +948,7 @@ TEST_F(OccurBooleanQueryTest, AllQueryOnlyMust) {
     _ctx.segment_num_rows = 50;
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
-    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>(50));
+    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>());
 
     OccurBooleanQuery query(std::move(clauses));
     auto weight = query.weight(false);
@@ -967,11 +970,11 @@ TEST_F(OccurBooleanQueryTest, AllQueryWithMustAndShouldMinMatch) {
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::MUST, std::make_shared<MockQuery>(must_docs));
-    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>(100));
+    clauses.emplace_back(Occur::MUST, std::make_shared<AllQuery>());
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should1_docs));
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should2_docs));
 
-    OccurBooleanQuery query(std::move(clauses), 2);
+    OccurBooleanQuery query(std::move(clauses), {}, 2);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
@@ -990,7 +993,7 @@ TEST_F(OccurBooleanQueryTest, ScoringWithMinimumShouldMatchEqualsNumShould) {
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should1_docs, 2.0F));
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should2_docs, 3.0F));
 
-    OccurBooleanQuery query(std::move(clauses), 2);
+    OccurBooleanQuery query(std::move(clauses), {}, 2);
     auto weight = query.weight(true);
     auto scorer = weight->scorer(_ctx);
 
@@ -1014,9 +1017,9 @@ TEST_F(OccurBooleanQueryTest, ShouldOnlyWithAllQueryMinShouldMatch) {
 
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::SHOULD, std::make_shared<MockQuery>(should_docs));
-    clauses.emplace_back(Occur::SHOULD, std::make_shared<AllQuery>(50));
+    clauses.emplace_back(Occur::SHOULD, std::make_shared<AllQuery>());
 
-    OccurBooleanQuery query(std::move(clauses), 2);
+    OccurBooleanQuery query(std::move(clauses), {}, 2);
     auto weight = query.weight(false);
     auto scorer = weight->scorer(_ctx);
     auto result = collect_docs(scorer);
@@ -1031,7 +1034,7 @@ TEST_F(OccurBooleanQueryTest, ShouldOnlyAllQueryScoring) {
     std::vector<std::pair<Occur, QueryPtr>> clauses;
     clauses.emplace_back(Occur::SHOULD,
                          std::make_shared<MockQuery>(std::vector<uint32_t> {1, 2}, 2.0F));
-    clauses.emplace_back(Occur::SHOULD, std::make_shared<AllQuery>(10));
+    clauses.emplace_back(Occur::SHOULD, std::make_shared<AllQuery>());
 
     OccurBooleanQuery query(std::move(clauses));
     auto weight = query.weight(true);

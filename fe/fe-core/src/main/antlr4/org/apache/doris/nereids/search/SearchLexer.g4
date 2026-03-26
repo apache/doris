@@ -32,6 +32,7 @@ fragment TERM_CHAR
     : TERM_START_CHAR
     | '-'
     | '+'
+    | '/'
     ;
 
 fragment QUOTED_CHAR
@@ -41,9 +42,9 @@ fragment QUOTED_CHAR
 
 // ============== Default lexer rules ==============
 
-AND : 'AND' | 'and' ;
-OR  : 'OR' | 'or' ;
-NOT : 'NOT' | 'not' | '!' ;
+AND : 'AND' ;
+OR  : 'OR' ;
+NOT : 'NOT' | '!' ;
 
 LPAREN   : '(' ;
 RPAREN   : ')' ;

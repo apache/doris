@@ -29,13 +29,16 @@ using OccurBooleanQueryPtr = std::shared_ptr<OccurBooleanQuery>;
 
 class OccurBooleanQuery : public Query {
 public:
-    explicit OccurBooleanQuery(std::vector<std::pair<Occur, QueryPtr>> clauses)
+    explicit OccurBooleanQuery(std::vector<std::pair<Occur, QueryPtr>> clauses,
+                               std::vector<std::string> binding_keys = {})
             : _sub_queries(std::move(clauses)),
+              _binding_keys(std::move(binding_keys)),
               _minimum_number_should_match(compute_default_minimum_should_match(_sub_queries)) {}
 
     OccurBooleanQuery(std::vector<std::pair<Occur, QueryPtr>> clauses,
-                      size_t minimum_number_should_match)
+                      std::vector<std::string> binding_keys, size_t minimum_number_should_match)
             : _sub_queries(std::move(clauses)),
+              _binding_keys(std::move(binding_keys)),
               _minimum_number_should_match(minimum_number_should_match) {}
 
     ~OccurBooleanQuery() override = default;
@@ -47,8 +50,8 @@ public:
             sub_weights.emplace_back(occur, query->weight(enable_scoring));
         }
         return std::make_shared<OccurBooleanWeight<SumCombinerPtr>>(
-                std::move(sub_weights), _minimum_number_should_match, enable_scoring,
-                std::make_shared<SumCombiner>());
+                std::move(sub_weights), std::move(_binding_keys), _minimum_number_should_match,
+                enable_scoring, std::make_shared<SumCombiner>());
     }
 
     const std::vector<std::pair<Occur, QueryPtr>>& clauses() const { return _sub_queries; }
@@ -69,6 +72,7 @@ private:
     }
 
     std::vector<std::pair<Occur, QueryPtr>> _sub_queries;
+    std::vector<std::string> _binding_keys;
     size_t _minimum_number_should_match = 0;
 };
 

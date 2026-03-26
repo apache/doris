@@ -455,6 +455,13 @@ public:
 
     std::string debug_string() const { return _rowset_meta_pb.ShortDebugString(); }
 
+    // Pre-set the encryption algorithm to avoid re-entrant get_tablet calls
+    // that can cause SingleFlight deadlock during tablet loading.
+    void set_encryption_algorithm(EncryptionAlgorithmPB algorithm) {
+        _determine_encryption_once.call(
+                [algorithm]() -> Result<EncryptionAlgorithmPB> { return algorithm; });
+    }
+
 private:
     bool _deserialize_from_pb(std::string_view value);
 

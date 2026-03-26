@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <algorithm>
 #include <variant>
 
 #include "vec/common/hash_table/hash_key_type.h"
@@ -24,6 +25,27 @@
 #include "vec/common/hash_table/join_hash_table.h"
 
 namespace doris {
+
+// Devirtualize compare_at for ASOF JOIN supported column types.
+// ASOF JOIN only supports DateV2, DateTimeV2, and TimestampTZ.
+// Dispatches to the concrete ColumnVector<T> once so that all compare_at
+// calls inside `func` are direct (non-virtual) calls.
+// `func` receives a single argument: a const pointer to the concrete column
+// (or const IColumn* as fallback for unexpected types).
+template <typename Func>
+decltype(auto) asof_column_dispatch(const vectorized::IColumn* col, Func&& func) {
+    if (const auto* c_dv2 = vectorized::check_and_get_column<vectorized::ColumnDateV2>(col)) {
+        return std::forward<Func>(func)(c_dv2);
+    } else if (const auto* c_dtv2 =
+                       vectorized::check_and_get_column<vectorized::ColumnDateTimeV2>(col)) {
+        return std::forward<Func>(func)(c_dtv2);
+    } else if (const auto* c_tstz =
+                       vectorized::check_and_get_column<vectorized::ColumnTimeStampTz>(col)) {
+        return std::forward<Func>(func)(c_tstz);
+    } else {
+        return std::forward<Func>(func)(col);
+    }
+}
 using JoinOpVariants =
         std::variant<std::integral_constant<TJoinOp::type, TJoinOp::INNER_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::LEFT_SEMI_JOIN>,
@@ -35,7 +57,20 @@ using JoinOpVariants =
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_SEMI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::RIGHT_ANTI_JOIN>,
                      std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>,
-                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>>;
+                     std::integral_constant<TJoinOp::type, TJoinOp::NULL_AWARE_LEFT_SEMI_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::ASOF_LEFT_INNER_JOIN>,
+                     std::integral_constant<TJoinOp::type, TJoinOp::ASOF_LEFT_OUTER_JOIN>>;
+
+inline bool is_asof_join(TJoinOp::type join_op) {
+    return join_op == TJoinOp::ASOF_LEFT_INNER_JOIN || join_op == TJoinOp::ASOF_LEFT_OUTER_JOIN;
+}
+
+template <int JoinOpType>
+inline constexpr bool is_asof_join_op_v =
+        JoinOpType == TJoinOp::ASOF_LEFT_INNER_JOIN || JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
+
+template <int JoinOpType>
+inline constexpr bool is_asof_outer_join_op_v = JoinOpType == TJoinOp::ASOF_LEFT_OUTER_JOIN;
 
 template <class T>
 using PrimaryTypeHashTableContext =
@@ -218,5 +253,100 @@ inline void try_convert_to_direct_mapping(
         const std::vector<std::shared_ptr<JoinDataVariants>>& variant_ptrs) {
     primary_to_direct_mapping(context, key_columns, variant_ptrs);
 }
+
+// ASOF JOIN index with inline values for cache-friendly branchless binary search.
+// IntType is the integer representation of the ASOF column value:
+//   uint32_t for DateV2, uint64_t for DateTimeV2 and TimestampTZ.
+// Rows are sorted by asof_value during build, then materialized into SoA arrays
+// so probe-side binary search only touches the ASOF values hot path.
+template <typename IntType>
+struct AsofIndexGroup {
+    using int_type = IntType;
+
+    struct Entry {
+        IntType asof_value;
+        uint32_t row_index; // 1-based, 0 = invalid/padding
+    };
+
+    std::vector<Entry> entries;
+    std::vector<IntType> asof_values;
+    std::vector<uint32_t> row_indexes;
+
+    void add_row(IntType value, uint32_t row_idx) { entries.push_back({value, row_idx}); }
+
+    void sort_and_finalize() {
+        if (entries.empty()) {
+            return;
+        }
+        if (entries.size() > 1) {
+            pdqsort(entries.begin(), entries.end(),
+                    [](const Entry& a, const Entry& b) { return a.asof_value < b.asof_value; });
+        }
+
+        asof_values.resize(entries.size());
+        row_indexes.resize(entries.size());
+        for (size_t i = 0; i < entries.size(); ++i) {
+            asof_values[i] = entries[i].asof_value;
+            row_indexes[i] = entries[i].row_index;
+        }
+
+        std::vector<Entry>().swap(entries);
+    }
+
+    const IntType* values_data() const { return asof_values.data(); }
+
+    // Branchless lower_bound: first i where asof_values[i] >= target
+    ALWAYS_INLINE size_t lower_bound(IntType target) const {
+        size_t lo = 0, n = asof_values.size();
+        while (n > 1) {
+            size_t half = n / 2;
+            lo += half * (asof_values[lo + half] < target);
+            n -= half;
+        }
+        if (lo < asof_values.size()) {
+            lo += (asof_values[lo] < target);
+        }
+        return lo;
+    }
+
+    // Branchless upper_bound: first i where asof_values[i] > target
+    ALWAYS_INLINE size_t upper_bound(IntType target) const {
+        size_t lo = 0, n = asof_values.size();
+        while (n > 1) {
+            size_t half = n / 2;
+            lo += half * (asof_values[lo + half] <= target);
+            n -= half;
+        }
+        if (lo < asof_values.size()) {
+            lo += (asof_values[lo] <= target);
+        }
+        return lo;
+    }
+
+    // Semantics by (is_greater, is_strict):
+    //   (true,  false): probe >= build  ->  find largest  build value <= probe
+    //   (true,  true):  probe >  build  ->  find largest  build value <  probe
+    //   (false, false): probe <= build  ->  find smallest build value >= probe
+    //   (false, true):  probe <  build  ->  find smallest build value >  probe
+    // Returns the build row index of the best match, or 0 if no match.
+    template <bool IsGreater, bool IsStrict>
+    ALWAYS_INLINE uint32_t find_best_match(IntType probe_value) const {
+        if (asof_values.empty()) {
+            return 0;
+        }
+        if constexpr (IsGreater) {
+            size_t pos = IsStrict ? lower_bound(probe_value) : upper_bound(probe_value);
+            return pos > 0 ? row_indexes[pos - 1] : 0;
+        } else {
+            size_t pos = IsStrict ? upper_bound(probe_value) : lower_bound(probe_value);
+            return pos < asof_values.size() ? row_indexes[pos] : 0;
+        }
+    }
+};
+
+// Type-erased container for all ASOF index groups.
+// DateV2 -> uint32_t, DateTimeV2/TimestampTZ -> uint64_t.
+using AsofIndexVariant = std::variant<std::monostate, std::vector<AsofIndexGroup<uint32_t>>,
+                                      std::vector<AsofIndexGroup<uint64_t>>>;
 
 } // namespace doris

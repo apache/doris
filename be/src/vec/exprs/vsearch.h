@@ -41,10 +41,15 @@ public:
     bool can_push_down_to_index() const override { return true; }
 
     const TSearchParam& get_search_param() const { return _search_param; }
+    bool enable_cache() const { return _enable_cache; }
+
+    Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
+                   VExprContext* context) override;
 
 private:
     TSearchParam _search_param;
     std::string _original_dsl;
+    bool _enable_cache = true;
 };
 
 } // namespace doris::vectorized

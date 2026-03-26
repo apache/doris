@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.ScoreRangeInfo;
 import org.apache.doris.nereids.trees.plans.algebra.CatalogRelation;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -61,8 +62,10 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -150,6 +153,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     private final List<OrderKey> scoreOrderKeys;
     private final Optional<Long> scoreLimit;
+    // Score range filter parameters for BM25 range queries like score() > 0.5
+    private final Optional<ScoreRangeInfo> scoreRangeInfo;
     // use for ann push down
     private final List<OrderKey> annOrderKeys;
     private final Optional<Long> annLimit;
@@ -168,16 +173,20 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 -1, false, PreAggStatus.unset(), ImmutableList.of(), ImmutableList.of(),
                 Maps.newHashMap(), Optional.empty(), Optional.empty(), false, ImmutableMap.of(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(), Optional.empty(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(), Optional.empty(), Optional.empty(), ImmutableList.of(), Optional.empty());
     }
 
+    /**
+     * Constructor for LogicalOlapScan.
+     */
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
             List<String> hints, Optional<TableSample> tableSample, Collection<Slot> operativeSlots) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false, tabletIds,
                 -1, false, PreAggStatus.unset(), ImmutableList.of(), hints, Maps.newHashMap(), Optional.empty(),
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
-                ImmutableList.of(), ImmutableList.of(), Optional.empty(), ImmutableList.of(), Optional.empty());
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
+                ImmutableList.of(), Optional.empty());
     }
 
     /**
@@ -190,7 +199,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 specifiedPartitions, false, tabletIds,
                 -1, false, PreAggStatus.unset(), specifiedPartitions, hints, Maps.newHashMap(), Optional.empty(),
                 tableSample, false, ImmutableMap.of(), ImmutableList.of(), operativeSlots,
-                ImmutableList.of(), ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(), ImmutableList.of(), Optional.empty(), Optional.empty(),
                 ImmutableList.of(), Optional.empty());
     }
 
@@ -198,14 +207,15 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
      * constructor.
      */
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> tabletIds,
-                           List<Long> selectedPartitionIds, long selectedIndexId, PreAggStatus preAggStatus,
-                           List<Long> specifiedPartitions, List<String> hints, Optional<TableSample> tableSample,
-                           Collection<Slot> operativeSlots) {
+            List<Long> selectedPartitionIds, long selectedIndexId, PreAggStatus preAggStatus,
+            List<Long> specifiedPartitions, List<String> hints, Optional<TableSample> tableSample,
+            Collection<Slot> operativeSlots) {
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 selectedPartitionIds, false, tabletIds,
                 selectedIndexId, true, preAggStatus,
                 specifiedPartitions, hints, Maps.newHashMap(), Optional.empty(), tableSample, true, ImmutableMap.of(),
-                ImmutableList.of(), operativeSlots, ImmutableList.of(), ImmutableList.of(), Optional.empty(),
+                ImmutableList.of(), operativeSlots, ImmutableList.of(), ImmutableList.of(),
+                Optional.empty(), Optional.empty(),
                 ImmutableList.of(), Optional.empty());
     }
 
@@ -221,7 +231,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             Optional<List<Slot>> cachedOutput, Optional<TableSample> tableSample, boolean directMvScan,
             Map<String, Set<List<String>>> colToSubPathsMap, List<Long> specifiedTabletIds,
             Collection<Slot> operativeSlots, List<NamedExpression> virtualColumns,
-            List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit,
+            List<OrderKey> scoreOrderKeys, Optional<Long> scoreLimit, Optional<ScoreRangeInfo> scoreRangeInfo,
             List<OrderKey> annOrderKeys, Optional<Long> annLimit) {
         super(id, PlanType.LOGICAL_OLAP_SCAN, table, qualifier,
                 operativeSlots, virtualColumns, groupExpression, logicalProperties);
@@ -257,6 +267,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
         this.subPathToSlotMap = Maps.newHashMap();
         this.scoreOrderKeys = Utils.fastToImmutableList(scoreOrderKeys);
         this.scoreLimit = scoreLimit;
+        this.scoreRangeInfo = scoreRangeInfo;
         this.annOrderKeys = Utils.fastToImmutableList(annOrderKeys);
         this.annLimit = annLimit;
     }
@@ -302,8 +313,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 "preAgg", preAggStatus,
                 "operativeCol", operativeSlots,
                 "stats", statistics,
-                "virtualColumns", virtualColumns
-        );
+                "virtualColumns", virtualColumns);
     }
 
     @Override
@@ -328,6 +338,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 && Objects.equals(tableSample, that.tableSample)
                 && Objects.equals(scoreOrderKeys, that.scoreOrderKeys)
                 && Objects.equals(scoreLimit, that.scoreLimit)
+                && Objects.equals(scoreRangeInfo, that.scoreRangeInfo)
                 && Objects.equals(annOrderKeys, that.annOrderKeys)
                 && Objects.equals(annLimit, that.annLimit);
     }
@@ -345,7 +356,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     @Override
@@ -356,7 +367,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     /**
@@ -369,13 +380,13 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     /**
      * with sync materialized index id.
      * @param indexId materialized index id for scan
-     * @return scan with  materialized index id
+     * @return scan with materialized index id
      */
     public LogicalOlapScan withMaterializedIndexSelected(long indexId) {
         return new LogicalOlapScan(relationId, (Table) table, qualifier,
@@ -383,7 +394,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 indexId, true, PreAggStatus.unset(), manuallySpecifiedPartitions, hints, cacheSlotWithSlotName,
                 cachedOutput, tableSample, directMvScan, colToSubPathsMap, manuallySpecifiedTabletIds,
-                operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit, scoreRangeInfo,
+                annOrderKeys, annLimit);
     }
 
     /**
@@ -395,8 +407,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
-                colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
+                scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     /**
@@ -409,7 +421,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     /**
@@ -422,7 +434,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     /**
@@ -435,7 +447,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan,
                 colToSubPathsMap, manuallySpecifiedTabletIds, operativeSlots, virtualColumns,
-                scoreOrderKeys, scoreLimit, annOrderKeys, annLimit);
+                scoreOrderKeys, scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     @Override
@@ -447,7 +459,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, Maps.newHashMap(), Optional.empty(), tableSample, directMvScan,
                 colToSubPathsMap, selectedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys,
-                scoreLimit, annOrderKeys, annLimit);
+                scoreLimit, scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     /**
@@ -467,31 +479,59 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                annOrderKeys, annLimit);
+                scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     /**
-     * add virtual column to olap scan.
-     * @param virtualColumns generated virtual columns
-     * @return scan with virtual columns
+     * Append additional virtual columns to existing ones.
+     * Unlike {@link #withVirtualColumns} which replaces, this merges existing + new.
      */
-    public LogicalOlapScan withVirtualColumnsAndTopN(
-            List<NamedExpression> virtualColumns,
-            List<OrderKey> annOrderKeys,
-            Optional<Long> annLimit,
-            List<OrderKey> scoreOrderKeys,
-            Optional<Long> scoreLimit) {
+    public LogicalOlapScan appendVirtualColumns(List<NamedExpression> additionalVirtualColumns) {
         LogicalProperties logicalProperties = getLogicalProperties();
         List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
-        output.addAll(virtualColumns.stream().map(NamedExpression::toSlot).collect(Collectors.toList()));
+        output.addAll(additionalVirtualColumns.stream().map(NamedExpression::toSlot)
+                .collect(Collectors.toList()));
         logicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
+        List<NamedExpression> mergedVirtualColumns = ImmutableList.<NamedExpression>builder()
+                .addAll(this.virtualColumns)
+                .addAll(additionalVirtualColumns)
+                .build();
         return new LogicalOlapScan(relationId, (Table) table, qualifier,
                 groupExpression, Optional.of(logicalProperties),
                 selectedPartitionIds, partitionPruned, selectedTabletIds,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
-                manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                annOrderKeys, annLimit);
+                manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
+                scoreRangeInfo, annOrderKeys, annLimit);
+    }
+
+    /**
+     * Append additional virtual columns with topN info.
+     * Merges existing virtual columns with the new ones.
+     */
+    public LogicalOlapScan appendVirtualColumnsAndTopN(
+            List<NamedExpression> additionalVirtualColumns,
+            List<OrderKey> annOrderKeys,
+            Optional<Long> annLimit,
+            List<OrderKey> scoreOrderKeys,
+            Optional<Long> scoreLimit,
+            Optional<ScoreRangeInfo> scoreRangeInfo) {
+        LogicalProperties logicalProperties = getLogicalProperties();
+        List<Slot> output = Lists.newArrayList(logicalProperties.getOutput());
+        output.addAll(additionalVirtualColumns.stream().map(NamedExpression::toSlot)
+                .collect(Collectors.toList()));
+        logicalProperties = new LogicalProperties(() -> output, this::computeDataTrait);
+        List<NamedExpression> mergedVirtualColumns = ImmutableList.<NamedExpression>builder()
+                .addAll(this.virtualColumns)
+                .addAll(additionalVirtualColumns)
+                .build();
+        return new LogicalOlapScan(relationId, (Table) table, qualifier,
+                groupExpression, Optional.of(logicalProperties),
+                selectedPartitionIds, partitionPruned, selectedTabletIds,
+                selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
+                hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
+                manuallySpecifiedTabletIds, operativeSlots, mergedVirtualColumns, scoreOrderKeys, scoreLimit,
+                scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     @Override
@@ -582,7 +622,8 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
     public List<Slot> getOutputByIndex(long indexId) {
         OlapTable olapTable = (OlapTable) table;
         // PhysicalStorageLayerAggregateTest has no visible index
-        // when we have a partitioned table without any partition, visible index is empty
+        // when we have a partitioned table without any partition, visible index is
+        // empty
         List<Column> schema = olapTable.getIndexMetaByIndexId(indexId).getSchema();
         List<Slot> slots = Lists.newArrayListWithCapacity(schema.size());
         IdGenerator<ExprId> exprIdGenerator = StatementScopeIdGenerator.getExprIdGenerator();
@@ -661,6 +702,10 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
 
     public Optional<Long> getAnnLimit() {
         return annLimit;
+    }
+
+    public Optional<ScoreRangeInfo> getScoreRangeInfo() {
+        return scoreRangeInfo;
     }
 
     private List<SlotReference> createSlotsVectorized(List<Column> columns) {
@@ -825,13 +870,12 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, cachedOutput, tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                annOrderKeys, annLimit);
+                scoreRangeInfo, annOrderKeys, annLimit);
     }
 
-    private Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
+    @VisibleForTesting
+    Map<Slot, Slot> constructReplaceMap(MTMV mtmv) {
         Map<Slot, Slot> replaceMap = new HashMap<>();
-        // Need remove invisible column, and then mapping them
-        List<Slot> originOutputs = new ArrayList<>();
         MTMVCache cache;
         try {
             cache = mtmv.getOrGenerateCache(ConnectContext.get());
@@ -839,21 +883,62 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
             LOG.warn(String.format("LogicalOlapScan constructReplaceMap fail, mv name is %s", mtmv.getName()), e);
             return replaceMap;
         }
-        for (Slot originSlot : cache.getOriginalFinalPlan().getOutput()) {
-            if (!(originSlot instanceof SlotReference) || (((SlotReference) originSlot).isVisible())) {
-                originOutputs.add(originSlot);
+        // Get MV plan's visible output slots (ordered, matching MV definition SELECT list).
+        // This includes all visible slots: regular columns AND variant subPath columns
+        // like payload['issue'] that are real physical columns of the MV.
+        List<Slot> mvPlanVisibleOutputs = new ArrayList<>();
+        for (Slot slot : cache.getOriginalFinalPlan().getOutput()) {
+            if (slot instanceof SlotReference && ((SlotReference) slot).isVisible()) {
+                mvPlanVisibleOutputs.add(slot);
             }
         }
-        List<Slot> targetOutputs = new ArrayList<>();
-        for (Slot targeSlot : getOutput()) {
-            if (!(targeSlot instanceof SlotReference) || (((SlotReference) targeSlot).isVisible())) {
-                targetOutputs.add(targeSlot);
+        // Get MV table's visible physical columns (ordered).
+        // getBaseSchema() returns visible-only columns whose names are derived from the
+        // CREATE MV AS SELECT aliases. These names are guaranteed unique per table.
+        // Using physical column names as keys (instead of plan slot's originalColumn.getName())
+        // correctly handles:
+        // - Aliased columns (e.g. SELECT sum_total AS agg3): key is "agg3", not "sum_total"
+        // - Self-join MVs: physical column names are unique even if source columns collide
+        // - Variant columns (e.g. SELECT payload['issue']): they are physical columns in getBaseSchema()
+        List<Column> mvPhysicalColumns = mtmv.getBaseSchema();
+        if (mvPlanVisibleOutputs.size() != mvPhysicalColumns.size()) {
+            LOG.error("LogicalOlapScan constructReplaceMap: MV plan visible output size {} "
+                    + "doesn't match physical column size {} for mv {}",
+                    mvPlanVisibleOutputs.size(), mvPhysicalColumns.size(), mtmv.getName());
+            // not throw exception here to avoid query failed, compute mv fd should not influence query process
+            return Collections.emptyMap();
+        }
+        // Build mvOutputsMap: the i-th visible plan output corresponds to the i-th physical column.
+        Map<List<String>, Slot> mvOutputsMap = new HashMap<>();
+        for (int i = 0; i < mvPlanVisibleOutputs.size(); i++) {
+            String physicalColName = mvPhysicalColumns.get(i).getName().toLowerCase(Locale.ROOT);
+            List<String> key = Lists.newArrayList(physicalColName);
+            mvOutputsMap.put(key, mvPlanVisibleOutputs.get(i));
+        }
+        // Match scan output slots against mvOutputsMap.
+        // Scan slot's originalColumn.getName() refers to the MV's physical column, so keys match.
+        // Extra subPath slots added by VariantSubPathPruning during query optimization won't
+        // match any mvOutputsMap entry (their keys include subPath elements) and are safely skipped.
+        for (Slot scanSlot : getOutput()) {
+            if (scanSlot instanceof SlotReference && ((SlotReference) scanSlot).isVisible()) {
+                SlotReference scanRef = (SlotReference) scanSlot;
+                String scanName = scanRef.getOriginalColumn().map(Column::getName).orElse(scanRef.getName());
+                List<String> key = Lists.newArrayList(scanName.toLowerCase(Locale.ROOT));
+                key.addAll(scanRef.getSubPath());
+                Slot mvMappingSlot = mvOutputsMap.get(key);
+                if (mvMappingSlot != null) {
+                    replaceMap.put(mvMappingSlot, scanSlot);
+                }
             }
         }
-        Preconditions.checkArgument(originOutputs.size() == targetOutputs.size(),
-                "constructReplaceMap, the size of originOutputs and targetOutputs should be same");
-        for (int i = 0; i < targetOutputs.size(); i++) {
-            replaceMap.put(originOutputs.get(i), targetOutputs.get(i));
+        // Every MV plan slot must be mapped
+        if (mvOutputsMap.size() != replaceMap.size()) {
+            LOG.error(String.format("LogicalOlapScan constructReplaceMap size not match,"
+                    + "mv name is %s, mvOutputsMap is %s, mv output is %s, scan output is %s",
+                    mtmv.getName(), mvOutputsMap,
+                    cache.getOriginalFinalPlan().getOutput(), getOutput()));
+            // not throw exception here to avoid query failed, compute mv fd should not influence query process
+            return Collections.emptyMap();
         }
         return replaceMap;
     }
@@ -866,7 +951,7 @@ public class LogicalOlapScan extends LogicalCatalogRelation implements OlapScan,
                 selectedIndexId, indexSelected, preAggStatus, manuallySpecifiedPartitions,
                 hints, cacheSlotWithSlotName, Optional.of(outputSlots), tableSample, directMvScan, colToSubPathsMap,
                 manuallySpecifiedTabletIds, operativeSlots, virtualColumns, scoreOrderKeys, scoreLimit,
-                annOrderKeys, annLimit);
+                scoreRangeInfo, annOrderKeys, annLimit);
     }
 
     @Override

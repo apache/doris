@@ -357,15 +357,11 @@ Status FileScanner::_process_conjuncts() {
     return Status::OK();
 }
 
-Status FileScanner::_process_late_arrival_conjuncts(bool* changed,
-                                                    VExprContextSPtrs& new_push_down_conjuncts) {
-    *changed = false;
+Status FileScanner::_process_late_arrival_conjuncts() {
     if (_push_down_conjuncts.size() < _conjuncts.size()) {
-        *changed = true;
         _push_down_conjuncts = _conjuncts;
         _conjuncts.clear();
         RETURN_IF_ERROR(_process_conjuncts());
-        new_push_down_conjuncts = _push_down_conjuncts;
     }
     if (_applied_rf_num == _total_rf_num) {
         _local_state->scanner_profile()->add_info_string("ApplyAllRuntimeFilters", "True");
@@ -386,9 +382,9 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
     }
 }
 
-Status FileScanner::open(RuntimeState* state) {
+Status FileScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(Scanner::open(state));
+    RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
@@ -1045,7 +1041,9 @@ Status FileScanner::_get_next_reader() {
             // ATTN: the push down agg type may be set back to NONE,
             // see IcebergTableReader::init_row_filters for example.
             parquet_reader->set_push_down_agg_type(_get_push_down_agg_type());
-
+            if (push_down_predicates) {
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
+            }
             RETURN_IF_ERROR(_init_parquet_reader(std::move(parquet_reader), file_meta_cache_ptr));
 
             need_to_get_parsed_schema = true;
@@ -1066,9 +1064,7 @@ Status FileScanner::_get_next_reader() {
 
             orc_reader->set_push_down_agg_type(_get_push_down_agg_type());
             if (push_down_predicates) {
-                bool changed = false;
-                VExprContextSPtrs new_push_down_conjuncts;
-                RETURN_IF_ERROR(_process_late_arrival_conjuncts(&changed, new_push_down_conjuncts));
+                RETURN_IF_ERROR(_process_late_arrival_conjuncts());
             }
             RETURN_IF_ERROR(_init_orc_reader(std::move(orc_reader), file_meta_cache_ptr));
 

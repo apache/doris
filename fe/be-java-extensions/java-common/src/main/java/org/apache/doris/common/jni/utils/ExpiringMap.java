@@ -47,9 +47,7 @@ public class ExpiringMap<K, V> {
     public V get(K key) {
         Long expirationTime = expirationMap.get(key);
         if (expirationTime == null || System.currentTimeMillis() > expirationTime) {
-            map.remove(key);
-            expirationMap.remove(key);
-            ttlMap.remove(key);
+            remove(key);
             return null;
         }
         // reset time again
@@ -64,18 +62,25 @@ public class ExpiringMap<K, V> {
             long now = System.currentTimeMillis();
             for (K key : expirationMap.keySet()) {
                 if (expirationMap.get(key) <= now) {
-                    map.remove(key);
-                    expirationMap.remove(key);
-                    ttlMap.remove(key);
+                    remove(key);
                 }
             }
         }, DEFAULT_INTERVAL_TIME, DEFAULT_INTERVAL_TIME, TimeUnit.MINUTES);
     }
 
     public void remove(K key) {
-        map.remove(key);
+        V value = map.remove(key);
         expirationMap.remove(key);
         ttlMap.remove(key);
+
+        // Uniformly release resources for any AutoCloseable value,
+        if (value instanceof AutoCloseable) {
+            try {
+                ((AutoCloseable) value).close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close cached resource: " + key, e);
+            }
+        }
     }
 
     public int size() {

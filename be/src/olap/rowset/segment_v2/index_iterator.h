@@ -57,6 +57,7 @@ public:
     virtual Result<bool> has_null() = 0;
 
     void set_context(const IndexQueryContextPtr& context) { _context = context; }
+    IndexQueryContextPtr get_context() const { return _context; }
 
 protected:
     IndexQueryContextPtr _context = nullptr;

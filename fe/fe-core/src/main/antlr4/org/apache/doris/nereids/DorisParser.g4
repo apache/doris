@@ -147,11 +147,13 @@ supportedDmlStatement
     | explain? cte? UPDATE tableName=multipartIdentifier tableAlias
         SET updateAssignmentSeq
         fromClause?
-        whereClause?                                                   #update
+        whereClause?
+        queryOrganization                                              #update
     | explain? cte? DELETE FROM tableName=multipartIdentifier
         partitionSpec? tableAlias
         (USING relations)?
-        whereClause?                                                   #delete
+        whereClause?
+        queryOrganization                                              #delete
     | explain? cte? MERGE INTO targetTable=multipartIdentifier
         (AS? identifier)? USING srcRelation=relationPrimary
         ON expression
@@ -1302,7 +1304,11 @@ relation
     ;
 
 joinRelation
-    : (joinType) JOIN distributeType? right=relationPrimary joinCriteria?
+    : (joinType) JOIN distributeType? right=relationPrimary matchCondition? joinCriteria?
+    ;
+
+matchCondition
+    : MATCH_CONDITION LEFT_PAREN valueExpression RIGHT_PAREN
     ;
 
 // Just like `opt_plan_hints` in legacy CUP parser.
@@ -1413,6 +1419,8 @@ joinType
     | RIGHT SEMI
     | LEFT ANTI
     | RIGHT ANTI
+    | ASOF LEFT?
+    | ASOF INNER
     ;
 
 joinCriteria

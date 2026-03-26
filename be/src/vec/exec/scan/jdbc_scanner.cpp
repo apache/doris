@@ -101,7 +101,7 @@ Status JdbcScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts
     return Status::OK();
 }
 
-Status JdbcScanner::open(RuntimeState* state) {
+Status JdbcScanner::_open_impl(RuntimeState* state) {
     VLOG_CRITICAL << "JdbcScanner::open";
     if (state == nullptr) {
         return Status::InternalError("input pointer is NULL of VJdbcScanNode::open.");
@@ -111,7 +111,7 @@ Status JdbcScanner::open(RuntimeState* state) {
         return Status::InternalError("used before initialize of VJdbcScanNode::open.");
     }
     RETURN_IF_CANCELLED(state);
-    RETURN_IF_ERROR(Scanner::open(state));
+    RETURN_IF_ERROR(Scanner::_open_impl(state));
     RETURN_IF_ERROR(_jdbc_connector->open(state, true));
     RETURN_IF_ERROR(_jdbc_connector->query());
     return Status::OK();

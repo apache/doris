@@ -64,17 +64,43 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
 
     @Test
     void oneSide() {
-        oneSide(JoinType.CROSS_JOIN, false);
-        oneSide(JoinType.INNER_JOIN, false);
-        oneSide(JoinType.LEFT_OUTER_JOIN, true);
-        oneSide(JoinType.LEFT_SEMI_JOIN, true);
-        oneSide(JoinType.LEFT_ANTI_JOIN, true);
-        oneSide(JoinType.RIGHT_OUTER_JOIN, false);
-        oneSide(JoinType.RIGHT_SEMI_JOIN, false);
-        oneSide(JoinType.RIGHT_ANTI_JOIN, false);
+        oneSidePush(JoinType.CROSS_JOIN, false);
+        oneSidePush(JoinType.INNER_JOIN, false);
+        oneSidePush(JoinType.LEFT_OUTER_JOIN, true);
+        oneSidePush(JoinType.LEFT_SEMI_JOIN, true);
+        oneSidePush(JoinType.LEFT_ANTI_JOIN, true);
+        oneSidePush(JoinType.RIGHT_OUTER_JOIN, false);
+        oneSidePush(JoinType.RIGHT_SEMI_JOIN, false);
+        oneSidePush(JoinType.RIGHT_ANTI_JOIN, false);
+        oneSideNoPush(JoinType.ASOF_LEFT_INNER_JOIN);
+        oneSideNoPush(JoinType.ASOF_RIGHT_INNER_JOIN);
+        oneSideNoPush(JoinType.ASOF_LEFT_OUTER_JOIN);
+        oneSideNoPush(JoinType.ASOF_RIGHT_OUTER_JOIN);
     }
 
-    private void oneSide(JoinType joinType, boolean testRight) {
+    private void oneSideNoPush(JoinType joinType) {
+        Expression pushSide1 = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
+        Expression pushSide2 = new GreaterThan(rStudentSlots.get(1), Literal.of(50));
+        List<Expression> condition = ImmutableList.of(pushSide1, pushSide2);
+
+        LogicalOlapScan left = rStudent;
+        LogicalOlapScan right = rScore;
+
+        LogicalPlan root = new LogicalPlanBuilder(left)
+                .join(right, joinType, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
+
+        PlanChecker planChecker = PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOtherCondition());
+
+        planChecker.matches(
+                logicalJoin(
+                        logicalOlapScan(),
+                        logicalOlapScan()).when(join -> join.getOtherJoinConjuncts().equals(condition)));
+    }
+
+    private void oneSidePush(JoinType joinType, boolean testRight) {
         Expression pushSide1 = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
         Expression pushSide2 = new GreaterThan(rStudentSlots.get(1), Literal.of(50));
         List<Expression> condition = ImmutableList.of(pushSide1, pushSide2);
@@ -112,13 +138,15 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
 
     @Test
     void bothSideToBothSide() {
-        bothSideToBothSide(JoinType.CROSS_JOIN);
-        bothSideToBothSide(JoinType.INNER_JOIN);
-        bothSideToBothSide(JoinType.LEFT_SEMI_JOIN);
-        bothSideToBothSide(JoinType.RIGHT_SEMI_JOIN);
+        bothSidePush(JoinType.CROSS_JOIN);
+        bothSidePush(JoinType.INNER_JOIN);
+        bothSidePush(JoinType.LEFT_SEMI_JOIN);
+        bothSidePush(JoinType.RIGHT_SEMI_JOIN);
+        bothSideNoPush(JoinType.ASOF_LEFT_INNER_JOIN);
+        bothSideNoPush(JoinType.ASOF_RIGHT_INNER_JOIN);
     }
 
-    private void bothSideToBothSide(JoinType joinType) {
+    private void bothSidePush(JoinType joinType) {
 
         Expression leftSide = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
         Expression rightSide = new GreaterThan(rScoreSlots.get(2), Literal.of(60));
@@ -138,15 +166,35 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
                         ));
     }
 
-    @Test
-    void bothSideToOneSide() {
-        bothSideToOneSide(JoinType.LEFT_OUTER_JOIN, true);
-        bothSideToOneSide(JoinType.LEFT_ANTI_JOIN, true);
-        bothSideToOneSide(JoinType.RIGHT_OUTER_JOIN, false);
-        bothSideToOneSide(JoinType.RIGHT_ANTI_JOIN, false);
+    private void bothSideNoPush(JoinType joinType) {
+        Expression leftSide = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
+        Expression rightSide = new GreaterThan(rScoreSlots.get(2), Literal.of(60));
+        List<Expression> condition = ImmutableList.of(leftSide, rightSide);
+
+        LogicalPlan root = new LogicalPlanBuilder(rStudent)
+                .join(rScore, joinType, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOtherCondition())
+                .matches(
+                        logicalJoin(
+                                logicalOlapScan(),
+                                logicalOlapScan()));
     }
 
-    private void bothSideToOneSide(JoinType joinType, boolean testRight) {
+    @Test
+    void bothSideToOneSide() {
+        bothSideToOneSidePush(JoinType.LEFT_OUTER_JOIN, true);
+        bothSideToOneSidePush(JoinType.LEFT_ANTI_JOIN, true);
+        bothSideToOneSidePush(JoinType.RIGHT_OUTER_JOIN, false);
+        bothSideToOneSidePush(JoinType.RIGHT_ANTI_JOIN, false);
+        bothSideToOneSideNoPush(JoinType.ASOF_LEFT_OUTER_JOIN);
+        bothSideToOneSideNoPush(JoinType.ASOF_RIGHT_OUTER_JOIN);
+    }
+
+    private void bothSideToOneSidePush(JoinType joinType, boolean testRight) {
         Expression pushSide = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
         Expression reserveSide = new GreaterThan(rScoreSlots.get(2), Literal.of(60));
         List<Expression> condition = ImmutableList.of(pushSide, reserveSide);
@@ -179,5 +227,27 @@ class PushDownJoinOtherConditionTest implements MemoPatternMatchSupported {
                             logicalOlapScan()
                     ));
         }
+    }
+
+    private void bothSideToOneSideNoPush(JoinType joinType) {
+        Expression pushSide = new GreaterThan(rStudentSlots.get(1), Literal.of(18));
+        Expression reserveSide = new GreaterThan(rScoreSlots.get(2), Literal.of(60));
+        List<Expression> condition = ImmutableList.of(pushSide, reserveSide);
+
+        LogicalOlapScan left = rStudent;
+        LogicalOlapScan right = rScore;
+
+        LogicalPlan root = new LogicalPlanBuilder(left)
+                .join(right, joinType, ExpressionUtils.EMPTY_CONDITION, condition)
+                .project(Lists.newArrayList())
+                .build();
+
+        PlanChecker planChecker = PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new PushDownJoinOtherCondition());
+
+        planChecker.matches(
+                logicalJoin(
+                        logicalOlapScan(),
+                        logicalOlapScan()));
     }
 }

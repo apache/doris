@@ -64,6 +64,7 @@ import javax.annotation.Nullable;
 public class HyperGraphComparator {
     // This second join can be inferred to the first join by map value,
     // The map value means the child's should be no-nullable
+    // please aware ASOF OUTER JOIN can only be converted to ASOF INNER JOIN
     static Map<Pair<JoinType, JoinType>, Pair<Boolean, Boolean>> canInferredJoinTypeMap = ImmutableMap
             .<Pair<JoinType, JoinType>, Pair<Boolean, Boolean>>builder()
             .put(Pair.of(JoinType.LEFT_SEMI_JOIN, JoinType.INNER_JOIN), Pair.of(false, false))
@@ -71,6 +72,8 @@ public class HyperGraphComparator {
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.LEFT_OUTER_JOIN), Pair.of(false, true))
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.RIGHT_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.INNER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, true))
+            .put(Pair.of(JoinType.ASOF_LEFT_INNER_JOIN, JoinType.ASOF_LEFT_OUTER_JOIN), Pair.of(false, true))
+            .put(Pair.of(JoinType.ASOF_RIGHT_INNER_JOIN, JoinType.ASOF_RIGHT_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.LEFT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(true, false))
             .put(Pair.of(JoinType.RIGHT_OUTER_JOIN, JoinType.FULL_OUTER_JOIN), Pair.of(false, true))
             .build();

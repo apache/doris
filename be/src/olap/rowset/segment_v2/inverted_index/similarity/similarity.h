@@ -36,6 +36,7 @@ public:
                            const std::vector<std::wstring>& terms) = 0;
 
     virtual float score(float freq, int64_t encoded_norm) = 0;
+    virtual float max_score() = 0;
 };
 using SimilarityPtr = std::shared_ptr<Similarity>;
 

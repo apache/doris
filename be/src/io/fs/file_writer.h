@@ -82,6 +82,10 @@ public:
 
     virtual State state() const = 0;
 
+    // Returns true if this file's data was written to a packed file.
+    // Used to determine whether to collect packed slice location from PackedFileManager.
+    virtual bool is_in_packed_file() const { return false; }
+
     FileCacheAllocatorBuilder* cache_builder() const {
         return _cache_builder == nullptr ? nullptr : _cache_builder.get();
     }

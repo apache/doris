@@ -214,19 +214,19 @@ suite("nested_mtmv") {
         group by l_orderkey, l_linenumber, l_partkey, o_orderkey, o_custkey, ps_partkey
         """
     def mv_level1_name = "mv_level1_name"
-    def mv_stmt_5 = """
+    def mv_level2_stmt = """
         select l_orderkey, l_linenumber, l_partkey, o_orderkey, o_custkey, ps_partkey, col1
         from ${mv_level1_name}
         """
     def mv_level2_name = "mv_level2_name"
-    def mv_stmt_6 = """
+    def mv_level3_stmt = """
         select t1.l_orderkey, t2.l_linenumber, t1.l_partkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.col1
         from ${mv_level1_name} as t1
         left join ${mv_level1_name} as t2 
         on t1.l_orderkey = t2.l_orderkey
         """
     def mv_level3_name = "mv_level3_name"
-    def mv_stmt_7 = """
+    def mv_level4_stmt = """
         select t1.l_orderkey, t2.l_linenumber, t1.l_partkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.col1
         from ${mv_level2_name} as t1
         left join ${mv_level2_name} as t2 
@@ -236,11 +236,11 @@ suite("nested_mtmv") {
 
     create_async_mv(db, mv_level1_name, mv_stmt_4)
 
-    create_async_mv(db, mv_level2_name, mv_stmt_5)
+    create_async_mv(db, mv_level2_name, mv_level2_stmt)
 
-    create_async_mv(db, mv_level3_name, mv_stmt_6)
+    create_async_mv(db, mv_level3_name, mv_level3_stmt)
 
-    create_async_mv(db, mv_level4_name, mv_stmt_7)
+    create_async_mv(db, mv_level4_name, mv_level4_stmt)
 
     def query_stmt_2 = """
         select t1.l_orderkey, t2.l_linenumber, t1.l_partkey, t2.o_orderkey, t1.o_custkey, t2.ps_partkey, t1.col1

@@ -190,21 +190,62 @@ public abstract class ColumnType {
         }
     }
 
-    // This method defines the char type
-    // to support the schema-change behavior of length growth.
-    // return true if the checkType and other are both char-type otherwise return false,
-    // which used in checkSupportSchemaChangeForComplexType
-    private static boolean checkSupportSchemaChangeForCharType(Type checkType, Type other) throws DdlException {
+    // This method checks if a primitive type change is allowed in nested complex types.
+    // Supports:
+    // 1. VARCHAR length increase
+    // 2. Safe numeric type promotions (INT -> BIGINT, FLOAT -> DOUBLE, etc.)
+    // 3. Exact type match
+    private static boolean checkSupportSchemaChangeForNestedPrimitive(Type checkType, Type other) throws DdlException {
+        // 1. Check VARCHAR length increase
         if (checkType.getPrimitiveType() == PrimitiveType.VARCHAR
                 && other.getPrimitiveType() == PrimitiveType.VARCHAR) {
-            // currently nested types only support light schema change for internal fields, for string types,
-            // only varchar can do light schema change
             checkForTypeLengthChange(checkType, other);
             return true;
-        } else {
-            // types equal can return true
-            return checkType.equals(other);
         }
+
+        // 2. Check exact type match (including STRING == STRING)
+        if (checkType.equals(other)) {
+            return true;
+        }
+
+        // 3. Check safe numeric type promotions for nested types
+        // These are safe promotions that don't lose precision:
+        // - INT -> BIGINT, LARGEINT
+        // - FLOAT -> DOUBLE
+        PrimitiveType srcType = checkType.getPrimitiveType();
+        PrimitiveType dstType = other.getPrimitiveType();
+
+        // INT -> BIGINT, LARGEINT
+        if (srcType == PrimitiveType.INT
+                && (dstType == PrimitiveType.BIGINT || dstType == PrimitiveType.LARGEINT)) {
+            return true;
+        }
+
+        // TINYINT -> SMALLINT, INT, BIGINT, LARGEINT
+        if (srcType == PrimitiveType.TINYINT
+                && (dstType == PrimitiveType.SMALLINT || dstType == PrimitiveType.INT
+                    || dstType == PrimitiveType.BIGINT || dstType == PrimitiveType.LARGEINT)) {
+            return true;
+        }
+
+        // SMALLINT -> INT, BIGINT, LARGEINT
+        if (srcType == PrimitiveType.SMALLINT
+                && (dstType == PrimitiveType.INT || dstType == PrimitiveType.BIGINT
+                    || dstType == PrimitiveType.LARGEINT)) {
+            return true;
+        }
+
+        // BIGINT -> LARGEINT
+        if (srcType == PrimitiveType.BIGINT && dstType == PrimitiveType.LARGEINT) {
+            return true;
+        }
+
+        // FLOAT -> DOUBLE
+        if (srcType == PrimitiveType.FLOAT && dstType == PrimitiveType.DOUBLE) {
+            return true;
+        }
+
+        return false;
     }
 
     private static void validateStructFieldCompatibility(StructField originalField, StructField newField)
@@ -272,9 +313,9 @@ public abstract class ColumnType {
             checkSupportSchemaChangeForComplexType(((MapType) checkType).getValueType(),
                     ((MapType) other).getValueType(), true);
         } else {
-            // only support char-type schema change behavior for nested complex type
+            // Support safe type promotions for nested primitive types
             // if nested is false, we do not check return value.
-            if (nested && !checkSupportSchemaChangeForCharType(checkType, other)) {
+            if (nested && !checkSupportSchemaChangeForNestedPrimitive(checkType, other)) {
                 throw new DdlException(
                         "Cannot change " + checkType.toSql() + " to " + other.toSql() + " in nested types");
             }

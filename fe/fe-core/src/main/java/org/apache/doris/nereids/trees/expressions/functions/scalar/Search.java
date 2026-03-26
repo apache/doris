@@ -41,7 +41,7 @@ import java.util.List;
  * Options parameter (JSON format):
  * - default_field: default field name when DSL doesn't specify field
  * - default_operator: "and" or "or" for multi-term queries (default: "and")
- * - mode: "standard" (default) or "lucene" (ES/Lucene-style boolean parsing)
+ * - mode: "lucene" (default, ES/Lucene-style boolean parsing) or "standard"
  * - minimum_should_match: integer for Lucene mode (default: 0 for filter context)
  * <p>
  * Example options: '{"default_field":"title","mode":"lucene","minimum_should_match":0}'

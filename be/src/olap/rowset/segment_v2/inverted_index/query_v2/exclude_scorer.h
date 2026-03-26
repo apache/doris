@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <roaring/roaring.hh>
+
 #include "olap/rowset/segment_v2/inverted_index/query_v2/scorer.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -29,7 +31,8 @@ inline bool is_within(TDocSetExclude& docset, uint32_t doc) {
 template <typename TDocSet, typename TDocSetExclude>
 class Exclude final : public Scorer {
 public:
-    Exclude(TDocSet underlying_docset, TDocSetExclude excluding_docset);
+    Exclude(TDocSet underlying_docset, TDocSetExclude excluding_docset,
+            roaring::Roaring exclude_null = {}, const NullBitmapResolver* resolver = nullptr);
     ~Exclude() override = default;
 
     uint32_t advance() override;
@@ -38,13 +41,20 @@ public:
     uint32_t size_hint() const override;
     float score() override;
 
+    bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override;
+    const roaring::Roaring* get_null_bitmap(const NullBitmapResolver* resolver = nullptr) override;
+
 private:
     TDocSet _underlying_docset;
     TDocSetExclude _excluding_docset;
+    roaring::Roaring _exclude_null;
+    roaring::Roaring _null_bitmap;
 };
 
 using ExcludeScorerPtr = std::shared_ptr<Exclude<ScorerPtr, ScorerPtr>>;
 
-ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding);
+ScorerPtr make_exclude(ScorerPtr underlying, ScorerPtr excluding,
+                       roaring::Roaring exclude_null = {},
+                       const NullBitmapResolver* resolver = nullptr);
 
 } // namespace doris::segment_v2::inverted_index::query_v2

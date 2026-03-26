@@ -71,7 +71,7 @@ public class MetaServiceProxyTest {
         lastConnTimeMs.add(0L);
 
         MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
-        String response = wrapper.executeRequest((ignored) -> "ok");
+        String response = wrapper.executeRequest("ignored", (ignored) -> "ok");
         Assert.assertEquals("ok", response);
         Mockito.verify(client, Mockito.never()).shutdown(Mockito.anyBoolean());
     }
@@ -93,7 +93,7 @@ public class MetaServiceProxyTest {
 
         MetaServiceProxy.MetaServiceClientWrapper wrapper = Deencapsulation.getField(proxy, "w");
         try {
-            wrapper.executeRequest((ignored) -> {
+            wrapper.executeRequest("ignored", (ignored) -> {
                 throw new RuntimeException("rpc failed");
             });
             Assert.fail("should throw RpcException");

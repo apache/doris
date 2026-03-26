@@ -58,7 +58,9 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
         return ImmutableList.of(
                 logicalJoin(logicalProject(logicalJoin()), group())
                         .when(j -> j.left().child().getJoinType().isOuterJoin()
-                                || j.left().child().getJoinType().isInnerJoin())
+                                || j.left().child().getJoinType().isInnerJoin()
+                                || j.left().child().getJoinType().isAsofOuterJoin()
+                                || j.left().child().getJoinType().isAsofInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.left().isAllSlots())
                         .whenNot(j -> j.left().child().hasDistributeHint())
@@ -72,7 +74,9 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
                         }).toRule(RuleType.PUSH_DOWN_PROJECT_THROUGH_INNER_OUTER_JOIN_LEFT),
                 logicalJoin(group(), logicalProject(logicalJoin()))
                         .when(j -> j.right().child().getJoinType().isOuterJoin()
-                                || j.right().child().getJoinType().isInnerJoin())
+                                || j.right().child().getJoinType().isInnerJoin()
+                                || j.right().child().getJoinType().isAsofOuterJoin()
+                                || j.right().child().getJoinType().isAsofInnerJoin())
                         // Just pushdown project with non-column expr like (t.id + 1)
                         .whenNot(j -> j.right().isAllSlots())
                         .whenNot(j -> j.right().child().hasDistributeHint())
@@ -104,7 +108,7 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
         List<NamedExpression> aProjects = new ArrayList<>();
         List<NamedExpression> bProjects = new ArrayList<>();
         List<NamedExpression> projects;
-        if (join.getJoinType().isInnerJoin()) {
+        if (join.getJoinType().isInnerJoin() || join.getJoinType().isAsofInnerJoin()) {
             projects = project.getProjects();
         } else {
             Map<Slot, Slot> childrenSlots = new HashMap<>();
@@ -136,8 +140,10 @@ public class PushDownProjectThroughInnerOuterJoin implements ExplorationRuleFact
             return null;
         }
         // we could not push nullable side project
-        if (((join.getJoinType().isLeftOuterJoin() || join.getJoinType().isFullOuterJoin()) && rightContains)
-                || ((join.getJoinType().isRightOuterJoin() || join.getJoinType().isFullOuterJoin()) && leftContains)) {
+        if (((join.getJoinType().isLeftOuterJoin() || join.getJoinType().isAsofLeftOuterJoin()
+                || join.getJoinType().isFullOuterJoin()) && rightContains)
+                || ((join.getJoinType().isRightOuterJoin() || join.getJoinType().isAsofRightOuterJoin()
+                || join.getJoinType().isFullOuterJoin()) && leftContains)) {
             return null;
         }
 

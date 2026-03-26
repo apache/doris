@@ -26,15 +26,6 @@
 -- !uppercase_not --
 8	second fruit
 
--- !lowercase_and --
-7	first fruit
-
--- !lowercase_or --
-1	first content
-2	second content
-7	first fruit
-8	second fruit
-
 -- !exclamation_not --
 8	second fruit
 

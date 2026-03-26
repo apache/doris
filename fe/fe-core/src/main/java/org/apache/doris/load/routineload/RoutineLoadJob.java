@@ -1988,6 +1988,19 @@ public abstract class RoutineLoadJob
                 CreateRoutineLoadCommand command = (CreateRoutineLoadCommand) nereidsParser.parseSingle(
                         origStmt.originStmt);
                 CreateRoutineLoadInfo createRoutineLoadInfo = command.getCreateRoutineLoadInfo();
+                // If tableId is set, resolve the current table name by ID so that
+                // table rename / SWAP TABLE won't cause replay to fail with stale name in origStmt.
+                if (!isMultiTable && tableId != 0) {
+                    try {
+                        Database db = Env.getCurrentEnv().getInternalCatalog().getDb(dbId).orElse(null);
+                        if (db != null) {
+                            db.getTable(tableId).ifPresent(
+                                    table -> createRoutineLoadInfo.setTableName(table.getName()));
+                        }
+                    } catch (Exception ignored) {
+                        // fall through; let validate() surface the real error
+                    }
+                }
                 createRoutineLoadInfo.validate(ctx);
                 setRoutineLoadDesc(createRoutineLoadInfo.getRoutineLoadDesc());
             } finally {

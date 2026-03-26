@@ -56,12 +56,14 @@ suite("mtmv_with_sql_cache") {
         def judge_res = { def sql_str ->
 
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
             def directly_res = sql sql_str
             directly_res.sort { [it[0], it[1]] }
             sql "set enable_sql_cache=false"
             def sql_cache_res = sql sql_str
             sql_cache_res.sort { [it[0], it[1]] }
             sql "set enable_sql_cache=true"
+            sql "set enable_strong_consistency_read=true"
 
             assertTrue(directly_res.size() == sql_cache_res.size())
             for (int i = 0; i < directly_res.size(); i++) {
@@ -184,10 +186,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name2, mtmv_sql2, "(id)")
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
+                            sleep(10 * 1000)
 
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -220,12 +224,14 @@ suite("mtmv_with_sql_cache") {
 
                             // rename mtmv
                             sql """ALTER MATERIALIZED VIEW ${mv_name1} rename ${mv_name3};"""
+                            sleep(10 * 1000)
                             assertNoCache "select * from ${mv_name3}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
                             assertNoCache nested_mtmv_sql3
 
                             sql """ALTER MATERIALIZED VIEW ${mv_name3} rename ${mv_name1};"""
+                            sleep(10 * 1000)
                             assertHasCache "select * from ${mv_name1}"  // Since this SQL query hasn't been executed before, so it's still valid now.
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}" // nested mtmv don't change
@@ -285,9 +291,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
+                            sleep(10 * 1000)
+
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -320,6 +329,7 @@ suite("mtmv_with_sql_cache") {
 
                             // replace mtmv
                             sql """ALTER MATERIALIZED VIEW ${mv_name1} REPLACE WITH MATERIALIZED VIEW ${mv_name2};"""
+                            sleep(10 * 1000)
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache "select * from ${mv_name2}"
                             assertNoCache mtmv_sql1
@@ -328,6 +338,7 @@ suite("mtmv_with_sql_cache") {
                             assertNoCache nested_mtmv_sql1
 
                             sql """ALTER MATERIALIZED VIEW ${mv_name2} REPLACE WITH MATERIALIZED VIEW ${mv_name1};"""
+                            sleep(10 * 1000)
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache "select * from ${mv_name2}"
                             assertNoCache mtmv_sql1
@@ -399,9 +410,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
+                            sleep(10 * 1000)
+
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -501,9 +515,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
+                            sleep(10 * 1000)
+
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -538,6 +555,8 @@ suite("mtmv_with_sql_cache") {
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
                             waitingMTMVTaskFinishedByMvName(mv_name1)
 
+                            sleep(10 * 1000)
+
                             assertHasCache "select * from ${mv_name1}"
                             assertHasCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -568,7 +587,7 @@ suite("mtmv_with_sql_cache") {
                                     on t1.id = t2.id
                                 """
                             def mtmv_sql4 = """
-                                    select t1.id as id, t1.value as value1 
+                                    select t1.id as id, t1.value as value1
                                     from ${tb_name1} as t1
                                     left join ${tb_name2} as t2
                                     on t1.id = t2.id
@@ -593,9 +612,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
+                            sleep(10 * 1000)
+
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -629,6 +651,8 @@ suite("mtmv_with_sql_cache") {
                             // refresh mtmv complete
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} complete;"
                             waitingMTMVTaskFinishedByMvName(mv_name1)
+                            sleep(10 * 1000)
+
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -692,9 +716,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
+                            sleep(10 * 1000)
+
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -727,6 +754,7 @@ suite("mtmv_with_sql_cache") {
 
                             // base table insert overwrite
                             sql "INSERT OVERWRITE table ${tb_name1} PARTITION(p5) VALUES (5, 6);"
+                            sleep(10 * 1000)
                             assertHasCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -737,6 +765,7 @@ suite("mtmv_with_sql_cache") {
 
                             sql "REFRESH MATERIALIZED VIEW ${mv_name1} AUTO;"
                             waitingMTMVTaskFinishedByMvName(mv_name1)
+                            sleep(10 * 1000)
                             assertNoCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -799,9 +828,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
+                            sleep(10 * 1000)
+
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -834,6 +866,7 @@ suite("mtmv_with_sql_cache") {
 
                             // add partition
                             sql "alter table ${tb_name1} add partition p6 values[('6'),('7'))"
+                            sleep(10 * 1000)
                             assertHasCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -844,6 +877,7 @@ suite("mtmv_with_sql_cache") {
 
                             // base table insert data
                             sql "insert into ${tb_name1} values(6, 1)"
+                            sleep(10 * 1000)
                             assertHasCache "select * from ${mv_name1}"
                             assertNoCache mtmv_sql1  // mtmv no work -> directly base table -> no cache
                             assertHasCache "select * from ${nested_mv_name1}"
@@ -907,9 +941,12 @@ suite("mtmv_with_sql_cache") {
                             cur_create_async_partition_mv(dbName, mv_name4, mtmv_sql4, "(id)")
                             cur_create_async_partition_mv(dbName, nested_mv_name1, nested_mtmv_sql1, "(id)")
 
+                            sleep(10 * 1000)
+
                             sql "set enable_nereids_planner=true"
                             sql "set enable_fallback_to_original_planner=false"
                             sql "set enable_sql_cache=true"
+                            sql "set enable_strong_consistency_read=true"
 
                             // Direct Query
                             assertNoCache "select * from ${mv_name1}"
@@ -942,6 +979,7 @@ suite("mtmv_with_sql_cache") {
 
                             // recreate mtmv to add column
                             cur_create_async_partition_mv(dbName, mv_name1, mtmv_sql3, "(id)")
+                            sleep(10 * 1000)
                             assertNoCache "select * from ${mv_name1}"
                             assertHasCache "select * from ${mv_name2}"
                             assertNoCache mtmv_sql1
@@ -953,6 +991,7 @@ suite("mtmv_with_sql_cache") {
 
                             sql "REFRESH MATERIALIZED VIEW ${mv_name2} AUTO;"
                             waitingMTMVTaskFinishedByMvName(mv_name2)
+                            sleep(10 * 1000)
                             assertHasCache "select * from ${mv_name2}"
 
                             retryUntilHasSqlCache mtmv_sql1

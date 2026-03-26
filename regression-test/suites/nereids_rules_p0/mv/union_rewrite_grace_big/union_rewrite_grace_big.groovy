@@ -25,6 +25,7 @@ suite("union_rewrite_grace_big") {
       sql "use ${db}"
       sql "set runtime_filter_mode=OFF"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       sql "ADMIN SET ALL FRONTENDS CONFIG ('cache_last_version_interval_second' = '0')"
       sql "ADMIN SET ALL FRONTENDS CONFIG ('sql_cache_manage_num' = '10000')"
       sql "ADMIN SET ALL FRONTENDS CONFIG ('expire_sql_cache_in_fe_second' = '300')"
@@ -223,6 +224,7 @@ suite("union_rewrite_grace_big") {
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
       order_qt_query_3_0_after_no_sql_cache "${query_all_partition_sql}"
       sql "SET enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_3_0_after_use_sql_cache "${query_all_partition_sql}"
 
       sql "SET enable_materialized_view_rewrite=false"
@@ -235,6 +237,7 @@ suite("union_rewrite_grace_big") {
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
       order_qt_query_4_0_after_no_sql_cache "${query_partition_sql}"
       sql "SET enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_4_0_after_use_sql_cache "${query_partition_sql}"
 
       // base table add partition
@@ -258,6 +261,7 @@ suite("union_rewrite_grace_big") {
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
       order_qt_query_7_0_after_no_sql_cache "${query_all_partition_sql}"
       sql "SET enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_7_0_after_use_sql_cache "${query_all_partition_sql}"
 
       sql "SET enable_materialized_view_rewrite=false"
@@ -271,6 +275,7 @@ suite("union_rewrite_grace_big") {
       order_qt_query_8_0_after_no_sql_cache "${query_partition_sql}"
 
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       // should rewrite successfully when union rewrite enable if doesn't query new partition
       mv_rewrite_success(query_partition_sql, mv_1_partition_name,
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
@@ -297,6 +302,7 @@ suite("union_rewrite_grace_big") {
       order_qt_query_11_0_after_no_sql_cache "${query_all_partition_sql}"
 
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_11_0_after_use_sql_cache "${query_all_partition_sql}"
 
       sql "SET enable_materialized_view_rewrite=false"
@@ -310,6 +316,7 @@ suite("union_rewrite_grace_big") {
 
       order_qt_query_12_0_after_no_sql_cache "${query_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_12_0_after_use_sql_cache "${query_partition_sql}"
       sql """ DROP MATERIALIZED VIEW IF EXISTS ${mv_1_partition_name}"""
 
@@ -443,6 +450,7 @@ suite("union_rewrite_grace_big") {
       mv_rewrite_fail(query_ttl_partition_sql, ttl_mv_name)
       order_qt_query_16_0_after_no_sql_cache "${query_ttl_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_16_0_after_use_sql_cache "${query_ttl_partition_sql}"
 
       sql """ DROP MATERIALIZED VIEW IF EXISTS ${ttl_mv_name}"""
@@ -530,6 +538,7 @@ suite("union_rewrite_grace_big") {
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
       order_qt_query_17_0_after_no_sql_cache "${query_roll_up_all_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_17_0_after_use_sql_cache "${query_roll_up_all_partition_sql}"
 
       sql "SET enable_materialized_view_rewrite=false"
@@ -542,6 +551,7 @@ suite("union_rewrite_grace_big") {
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
       order_qt_query_18_0_after_no_sql_cache "${query_roll_up_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_18_0_after_use_sql_cache "${query_roll_up_partition_sql}"
 
 
@@ -569,6 +579,7 @@ suite("union_rewrite_grace_big") {
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
       order_qt_query_19_0_after_no_sql_cache "${query_roll_up_all_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_19_0_after_use_sql_cache "${query_roll_up_all_partition_sql}"
 
       sql "SET enable_materialized_view_rewrite=false"
@@ -582,6 +593,7 @@ suite("union_rewrite_grace_big") {
 
       order_qt_query_20_0_after_no_sql_cache "${query_roll_up_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_20_0_after_use_sql_cache "${query_roll_up_partition_sql}"
 
 
@@ -600,6 +612,7 @@ suite("union_rewrite_grace_big") {
               is_partition_statistics_ready(db, ["lineitem", "orders", mv_1_partition_name]))
       order_qt_query_21_0_after_no_sql_cache "${query_roll_up_all_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_21_0_after_use_sql_cache "${query_roll_up_all_partition_sql}"
 
       sql "SET enable_materialized_view_rewrite=false"
@@ -612,6 +625,7 @@ suite("union_rewrite_grace_big") {
 
       order_qt_query_22_0_after_no_sql_cache "${query_roll_up_partition_sql}"
       sql "set enable_sql_cache=true"
+      sql "set enable_strong_consistency_read=true"
       order_qt_query_22_0_after_use_sql_cache "${query_roll_up_partition_sql}"
 
 

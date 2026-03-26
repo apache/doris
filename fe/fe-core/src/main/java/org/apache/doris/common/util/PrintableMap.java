@@ -17,8 +17,8 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.common.maxcompute.MCProperties;
 import org.apache.doris.datasource.property.ConnectorPropertiesUtils;
-import org.apache.doris.datasource.property.constants.MCProperties;
 import org.apache.doris.datasource.property.metastore.AWSGlueMetaStoreBaseProperties;
 import org.apache.doris.datasource.property.metastore.AliyunDLFBaseProperties;
 import org.apache.doris.datasource.property.storage.AzureProperties;

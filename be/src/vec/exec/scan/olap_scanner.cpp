@@ -153,8 +153,6 @@ Status OlapScanner::prepare() {
     _slot_id_to_index_in_block = local_state->_slot_id_to_index_in_block;
     _slot_id_to_col_type = local_state->_slot_id_to_col_type;
     _score_runtime = local_state->_score_runtime;
-
-    _score_runtime = local_state->_score_runtime;
     // All scanners share the same ann_topn_runtime.
     _ann_topn_runtime = local_state->_ann_topn_runtime;
 
@@ -307,8 +305,8 @@ Status OlapScanner::prepare() {
     return Status::OK();
 }
 
-Status OlapScanner::open(RuntimeState* state) {
-    RETURN_IF_ERROR(Scanner::open(state));
+Status OlapScanner::_open_impl(RuntimeState* state) {
+    RETURN_IF_ERROR(Scanner::_open_impl(state));
     SCOPED_TIMER(_local_state->cast<pipeline::OlapScanLocalState>()._reader_init_timer);
 
     auto res = _tablet_reader->init(_tablet_reader_params);
@@ -644,6 +642,11 @@ Status OlapScanner::close(RuntimeState* state) {
 }
 
 void OlapScanner::update_realtime_counters() {
+    if (!_has_prepared) {
+        // Counter update need prepare successfully, or it maybe core. For example, olap scanner
+        // will open tablet reader during prepare, if not prepare successfully, tablet reader == nullptr.
+        return;
+    }
     pipeline::OlapScanLocalState* local_state =
             static_cast<pipeline::OlapScanLocalState*>(_local_state);
     const OlapReaderStatistics& stats = _tablet_reader->stats();

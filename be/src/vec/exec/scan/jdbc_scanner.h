@@ -48,7 +48,7 @@ public:
     JdbcScanner(RuntimeState* state, doris::pipeline::JDBCScanLocalState* parent, int64_t limit,
                 const TupleId& tuple_id, const std::string& query_string,
                 TOdbcTableType::type table_type, bool is_tvf, RuntimeProfile* profile);
-    Status open(RuntimeState* state) override;
+    Status _open_impl(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     Status init(RuntimeState* state, const VExprContextSPtrs& conjuncts) override;

@@ -132,7 +132,7 @@ public class PushDownVisitor extends PlanVisitor<Boolean, PushDownContext> {
             return false;
         }
 
-        if (ctx.isNullSafe() || join.getJoinType().isOuterJoin()) {
+        if (ctx.isNullSafe() || join.getJoinType().isOuterJoin() || join.getJoinType().isAsofJoin()) {
             return false;
         }
 

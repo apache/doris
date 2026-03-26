@@ -425,7 +425,13 @@ bool IndexChannel::_quorum_success(const std::unordered_set<int64_t>& unfinished
             continue;
         }
         for (const auto& tablet_id : _tablets_by_channel[node_id]) {
-            finished_tablets_replica[tablet_id]++;
+            // Only count non-gap backends for quorum success.
+            // Gap backends' success doesn't count toward majority write.
+            auto gap_it = _parent->_tablet_version_gap_backends.find(tablet_id);
+            if (gap_it == _parent->_tablet_version_gap_backends.end() ||
+                gap_it->second.find(node_id) == gap_it->second.end()) {
+                finished_tablets_replica[tablet_id]++;
+            }
         }
     }
 
@@ -1381,7 +1387,7 @@ void VTabletWriter::_send_batch_process() {
         // we must RECHECK opened_nodes below, after got closed signal, because it may changed. Think of this:
         //      checked opened_nodes = 0 ---> new block arrived ---> task finished, close() was called ---> we got _try_close here
         // if we don't check again, we may lose the last package.
-        if (_try_close) {
+        if (_try_close.load(std::memory_order_acquire)) {
             opened_nodes = 0;
             std::ranges::for_each(_channels,
                                   [&opened_nodes](const std::shared_ptr<IndexChannel>& ich) {
@@ -1717,6 +1723,11 @@ void VTabletWriter::_build_tablet_replica_info(const int64_t tablet_id,
                                                  : partition->load_required_replica_num;
         _tablet_replica_info.emplace(
                 tablet_id, std::make_pair(total_replicas_num, load_required_replicas_num));
+        // Copy version gap backends info for this tablet
+        if (auto it = partition->tablet_version_gap_backends.find(tablet_id);
+            it != partition->tablet_version_gap_backends.end()) {
+            _tablet_version_gap_backends[tablet_id] = it->second;
+        }
     } else {
         _tablet_replica_info.emplace(tablet_id,
                                      std::make_pair(_num_replicas, (_num_replicas + 1) / 2));
@@ -1766,7 +1777,7 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
         status = _send_new_partition_batch();
     }
 
-    _try_close = true; // will stop periodic thread
+    _try_close.store(true, std::memory_order_release); // will stop periodic thread
     if (status.ok()) {
         // BE id -> add_batch method counter
         std::unordered_map<int64_t, AddBatchCounter> node_add_batch_counter_map;
@@ -1847,7 +1858,6 @@ void VTabletWriter::_do_try_close(RuntimeState* state, const Status& exec_status
     if (!status.ok()) {
         _cancel_all_channel(status);
         _close_status = status;
-        _close_wait = true;
     }
 }
 

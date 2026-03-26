@@ -68,3 +68,21 @@
 8	EAST	280.00	2024-01-02
 9	EAST	380.00	2024-01-02
 
+-- !before_rewrite_update --
+1	bb
+2	b
+3	c
+
+-- !after_rewrite_update --
+1	bb
+2	b
+3	c
+
+-- !before_rewrite_delete --
+2	b
+3	c
+
+-- !after_rewrite_delete --
+2	b
+3	c
+

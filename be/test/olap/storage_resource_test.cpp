@@ -159,6 +159,7 @@ TEST(StorageResourceTest, ParseTabletIdFromPath) {
     // Test invalid cases
     EXPECT_EQ(StorageResource::parse_tablet_id_from_path(""), std::nullopt);
     EXPECT_EQ(StorageResource::parse_tablet_id_from_path("invalid_path"), std::nullopt);
+    EXPECT_EQ(StorageResource::parse_tablet_id_from_path("/mnt/data"), std::nullopt);
     EXPECT_EQ(StorageResource::parse_tablet_id_from_path("data/"), std::nullopt);
     EXPECT_EQ(StorageResource::parse_tablet_id_from_path("/data/abc/rowset_001_0.dat"),
               std::nullopt);

@@ -42,6 +42,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String FS_S3_SUPPORT = "fs.s3.support";
     public static final String FS_GCS_SUPPORT = "fs.gcs.support";
     public static final String FS_MINIO_SUPPORT = "fs.minio.support";
+    public static final String FS_OZONE_SUPPORT = "fs.ozone.support";
     public static final String FS_BROKER_SUPPORT = "fs.broker.support";
     public static final String FS_AZURE_SUPPORT = "fs.azure.support";
     public static final String FS_OSS_SUPPORT = "fs.oss.support";
@@ -67,6 +68,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         GCS,
         OSS_HDFS,
         MINIO,
+        OZONE,
         AZURE,
         BROKER,
         LOCAL,
@@ -203,7 +205,9 @@ public abstract class StorageProperties extends ConnectionProperties {
                     props -> (isFsSupport(props, FS_AZURE_SUPPORT)
                             || AzureProperties.guessIsMe(props)) ? new AzureProperties(props) : null,
                     props -> (isFsSupport(props, FS_MINIO_SUPPORT)
-                            || MinioProperties.guessIsMe(props)) ? new MinioProperties(props) : null,
+                            || (!isFsSupport(props, FS_OZONE_SUPPORT)
+                            && MinioProperties.guessIsMe(props))) ? new MinioProperties(props) : null,
+                    props -> isFsSupport(props, FS_OZONE_SUPPORT) ? new OzoneProperties(props) : null,
                     props -> (isFsSupport(props, FS_BROKER_SUPPORT)
                             || BrokerProperties.guessIsMe(props)) ? new BrokerProperties(props) : null,
                     props -> (isFsSupport(props, FS_LOCAL_SUPPORT)

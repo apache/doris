@@ -41,7 +41,6 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
-import java.util.BitSet;
 import java.util.Collection;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -117,7 +116,7 @@ public class Predicates {
 
         List<? extends Expression> viewPredicatesShuttled = ExpressionUtils.shuttleExpressionWithLineage(
                 Lists.newArrayList(viewStructInfoPredicates.getCouldNotPulledUpPredicates()),
-                viewStructInfo.getTopPlan(), new BitSet());
+                viewStructInfo.getTopPlan());
         List<Expression> viewPredicatesQueryBased = ExpressionUtils.replace((List<Expression>) viewPredicatesShuttled,
                 viewToQuerySlotMapping.toSlotReferenceMap());
         // could not be pulled up predicates in query and view should be same

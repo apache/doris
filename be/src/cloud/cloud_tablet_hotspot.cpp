@@ -146,6 +146,7 @@ void TabletHotspot::get_top_n_hot_partition(std::vector<THotTableMessage>* hot_t
     constexpr int N = 50;
     int return_partitions = 0;
 
+    std::unique_lock lock(_last_partitions_mtx);
     get_return_partitions(day_hot_partitions, _last_day_hot_partitions, hot_tables,
                           return_partitions, N);
     get_return_partitions(week_hot_partitions, _last_week_hot_partitions, hot_tables,

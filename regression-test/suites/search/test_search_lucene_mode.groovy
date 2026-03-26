@@ -30,8 +30,11 @@
  * Enable Lucene mode with options parameter (JSON format):
  *   search(dsl, '{"default_field":"title","default_operator":"and","mode":"lucene"}')
  */
-suite("test_search_lucene_mode") {
+suite("test_search_lucene_mode", "p0") {
     def tableName = "search_lucene_mode_test"
+
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -137,12 +140,9 @@ suite("test_search_lucene_mode") {
     """
 
     // ============ Test 7: Lucene mode NOT operator (pure negative query) ============
-    // 'NOT a' in Lucene mode produces a pure MUST_NOT query.
-    // IMPORTANT: In Lucene/ES semantics, a pure negative query (only MUST_NOT, no MUST/SHOULD)
-    // returns EMPTY results because there's no positive clause to match against.
-    // This is correct Lucene behavior - to get "all except X", you need:
-    //   match_all AND NOT X (i.e., a positive clause combined with negation)
-    // Expected: empty result (correct Lucene semantics)
+    // 'NOT a' in Lucene mode is rewritten to: SHOULD(MATCH_ALL_DOCS) + MUST_NOT(a)
+    // This matches all documents EXCEPT those containing the negated term.
+    // Expected: all docs without "apple" in title (4, 5, 6, 7)
     qt_lucene_not """
         SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, title
         FROM ${tableName}

@@ -98,7 +98,7 @@ DEFINE_mBool(enable_batch_get_delete_bitmap, "false");
 // to get the remaining rowsets' results.
 DEFINE_mInt64(get_delete_bitmap_bytes_threshold, "524288000"); // 500MB
 
-DEFINE_Bool(enable_cloud_txn_lazy_commit, "false");
+DEFINE_Bool(enable_cloud_txn_lazy_commit, "true");
 
 DEFINE_mInt32(remove_expired_tablet_txn_info_interval_seconds, "300");
 
@@ -128,7 +128,7 @@ DEFINE_mInt64(warm_up_rowset_slow_log_ms, "1000");
 
 DEFINE_mBool(enable_compaction_delay_commit_for_warm_up, "false");
 
-DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "10000");
+DEFINE_mInt64(warm_up_rowset_sync_wait_min_timeout_ms, "500");
 
 DEFINE_mInt64(warm_up_rowset_sync_wait_max_timeout_ms, "120000");
 
@@ -150,10 +150,17 @@ DEFINE_mDouble(standby_compaction_version_ratio, "0.8");
 
 DEFINE_mBool(enable_cache_read_from_peer, "true");
 
+// Rate limit for warmup download in bytes per second, default 100MB/s
+// <= 0 means no limit
+DEFINE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second, "104857600");
+
 // Cache the expiration time of the peer address.
 // This can be configured to be less than the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration.
 // If the value is -1, use the `rehash_tablet_after_be_dead_seconds` setting in the `fe` configuration as the expiration time.
 DEFINE_mInt64(cache_read_from_peer_expired_seconds, "-1");
+
+DEFINE_mBool(enable_file_cache_write_base_compaction_index_only, "false");
+DEFINE_mBool(enable_file_cache_write_cumu_compaction_index_only, "false");
 
 #include "common/compile_check_end.h"
 } // namespace doris::config

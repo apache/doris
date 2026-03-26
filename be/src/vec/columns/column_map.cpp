@@ -52,6 +52,7 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values, Mutable
         : keys_column(std::move(keys)),
           values_column(std::move(values)),
           offsets_column(std::move(offsets)) {
+    check_const_only_in_top_level();
     const auto* offsets_concrete = assert_cast<const COffsets*>(offsets_column.get());
 
     if (!offsets_concrete->empty() && keys_column && values_column) {

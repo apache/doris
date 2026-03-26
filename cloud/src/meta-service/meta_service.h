@@ -501,7 +501,8 @@ private:
             std::string_view instance_id, KVStats& stats);
 
     void commit_partition_internal(const PartitionRequest* request, const std::string& instance_id,
-                                   const std::vector<int64_t>& partition_ids, MetaServiceCode& code,
+                                   const std::vector<int64_t>& partition_ids,
+                                   PartitionResponse* response, MetaServiceCode& code,
                                    std::string& msg, KVStats& stats);
 
     // Wait for all pending transactions before returning, and bump up the version to the latest.

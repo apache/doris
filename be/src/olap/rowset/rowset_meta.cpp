@@ -134,9 +134,8 @@ io::FileSystemSPtr RowsetMeta::fs() {
         return nullptr;
     }
 
-    auto wrapped = io::make_file_system(fs, algorithm.value());
-
-    // Apply packed file system if enabled and index_map is not empty
+    // Apply packed file system first if enabled and index_map is not empty
+    io::FileSystemSPtr wrapped = fs;
     if (_rowset_meta_pb.packed_slice_locations_size() > 0) {
         std::unordered_map<std::string, io::PackedSliceLocation> index_map;
         for (const auto& [path, index_pb] : _rowset_meta_pb.packed_slice_locations()) {
@@ -159,6 +158,9 @@ io::FileSystemSPtr RowsetMeta::fs() {
             wrapped = std::make_shared<io::PackedFileSystem>(wrapped, index_map, append_info);
         }
     }
+
+    // Then apply encryption on top
+    wrapped = io::make_file_system(wrapped, algorithm.value());
     return wrapped;
 #else
     return fs;

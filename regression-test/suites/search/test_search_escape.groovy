@@ -29,8 +29,11 @@
  * - Groovy string: \\\\ -> SQL string: \\ -> DSL: \ (escape char)
  * - Groovy string: \\\\\\\\ -> SQL string: \\\\ -> DSL: \\ -> literal: \
  */
-suite("test_search_escape") {
+suite("test_search_escape", "p0") {
     def tableName = "search_escape_test"
+
+    // Pin enable_common_expr_pushdown to prevent CI flakiness from fuzzy testing.
+    sql """ set enable_common_expr_pushdown = true """
 
     sql "DROP TABLE IF EXISTS ${tableName}"
 
@@ -143,21 +146,31 @@ suite("test_search_escape") {
         ORDER BY id
     """
 
-    // ============ Test 9: Lowercase and operator ============
-    qt_lowercase_and """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content
-        FROM ${tableName}
-        WHERE search('content:first and content:fruit')
-        ORDER BY id
-    """
+    // ============ Test 9: Lowercase 'and' should cause parse error ============
+    // Per requirement: Only uppercase AND/OR/NOT are operators
+    // Lowercase 'and' is treated as a bare term (no field), causing error
+    test {
+        sql """
+            SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content
+            FROM ${tableName}
+            WHERE search('content:first and content:fruit')
+            ORDER BY id
+        """
+        exception "No field specified and no default_field configured"
+    }
 
-    // ============ Test 10: Lowercase or operator ============
-    qt_lowercase_or """
-        SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content
-        FROM ${tableName}
-        WHERE search('content:first or content:second')
-        ORDER BY id
-    """
+    // ============ Test 10: Lowercase 'or' should cause parse error ============
+    // Per requirement: Only uppercase AND/OR/NOT are operators
+    // Lowercase 'or' is treated as a bare term (no field), causing error
+    test {
+        sql """
+            SELECT /*+SET_VAR(enable_common_expr_pushdown=true) */ id, content
+            FROM ${tableName}
+            WHERE search('content:first or content:second')
+            ORDER BY id
+        """
+        exception "No field specified and no default_field configured"
+    }
 
     // ============ Test 11: Exclamation NOT operator ============
     qt_exclamation_not """

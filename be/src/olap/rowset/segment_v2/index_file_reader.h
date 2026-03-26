@@ -71,6 +71,7 @@ public:
     Result<InvertedIndexDirectoryMap> get_all_directories();
     // open file v2, init _stream
     int64_t get_inverted_file_size() const { return _stream == nullptr ? 0 : _stream->length(); }
+    const std::string& get_index_path_prefix() const { return _index_path_prefix; }
     friend IndexFileWriter;
 
 protected:

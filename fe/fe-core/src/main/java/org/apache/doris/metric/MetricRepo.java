@@ -249,6 +249,10 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Long> GAUGE_AVG_PARTITION_SIZE_BYTES;
     public static GaugeMetricImpl<Long> GAUGE_AVG_TABLET_SIZE_BYTES;
 
+    // Partition near-limit warnings
+    public static LongCounterMetric COUNTER_AUTO_PARTITION_NEAR_LIMIT;
+    public static LongCounterMetric COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT;
+
     // Agent task
     public static LongCounterMetric COUNTER_AGENT_TASK_REQUEST_TOTAL;
     public static AutoMappedMetric<LongCounterMetric> COUNTER_AGENT_TASK_TOTAL;
@@ -1002,6 +1006,16 @@ public final class MetricRepo {
         GAUGE_AVG_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("avg_tablet_size_bytes", MetricUnit.BYTES, "", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_TABLET_SIZE_BYTES);
 
+        // Partition near-limit warning counters
+        COUNTER_AUTO_PARTITION_NEAR_LIMIT = new LongCounterMetric("auto_partition_near_limit_count",
+                MetricUnit.NOUNIT,
+                "number of times auto partition count exceeded 80% of max_auto_partition_num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_AUTO_PARTITION_NEAR_LIMIT);
+        COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT = new LongCounterMetric("dynamic_partition_near_limit_count",
+                MetricUnit.NOUNIT,
+                "number of times dynamic partition count exceeded 80% of max_dynamic_partition_num");
+        DORIS_METRIC_REGISTER.addMetrics(COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT);
+
         COUNTER_AGENT_TASK_REQUEST_TOTAL = new LongCounterMetric("agent_task_request_total", MetricUnit.NOUNIT,
                 "total agent batch task request send to BE");
         DORIS_METRIC_REGISTER.addMetrics(COUNTER_AGENT_TASK_REQUEST_TOTAL);
@@ -1570,6 +1584,16 @@ public final class MetricRepo {
             return;
         }
         GaugeMetricImpl<Double> gauge = CloudMetrics.CLUSTER_QUERY_ERR_RATE_GAUGE.getOrAdd(clusterId);
+        gauge.setValue(value);
+        gauge.setLabels(labels);
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);
+    }
+
+    public static void updateMetaServiceRpcPerSecond(String methodName, double value, List<MetricLabel> labels) {
+        if (!MetricRepo.isInit || Config.isNotCloudMode() || Strings.isNullOrEmpty(methodName)) {
+            return;
+        }
+        GaugeMetricImpl<Double> gauge = CloudMetrics.META_SERVICE_RPC_PER_SECOND.getOrAdd(methodName);
         gauge.setValue(value);
         gauge.setLabels(labels);
         MetricRepo.DORIS_METRIC_REGISTER.addMetrics(gauge);

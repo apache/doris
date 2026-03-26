@@ -54,7 +54,8 @@ public class SearchTest {
     public void testGetQsPlan() {
         String dsl = "title:hello AND content:world";
         StringLiteral dslLiteral = new StringLiteral(dsl);
-        Search searchFunc = new Search(dslLiteral);
+        StringLiteral optionsLiteral = new StringLiteral("{\"mode\":\"standard\"}");
+        Search searchFunc = new Search(dslLiteral, optionsLiteral);
 
         SearchDslParser.QsPlan plan = searchFunc.getQsPlan();
         Assertions.assertNotNull(plan);
@@ -147,7 +148,8 @@ public class SearchTest {
     public void testComplexDslParsing() {
         String complexDsl = "(title:\"machine learning\" OR content:AI) AND NOT category:spam";
         StringLiteral dslLiteral = new StringLiteral(complexDsl);
-        Search searchFunc = new Search(dslLiteral);
+        StringLiteral optionsLiteral = new StringLiteral("{\"mode\":\"standard\"}");
+        Search searchFunc = new Search(dslLiteral, optionsLiteral);
 
         SearchDslParser.QsPlan plan = searchFunc.getQsPlan();
         Assertions.assertNotNull(plan);

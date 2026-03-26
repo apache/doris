@@ -30,6 +30,8 @@ import lombok.Setter;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -64,6 +66,7 @@ import java.util.stream.Stream;
 public class AzureProperties extends StorageProperties {
     @Getter
     @ConnectorProperty(names = {"azure.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT"},
+            required = false,
             description = "The endpoint of S3.")
     protected String endpoint = "";
 
@@ -135,8 +138,6 @@ public class AzureProperties extends StorageProperties {
         super(Type.AZURE, origProps);
     }
 
-    private static final String AZURE_ENDPOINT_SUFFIX = ".blob.core.windows.net";
-
     @Override
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
@@ -160,7 +161,7 @@ public class AzureProperties extends StorageProperties {
                 .findFirst()
                 .orElse(null);
         if (!Strings.isNullOrEmpty(value)) {
-            return value.endsWith(AZURE_ENDPOINT_SUFFIX);
+            return AzurePropertyUtils.isAzureBlobEndpoint(value);
         }
         return false;
     }
@@ -191,9 +192,12 @@ public class AzureProperties extends StorageProperties {
 
     public static final String AZURE_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
 
-    public static String formatAzureEndpoint(String endpoint, String accessKey) {
-        if (Config.force_azure_blob_global_endpoint) {
-            return String.format(AZURE_ENDPOINT_TEMPLATE, accessKey);
+    public static String formatAzureEndpoint(String endpoint, String accountName) {
+        if (Strings.isNullOrEmpty(endpoint)) {
+            if (Strings.isNullOrEmpty(accountName)) {
+                return "";
+            }
+            return String.format(AZURE_ENDPOINT_TEMPLATE, accountName);
         }
         if (endpoint.contains("://")) {
             return endpoint;
@@ -243,13 +247,24 @@ public class AzureProperties extends StorageProperties {
     }
 
     private static void setHDFSAzureAccountKeys(Configuration conf, String accountName, String accountKey) {
-        String[] endpoints = {
-                "dfs.core.windows.net",
-                "blob.core.windows.net"
-        };
+        Set<String> endpoints = new LinkedHashSet<>();
+        if (Config.azure_blob_host_suffixes != null) {
+            for (String endpointSuffix : Config.azure_blob_host_suffixes) {
+                if (Strings.isNullOrEmpty(endpointSuffix)) {
+                    continue;
+                }
+                String normalizedEndpoint = endpointSuffix.trim().toLowerCase(Locale.ROOT);
+                if (normalizedEndpoint.startsWith(".")) {
+                    normalizedEndpoint = normalizedEndpoint.substring(1);
+                }
+                if (!normalizedEndpoint.isEmpty()) {
+                    endpoints.add(normalizedEndpoint);
+                }
+            }
+        }
         for (String endpoint : endpoints) {
-            String key = String.format("fs.azure.account.key.%s.%s", accountName, endpoint);
-            conf.set(key, accountKey);
+            String accountKeyConfig = String.format("fs.azure.account.key.%s.%s", accountName, endpoint);
+            conf.set(accountKeyConfig, accountKey);
         }
         conf.set("fs.azure.account.key", accountKey);
     }

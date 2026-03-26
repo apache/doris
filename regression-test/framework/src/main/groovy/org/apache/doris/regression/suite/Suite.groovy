@@ -1519,14 +1519,45 @@ class Suite implements GroovyInterceptable {
         // Split by semicolon and execute each statement
         def statements = sqlStatements.split(';').collect { it.trim() }.findAll { it }
         def results = []
-        
+
         for (stmt in statements) {
             if (stmt) {
                 results << spark_iceberg(stmt, timeoutSeconds)
             }
         }
-        
+
         return results
+    }
+
+    /**
+     * Execute Spark SQL on the spark-iceberg container with Paimon extensions enabled.
+     *
+     * Usage in test suite:
+     *   spark_paimon "CREATE TABLE paimon.test_db.t1 (id INT) USING paimon"
+     *   spark_paimon "INSERT INTO paimon.test_db.t1 VALUES (1)"
+     *   def result = spark_paimon "SELECT * FROM paimon.test_db.t1"
+     */
+    String spark_paimon(String sqlStr, int timeoutSeconds = 120) {
+        String containerName = getSparkIcebergContainerName()
+        if (containerName == null) {
+            throw new RuntimeException("spark-iceberg container not found. Please ensure the container is running.")
+        }
+        String masterUrl = "spark://${containerName}:7077"
+
+        String escapedSql = sqlStr.replaceAll('"', '\\\\"')
+        String command = """docker exec ${containerName} spark-sql --master ${masterUrl} --conf spark.sql.extensions=org.apache.paimon.spark.extensions.PaimonSparkSessionExtensions -e "${escapedSql}" """
+
+        logger.info("Executing Spark Paimon SQL: ${sqlStr}".toString())
+        logger.info("Container: ${containerName}".toString())
+
+        try {
+            String result = cmd(command, timeoutSeconds)
+            logger.info("Spark Paimon SQL result: ${result}".toString())
+            return result
+        } catch (Exception e) {
+            logger.error("Spark Paimon SQL failed: ${e.message}".toString())
+            throw e
+        }
     }
 
     List<List<Object>> db2_docker(String sqlStr, boolean isOrder = false) {
@@ -2021,6 +2052,8 @@ class Suite implements GroovyInterceptable {
 
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
+        def sqlCacheOrigValue = sql("select @@enable_sql_cache")
+        sql("set enable_sql_cache=false")
         String openFoldConstant = "set debug_skip_fold_constant=false";
         sql(openFoldConstant)
         // logger.info(foldSql)
@@ -2035,8 +2068,9 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
-        // restore debug_skip_fold_constant original value
+        // restore original session values
         sql("set debug_skip_fold_constant=${sessionVarOrigValue[0][0]}")
+        sql("set enable_sql_cache=${sqlCacheOrigValue[0][0]}")
 
         String errorMsg = null
         try {

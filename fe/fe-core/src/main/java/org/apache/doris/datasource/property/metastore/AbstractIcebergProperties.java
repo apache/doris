@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.ConnectorProperty;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
@@ -136,6 +138,8 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
      * @param catalogProps the catalog properties map to add manifest cache properties to
      */
     protected void addManifestCacheProperties(Map<String, String> catalogProps) {
+        boolean hasIoManifestCacheEnabled = StringUtils.isNotBlank(ioManifestCacheEnabled)
+                || StringUtils.isNotBlank(catalogProps.get(CatalogProperties.IO_MANIFEST_CACHE_ENABLED));
         if (StringUtils.isNotBlank(ioManifestCacheEnabled)) {
             catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, ioManifestCacheEnabled);
         }
@@ -148,6 +152,22 @@ public abstract class AbstractIcebergProperties extends MetastoreProperties {
         }
         if (StringUtils.isNotBlank(ioManifestCacheMaxContentLength)) {
             catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_MAX_CONTENT_LENGTH, ioManifestCacheMaxContentLength);
+        }
+
+        // default enable io manifest cache if the meta.cache.manifest is enabled
+        if (!hasIoManifestCacheEnabled) {
+            CacheSpec manifestCacheSpec = CacheSpec.fromProperties(catalogProps,
+                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
+                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                    IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                    IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
+            if (CacheSpec.isCacheEnabled(manifestCacheSpec.isEnable(),
+                    manifestCacheSpec.getTtlSecond(),
+                    manifestCacheSpec.getCapacity())) {
+                catalogProps.put(CatalogProperties.IO_MANIFEST_CACHE_ENABLED, "true");
+            }
         }
     }
 

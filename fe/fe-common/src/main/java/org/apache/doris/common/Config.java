@@ -1670,7 +1670,7 @@ public class Config extends ConfigBase {
      * The number is determined by "start" and "end" in the dynamic partition parameters.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_dynamic_partition_num = 500;
+    public static int max_dynamic_partition_num = 20000;
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating multi partition,
@@ -2966,9 +2966,8 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "对于自动分区表，防止用户意外创建大量分区，每个 OLAP 表允许的分区数量为`max_auto_partition_num`。默认 2000。",
             "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
-                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."
-    })
-    public static int max_auto_partition_num = 2000;
+                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 20000."})
+    public static int max_auto_partition_num = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "Partition rebalance 方式下各个 BE 的 tablet 数最大差值，小于该值时，会诊断为已均衡",
@@ -3444,8 +3443,27 @@ public class Config extends ConfigBase {
             "This parameter controls whether to force the use of the Azure global endpoint. "
             + "The default is false, meaning the system will use the user-specified endpoint. "
             + "If set to true, the system will force the use of {account}.blob.core.windows.net."
+            "指定 Azure endpoint 域名后缀白名单（包含 blob 与 dfs），多个值使用逗号分隔。"
+                    + "默认值为 .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de。",
+            "The host suffix whitelist for Azure endpoints (both blob and dfs), separated by commas. "
+                    + "The default value is .blob.core.windows.net,.dfs.core.windows.net,"
+                    + ".blob.core.chinacloudapi.cn,.dfs.core.chinacloudapi.cn,"
+                    + ".blob.core.usgovcloudapi.net,.dfs.core.usgovcloudapi.net,"
+                    + ".blob.core.cloudapi.de,.dfs.core.cloudapi.de."
     })
-    public static boolean force_azure_blob_global_endpoint = false;
+    public static String[] azure_blob_host_suffixes = {
+            ".blob.core.windows.net",
+            ".dfs.core.windows.net",
+            ".blob.core.chinacloudapi.cn",
+            ".dfs.core.chinacloudapi.cn",
+            ".blob.core.usgovcloudapi.net",
+            ".dfs.core.usgovcloudapi.net",
+            ".blob.core.cloudapi.de",
+            ".dfs.core.cloudapi.de"
+    };
 
     @ConfField(mutable = true, description = {"指定 Jdbc driver url 白名单，举例：jdbc_driver_url_white_list=a,b,c",
             "the white list for jdbc driver url, if it is empty, no white list will be set"
@@ -3536,8 +3554,8 @@ public class Config extends ConfigBase {
             + "Default value is true." })
     public static boolean enable_commit_lock_for_all_tables = true;
 
-    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认 false"})
-    public static boolean enable_cloud_txn_lazy_commit = false;
+    @ConfField(mutable = true, description = {"存算分离模式下是否开启大事务提交，默认 true"})
+    public static boolean enable_cloud_txn_lazy_commit = true;
 
     @ConfField(mutable = true, masterOnly = true,
             description = {"存算分离模式下，当 tablet 分布的 be 异常，是否立即映射 tablet 到新的 be 上，默认 false"})
@@ -3560,6 +3578,25 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Get tablet stat task 的最大并发数。",
         "Maximal concurrent num of get tablet stat job."})
     public static int max_get_tablet_stat_task_threads_num = 4;
+
+    @ConfField(description = {"存算分离模式下同步 table 和 partition version 的间隔. 所有 frontend 都会检查",
+            "Cloud table and partition version syncer interval. All frontends will perform the checking"})
+    public static int cloud_version_syncer_interval_second = 20;
+
+    @ConfField(mutable = true, description = {"存算分离模式下是否启用同步 table 和 partition version 的功能",
+            "Whether to enable the function of syncing table and partition version in cloud mode"})
+    public static boolean cloud_enable_version_syncer = true;
+
+    @ConfField(description = {"Get version task 的并发数", "Concurrent num of get version task."})
+    public static int cloud_get_version_task_threads_num = 4;
+
+    @ConfField(description = {"Master FE 发送给其它 FE sync version task 的最大并发数",
+            "Maximal concurrent num of sync version task between Master FE and other FEs."})
+    public static int cloud_sync_version_task_threads_num = 4;
+
+    @ConfField(mutable = true, description = {"Get version task 包含的 table 或 partition 数目的 batch size",
+            "Maximal table or partition batch size of get version task."})
+    public static int cloud_get_version_task_batch_size = 2000;
 
     @ConfField(mutable = true, description = {"schema change job 失败是否重试",
             "Whether to enable retry when a schema change job fails, default is true."})
@@ -3779,6 +3816,16 @@ public class Config extends ConfigBase {
             "agent tasks health check interval, default is five minutes, no health check when less than or equal to 0"
     })
     public static long agent_task_health_check_intervals_ms = 5 * 60 * 1000L; // 5 min
+    @ConfField(description = {
+            "是否在 catalog 级权限检查中跳过 FE 内部的 catalog 权限校验。仅对配置了自定义 access controller 的外部 "
+                    + "catalog 的 SHOW/SELECT 生效；内部 catalog、未配置自定义 access controller 的 catalog，"
+                    + "以及 CREATE/LOAD/ALTER 等其他权限仍按默认逻辑校验",
+            "Whether to skip the FE internal catalog privilege check in catalog-level privilege validation. "
+                    + "This only applies to SHOW/SELECT on external catalogs with a custom access controller. "
+                    + "Internal catalogs, catalogs without a custom access controller, and other privileges such "
+                    + "as CREATE/LOAD/ALTER are still validated by the default logic"
+    })
+    public static boolean skip_catalog_priv_check = false;
 
     @ConfField(mutable = true, description = {
             "存算分离模式下，计算删除位图时，是否批量获取分区版本信息，默认开启",

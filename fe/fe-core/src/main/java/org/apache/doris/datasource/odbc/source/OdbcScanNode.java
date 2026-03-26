@@ -30,6 +30,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalScanNode;
 import org.apache.doris.datasource.jdbc.source.JdbcScanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TExplainLevel;
@@ -66,8 +67,8 @@ public class OdbcScanNode extends ExternalScanNode {
     /**
      * Constructs node to scan given data files of table 'tbl'.
      */
-    public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl) {
-        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE, false);
+    public OdbcScanNode(PlanNodeId id, TupleDescriptor desc, OdbcTable tbl, ScanContext scanContext) {
+        super(id, desc, "SCAN ODBC", StatisticalType.ODBC_SCAN_NODE, scanContext, false);
         connectString = tbl.getConnectString();
         odbcType = tbl.getOdbcTableType();
         tblName = JdbcTable.databaseProperName(odbcType, tbl.getOdbcTableName());
@@ -215,7 +216,11 @@ public class OdbcScanNode extends ExternalScanNode {
 
     @Override
     public int getNumInstances() {
-        return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context == null) {
+            return 1;
+        }
+        return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
     }
 
     public static boolean shouldPushDownConjunct(TOdbcTableType tableType, Expr expr) {
