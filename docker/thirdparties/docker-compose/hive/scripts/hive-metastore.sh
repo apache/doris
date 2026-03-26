@@ -65,6 +65,26 @@ wait_for_metastore_db() {
     return 1
 }
 
+configure_hive_bootstrap_cli() {
+    if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" != "true" ]]; then
+        return 0
+    fi
+
+    # Keep HiveServer2/Metastore on the image-level Tez config, but force
+    # one-shot bootstrap CLI invocations to stay on MR so preload can finish.
+    local hive_cli_bin="${HIVE_CLI_BIN:-/opt/hive/bin/hive}"
+    local wrapper_dir="${HIVE_BOOTSTRAP_BIN_DIR:-/tmp/hive-bootstrap-bin}"
+    local wrapper_path="${wrapper_dir}/hive"
+
+    mkdir -p "${wrapper_dir}"
+    cat >"${wrapper_path}" <<EOF
+#!/usr/bin/env bash
+exec "${hive_cli_bin}" --hiveconf hive.execution.engine=mr "\$@"
+EOF
+    chmod +x "${wrapper_path}"
+    export PATH="${wrapper_dir}:${PATH}"
+}
+
 
 AUX_LIB="/mnt/scripts/auxlib"
 for file in "${AUX_LIB}"/*.tar.gz; do
@@ -104,6 +124,7 @@ if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" == "true" ]]; then
 fi
 
 wait_for_metastore_db
+configure_hive_bootstrap_cli
 
 # start metastore
 nohup /opt/hive/bin/hive --service metastore &
