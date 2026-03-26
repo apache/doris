@@ -143,7 +143,6 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         }
         CatalogIf catalog = removedCatalog.catalog;
         catalog.onClose();
-        Env.getCurrentEnv().getConstraintManager().dropCatalogConstraints(removedCatalog.catalogName);
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null) {
             ctx.removeLastDBOfCatalog(removedCatalog.catalogName);
