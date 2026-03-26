@@ -64,6 +64,8 @@
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
+#include "exec/operator/iceberg_delete_sink_operator.h"
+#include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
@@ -1094,6 +1096,22 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
             _sink = std::make_shared<IcebergTableSinkOperatorX>(pool, next_sink_operator_id(),
                                                                 row_desc, output_exprs);
         }
+        break;
+    }
+    case TDataSinkType::ICEBERG_DELETE_SINK: {
+        if (!thrift_sink.__isset.iceberg_delete_sink) {
+            return Status::InternalError("Missing iceberg delete sink.");
+        }
+        _sink = std::make_shared<IcebergDeleteSinkOperatorX>(pool, next_sink_operator_id(),
+                                                             row_desc, output_exprs);
+        break;
+    }
+    case TDataSinkType::ICEBERG_MERGE_SINK: {
+        if (!thrift_sink.__isset.iceberg_merge_sink) {
+            return Status::InternalError("Missing iceberg merge sink.");
+        }
+        _sink = std::make_shared<IcebergMergeSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+                                                            output_exprs);
         break;
     }
     case TDataSinkType::MAXCOMPUTE_TABLE_SINK: {

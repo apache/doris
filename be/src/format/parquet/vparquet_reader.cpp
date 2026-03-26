@@ -579,6 +579,20 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
+void ParquetReader::set_iceberg_rowid_params(const std::string& file_path,
+                                             int32_t partition_spec_id,
+                                             const std::string& partition_data_json,
+                                             int row_id_column_pos) {
+    _iceberg_rowid_params.enabled = true;
+    _iceberg_rowid_params.file_path = file_path;
+    _iceberg_rowid_params.partition_spec_id = partition_spec_id;
+    _iceberg_rowid_params.partition_data_json = partition_data_json;
+    _iceberg_rowid_params.row_id_column_pos = row_id_column_pos;
+    if (_current_group_reader != nullptr) {
+        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
+    }
+}
+
 Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     const auto& schema_desc = _file_metadata->schema();
@@ -774,6 +788,9 @@ Status ParquetReader::_next_row_group_reader() {
                     : group_file_reader,
             _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,
             position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
+    if (_iceberg_rowid_params.enabled) {
+        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
+    }
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
