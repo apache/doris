@@ -269,8 +269,8 @@ public class TSOService extends MasterDaemon {
 
         // Write the right boundary of time window to BDBJE for persistence
         long timeWindowEnd = nextPhysicalTime + Config.tso_service_window_duration_ms;
-        windowEndTSO.set(timeWindowEnd);
         writeTimestampToBDBJE(timeWindowEnd);
+        windowEndTSO.set(timeWindowEnd);
         isInitialized.set(true);
 
         LOG.info("TSO timestamp calibrated: lastTimestamp={}, currentMillis={}, nextPhysicalTime={}, timeWindowEnd={}",
@@ -352,8 +352,8 @@ public class TSOService extends MasterDaemon {
         if ((windowEndTSO.get() - nextPhysicalTime) <= UPDATE_TIME_WINDOW_GUARD) {
             // Time window right boundary needs renewal
             long nextWindowEnd = nextPhysicalTime + Config.tso_service_window_duration_ms;
-            windowEndTSO.set(nextWindowEnd);
             writeTimestampToBDBJE(nextWindowEnd);
+            windowEndTSO.set(nextWindowEnd);
         }
 
         // 5. Update global timestamp
@@ -369,56 +369,57 @@ public class TSOService extends MasterDaemon {
      * @param timestamp The timestamp to write
      */
     private void writeTimestampToBDBJE(long timestamp) {
+        if (!Config.enable_tso_persist_journal) {
+            LOG.debug("TSO timestamp {} is not persisted to journal, "
+                    + "please check if enable_tso_persist_journal is set to true",
+                    new TSOTimestamp(timestamp, 0));
+            return;
+        }
+
+        // Check if Env is ready
+        Env env = Env.getCurrentEnv();
+        if (env == null) {
+            throw new RuntimeException("Env is null, failed to write TSO timestamp to BDBJE, timestamp="
+                    + timestamp);
+        }
+
+        // Check if Env is ready and is master
+        if (!env.isReady()) {
+            throw new RuntimeException("Env is not ready, failed to write TSO timestamp to BDBJE, timestamp="
+                    + timestamp);
+        }
+
+        if (!env.isMaster()) {
+            throw new RuntimeException("Current node is not master, failed to write TSO timestamp to BDBJE, "
+                    + "timestamp=" + timestamp);
+        }
+
+        TSOTimestamp tsoTimestamp = new TSOTimestamp(timestamp, 0);
+
+        // Check if EditLog is available
+        EditLog editLog = env.getEditLog();
+        if (editLog == null) {
+            throw new RuntimeException("EditLog is null, failed to write TSO timestamp to BDBJE, timestamp="
+                    + timestamp);
+        }
+
+        // Additional check to ensure EditLog's journal is properly initialized
+        if (editLog.getJournal() == null) {
+            throw new RuntimeException("EditLog's journal is null, failed to write TSO timestamp to BDBJE, "
+                    + "timestamp=" + timestamp);
+        }
+
+        if (editLog.getJournal() instanceof LocalJournal) {
+            if (!((LocalJournal) editLog.getJournal()).isReadyToFlush()) {
+                throw new RuntimeException("EditLog's journal is not ready to flush, failed to write TSO "
+                        + "timestamp to BDBJE, timestamp=" + timestamp);
+            }
+        }
+
         try {
-            // Check if Env is ready
-            Env env = Env.getCurrentEnv();
-            if (env == null) {
-                LOG.warn("Env is null, skip writing TSO timestamp to BDBJE");
-                return;
-            }
-
-            // Check if Env is ready and is master
-            if (!env.isReady()) {
-                LOG.warn("Env is not ready, skip writing TSO timestamp to BDBJE");
-                return;
-            }
-
-            if (!env.isMaster()) {
-                LOG.warn("Current node is not master, skip writing TSO timestamp to BDBJE");
-                return;
-            }
-
-            TSOTimestamp tsoTimestamp = new TSOTimestamp(timestamp, 0);
-
-            // Check if EditLog is available
-            EditLog editLog = env.getEditLog();
-            if (editLog == null) {
-                LOG.warn("EditLog is null, skip writing TSO timestamp to BDBJE");
-                return;
-            }
-
-            // Additional check to ensure EditLog's journal is properly initialized
-            if (editLog.getJournal() == null) {
-                LOG.warn("EditLog's journal is null, skip writing TSO timestamp to BDBJE");
-                return;
-            }
-
-            if (editLog.getJournal() instanceof LocalJournal) {
-                if (!((LocalJournal) editLog.getJournal()).isReadyToFlush()) {
-                    LOG.warn("EditLog's journal is not ready to flush, skip writing TSO timestamp to BDBJE");
-                    return;
-                }
-            }
-
-            if (Config.enable_tso_persist_journal) {
-                editLog.logTSOTimestampWindowEnd(tsoTimestamp);
-            } else {
-                LOG.debug("TSO timestamp {} is not persisted to journal, "
-                        + "please check if enable_tso_persist_journal is set to true",
-                        tsoTimestamp);
-            }
+            editLog.logTSOTimestampWindowEnd(tsoTimestamp);
         } catch (Exception e) {
-            LOG.error("Failed to write TSO timestamp to BDBJE", e);
+            throw new RuntimeException("Failed to write TSO timestamp to BDBJE, timestamp=" + timestamp, e);
         }
     }
 

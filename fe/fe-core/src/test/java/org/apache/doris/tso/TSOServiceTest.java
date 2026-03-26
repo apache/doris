@@ -235,6 +235,42 @@ public class TSOServiceTest {
     }
 
     @Test
+    public void testWriteTimestampToBdbJeThrowsWhenEnabledAndEnvNotReady() throws Exception {
+        Config.enable_tso_persist_journal = true;
+        Mockito.when(env.isReady()).thenReturn(false);
+        try {
+            invokeWriteTimestampToBdbJe(tsoService, 123L);
+            Assert.fail();
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("Env is not ready"));
+        }
+    }
+
+    @Test
+    public void testCalibrateTimestampThrowsWhenPersistWriteFailsAndKeepNotInitialized() throws Exception {
+        Config.enable_tso_persist_journal = true;
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        Mockito.when(env.getEditLog()).thenReturn(null);
+
+        try {
+            invokeCalibrateTimestamp(tsoService);
+            Assert.fail();
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("EditLog is null"));
+        }
+
+        Assert.assertEquals(0L, tsoService.getWindowEndTSO());
+
+        try {
+            tsoService.getTSO();
+            Assert.fail();
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("not calibrated"));
+        }
+    }
+
+    @Test
     public void testCalibrateTimestampThrowsWhenClockBackwardExceedsThreshold() throws Exception {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
@@ -265,7 +301,15 @@ public class TSOServiceTest {
     private static void invokeWriteTimestampToBdbJe(TSOService service, long timestamp) throws Exception {
         Method m = TSOService.class.getDeclaredMethod("writeTimestampToBDBJE", long.class);
         m.setAccessible(true);
-        m.invoke(service, timestamp);
+        try {
+            m.invoke(service, timestamp);
+        } catch (InvocationTargetException e) {
+            Throwable cause = e.getTargetException();
+            if (cause instanceof RuntimeException) {
+                throw (RuntimeException) cause;
+            }
+            throw e;
+        }
     }
 
     private static void invokeCalibrateTimestamp(TSOService service) throws Exception {
