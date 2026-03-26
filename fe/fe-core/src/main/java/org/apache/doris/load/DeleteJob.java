@@ -396,13 +396,16 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
         long timeoutMs = getTimeoutMs();
         boolean ok = countDownLatch.await(timeoutMs, TimeUnit.MILLISECONDS);
         if (ok) {
+            checkAndUpdateQuorum();
+            if (state == DeleteState.QUORUM_FINISHED || state == DeleteState.FINISHED) {
+                return;
+            }
             if (!countDownLatch.getStatus().ok()) {
                 // encounter some errors that don't need to retry, abort directly
                 LOG.warn("delete job failed, errmsg={}", countDownLatch.getStatus().getErrorMsg());
                 throw new UserException(String.format("delete job failed, errmsg:%s",
                         countDownLatch.getStatus().getErrorMsg()));
             }
-            return;
         }
 
         //handle failure

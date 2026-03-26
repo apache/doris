@@ -33,6 +33,7 @@ import org.apache.doris.cloud.catalog.CloudTablet;
 import org.apache.doris.cloud.master.CloudReportHandler;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.MetaNotFoundException;
+import org.apache.doris.common.Status;
 import org.apache.doris.load.DeleteJob;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
@@ -362,7 +363,8 @@ public class MasterImpl {
                 if (taskStatus.getStatusCode() == TStatusCode.INVALID_ARGUMENT) {
                     pushTask.countDownToZero(taskStatus.getStatusCode(), msg);
                 } else {
-                    pushTask.countDownLatch(backendId, pushTabletId);
+                    pushTask.countDownLatchWithStatus(backendId, pushTabletId,
+                            new Status(taskStatus.getStatusCode(), msg));
                 }
                 AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             }
@@ -466,7 +468,7 @@ public class MasterImpl {
             AgentTaskQueue.removeTask(backendId, TTaskType.REALTIME_PUSH, signature);
             LOG.warn("finish push replica error", e);
             if (pushTask.getPushType() == TPushType.DELETE) {
-                pushTask.countDownLatch(backendId, pushTabletId);
+                pushTask.countDownLatchWithStatus(backendId, pushTabletId, Status.CANCELLED);
             }
         } finally {
             olapTable.writeUnlock();

@@ -97,7 +97,7 @@ public class MasterImplDeleteTaskTest {
         masterImpl.finishTask(newFinishTaskRequest(TStatusCode.INTERNAL_ERROR));
 
         Assert.assertEquals(1, latch.getCount());
-        Assert.assertTrue(latch.getStatus().ok());
+        Assert.assertEquals(TStatusCode.INTERNAL_ERROR, latch.getStatus().getErrorCode());
         Assert.assertEquals(1, pushTask.getFailedTimes());
         Assert.assertNull(AgentTaskQueue.getTask(BACKEND_ID, TTaskType.REALTIME_PUSH, SIGNATURE));
     }
@@ -117,6 +117,19 @@ public class MasterImplDeleteTaskTest {
         Assert.assertEquals(TStatusCode.INVALID_ARGUMENT, latch.getStatus().getErrorCode());
         Assert.assertEquals(1, pushTask.getFailedTimes());
         Assert.assertNull(AgentTaskQueue.getTask(BACKEND_ID, TTaskType.REALTIME_PUSH, SIGNATURE));
+    }
+
+    @Test
+    public void testDeletePushFailedWithMsgKeepsFailureStatus() {
+        MarkedCountDownLatch<Long, Long> latch = new MarkedCountDownLatch<Long, Long>(1);
+        latch.addMark(BACKEND_ID, TABLET_ID);
+
+        PushTask pushTask = newDeletePushTask(latch);
+        pushTask.failedWithMsg("submit failed");
+
+        Assert.assertEquals(0, latch.getCount());
+        Assert.assertEquals(TStatusCode.CANCELLED, latch.getStatus().getErrorCode());
+        Assert.assertEquals("submit failed", latch.getStatus().getErrorMsg());
     }
 
     private PushTask newDeletePushTask(MarkedCountDownLatch<Long, Long> latch) {
