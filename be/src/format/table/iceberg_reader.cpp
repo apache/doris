@@ -107,6 +107,43 @@ private:
 
 const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
 
+bool IcebergTableReader::_is_fully_dictionary_encoded(
+        const tparquet::ColumnMetaData& column_metadata) {
+    // A column chunk may have a dictionary page but still contain plain-encoded data pages.
+    // Only treat it as dictionary-coded when all data pages are dictionary encoded.
+    if (column_metadata.__isset.encoding_stats) {
+        for (const tparquet::PageEncodingStats& enc_stat : column_metadata.encoding_stats) {
+            if (enc_stat.page_type == tparquet::PageType::DATA_PAGE &&
+                (enc_stat.encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
+                 enc_stat.encoding != tparquet::Encoding::RLE_DICTIONARY) &&
+                enc_stat.count > 0) {
+                return false;
+            }
+        }
+    } else {
+        bool has_dict_encoding = false;
+        bool has_nondict_encoding = false;
+        for (const tparquet::Encoding::type& encoding : column_metadata.encodings) {
+            if (encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
+                encoding == tparquet::Encoding::RLE_DICTIONARY) {
+                has_dict_encoding = true;
+            }
+
+            if (encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
+                encoding != tparquet::Encoding::RLE_DICTIONARY &&
+                encoding != tparquet::Encoding::RLE && encoding != tparquet::Encoding::BIT_PACKED) {
+                has_nondict_encoding = true;
+                break;
+            }
+        }
+        if (!has_dict_encoding || has_nondict_encoding) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader,
                                        RuntimeProfile* profile, RuntimeState* state,
                                        const TFileScanRangeParams& params,
