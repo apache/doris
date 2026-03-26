@@ -504,7 +504,6 @@ Status PipelineTask::execute(bool* done) {
         // if Thread A observes B's effect (_always_ready=true), it is guaranteed to also observe
         // A's effect (_wake_up_early=true) on this second read, ensuring terminate() is called.
         if (_wake_up_early) {
-            terminate();
             THROW_IF_ERROR(_root->terminate(_state));
             THROW_IF_ERROR(_sink->terminate(_state));
         }
