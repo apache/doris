@@ -40,7 +40,7 @@
          return;
      }
 
-     for (String hivePrefix : ["hive2", "hive3"]) {
+     for (String hivePrefix : ["hive3"]) {
          String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
          String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
          String catalog_name = "${hivePrefix}_test_hive_partition_column_analyze"

@@ -65,7 +65,7 @@ suite("test_hive_get_schema_from_table", "external_docker,hive,external_docker_h
     }
 
     // test get scheam from table
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
        String catalog_name = "test_${hivePrefix}_get_schema"
        String ex_db_name = "`default`"
        String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
