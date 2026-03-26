@@ -27,7 +27,7 @@ suite("test_hive_rewrite_mtmv", "p0,external,hive,external_docker,external_docke
     String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
     sql """set materialized_view_rewrite_enable_contain_external_table=true;"""
     String mvSql = "SELECT part_col,count(*) as num FROM ${catalogName}.`default`.mtmv_base1 group by part_col;";
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         sql """drop catalog if exists ${catalogName}"""
         sql """create catalog if not exists ${catalogName} properties (

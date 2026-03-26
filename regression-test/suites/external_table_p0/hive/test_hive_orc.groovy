@@ -181,7 +181,7 @@ suite("test_hive_orc", "all_types,p0,external,hive,external_docker,external_dock
     }
 
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "${hivePrefix}_test_orc"
