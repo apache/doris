@@ -3232,8 +3232,13 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     private List<Expr> translateOutputExprs(List<? extends Slot> outputSlots) {
         List<Expr> outputExprs = Lists.newArrayListWithCapacity(outputSlots.size());
-        outputSlots.stream().map(Slot::getExprId)
-                .forEach(exprId -> outputExprs.add(context.findSlotRef(exprId)));
+        for (Slot slot : outputSlots) {
+            SlotRef slotRef = context.findSlotRef(slot.getExprId());
+            Preconditions.checkNotNull(slotRef,
+                    "missing SlotRef for ExprId %s (%s) during output expr translation",
+                    slot.getExprId(), slot);
+            outputExprs.add(slotRef);
+        }
         return outputExprs;
     }
 
