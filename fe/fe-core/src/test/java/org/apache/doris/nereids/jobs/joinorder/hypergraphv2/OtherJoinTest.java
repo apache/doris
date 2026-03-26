@@ -76,6 +76,7 @@ public class OtherJoinTest extends TPCHTestBase {
             ex.printStackTrace(System.out);
             System.out.println("==== ORIGINAL PLAN (on exception) ====");
             System.out.println(originalPlanStr);
+            Assertions.fail("Unexpected exception: " + ex.getMessage(), ex);
         }
 
     }

@@ -467,19 +467,6 @@ public class SubgraphEnumerator {
         }
 
         /**
-         * Get all edges (simple + complex) contained in a subgraph.
-         *
-         * @param subgraph Subgraph
-         * @return List of edges
-         */
-        public List<Edge> foundEdgesContain(long subgraph) {
-            BitSet edgeMap = containSimpleEdges.get(subgraph);
-            Preconditions.checkState(edgeMap != null);
-            edgeMap.or(containComplexEdges.get(subgraph));
-            return edgeMap.stream().mapToObj(edges::get).collect(Collectors.toList());
-        }
-
-        /**
          * Get all simple edges contained in a subgraph.
          *
          * @param subgraph Subgraph

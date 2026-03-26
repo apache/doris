@@ -27,7 +27,6 @@ import org.apache.doris.nereids.stats.JoinEstimation;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.statistics.Statistics;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -383,17 +382,20 @@ public class GraphSimplifier {
     }
 
     private void updatePQ(int edgeIdx) {
-        BestSimplification cacheNode = simplifications.get(edgeIdx);
-        Preconditions.checkState(!Double.isNaN(cacheNode.bestStep.benefit), "bestStep has invalid benefit value");
-        if (!cacheNode.isInPriorityQueue) {
-            if (cacheNode.bestNeighbor != -1) {
-                priorityQueue.add(cacheNode);
-                cacheNode.isInPriorityQueue = true;
+        BestSimplification bestSimplification = simplifications.get(edgeIdx);
+        Preconditions.checkState(!Double.isNaN(bestSimplification.bestStep.benefit),
+                "bestStep has invalid benefit value");
+        if (!bestSimplification.isInPriorityQueue) {
+            if (bestSimplification.bestNeighbor != -1) {
+                priorityQueue.add(bestSimplification);
+                bestSimplification.isInPriorityQueue = true;
             }
         } else {
-            if (cacheNode.bestNeighbor == -1) {
-                priorityQueue.remove(cacheNode);
-                cacheNode.isInPriorityQueue = false;
+            priorityQueue.remove(bestSimplification);
+            if (bestSimplification.bestNeighbor == -1) {
+                bestSimplification.isInPriorityQueue = false;
+            } else {
+                priorityQueue.add(bestSimplification);
             }
         }
     }
@@ -524,7 +526,7 @@ public class GraphSimplifier {
                     .flatMap(Collection::stream)
                     .collect(Collectors.toList());
             List<Expression> otherConditions = connectionEdges.stream()
-                    .mapToObj(i -> graph.getJoinEdge(i).getJoin().getHashJoinConjuncts())
+                    .mapToObj(i -> graph.getJoinEdge(i).getJoin().getOtherJoinConjuncts())
                     .flatMap(Collection::stream)
                     .collect(Collectors.toList());
             join = edge.getJoin().withJoinConjuncts(hashConditions, otherConditions, null);
@@ -569,15 +571,7 @@ public class GraphSimplifier {
         if (!cacheCost.containsKey(rightBitmap) && rightStats != null) {
             cacheCost.put(rightBitmap, Math.max(1.0, rightStats.getRowCount()));
         }
-        double cost;
-        if (JoinUtils.shouldNestedLoopJoin(join)) {
-            cost = cacheCost.get(leftBitmap) + cacheCost.get(rightBitmap)
-                    + rightStats.getRowCount() + 1 / leftStats.getRowCount();
-        } else {
-            cost = cacheCost.get(leftBitmap) + cacheCost.get(rightBitmap)
-                    + (rightStats.getRowCount() + 1 / leftStats.getRowCount()) * 1.2;
-        }
-
+        double cost = JoinEstimation.estimate(leftStats, rightStats, join).getRowCount();
         if (!cacheCost.containsKey(bitmap) || cacheCost.get(bitmap) > cost) {
             cacheCost.put(bitmap, cost);
         }
@@ -620,7 +614,7 @@ public class GraphSimplifier {
         deriveStats(edge2, bitmap2, bitmap3);
         deriveStats(newEdge, bitmap1, newRight);
 
-        calCost(edge1, bitmap2, bitmap3);
+        calCost(edge2, bitmap2, bitmap3);
         return newEdge;
     }
 

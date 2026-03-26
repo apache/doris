@@ -266,7 +266,6 @@ public class PlanReceiver extends AbstractReceiver {
             group = copyInResult.correspondingExpression.getOwnerGroup();
         }
         planTable.put(bitmap, group);
-        usdEdges.put(bitmap, new BitSet());
     }
 
     @Override

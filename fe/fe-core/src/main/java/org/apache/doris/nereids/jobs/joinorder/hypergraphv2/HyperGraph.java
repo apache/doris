@@ -138,7 +138,6 @@ public class HyperGraph {
             List<NamedExpression> namedExpressions = nodeToLiteralAlias.get(left);
             if (namedExpressions != null) {
                 aliasList.addAll(namedExpressions);
-                nodeToLiteralAlias.remove(left);
             }
         } else {
             long nodes = LongBitmap.newBitmapUnion(left, right);
@@ -481,7 +480,7 @@ public class HyperGraph {
                         }
                     }
                 } else {
-                    nonInnerJoinedNodes = LongBitmap.or(leftSubtreeNodes, rightSubtreeNodes);
+                    nonInnerJoinedNodes |= LongBitmap.or(leftSubtreeNodes, rightSubtreeNodes);
                     requiredNodesToConjuncts.put(ends,
                             Pair.of(join.getHashJoinConjuncts(), join.getOtherJoinConjuncts()));
                 }

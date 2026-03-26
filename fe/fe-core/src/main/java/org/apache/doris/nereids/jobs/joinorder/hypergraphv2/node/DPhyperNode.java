@@ -19,8 +19,6 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraphv2.node;
 
 import org.apache.doris.nereids.memo.Group;
 
-import com.google.common.base.Preconditions;
-
 /**
  * HyperGraph Node.
  */
@@ -29,7 +27,6 @@ public class DPhyperNode extends AbstractNode {
 
     public DPhyperNode(int index, Group group) {
         super(group.getLogicalExpression().getPlan(), index);
-        Preconditions.checkArgument(group != null, "DPhyper requires Group is not null");
         this.group = group;
     }
 
