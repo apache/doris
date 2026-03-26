@@ -29,6 +29,7 @@ public class PaimonPropertiesFactory extends AbstractMetastorePropertiesFactory 
         register("filesystem", PaimonFileSystemMetaStoreProperties::new);
         register("hms", PaimonHMSMetaStoreProperties::new);
         register("rest", PaimonRestMetaStoreProperties::new);
+        register("jdbc", PaimonJdbcMetaStoreProperties::new);
     }
 
     @Override

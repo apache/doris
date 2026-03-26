@@ -119,6 +119,18 @@ public class BrokerUtil {
         }
     }
 
+    public static void deleteParentDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
+        deleteDirectoryWithFileSystem(extractParentDirectory(path), brokerDesc);
+    }
+
+    public static String extractParentDirectory(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            return path.substring(0, lastSlash + 1);
+        }
+        return path;
+    }
+
     public static String printBroker(String brokerName, TNetworkAddress address) {
         return brokerName + "[" + address.toString() + "]";
     }

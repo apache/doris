@@ -797,8 +797,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
-    // enable variant flatten nested as session variable, default is false,
-    // which means do not flatten nested when create table
+    // Deprecated legacy switch for flatten-nested variant behavior.
+    // It is distinct from variant_enable_nested_group.
+    // Default is false, which means do not flatten nested when create table.
+    @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
 
     // CLOUD_VARIABLES_BEGIN
@@ -1703,6 +1705,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
 
+    @Deprecated
     @VariableMgr.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
     private boolean enableVariantFlattenNested = false;
 
@@ -6033,10 +6036,12 @@ public class SessionVariable implements Serializable, Writable {
         return disableInvertedIndexV1ForVaraint;
     }
 
+    @Deprecated
     public void setEnableVariantFlattenNested(boolean enableVariantFlattenNested) {
         this.enableVariantFlattenNested = enableVariantFlattenNested;
     }
 
+    @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
     }

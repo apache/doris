@@ -38,6 +38,7 @@ public class PaimonExternalCatalogFactory {
             case PaimonExternalCatalog.PAIMON_FILESYSTEM:
             case PaimonExternalCatalog.PAIMON_DLF:
             case PaimonExternalCatalog.PAIMON_REST:
+            case PaimonExternalCatalog.PAIMON_JDBC:
                 return new PaimonExternalCatalog(catalogId, name, resource, props, comment);
             default:
                 throw new DdlException("Unknown " + PaimonExternalCatalog.PAIMON_CATALOG_TYPE

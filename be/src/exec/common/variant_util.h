@@ -65,6 +65,18 @@ namespace doris::variant_util {
 using PathToNoneNullValues = std::unordered_map<std::string, int64_t>;
 using PathToDataTypes = std::unordered_map<PathInData, std::vector<DataTypePtr>, PathInData::Hash>;
 
+inline bool should_record_variant_path_stats(const TabletColumn& column) {
+    return !column.variant_enable_nested_group();
+}
+
+inline bool should_write_variant_binary_columns(const TabletColumn& column) {
+    return !column.variant_enable_nested_group();
+}
+
+inline bool should_check_variant_path_stats(const TabletColumn& column) {
+    return !column.variant_enable_nested_group();
+}
+
 struct VariantExtendedInfo {
     PathToNoneNullValues path_to_none_null_values; // key: path, value: number of none null values
     std::unordered_set<std::string> sparse_paths;  // sparse paths in this variant column

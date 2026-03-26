@@ -679,6 +679,8 @@ public:
         return Status::NotSupported("variant writer has no data, can not finish_current_page");
     }
 
+    VariantColumnWriterImpl* impl_for_test() const { return _impl.get(); }
+
 private:
     std::unique_ptr<VariantColumnWriterImpl> _impl;
     ordinal_t _next_rowid = 0;

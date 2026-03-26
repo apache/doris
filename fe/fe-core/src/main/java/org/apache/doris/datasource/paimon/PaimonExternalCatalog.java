@@ -47,6 +47,7 @@ public class PaimonExternalCatalog extends ExternalCatalog {
     public static final String PAIMON_HMS = "hms";
     public static final String PAIMON_DLF = "dlf";
     public static final String PAIMON_REST = "rest";
+    public static final String PAIMON_JDBC = "jdbc";
     public static final String PAIMON_TABLE_CACHE_ENABLE = "meta.cache.paimon.table.enable";
     public static final String PAIMON_TABLE_CACHE_TTL_SECOND = "meta.cache.paimon.table.ttl-second";
     public static final String PAIMON_TABLE_CACHE_CAPACITY = "meta.cache.paimon.table.capacity";

@@ -77,7 +77,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     // Must add "transient" for Gson to ignore this field,
     // or Gson will throw exception with HikariCP
     private transient JdbcClient jdbcClient;
-    private IdentifierMapping identifierMapping;
+    private volatile IdentifierMapping identifierMapping;
     private ExternalFunctionRules functionRules;
 
     public JdbcExternalCatalog(long catalogId, String name, String resource, Map<String, String> props,
@@ -134,7 +134,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public synchronized void resetToUninitialized(boolean invalidCache) {
+    public void resetToUninitialized(boolean invalidCache) {
         super.resetToUninitialized(invalidCache);
         this.identifierMapping = new JdbcIdentifierMapping(
                 (Env.isTableNamesCaseInsensitive() || Env.isStoredTableNamesLowerCase()),
