@@ -6,16 +6,20 @@ PhysicalCteAnchor ( cteId=CTEId#1 )
 ------PhysicalDistribute[DistributionSpecHash]
 --------hashAgg[LOCAL]
 ----------PhysicalProject
-------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=()
---------------PhysicalUnion
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------PhysicalOlapScan[web_sales]
-----------------PhysicalDistribute[DistributionSpecExecutionAny]
-------------------PhysicalProject
---------------------PhysicalOlapScan[catalog_sales]
+------------hashJoin[INNER_JOIN broadcast] hashCondition=((date_dim.d_date_sk = wscs.sold_date_sk)) otherCondition=() build RFs:RF0 sold_date_sk->[d_date_sk]
 --------------PhysicalProject
-----------------PhysicalOlapScan[date_dim]
+----------------PhysicalOlapScan[date_dim] apply RFs: RF0
+--------------PhysicalUnion
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[web_sales]
+----------------hashAgg[GLOBAL]
+------------------PhysicalDistribute[DistributionSpecHash]
+--------------------hashAgg[LOCAL]
+----------------------PhysicalProject
+------------------------PhysicalOlapScan[catalog_sales]
 --PhysicalResultSink
 ----PhysicalQuickSort[MERGE_SORT]
 ------PhysicalDistribute[DistributionSpecGather]
