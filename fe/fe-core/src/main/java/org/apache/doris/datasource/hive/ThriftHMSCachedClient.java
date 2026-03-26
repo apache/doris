@@ -656,8 +656,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
      * 2. The pool does not interpret that config.
      * 3. The pool does not probe remote socket health.
      */
-    private GenericObjectPoolConfig<ThriftHMSClient> createPoolConfig(int poolSize) {
-        GenericObjectPoolConfig<ThriftHMSClient> config = new GenericObjectPoolConfig<>();
+    private GenericObjectPoolConfig createPoolConfig(int poolSize) {
+        GenericObjectPoolConfig config = new GenericObjectPoolConfig();
         config.setMaxTotal(poolSize);
         config.setMaxIdle(poolSize);
         config.setMinIdle(0);
