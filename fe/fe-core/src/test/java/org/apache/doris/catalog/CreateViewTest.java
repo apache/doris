@@ -195,7 +195,7 @@ public class CreateViewTest {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "select `internal`.`test`.`tbl1`.`k1` AS `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) AS `kc2` from `internal`.`test`.`tbl1` group by kc1",
+                "select `internal`.`test`.`tbl1`.`k1` as `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) as `kc2` from `internal`.`test`.`tbl1` group by kc1",
                 alter1.getInlineViewDef());
 
         String alterStmt
@@ -207,9 +207,35 @@ public class CreateViewTest {
         Assert.assertEquals(
                 "with `test1_cte` (`w1`, `w2`) as "
                         + "(select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
-                        + "from `internal`.`test`.`tbl1`) select w1 AS `c1`, sum(`test1_cte`.`w2`) AS `c2` "
+                        + "from `internal`.`test`.`tbl1`) select w1 as `c1`, sum(`test1_cte`.`w2`) as `c2` "
                         + "from test1_cte where `test1_cte`.`w1` > 10 group by `test1_cte`.`w1` order by w1",
                 alter1.getInlineViewDef());
+    }
+
+    @Test
+    public void testCreateViewWithoutDefinedColumnsDoesNotInjectAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.no_alias_view as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("no_alias_view");
+        Assert.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
+    }
+
+    @Test
+    public void testCreateViewWithDefinedColumnsRewritesAliases() throws Exception {
+        ExceptionChecker.expectThrowsNoException(
+                () -> createView("create view test.with_alias_view(c1, c2) as select k1, k2 from test.tbl1;"));
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
+        View view = (View) db.getTableOrDdlException("with_alias_view");
+        Assert.assertEquals(
+                "select `internal`.`test`.`tbl1`.`k1` AS `c1`, `internal`.`test`.`tbl1`.`k2` AS `c2` "
+                        + "from `internal`.`test`.`tbl1`",
+                view.getInlineViewDef());
     }
 
     @Test

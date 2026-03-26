@@ -141,6 +141,9 @@ public class BaseViewInfo {
     }
 
     protected String rewriteProjectsToUserDefineAlias(String resSql) {
+        if (simpleColumnDefinitions.isEmpty()) {
+            return resSql;
+        }
         return rewriteProjectsToUserDefineAlias(resSql, finalCols.stream()
                 .map(Column::getName)
                 .collect(Collectors.toList()));
