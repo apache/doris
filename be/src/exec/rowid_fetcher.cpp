@@ -540,6 +540,7 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
         // if id_file_map is null, means the BE not have scan range, just return ok
         if (!id_file_map) {
             // padding empty block to response
+            LOG(INFO) << "id_file_map not found for query_id: " << print_id(request.query_id());
             for (int i = 0; i < request.request_block_descs_size(); ++i) {
                 response->add_blocks();
             }
