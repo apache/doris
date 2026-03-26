@@ -395,10 +395,11 @@ Status OlapScanner::_init_tablet_reader_params(
         tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
 
-    // Range
+    // Push key ranges to the tablet reader.
+    // Skip the "full scan" placeholder (has_lower_bound == false) — when no key
+    // predicates exist, start_key/end_key remain empty and the reader does a full scan.
     for (auto* key_range : key_ranges) {
-        if (key_range->begin_scan_range.size() == 1 &&
-            key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+        if (!key_range->has_lower_bound) {
             continue;
         }
 

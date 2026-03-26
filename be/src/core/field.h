@@ -281,6 +281,11 @@ public:
 
     std::string_view as_string_view() const;
 
+    // Return a human-readable representation of the stored value for debugging.
+    // Unlike get_type_name() which returns the type, this prints the actual value.
+    // For decimal types, caller can provide scale for accurate formatting.
+    std::string to_debug_string(int scale) const;
+
 private:
     std::aligned_union_t<DBMS_MIN_FIELD_SIZE - sizeof(PrimitiveType), Null, UInt64, UInt128, Int64,
                          Int128, IPv6, Float64, String, JsonbField, StringView, Array, Tuple, Map,

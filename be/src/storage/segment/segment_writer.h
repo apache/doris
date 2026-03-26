@@ -89,8 +89,6 @@ public:
     // for vertical compaction
     Status init(const std::vector<uint32_t>& col_ids, bool has_key);
 
-    Status append_row(const RowCursor& row);
-
     Status append_block(const Block* block, size_t row_pos, size_t num_rows);
     Status probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                              bool have_delete_sign,
@@ -151,6 +149,7 @@ public:
     uint64_t primary_keys_size() const { return _primary_keys_size; }
 
 private:
+    friend class TestSegmentWriter;
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _create_column_writer(uint32_t cid, const TabletColumn& column,
                                  const TabletSchemaSPtr& schema);
