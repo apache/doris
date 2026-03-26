@@ -38,7 +38,6 @@ public:
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
     bool is_blockable() const override;
-    size_t get_hash_table_size() const;
 
 protected:
     friend class AggSinkOperatorX;
@@ -50,87 +49,12 @@ protected:
     };
     template <bool WithoutKey, bool NeedToMerge>
     struct Executor final : public ExecutorBase {
-        Status execute(AggSinkLocalState* local_state, Block* block) override {
-            if constexpr (WithoutKey) {
-                if constexpr (NeedToMerge) {
-                    return local_state->_merge_without_key(block);
-                } else {
-                    return local_state->_execute_without_key(block);
-                }
-            } else {
-                if constexpr (NeedToMerge) {
-                    return local_state->_merge_with_serialized_key(block);
-                } else {
-                    return local_state->_execute_with_serialized_key(block);
-                }
-            }
-        }
-        void update_memusage(AggSinkLocalState* local_state) override {
-            if constexpr (WithoutKey) {
-                local_state->_update_memusage_without_key();
-            } else {
-                local_state->_update_memusage_with_serialized_key();
-            }
-        }
+        Status execute(AggSinkLocalState* local_state, Block* block) override;
+        void update_memusage(AggSinkLocalState* local_state) override;
     };
 
-    Status _execute_without_key(Block* block);
-    Status _merge_without_key(Block* block);
-    void _update_memusage_without_key();
-    Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
-    Status _execute_with_serialized_key(Block* block);
-    Status _merge_with_serialized_key(Block* block);
-    void _update_memusage_with_serialized_key();
-    template <bool limit>
-
-    Status _execute_with_serialized_key_helper(Block* block);
-    void _find_in_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
-                             uint32_t num_rows);
-    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
-                                  uint32_t num_rows);
-
-    void _emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns, uint32_t num_rows);
-    void _merge_into_hash_table_inline_count(ColumnRawPtrs& key_columns,
-                                             const IColumn* merge_column, uint32_t num_rows);
-    bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
-                                        const std::vector<int>& key_locs,
-                                        ColumnRawPtrs& key_columns, uint32_t num_rows);
-
-    template <bool limit, bool for_spill = false>
-    Status _merge_with_serialized_key_helper(Block* block);
-
-    Status _destroy_agg_status(AggregateDataPtr data);
-    Status _create_agg_status(AggregateDataPtr data);
-    size_t _memory_usage() const;
-
-    size_t get_reserve_mem_size(RuntimeState* state, bool eos) const;
-
-    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
-    RuntimeProfile::Counter* _build_timer = nullptr;
-    RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
-    RuntimeProfile::Counter* _memory_usage_container = nullptr;
-    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
-
-    bool _should_limit_output = false;
-
-    PODArray<AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
-
     Block _preagg_block;
-
-    AggregatedDataVariants* _agg_data = nullptr;
-
     std::unique_ptr<ExecutorBase> _executor = nullptr;
-
-    int64_t _memory_usage_last_executing = 0;
 };
 
 class AggSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<AggSinkLocalState> {
@@ -176,7 +100,7 @@ public:
 
     AggregatedDataVariants* get_agg_data(RuntimeState* state) {
         auto& local_state = get_local_state(state);
-        return local_state._agg_data;
+        return local_state.Base::_shared_state->groupby_agg_ctx->hash_table_data();
     }
 
     Status reset_hash_table(RuntimeState* state);

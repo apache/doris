@@ -31,6 +31,7 @@ namespace doris {
 class RuntimeState;
 
 class StreamingAggOperatorX;
+class GroupByAggContext;
 
 class StreamingAggLocalState MOCK_REMOVE(final) : public PipelineXLocalState<FakeSharedState> {
 public:
@@ -38,14 +39,13 @@ public:
     using Base = PipelineXLocalState<FakeSharedState>;
     ENABLE_FACTORY_CREATOR(StreamingAggLocalState);
     StreamingAggLocalState(RuntimeState* state, OperatorXBase* parent);
-    ~StreamingAggLocalState() override = default;
+    ~StreamingAggLocalState() override;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
     Status do_pre_agg(RuntimeState* state, Block* input_block, Block* output_block);
     void make_nullable_output_key(Block* block);
-    void build_limit_heap(size_t hash_table_size);
 
 private:
     friend class StreamingAggOperatorX;
@@ -53,152 +53,28 @@ private:
     friend class StatefulOperatorX;
 
     size_t _memory_usage() const;
-    void _add_limit_heap_top(ColumnRawPtrs& key_columns, size_t rows);
-    bool _do_limit_filter(size_t num_rows, ColumnRawPtrs& key_columns);
-    void _refresh_limit_heap(size_t i, ColumnRawPtrs& key_columns);
 
     Status _pre_agg_with_serialized_key(doris::Block* in_block, doris::Block* out_block);
     bool _should_expand_preagg_hash_tables();
 
     MOCK_FUNCTION bool _should_not_do_pre_agg(size_t rows);
 
-    Status _execute_with_serialized_key(Block* block);
-    void _update_memusage_with_serialized_key();
-    Status _init_hash_method(const VExprContextSPtrs& probe_exprs);
-    Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
-    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
-                                  const uint32_t num_rows);
-    void _emplace_into_hash_table_inline_count(ColumnRawPtrs& key_columns, uint32_t num_rows);
-    bool _emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
-                                        ColumnRawPtrs& key_columns, uint32_t num_rows);
-    Status _create_agg_status(AggregateDataPtr data);
-    size_t _get_hash_table_size();
-
     RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
-    RuntimeProfile::Counter* _build_timer = nullptr;
-    RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::HighWaterMarkCounter* _serialize_key_arena_memory_usage = nullptr;
-    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    RuntimeProfile::Counter* _get_results_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
 
     bool _should_expand_hash_table = true;
     int64_t _cur_num_rows_returned = 0;
-    Arena _agg_arena_pool;
-    AggregatedDataVariantsUPtr _agg_data = nullptr;
-    std::vector<AggFnEvaluator*> _aggregate_evaluators;
-    // group by k1,k2
-    VExprContextSPtrs _probe_expr_ctxs;
-    std::unique_ptr<AggregateDataContainer> _aggregate_data_container = nullptr;
-    bool _use_simple_count = false;
-    bool _reach_limit = false;
     size_t _input_num_rows = 0;
 
-    int64_t limit = -1;
-    int need_do_sort_limit = -1;
-    bool do_sort_limit = false;
-    MutableColumns limit_columns;
-    int limit_columns_min = -1;
-    PaddedPODArray<uint8_t> need_computes;
-    std::vector<uint8_t> cmp_res;
-    std::vector<int> order_directions;
-    std::vector<int> null_directions;
-
-    struct HeapLimitCursor {
-        HeapLimitCursor(int row_id, MutableColumns& limit_columns,
-                        std::vector<int>& order_directions, std::vector<int>& null_directions)
-                : _row_id(row_id),
-                  _limit_columns(limit_columns),
-                  _order_directions(order_directions),
-                  _null_directions(null_directions) {}
-
-        HeapLimitCursor(const HeapLimitCursor& other) = default;
-
-        HeapLimitCursor(HeapLimitCursor&& other) noexcept
-                : _row_id(other._row_id),
-                  _limit_columns(other._limit_columns),
-                  _order_directions(other._order_directions),
-                  _null_directions(other._null_directions) {}
-
-        HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
-            _row_id = other._row_id;
-            return *this;
-        }
-
-        HeapLimitCursor& operator=(HeapLimitCursor&& other) noexcept {
-            _row_id = other._row_id;
-            return *this;
-        }
-
-        bool operator<(const HeapLimitCursor& rhs) const {
-            for (int i = 0; i < _limit_columns.size(); ++i) {
-                const auto& _limit_column = _limit_columns[i];
-                auto res = _limit_column->compare_at(_row_id, rhs._row_id, *_limit_column,
-                                                     _null_directions[i]) *
-                           _order_directions[i];
-                if (res < 0) {
-                    return true;
-                } else if (res > 0) {
-                    return false;
-                }
-            }
-            return false;
-        }
-
-        int _row_id;
-        MutableColumns& _limit_columns;
-        std::vector<int>& _order_directions;
-        std::vector<int>& _null_directions;
-    };
-
-    std::priority_queue<HeapLimitCursor> limit_heap;
-
-    MutableColumns _get_keys_hash_table();
-
+    std::unique_ptr<GroupByAggContext> _groupby_agg_ctx;
     PODArray<AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
+
+    // Sort limit: tracks whether sort limit filtering has been activated.
+    // -1 = not yet determined, 0 = no, 1 = yes
+    int _need_do_sort_limit = -1;
 
     std::unique_ptr<Block> _child_block = nullptr;
     bool _child_eos = false;
     std::unique_ptr<Block> _pre_aggregated_block = nullptr;
-    std::vector<AggregateDataPtr> _values;
-    bool _opened = false;
-
-    void _destroy_agg_status(AggregateDataPtr data);
-
-    void _close_with_serialized_key() {
-        std::visit(Overload {[&](std::monostate& arg) -> void {
-                                 // Do nothing
-                             },
-                             [&](auto& agg_method) -> void {
-                                 if (_use_simple_count) {
-                                     // Inline count: mapped slots hold UInt64,
-                                     // not real agg state pointers. Skip destroy.
-                                     return;
-                                 }
-                                 auto& data = *agg_method.hash_table;
-                                 data.for_each_mapped([&](auto& mapped) {
-                                     if (mapped) {
-                                         _destroy_agg_status(mapped);
-                                         mapped = nullptr;
-                                     }
-                                 });
-                                 if (data.has_null_key_data()) {
-                                     _destroy_agg_status(
-                                             data.template get_null_key_data<AggregateDataPtr>());
-                                 }
-                             }},
-                   _agg_data->method_variant);
-    }
 
     bool _is_single_backend = false;
 };

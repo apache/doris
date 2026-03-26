@@ -38,7 +38,9 @@
 #include "core/block/block.h"
 #include "core/types.h"
 #include "exec/common/agg_utils.h"
+#include "exec/common/groupby_agg_context.h"
 #include "exec/common/join_utils.h"
+#include "exec/common/ungroupby_agg_context.h"
 #include "exec/common/set_utils.h"
 #include "exec/operator/data_queue.h"
 #include "exec/operator/join/process_hash_table_probe.h"
@@ -284,146 +286,34 @@ struct RuntimeFilterTimerQueue {
 struct AggSharedState : public BasicSharedState {
     ENABLE_FACTORY_CREATOR(AggSharedState)
 public:
-    AggSharedState() { agg_data = std::make_unique<AggregatedDataVariants>(); }
+    AggSharedState() = default;
     ~AggSharedState() override {
-        if (!probe_expr_ctxs.empty()) {
-            _close_with_serialized_key();
-        } else {
-            _close_without_key();
+        // Explicitly close contexts before destruction. close() is virtual and must be
+        // called while the derived object (e.g. InlineCountAggContext) is still alive,
+        // not from the base class destructor where vtable has already reverted.
+        // close() is idempotent: GroupByAggContext::close sets mapped=nullptr after destroy;
+        // UngroupByAggContext::close has _agg_state_created guard.
+        if (groupby_agg_ctx) {
+            groupby_agg_ctx->close();
+            groupby_agg_ctx.reset();
+        }
+        if (ungroupby_agg_ctx) {
+            ungroupby_agg_ctx->close();
+            ungroupby_agg_ctx.reset();
         }
     }
 
-    Status reset_hash_table();
+    // Exactly one of these is non-null at runtime:
+    //   groupby_agg_ctx  — created when the query has GROUP BY
+    //   ungroupby_agg_ctx — created when the query has no GROUP BY
+    std::unique_ptr<GroupByAggContext> groupby_agg_ctx;
+    std::unique_ptr<UngroupByAggContext> ungroupby_agg_ctx;
 
-    bool do_limit_filter(Block* block, size_t num_rows, const std::vector<int>* key_locs = nullptr);
-    void build_limit_heap(size_t hash_table_size);
-
-    // We should call this function only at 1st phase.
-    // 1st phase: is_merge=true, only have one SlotRef.
-    // 2nd phase: is_merge=false, maybe have multiple exprs.
-    static int get_slot_column_id(const AggFnEvaluator* evaluator);
-
-    AggregatedDataVariantsUPtr agg_data = nullptr;
-    std::unique_ptr<AggregateDataContainer> aggregate_data_container;
-    std::vector<AggFnEvaluator*> aggregate_evaluators;
-    // group by k1,k2
-    VExprContextSPtrs probe_expr_ctxs;
-    size_t input_num_rows = 0;
-    std::vector<AggregateDataPtr> values;
-    /// The total size of the row from the aggregate functions.
-    size_t total_size_of_aggregate_states = 0;
-    size_t align_aggregate_states = 1;
-    /// The offset to the n-th aggregate function in a row of aggregate functions.
-    Sizes offsets_of_aggregate_states;
+    // Kept in AggSharedState (used by Source operators for output key conversion).
     std::vector<size_t> make_nullable_keys;
 
-    bool agg_data_created_without_key = false;
+    // Spill support (set by Sink operator during open).
     bool enable_spill = false;
-    bool reach_limit = false;
-
-    bool use_simple_count = false;
-    int64_t limit = -1;
-    bool do_sort_limit = false;
-    MutableColumns limit_columns;
-    int limit_columns_min = -1;
-    PaddedPODArray<uint8_t> need_computes;
-    std::vector<uint8_t> cmp_res;
-    std::vector<int> order_directions;
-    std::vector<int> null_directions;
-
-    struct HeapLimitCursor {
-        HeapLimitCursor(int row_id, MutableColumns& limit_columns,
-                        std::vector<int>& order_directions, std::vector<int>& null_directions)
-                : _row_id(row_id),
-                  _limit_columns(limit_columns),
-                  _order_directions(order_directions),
-                  _null_directions(null_directions) {}
-
-        HeapLimitCursor(const HeapLimitCursor& other) = default;
-
-        HeapLimitCursor(HeapLimitCursor&& other) noexcept
-                : _row_id(other._row_id),
-                  _limit_columns(other._limit_columns),
-                  _order_directions(other._order_directions),
-                  _null_directions(other._null_directions) {}
-
-        HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
-            _row_id = other._row_id;
-            return *this;
-        }
-
-        HeapLimitCursor& operator=(HeapLimitCursor&& other) noexcept {
-            _row_id = other._row_id;
-            return *this;
-        }
-
-        bool operator<(const HeapLimitCursor& rhs) const {
-            for (int i = 0; i < _limit_columns.size(); ++i) {
-                const auto& _limit_column = _limit_columns[i];
-                auto res = _limit_column->compare_at(_row_id, rhs._row_id, *_limit_column,
-                                                     _null_directions[i]) *
-                           _order_directions[i];
-                if (res < 0) {
-                    return true;
-                } else if (res > 0) {
-                    return false;
-                }
-            }
-            return false;
-        }
-
-        int _row_id;
-        MutableColumns& _limit_columns;
-        std::vector<int>& _order_directions;
-        std::vector<int>& _null_directions;
-    };
-
-    std::priority_queue<HeapLimitCursor> limit_heap;
-
-    // Refresh the top limit heap with a new row
-    void refresh_top_limit(size_t row_id, const ColumnRawPtrs& key_columns);
-
-    Arena agg_arena_pool;
-    Arena agg_profile_arena;
-
-private:
-    MutableColumns _get_keys_hash_table();
-
-    void _close_with_serialized_key() {
-        std::visit(Overload {[&](std::monostate& arg) -> void {
-                                 // Do nothing
-                             },
-                             [&](auto& agg_method) -> void {
-                                 if (use_simple_count) {
-                                     // Inline count: mapped slots hold UInt64,
-                                     // not real agg state pointers. Skip destroy.
-                                     return;
-                                 }
-                                 auto& data = *agg_method.hash_table;
-                                 data.for_each_mapped([&](auto& mapped) {
-                                     if (mapped) {
-                                         _destroy_agg_status(mapped);
-                                         mapped = nullptr;
-                                     }
-                                 });
-                                 if (data.has_null_key_data()) {
-                                     _destroy_agg_status(
-                                             data.template get_null_key_data<AggregateDataPtr>());
-                                 }
-                             }},
-                   agg_data->method_variant);
-    }
-
-    void _close_without_key() {
-        //because prepare maybe failed, and couldn't create agg data.
-        //but finally call close to destory agg data, if agg data has bitmapValue
-        //will be core dump, it's not initialized
-        if (agg_data_created_without_key) {
-            _destroy_agg_status(agg_data->without_key);
-            agg_data_created_without_key = false;
-        }
-    }
-    void _destroy_agg_status(AggregateDataPtr data);
 };
 
 struct PartitionedAggSharedState : public BasicSharedState,

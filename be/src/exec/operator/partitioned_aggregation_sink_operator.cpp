@@ -52,11 +52,12 @@ Status PartitionedAggSinkLocalState::init(doris::RuntimeState* state,
     _spill_writers.resize(parent._partition_count);
     RETURN_IF_ERROR(_setup_in_memory_agg_op(state));
 
-    for (const auto& probe_expr_ctx : Base::_shared_state->_in_mem_shared_state->probe_expr_ctxs) {
+    for (const auto& probe_expr_ctx :
+         Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->groupby_expr_ctxs()) {
         _key_columns.emplace_back(probe_expr_ctx->root()->data_type()->create_column());
     }
     for (const auto& aggregate_evaluator :
-         Base::_shared_state->_in_mem_shared_state->aggregate_evaluators) {
+         Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->agg_evaluators()) {
         _value_data_types.emplace_back(aggregate_evaluator->function()->get_serialized_type());
         _value_columns.emplace_back(aggregate_evaluator->function()->create_serialize_column());
     }
@@ -165,8 +166,8 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_b
     if (local_state._shared_state->_is_spilled) {
         if (revocable_mem_size(state) >= state->spill_aggregation_sink_mem_limit_bytes()) {
             RETURN_IF_ERROR(revoke_memory(state));
-            DCHECK(local_state._shared_state->_in_mem_shared_state->aggregate_data_container
-                           ->total_count() == 0);
+        DCHECK(local_state._shared_state->_in_mem_shared_state->groupby_agg_ctx
+                       ->agg_data_container()->total_count() == 0);
         }
     } else {
         auto* sink_local_state = local_state._runtime_state->get_sink_local_state();
@@ -179,8 +180,8 @@ Status PartitionedAggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_b
             // If there are still memory aggregation data, revoke memory, it is a flush operation.
             if (_agg_sink_operator->get_hash_table_size(runtime_state) > 0) {
                 RETURN_IF_ERROR(revoke_memory(state));
-                DCHECK(local_state._shared_state->_in_mem_shared_state->aggregate_data_container
-                               ->total_count() == 0);
+                DCHECK(local_state._shared_state->_in_mem_shared_state->groupby_agg_ctx
+                               ->agg_data_container()->total_count() == 0);
             }
             // Close all writers (finalizes SpillFile metadata)
             for (auto& writer : local_state._spill_writers) {
@@ -271,13 +272,15 @@ Status PartitionedAggSinkLocalState::_to_block(HashTableCtxType& context,
         values.emplace_back(null_key_data);
     }
 
-    for (size_t i = 0; i < Base::_shared_state->_in_mem_shared_state->aggregate_evaluators.size();
+    for (size_t i = 0;
+         i < Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->agg_evaluators().size();
          ++i) {
-        Base::_shared_state->_in_mem_shared_state->aggregate_evaluators[i]
+        Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->agg_evaluators()[i]
                 ->function()
                 ->serialize_to_column(
                         values,
-                        Base::_shared_state->_in_mem_shared_state->offsets_of_aggregate_states[i],
+                        Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx
+                                ->agg_state_offsets()[i],
                         _value_columns[i], values.size());
     }
 
@@ -285,8 +288,14 @@ Status PartitionedAggSinkLocalState::_to_block(HashTableCtxType& context,
     for (int i = 0; i < _key_columns.size(); ++i) {
         key_columns_with_schema.emplace_back(
                 std::move(_key_columns[i]),
-                Base::_shared_state->_in_mem_shared_state->probe_expr_ctxs[i]->root()->data_type(),
-                Base::_shared_state->_in_mem_shared_state->probe_expr_ctxs[i]->root()->expr_name());
+                Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx
+                        ->groupby_expr_ctxs()[i]
+                        ->root()
+                        ->data_type(),
+                Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx
+                        ->groupby_expr_ctxs()[i]
+                        ->root()
+                        ->expr_name());
     }
     _key_block = key_columns_with_schema;
 
@@ -294,7 +303,7 @@ Status PartitionedAggSinkLocalState::_to_block(HashTableCtxType& context,
     for (int i = 0; i < _value_columns.size(); ++i) {
         value_columns_with_schema.emplace_back(
                 std::move(_value_columns[i]), _value_data_types[i],
-                Base::_shared_state->_in_mem_shared_state->aggregate_evaluators[i]
+                Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->agg_evaluators()[i]
                         ->function()
                         ->get_name());
     }
@@ -361,7 +370,7 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
     context.init_iterator();
     auto& parent = _parent->template cast<PartitionedAggSinkOperatorX>();
 
-    Base::_shared_state->_in_mem_shared_state->aggregate_data_container->init_once();
+    Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->agg_data_container()->init_once();
 
     const auto total_rows = parent._agg_sink_operator->get_hash_table_size(_runtime_state.get());
 
@@ -386,8 +395,12 @@ Status PartitionedAggSinkLocalState::_spill_hash_table(RuntimeState* state,
 
     std::vector<TmpSpillInfo<typename HashTableType::key_type>> spill_infos(
             parent._partition_count);
-    auto& iter = Base::_shared_state->_in_mem_shared_state->aggregate_data_container->iterator;
-    while (iter != Base::_shared_state->_in_mem_shared_state->aggregate_data_container->end() &&
+    auto& iter =
+            Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->agg_data_container()
+                    ->iterator;
+    while (iter !=
+                   Base::_shared_state->_in_mem_shared_state->groupby_agg_ctx->agg_data_container()
+                           ->end() &&
            !state->is_cancelled()) {
         const auto& key = iter.template get_key<typename HashTableType::key_type>();
         auto partition_index = hash_table.hash(key) % parent._partition_count;

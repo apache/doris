@@ -45,43 +45,6 @@ public:
 protected:
     friend class AggSourceOperatorX;
 
-    Status _get_without_key_result(RuntimeState* state, Block* block, bool* eos);
-    Status _get_results_without_key(RuntimeState* state, Block* block, bool* eos);
-    Status _get_with_serialized_key_result(RuntimeState* state, Block* block, bool* eos);
-    Status _get_results_with_serialized_key(RuntimeState* state, Block* block, bool* eos);
-    Status _create_agg_status(AggregateDataPtr data);
-    void _make_nullable_output_key(Block* block) {
-        if (block->rows() != 0) {
-            auto& shared_state = *Base ::_shared_state;
-            for (auto cid : shared_state.make_nullable_keys) {
-                block->get_by_position(cid).column =
-                        make_nullable(block->get_by_position(cid).column);
-                block->get_by_position(cid).type = make_nullable(block->get_by_position(cid).type);
-            }
-        }
-    }
-
-    void _emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
-                                  uint32_t num_rows);
-
-    PODArray<AggregateDataPtr> _places;
-    std::vector<char> _deserialize_buffer;
-
-    RuntimeProfile::Counter* _get_results_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
-    RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
-    RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;
-
-    RuntimeProfile::Counter* _hash_table_compute_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
-    RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
-    RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
-    RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _memory_usage_container = nullptr;
-    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
-
     using vectorized_get_result =
             std::function<Status(RuntimeState* state, Block* block, bool* eos)>;
 
@@ -125,10 +88,6 @@ private:
 
     bool _needs_finalize;
     bool _without_key;
-
-    // left / full join will change the key nullable make output/input solt
-    // nullable diff. so we need make nullable of it.
-    std::vector<size_t> _make_nullable_keys;
 };
 
 } // namespace doris
