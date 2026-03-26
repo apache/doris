@@ -33,9 +33,11 @@ import org.mockito.Mockito;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 class AuthenticationIntegrationRuntimeTest {
     private static final String CREATE_USER = "creator";
@@ -112,6 +114,78 @@ class AuthenticationIntegrationRuntimeTest {
         Assertions.assertEquals("first", outcome.getIntegration().getName());
         Assertions.assertEquals(AuthenticationFailureType.BAD_CREDENTIAL,
                 outcome.getAuthResult().getException().getFailureType());
+    }
+
+    @Test
+    void testAuthenticatePreservesPluginGrantedRolesOnSuccess() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ChainTestPluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        AuthenticationIntegrationMeta integration = meta("mapped", "chain_test",
+                map("result", "SUCCESS", "granted_role", "plugin_reader"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("secret".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request);
+
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertEquals(Collections.singleton("plugin_reader"), outcome.getGrantedRoles());
+    }
+
+    @Test
+    void testAuthenticateDoesNotGrantRolesWithoutRoleMappingConfiguration() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ChainTestPluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        AuthenticationIntegrationMeta integration = meta("plain", "chain_test", map("result", "SUCCESS"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("secret".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request);
+
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertEquals(Collections.emptySet(), outcome.getGrantedRoles());
+    }
+
+    @Test
+    void testAuthenticateMergesPluginGrantedRolesWithMappedRoles() throws Exception {
+        AuthenticationPluginManager pluginManager = new AuthenticationPluginManager();
+        pluginManager.registerFactory(new ChainTestPluginFactory());
+        AuthenticationIntegrationRuntime runtime = new AuthenticationIntegrationRuntime(pluginManager);
+
+        AuthenticationIntegrationMeta integration = meta("mapped", "chain_test",
+                map(
+                        "result", "SUCCESS",
+                        "granted_role", "plugin_reader",
+                        "role_mapping.rule.oncall.condition", "has_group(\"oncall\") && has_scope(\"logs:write\")",
+                        "role_mapping.rule.oncall.roles", "mapped_reader"));
+        runtime.activatePreparedAuthenticationIntegration(runtime.prepareAuthenticationIntegration(integration));
+
+        AuthenticationRequest request = AuthenticationRequest.builder()
+                .username("alice")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential("secret".getBytes(StandardCharsets.UTF_8))
+                .remoteHost("127.0.0.1")
+                .clientType("mysql")
+                .build();
+        AuthenticationOutcome outcome = runtime.authenticate(Collections.singletonList(integration), request);
+
+        Assertions.assertTrue(outcome.isSuccess());
+        Assertions.assertEquals(Set.of("plugin_reader", "mapped_reader"), outcome.getGrantedRoles());
     }
 
     @Test
@@ -216,10 +290,18 @@ class AuthenticationIntegrationRuntimeTest {
                     return AuthenticationResult.failure(
                             AuthenticationFailureType.BAD_CREDENTIAL, "Bad credential");
                 default:
-                    return AuthenticationResult.success(BasicPrincipal.builder()
+                    BasicPrincipal principal = BasicPrincipal.builder()
                             .name(request.getUsername())
                             .authenticator(integration.getName())
-                            .build());
+                            .externalGroups(Collections.singleton("oncall"))
+                            .multiValueAttributes(Collections.singletonMap(
+                                    "scope", Collections.singleton("logs:write")))
+                            .build();
+                    String grantedRole = integration.getProperty("granted_role", "");
+                    if (grantedRole.isEmpty()) {
+                        return AuthenticationResult.success(principal);
+                    }
+                    return AuthenticationResult.success(principal, Collections.singleton(grantedRole));
             }
         }
     }

@@ -41,6 +41,7 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 class AuthenticationIntegrationAuthenticatorTest {
     private static final String CHAIN_CONFIG = "corp_ldap,backup_ldap";
@@ -84,6 +85,9 @@ class AuthenticationIntegrationAuthenticatorTest {
         Assertions.assertTrue(response.isSuccess());
         Assertions.assertFalse(response.isTemp());
         Assertions.assertEquals("'alice'@'127.0.0.1'", response.getUserIdentity().toString());
+        Assertions.assertNotNull(response.getPrincipal());
+        Assertions.assertEquals("external_alice", response.getPrincipal().getName());
+        Assertions.assertEquals(Set.of("plugin_reader", "mapped_reader"), response.getAuthenticatedRoles());
 
         ArgumentCaptor<List<AuthenticationIntegrationMeta>> captor = ArgumentCaptor.forClass(List.class);
         Mockito.verify(runtime).authenticate(captor.capture(), Mockito.any());
@@ -108,7 +112,10 @@ class AuthenticationIntegrationAuthenticatorTest {
 
         Assertions.assertTrue(response.isSuccess());
         Assertions.assertTrue(response.isTemp());
-        Assertions.assertEquals("'alice'@'127.0.0.1'", response.getUserIdentity().toString());
+        Assertions.assertEquals("'external_alice'@'127.0.0.1'", response.getUserIdentity().toString());
+        Assertions.assertNotNull(response.getPrincipal());
+        Assertions.assertEquals("external_alice", response.getPrincipal().getName());
+        Assertions.assertEquals(Set.of("plugin_reader", "mapped_reader"), response.getAuthenticatedRoles());
     }
 
     @Test
@@ -153,18 +160,21 @@ class AuthenticationIntegrationAuthenticatorTest {
     }
 
     private static AuthenticationIntegration integration(String name, boolean jitEnabled) {
+        Map<String, String> properties = new LinkedHashMap<>();
+        properties.put("enable_jit_user", String.valueOf(jitEnabled));
         return AuthenticationIntegration.builder()
                 .name(name)
                 .type("ldap")
-                .property("enable_jit_user", String.valueOf(jitEnabled))
+                .properties(properties)
                 .build();
     }
 
     private static org.apache.doris.authentication.AuthenticationResult success() {
         return org.apache.doris.authentication.AuthenticationResult.success(
                 org.apache.doris.authentication.BasicPrincipal.builder()
-                        .name("alice")
+                        .name("external_alice")
                         .authenticator("corp_ldap")
-                        .build());
+                        .build(),
+                Set.of("plugin_reader", "mapped_reader"));
     }
 }

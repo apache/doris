@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlAuthPacket;
@@ -42,6 +43,7 @@ import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.Optional;
 
 class AuthenticatorManagerTest {
@@ -201,6 +203,50 @@ class AuthenticatorManagerTest {
         Assertions.assertTrue(result);
         Mockito.verify(chainAuthenticator).authenticate(Mockito.any());
         Mockito.verify(context).setIsTempUser(true);
+    }
+
+    @Test
+    void testAuthenticateStoresPrincipalAndGrantedRolesOnContext() throws Exception {
+        Config.authentication_chain = "corp_ldap";
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failedResponse);
+
+        BasicPrincipal principal = BasicPrincipal.builder()
+                .name(USER_NAME)
+                .authenticator("corp_ldap")
+                .build();
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(new AuthenticateResponse(true,
+                        org.apache.doris.analysis.UserIdentity.createAnalyzedUserIdentWithIp(USER_NAME, REMOTE_IP),
+                        true,
+                        principal,
+                        Collections.singleton("mapped_reader")));
+
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertTrue(result);
+        Mockito.verify(context).setAuthenticatedPrincipal(principal);
+        Mockito.verify(context).setAuthenticatedRoles(Collections.singleton("mapped_reader"));
     }
 
     @Test
