@@ -54,6 +54,7 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Max;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Min;
@@ -208,6 +209,49 @@ public class ExpressionUtils {
 
     public static Optional<Expression> optionalAnd(Collection<Expression> collection) {
         return optionalAnd(ImmutableList.copyOf(collection));
+    }
+
+    /**
+     * Rebuild expression tree and refresh BoundFunction signatures.
+     * If an expression is a BoundFunction, recreate it with rebuilt children and
+     * reset its signature.
+     * Other expressions are recreated only when children change.
+     *
+     * @return rebuilt expression (may be the same instance when unchanged and
+     *         non-BoundFunction)
+     */
+    public static Expression rebuildSignature(Expression expr) {
+        List<Expression> newChildren = expr.children().stream()
+                .map(ExpressionUtils::rebuildSignature)
+                .collect(Collectors.toList());
+        return MoreFieldsThread.keepFunctionSignature(false,
+                () -> {
+                    boolean childrenUnchanged = true;
+                    List<Expression> originChildren = expr.children();
+                    if (originChildren.size() != newChildren.size()) {
+                        childrenUnchanged = false;
+                    } else {
+                        for (int i = 0; i < originChildren.size(); i++) {
+                            if (originChildren.get(i) != newChildren.get(i)) {
+                                childrenUnchanged = false;
+                                break;
+                            }
+                        }
+                    }
+
+                    if (expr instanceof BoundFunction) {
+                        BoundFunction fn = (BoundFunction) expr;
+                        BoundFunction rebuilt = (BoundFunction) fn.withChildren(newChildren);
+                        rebuilt = (BoundFunction) TypeCoercionUtils.processBoundFunction(rebuilt);
+                        return rebuilt;
+                    }
+
+                    if (childrenUnchanged) {
+                        return expr;
+                    }
+                    return expr.withChildren(newChildren);
+                });
+
     }
 
     /**
