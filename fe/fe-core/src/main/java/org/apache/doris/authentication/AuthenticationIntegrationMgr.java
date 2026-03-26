@@ -141,6 +141,9 @@ public class AuthenticationIntegrationMgr implements Writable {
                 }
                 throw new DdlException("Authentication integration " + integrationName + " does not exist");
             }
+            if (Env.getCurrentEnv().getRoleMappingMgr().hasRoleMapping(integrationName)) {
+                throw new DdlException("Authentication integration " + integrationName + " still has role mapping");
+            }
             nameToIntegration.remove(integrationName);
             // TODO(authentication-integration): Re-enable edit log persistence
             // when authentication integration is fully integrated.

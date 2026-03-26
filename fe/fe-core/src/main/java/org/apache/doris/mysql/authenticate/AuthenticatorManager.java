@@ -189,6 +189,8 @@ public class AuthenticatorManager {
         context.setCurrentUserIdentity(response.getUserIdentity());
         context.setRemoteIP(remoteIp);
         context.setIsTempUser(response.isTemp());
+        context.setAuthenticatedPrincipal(response.getPrincipal());
+        context.setAuthenticatedRoles(response.getAuthenticatedRoles());
     }
 
     private Optional<AuthenticateRequest> resolveAuthenticateRequest(Authenticator authenticator,

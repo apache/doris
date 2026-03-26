@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.authentication.BasicPrincipal;
+import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.mysql.MysqlAuthPacket;
@@ -38,11 +39,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -284,6 +288,47 @@ class AuthenticatorManagerTest {
     }
 
     @Test
+    void testAuthenticateReusesOidcTokenRequestForAuthenticationChain() throws Exception {
+        Config.authentication_chain = "corp_oidc";
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(new org.apache.doris.mysql.authenticate.password.ClearPasswordResolver());
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failedResponse);
+
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(new AuthenticateResponse(true,
+                        org.apache.doris.analysis.UserIdentity.createAnalyzedUserIdentWithIp(USER_NAME, REMOTE_IP),
+                        true));
+
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        MysqlChannel channel = context.getMysqlChannel();
+        Mockito.when(channel.fetchOnePacket()).thenReturn(clearTextResponse("oidc-token"));
+
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        Mockito.when(authPacket.getPluginName()).thenReturn("authentication_openid_connect_client");
+
+        boolean result = manager.authenticate(context, USER_NAME, channel,
+                MysqlSerializer.newInstance(), authPacket, Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertTrue(result);
+        ArgumentCaptor<AuthenticateRequest> requestCaptor = ArgumentCaptor.forClass(AuthenticateRequest.class);
+        Mockito.verify(chainAuthenticator).authenticate(requestCaptor.capture());
+        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, requestCaptor.getValue().getCredentialType());
+        Assertions.assertArrayEquals("oidc-token".getBytes(StandardCharsets.UTF_8),
+                requestCaptor.getValue().getCredential());
+    }
+
+    @Test
     void testAuthenticateFallsBackToAuthenticationChainWithResolverSwitch() throws Exception {
         Config.authentication_chain = "corp_ldap";
 
@@ -497,6 +542,10 @@ class AuthenticatorManagerTest {
         Mockito.when(channel.getRemoteIp()).thenReturn(REMOTE_IP);
         Mockito.when(channel.getSerializer()).thenReturn(serializer);
         return context;
+    }
+
+    private static ByteBuffer clearTextResponse(String password) {
+        return ByteBuffer.wrap((password + "\0").getBytes(StandardCharsets.UTF_8));
     }
 
     private Optional<AuthenticateRequest> authenticateRequest(

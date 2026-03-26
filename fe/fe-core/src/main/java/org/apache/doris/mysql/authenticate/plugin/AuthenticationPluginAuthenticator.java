@@ -24,6 +24,7 @@ import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.CredentialType;
+import org.apache.doris.authentication.Principal;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.catalog.Env;
@@ -112,7 +113,7 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             return AuthenticateResponse.failedResponse;
         }
 
-        return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp());
+        return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp(), result);
     }
 
     @Override
@@ -125,19 +126,24 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         return passwordResolver;
     }
 
-    private AuthenticateResponse mapSuccessfulAuthentication(String qualifiedUser, String remoteIp) {
+    private AuthenticateResponse mapSuccessfulAuthentication(String qualifiedUser, String remoteIp,
+            AuthenticationResult result) {
+        Principal principal = Objects.requireNonNull(result.getPrincipal(),
+                "principal is required for successful authentication");
         List<UserIdentity> userIdentities =
                 Env.getCurrentEnv().getAuth().getUserIdentityForExternalAuth(qualifiedUser, remoteIp);
         if (!userIdentities.isEmpty()) {
-            return new AuthenticateResponse(true, userIdentities.get(0), false);
+            return new AuthenticateResponse(true, userIdentities.get(0), false,
+                    principal, result.getGrantedRoles());
         }
         if (!Boolean.parseBoolean(integration.getProperty("enable_jit_user", "false"))) {
             LOG.info("Authentication plugin '{}' authenticated user '{}' but JIT is disabled",
                     integration.getType(), qualifiedUser);
             return AuthenticateResponse.failedResponse;
         }
-        UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(qualifiedUser, remoteIp);
-        return new AuthenticateResponse(true, tempUserIdentity, true);
+        UserIdentity tempUserIdentity = UserIdentity.createAnalyzedUserIdentWithIp(principal.getName(), remoteIp);
+        return new AuthenticateResponse(true, tempUserIdentity, true,
+                principal, result.getGrantedRoles());
     }
 
     private AuthenticationRequest toPluginRequest(AuthenticateRequest request) {

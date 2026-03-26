@@ -198,6 +198,37 @@ class AuthenticationServiceTest {
         }
 
         @Test
+        @DisplayName("UT-SVC-A-001B: Default constructor ignores inline role mapping properties")
+        void testAuthenticate_DefaultConstructorIgnoresInlineRoleMappingProperties() throws AuthenticationException {
+            HashMap<String, String> properties = new HashMap<>();
+            properties.put("role_mapping.rule.oncall.condition", "true");
+            properties.put("role_mapping.rule.oncall.roles", "admin");
+            testIntegration = AuthenticationIntegration.builder()
+                    .name("test_integration")
+                    .type("password")
+                    .properties(properties)
+                    .build();
+            service = new AuthenticationService(integrationRegistry, pluginManager, bindingResolver);
+
+            BasicPrincipal principal = BasicPrincipal.builder()
+                    .name("alice")
+                    .authenticator("test_integration")
+                    .build();
+            AuthenticationResult successResult = AuthenticationResult.success(principal);
+
+            Mockito.when(bindingResolver.resolveCandidates(Mockito.eq("alice"), Mockito.any()))
+                    .thenReturn(Collections.singletonList(testIntegration));
+            Mockito.when(pluginManager.getPlugin(testIntegration)).thenReturn(plugin);
+            Mockito.when(plugin.supports(Mockito.any())).thenReturn(true);
+            Mockito.when(plugin.authenticate(Mockito.any(), Mockito.eq(testIntegration))).thenReturn(successResult);
+
+            AuthenticationResult result = service.authenticate(testRequest);
+
+            Assertions.assertTrue(result.isSuccess());
+            Assertions.assertEquals(Collections.emptySet(), result.getGrantedRoles());
+        }
+
+        @Test
         @DisplayName("UT-SVC-A-002: Authentication with null request throws exception")
         void testAuthenticate_NullRequest() {
             Assertions.assertThrows(AuthenticationException.class, () ->
@@ -732,8 +763,8 @@ class AuthenticationServiceTest {
     }
 
     @Test
-    @DisplayName("UT-SVC-D-003: Default evaluator applies inline role mapping rules")
-    void testDirectDefaultEvaluatorAppliesInlineRoleMappingRules() throws AuthenticationException {
+    @DisplayName("UT-SVC-D-003: Default evaluator ignores inline role mapping rules")
+    void testDirectDefaultEvaluatorIgnoresInlineRoleMappingRules() throws AuthenticationException {
         service = new AuthenticationService(integrationRegistry, pluginManager, bindingResolver);
 
         HashMap<String, String> properties = new HashMap<>();
@@ -764,7 +795,7 @@ class AuthenticationServiceTest {
         AuthenticationResult result = service.authenticate(testRequest);
 
         Assertions.assertTrue(result.isSuccess());
-        Assertions.assertEquals(Set.of("logs_reader"), result.getGrantedRoles());
+        Assertions.assertEquals(Collections.emptySet(), result.getGrantedRoles());
     }
 
 }

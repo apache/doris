@@ -253,6 +253,12 @@ public class Auth implements Writable {
                 roles.addAll(ldapRoles);
             }
         }
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
+            for (String roleName : ctx.getAuthenticatedRoles()) {
+                roles.add(roleManager.getRole(roleName));
+            }
+        }
         return roles;
     }
 

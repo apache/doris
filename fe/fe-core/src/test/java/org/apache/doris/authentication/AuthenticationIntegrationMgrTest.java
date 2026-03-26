@@ -46,6 +46,7 @@ class AuthenticationIntegrationMgrTest {
     private Env env;
     private EditLog editLog;
     private AuthenticationIntegrationRuntime runtime;
+    private RoleMappingMgr roleMappingMgr;
     private MockedStatic<Env> envMockedStatic;
 
     @BeforeEach
@@ -53,12 +54,14 @@ class AuthenticationIntegrationMgrTest {
         env = Mockito.mock(Env.class);
         editLog = Mockito.mock(EditLog.class);
         runtime = Mockito.mock(AuthenticationIntegrationRuntime.class);
+        roleMappingMgr = Mockito.mock(RoleMappingMgr.class);
 
         envMockedStatic = Mockito.mockStatic(Env.class);
         envMockedStatic.when(Env::getCurrentEnv).thenReturn(env);
 
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(env.getAuthenticationIntegrationRuntime()).thenReturn(runtime);
+        Mockito.when(env.getRoleMappingMgr()).thenReturn(roleMappingMgr);
     }
 
     @AfterEach
@@ -104,6 +107,8 @@ class AuthenticationIntegrationMgrTest {
         Mockito.verify(runtime, Mockito.times(2)).markAuthenticationIntegrationDirty("corp_ldap");
         Mockito.verify(runtime).removeAuthenticationIntegration("corp_ldap");
         Mockito.verifyNoMoreInteractions(runtime);
+        Mockito.verify(roleMappingMgr).hasRoleMapping("corp_ldap");
+        Mockito.verifyNoMoreInteractions(roleMappingMgr);
         Mockito.verifyNoInteractions(editLog);
     }
 
@@ -123,6 +128,7 @@ class AuthenticationIntegrationMgrTest {
         Assertions.assertThrows(DdlException.class,
                 () -> mgr.dropAuthenticationIntegration("not_exist", false));
         Mockito.verifyNoInteractions(runtime);
+        Mockito.verifyNoInteractions(roleMappingMgr);
         Mockito.verifyNoInteractions(editLog);
     }
 
@@ -135,6 +141,24 @@ class AuthenticationIntegrationMgrTest {
                 () -> mgr.alterAuthenticationIntegrationUnsetProperties("not_exist", set("k"), ALTER_USER));
         Assertions.assertThrows(DdlException.class,
                 () -> mgr.alterAuthenticationIntegrationComment("not_exist", "comment", ALTER_USER));
+    }
+
+    @Test
+    void testDropBlockedByRoleMapping() throws Exception {
+        AuthenticationIntegrationMgr mgr = new AuthenticationIntegrationMgr();
+        mgr.createAuthenticationIntegration("corp_ldap", false, map(
+                "type", "ldap",
+                "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER);
+        Mockito.when(roleMappingMgr.hasRoleMapping("corp_ldap")).thenReturn(true);
+
+        DdlException exception = Assertions.assertThrows(DdlException.class,
+                () -> mgr.dropAuthenticationIntegration("corp_ldap", false));
+
+        Assertions.assertTrue(exception.getMessage().contains("role mapping"));
+        Assertions.assertNotNull(mgr.getAuthenticationIntegration("corp_ldap"));
+        Mockito.verify(roleMappingMgr).hasRoleMapping("corp_ldap");
+        Mockito.verifyNoInteractions(runtime);
+        Mockito.verifyNoInteractions(editLog);
     }
 
     @Test

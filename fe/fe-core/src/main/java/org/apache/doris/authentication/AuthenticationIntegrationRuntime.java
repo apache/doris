@@ -19,7 +19,8 @@ package org.apache.doris.authentication;
 
 import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
-import org.apache.doris.authentication.rolemapping.IntegrationPropertyRoleMappingEvaluator;
+import org.apache.doris.authentication.rolemapping.DefinitionBackedRoleMappingEvaluator;
+import org.apache.doris.authentication.rolemapping.RoleMappingDefinition;
 import org.apache.doris.authentication.rolemapping.RoleMappingEvaluator;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 import org.apache.doris.catalog.Env;
@@ -99,11 +100,11 @@ public class AuthenticationIntegrationRuntime {
     private final Set<String> dirtyIntegrations = ConcurrentHashMap.newKeySet();
 
     public AuthenticationIntegrationRuntime() {
-        this(new AuthenticationPluginManager(), new IntegrationPropertyRoleMappingEvaluator());
+        this(new AuthenticationPluginManager(), createDefaultRoleMappingEvaluator());
     }
 
     public AuthenticationIntegrationRuntime(AuthenticationPluginManager pluginManager) {
-        this(pluginManager, new IntegrationPropertyRoleMappingEvaluator());
+        this(pluginManager, createDefaultRoleMappingEvaluator());
     }
 
     AuthenticationIntegrationRuntime(AuthenticationPluginManager pluginManager,
@@ -320,6 +321,19 @@ public class AuthenticationIntegrationRuntime {
         }
         AuthenticationException exception = result.getException();
         return exception != null && exception.getFailureType().shouldContinueInChain();
+    }
+
+    private static RoleMappingEvaluator createDefaultRoleMappingEvaluator() {
+        return new DefinitionBackedRoleMappingEvaluator(AuthenticationIntegrationRuntime::resolveRoleMappingDefinition);
+    }
+
+    private static RoleMappingDefinition resolveRoleMappingDefinition(String integrationName) {
+        Env env = Env.getCurrentEnv();
+        if (env == null || env.getRoleMappingMgr() == null) {
+            return null;
+        }
+        RoleMappingMeta meta = env.getRoleMappingMgr().getRoleMappingByIntegration(integrationName);
+        return meta == null ? null : meta.toDefinition();
     }
 
     private static AuthenticationIntegration toIntegration(AuthenticationIntegrationMeta meta) {

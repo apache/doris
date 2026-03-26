@@ -31,6 +31,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.authentication.AuthenticationIntegrationMgr;
 import org.apache.doris.authentication.AuthenticationIntegrationRuntime;
+import org.apache.doris.authentication.RoleMappingMgr;
 import org.apache.doris.backup.BackupHandler;
 import org.apache.doris.backup.RestoreJob;
 import org.apache.doris.binlog.BinlogGcer;
@@ -384,6 +385,7 @@ public class Env {
     private SqlBlockRuleMgr sqlBlockRuleMgr;
     private AuthenticationIntegrationMgr authenticationIntegrationMgr;
     private AuthenticationIntegrationRuntime authenticationIntegrationRuntime;
+    private RoleMappingMgr roleMappingMgr;
     private ExportMgr exportMgr;
     private Alter alter;
     private ConsistencyChecker consistencyChecker;
@@ -722,6 +724,7 @@ public class Env {
         this.sqlBlockRuleMgr = new SqlBlockRuleMgr();
         this.authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
         this.authenticationIntegrationRuntime = new AuthenticationIntegrationRuntime();
+        this.roleMappingMgr = new RoleMappingMgr();
         this.exportMgr = new ExportMgr();
         this.alter = new Alter();
         this.consistencyChecker = new ConsistencyChecker();
@@ -5271,6 +5274,10 @@ public class Env {
 
     public AuthenticationIntegrationMgr getAuthenticationIntegrationMgr() {
         return authenticationIntegrationMgr;
+    }
+
+    public RoleMappingMgr getRoleMappingMgr() {
+        return roleMappingMgr;
     }
 
     public AuthenticationIntegrationRuntime getAuthenticationIntegrationRuntime() {

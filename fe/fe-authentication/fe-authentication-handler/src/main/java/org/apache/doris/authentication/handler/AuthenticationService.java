@@ -23,7 +23,7 @@ import org.apache.doris.authentication.AuthenticationIntegration;
 import org.apache.doris.authentication.AuthenticationRequest;
 import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.Principal;
-import org.apache.doris.authentication.rolemapping.IntegrationPropertyRoleMappingEvaluator;
+import org.apache.doris.authentication.rolemapping.DefinitionBackedRoleMappingEvaluator;
 import org.apache.doris.authentication.rolemapping.RoleMappingEvaluator;
 import org.apache.doris.authentication.spi.AuthenticationPlugin;
 
@@ -69,7 +69,7 @@ public class AuthenticationService {
      */
     public AuthenticationService(IntegrationRegistry integrationRegistry, AuthenticationPluginManager pluginManager,
             BindingResolver bindingResolver) {
-        this(integrationRegistry, pluginManager, bindingResolver, new IntegrationPropertyRoleMappingEvaluator());
+        this(integrationRegistry, pluginManager, bindingResolver, createDefaultRoleMappingEvaluator());
     }
 
     public AuthenticationService(
@@ -241,6 +241,10 @@ public class AuthenticationService {
         LinkedHashSet<String> mergedRoles = new LinkedHashSet<>(existingGrantedRoles);
         mergedRoles.addAll(evaluatedGrantedRoles);
         return mergedRoles;
+    }
+
+    private static RoleMappingEvaluator createDefaultRoleMappingEvaluator() {
+        return new DefinitionBackedRoleMappingEvaluator(integrationName -> null);
     }
 
     private static boolean shouldContinueInChain(AuthenticationResult result) {

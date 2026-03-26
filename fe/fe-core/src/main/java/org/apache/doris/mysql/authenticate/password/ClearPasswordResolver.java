@@ -36,6 +36,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 public class ClearPasswordResolver implements PasswordResolver {
+    private static final String OIDC_CLIENT_PLUGIN_NAME = "authentication_openid_connect_client";
     @Override
     public Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel, MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
@@ -70,12 +71,16 @@ public class ClearPasswordResolver implements PasswordResolver {
             return Optional.empty();
         }
         ClearPassword clearPassword = (ClearPassword) password.get();
+        String credentialType = authPacket != null
+                && OIDC_CLIENT_PLUGIN_NAME.equals(authPacket.getPluginName())
+                ? CredentialType.OIDC_ID_TOKEN
+                : CredentialType.CLEAR_TEXT_PASSWORD;
         return Optional.of(AuthenticateRequest.builder()
                 .userName(userName)
                 .password(clearPassword)
                 .remoteHost(channel.getRemoteIp())
                 .clientType("mysql")
-                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credentialType(credentialType)
                 .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
                 .build());
     }

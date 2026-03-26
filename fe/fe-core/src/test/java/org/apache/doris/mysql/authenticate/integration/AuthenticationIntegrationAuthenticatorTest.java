@@ -37,11 +37,12 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 class AuthenticationIntegrationAuthenticatorTest {
     private static final String CHAIN_CONFIG = "corp_ldap,backup_ldap";
@@ -87,7 +88,7 @@ class AuthenticationIntegrationAuthenticatorTest {
         Assertions.assertEquals("'alice'@'127.0.0.1'", response.getUserIdentity().toString());
         Assertions.assertNotNull(response.getPrincipal());
         Assertions.assertEquals("external_alice", response.getPrincipal().getName());
-        Assertions.assertEquals(Set.of("plugin_reader", "mapped_reader"), response.getAuthenticatedRoles());
+        Assertions.assertEquals(expectedAuthenticatedRoles(), response.getAuthenticatedRoles());
 
         ArgumentCaptor<List<AuthenticationIntegrationMeta>> captor = ArgumentCaptor.forClass(List.class);
         Mockito.verify(runtime).authenticate(captor.capture(), Mockito.any());
@@ -115,7 +116,7 @@ class AuthenticationIntegrationAuthenticatorTest {
         Assertions.assertEquals("'external_alice'@'127.0.0.1'", response.getUserIdentity().toString());
         Assertions.assertNotNull(response.getPrincipal());
         Assertions.assertEquals("external_alice", response.getPrincipal().getName());
-        Assertions.assertEquals(Set.of("plugin_reader", "mapped_reader"), response.getAuthenticatedRoles());
+        Assertions.assertEquals(expectedAuthenticatedRoles(), response.getAuthenticatedRoles());
     }
 
     @Test
@@ -174,7 +175,14 @@ class AuthenticationIntegrationAuthenticatorTest {
                 org.apache.doris.authentication.BasicPrincipal.builder()
                         .name("external_alice")
                         .authenticator("corp_ldap")
+                        .externalGroups(Collections.singleton("oncall"))
+                        .multiValueAttributes(Collections.singletonMap(
+                                "scope", Collections.singleton("logs:write")))
                         .build(),
-                Set.of("plugin_reader", "mapped_reader"));
+                expectedAuthenticatedRoles());
+    }
+
+    private static LinkedHashSet<String> expectedAuthenticatedRoles() {
+        return new LinkedHashSet<>(Arrays.asList("plugin_reader", "mapped_reader"));
     }
 }

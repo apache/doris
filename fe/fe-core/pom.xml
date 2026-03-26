@@ -134,6 +134,11 @@ under the License.
             <version>${project.version}</version>
         </dependency>
         <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-role-mapping</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-devtools</artifactId>
             <scope>runtime</scope>
@@ -257,6 +262,7 @@ under the License.
         <dependency>
             <groupId>com.google.protobuf</groupId>
             <artifactId>protobuf-java</artifactId>
+            <version>4.33.0</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
         <dependency>
