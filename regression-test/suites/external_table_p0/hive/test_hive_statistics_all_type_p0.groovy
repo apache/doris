@@ -22,7 +22,7 @@ suite("test_hive_statistics_all_type_p0", "p0,external") {
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = "test_${hivePrefix}_statistics_all_type_p0"

@@ -114,6 +114,8 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -130,6 +132,8 @@ import java.util.stream.Collectors;
 public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTranslatorContext> {
 
     public static ExpressionTranslator INSTANCE = new ExpressionTranslator();
+
+    private static final Logger LOG = LogManager.getLogger(ExpressionTranslator.class);
 
     /**
      * The entry function of ExpressionTranslator.
@@ -219,20 +223,25 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                         .orElseThrow(() -> new AnalysisException(
                                     "No SlotReference found in Match, SQL is " + match.toSql()));
 
-        Column column = slot.getOriginalColumn()
-                        .orElseThrow(() -> new AnalysisException(
-                                    "SlotReference in Match failed to get Column, SQL is " + match.toSql()));
-
-        OlapTable olapTbl = getOlapTableDirectly(slot);
-        if (olapTbl == null) {
-            throw new AnalysisException("SlotReference in Match failed to get OlapTable, SQL is " + match.toSql());
-        }
-
+        // Try to resolve inverted index metadata. When the slot has lost its original
+        // column/table reference (e.g., after CTE inlining or join projection remapping),
+        // we gracefully fall back to invertedIndex = null. The BE can still evaluate MATCH
+        // correctly without inverted index (slow path), or the PushDownProject /
+        // PushDownMatchProjectionAsVirtualColumn rules may have already pushed the expression
+        // down for storage-level index evaluation (fast path).
+        Index invertedIndex = null;
         String analyzer = match.getAnalyzer().orElse(null);
-        Index invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
-        if (analyzer != null && invertedIndex == null) {
-            throw new AnalysisException("No inverted index found for analyzer '" + analyzer
-                    + "' on column " + column.getName());
+        Column column = slot.getOriginalColumn().orElse(null);
+        OlapTable olapTbl = getOlapTableDirectly(slot);
+        if (column != null && olapTbl != null) {
+            invertedIndex = olapTbl.getInvertedIndex(column, slot.getSubPath(), analyzer);
+            if (analyzer != null && invertedIndex == null) {
+                throw new AnalysisException("No inverted index found for analyzer '" + analyzer
+                        + "' on column " + column.getName());
+            }
+        } else if (analyzer != null) {
+            LOG.warn("MATCH with analyzer '{}' on slot '{}' lost column metadata, "
+                    + "falling back without inverted index", analyzer, slot.getName());
         }
 
         MatchPredicate.Operator op = match.op();

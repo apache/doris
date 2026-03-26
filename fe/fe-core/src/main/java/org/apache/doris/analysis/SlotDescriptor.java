@@ -148,10 +148,6 @@ public class SlotDescriptor {
         this.caption = column.getName();
     }
 
-    public void setSrcColumn(Column column) {
-        this.column = column;
-    }
-
     public boolean isAutoInc() {
         return isAutoInc;
     }

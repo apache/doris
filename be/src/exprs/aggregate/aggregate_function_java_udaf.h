@@ -35,8 +35,8 @@
 #include "core/field.h"
 #include "core/string_ref.h"
 #include "core/types.h"
-#include "exec/connector/jni_connector.h"
 #include "exprs/aggregate/aggregate_function.h"
+#include "format/jni/jni_data_bridge.h"
 #include "runtime/user_function_cache.h"
 #include "util/io_helper.h"
 #include "util/jni-util.h"
@@ -110,8 +110,8 @@ public:
                                                      std::to_string(i)));
         }
         std::unique_ptr<long[]> input_table;
-        RETURN_IF_ERROR(JniConnector::to_java_table(&input_block, input_table));
-        auto input_table_schema = JniConnector::parse_table_schema(&input_block);
+        RETURN_IF_ERROR(JniDataBridge::to_java_table(&input_block, input_table));
+        auto input_table_schema = JniDataBridge::parse_table_schema(&input_block);
         std::map<String, String> input_params = {
                 {"meta_address", std::to_string((long)input_table.get())},
                 {"required_fields", input_table_schema.first},
@@ -190,7 +190,7 @@ public:
 
         Block output_block;
         output_block.insert(ColumnWithTypeAndName(to.get_ptr(), result_type, "_result_"));
-        auto output_table_schema = JniConnector::parse_table_schema(&output_block);
+        auto output_table_schema = JniDataBridge::parse_table_schema(&output_block);
         std::string output_nullable = result_type->is_nullable() ? "true" : "false";
         std::map<String, String> output_params = {{"is_nullable", output_nullable},
                                                   {"required_fields", output_table_schema.first},
@@ -205,7 +205,7 @@ public:
                                 .with_arg(output_map)
                                 .call(&output_address));
 
-        return JniConnector::fill_block(&output_block, {0}, output_address);
+        return JniDataBridge::fill_block(&output_block, {0}, output_address);
     }
 
 private:

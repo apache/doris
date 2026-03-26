@@ -19,6 +19,7 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToStringValueVisitor;
 import org.apache.doris.analysis.OutFileClause;
 import org.apache.doris.analysis.PlaceHolderExpr;
 import org.apache.doris.analysis.Queriable;
@@ -26,6 +27,7 @@ import org.apache.doris.analysis.RedirectStatus;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StorageBackend.StorageType;
+import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
@@ -55,6 +57,7 @@ import org.apache.doris.common.profile.Profile;
 import org.apache.doris.common.profile.ProfileManager.ProfileType;
 import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.profile.SummaryProfile.SummaryBuilder;
+import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.DebugPointUtil.DebugPoint;
 import org.apache.doris.common.util.DebugUtil;
@@ -107,8 +110,10 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSqlCache;
 import org.apache.doris.planner.GroupCommitScanNode;
 import org.apache.doris.planner.OlapScanNode;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanNode;
 import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.ResultFileSink;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
@@ -287,7 +292,8 @@ public class StmtExecutor {
                         "do not support non-literal expr in transactional insert operation: "
                                 + expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
             }
-            row.addColBuilder().setValue(expr.getStringValueForStreamLoad(options));
+            row.addColBuilder().setValue(expr.accept(ExprToStringValueVisitor.INSTANCE,
+                    StringValueContext.forStreamLoad(options)));
         }
         return row.build();
     }
@@ -426,10 +432,6 @@ public class StmtExecutor {
             isForwardedToMaster = shouldForwardToMaster();
         }
         return isForwardedToMaster;
-    }
-
-    public boolean isMoreStmtExists() {
-        return moreStmtExists;
     }
 
     public void setMoreStmtExists(boolean moreStmtExists) {
@@ -842,7 +844,7 @@ public class StmtExecutor {
                     MetricRepo.HISTO_PLAN_OPTIMIZE_DURATION.update(nereidsOptimizeTimeMs);
                 }
                 int nereidsTranslateTimeMs = summaryProfile.getNereidsTranslateTimeMs();
-                if (nereidsOptimizeTimeMs >= 0) {
+                if (nereidsTranslateTimeMs >= 0) {
                     MetricRepo.HISTO_PLAN_TRANSLATE_DURATION.update(nereidsTranslateTimeMs);
                 }
                 long initScanNodeTimeMs = summaryProfile.getInitScanNodeTimeMs();
@@ -1054,12 +1056,6 @@ public class StmtExecutor {
             return;
         }
         new MasterOpExecutor(context).syncJournal();
-    }
-
-    /**
-     * get variables in stmt.
-     */
-    private void analyzeVariablesInStmt() throws DdlException {
     }
 
     private boolean isQuery() {
@@ -1366,8 +1362,16 @@ public class StmtExecutor {
         }
 
         coordBase.setIsProfileSafeStmt(this.isProfileSafeStmt());
+        OutFileClause outFileClause = null;
+        if (isOutfileQuery) {
+            outFileClause = queryStmt.getOutFileClause();
+            Preconditions.checkState(outFileClause != null, "OUTFILE query must have OutFileClause");
+        }
 
         try {
+            if (outFileClause != null) {
+                deleteExistingOutfileFilesInFe(outFileClause);
+            }
             coordBase.exec();
             profile.getSummaryProfile().setQueryScheduleFinishTime(TimeUtils.getStartTimeMs());
             updateProfile(false);
@@ -1401,8 +1405,8 @@ public class StmtExecutor {
                             sendFields(queryStmt.getColLabels(), queryStmt.getFieldInfos(),
                                     getReturnTypes(queryStmt));
                         } else {
-                            if (!Strings.isNullOrEmpty(queryStmt.getOutFileClause().getSuccessFileName())) {
-                                outfileWriteSuccess(queryStmt.getOutFileClause());
+                            if (!Strings.isNullOrEmpty(outFileClause.getSuccessFileName())) {
+                                outfileWriteSuccess(outFileClause);
                             }
                             sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                         }
@@ -1542,6 +1546,31 @@ public class StmtExecutor {
             }
             throw new AnalysisException(errMsg);
         }
+    }
+
+    private void deleteExistingOutfileFilesInFe(OutFileClause outFileClause) throws UserException {
+        // Handle directory cleanup once in FE so parallel outfile writers never race on deletion.
+        if (!outFileClause.shouldDeleteExistingFiles()) {
+            return;
+        }
+        Preconditions.checkState(outFileClause.getBrokerDesc() != null,
+                "delete_existing_files requires a remote outfile sink");
+        Preconditions.checkState(outFileClause.getBrokerDesc().storageType() != StorageType.LOCAL,
+                "delete_existing_files is not supported for local outfile sinks");
+        BrokerUtil.deleteParentDirectoryWithFileSystem(outFileClause.getFilePath(), outFileClause.getBrokerDesc());
+        clearDeleteExistingFilesInPlan();
+    }
+
+    private void clearDeleteExistingFilesInPlan() {
+        ResultFileSink resultFileSink = null;
+        for (PlanFragment fragment : planner.getFragments()) {
+            if (fragment.getSink() instanceof ResultFileSink) {
+                Preconditions.checkState(resultFileSink == null, "OUTFILE query should have only one ResultFileSink");
+                resultFileSink = (ResultFileSink) fragment.getSink();
+            }
+        }
+        Preconditions.checkState(resultFileSink != null, "OUTFILE query must have ResultFileSink");
+        resultFileSink.setDeleteExistingFiles(false);
     }
 
     public static void syncLoadForTablets(List<List<Backend>> backendsList, List<Long> allTabletIds) {

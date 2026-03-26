@@ -92,6 +92,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -255,15 +256,21 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
     private List<String> createTableIfNotExists() throws Exception {
         List<String> syncTbls = new ArrayList<>();
-        List<CreateTableCommand> createTblCmds = StreamingJobUtils.generateCreateTableCmds(targetDb,
-                dataSourceType, sourceProperties, targetProperties);
+        // Key: source table name (PG/MySQL); Value: CreateTableCommand for the Doris target table.
+        // The two names differ when "table.<src>.target_table" is configured.
+        LinkedHashMap<String, CreateTableCommand> createTblCmds =
+                StreamingJobUtils.generateCreateTableCmds(targetDb,
+                        dataSourceType, sourceProperties, targetProperties);
         Database db = Env.getCurrentEnv().getInternalCatalog().getDbNullable(targetDb);
         Preconditions.checkNotNull(db, "target database %s does not exist", targetDb);
-        for (CreateTableCommand createTblCmd : createTblCmds) {
+        for (Map.Entry<String, CreateTableCommand> entry : createTblCmds.entrySet()) {
+            String srcTable = entry.getKey();
+            CreateTableCommand createTblCmd = entry.getValue();
             if (!db.isTableExist(createTblCmd.getCreateTableInfo().getTableName())) {
                 createTblCmd.run(ConnectContext.get(), null);
             }
-            syncTbls.add(createTblCmd.getCreateTableInfo().getTableName());
+            // Use the source (upstream) table name so CDC monitors the correct PG/MySQL table
+            syncTbls.add(srcTable);
         }
         return syncTbls;
     }
@@ -368,6 +375,9 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (StringUtils.isNotEmpty(alterJobCommand.getSql())) {
             setExecuteSql(alterJobCommand.getSql());
             initLogicalPlan(true);
+            // refresh cached TVF props so fetchMeta and createStreamingInsertTask
+            // pick up the new credentials (e.g. aksk) from the updated SQL
+            this.originTvfProps = getCurrentTvf().getProperties().getMap();
             String encryptedSql = generateEncryptedSql();
             logParts.add("sql: " + encryptedSql);
         }
@@ -620,6 +630,12 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
 
             Env.getCurrentEnv().getJobManager().getStreamingTaskManager().removeRunningTask(task);
+            if (offsetProvider.hasReachedEnd()) {
+                // offset provider has reached a natural end, mark job as finished
+                log.info("Streaming insert job {} source data fully consumed, marking job as FINISHED", getJobId());
+                updateJobStatus(JobStatus.FINISHED);
+                return;
+            }
             AbstractStreamingTask nextTask = createStreamingTask();
             this.runningStreamTask = nextTask;
             log.info("Streaming insert job {} create next streaming insert task {} after task {} success",
@@ -1250,6 +1266,10 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         if (offsetProvider != null) {
             offsetProvider.replayIfNeed(this);
         }
+    }
+
+    public boolean hasReachedEnd() {
+        return offsetProvider != null && offsetProvider.hasReachedEnd();
     }
 
     /**

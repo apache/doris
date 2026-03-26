@@ -40,6 +40,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -69,6 +70,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Explainable;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
+import org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -130,6 +132,30 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        // Check if target table is Iceberg table and route to IcebergDeleteCommand if so
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        TableIf table = null;
+        try {
+            table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        } catch (Exception e) {
+            // Table not found, will be handled by regular error flow
+        }
+
+        // Route to IcebergDeleteCommand for Iceberg tables
+        if (table instanceof org.apache.doris.datasource.iceberg.IcebergExternalTable) {
+            LOG.info("Routing DELETE to IcebergDeleteCommand for table: {}", table.getName());
+            org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext deleteCtx =
+                    new org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext();
+            deleteCtx.setDeleteFileType(org.apache.doris.nereids.trees.plans.commands.delete.DeleteCommandContext
+                    .DeleteFileType.POSITION_DELETE);
+            IcebergDeleteCommand icebergDeleteCommand = new IcebergDeleteCommand(
+                    nameParts, tableAlias, isTempPart, partitions, logicalQuery,
+                    deleteCtx);
+            icebergDeleteCommand.run(ctx, executor);
+            return;
+        }
+
+        // Continue with OLAP table delete logic
         LogicalPlanAdapter logicalPlanAdapter = new LogicalPlanAdapter(logicalQuery, ctx.getStatementContext());
         updateSessionVariableForDelete(ctx.getSessionVariable());
         StatementContext statementContext = ctx.getStatementContext();
@@ -183,7 +209,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         } catch (Exception e) {
             try {
                 new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions,
-                        logicalQuery, Optional.empty()).run(ctx, executor);
+                        logicalQuery, Optional.empty(), false).run(ctx, executor);
                 return;
             } catch (Exception e2) {
                 LOG.warn("delete from command failed", e2);
@@ -195,7 +221,7 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && !olapTable.getEnableMowLightDelete()) {
             new DeleteFromUsingCommand(nameParts, tableAlias, isTempPart, partitions, logicalQuery,
-                    Optional.empty()).run(ctx, executor);
+                    Optional.empty(), false).run(ctx, executor);
             return;
         }
 
@@ -460,6 +486,15 @@ public class DeleteFromCommand extends Command implements ForwardWithSync, Expla
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, nameParts);
+        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        if (table instanceof IcebergExternalTable) {
+            DeleteCommandContext deleteCtx = new DeleteCommandContext();
+            deleteCtx.setDeleteFileType(DeleteCommandContext.DeleteFileType.POSITION_DELETE);
+            IcebergDeleteCommand icebergDeleteCommand = new IcebergDeleteCommand(
+                    nameParts, tableAlias, isTempPart, partitions, logicalQuery, deleteCtx);
+            return icebergDeleteCommand.getExplainPlan(ctx);
+        }
         return completeQueryPlan(ctx, logicalQuery);
     }
 

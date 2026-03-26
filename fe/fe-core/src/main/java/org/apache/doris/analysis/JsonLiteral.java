@@ -19,7 +19,6 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.gson.JsonParser;
 import com.google.gson.JsonSyntaxException;
@@ -56,10 +55,6 @@ public class JsonLiteral extends LiteralExpr {
         value = other.value;
     }
 
-    public void setBeConverted(String val) {
-        this.beConverted = val;
-    }
-
     @Override
     public Expr clone() {
         return new JsonLiteral(this);
@@ -87,11 +82,6 @@ public class JsonLiteral extends LiteralExpr {
     @Override
     public String getStringValue() {
         return value;
-    }
-
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        return null;
     }
 
     public String getUnescapedValue() {

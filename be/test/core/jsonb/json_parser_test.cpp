@@ -139,7 +139,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     EXPECT_EQ(result->paths.size(), 1);
 
     // Test complex nested structure
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     std::string json1 = R"({"a":[[1,2],[3],[4,5,6]]})";
     // multi level nested array in object
     result = parser.parse(json1.c_str(), json1.size(), config);
@@ -165,7 +165,7 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
     EXPECT_EQ(result->values[0].get_type(), doris::PrimitiveType::TYPE_JSONB);
 
     // test flatten nested
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
     // TODO: checkAmbiguousStructure is only called when has_nested_in_flatten && is_top_array.
     // These JSONs are objects (not top-level arrays), so is_top_array=false and the check is skipped.
     // EXPECT_ANY_THROW(parser.parse(json.c_str(), json.size(), config));
@@ -184,14 +184,14 @@ TEST(JsonParserTest, ParseMultiLevelNestedArray) {
 TEST(JsonParserTest, ParseNestedAndFlatten) {
     JSONDataParser<SimdJSONParser> parser;
     ParseConfig config;
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
 
     std::string json = R"({"a":[{"b":1},{"b":2}]})";
     auto result = parser.parse(json.c_str(), json.size(), config);
     ASSERT_TRUE(result.has_value());
     EXPECT_GT(result->values.size(), 0);
 
-    config.enable_flatten_nested = false;
+    config.deprecated_enable_flatten_nested = false;
     std::string json2 = R"({"a":[{"b":1},{"b":2}]})";
     result = parser.parse(json2.c_str(), json2.size(), config);
     ASSERT_TRUE(result.has_value());
@@ -249,7 +249,7 @@ TEST(JsonParserTest, TestIsPrefixFunction) {
 TEST(JsonParserTest, TestAmbiguousStructureDetection) {
     JSONDataParser<SimdJSONParser> parser;
     ParseConfig config;
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
 
     // TODO: The following 3 cases no longer throw because checkAmbiguousStructure requires
     // has_nested_in_flatten && is_top_array. "b" contains plain arrays (not nested objects),
@@ -276,7 +276,7 @@ TEST(JsonParserTest, TestAmbiguousStructureDetection) {
 TEST(JsonParserTest, TestNestedArrayHandling) {
     JSONDataParser<SimdJSONParser> parser;
     ParseConfig config;
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
 
     // Test case 1: Simple nested array handling
     std::string json1 = R"([{"b": 1}, {"c": 2}])";
@@ -296,7 +296,7 @@ TEST(JsonParserTest, TestNestedArrayWithDifferentConfigs) {
 
     // Test with flatten_nested = false
     ParseConfig config1;
-    config1.enable_flatten_nested = false;
+    config1.deprecated_enable_flatten_nested = false;
 
     std::string json1 = R"([{"b": [1, 2]}, {"b": [3, 4]}])";
     auto result1 = parser.parse(json1.c_str(), json1.size(), config1);
@@ -306,7 +306,7 @@ TEST(JsonParserTest, TestNestedArrayWithDifferentConfigs) {
 
     // Test with flatten_nested = true
     ParseConfig config2;
-    config2.enable_flatten_nested = true;
+    config2.deprecated_enable_flatten_nested = true;
 
     // TODO: "b" contains plain arrays (no nested objects), so has_nested=false,
     // has_nested_in_flatten=false, and checkAmbiguousStructure is not called.
@@ -426,7 +426,7 @@ TEST(JsonParserTest, ParseUInt64) {
     EXPECT_EQ(array_field[0].get<doris::PrimitiveType::TYPE_LARGEINT>(), 18446744073709551615ULL);
 
     std::string nested_json = R"({"a": [{"b": 18446744073709551615}]})";
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
     result = parser.parse(nested_json.c_str(), nested_json.size(), config);
     ASSERT_TRUE(result.has_value());
     EXPECT_EQ(result->values.size(), 1);
@@ -458,7 +458,7 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
         std::string obj_json = "{\"" + key11 + "\": 1}";
         EXPECT_ANY_THROW(parser.parse(obj_json.c_str(), obj_json.size(), config));
 
-        config.enable_flatten_nested = false;
+        config.deprecated_enable_flatten_nested = false;
         std::string jsonb_json = "{\"a\": [{\"" + key11 + "\": 1}]}";
         EXPECT_ANY_THROW(parser.parse(jsonb_json.c_str(), jsonb_json.size(), config));
     }
@@ -471,7 +471,7 @@ TEST(JsonParserTest, KeyLengthLimitByConfig) {
         auto result = parser.parse(obj_json.c_str(), obj_json.size(), config);
         ASSERT_TRUE(result.has_value());
 
-        config.enable_flatten_nested = false;
+        config.deprecated_enable_flatten_nested = false;
         std::string jsonb_json = "{\"a\": [{\"" + key255 + "\": 1}]}";
         result = parser.parse(jsonb_json.c_str(), jsonb_json.size(), config);
         ASSERT_TRUE(result.has_value());

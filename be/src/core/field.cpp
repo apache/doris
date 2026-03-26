@@ -20,6 +20,7 @@
 
 #include "core/field.h"
 
+#include "common/compare.h"
 #include "core/accurate_comparison.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/define_primitive_type.h"
@@ -678,6 +679,13 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
         return type <=> rhs.type;
     }
     if (type != rhs.type) {
+        // String-family types (STRING, CHAR, VARCHAR) all store String internally
+        // and are inter-comparable.  This arises when comparing RowCursor fields
+        // (which carry the declared column type) against Column::operator[] results
+        // (which always return TYPE_STRING for ColumnString).
+        if (is_string_type(type) && is_string_type(rhs.type)) {
+            return get<TYPE_STRING>() <=> rhs.get<TYPE_STRING>();
+        }
         throw Exception(Status::FatalError("lhs type not equal with rhs, lhs={}, rhs={}",
                                            get_type_name(), rhs.get_type_name()));
     }
@@ -724,17 +732,31 @@ std::strong_ordering Field::operator<=>(const Field& rhs) const {
     case PrimitiveType::TYPE_IPV4:
         return get<TYPE_IPV4>() <=> rhs.get<TYPE_IPV4>();
     case PrimitiveType::TYPE_FLOAT:
-        return get<TYPE_FLOAT>() < rhs.get<TYPE_FLOAT>()    ? std::strong_ordering::less
-               : get<TYPE_FLOAT>() == rhs.get<TYPE_FLOAT>() ? std::strong_ordering::equal
-                                                            : std::strong_ordering::greater;
+        switch (Compare::compare(get<TYPE_FLOAT>(), rhs.get<TYPE_FLOAT>())) {
+        case -1:
+            return std::strong_ordering::less;
+        case 0:
+            return std::strong_ordering::equal;
+        case 1:
+            return std::strong_ordering::greater;
+        default:
+            LOG(FATAL) << "unexpected float compare result";
+        }
     case PrimitiveType::TYPE_TIMEV2:
         return get<TYPE_TIMEV2>() < rhs.get<TYPE_TIMEV2>()    ? std::strong_ordering::less
                : get<TYPE_TIMEV2>() == rhs.get<TYPE_TIMEV2>() ? std::strong_ordering::equal
                                                               : std::strong_ordering::greater;
     case PrimitiveType::TYPE_DOUBLE:
-        return get<TYPE_DOUBLE>() < rhs.get<TYPE_DOUBLE>()    ? std::strong_ordering::less
-               : get<TYPE_DOUBLE>() == rhs.get<TYPE_DOUBLE>() ? std::strong_ordering::equal
-                                                              : std::strong_ordering::greater;
+        switch (Compare::compare(get<TYPE_DOUBLE>(), rhs.get<TYPE_DOUBLE>())) {
+        case -1:
+            return std::strong_ordering::less;
+        case 0:
+            return std::strong_ordering::equal;
+        case 1:
+            return std::strong_ordering::greater;
+        default:
+            LOG(FATAL) << "unexpected double compare result";
+        }
     case PrimitiveType::TYPE_STRING:
         return get<TYPE_STRING>() <=> rhs.get<TYPE_STRING>();
     case PrimitiveType::TYPE_CHAR:
@@ -821,6 +843,66 @@ std::string_view Field::as_string_view() const {
 }
 
 #undef MATCH_PRIMITIVE_TYPE
+
+// Important!!! This method is not accurate, for example, decimal to string, it uses scale == 0, because
+// it do not know the actual scale of the decimal value. It is only used for debug printing, so it is fine.
+std::string Field::to_debug_string(int scale) const {
+    if (is_null()) {
+        return "NULL";
+    }
+    switch (type) {
+    case PrimitiveType::TYPE_BOOLEAN:
+        return get<TYPE_BOOLEAN>() ? "true" : "false";
+    case PrimitiveType::TYPE_TINYINT:
+        return CastToString::from_number(get<TYPE_TINYINT>());
+    case PrimitiveType::TYPE_SMALLINT:
+        return CastToString::from_number(get<TYPE_SMALLINT>());
+    case PrimitiveType::TYPE_INT:
+        return CastToString::from_number(get<TYPE_INT>());
+    case PrimitiveType::TYPE_BIGINT:
+        return CastToString::from_number(get<TYPE_BIGINT>());
+    case PrimitiveType::TYPE_LARGEINT:
+        return CastToString::from_number(get<TYPE_LARGEINT>());
+    case PrimitiveType::TYPE_FLOAT:
+        return CastToString::from_number(get<TYPE_FLOAT>());
+    case PrimitiveType::TYPE_DOUBLE:
+        return CastToString::from_number(get<TYPE_DOUBLE>());
+    case PrimitiveType::TYPE_STRING:
+    case PrimitiveType::TYPE_CHAR:
+    case PrimitiveType::TYPE_VARCHAR:
+        return get<TYPE_STRING>();
+    case PrimitiveType::TYPE_VARBINARY:
+        return get<TYPE_VARBINARY>();
+    case PrimitiveType::TYPE_DATE:
+        return CastToString::from_date_or_datetime(get<TYPE_DATE>());
+    case PrimitiveType::TYPE_DATETIME:
+        return CastToString::from_date_or_datetime(get<TYPE_DATETIME>());
+    case PrimitiveType::TYPE_DATEV2:
+        return CastToString::from_datev2(get<TYPE_DATEV2>());
+    case PrimitiveType::TYPE_DATETIMEV2:
+        return CastToString::from_datetimev2(get<TYPE_DATETIMEV2>(), scale);
+    case PrimitiveType::TYPE_TIMESTAMPTZ:
+        return CastToString::from_timestamptz(get<TYPE_TIMESTAMPTZ>(), scale);
+    case PrimitiveType::TYPE_DECIMALV2:
+        return get<TYPE_DECIMALV2>().to_string();
+    case PrimitiveType::TYPE_DECIMAL32:
+        return CastToString::from_decimal(get<TYPE_DECIMAL32>(), scale);
+    case PrimitiveType::TYPE_DECIMAL64:
+        return CastToString::from_decimal(get<TYPE_DECIMAL64>(), scale);
+    case PrimitiveType::TYPE_DECIMAL128I:
+        return CastToString::from_decimal(get<TYPE_DECIMAL128I>(), scale);
+    case PrimitiveType::TYPE_DECIMAL256:
+        return CastToString::from_decimal(get<TYPE_DECIMAL256>(), scale);
+    case PrimitiveType::TYPE_IPV4:
+        return CastToString::from_ip(get<TYPE_IPV4>());
+    case PrimitiveType::TYPE_IPV6:
+        return CastToString::from_ip(get<TYPE_IPV6>());
+    default:
+        throw Exception(Status::FatalError("type not supported for to_debug_string, type={}",
+                                           get_type_name()));
+        __builtin_unreachable();
+    }
+}
 
 #define DECLARE_FUNCTION(FUNC_NAME)                                                               \
     template void Field::FUNC_NAME<TYPE_NULL>(typename PrimitiveTypeTraits<TYPE_NULL>::CppType && \

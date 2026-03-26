@@ -22,6 +22,7 @@
 #include "storage/index/inverted/query_v2/boolean_query/occur.h"
 #include "storage/index/inverted/query_v2/scorer.h"
 #include "storage/index/inverted/query_v2/term_query/term_scorer.h"
+#include "storage/index/inverted/query_v2/wand/block_wand.h"
 #include "storage/index/inverted/query_v2/weight.h"
 
 namespace doris::segment_v2::inverted_index::query_v2 {
@@ -51,14 +52,21 @@ public:
     ~OccurBooleanWeight() override = default;
 
     ScorerPtr scorer(const QueryExecutionContext& context) override;
+    ScorerPtr scorer(const QueryExecutionContext& context, const std::string& binding_key) override;
+
+    void for_each_pruning(const QueryExecutionContext& context, float threshold,
+                          PruningCallback callback) override;
+    void for_each_pruning(const QueryExecutionContext& context, const std::string& binding_key,
+                          float threshold, PruningCallback callback) override;
 
 private:
     std::unordered_map<Occur, std::vector<ScorerPtr>> per_occur_scorers(
-            const QueryExecutionContext& context);
+            const QueryExecutionContext& context, const std::string& binding_key = {});
     AllAndEmptyScorerCounts remove_and_count_all_and_empty_scorers(std::vector<ScorerPtr>& scorers);
 
     template <typename CombinerT>
-    SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner);
+    SpecializedScorer complex_scorer(const QueryExecutionContext& context, CombinerT combiner,
+                                     const std::string& binding_key = {});
 
     template <typename CombinerT>
     std::optional<CombinationMethod> build_should_opt(std::vector<ScorerPtr>& must_scorers,
@@ -100,5 +108,36 @@ private:
 
     uint32_t _max_doc = 0;
 };
+
+template <typename ScoreCombinerPtrT>
+void OccurBooleanWeight<ScoreCombinerPtrT>::for_each_pruning(const QueryExecutionContext& context,
+                                                             float threshold,
+                                                             PruningCallback callback) {
+    for_each_pruning(context, {}, threshold, std::move(callback));
+}
+
+template <typename ScoreCombinerPtrT>
+void OccurBooleanWeight<ScoreCombinerPtrT>::for_each_pruning(const QueryExecutionContext& context,
+                                                             const std::string& binding_key,
+                                                             float threshold,
+                                                             PruningCallback callback) {
+    if (_sub_weights.empty()) {
+        return;
+    }
+
+    _max_doc = context.segment_num_rows;
+    auto specialized = complex_scorer(context, _score_combiner, binding_key);
+
+    std::visit(
+            [&](auto&& arg) {
+                using T = std::decay_t<decltype(arg)>;
+                if constexpr (std::is_same_v<T, std::vector<TermScorerPtr>>) {
+                    block_wand(std::move(arg), threshold, std::move(callback));
+                } else {
+                    for_each_pruning_scorer(std::move(arg), threshold, std::move(callback));
+                }
+            },
+            std::move(specialized));
+}
 
 } // namespace doris::segment_v2::inverted_index::query_v2

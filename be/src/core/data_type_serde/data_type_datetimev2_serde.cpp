@@ -122,6 +122,19 @@ Status DataTypeDateTimeV2SerDe::from_string(StringRef& str, IColumn& column,
     return Status::OK();
 }
 
+// Deserializes a DateTimeV2 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses from_date_format_str("%Y-%m-%d %H:%i:%s.%f") to parse.
+// DateTimeV2 supports microsecond precision (scale 0-6) via a 20-bit microsecond_ field.
+//
+// Expected input format: "YYYY-MM-DD HH:MM:SS[.ffffff]"
+// Examples:
+//   "2023-10-15 14:30:00"         => scale 0, microsecond = 0
+//   "2023-10-15 14:30:00.123000"  => scale 6, microsecond = 123000
+//   "2023-10-15 14:30:00.123"     => scale 3, microsecond = 123000
+//
+// On parse failure, falls back to MIN_DATETIME_V2.
 Status DataTypeDateTimeV2SerDe::from_olap_string(const std::string& str, Field& field,
                                                  const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -512,8 +525,19 @@ void DataTypeDateTimeV2SerDe::write_one_cell_to_binary(const IColumn& src_column
            data_ref.size);
 }
 
+// Serializes a DateTimeV2 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Always passes scale=6 to CastToString::from_datetimev2 because historically the Field
+// type for DateTimeV2 always stores values with 6-digit (microsecond) precision.
+// With scale=6, the fractional part is ALWAYS written, even when microsecond=0.
+//
+// Output format: "YYYY-MM-DD HH:MM:SS.ffffff"
+// Examples:
+//   value with microsecond=0       => "2023-10-15 14:30:00.000000"
+//   value with microsecond=123000  => "2023-10-15 14:30:00.123000"
 std::string DataTypeDateTimeV2SerDe::to_olap_string(const Field& field) const {
-    return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>());
+    return CastToString::from_datetimev2(field.get<TYPE_DATETIMEV2>(), 6);
 }
 
 // NOLINTEND(readability-function-cognitive-complexity)

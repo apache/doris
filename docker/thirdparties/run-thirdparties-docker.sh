@@ -25,6 +25,7 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 . "${ROOT}/custom_settings.env"
+. "${ROOT}/juicefs-helpers.sh"
 
 usage() {
     echo "
@@ -228,6 +229,178 @@ reserve_ports() {
         echo "Reserve ports: ${RESERVED_PORTS}"
         sudo sysctl -w net.ipv4.ip_local_reserved_ports="${RESERVED_PORTS}"
     fi
+}
+
+JFS_META_FORMATTED=0
+DORIS_ROOT="${DORIS_ROOT:-$(cd "${ROOT}/../.." &>/dev/null && pwd)}"
+JUICEFS_RUNTIME_ROOT="${ROOT}/juicefs"
+
+JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
+
+find_juicefs_hadoop_jar() {
+    local -a jar_globs=(
+        "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
+        "${ROOT}/docker-compose/hive/scripts/auxlib/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "${DORIS_ROOT}/../../../clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
+        "/mnt/ssd01/pipline/OpenSourceDoris/clusterEnv/*/Cluster*/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
+    )
+    juicefs_find_hadoop_jar_by_globs "${jar_globs[@]}"
+}
+
+detect_juicefs_version() {
+    local juicefs_jar
+    juicefs_jar=$(find_juicefs_hadoop_jar || true)
+    juicefs_detect_hadoop_version "${juicefs_jar}" "${JUICEFS_DEFAULT_VERSION}"
+}
+
+download_juicefs_hadoop_jar() {
+    local juicefs_version="$1"
+    local cache_dir="${JUICEFS_RUNTIME_ROOT}/lib"
+    juicefs_download_hadoop_jar_to_cache "${juicefs_version}" "${cache_dir}"
+}
+
+install_juicefs_cli() {
+    local juicefs_version="$1"
+    local cache_dir="${JUICEFS_RUNTIME_ROOT}/bin"
+    local archive_name="juicefs-${juicefs_version}-linux-amd64.tar.gz"
+    local download_url="https://github.com/juicedata/juicefs/releases/download/v${juicefs_version}/${archive_name}"
+    local tmp_dir
+    local extracted_bin
+
+    mkdir -p "${cache_dir}"
+    tmp_dir=$(mktemp -d "${cache_dir}/tmp.XXXXXX")
+
+    echo "Downloading JuiceFS CLI ${juicefs_version} from ${download_url}" >&2
+    if ! curl -fL --retry 3 --retry-delay 2 -o "${tmp_dir}/${archive_name}" "${download_url}"; then
+        rm -rf "${tmp_dir}"
+        echo "ERROR: failed to download JuiceFS CLI from ${download_url}" >&2
+        return 1
+    fi
+
+    tar -xzf "${tmp_dir}/${archive_name}" -C "${tmp_dir}"
+    extracted_bin=$(find "${tmp_dir}" -maxdepth 2 -type f -name juicefs | head -n 1)
+    if [[ -z "${extracted_bin}" ]]; then
+        rm -rf "${tmp_dir}"
+        echo "ERROR: failed to locate extracted JuiceFS CLI in ${archive_name}" >&2
+        return 1
+    fi
+
+    install -m 0755 "${extracted_bin}" "${JUICEFS_LOCAL_BIN}"
+    rm -rf "${tmp_dir}"
+}
+
+resolve_juicefs_cli() {
+    local juicefs_version
+
+    if command -v juicefs >/dev/null 2>&1; then
+        command -v juicefs
+        return 0
+    fi
+
+    if [[ -x "${JUICEFS_LOCAL_BIN}" ]]; then
+        echo "${JUICEFS_LOCAL_BIN}"
+        return 0
+    fi
+
+    juicefs_version=$(detect_juicefs_version)
+    install_juicefs_cli "${juicefs_version}" || return 1
+    echo "${JUICEFS_LOCAL_BIN}"
+}
+
+ensure_juicefs_meta_database() {
+    local jfs_meta="$1"
+    local meta_db
+    local mysql_container
+
+    if [[ "${jfs_meta}" != *"@(127.0.0.1:3316)/"* && "${jfs_meta}" != *"@(localhost:3316)/"* ]]; then
+        return 0
+    fi
+
+    meta_db="${jfs_meta##*/}"
+    meta_db="${meta_db%%\?*}"
+
+    if command -v mysql >/dev/null 2>&1; then
+        mysql -h127.0.0.1 -P3316 -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
+        return 0
+    fi
+
+    mysql_container=$(sudo docker ps --format '{{.Names}}' | grep -E "(^|-)${CONTAINER_UID}mysql_57(-[0-9]+)?$" | head -n 1 || true)
+    if [[ -n "${mysql_container}" ]]; then
+        sudo docker exec "${mysql_container}" \
+            mysql -uroot -p123456 -e "CREATE DATABASE IF NOT EXISTS \`${meta_db}\`;"
+    fi
+}
+
+run_juicefs_cli() {
+    local juicefs_cli
+    juicefs_cli=$(resolve_juicefs_cli)
+    "${juicefs_cli}" "$@"
+}
+
+ensure_juicefs_hadoop_jar_for_hive() {
+    local auxlib_dir="${ROOT}/docker-compose/hive/scripts/auxlib"
+    local source_jar
+    local juicefs_version
+
+    source_jar=$(find_juicefs_hadoop_jar || true)
+    if [[ -z "${source_jar}" ]]; then
+        juicefs_version=$(detect_juicefs_version)
+        source_jar=$(download_juicefs_hadoop_jar "${juicefs_version}" || true)
+    fi
+
+    if [[ -z "${source_jar}" ]]; then
+        echo "WARN: skip syncing juicefs-hadoop jar for hive, not found and download failed."
+        return 0
+    fi
+
+    mkdir -p "${auxlib_dir}"
+    cp -f "${source_jar}" "${auxlib_dir}/"
+    echo "Synced JuiceFS Hadoop jar to hive auxlib: $(basename "${source_jar}")"
+}
+
+prepare_juicefs_meta_for_hive() {
+    local jfs_meta="$1"
+    local jfs_cluster_name="${2:-cluster}"
+    if [[ -z "${jfs_meta}" || "${jfs_meta}" != mysql://* ]]; then
+        return 0
+    fi
+    if [[ "${JFS_META_FORMATTED}" -eq 1 ]]; then
+        return 0
+    fi
+
+    local bucket_dir="${JFS_BUCKET_DIR:-/tmp/jfs-bucket}"
+    sudo mkdir -p "${bucket_dir}"
+    sudo chmod 777 "${bucket_dir}"
+
+    # For local mysql_57 metadata DSN, ensure metadata database exists.
+    ensure_juicefs_meta_database "${jfs_meta}"
+
+    if run_juicefs_cli status "${jfs_meta}" >/dev/null 2>&1; then
+        echo "JuiceFS metadata is already formatted."
+        JFS_META_FORMATTED=1
+        return 0
+    fi
+
+    # Clean stale bucket data before formatting. When meta is not formatted,
+    # any leftover data in the bucket directory is orphaned from a previous run
+    # and will cause "juicefs format" to fail with "Storage ... is not empty".
+    if [[ -d "${bucket_dir}" ]]; then
+        echo "Cleaning stale JuiceFS bucket directory: ${bucket_dir}"
+        sudo rm -rf "${bucket_dir:?}"/*
+    fi
+
+    if ! run_juicefs_cli \
+        format --storage file --bucket "${bucket_dir}" "${jfs_meta}" "${jfs_cluster_name}"; then
+        # If format reports conflict on rerun, verify by status and continue.
+        run_juicefs_cli status "${jfs_meta}" >/dev/null
+    fi
+
+    JFS_META_FORMATTED=1
 }
 
 start_es() {
@@ -603,6 +776,12 @@ if [[ $need_prepare_hive_data -eq 1 ]]; then
     bash "${ROOT}/docker-compose/hive/scripts/prepare-hive-data.sh"
 fi
 
+if [[ "${STOP}" -ne 1 ]]; then
+    if [[ "${RUN_HIVE2}" -eq 1 ]] || [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        ensure_juicefs_hadoop_jar_for_hive
+    fi
+fi
+
 declare -A pids
 
 if [[ "${RUN_ES}" -eq 1 ]]; then
@@ -722,6 +901,17 @@ for compose in "${!pids[@]}"; do
         exit 1
     fi
 done
+
+if [[ "${STOP}" -ne 1 ]]; then
+    if [[ "${RUN_HIVE2}" -eq 1 ]]; then
+        . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
+        prepare_juicefs_meta_for_hive "${JFS_CLUSTER_META}" "cluster"
+    fi
+    if [[ "${RUN_HIVE3}" -eq 1 ]]; then
+        . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
+        prepare_juicefs_meta_for_hive "${JFS_CLUSTER_META}" "cluster"
+    fi
+fi
 
 echo "docker started"
 sudo docker ps -a --format "{{.ID}} | {{.Image}} | {{.Status}}"

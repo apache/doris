@@ -26,7 +26,6 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexState;
@@ -148,9 +147,6 @@ public class OlapQueryCacheTest {
                 return env;
             }
         };
-
-        FunctionSet fs = new FunctionSet();
-        Deencapsulation.setField(env, "functionSet", fs);
 
         channel.reset();
 

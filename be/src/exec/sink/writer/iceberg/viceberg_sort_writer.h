@@ -34,12 +34,10 @@
 // in this header, causing heavy transitive includes for all files that include
 // viceberg_sort_writer.h. Moving implementations to .cpp allows us to forward-declare
 // these types and only include their headers in the .cpp file.
-namespace doris {
-class SpillStream;
-using SpillStreamSPtr = std::shared_ptr<SpillStream>;
-} // namespace doris
 
 namespace doris {
+class SpillFile;
+using SpillFileSPtr = std::shared_ptr<SpillFile>;
 class RuntimeState;
 class RuntimeProfile;
 
@@ -169,10 +167,11 @@ private:
     // Sorter and merger for handling in-memory sorting and multi-way merge
     std::unique_ptr<FullSorter> _sorter;
     std::unique_ptr<VSortedRunMerger> _merger;
-    // Queue of spill streams waiting to be merged (FIFO order)
-    std::deque<SpillStreamSPtr> _sorted_streams;
-    // Streams currently being consumed by the merger
-    std::vector<SpillStreamSPtr> _current_merging_streams;
+
+    // Queue of spill files waiting to be merged (FIFO order)
+    std::deque<SpillFileSPtr> _sorted_spill_files;
+    // Files currently being consumed by the merger
+    std::vector<SpillFileSPtr> _current_merging_spill_files;
 
     // Target file size in bytes; files are split when this threshold is exceeded
     // Default: config::iceberg_sink_max_file_size (1GB)

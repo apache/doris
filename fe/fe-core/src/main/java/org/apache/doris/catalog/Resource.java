@@ -61,6 +61,9 @@ public abstract class Resource implements Writable, GsonPostProcessable {
         AI;
 
         public static ResourceType fromString(String resourceType) {
+            if ("jfs".equalsIgnoreCase(resourceType) || "juicefs".equalsIgnoreCase(resourceType)) {
+                return HDFS;
+            }
             for (ResourceType type : ResourceType.values()) {
                 if (type.name().equalsIgnoreCase(resourceType)) {
                     return type;
@@ -187,8 +190,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
                 resource = new HMSResource(name);
                 break;
             case ES:
-                resource = new EsResource(name);
-                break;
+                throw new DdlException("ES resource is no longer supported. Please use ES Catalog instead.");
             case AI:
                 resource = new AIResource(name);
                 break;

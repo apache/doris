@@ -59,6 +59,10 @@ public:
 
     PProfileCounter to_proto() const;
 
+    // Print the counter tree to the output stream, similar to the old
+    // RuntimeProfile::print_child_counters() but operating on the pruned tree.
+    void pretty_print(std::ostream* s, const std::string& prefix) const;
+
 private:
     std::string name;
     // counter is not owned by this class

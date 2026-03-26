@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/config.h"
+#include "core/custom_allocator.h"
 #include "runtime/runtime_state.h"
 #include "util/client_cache.h"
 
@@ -46,10 +47,14 @@ public:
     virtual TFileScanRangeParams* get_params() = 0;
 
 protected:
-    template <typename T>
-    void _merge_ranges(std::vector<T>& merged_ranges, const std::vector<T>& scan_ranges) {
+    template <typename T, typename V1 = std::vector<T>, typename V2 = std::vector<T>>
+        requires(std::is_same_v<std::remove_cvref_t<V1>,
+                                std::vector<T, typename V1::allocator_type>> &&
+                 std::is_same_v<std::remove_cvref_t<V2>,
+                                std::vector<T, typename V2::allocator_type>>)
+    void _merge_ranges(V1& merged_ranges, const V2& scan_ranges) {
         if (scan_ranges.size() <= _max_scanners) {
-            merged_ranges = scan_ranges;
+            merged_ranges.assign(scan_ranges.begin(), scan_ranges.end());
             return;
         }
 
@@ -98,7 +103,7 @@ protected:
 class LocalSplitSourceConnector : public SplitSourceConnector {
 private:
     std::mutex _range_lock;
-    std::vector<TScanRangeParams> _scan_ranges;
+    DorisVector<TScanRangeParams> _scan_ranges;
     int _scan_index = 0;
     int _range_index = 0;
 
@@ -138,7 +143,7 @@ private:
     int64_t _split_source_id;
     int _num_splits;
 
-    std::vector<TScanRangeLocations> _scan_ranges;
+    DorisVector<TScanRangeLocations> _scan_ranges;
     bool _last_batch = false;
     int _scan_index = 0;
     int _range_index = 0;

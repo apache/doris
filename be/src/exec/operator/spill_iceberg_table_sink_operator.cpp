@@ -79,21 +79,14 @@ size_t SpillIcebergTableSinkLocalState::get_revocable_mem_size(RuntimeState* sta
     return sort_writer->sorter()->data_size();
 }
 
-Status SpillIcebergTableSinkLocalState::revoke_memory(
-        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
+Status SpillIcebergTableSinkLocalState::revoke_memory(RuntimeState* state) {
     if (!_writer || !_writer->current_writer()) {
-        if (spill_context) {
-            spill_context->on_task_finished();
-        }
         return Status::OK();
     }
 
     auto* sort_writer = dynamic_cast<VIcebergSortWriter*>(_writer->current_writer().get());
 
     if (!sort_writer || !sort_writer->sorter()) {
-        if (spill_context) {
-            spill_context->on_task_finished();
-        }
         return Status::OK();
     }
 
@@ -104,13 +97,7 @@ Status SpillIcebergTableSinkLocalState::revoke_memory(
         return status;
     };
 
-    state->get_query_ctx()->resource_ctx()->task_controller()->increase_revoking_tasks_count();
-    auto status =
-            SpillSinkRunnable(state, spill_context, operator_profile(), exception_catch_func).run();
-    if (!status.ok()) {
-        state->get_query_ctx()->resource_ctx()->task_controller()->decrease_revoking_tasks_count();
-    }
-    return status;
+    return run_spill_task(state, exception_catch_func);
 }
 
 SpillIcebergTableSinkOperatorX::SpillIcebergTableSinkOperatorX(
@@ -150,10 +137,9 @@ size_t SpillIcebergTableSinkOperatorX::revocable_mem_size(RuntimeState* state) c
     return local_state.get_revocable_mem_size(state);
 }
 
-Status SpillIcebergTableSinkOperatorX::revoke_memory(
-        RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context) {
+Status SpillIcebergTableSinkOperatorX::revoke_memory(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    return local_state.revoke_memory(state, spill_context);
+    return local_state.revoke_memory(state);
 }
 
 void SpillIcebergTableSinkLocalState::_init_spill_counters() {

@@ -515,16 +515,4 @@ public class PushDownVirtualColumnsIntoOlapScan implements RewriteRuleFactory {
             return false;
         }
     }
-
-    /**
-     * Get function name from expression if it's a function call
-     */
-    private String getFunctionName(Expression expr) {
-        // Try to get function name from expression
-        // This is a simplified approach - in practice, you might need more robust name extraction
-        if (expr instanceof NamedExpression) {
-            return ((NamedExpression) expr).getName();
-        }
-        return null;
-    }
 }

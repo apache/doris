@@ -135,9 +135,11 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
 
         List<SlotDescriptor> slots = Lists.newArrayList(mapSlot, structSlot, arraySlot);
         SlotDescriptor result = PhysicalPlanTranslator.getSmallestSlot(slots);
-        // Should return the first one since they have same priority, compared by slot size
         Assertions.assertNotNull(result);
-        Assertions.assertTrue(result == mapSlot);
+        SlotSizeComparator comparator = new SlotSizeComparator();
+        for (SlotDescriptor slot : slots) {
+            Assertions.assertTrue(comparator.compare(result, slot) <= 0);
+        }
     }
 
     @Test
@@ -402,13 +404,9 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
                     Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.STRING);
                     break;
                 case 18:
-                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.MAP);
-                    break;
                 case 19:
-                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.STRUCT);
-                    break;
                 case 20:
-                    Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.ARRAY);
+                    Assertions.assertTrue(slot.getType().isComplexType());
                     break;
                 case 21:
                     Assertions.assertTrue(slot.getType().getPrimitiveType() == PrimitiveType.HLL);
@@ -433,6 +431,18 @@ public class CountStarSmallestSlotTest extends TestWithFeService {
                     Assertions.assertNotNull(false);
             }
         }
+        boolean hasMap = false;
+        boolean hasStruct = false;
+        boolean hasArray = false;
+        for (int i = 18; i <= 20; i++) {
+            PrimitiveType primitiveType = slots.get(i).getType().getPrimitiveType();
+            hasMap = hasMap || primitiveType == PrimitiveType.MAP;
+            hasStruct = hasStruct || primitiveType == PrimitiveType.STRUCT;
+            hasArray = hasArray || primitiveType == PrimitiveType.ARRAY;
+        }
+        Assertions.assertTrue(hasMap);
+        Assertions.assertTrue(hasStruct);
+        Assertions.assertTrue(hasArray);
     }
 
     /**

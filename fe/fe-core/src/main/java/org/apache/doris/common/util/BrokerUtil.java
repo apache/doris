@@ -25,33 +25,23 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
-import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
-import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
-import org.apache.doris.thrift.TBrokerCloseWriterRequest;
-import org.apache.doris.thrift.TBrokerDeletePathRequest;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TBrokerListPathRequest;
 import org.apache.doris.thrift.TBrokerListResponse;
-import org.apache.doris.thrift.TBrokerOpenMode;
 import org.apache.doris.thrift.TBrokerOpenReaderRequest;
 import org.apache.doris.thrift.TBrokerOpenReaderResponse;
-import org.apache.doris.thrift.TBrokerOpenWriterRequest;
-import org.apache.doris.thrift.TBrokerOpenWriterResponse;
 import org.apache.doris.thrift.TBrokerOperationStatus;
 import org.apache.doris.thrift.TBrokerOperationStatusCode;
 import org.apache.doris.thrift.TBrokerPReadRequest;
-import org.apache.doris.thrift.TBrokerPWriteRequest;
 import org.apache.doris.thrift.TBrokerReadResponse;
-import org.apache.doris.thrift.TBrokerRenamePathRequest;
 import org.apache.doris.thrift.TBrokerVersion;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
@@ -62,18 +52,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.io.FileInputStream;
-import java.io.IOException;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
 public class BrokerUtil {
     private static final Logger LOG = LogManager.getLogger(BrokerUtil.class);
-
-    private static final int READ_BUFFER_SIZE_B = 1024 * 1024;
 
     /**
      * Parse file status in path with broker, except directory
@@ -117,6 +101,18 @@ public class BrokerUtil {
             throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
                     + path + ", err: " + e.getMessage());
         }
+    }
+
+    public static void deleteParentDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
+        deleteDirectoryWithFileSystem(extractParentDirectory(path), brokerDesc);
+    }
+
+    public static String extractParentDirectory(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            return path.substring(0, lastSlash + 1);
+        }
+        return path;
     }
 
     public static String printBroker(String brokerName, TNetworkAddress address) {
@@ -177,7 +173,7 @@ public class BrokerUtil {
             if (index == -1) {
                 continue;
             }
-            columns[index] = HiveMetaStoreCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
+            columns[index] = HiveExternalMetaCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
                 ? FeConstants.null_string : pair[1];
             size++;
             if (size >= columnsFromPath.size()) {
@@ -299,161 +295,6 @@ public class BrokerUtil {
         }
     }
 
-    /**
-     * Write binary data to destFilePath with broker
-     * @param data
-     * @param destFilePath
-     * @param brokerDesc
-     * @throws UserException if broker op failed
-     */
-    public static void writeFile(byte[] data, String destFilePath, BrokerDesc brokerDesc) throws UserException {
-        BrokerWriter writer = new BrokerWriter(destFilePath, brokerDesc);
-        try {
-            writer.open();
-            ByteBuffer byteBuffer = ByteBuffer.wrap(data);
-            writer.write(byteBuffer, data.length);
-        } finally {
-            writer.close();
-        }
-    }
-
-    /**
-     * Write srcFilePath file to destFilePath with broker
-     * @param srcFilePath
-     * @param destFilePath
-     * @param brokerDesc
-     * @throws UserException if broker op failed
-     */
-    public static void writeFile(String srcFilePath, String destFilePath,
-                                 BrokerDesc brokerDesc) throws UserException {
-        FileInputStream fis = null;
-        FileChannel channel = null;
-        BrokerWriter writer = new BrokerWriter(destFilePath, brokerDesc);
-        ByteBuffer byteBuffer = ByteBuffer.allocate(READ_BUFFER_SIZE_B);
-        try {
-            writer.open();
-            fis = new FileInputStream(srcFilePath);
-            channel = fis.getChannel();
-            while (true) {
-                int readSize = channel.read(byteBuffer);
-                if (readSize == -1) {
-                    break;
-                }
-
-                byteBuffer.flip();
-                writer.write(byteBuffer, readSize);
-                byteBuffer.clear();
-            }
-        } catch (IOException e) {
-            String failMsg = "Read file exception. filePath=" + srcFilePath;
-            LOG.warn(failMsg, e);
-            throw new UserException(failMsg);
-        } finally {
-            // close broker file writer and local file input stream
-            writer.close();
-            try {
-                if (channel != null) {
-                    channel.close();
-                }
-                if (fis != null) {
-                    fis.close();
-                }
-            } catch (IOException e) {
-                LOG.warn("Close local file failed. srcPath={}", srcFilePath, e);
-            }
-        }
-    }
-
-    /**
-     * Delete path with broker
-     * @param path
-     * @param brokerDesc
-     * @throws UserException if broker op failed
-     */
-    public static void deletePathWithBroker(String path, BrokerDesc brokerDesc) throws UserException {
-        TNetworkAddress address = getAddress(brokerDesc);
-        TPaloBrokerService.Client client = borrowClient(address);
-        boolean failed = true;
-        try {
-            TBrokerDeletePathRequest tDeletePathRequest = new TBrokerDeletePathRequest(
-                    TBrokerVersion.VERSION_ONE, path, brokerDesc.getBackendConfigProperties());
-            TBrokerOperationStatus tOperationStatus = null;
-            try {
-                tOperationStatus = client.deletePath(tDeletePathRequest);
-            } catch (TException e) {
-                reopenClient(client);
-                tOperationStatus = client.deletePath(tDeletePathRequest);
-            }
-            if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("Broker delete path failed. path=" + path + ", broker=" + address
-                                                + ", msg=" + tOperationStatus.getMessage());
-            }
-            failed = false;
-        } catch (TException e) {
-            LOG.warn("Broker read path exception, path={}, address={}, exception={}", path, address, e);
-            throw new UserException("Broker read path exception. path=" + path + ",broker=" + address);
-        } finally {
-            returnClient(client, address, failed);
-        }
-    }
-
-    public static boolean checkPathExist(String remotePath, BrokerDesc brokerDesc) throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBrokerAddressAndClient(brokerDesc);
-        TPaloBrokerService.Client client = pair.first;
-        TNetworkAddress address = pair.second;
-        boolean failed = true;
-        try {
-            TBrokerCheckPathExistRequest req = new TBrokerCheckPathExistRequest(TBrokerVersion.VERSION_ONE,
-                    remotePath, brokerDesc.getBackendConfigProperties());
-            TBrokerCheckPathExistResponse rep = client.checkPathExist(req);
-            if (rep.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("Broker check path exist failed. path=" + remotePath + ", broker=" + address
-                        + ", msg=" + rep.getOpStatus().getMessage());
-            }
-            failed = false;
-            return rep.isPathExist;
-        } catch (TException e) {
-            LOG.warn("Broker check path exist failed, path={}, address={}, exception={}", remotePath, address, e);
-            throw new UserException("Broker check path exist exception. path=" + remotePath + ",broker=" + address);
-        } finally {
-            returnClient(client, address, failed);
-        }
-    }
-
-    public static void rename(String origFilePath, String destFilePath, BrokerDesc brokerDesc) throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = getBrokerAddressAndClient(brokerDesc);
-        TPaloBrokerService.Client client = pair.first;
-        TNetworkAddress address = pair.second;
-        boolean failed = true;
-        try {
-            TBrokerRenamePathRequest req = new TBrokerRenamePathRequest(TBrokerVersion.VERSION_ONE, origFilePath,
-                    destFilePath, brokerDesc.getBackendConfigProperties());
-            TBrokerOperationStatus rep = client.renamePath(req);
-            if (rep.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                throw new UserException("failed to rename " + origFilePath + " to " + destFilePath
-                        + ", msg: " + rep.getMessage() + ", broker: " + address);
-            }
-            failed = false;
-        } catch (TException e) {
-            LOG.warn("Broker rename file failed, origin path={}, dest path={}, address={}, exception={}",
-                    origFilePath, destFilePath, address, e);
-            throw new UserException("Broker rename file exception. origin path=" + origFilePath
-                    + ", dest path=" + destFilePath + ", broker=" + address);
-        } finally {
-            returnClient(client, address, failed);
-        }
-    }
-
-    public static Pair<TPaloBrokerService.Client, TNetworkAddress> getBrokerAddressAndClient(BrokerDesc brokerDesc)
-            throws UserException {
-        Pair<TPaloBrokerService.Client, TNetworkAddress> pair = Pair.of(null, null);
-        TNetworkAddress address = getAddress(brokerDesc);
-        TPaloBrokerService.Client client = borrowClient(address);
-        pair.first = client;
-        pair.second = address;
-        return pair;
-    }
-
     public static TNetworkAddress getAddress(BrokerDesc brokerDesc) throws UserException {
         FsBroker broker = null;
         try {
@@ -489,119 +330,5 @@ public class BrokerUtil {
 
     private static void reopenClient(TPaloBrokerService.Client client) {
         ClientPool.brokerPool.reopen(client);
-    }
-
-    private static class BrokerWriter {
-        private String brokerFilePath;
-        private BrokerDesc brokerDesc;
-        private TPaloBrokerService.Client client;
-        private TNetworkAddress address;
-        private TBrokerFD fd;
-        private long currentOffset;
-        private boolean isReady;
-        private boolean failed;
-
-        public BrokerWriter(String brokerFilePath, BrokerDesc brokerDesc) {
-            this.brokerFilePath = brokerFilePath;
-            this.brokerDesc = brokerDesc;
-            this.isReady = false;
-            this.failed = true;
-        }
-
-        public void open() throws UserException {
-            failed = true;
-            address = BrokerUtil.getAddress(brokerDesc);
-            client = BrokerUtil.borrowClient(address);
-            try {
-                String clientId = NetUtils
-                        .getHostPortInAccessibleFormat(FrontendOptions.getLocalHostAddress(), Config.rpc_port);
-                TBrokerOpenWriterRequest tOpenWriterRequest = new TBrokerOpenWriterRequest(
-                        TBrokerVersion.VERSION_ONE, brokerFilePath, TBrokerOpenMode.APPEND,
-                        clientId, brokerDesc.getBackendConfigProperties());
-                TBrokerOpenWriterResponse tOpenWriterResponse = null;
-                try {
-                    tOpenWriterResponse = client.openWriter(tOpenWriterRequest);
-                } catch (TException e) {
-                    reopenClient(client);
-                    tOpenWriterResponse = client.openWriter(tOpenWriterRequest);
-                }
-                if (tOpenWriterResponse.getOpStatus().getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    throw new UserException("Broker open writer failed. destPath=" + brokerFilePath
-                                                    + ", broker=" + address
-                                                    + ", msg=" + tOpenWriterResponse.getOpStatus().getMessage());
-                }
-                failed = false;
-                fd = tOpenWriterResponse.getFd();
-                currentOffset = 0L;
-                isReady = true;
-            } catch (TException e) {
-                String failMsg = "Broker open writer exception. filePath=" + brokerFilePath + ", broker=" + address;
-                LOG.warn(failMsg, e);
-                throw new UserException(failMsg);
-            }
-        }
-
-        public void write(ByteBuffer byteBuffer, long bufferSize) throws UserException {
-            if (!isReady) {
-                throw new UserException("Broker writer is not ready. filePath="
-                        + brokerFilePath + ", broker=" + address);
-            }
-
-            failed = true;
-            TBrokerOperationStatus tOperationStatus = null;
-            TBrokerPWriteRequest tPWriteRequest = new TBrokerPWriteRequest(
-                    TBrokerVersion.VERSION_ONE, fd, currentOffset, byteBuffer);
-            try {
-                try {
-                    tOperationStatus = client.pwrite(tPWriteRequest);
-                } catch (TException e) {
-                    reopenClient(client);
-                    tOperationStatus = client.pwrite(tPWriteRequest);
-                }
-                if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    throw new UserException("Broker write failed. filePath=" + brokerFilePath + ", broker=" + address
-                                                    + ", msg=" + tOperationStatus.getMessage());
-                }
-                failed = false;
-                currentOffset += bufferSize;
-            } catch (TException e) {
-                String failMsg = "Broker write exception. filePath=" + brokerFilePath + ", broker=" + address;
-                LOG.warn(failMsg, e);
-                throw new UserException(failMsg);
-            }
-        }
-
-        public void close() {
-            // close broker writer
-            failed = true;
-            TBrokerOperationStatus tOperationStatus = null;
-            if (fd != null) {
-                TBrokerCloseWriterRequest tCloseWriterRequest = new TBrokerCloseWriterRequest(
-                        TBrokerVersion.VERSION_ONE, fd);
-                try {
-                    tOperationStatus = client.closeWriter(tCloseWriterRequest);
-                } catch (TException e) {
-                    reopenClient(client);
-                    try {
-                        tOperationStatus = client.closeWriter(tCloseWriterRequest);
-                    } catch (TException ex) {
-                        LOG.warn("Broker close writer failed. filePath={}, address={}", brokerFilePath, address, ex);
-                    }
-                }
-                if (tOperationStatus == null) {
-                    LOG.warn("Broker close reader failed. fd={}, address={}", fd.toString(), address);
-                } else if (tOperationStatus.getStatusCode() != TBrokerOperationStatusCode.OK) {
-                    LOG.warn("Broker close writer failed. filePath={}, address={}, error={}", brokerFilePath,
-                             address, tOperationStatus.getMessage());
-                } else {
-                    failed = false;
-                }
-            }
-
-            // return client
-            returnClient(client, address, failed);
-            isReady = false;
-        }
-
     }
 }

@@ -752,9 +752,8 @@ private:
     // Save the status of try_close() and close() method
     Status _close_status;
     // if we called try_close(), for auto partition the periodic send thread should stop if it's still waiting for node channels first-time open.
-    bool _try_close = false;
-    // for non-pipeline, if close() did something, close_wait() should wait it.
-    bool _close_wait = false;
+    // atomic: written by pthread (_do_try_close), read by bthread (_send_batch_process)
+    std::atomic<bool> _try_close {false};
     bool _inited = false;
     bool _write_file_cache = false;
 
@@ -771,5 +770,9 @@ private:
 
     // tablet_id -> <total replicas num, load required replicas num>
     std::unordered_map<int64_t, std::pair<int, int>> _tablet_replica_info;
+
+    // tablet_id -> set of backend_ids that have version gaps
+    // these backends' success should not be counted for majority write
+    std::unordered_map<int64_t, std::unordered_set<int64_t>> _tablet_version_gap_backends;
 };
 } // namespace doris

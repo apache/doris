@@ -312,10 +312,10 @@ public class CloudTabletRebalancer extends MasterDaemon {
 
     @Getter
     private class InfightTablet {
-        private final Long tabletId;
+        private final long tabletId;
         private final String clusterId;
 
-        public InfightTablet(Long tabletId, String clusterId) {
+        public InfightTablet(long tabletId, String clusterId) {
             this.tabletId = tabletId;
             this.clusterId = clusterId;
         }
@@ -329,7 +329,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                 return false;
             }
             InfightTablet that = (InfightTablet) o;
-            return tabletId.equals(that.tabletId) && clusterId.equals(that.clusterId);
+            return tabletId == that.tabletId && clusterId.equals(that.clusterId);
         }
 
         @Override
@@ -342,7 +342,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
         public long pickedTabletId;
         public long srcBe;
         public long destBe;
-        public Map<Long, Set<Long>> beToTablets;
         public long startTimestamp;
         BalanceType balanceType;
     }
@@ -685,6 +684,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // So infos can be empty even when balance work was done. Use indexBalanced (set to false by
         // updateBalanceStatus inside balanceImpl when warmup moves succeed) to reflect the real state.
         if (infos.isEmpty()) {
+            resetCloudBalanceMetric(StatType.PARTITION);
             LOG.info("partition balance({}) done, infos empty (warmup or already balanced), indexBalanced={}",
                     phase, indexBalanced);
             return indexBalanced;
@@ -734,6 +734,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         // Same as balanceAllPartitionsByPhase: in warmup mode infos stays empty even when
         // warmup tasks were scheduled. Use tableBalanced to reflect the real state.
         if (infos.isEmpty()) {
+            resetCloudBalanceMetric(StatType.TABLE);
             LOG.info("table balance({}) done, infos empty (warmup or already balanced), tableBalanced={}",
                     phase, tableBalanced);
             return tableBalanced;
@@ -778,6 +779,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             balanceImpl(entry.getValue(), entry.getKey(), futureBeToTabletsGlobal, BalanceType.GLOBAL, infos);
         }
         if (infos.isEmpty()) {
+            resetCloudBalanceMetric(StatType.GLOBAL);
             return;
         }
         long oldSize = infos.size();
@@ -1950,8 +1952,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
                         futurePartitionToTablets, futureBeToTabletsInTable)) {
                     continue;
                 }
-                boolean moved = preheatAndUpdateTablet(pickedTabletId, srcBe, destBe,
-                        clusterId, balanceType, beToTablets);
+                boolean moved = preheatAndUpdateTablet(pickedTabletId, srcBe, destBe, clusterId, balanceType);
                 if (moved) {
                     updateBalanceStatus(balanceType);
                 }
@@ -2065,7 +2066,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
     }
 
     private boolean preheatAndUpdateTablet(long pickedTabletId, long srcBe, long destBe, String clusterId,
-                                     BalanceType balanceType, Map<Long, Set<Long>> beToTablets) {
+                                     BalanceType balanceType) {
         Backend srcBackend = cloudSystemInfoService.getBackend(srcBe);
         Backend destBackend = cloudSystemInfoService.getBackend(destBe);
         if (srcBackend == null || destBackend == null) {
@@ -2079,7 +2080,6 @@ public class CloudTabletRebalancer extends MasterDaemon {
         task.srcBe = srcBe;
         task.destBe = destBe;
         task.balanceType = balanceType;
-        task.beToTablets = beToTablets;
         task.startTimestamp = System.currentTimeMillis() / 1000;
         InfightTablet key = new InfightTablet(pickedTabletId, clusterId);
 
@@ -2216,8 +2216,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             String clusterId = entry.getKey();
             notBalancedClusterIds.remove(clusterId);
             List<UpdateCloudReplicaInfo> infoList = entry.getValue();
-            String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getClusterNameByClusterId(clusterId);
+            String clusterName = getClusterNameByClusterId(clusterId);
             if (!Strings.isNullOrEmpty(clusterName)) {
                 MetricRepo.updateClusterCloudBalanceNum(clusterName, clusterId, type, infoList.size());
             }
@@ -2259,8 +2258,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
         }
 
         for (String clusterId : notBalancedClusterIds) {
-            String clusterName = ((CloudSystemInfoService) Env.getCurrentSystemInfo())
-                    .getClusterNameByClusterId(clusterId);
+            String clusterName = getClusterNameByClusterId(clusterId);
             if (!Strings.isNullOrEmpty(clusterName)) {
                 MetricRepo.updateClusterCloudBalanceNum(clusterName, clusterId, type, 0);
             }
@@ -2271,6 +2269,28 @@ public class CloudTabletRebalancer extends MasterDaemon {
                     infos.size(), rets.size(), System.currentTimeMillis() - start);
         }
         return rets;
+    }
+
+    private String getClusterNameByClusterId(String clusterId) {
+        CloudSystemInfoService systemInfoService = cloudSystemInfoService != null
+                ? cloudSystemInfoService
+                : (CloudSystemInfoService) Env.getCurrentSystemInfo();
+        if (systemInfoService == null) {
+            return null;
+        }
+        return systemInfoService.getClusterNameByClusterId(clusterId);
+    }
+
+    private void resetCloudBalanceMetric(StatType type) {
+        if (clusterToBes == null || clusterToBes.isEmpty()) {
+            return;
+        }
+        for (String clusterId : clusterToBes.keySet()) {
+            String clusterName = getClusterNameByClusterId(clusterId);
+            if (!Strings.isNullOrEmpty(clusterName)) {
+                MetricRepo.updateClusterCloudBalanceNum(clusterName, clusterId, type, 0);
+            }
+        }
     }
 
     public boolean isInited() {

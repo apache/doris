@@ -671,37 +671,91 @@ public:
 
     int64_t spill_min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+            return std::max(_query_options.min_revocable_mem, (int64_t)1 << 20);
         }
-        return 1;
-    }
-
-    int64_t spill_sort_mem_limit() const {
-        if (_query_options.__isset.spill_sort_mem_limit) {
-            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
-        }
-        return 134217728;
-    }
-
-    int64_t spill_sort_batch_bytes() const {
-        if (_query_options.__isset.spill_sort_batch_bytes) {
-            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
-        }
-        return 8388608;
+        return 32 << 20;
     }
 
     int spill_aggregation_partition_count() const {
         if (_query_options.__isset.spill_aggregation_partition_count) {
-            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_aggregation_partition_count), 32);
         }
-        return 32;
+        return 8;
     }
 
     int spill_hash_join_partition_count() const {
         if (_query_options.__isset.spill_hash_join_partition_count) {
-            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_hash_join_partition_count), 32);
         }
-        return 32;
+        return 8;
+    }
+
+    int spill_repartition_max_depth() const {
+        if (_query_options.__isset.spill_repartition_max_depth) {
+            // Clamp to a reasonable range: [1, 128]
+            return std::max(1, std::min(_query_options.spill_repartition_max_depth, 128));
+        }
+        return 8;
+    }
+
+    int64_t spill_buffer_size_bytes() const {
+        // clamp to [1MB, 256MB]
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 256LL * 1024 * 1024;
+        if (_query_options.__isset.spill_buffer_size_bytes) {
+            int64_t v = _query_options.spill_buffer_size_bytes;
+            if (v < kMin) return kMin;
+            if (v > kMax) return kMax;
+            return v;
+        }
+        return 8LL * 1024 * 1024;
+    }
+
+    // Per-sink memory limits: after spill is triggered, the sink proactively
+    // spills when its revocable memory exceeds this threshold.
+    // Clamped to [1MB, 4GB], default 64MB.
+    int64_t spill_join_build_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_join_build_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_join_build_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_aggregation_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_aggregation_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_aggregation_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_merge_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_merge_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_merge_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
     }
 
     int64_t low_memory_mode_buffer_limit() const {
@@ -728,7 +782,7 @@ public:
             return _query_options.minimum_operator_memory_required_kb * 1024;
         } else {
             // refer other database
-            return 100 * 1024;
+            return 4 * 1024 * 1024;
         }
     }
 

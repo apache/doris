@@ -35,12 +35,12 @@ class MockInvertedIndexReader : public InvertedIndexReader {
 public:
     // Factory method to create instances
     static std::shared_ptr<MockInvertedIndexReader> create(
-            const std::map<std::string, std::string>& properties) {
+            const std::map<std::string, std::string>& properties, int64_t index_id = 1) {
         auto index = std::make_shared<TabletIndex>();
         // Initialize TabletIndex with protobuf to ensure all fields are properly set
         TabletIndexPB pb;
-        pb.set_index_id(1);
-        pb.set_index_name("test_index");
+        pb.set_index_id(index_id);
+        pb.set_index_name("test_index_" + std::to_string(index_id));
         pb.set_index_type(IndexType::INVERTED);
         index->init_from_pb(pb);
         return std::shared_ptr<MockInvertedIndexReader>(
@@ -85,7 +85,8 @@ class InvertedIndexIteratorTest : public testing::Test {
 protected:
     std::shared_ptr<MockInvertedIndexReader> create_mock_reader(
             const std::string& analyzer_key,
-            InvertedIndexReaderType type = InvertedIndexReaderType::FULLTEXT) {
+            InvertedIndexReaderType type = InvertedIndexReaderType::FULLTEXT,
+            int64_t index_id = 1) {
         std::map<std::string, std::string> properties;
         // New design: empty string means "user did not specify", non-empty means explicit.
         // We only set properties when analyzer_key is non-empty.
@@ -96,7 +97,7 @@ protected:
                 properties[INVERTED_INDEX_ANALYZER_NAME_KEY] = analyzer_key;
             }
         }
-        auto reader = MockInvertedIndexReader::create(properties);
+        auto reader = MockInvertedIndexReader::create(properties, index_id);
         reader->set_type(type);
         return reader;
     }
@@ -339,6 +340,42 @@ TEST_F(InvertedIndexIteratorTest, EdgeCase_GetReaderByType) {
 
     auto reader3 = iterator.get_reader(InvertedIndexReaderType::BKD);
     EXPECT_EQ(reader3, nullptr);
+}
+
+// Test: select_best_reader picks the smallest index_id when multiple
+// candidates match, regardless of insertion order. This ensures consistent
+// index selection across segments with different schema orderings.
+TEST_F(InvertedIndexIteratorTest, SelectBestReader_DeterministicByIndexId) {
+    // Simulate two segments with the same indexes in different order.
+    // Both should select the reader with the smallest index_id.
+    auto reader_id_100 = create_mock_reader("my_analyzer1", InvertedIndexReaderType::FULLTEXT, 100);
+    auto reader_id_50 = create_mock_reader("my_analyzer2", InvertedIndexReaderType::FULLTEXT, 50);
+
+    // Segment 1: add id=100 first, then id=50
+    {
+        InvertedIndexIterator iter;
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_100);
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_50);
+
+        auto col_type = std::make_shared<DataTypeString>();
+        auto result =
+                iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result.value()->get_index_id(), 50);
+    }
+
+    // Segment 2: add id=50 first, then id=100 (opposite order)
+    {
+        InvertedIndexIterator iter;
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_50);
+        iter.add_reader(InvertedIndexReaderType::FULLTEXT, reader_id_100);
+
+        auto col_type = std::make_shared<DataTypeString>();
+        auto result =
+                iter.select_best_reader(col_type, InvertedIndexQueryType::MATCH_REGEXP_QUERY, "");
+        ASSERT_TRUE(result.has_value());
+        EXPECT_EQ(result.value()->get_index_id(), 50);
+    }
 }
 
 } // namespace doris::segment_v2

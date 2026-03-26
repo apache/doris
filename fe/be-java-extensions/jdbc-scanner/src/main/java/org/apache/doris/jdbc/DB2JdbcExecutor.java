@@ -31,6 +31,10 @@ import java.sql.Timestamp;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
+/**
+ * @deprecated Use {@link DB2TypeHandler} instead.
+ */
+@Deprecated
 public class DB2JdbcExecutor extends BaseJdbcExecutor {
     public DB2JdbcExecutor(byte[] thriftParams) throws Exception {
         super(thriftParams);

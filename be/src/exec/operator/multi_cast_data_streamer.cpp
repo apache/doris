@@ -32,7 +32,9 @@
 #include "exec/operator/multi_cast_data_stream_source.h"
 #include "exec/operator/spill_utils.h"
 #include "exec/pipeline/dependency.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
+#include "exec/spill/spill_file_reader.h"
+#include "exec/spill/spill_file_writer.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/pretty_printer.h"
@@ -77,14 +79,14 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
 
         if (!_spill_readers[sender_idx].empty()) {
             auto reader_item = _spill_readers[sender_idx].front();
-            if (!reader_item->stream->ready_for_reading()) {
+            if (!reader_item->spill_file->ready_for_reading()) {
                 return Status::OK();
             }
 
             auto& reader = reader_item->reader;
             RETURN_IF_ERROR(reader->open());
             if (reader_item->block_offset != 0) {
-                reader->seek(reader_item->block_offset);
+                RETURN_IF_ERROR(reader->seek(reader_item->block_offset));
                 reader_item->block_offset = 0;
             }
 
@@ -117,9 +119,9 @@ Status MultiCastDataStreamer::pull(RuntimeState* state, int sender_idx, Block* b
             };
 
             l.unlock();
-            SpillRecoverRunnable spill_runnable(state, _source_operator_profiles[sender_idx],
-                                                catch_exception_func);
-            return spill_runnable.run();
+            // spill is synchronous; the profile passed to the runnable was only
+            // used for counters that are now tracked externally, so call helper
+            return run_spill_task(state, catch_exception_func);
         }
 
         auto& pos_to_pull = _sender_pos_to_read[sender_idx];
@@ -179,7 +181,7 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
         return Status::OK();
     }
 
-    SpillStreamSPtr spill_stream;
+    SpillFileSPtr spill_file;
     *triggered = false;
     if (_cumulative_mem_size.load() >= config::exchg_node_buffer_size_bytes &&
         _multi_cast_blocks.size() >= 4) {
@@ -205,24 +207,31 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
         }
 
         if (has_reached_end) {
-            RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_stream_mgr()->register_spill_stream(
-                    state, spill_stream, print_id(state->query_id()), "MultiCastSender", _node_id,
-                    std::numeric_limits<int32_t>::max(), std::numeric_limits<size_t>::max(),
-                    _sink_operator_profile));
-            for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
-                if (distances[i] < total_count) {
-                    auto reader = spill_stream->create_separate_reader();
-                    reader->set_counters(_source_operator_profiles[i]);
-                    auto reader_item = std::make_shared<SpillingReader>(
-                            std::move(reader), spill_stream, distances[i], false);
-                    _spill_readers[i].emplace_back(std::move(reader_item));
-                }
+            auto relative_path = fmt::format("{}/{}-{}-{}-{}", print_id(state->query_id()),
+                                             "MultiCastSender", _node_id, state->task_id(),
+                                             ExecEnv::GetInstance()->spill_file_mgr()->next_id());
+            RETURN_IF_ERROR(ExecEnv::GetInstance()->spill_file_mgr()->create_spill_file(
+                    relative_path, spill_file));
 
+            // Block all senders while spilling.
+            for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
                 _block_reading(i);
             }
 
-            RETURN_IF_ERROR(_start_spill_task(state, spill_stream));
+            // Write blocks to disk. _start_spill_task updates spill_file->_part_count.
+            RETURN_IF_ERROR(_start_spill_task(state, spill_file));
             DCHECK_EQ(_multi_cast_blocks.size(), 0);
+
+            // Create readers AFTER writing so that _part_count is valid.
+            for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
+                if (distances[i] < total_count) {
+                    auto reader = spill_file->create_reader(state, _source_operator_profiles[i]);
+                    auto reader_item = std::make_shared<SpillingReader>(
+                            std::move(reader), spill_file, distances[i], false);
+                    _spill_readers[i].emplace_back(std::move(reader_item));
+                }
+                _set_ready_for_read(i);
+            }
 
             for (auto& pos : _sender_pos_to_read) {
                 pos = _multi_cast_blocks.end();
@@ -235,7 +244,7 @@ Status MultiCastDataStreamer::_trigger_spill_if_need(RuntimeState* state, bool* 
     return Status::OK();
 }
 
-Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state, SpillStreamSPtr spill_stream) {
+Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state, SpillFileSPtr spill_file) {
     std::vector<Block> blocks;
     for (auto& block : _multi_cast_blocks) {
         DCHECK_GT(block._block->rows(), 0);
@@ -244,18 +253,20 @@ Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state, SpillStream
 
     _multi_cast_blocks.clear();
 
-    auto spill_func = [state, blocks = std::move(blocks),
-                       spill_stream = std::move(spill_stream)]() mutable {
+    auto* sink_profile = _sink_operator_profile;
+    auto spill_func = [state, blocks = std::move(blocks), spill_file = std::move(spill_file),
+                       sink_profile]() mutable {
         const auto blocks_count = blocks.size();
-        while (!blocks.empty() && !state->is_cancelled()) {
-            auto block = std::move(blocks.front());
-            blocks.erase(blocks.begin());
-
-            RETURN_IF_ERROR(spill_stream->spill_block(state, block, false));
+        SpillFileWriterSPtr writer;
+        RETURN_IF_ERROR(spill_file->create_writer(state, sink_profile, writer));
+        for (auto& block : blocks) {
+            if (state->is_cancelled()) break;
+            RETURN_IF_ERROR(writer->write_block(state, block));
         }
+        RETURN_IF_ERROR(writer->close());
         VLOG_DEBUG << "Query: " << print_id(state->query_id()) << " multi cast write "
                    << blocks_count << " blocks";
-        return spill_stream->spill_eof();
+        return Status::OK();
     };
 
     auto exception_catch_func = [spill_func = std::move(spill_func),
@@ -266,15 +277,13 @@ Status MultiCastDataStreamer::_start_spill_task(RuntimeState* state, SpillStream
         if (!status.ok()) {
             LOG(WARNING) << "Query: " << query_id
                          << " multi cast write failed: " << status.to_string();
-        } else {
-            for (int i = 0; i < _sender_pos_to_read.size(); ++i) {
-                _set_ready_for_read(i);
-            }
         }
+        // _set_ready_for_read is called by _trigger_spill_if_need after readers
+        // are created with the correct part_count.
         return status;
     };
 
-    return SpillSinkRunnable(state, nullptr, _sink_operator_profile, exception_catch_func).run();
+    return run_spill_task(state, exception_catch_func);
 }
 
 Status MultiCastDataStreamer::push(RuntimeState* state, doris::Block* block, bool eos) {

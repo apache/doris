@@ -148,7 +148,7 @@ private:
     Status _create_operator(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs,
                             OperatorPtr& op, PipelinePtr& cur_pipe, int parent_idx, int child_idx,
                             const bool followed_by_shuffled_join,
-                            const bool require_bucket_distribution);
+                            const bool require_bucket_distribution, OperatorPtr& cache_op);
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ObjectPool* pool, const TPlanNode& tnode,
                                                    const DescriptorTbl& descs, OperatorPtr& op,

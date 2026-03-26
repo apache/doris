@@ -39,7 +39,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
@@ -106,16 +105,10 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public void notifyPropertiesUpdated(Map<String, String> updatedProps) {
         super.notifyPropertiesUpdated(updatedProps);
-        String tableCacheEnable = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_ENABLE, null);
-        String tableCacheTtl = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_TTL_SECOND, null);
-        String tableCacheCapacity = updatedProps.getOrDefault(ICEBERG_TABLE_CACHE_CAPACITY, null);
-        String manifestCacheEnable = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_ENABLE, null);
-        String manifestCacheCapacity = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_CAPACITY, null);
-        String manifestCacheTtl = updatedProps.getOrDefault(ICEBERG_MANIFEST_CACHE_TTL_SECOND, null);
-        if (Objects.nonNull(tableCacheEnable) || Objects.nonNull(tableCacheTtl) || Objects.nonNull(tableCacheCapacity)
-                || Objects.nonNull(manifestCacheEnable) || Objects.nonNull(manifestCacheCapacity)
-                || Objects.nonNull(manifestCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(this).init();
+        if (updatedProps.keySet().stream()
+                .anyMatch(key -> CacheSpec.isMetaCacheKeyForEngine(key, IcebergExternalMetaCache.ENGINE))) {
+            Env.getCurrentEnv().getExtMetaCacheMgr()
+                    .removeCatalogByEngine(getId(), IcebergExternalMetaCache.ENGINE);
         }
     }
 

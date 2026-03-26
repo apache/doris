@@ -17,6 +17,10 @@
 
 package org.apache.doris.jdbc;
 
+/**
+ * @deprecated Legacy exception class for the old JdbcExecutor framework.
+ */
+@Deprecated
 public class JdbcExecutorException extends Exception {
     public JdbcExecutorException(String msg, Throwable cause) {
         super(msg, cause);

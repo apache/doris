@@ -24,6 +24,7 @@ import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
@@ -83,16 +84,18 @@ public class LogicalDictionarySink<CHILD_TYPE extends Plan> extends LogicalTable
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1, "LogicalDictionarySink only accepts one child");
-        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, Optional.empty(),
-                Optional.empty(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs,
+                        Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     // This function will really set outputExprs in base class
     public Plan withChildAndUpdateOutput(Plan child) {
         List<NamedExpression> output = child.getOutput().stream().map(NamedExpression.class::cast)
                 .collect(ImmutableList.toImmutableList());
-        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, output, Optional.empty(),
-                Optional.empty(), child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, output, Optional.empty(),
+                Optional.empty(), child));
     }
 
     @Override
@@ -102,15 +105,17 @@ public class LogicalDictionarySink<CHILD_TYPE extends Plan> extends LogicalTable
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
-                Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
+                Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
-                logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
+                logicalProperties, children.get(0)));
     }
 
     @Override
@@ -120,8 +125,9 @@ public class LogicalDictionarySink<CHILD_TYPE extends Plan> extends LogicalTable
 
     @Override
     public LogicalSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, Optional.empty(),
-                Optional.empty(), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs,
+                        Optional.empty(), Optional.empty(), child()));
     }
 
     @Override

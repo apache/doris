@@ -229,6 +229,10 @@ struct ResultOfAbs<Decimal128V2> {
     static constexpr PrimitiveType Type = TYPE_DECIMALV2;
 };
 template <>
+struct ResultOfAbs<DecimalV2Value> {
+    static constexpr PrimitiveType Type = TYPE_DECIMALV2;
+};
+template <>
 struct ResultOfAbs<Decimal128V3> {
     static constexpr PrimitiveType Type = TYPE_DECIMAL128I;
 };
