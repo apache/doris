@@ -65,7 +65,26 @@ public class ThriftHMSCachedClientTest {
         Assert.assertFalse(pool.getTestOnBorrow());
         Assert.assertFalse(pool.getTestOnReturn());
         Assert.assertFalse(pool.getTestWhileIdle());
+        Assert.assertEquals(60_000L, pool.getMaxWaitMillis());
         Assert.assertEquals(-1L, pool.getTimeBetweenEvictionRunsMillis());
+    }
+
+    @Test
+    public void testPoolDisabledCreatesAndClosesClientPerBorrow() throws Exception {
+        ThriftHMSCachedClient cachedClient = newClient(0);
+
+        Assert.assertNull(getPool(cachedClient));
+
+        Object firstBorrowed = borrowClient(cachedClient);
+        closeBorrowed(firstBorrowed);
+        Assert.assertEquals(1, provider.createdClients.get());
+        Assert.assertEquals(1, provider.closedClients.get());
+
+        Object secondBorrowed = borrowClient(cachedClient);
+        Assert.assertNotSame(firstBorrowed, secondBorrowed);
+        closeBorrowed(secondBorrowed);
+        Assert.assertEquals(2, provider.createdClients.get());
+        Assert.assertEquals(2, provider.closedClients.get());
     }
 
     @Test

@@ -91,6 +91,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private static final HiveMetaHookLoader DUMMY_HOOK_LOADER = t -> null;
     // -1 means no limit on the partitions returned.
     private static final short MAX_LIST_PARTITION_NUM = Config.max_hive_list_partition_num;
+    private static final long CLIENT_POOL_BORROW_TIMEOUT_MS = 60_000L;
 
     private final GenericObjectPool<ThriftHMSClient> clientPool;
     private volatile boolean isClosed = false;
@@ -104,11 +105,12 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     ThriftHMSCachedClient(HiveConf hiveConf, int poolSize, ExecutionAuthenticator executionAuthenticator,
             MetaStoreClientProvider metaStoreClientProvider) {
-        Preconditions.checkArgument(poolSize > 0, poolSize);
+        Preconditions.checkArgument(poolSize >= 0, poolSize);
         this.hiveConf = hiveConf;
         this.executionAuthenticator = executionAuthenticator;
         this.metaStoreClientProvider = Preconditions.checkNotNull(metaStoreClientProvider, "metaStoreClientProvider");
-        this.clientPool = new GenericObjectPool<>(new ThriftHMSClientFactory(), createPoolConfig(poolSize));
+        this.clientPool = poolSize == 0 ? null
+                : new GenericObjectPool<>(new ThriftHMSClientFactory(), createPoolConfig(poolSize));
     }
 
     @Override
@@ -117,6 +119,9 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             return;
         }
         isClosed = true;
+        if (clientPool == null) {
+            return;
+        }
         try {
             clientPool.close();
         } catch (Exception e) {
@@ -651,13 +656,13 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
      * 2. The pool does not interpret that config.
      * 3. The pool does not probe remote socket health.
      */
-    private GenericObjectPoolConfig createPoolConfig(int poolSize) {
-        GenericObjectPoolConfig config = new GenericObjectPoolConfig();
+    private GenericObjectPoolConfig<ThriftHMSClient> createPoolConfig(int poolSize) {
+        GenericObjectPoolConfig<ThriftHMSClient> config = new GenericObjectPoolConfig<>();
         config.setMaxTotal(poolSize);
         config.setMaxIdle(poolSize);
         config.setMinIdle(0);
         config.setBlockWhenExhausted(true);
-        config.setMaxWaitMillis(-1L);
+        config.setMaxWaitMillis(CLIENT_POOL_BORROW_TIMEOUT_MS);
         config.setTestOnBorrow(false);
         config.setTestOnReturn(false);
         config.setTestWhileIdle(false);
@@ -689,8 +694,7 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private class ThriftHMSClientFactory extends BasePooledObjectFactory<ThriftHMSClient> {
         @Override
         public ThriftHMSClient create() throws Exception {
-            return withSystemClassLoader(() -> ugiDoAs(
-                    () -> new ThriftHMSClient(metaStoreClientProvider.create(hiveConf))));
+            return createClient();
         }
 
         @Override
@@ -736,6 +740,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
         @Override
         public void close() throws Exception {
+            if (clientPool == null) {
+                destroy();
+                return;
+            }
             if (isClosed) {
                 destroy();
                 return;
@@ -758,12 +766,20 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     private ThriftHMSClient getClient() {
         try {
             Preconditions.checkState(!isClosed, "HMS client pool is closed");
+            if (clientPool == null) {
+                return createClient();
+            }
             return clientPool.borrowObject();
         } catch (RuntimeException e) {
             throw e;
         } catch (Exception e) {
             throw new HMSClientException("failed to borrow hms client from pool", e);
         }
+    }
+
+    private ThriftHMSClient createClient() throws Exception {
+        return withSystemClassLoader(() -> ugiDoAs(
+                () -> new ThriftHMSClient(metaStoreClientProvider.create(hiveConf))));
     }
 
     // Keep the HMS client creation behind an injectable seam so unit tests can verify
@@ -819,7 +835,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                         HiveUtil.updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
                 newParams.put("transient_lastDdlTime", String.valueOf(System.currentTimeMillis() / 1000));
                 newTable.setParameters(newParams);
-                client.client.alter_table(dbName, tableName, newTable);
+                ugiDoAs(() -> {
+                    client.client.alter_table(dbName, tableName, newTable);
+                    return null;
+                });
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -837,8 +856,8 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             Function<HivePartitionStatistics, HivePartitionStatistics> update) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                List<Partition> partitions = client.client.getPartitionsByNames(
-                        dbName, tableName, ImmutableList.of(partitionName));
+                List<Partition> partitions = ugiDoAs(() -> client.client.getPartitionsByNames(
+                        dbName, tableName, ImmutableList.of(partitionName)));
                 if (partitions.size() != 1) {
                     throw new RuntimeException("Metastore returned multiple partitions for name: " + partitionName);
                 }
@@ -852,7 +871,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                         HiveUtil.updateStatisticsParameters(originParams, updatedStats.getCommonStatistics());
                 newParams.put("transient_lastDdlTime", String.valueOf(System.currentTimeMillis() / 1000));
                 modifiedPartition.setParameters(newParams);
-                client.client.alter_partition(dbName, tableName, modifiedPartition);
+                ugiDoAs(() -> {
+                    client.client.alter_partition(dbName, tableName, modifiedPartition);
+                    return null;
+                });
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -869,7 +891,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                 List<Partition> hivePartitions = partitions.stream()
                         .map(HiveUtil::toMetastoreApiPartition)
                         .collect(Collectors.toList());
-                client.client.add_partitions(hivePartitions);
+                ugiDoAs(() -> {
+                    client.client.add_partitions(hivePartitions);
+                    return null;
+                });
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
@@ -883,7 +908,10 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     public void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData) {
         try (ThriftHMSClient client = getClient()) {
             try {
-                client.client.dropPartition(dbName, tableName, partitionValues, deleteData);
+                ugiDoAs(() -> {
+                    client.client.dropPartition(dbName, tableName, partitionValues, deleteData);
+                    return null;
+                });
             } catch (Exception e) {
                 client.setThrowable(e);
                 throw e;
