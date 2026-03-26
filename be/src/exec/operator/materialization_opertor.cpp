@@ -89,10 +89,13 @@ Status MaterializationSharedState::merge_multi_response() {
             DCHECK(rpc_struct.response.blocks_size() > i);
             RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block(),
                                                       &uncompressed_size, &uncompressed_time));
-            // A BE may return an empty block event if
+            // Check multiget result rows matches request row id count.
+            // 1. A BE may return an empty block event if
             // request.request_block_descs(i).row_id_size() != 0:
             // If the id_file_map was GC'd on the BE before it could process the request,
-            // refer 'if (!id_file_map)' in RowIdStorageReader::read_by_rowids
+            // refer 'if (!id_file_map)' in RowIdStorageReader::read_by_rowids.
+            // 2. Report error in any case where the row count doesn't match, even if it's not empty,
+            //    since that indicates a bug in BE's row fetching logic or serialization logic.
             if (rpc_struct.request.request_block_descs(i).row_id_size() != partial_block.rows()) {
                 return Status::InternalError(
                         fmt::format("merge_multi_response, "
