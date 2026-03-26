@@ -52,6 +52,7 @@ import org.apache.doris.thrift.TPipelineInstanceParams;
 import org.apache.doris.thrift.TQueryGlobals;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TQueryType;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TScanRangeLocations;
 import org.apache.doris.thrift.TScanRangeParams;
 import org.apache.doris.thrift.TUniqueId;
@@ -276,6 +277,13 @@ public class NereidsStreamLoadPlanner {
         params.setDescTbl(descriptorTable.toThrift());
         params.setCoord(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
         params.setCurrentConnectFe(new TNetworkAddress(FrontendOptions.getLocalHostAddress(), Config.rpc_port));
+
+        if (ConnectContext.get() != null && ConnectContext.get().getCurrentUserIdentity() != null) {
+            TResourceInfo resourceInfo = new TResourceInfo();
+            resourceInfo.setUser(ConnectContext.get().getCurrentUserIdentity().getQualifiedUser());
+            resourceInfo.setGroup("");
+            params.setResourceInfo(resourceInfo);
+        }
 
         TPipelineInstanceParams execParams = new TPipelineInstanceParams();
         // user load id (streamLoadTask.id) as query id

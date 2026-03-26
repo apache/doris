@@ -262,7 +262,7 @@ suite("test_workload_sched_policy") {
     sql "CREATE WORKLOAD GROUP policy_group_be $forComputeGroupStr PROPERTIES ('max_cpu_percent'='100')"
     sql "GRANT USAGE_PRIV ON WORKLOAD GROUP 'policy_group_be' TO 'test_policy_user_be'@'%'"
 
-    // 3. Create a policy with both username (FE metric) and query_time (BE metric)
+    // 3. Create a policy with both username (shared metric) and query_time (BE metric)
     sql "DROP WORKLOAD POLICY IF EXISTS test_mixed_policy"
     
     sql """

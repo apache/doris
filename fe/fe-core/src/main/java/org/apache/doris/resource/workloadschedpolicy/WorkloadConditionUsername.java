@@ -17,6 +17,8 @@
 
 package org.apache.doris.resource.workloadschedpolicy;
 
+import org.apache.doris.common.UserException;
+
 import com.google.gson.annotations.SerializedName;
 
 public class WorkloadConditionUsername implements WorkloadCondition {
@@ -41,7 +43,11 @@ public class WorkloadConditionUsername implements WorkloadCondition {
         return WorkloadMetricType.USERNAME;
     }
 
-    public static WorkloadConditionUsername createWorkloadCondition(WorkloadConditionOperator op, String value) {
+    public static WorkloadConditionUsername createWorkloadCondition(WorkloadConditionOperator op, String value)
+            throws UserException {
+        if (op != WorkloadConditionOperator.EQUAL) {
+            throw new UserException("username only support EQUAL operator");
+        }
         // todo(wb) check whether input username is valid
         return new WorkloadConditionUsername(op, value);
     }
