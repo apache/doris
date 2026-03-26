@@ -62,6 +62,31 @@ END_TIME3=$(date +%s)
 EXECUTION_TIME3=$((END_TIME3 - START_TIME3))
 echo "Script iceberg load total: {} executed in $EXECUTION_TIME3 seconds"
 
+# wait for hive-metastore to be ready (needed by delta lake)
+echo "Waiting for Hive Metastore to be ready..."
+while ! bash -c "cat < /dev/null > /dev/tcp/hive-metastore/9083" 2>/dev/null; do
+    sleep 2
+done
+echo "Hive Metastore is ready."
+
+START_TIME4=$(date +%s)
+find /mnt/scripts/create_preinstalled_scripts/deltalake -name '*.sql' | sort | sed 's|^|source |' | sed 's|$|;|'> deltalake_total.sql
+spark-sql --master spark://doris--spark-iceberg:7077 \
+    --conf spark.sql.extensions=io.delta.sql.DeltaSparkSessionExtension \
+    --conf spark.sql.catalog.delta_lake=org.apache.spark.sql.delta.catalog.DeltaCatalog \
+    --conf spark.sql.catalog.delta_lake.type=hive \
+    --conf spark.sql.catalog.delta_lake.hive.metastore.uris=thrift://hive-metastore:9083 \
+    --conf spark.sql.catalog.delta_lake.spark.sql.warehouse.dir=s3a://warehouse/wh/ \
+    --conf spark.hadoop.fs.s3a.endpoint=http://minio:9000 \
+    --conf spark.hadoop.fs.s3a.access.key=admin \
+    --conf spark.hadoop.fs.s3a.secret.key=password \
+    --conf spark.hadoop.fs.s3a.path.style.access=true \
+    --conf spark.hadoop.fs.s3a.impl=org.apache.hadoop.fs.s3a.S3AFileSystem \
+    -f deltalake_total.sql
+END_TIME4=$(date +%s)
+EXECUTION_TIME4=$((END_TIME4 - START_TIME4))
+echo "Script delta lake total: {} executed in $EXECUTION_TIME4 seconds"
+
 touch /mnt/SUCCESS;
 
 tail -f /dev/null

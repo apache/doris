@@ -62,6 +62,7 @@
 #include "format/native/native_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/delta_lake_reader.h"
 #include "format/table/hive_reader.h"
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
@@ -1244,6 +1245,19 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
                 _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
                 &_slot_id_to_filter_conjuncts);
         _cur_reader = std::move(hudi_reader);
+    } else if (range.__isset.table_format_params &&
+               range.table_format_params.table_format_type == "deltalake") {
+        std::unique_ptr<DeltaLakeParquetReader> delta_reader =
+                DeltaLakeParquetReader::create_unique(std::move(parquet_reader), _profile, _state,
+                                                      *_params, range, _io_ctx.get(),
+                                                      file_meta_cache_ptr);
+        init_status = delta_reader->init_reader(
+                _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
+                slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
+                _col_name_to_slot_id, &_not_single_slot_filter_conjuncts,
+                &_slot_id_to_filter_conjuncts);
+        RETURN_IF_ERROR(delta_reader->init_row_filters());
+        _cur_reader = std::move(delta_reader);
     } else if (range.table_format_params.table_format_type == "hive") {
         auto hive_reader = HiveParquetReader::create_unique(std::move(parquet_reader), _profile,
                                                             _state, *_params, range, _io_ctx.get(),

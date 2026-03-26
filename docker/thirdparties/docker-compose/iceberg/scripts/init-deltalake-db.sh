@@ -16,10 +16,11 @@
 # specific language governing permissions and limitations
 # under the License.
 
-NOTEBOOK_SERVER_PORT=8888
-SPARK_DRIVER_UI_PORT=8080
-SPARK_HISTORY_UI_PORT=10000
-REST_CATALOG_PORT=18181
-MINIO_UI_PORT=9000
-MINIO_API_PORT=19001
-DELTALAKE_HMS_PORT=19283
+# This script is executed during PostgreSQL initialization to create
+# the additional database needed by Hive Metastore for Delta Lake.
+set -e
+
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    CREATE DATABASE deltalake_metastore;
+    GRANT ALL PRIVILEGES ON DATABASE deltalake_metastore TO root;
+EOSQL

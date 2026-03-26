@@ -246,6 +246,12 @@ iceberg_rest_uri_port_gcs=19185
 iceberg_rest_uri_port_hdfs=19186
 iceberg_rest_hdfs_port=20020
 
+// delta lake catalog test config
+// To enable delta lake test, you need first start iceberg container (which includes delta lake support).
+// See `docker/thirdparties/run-thirdparties-docker.sh -c iceberg`
+enableDeltaLakeTest=false
+deltalakeHmsPort=19283
+
 // polaris rest catalog config
 polaris_rest_uri_port=20181
 polaris_minio_port=20001

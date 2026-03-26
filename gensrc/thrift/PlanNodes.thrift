@@ -405,6 +405,17 @@ struct TRemoteDorisFileDesc {
     6: optional string password
 }
 
+struct TDeltaLakeDeletionVectorDesc {
+    1: optional string file_path      // resolved absolute path to DV file
+    2: optional i32 offset            // offset within the DV file
+    3: optional i32 size_in_bytes     // size of the DV blob
+    4: optional i64 cardinality       // number of deleted rows
+}
+
+struct TDeltaLakeFileDesc {
+    1: optional TDeltaLakeDeletionVectorDesc deletion_vector_desc
+}
+
 struct TTableFormatFileDesc {
     1: optional string table_format_type
     2: optional TIcebergFileDesc iceberg_params
@@ -418,6 +429,7 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
+    12: optional TDeltaLakeFileDesc delta_lake_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type

@@ -28,6 +28,8 @@ services:
         condition: service_started
       mc:
         condition: service_completed_successfully
+      hive-metastore:
+        condition: service_healthy
     volumes:
       - ./data/output/spark-warehouse:/home/iceberg/warehouse
       - ./data/output/spark-notebooks:/home/iceberg/notebooks/notebooks
@@ -38,6 +40,8 @@ services:
       - ./data/input/jars/paimon-s3-1.0.1.jar:/opt/spark/jars/paimon-s3-1.0.1.jar
       - ./data/input/jars/iceberg-aws-bundle-1.10.0.jar:/opt/spark/jars/iceberg-aws-bundle-1.10.0.jar
       - ./data/input/jars/iceberg-spark-runtime-3.5_2.12-1.10.0.jar:/opt/spark/jars/iceberg-spark-runtime-3.5_2.12-1.10.0.jar
+      - ./data/input/jars/delta-spark_2.12-3.2.1.jar:/opt/spark/jars/delta-spark_2.12-3.2.1.jar
+      - ./data/input/jars/delta-storage-3.2.1.jar:/opt/spark/jars/delta-storage-3.2.1.jar
     environment:
       - AWS_ACCESS_KEY_ID=admin
       - AWS_SECRET_ACCESS_KEY=password
@@ -65,6 +69,7 @@ services:
       retries: 120
     volumes:
       - ./data/input/pgdata:/var/lib/postgresql/data
+      - ./scripts/init-deltalake-db.sh:/docker-entrypoint-initdb.d/init-deltalake-db.sh
     networks:
       - doris--iceberg
 
@@ -93,7 +98,7 @@ services:
       - CATALOG_JDBC_PASSWORD=123456
     networks:
       - doris--iceberg
-    command: 
+    command:
       - java
       - -cp
       - /usr/lib/iceberg-rest/iceberg-rest-adapter.jar:/opt/jdbc/postgresql.jar
@@ -150,6 +155,35 @@ services:
       fi;
       /usr/bin/mc cp -r /mnt/preinstalled_data/iceberg/ minio/warehouse/wh/multi_catalog/;
       "
+
+  hive-metastore:
+    image: apache/hive:3.1.3
+    container_name: doris--hive-metastore
+    hostname: hive-metastore
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      - SERVICE_NAME=metastore
+      - DB_DRIVER=postgres
+      - SERVICE_OPTS=-Djavax.jdo.option.ConnectionDriverName=org.postgresql.Driver -Djavax.jdo.option.ConnectionURL=jdbc:postgresql://postgres:5432/deltalake_metastore -Djavax.jdo.option.ConnectionUserName=root -Djavax.jdo.option.ConnectionPassword=123456
+      - HADOOP_OPTIONAL_TOOLS=hadoop-aws
+      - AWS_ACCESS_KEY_ID=admin
+      - AWS_SECRET_ACCESS_KEY=password
+    ports:
+      - ${DELTALAKE_HMS_PORT}:9083
+    volumes:
+      - ./data/input/jars/postgresql-42.7.4.jar:/opt/hive/lib/postgresql-42.7.4.jar
+      - ./conf/hive/core-site.xml:/opt/hadoop/etc/hadoop/core-site.xml
+    networks:
+      - doris--iceberg
+    healthcheck:
+      test: ["CMD", "bash", "-c", "cat < /dev/null > /dev/tcp/localhost/9083"]
+      interval: 10s
+      timeout: 60s
+      retries: 120
 
 networks:
   doris--iceberg:

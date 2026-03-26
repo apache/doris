@@ -605,6 +605,16 @@ start_iceberg() {
             echo "iceberg 1.10.0 jars exist, continue !"
         fi        
 
+        if [[ ! -f "${ICEBERG_DIR}/data/input/jars/delta-spark_2.12-3.2.1.jar" ]]; then
+            echo "delta lake jars do not exist, downloading..."
+            sudo mkdir -p "${ICEBERG_DIR}/data/input/jars"
+            wget -q -P "${ICEBERG_DIR}/data/input/jars" \
+                "https://repo1.maven.org/maven2/io/delta/delta-spark_2.12/3.2.1/delta-spark_2.12-3.2.1.jar" \
+                "https://repo1.maven.org/maven2/io/delta/delta-storage/3.2.1/delta-storage-3.2.1.jar"
+        else
+            echo "delta lake jars exist, continue !"
+        fi
+
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
     fi
 }
