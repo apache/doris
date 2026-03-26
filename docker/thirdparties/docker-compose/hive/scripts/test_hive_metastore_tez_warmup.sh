@@ -31,50 +31,49 @@ extract_function() {
 }
 
 main() {
-    local configure_hive_bootstrap_cli
-    configure_hive_bootstrap_cli="$(extract_function configure_hive_bootstrap_cli || true)"
-    if [[ -z "${configure_hive_bootstrap_cli}" ]]; then
-        configure_hive_bootstrap_cli=$'configure_hive_bootstrap_cli() {\n    return 0\n}'
+    local wait_for_hive_tez_runtime
+    wait_for_hive_tez_runtime="$(extract_function wait_for_hive_tez_runtime)"
+    if [[ -z "${wait_for_hive_tez_runtime}" ]]; then
+        echo "ERROR: failed to extract wait_for_hive_tez_runtime from ${SCRIPT_PATH}" >&2
+        exit 1
     fi
 
     local temp_root
     temp_root="$(mktemp -d)"
     trap 'rm -rf "'"${temp_root}"'"' EXIT
 
-    local fake_hive_bin_dir="${temp_root}/opt/hive/bin"
-    local fake_hive_bin="${fake_hive_bin_dir}/hive"
-    local wrapper_dir="${temp_root}/bootstrap-bin"
+    local warmup_sql_path="${temp_root}/hive-tez-warmup.hql"
+    local warmup_log="${temp_root}/hive-tez-warmup.log"
     local invocation_log="${temp_root}/hive-invocation.log"
-
-    mkdir -p "${fake_hive_bin_dir}"
-    cat >"${fake_hive_bin}" <<EOF
-#!/usr/bin/env bash
-printf '%s\n' "\$*" >"${invocation_log}"
-EOF
-    chmod +x "${fake_hive_bin}"
-
     local test_script="${temp_root}/test.sh"
+
     cat >"${test_script}" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 
-${configure_hive_bootstrap_cli}
+${wait_for_hive_tez_runtime}
+
+sleep() { return 0; }
+tail() { return 0; }
+yarn() { return 0; }
+hive() {
+    printf '%s\n' "\$*" >"${invocation_log}"
+}
 
 export ENABLE_HIVE3_TEZ_RUNTIME=true
-export HIVE_CLI_BIN="${fake_hive_bin}"
-export HIVE_BOOTSTRAP_BIN_DIR="${wrapper_dir}"
-export PATH="${fake_hive_bin_dir}:/usr/bin:/bin"
+export HIVE_TEZ_WARMUP_SQL_PATH="${warmup_sql_path}"
+export HIVE_TEZ_WARMUP_LOG_PATH="${warmup_log}"
 
-configure_hive_bootstrap_cli
-hive -f /tmp/bootstrap.hql
+wait_for_hive_tez_runtime
 EOF
     chmod +x "${test_script}"
 
     bash "${test_script}"
 
-    [[ ! -e "${wrapper_dir}/hive" ]]
-    [[ "$(cat "${invocation_log}")" == "-f /tmp/bootstrap.hql" ]]
-    ! grep -q "hive.execution.engine=mr" "${SCRIPT_PATH}"
+    grep -Fx -- "-f ${warmup_sql_path}" "${invocation_log}"
+    grep -Fx -- 'CREATE DATABASE IF NOT EXISTS doris_tez_warmup;' "${warmup_sql_path}"
+    grep -Fx -- 'INSERT INTO TABLE doris_tez_warmup.tez_runtime_probe VALUES (1);' "${warmup_sql_path}"
+    grep -Fx -- 'SELECT COUNT(*) FROM doris_tez_warmup.tez_runtime_probe;' "${warmup_sql_path}"
 }
 
 main "$@"

@@ -71,6 +71,8 @@ services:
         condition: service_healthy
       namenode:
         condition: service_healthy
+    volumes:
+      - ./scripts:/mnt/scripts
     healthcheck:
       test: beeline -u "jdbc:hive2://127.0.0.1:${HS_PORT}/default" -n health_check -e "show databases;"
       interval: 10s

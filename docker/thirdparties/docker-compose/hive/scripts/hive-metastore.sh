@@ -22,10 +22,14 @@ wait_for_yarn_services() {
     local rm_pid="$1"
     local nm_pid="$2"
     local yarn_startup_timeout_seconds="${YARN_STARTUP_TIMEOUT_SECONDS:-90}"
+    local yarn_nodes_log="/tmp/yarn-nodes.log"
     local waited=0
 
     while (( waited < yarn_startup_timeout_seconds )); do
-        if nc -z localhost "${YARN_RM_PORT:-8032}" && nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}"; then
+        if nc -z localhost "${YARN_RM_PORT:-8032}" \
+            && nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}" \
+            && yarn node -list -all >"${yarn_nodes_log}" 2>&1 \
+            && grep -Eq 'Total Nodes:[[:space:]]*[1-9][0-9]*' "${yarn_nodes_log}"; then
             return 0
         fi
 
@@ -46,6 +50,7 @@ wait_for_yarn_services() {
     echo "ERROR: yarn services failed to start within ${yarn_startup_timeout_seconds} seconds"
     ps -ef | grep -E "ResourceManager|NodeManager" || true
     ss -ltnp | grep -E ":(${YARN_RM_PORT:-8032}|${YARN_NM_WEBAPP_PORT:-8042}|${YARN_RM_TRACKER_PORT:-8031}|${YARN_RM_ADMIN_PORT:-8033})" || true
+    tail -n 200 "${yarn_nodes_log}" || true
     tail -n 200 /tmp/yarn-resourcemanager.log || true
     tail -n 200 /tmp/yarn-nodemanager.log || true
     return 1
@@ -65,24 +70,40 @@ wait_for_metastore_db() {
     return 1
 }
 
-configure_hive_bootstrap_cli() {
+wait_for_hive_tez_runtime() {
     if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" != "true" ]]; then
         return 0
     fi
 
-    # Keep HiveServer2/Metastore on the image-level Tez config, but force
-    # one-shot bootstrap CLI invocations to stay on MR so preload can finish.
-    local hive_cli_bin="${HIVE_CLI_BIN:-/opt/hive/bin/hive}"
-    local wrapper_dir="${HIVE_BOOTSTRAP_BIN_DIR:-/tmp/hive-bootstrap-bin}"
-    local wrapper_path="${wrapper_dir}/hive"
+    local hive_tez_warmup_timeout_seconds="${HIVE_TEZ_WARMUP_TIMEOUT_SECONDS:-180}"
+    local warmup_sql_path="${HIVE_TEZ_WARMUP_SQL_PATH:-/tmp/hive-tez-warmup.hql}"
+    local warmup_log_path="${HIVE_TEZ_WARMUP_LOG_PATH:-/tmp/hive-tez-warmup.log}"
+    local waited=0
 
-    mkdir -p "${wrapper_dir}"
-    cat >"${wrapper_path}" <<EOF
-#!/usr/bin/env bash
-exec "${hive_cli_bin}" --hiveconf hive.execution.engine=mr "\$@"
+    cat >"${warmup_sql_path}" <<EOF
+CREATE DATABASE IF NOT EXISTS doris_tez_warmup;
+DROP TABLE IF EXISTS doris_tez_warmup.tez_runtime_probe;
+CREATE TABLE doris_tez_warmup.tez_runtime_probe (id INT) STORED AS ORC;
+INSERT INTO TABLE doris_tez_warmup.tez_runtime_probe VALUES (1);
+SELECT COUNT(*) FROM doris_tez_warmup.tez_runtime_probe;
+DROP TABLE doris_tez_warmup.tez_runtime_probe;
 EOF
-    chmod +x "${wrapper_path}"
-    export PATH="${wrapper_dir}:${PATH}"
+
+    while (( waited < hive_tez_warmup_timeout_seconds )); do
+        if hive -f "${warmup_sql_path}" >"${warmup_log_path}" 2>&1; then
+            return 0
+        fi
+
+        sleep 5s
+        waited=$((waited + 5))
+    done
+
+    echo "ERROR: Hive Tez runtime failed to become ready within ${hive_tez_warmup_timeout_seconds} seconds"
+    tail -n 200 "${warmup_log_path}" || true
+    yarn node -list -all || true
+    tail -n 200 /tmp/yarn-resourcemanager.log || true
+    tail -n 200 /tmp/yarn-nodemanager.log || true
+    return 1
 }
 
 
@@ -124,7 +145,6 @@ if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" == "true" ]]; then
 fi
 
 wait_for_metastore_db
-configure_hive_bootstrap_cli
 
 # start metastore
 nohup /opt/hive/bin/hive --service metastore &
@@ -134,6 +154,8 @@ nohup /opt/hive/bin/hive --service metastore &
 while ! $(nc -z localhost "${HMS_PORT:-9083}"); do
     sleep 5s
 done
+
+wait_for_hive_tez_runtime
 
 if [[ ${NEED_LOAD_DATA} = "0" ]]; then
     echo "NEED_LOAD_DATA is 0, skip load data"
