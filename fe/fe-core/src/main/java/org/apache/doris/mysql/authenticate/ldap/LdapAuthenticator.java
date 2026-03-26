@@ -70,8 +70,10 @@ public class LdapAuthenticator implements Authenticator {
         AuthenticateResponse response = internalAuthenticate(clearPassword.getPassword(),
                 request.getUserName(), request.getRemoteIp());
         long elapsed = System.currentTimeMillis() - start;
-        LOG.info("[LDAP-AUTH] LdapAuthenticator.authenticate: user={}, success={}, elapsed={}ms",
-                request.getUserName(), response.isSuccess(), elapsed);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LDAP-AUTH LdapAuthenticator.authenticate: user={}, success={}, elapsed={}ms",
+                    request.getUserName(), response.isSuccess(), elapsed);
+        }
         return response;
     }
 
@@ -83,8 +85,10 @@ public class LdapAuthenticator implements Authenticator {
         long start = System.currentTimeMillis();
         boolean result = Env.getCurrentEnv().getAuth().getLdapManager().doesUserExist(qualifiedUser);
         long elapsed = System.currentTimeMillis() - start;
-        LOG.info("[LDAP-AUTH] LdapAuthenticator.canDeal: user={}, result={}, elapsed={}ms",
-                qualifiedUser, result, elapsed);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LDAP-AUTH LdapAuthenticator.canDeal: user={}, result={}, elapsed={}ms",
+                    qualifiedUser, result, elapsed);
+        }
         return result;
     }
 
@@ -105,12 +109,14 @@ public class LdapAuthenticator implements Authenticator {
         // check user password by ldap server.
         try {
             if (!Env.getCurrentEnv().getAuth().getLdapManager().checkUserPasswd(qualifiedUser, password)) {
-                LOG.info("user:{} use check LDAP password failed.", userName);
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("LDAP-AUTH internalAuthenticate: user={}, success=false", userName);
+                }
                 ErrorReport.report(ErrorCode.ERR_ACCESS_DENIED_ERROR, qualifiedUser, remoteIp, usePasswd);
                 return AuthenticateResponse.failedResponse;
             }
         } catch (Exception e) {
-            LOG.error("Check ldap password error.", e);
+            LOG.warn("LDAP-AUTH internalAuthenticate failed: user={}", userName, e);
             return AuthenticateResponse.failedResponse;
         }
 
@@ -122,12 +128,16 @@ public class LdapAuthenticator implements Authenticator {
         if (userIdentities.isEmpty()) {
             response.setUserIdentity(tempUserIdentity);
             response.setTemp(true);
-            LOG.info("[LDAP-AUTH] internalAuthenticate: user={}, tempUser=true, identity={}",
-                    userName, tempUserIdentity);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH internalAuthenticate: user={}, tempUser=true, identity={}",
+                        userName, tempUserIdentity);
+            }
         } else {
             response.setUserIdentity(userIdentities.get(0));
-            LOG.info("[LDAP-AUTH] internalAuthenticate: user={}, tempUser=false, identity={}",
-                    userName, userIdentities.get(0));
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH internalAuthenticate: user={}, tempUser=false, identity={}",
+                        userName, userIdentities.get(0));
+            }
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("ldap authentication success: identity:{}", response.getUserIdentity());

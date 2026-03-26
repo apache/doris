@@ -92,7 +92,7 @@ public class LdapConfig extends ConfigBase {
      * Uses JNDI property "com.sun.jndi.ldap.read.timeout".
      * Set to 0 for no timeout (not recommended). Default 5000ms.
      */
-    @ConfigBase.ConfField(mutable = true)
+    @ConfigBase.ConfField
     public static int ldap_read_timeout_ms = 5000;
 
     /**
@@ -101,7 +101,7 @@ public class LdapConfig extends ConfigBase {
      * Uses JNDI property "com.sun.jndi.ldap.connect.timeout".
      * Set to 0 for no timeout (not recommended). Default 5000ms.
      */
-    @ConfigBase.ConfField(mutable = true)
+    @ConfigBase.ConfField
     public static int ldap_connect_timeout_ms = 5000;
 
     /**
@@ -112,7 +112,7 @@ public class LdapConfig extends ConfigBase {
      * killed by firewalls/NAT idle timeout). Recommended to set false if experiencing
      * intermittent ~5s LDAP search latency spikes.
      */
-    @ConfigBase.ConfField(mutable = true)
+    @ConfigBase.ConfField
     public static boolean ldap_search_use_pool = true;
 
     /**

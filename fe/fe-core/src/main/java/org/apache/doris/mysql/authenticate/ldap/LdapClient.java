@@ -29,6 +29,7 @@ import com.google.common.collect.Lists;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.springframework.ldap.AuthenticationException;
 import org.springframework.ldap.core.DirContextOperations;
 import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.AbstractContextMapper;
@@ -175,13 +176,24 @@ public class LdapClient {
                     .base(LdapConfig.ldap_user_basedn)
                     .filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)), password);
             long elapsed = System.currentTimeMillis() - start;
-            LOG.info("[LDAP-AUTH] LdapClient.checkPassword: user={}, success=true, elapsed={}ms",
-                    userName, elapsed);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH LdapClient.checkPassword: user={}, success=true, elapsed={}ms",
+                        userName, elapsed);
+            }
             return true;
+        } catch (AuthenticationException e) {
+            long elapsed = System.currentTimeMillis() - start;
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH LdapClient.checkPassword: user={}, success=false, elapsed={}ms, "
+                                + "errorClass={}, errorMessage={}",
+                        userName, elapsed, e.getClass().getSimpleName(), e.getMessage());
+            }
+            return false;
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - start;
-            LOG.warn("[LDAP-AUTH] LdapClient.checkPassword failed: user={}, elapsed={}ms, error={}",
-                    userName, elapsed, e.getMessage());
+            LOG.warn("LDAP-AUTH LdapClient.checkPassword failed: user={}, elapsed={}ms, "
+                            + "errorClass={}, errorMessage={}",
+                    userName, elapsed, e.getClass().getSimpleName(), e.getMessage(), e);
             return false;
         }
     }
@@ -224,8 +236,10 @@ public class LdapClient {
             }
         }
         long elapsed = System.currentTimeMillis() - start;
-        LOG.info("[LDAP-AUTH] LdapClient.getGroups: user={}, groups={}, elapsed={}ms",
-                userName, groups.size(), elapsed);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LDAP-AUTH LdapClient.getGroups: user={}, groups={}, elapsed={}ms",
+                    userName, groups.size(), elapsed);
+        }
         return groups;
     }
 
@@ -256,15 +270,17 @@ public class LdapClient {
                         }
                     });
             long elapsed = System.currentTimeMillis() - start;
-            LOG.info("[LDAP-AUTH] LdapClient.getDn: base={}, elapsed={}ms, results={}",
-                    query.base(), elapsed, result == null ? 0 : result.size());
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH LdapClient.getDn: base={}, elapsed={}ms, results={}",
+                        query.base(), elapsed, result == null ? 0 : result.size());
+            }
             return result;
         } catch (Exception e) {
             long elapsed = System.currentTimeMillis() - start;
             String msg
                     = "Failed to retrieve the user's Distinguished Name (DN),"
                     + "This may be due to incorrect LDAP configuration or an unset/incorrect LDAP admin password.";
-            LOG.error("[LDAP-AUTH] LdapClient.getDn failed: base={}, elapsed={}ms, error={}",
+            LOG.warn("LDAP-AUTH LdapClient.getDn failed: base={}, elapsed={}ms, error={}",
                     query.base(), elapsed, e.getMessage(), e);
             ErrorReport.report(ErrorCode.ERROR_LDAP_CONFIGURATION_ERR);
             throw new RuntimeException(msg);

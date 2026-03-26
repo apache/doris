@@ -40,12 +40,16 @@ public class TestLogAppender extends AbstractAppender implements AutoCloseable {
     }
 
     public static TestLogAppender attach(Class<?> loggerClass) {
+        return attach(loggerClass, Level.DEBUG);
+    }
+
+    public static TestLogAppender attach(Class<?> loggerClass, Level level) {
         Logger logger = (Logger) LogManager.getLogger(loggerClass);
         TestLogAppender appender = new TestLogAppender(
                 "TestLogAppender-" + loggerClass.getSimpleName() + "-" + System.nanoTime(), logger);
         appender.start();
         logger.addAppender(appender);
-        logger.setLevel(Level.INFO);
+        logger.setLevel(level);
         return appender;
     }
 

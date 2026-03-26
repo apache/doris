@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.mysql.authenticate.TestLogAppender;
 
 import mockit.Expectations;
 import mockit.Mocked;
@@ -93,13 +94,12 @@ public class LdapManagerTest {
         mockClient(true, true);
         Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
 
-        try (LdapAuthenticatorTest.LdapTestLogAppender appender =
-                     LdapAuthenticatorTest.LdapTestLogAppender.attach(LdapManager.class)) {
+        try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
             Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
-            Assert.assertTrue(appender.contains(Level.INFO,
-                    "[LDAP-AUTH] LdapManager.checkUserPasswd: user=user1, result=cached_passwd_match, elapsed="));
+            Assert.assertTrue(appender.contains(Level.DEBUG,
+                    "LDAP-AUTH LdapManager.checkUserPasswd: user=user1, result=cached_passwd_match, elapsed="));
             Assert.assertFalse(appender.contains(Level.WARN,
-                    "[LDAP-AUTH] LdapManager.checkUserPasswd slow: user=user1"));
+                    "LDAP-AUTH LdapManager.checkUserPasswd slow: user=user1"));
         }
     }
 
@@ -108,13 +108,12 @@ public class LdapManagerTest {
         LdapManager ldapManager = new LdapManager();
         mockClient(true, true);
 
-        try (LdapAuthenticatorTest.LdapTestLogAppender appender =
-                     LdapAuthenticatorTest.LdapTestLogAppender.attach(LdapManager.class)) {
+        try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
             Assert.assertNotNull(ldapManager.getUserInfo(USER1));
-            Assert.assertTrue(appender.contains(Level.INFO,
-                    "[LDAP-AUTH] LdapManager.getUserInfo: user=user1, cacheHit=false, elapsed="));
+            Assert.assertTrue(appender.contains(Level.DEBUG,
+                    "LDAP-AUTH LdapManager.getUserInfo: user=user1, cacheHit=false, elapsed="));
             Assert.assertFalse(appender.contains(Level.WARN,
-                    "[LDAP-AUTH] LdapManager.getUserInfo slow: user=user1"));
+                    "LDAP-AUTH LdapManager.getUserInfo slow: user=user1"));
         }
     }
 }

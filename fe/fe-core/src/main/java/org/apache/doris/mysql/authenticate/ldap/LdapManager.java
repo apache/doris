@@ -84,19 +84,23 @@ public class LdapManager {
         LdapUserInfo ldapUserInfo = getUserInfoFromCache(fullName);
         if (ldapUserInfo != null && !ldapUserInfo.checkTimeout()) {
             long elapsed = System.currentTimeMillis() - start;
-            LOG.info("[LDAP-AUTH] LdapManager.getUserInfo: user={}, cacheHit=true, elapsed={}ms",
-                    fullName, elapsed);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH LdapManager.getUserInfo: user={}, cacheHit=true, elapsed={}ms",
+                        fullName, elapsed);
+            }
             return ldapUserInfo;
         }
         try {
             LdapUserInfo result = getUserInfoAndUpdateCache(fullName);
             long elapsed = System.currentTimeMillis() - start;
-            LOG.info("[LDAP-AUTH] LdapManager.getUserInfo: user={}, cacheHit=false, elapsed={}ms",
-                    fullName, elapsed);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH LdapManager.getUserInfo: user={}, cacheHit=false, elapsed={}ms",
+                        fullName, elapsed);
+            }
             return result;
         } catch (DdlException e) {
             long elapsed = System.currentTimeMillis() - start;
-            LOG.warn("[LDAP-AUTH] LdapManager.getUserInfo failed: user={}, elapsed={}ms",
+            LOG.warn("LDAP-AUTH LdapManager.getUserInfo failed: user={}, elapsed={}ms",
                     fullName, elapsed, e);
             return null;
         }
@@ -110,8 +114,10 @@ public class LdapManager {
         LdapUserInfo info = getUserInfo(fullName);
         boolean exists = !Objects.isNull(info) && info.isExists();
         long elapsed = System.currentTimeMillis() - start;
-        LOG.info("[LDAP-AUTH] LdapManager.doesUserExist: user={}, exists={}, elapsed={}ms",
-                fullName, exists, elapsed);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LDAP-AUTH LdapManager.doesUserExist: user={}, exists={}, elapsed={}ms",
+                    fullName, exists, elapsed);
+        }
         return exists;
     }
 
@@ -125,21 +131,27 @@ public class LdapManager {
         LdapUserInfo ldapUserInfo = getUserInfo(fullName);
         if (Objects.isNull(ldapUserInfo) || !ldapUserInfo.isExists()) {
             long elapsed = System.currentTimeMillis() - start;
-            LOG.info("[LDAP-AUTH] LdapManager.checkUserPasswd: user={}, result=user_not_found, elapsed={}ms",
-                    fullName, elapsed);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH LdapManager.checkUserPasswd: user={}, result=user_not_found, elapsed={}ms",
+                        fullName, elapsed);
+            }
             return false;
         }
 
         if (ldapUserInfo.isSetPasswd() && ldapUserInfo.getPasswd().equals(passwd)) {
             long elapsed = System.currentTimeMillis() - start;
-            LOG.info("[LDAP-AUTH] LdapManager.checkUserPasswd: user={}, result=cached_passwd_match, elapsed={}ms",
-                    fullName, elapsed);
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("LDAP-AUTH LdapManager.checkUserPasswd: user={}, result=cached_passwd_match, elapsed={}ms",
+                        fullName, elapsed);
+            }
             return true;
         }
         boolean isRightPasswd = ldapClient.checkPassword(userName, passwd);
         long elapsed = System.currentTimeMillis() - start;
-        LOG.info("[LDAP-AUTH] LdapManager.checkUserPasswd: user={}, result={}, elapsed={}ms",
-                fullName, isRightPasswd ? "ldap_auth_ok" : "ldap_auth_fail", elapsed);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LDAP-AUTH LdapManager.checkUserPasswd: user={}, result={}, elapsed={}ms",
+                    fullName, isRightPasswd ? "ldap_auth_ok" : "ldap_auth_fail", elapsed);
+        }
         if (!isRightPasswd) {
             return false;
         }
@@ -160,8 +172,10 @@ public class LdapManager {
         LdapUserInfo info = getUserInfo(fullName);
         Set<Role> roles = info == null ? Collections.emptySet() : info.getRoles();
         long elapsed = System.currentTimeMillis() - start;
-        LOG.info("[LDAP-AUTH] LdapManager.getUserRoles: user={}, roles={}, elapsed={}ms",
-                fullName, roles.size(), elapsed);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("LDAP-AUTH LdapManager.getUserRoles: user={}, roles={}, elapsed={}ms",
+                    fullName, roles.size(), elapsed);
+        }
         return roles;
     }
 
