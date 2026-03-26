@@ -29,11 +29,15 @@ import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreClientHelper;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
+import org.apache.doris.datasource.systable.SysTable;
+import org.apache.doris.datasource.systable.SysTableResolver;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -43,10 +47,12 @@ import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.qe.StmtExecutor;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Represents the command for SHOW CREATE TABLE.
@@ -90,9 +96,10 @@ public class ShowCreateTableCommand extends ShowCommand {
     private void validate(ConnectContext ctx) throws AnalysisException {
         tblNameInfo.analyze(ctx);
 
-        TableIf tableIf = Env.getCurrentEnv().getCatalogMgr()
+        DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                 .getCatalogOrAnalysisException(tblNameInfo.getCtl())
-                .getDbOrAnalysisException(tblNameInfo.getDb()).getTableOrAnalysisException(tblNameInfo.getTbl());
+                .getDbOrAnalysisException(tblNameInfo.getDb());
+        TableIf tableIf = resolveShowCreateTarget(db);
 
         if (tableIf instanceof MTMV) {
             ErrorReport.reportAnalysisException("not support async materialized view, "
@@ -106,12 +113,15 @@ public class ShowCreateTableCommand extends ShowCommand {
             wanted = PrivPredicate.SHOW;
         }
 
+        String authTableName = tableIf instanceof IcebergSysExternalTable
+                ? ((IcebergSysExternalTable) tableIf).getSourceTable().getName()
+                : tableIf.getName();
         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
-                tblNameInfo.getCtl(), tblNameInfo.getDb(), tblNameInfo.getTbl(), wanted)) {
+                tblNameInfo.getCtl(), tblNameInfo.getDb(), authTableName, wanted)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW CREATE TABLE",
                                                 ConnectContext.get().getQualifiedUser(),
                                                 ConnectContext.get().getRemoteIP(),
-                                                tblNameInfo.getDb() + ": " + tblNameInfo.getTbl());
+                                                tblNameInfo.getDb() + ": " + authTableName);
         }
     }
 
@@ -132,7 +142,10 @@ public class ShowCreateTableCommand extends ShowCommand {
         // Fetch the catalog, database, and table metadata
         DatabaseIf db = ctx.getEnv().getCatalogMgr().getCatalogOrAnalysisException(tblNameInfo.getCtl())
                             .getDbOrMetaException(tblNameInfo.getDb());
-        TableIf table = db.getTableOrMetaException(tblNameInfo.getTbl());
+        TableIf table = resolveShowCreateTarget(db);
+        if (table instanceof IcebergSysExternalTable) {
+            table = ((IcebergSysExternalTable) table).getSourceTable();
+        }
 
         List<List<String>> rows = Lists.newArrayList();
 
@@ -171,6 +184,28 @@ public class ShowCreateTableCommand extends ShowCommand {
         } finally {
             table.readUnlock();
         }
+    }
+
+    private TableIf resolveShowCreateTarget(DatabaseIf db) throws AnalysisException {
+        TableIf table = db.getTableNullable(tblNameInfo.getTbl());
+        if (table != null) {
+            return table;
+        }
+        Pair<String, String> tableNameWithSysTableName = SysTable.getTableNameWithSysTableName(tblNameInfo.getTbl());
+        if (Strings.isNullOrEmpty(tableNameWithSysTableName.second)) {
+            return db.getTableOrAnalysisException(tblNameInfo.getTbl());
+        }
+        TableIf sourceTable = db.getTableOrAnalysisException(tableNameWithSysTableName.first);
+        Optional<SysTableResolver.SysTableDescribe> sysTableDescribeOpt = SysTableResolver.resolveForDescribe(
+                sourceTable, tblNameInfo.getCtl(), tblNameInfo.getDb(), tblNameInfo.getTbl());
+        if (!sysTableDescribeOpt.isPresent()) {
+            throw new AnalysisException("sys table not found: " + tableNameWithSysTableName.second);
+        }
+        SysTableResolver.SysTableDescribe sysTableDescribe = sysTableDescribeOpt.get();
+        if (sysTableDescribe.isNative()) {
+            return sysTableDescribe.getSysExternalTable();
+        }
+        return sourceTable;
     }
 
 }

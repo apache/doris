@@ -319,6 +319,7 @@ struct TIcebergFileDesc {
     10: optional i64 first_row_id;
     // Only for format_version >= 3, the sequence number which last updated this file.
     11: optional i64 last_updated_sequence_number;
+    12: optional string serialized_split;
 }
 
 struct TPaimonDeletionFileDesc {
