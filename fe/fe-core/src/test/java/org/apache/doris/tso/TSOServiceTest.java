@@ -249,6 +249,19 @@ public class TSOServiceTest {
         }
     }
 
+    @Test
+    public void testUpdateTimestampReturnsEarlyWhenNotCalibrated() throws Exception {
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        long initialWindowEnd = 12345L;
+        tsoService.replayWindowEndTSO(new TSOTimestamp(initialWindowEnd, 0L));
+
+        invokeUpdateTimestamp(tsoService);
+
+        Assert.assertEquals(0L, tsoService.getCurrentTSO());
+        Assert.assertEquals(initialWindowEnd, tsoService.getWindowEndTSO());
+    }
+
     private static void invokeWriteTimestampToBdbJe(TSOService service, long timestamp) throws Exception {
         Method m = TSOService.class.getDeclaredMethod("writeTimestampToBDBJE", long.class);
         m.setAccessible(true);
@@ -267,6 +280,12 @@ public class TSOServiceTest {
             }
             throw e;
         }
+    }
+
+    private static void invokeUpdateTimestamp(TSOService service) throws Exception {
+        Method m = TSOService.class.getDeclaredMethod("updateTimestamp");
+        m.setAccessible(true);
+        m.invoke(service);
     }
 
     private static void setGlobalTimestamp(TSOService service, long physical, long logical) throws Exception {

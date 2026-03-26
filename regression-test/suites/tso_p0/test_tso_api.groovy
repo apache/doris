@@ -25,9 +25,10 @@ suite("test_tso_api", "nonConcurrent") {
         sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
         sleep(1000)
         def currentTime = System.currentTimeMillis()
+        def masterFeHttpAddress = "${getMasterIp()}:${getMasterPort('http')}"
 
         // Test TSO API endpoint
-        def url = String.format("http://%s/api/tso", context.config.feHttpAddress)
+        def url = String.format("http://%s/api/tso", masterFeHttpAddress)
 
         // Test 1: Basic TSO API access
         def result = Http.GET(url, true)

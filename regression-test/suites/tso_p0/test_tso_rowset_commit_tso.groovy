@@ -23,7 +23,8 @@ suite("test_tso_rowset_commit_tso", "nonConcurrent") {
     try {
         sql "ADMIN SET FRONTEND CONFIG ('experimental_enable_tso_feature' = 'true')"
         sleep(1000)
-        def url = String.format("http://%s/api/tso", context.config.feHttpAddress)
+        def masterFeHttpAddress = "${getMasterIp()}:${getMasterPort('http')}"
+        def url = String.format("http://%s/api/tso", masterFeHttpAddress)
         def tsoResp = Http.GET(url, true)
         if (tsoResp.code != 0) {
             logger.info("tso api not available, skip test_tso_rowset_commit_tso")

@@ -311,6 +311,7 @@ public class TSOService extends MasterDaemon {
 
         if (prevPhysicalTime == 0) {
             LOG.error("TSO timestamp is not calibrated, please check");
+            return;
         }
 
         // 2. Check for serious clock issues
