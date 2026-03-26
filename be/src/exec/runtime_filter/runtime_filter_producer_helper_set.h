@@ -25,9 +25,10 @@
 #include "exec/runtime_filter/runtime_filter_producer_helper.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
+
+class RuntimeState;
 #include "common/compile_check_begin.h"
 // this class used in set sink node
 class RuntimeFilterProducerHelperSet : public RuntimeFilterProducerHelper {

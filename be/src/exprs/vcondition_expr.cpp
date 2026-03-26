@@ -22,6 +22,7 @@
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "exprs/function_context.h"
+#include "runtime/runtime_state.h"
 #include "util/simd/bits.h"
 
 namespace doris {

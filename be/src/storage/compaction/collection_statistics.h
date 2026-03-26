@@ -22,12 +22,13 @@
 
 #include "common/be_mock_util.h"
 #include "exprs/vexpr_fwd.h"
-#include "runtime/runtime_state.h"
 #include "storage/index/inverted/query/query_info.h"
 #include "storage/olap_common.h"
 #include "storage/predicate_collector.h"
 
 namespace doris {
+
+class RuntimeState;
 #include "common/compile_check_begin.h"
 
 namespace io {

@@ -22,9 +22,10 @@
 #include "common/status.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
+
+class RuntimeState;
 
 class Block;
 class VExprContext;

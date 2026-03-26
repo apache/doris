@@ -24,13 +24,14 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "io/io_common.h"
-#include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_topn_runtime.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/column_predicate.h"
 #include "storage/rowid_conversion.h"
 
 namespace doris {
+
+class RuntimeState;
 
 class RowCursor;
 class DeleteBitmap;

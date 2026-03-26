@@ -30,9 +30,10 @@
 #include "exprs/vslot_ref.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_predicate.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
+
+class RuntimeState;
 #include "common/compile_check_begin.h"
 
 // only used for dynamic topn filter

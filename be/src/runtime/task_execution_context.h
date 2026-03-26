@@ -21,8 +21,6 @@
 #include <condition_variable>
 #include <memory>
 
-#include "runtime/runtime_state.h"
-
 namespace doris {
 
 class RuntimeState;

@@ -29,7 +29,6 @@
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "exprs/vslot_ref.h"
-#include "runtime/runtime_state.h"
 #include "storage/index/ann/ann_range_search_runtime.h"
 
 namespace doris {

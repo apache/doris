@@ -21,9 +21,10 @@
 #include "exprs/function/function.h"
 #include "exprs/vexpr.h"
 #include "runtime/descriptors.h"
-#include "runtime/runtime_state.h"
 
 namespace doris {
+
+class RuntimeState;
 class VColumnRef final : public VExpr {
     ENABLE_FACTORY_CREATOR(VColumnRef);
 
