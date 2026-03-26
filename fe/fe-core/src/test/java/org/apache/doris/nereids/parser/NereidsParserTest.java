@@ -24,6 +24,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundOneRowRelation;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.exceptions.SyntaxParseException;
@@ -1529,5 +1530,58 @@ public class NereidsParserTest extends ParserTestBase {
     public void testUnnest() {
         String sql = "SELECT t.* FROM LATERAL unnest([1,2], ['hi','hello']) WITH ORDINALITY AS t(c1,c2);";
         parsePlan(sql).matches(logicalGenerate().when(plan -> plan.getGenerators().get(0) instanceof Unnest));
+    }
+
+    @Test
+    public void testAnsiQuotes() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasAnsiQuotes).thenReturn(true);
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            helperMockedStatic.when(SqlModeHelper::hasPipeAsConcat).thenReturn(false);
+
+            // double-quoted identifier should be parsed as identifier, not string
+            LogicalPlan plan = nereidsParser.parseSingle("SELECT \"col1\" FROM \"tbl\"");
+            Assertions.assertEquals(PlanType.LOGICAL_PROJECT, plan.getType());
+            LogicalProject<?> logicalProject = (LogicalProject<?>) plan;
+            Assertions.assertEquals("col1", logicalProject.getProjects().get(0).getName());
+            Assertions.assertEquals("tbl", ((UnboundRelation) logicalProject.child()).getTableName());
+
+            // backtick-quoted identifier should still work
+            LogicalPlan plan2 = nereidsParser.parseSingle("SELECT `col1` FROM `tbl`");
+            Assertions.assertEquals(PlanType.LOGICAL_PROJECT, plan2.getType());
+            LogicalProject<?> logicalProject2 = (LogicalProject<?>) plan2;
+            Assertions.assertEquals("col1", logicalProject2.getProjects().get(0).getName());
+            Assertions.assertEquals("tbl", ((UnboundRelation) logicalProject2.child()).getTableName());
+
+            // single-quoted string should still be a string literal
+            Expression expr = nereidsParser.parseExpression("'hello'");
+            Assertions.assertTrue(expr instanceof StringLikeLiteral);
+            Assertions.assertEquals("hello", ((StringLikeLiteral) expr).getStringValue());
+
+            // double-quoted with escaped quotes: "col""name" -> col"name
+            LogicalPlan plan3 = nereidsParser.parseSingle("SELECT \"col\"\"name\" FROM t");
+            Assertions.assertEquals(PlanType.LOGICAL_PROJECT, plan3.getType());
+            LogicalProject<?> logicalProject3 = (LogicalProject<?>) plan3;
+            Assertions.assertEquals("col\"name", logicalProject3.getProjects().get(0).getName());
+            Assertions.assertEquals("t", ((UnboundRelation) logicalProject3.child()).getTableName());
+        }
+    }
+
+    @Test
+    public void testAnsiQuotesOff() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        try (MockedStatic<SqlModeHelper> helperMockedStatic = Mockito.mockStatic(SqlModeHelper.class)) {
+            helperMockedStatic.when(SqlModeHelper::hasAnsiQuotes).thenReturn(false);
+            helperMockedStatic.when(SqlModeHelper::hasNoBackSlashEscapes).thenReturn(false);
+            helperMockedStatic.when(SqlModeHelper::hasPipeAsConcat).thenReturn(false);
+
+            // without ANSI_QUOTES, double-quoted text should be a string literal
+            Expression expr = nereidsParser.parseExpression("\"hello\"");
+            Assertions.assertTrue(expr instanceof StringLikeLiteral);
+            Assertions.assertEquals("hello", ((StringLikeLiteral) expr).getStringValue());
+        }
     }
 }

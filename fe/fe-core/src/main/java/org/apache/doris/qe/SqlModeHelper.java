@@ -233,4 +233,12 @@ public class SqlModeHelper {
                 & MODE_ONLY_FULL_GROUP_BY) != 0;
     }
 
+    public static boolean hasAnsiQuotes() {
+        SessionVariable sessionVariable = ConnectContext.get() == null
+                ? VariableMgr.newSessionVariable()
+                : ConnectContext.get().getSessionVariable();
+        return ((sessionVariable.getSqlMode() & MODE_ALLOWED_MASK)
+                & MODE_ANSI_QUOTES) != 0;
+    }
+
 }

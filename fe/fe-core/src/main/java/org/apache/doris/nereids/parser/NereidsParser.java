@@ -72,6 +72,7 @@ public class NereidsParser {
     public static final Logger LOG = LogManager.getLogger(NereidsParser.class);
     private static final ParseErrorListener PARSE_ERROR_LISTENER = new ParseErrorListener();
     private static final PostProcessor POST_PROCESSOR = new PostProcessor();
+    private static volatile boolean lastAnsiQuotesState = false;
 
     private static final BitSet EXPLAIN_TOKENS = new BitSet();
 
@@ -142,7 +143,14 @@ public class NereidsParser {
      * for example: select id from tbl return Tokens: ['select', 'id', 'from', 'tbl']
      */
     public static TokenSource scan(String sql) {
-        return new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
+        lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
+        lexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
+        if (lexer.isAnsiQuotes != lastAnsiQuotesState) {
+            lexer.getInterpreter().clearDFA();
+            lastAnsiQuotesState = lexer.isAnsiQuotes;
+        }
+        return lexer;
     }
 
     /**
@@ -387,6 +395,8 @@ public class NereidsParser {
             if (hintToken.getChannel() == 2 && sql.charAt(hintToken.getStartIndex() + 2) == '+') {
                 String hintSql = sql.substring(hintToken.getStartIndex() + 3, hintToken.getStopIndex() + 1);
                 DorisLexer newHintLexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(hintSql)));
+                newHintLexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
+                newHintLexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
                 CommonTokenStream newHintTokenStream = new CommonTokenStream(newHintLexer);
                 DorisParser hintParser = new DorisParser(newHintTokenStream);
                 ParserRuleContext hintContext = parseFunction.apply(hintParser);
@@ -466,6 +476,11 @@ public class NereidsParser {
     private static CommonTokenStream parseAllTokens(String sql) {
         DorisLexer lexer = new DorisLexer(new CaseInsensitiveStream(CharStreams.fromString(sql)));
         lexer.isNoBackslashEscapes = SqlModeHelper.hasNoBackSlashEscapes();
+        lexer.isAnsiQuotes = SqlModeHelper.hasAnsiQuotes();
+        if (lexer.isAnsiQuotes != lastAnsiQuotesState) {
+            lexer.getInterpreter().clearDFA();
+            lastAnsiQuotesState = lexer.isAnsiQuotes;
+        }
         CommonTokenStream tokenStream = new CommonTokenStream(lexer);
         tokenStream.fill();
         return tokenStream;
