@@ -602,6 +602,17 @@ Status ExecEnv::init_mem_env() {
     } else {
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
+#ifdef __APPLE__
+    // On macOS, rlim_cur can be RLIM_INFINITY (INT64_MAX), which causes
+    // fd_number / 100 * percentage to overflow and crash cast_set<uint32_t>.
+    // Linux kernels cap this via fs.nr_open (default 1M), so only macOS needs this.
+    {
+        constexpr uint64_t max_fd = UINT32_MAX >> 2;
+        if (fd_number > max_fd) {
+            fd_number = max_fd;
+        }
+    }
+#endif
 
     int64_t segment_cache_capacity = 0;
     if (config::is_cloud_mode()) {
