@@ -41,13 +41,13 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * When file splits are supplied in batch mode, splits are generated lazily and assigned in each call of `getNextBatch`.
- * `SplitGenerator` provides the file splits, and `FederationBackendPolicy` assigns these splits to backends.
+ * `PlanningSplitProducer` produces the file splits, and `FederationBackendPolicy` assigns these splits to backends.
  */
-public class SplitAssignment {
+public class SplitAssignment implements SplitSink {
     private static final Logger LOG = LogManager.getLogger(SplitAssignment.class);
     private final Set<Long> sources = new HashSet<>();
     private final FederationBackendPolicy backendPolicy;
-    private final SplitGenerator splitGenerator;
+    private final PlanningSplitProducer planningSplitProducer;
     private final ConcurrentHashMap<Backend, BlockingQueue<Collection<TScanRangeLocations>>> assignment
             = new ConcurrentHashMap<>();
     private final SplitToScanRange splitToScanRange;
@@ -69,8 +69,19 @@ public class SplitAssignment {
             Map<String, String> locationProperties,
             List<String> pathPartitionKeys,
             boolean fileCacheAdmission) {
+        this(backendPolicy, splitGenerator.getPlanningSplitProducer(), splitToScanRange,
+                locationProperties, pathPartitionKeys, fileCacheAdmission);
+    }
+
+    public SplitAssignment(
+            FederationBackendPolicy backendPolicy,
+            PlanningSplitProducer planningSplitProducer,
+            SplitToScanRange splitToScanRange,
+            Map<String, String> locationProperties,
+            List<String> pathPartitionKeys,
+            boolean fileCacheAdmission) {
         this.backendPolicy = backendPolicy;
-        this.splitGenerator = splitGenerator;
+        this.planningSplitProducer = planningSplitProducer;
         this.splitToScanRange = splitToScanRange;
         this.locationProperties = locationProperties;
         this.pathPartitionKeys = pathPartitionKeys;
@@ -78,7 +89,7 @@ public class SplitAssignment {
     }
 
     public void init() throws UserException {
-        splitGenerator.startSplit(backendPolicy.numBackends());
+        planningSplitProducer.start(backendPolicy.numBackends(), this);
         synchronized (assignLock) {
             final int waitIntervalTimeMillis = 100;
             final int initTimeoutMillis = 30000; // 30s
@@ -103,6 +114,11 @@ public class SplitAssignment {
 
     public boolean needMoreSplit() {
         return !scheduleFinished.get() && !isStopped.get() && exception == null;
+    }
+
+    @Override
+    public boolean needMore() {
+        return needMoreSplit();
     }
 
     private void appendBatch(Multimap<Backend, Split> batch) throws UserException {
@@ -154,6 +170,11 @@ public class SplitAssignment {
         appendBatch(batch);
     }
 
+    @Override
+    public void addBatch(List<Split> splits) throws UserException {
+        addToQueue(splits);
+    }
+
     private void notifyAssignment() {
         synchronized (assignLock) {
             assignLock.notify();
@@ -177,6 +198,11 @@ public class SplitAssignment {
         notifyAssignment();
     }
 
+    @Override
+    public void fail(UserException e) {
+        setException(e);
+    }
+
     private void addUserException(UserException e) {
         if (exception != null) {
             exception.addSuppressed(e);
@@ -190,11 +216,17 @@ public class SplitAssignment {
         notifyAssignment();
     }
 
+    @Override
+    public void finish() {
+        finishSchedule();
+    }
+
     public void stop() {
         if (isStop()) {
             return;
         }
         isStopped.set(true);
+        planningSplitProducer.stop();
         closeableResources.forEach((closeable) -> {
             try {
                 closeable.close();

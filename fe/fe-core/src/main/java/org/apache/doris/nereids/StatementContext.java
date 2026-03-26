@@ -1155,6 +1155,13 @@ public class StatementContext implements Closeable {
     }
 
     /**
+     * Whether rewrite file scan tasks are present for the current statement.
+     */
+    public boolean hasIcebergRewriteFileScanTasks() {
+        return icebergRewriteFileScanTasks != null && !icebergRewriteFileScanTasks.isEmpty();
+    }
+
+    /**
      * Get and consume file scan tasks for Iceberg rewrite operations.
      * Returns the tasks and clears the field to prevent reuse.
      */

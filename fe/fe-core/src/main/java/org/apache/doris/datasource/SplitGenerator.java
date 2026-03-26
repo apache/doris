@@ -52,6 +52,30 @@ public interface SplitGenerator {
         return -1;
     }
 
+    default PlanningSplitProducer getPlanningSplitProducer() {
+        return new PlanningSplitProducer() {
+            @Override
+            public boolean isBatchMode() {
+                return SplitGenerator.this.isBatchMode();
+            }
+
+            @Override
+            public int numApproximateSplits() {
+                return SplitGenerator.this.numApproximateSplits();
+            }
+
+            @Override
+            public void start(int numBackends, SplitSink splitSink) throws UserException {
+                SplitGenerator.this.startSplit(numBackends);
+            }
+
+            @Override
+            public void stop() {
+                SplitGenerator.this.stop();
+            }
+        };
+    }
+
     default void startSplit(int numBackends) throws UserException {
     }
 

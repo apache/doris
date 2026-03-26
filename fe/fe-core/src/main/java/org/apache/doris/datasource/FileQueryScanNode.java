@@ -336,6 +336,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
+        PlanningSplitProducer planningSplitProducer = getPlanningSplitProducer();
 
         boolean admissionResult = true;
         if (ConnectContext.get().getSessionVariable().isEnableFileCache()
@@ -343,10 +344,10 @@ public abstract class FileQueryScanNode extends FileScanNode {
             admissionResult = fileCacheAdmissionCheck();
         }
 
-        if (isBatchMode()) {
+        if (planningSplitProducer.isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+            splitAssignment = new SplitAssignment(backendPolicy, planningSplitProducer, this::splitToScanRange,
                     locationProperties, pathPartitionKeys, admissionResult);
             splitAssignment.init();
             if (executor != null) {
@@ -357,7 +358,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
             }
             FileSplit fileSplit = (FileSplit) splitAssignment.getSampleSplit();
             TFileType locationType = fileSplit.getLocationType();
-            selectedSplitNum = numApproximateSplits();
+            selectedSplitNum = planningSplitProducer.numApproximateSplits();
             if (selectedSplitNum < 0) {
                 throw new UserException("Approximate split number should not be negative");
             }
