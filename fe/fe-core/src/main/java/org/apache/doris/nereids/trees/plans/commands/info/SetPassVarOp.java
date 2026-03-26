@@ -81,7 +81,7 @@ public class SetPassVarOp extends SetVarOp {
 
     @Override
     public void run(ConnectContext ctx) throws Exception {
-        ctx.getEnv().getAuth().setPassword(userIdent, passVar.getScrambled());
+        ctx.getEnv().getAuth().setPassword(this);
     }
 
     @Override
@@ -101,5 +101,13 @@ public class SetPassVarOp extends SetVarOp {
 
     public UserIdentity getUserIdent() {
         return userIdent;
+    }
+
+    public String getUserPassword() {
+        return passVar.getText();
+    }
+
+    public byte[] getPassword() {
+        return passVar.getScrambled();
     }
 }

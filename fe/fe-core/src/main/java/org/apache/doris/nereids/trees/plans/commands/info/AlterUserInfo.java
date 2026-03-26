@@ -76,6 +76,13 @@ public class AlterUserInfo {
         return null;
     }
 
+    public String getUserPassword() {
+        if (userDesc.hasPassword()) {
+            return userDesc.getPassVar().getText();
+        }
+        return null;
+    }
+
     public PasswordOptions getPasswordOptions() {
         return passwordOptions;
     }

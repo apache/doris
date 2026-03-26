@@ -38,6 +38,7 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -65,7 +66,7 @@ public class AccessTestUtil {
         try {
             new Expectations(auth) {
                 {
-                    auth.setPassword((UserIdentity) any, (byte[]) any);
+                    auth.setPassword((SetPassVarOp) any);
                     minTimes = 0;
                 }
             };

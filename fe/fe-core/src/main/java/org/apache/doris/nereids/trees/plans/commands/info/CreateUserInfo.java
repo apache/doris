@@ -156,4 +156,8 @@ public class CreateUserInfo {
     public PassVar getPassVar() {
         return passVar;
     }
+
+    public String getUserPassword() {
+        return passVar.getText();
+    }
 }

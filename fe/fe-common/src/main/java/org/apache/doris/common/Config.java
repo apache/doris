@@ -3550,4 +3550,7 @@ public class Config extends ConfigBase {
                     + "obtaining partition version information when calculating the delete bitmap. Enabled "
                     + "by default."})
     public static boolean calc_delete_bitmap_get_versions_waiting_for_pending_txns = true;
+
+    @ConfField(description = {"Whether to enable password verification for complex types of users"})
+    public static boolean enable_complex_password = false;
 }

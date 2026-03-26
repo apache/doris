@@ -56,6 +56,7 @@ import org.apache.doris.nereids.trees.plans.commands.RevokeRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.RevokeTablePrivilegeCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.SetPassVarOp;
 import org.apache.doris.nereids.trees.plans.commands.refresh.RefreshLdapCommand;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.LdapInfo;
@@ -482,9 +483,46 @@ public class Auth implements Writable {
     }
 
     public void createUser(CreateUserInfo info) throws DdlException {
+        if (Config.enable_complex_password) {
+            checkPassword(info.getUserIdent(), info.getUserPassword());
+        }
         createUserInternal(info.getUserIdent(), info.getRole(),
                 info.getPassword(), info.isIfNotExist(), info.getPasswordOptions(),
                 info.getComment(), info.getUserId(), false);
+    }
+
+    private boolean isValidPassword(String password) {
+        if (password.length() < 8) {
+            return false;
+        }
+        boolean hasUpperCase = false;
+        boolean hashLowerCase = false;
+        boolean hasDigit = false;
+        boolean hashSpecialChar = false;
+
+        for (char c : password.toCharArray()) {
+            if (Character.isUpperCase(c)) {
+                hasUpperCase = true;
+            } else if (Character.isLowerCase(c)) {
+                hashLowerCase = true;
+            } else if (Character.isDigit(c)) {
+                hasDigit = true;
+            } else {
+                hashSpecialChar = true;
+            }
+        }
+        return hasUpperCase && hashLowerCase && hasDigit && hashSpecialChar;
+    }
+
+    private void checkPassword(UserIdentity userIdentity, String password) throws DdlException {
+        if (userIdentity.getQualifiedUser().equals(ROOT_USER) && userIdentity.getHost().equals("%")
+                && !Strings.isNullOrEmpty(password)) {
+            return;
+        }
+        if (!isValidPassword(password)) {
+            throw new DdlException("Ths password is not secure enough. password must contains at least "
+               + "eight character, including uppercase letters, lowercase letters, digits, and special characters");
+        }
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
@@ -979,9 +1017,12 @@ public class Auth implements Writable {
         }
     }
 
-    public void setPassword(UserIdentity userIdentity, byte[] password) throws DdlException {
-        setPasswordInternal(userIdentity, password, null, true /* err on non exist */,
-                false /* set by resolver */, false);
+    public void setPassword(SetPassVarOp passVarOp) throws DdlException {
+        if (Config.enable_complex_password) {
+            checkPassword(passVarOp.getUserIdent(), passVarOp.getUserPassword());
+        }
+        setPasswordInternal(passVarOp.getUserIdent(), passVarOp.getPassword(), null,
+                true /* err on non exist */, false /* set by resolver */, false);
     }
 
     public void replaySetPassword(PrivInfo info) {
