@@ -1253,12 +1253,15 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                           << ", mem manager tablet path=" << tablet_in_not_shutdown->tablet_path()
                           << ", shutdown tablet path=" << tablet->tablet_path();
                 if (tablet->is_force_deleted()) {
-                    Status del_st = io::global_local_filesystem()->delete_directory(tablet->tablet_path());
+                    Status del_st = 
+                            io::global_local_filesystem()->delete_directory(tablet->tablet_path());
                     if (!del_st.ok()) {
-                        LOG(WARNING) << "fail to force delete tablet dir. " << tablet->tablet_path();
+                        LOG(WARNING) 
+                                << "fail to force delete tablet dir. " << tablet->tablet_path();
                         return false;
                     }
-                    RETURN_IF_ERROR(DataDir::delete_tablet_parent_path_if_empty(tablet->tablet_path()));
+                    RETURN_IF_ERROR(
+                            DataDir::delete_tablet_parent_path_if_empty(tablet->tablet_path()));
                     return true;
                 } else {
                     return tablet->data_dir()->move_to_trash(tablet->tablet_path());
