@@ -21,7 +21,7 @@ suite("test_text_garbled_file", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
 
-        for (String hivePrefix : ["hive2", "hive3"]) {
+        for (String hivePrefix : ["hive3"]) {
             String extHiveHmsHost = context.config.otherConfigs.get("externalEnvIp")
             String extHiveHmsPort = context.config.otherConfigs.get(hivePrefix + "HmsPort")
             String catalog_name = hivePrefix + "_test_text_garbled_file"

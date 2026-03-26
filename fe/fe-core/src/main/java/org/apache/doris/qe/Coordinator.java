@@ -72,6 +72,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SchemaScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.SortNode;
+import org.apache.doris.planner.TVFTableSink;
 import org.apache.doris.planner.UnionNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
@@ -1793,6 +1794,24 @@ public class Coordinator implements CoordInterface {
                 // TODO: rethink the whole function logic. could All BE sink naturally merged into other judgements?
                 return;
             }
+            // For local TVF sink with a specific backend_id, we must execute the sink fragment
+            // on the designated backend. Otherwise, data would be written to the wrong node's local disk.
+            if (fragment.getSink() instanceof TVFTableSink) {
+                TVFTableSink tvfSink = (TVFTableSink) fragment.getSink();
+                if ("local".equals(tvfSink.getTvfName()) && tvfSink.getBackendId() != -1) {
+                    Backend targetBackend = Env.getCurrentSystemInfo().getBackend(tvfSink.getBackendId());
+                    if (targetBackend == null || !targetBackend.isAlive()) {
+                        throw new UserException("Backend " + tvfSink.getBackendId()
+                                + " is not available for local TVF sink");
+                    }
+                    TNetworkAddress execHostport = new TNetworkAddress(
+                            targetBackend.getHost(), targetBackend.getBePort());
+                    this.addressToBackendID.put(execHostport, targetBackend.getId());
+                    FInstanceExecParam instanceParam = new FInstanceExecParam(null, execHostport, params);
+                    params.instanceExecParams.add(instanceParam);
+                    continue;
+                }
+            }
 
             if (fragment.getDataPartition() == DataPartition.UNPARTITIONED) {
                 Reference<Long> backendIdRef = new Reference<Long>();
@@ -2478,10 +2497,10 @@ public class Coordinator implements CoordInterface {
                 updateStatus(status);
             }
         }
-        if (params.isSetDeltaUrls()) {
+        if (params.isSetDeltaUrls() && deltaUrls != null) {
             updateDeltas(params.getDeltaUrls());
         }
-        if (params.isSetLoadCounters()) {
+        if (params.isSetLoadCounters() && loadCounters != null) {
             updateLoadCounters(params.getLoadCounters());
         }
         if (params.isSetTrackingUrl()) {
