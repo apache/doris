@@ -20,11 +20,13 @@ package org.apache.doris.mtmv.ivm;
 import org.apache.doris.catalog.MTMV;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalResultSink;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
 
@@ -94,17 +96,17 @@ class IvmDeltaRewriterTest {
     }
 
     @Test
-    void testUnsupportedNodeThrows(@Mocked MTMV mtmv) {
+    void testUnsupportedSortNodeThrows(@Mocked MTMV mtmv) {
         LogicalOlapScan scan = buildScan();
         ImmutableList<NamedExpression> exprs = ImmutableList.copyOf(scan.getOutput());
-        // Nest ResultSink inside ResultSink — inner one is unsupported after stripping outer
-        LogicalResultSink<?> inner = new LogicalResultSink<>(exprs, scan);
-        LogicalResultSink<?> outer = new LogicalResultSink<>(exprs, inner);
+        LogicalSort<LogicalOlapScan> sort = new LogicalSort<>(
+                ImmutableList.of(new OrderKey(scan.getOutput().get(0), true, true)), scan);
+        LogicalResultSink<?> plan = new LogicalResultSink<>(exprs, sort);
 
         IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext());
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
-                () -> new IvmDeltaRewriter().rewrite(outer, ctx));
-        Assertions.assertTrue(ex.getMessage().contains("does not yet support"));
+                () -> new IvmDeltaRewriter().rewrite(plan, ctx));
+        Assertions.assertTrue(ex.getMessage().contains("LogicalSort"));
     }
 
     @Test

@@ -195,7 +195,7 @@ public class CreateViewTest {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException("test");
         View alter1 = (View) db.getTableOrDdlException("alter1");
         Assert.assertEquals(
-                "select `internal`.`test`.`tbl1`.`k1` as `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) as `kc2` from `internal`.`test`.`tbl1` group by kc1",
+                "select `internal`.`test`.`tbl1`.`k1` AS `kc1`, sum(`internal`.`test`.`tbl1`.`k2`) AS `kc2` from `internal`.`test`.`tbl1` group by kc1",
                 alter1.getInlineViewDef());
 
         String alterStmt
@@ -207,7 +207,7 @@ public class CreateViewTest {
         Assert.assertEquals(
                 "with `test1_cte` (`w1`, `w2`) as "
                         + "(select `internal`.`test`.`tbl1`.`k1`, `internal`.`test`.`tbl1`.`k2` "
-                        + "from `internal`.`test`.`tbl1`) select w1 as `c1`, sum(`test1_cte`.`w2`) as `c2` "
+                        + "from `internal`.`test`.`tbl1`) select w1 AS `c1`, sum(`test1_cte`.`w2`) AS `c2` "
                         + "from test1_cte where `test1_cte`.`w1` > 10 group by `test1_cte`.`w1` order by w1",
                 alter1.getInlineViewDef());
     }
