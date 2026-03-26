@@ -65,7 +65,7 @@ import java.util.stream.Collectors;
  * Supported: OlapScan, filter, project, result sink, logical olap table sink.
  * TODO: avg rewrite, join support.
  */
-public class IvmNormalizeMtmvPlan extends DefaultPlanRewriter<IvmContext> implements CustomRewriter {
+public class IvmNormalizeMtmv extends DefaultPlanRewriter<IvmContext> implements CustomRewriter {
 
     @Override
     public Plan rewriteRoot(Plan plan, JobContext jobContext) {
