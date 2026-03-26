@@ -24,7 +24,6 @@
 #include <array>
 #include <cstddef>
 #include <cstring>
-#include <string>
 #include <vector>
 
 #include "common/cast_set.h"
@@ -33,7 +32,6 @@
 #include "vec/columns/column_string.h"
 #include "vec/columns/column_varbinary.h"
 #include "vec/common/assert_cast.h"
-#include "vec/functions/function_helpers.h"
 #include "vec/utils/stringop_substring.h"
 #include "vec/utils/template_helpers.hpp"
 
@@ -49,14 +47,21 @@ static ColumnPtr default_string_pad_column() {
     return default_pad;
 }
 
-struct PreparedStringPadArguments {
+static ColumnPtr default_varbinary_pad_column() {
+    auto default_pad = ColumnVarbinary::create();
+    default_pad->insert_data("\0", 1);
+    return default_pad;
+}
+
+struct PreparedPadArguments {
     std::array<ColumnPtr, 3> columns;
     std::array<bool, 3> column_const {};
 };
 
-static PreparedStringPadArguments prepare_string_pad_arguments(const Block& block,
-                                                               const ColumnNumbers& arguments) {
-    PreparedStringPadArguments prepared;
+static PreparedPadArguments prepare_pad_arguments(const Block& block,
+                                                  const ColumnNumbers& arguments,
+                                                  ColumnPtr default_pad) {
+    PreparedPadArguments prepared;
     const size_t n = arguments.size();
     DCHECK(n == 2 || n == 3);
     for (size_t i = 0; i < n; ++i) {
@@ -64,20 +69,18 @@ static PreparedStringPadArguments prepare_string_pad_arguments(const Block& bloc
                 unpack_if_const(block.get_by_position(arguments[i]).column);
     }
     if (n == 2) {
-        prepared.columns[2] = default_string_pad_column();
+        prepared.columns[2] = std::move(default_pad);
         prepared.column_const[2] = true;
     }
     return prepared;
 }
 
 template <bool str_const, bool len_const, bool pad_const>
-static void lpad_spark_execute_utf8(const ColumnString::Offsets& strcol_offsets,
-                                    const ColumnString::Chars& strcol_chars,
-                                    const ColumnInt32::Container& col_len_data,
-                                    const ColumnString::Offsets& padcol_offsets,
-                                    const ColumnString::Chars& padcol_chars,
-                                    ColumnString::Offsets& res_offsets,
-                                    ColumnString::Chars& res_chars, size_t input_rows_count) {
+static void execute_lpad_spark_string_utf8_rows(
+        const ColumnString::Offsets& strcol_offsets, const ColumnString::Chars& strcol_chars,
+        const ColumnInt32::Container& col_len_data, const ColumnString::Offsets& padcol_offsets,
+        const ColumnString::Chars& padcol_chars, ColumnString::Offsets& res_offsets,
+        ColumnString::Chars& res_chars, size_t input_rows_count) {
     std::vector<size_t> pad_index;
     size_t const_pad_char_size = 0;
     if constexpr (pad_const) {
@@ -156,8 +159,8 @@ static void lpad_spark_execute_utf8(const ColumnString::Offsets& strcol_offsets,
     res_chars.insert(buffer.data(), buffer.data() + buffer_len);
 }
 
-static Status execute_string_spark_pad(Block& block, uint32_t result, size_t input_rows_count,
-                                       const PreparedStringPadArguments& prepared) {
+static Status execute_lpad_spark_string_core(Block& block, uint32_t result, size_t input_rows_count,
+                                             const PreparedPadArguments& prepared) {
     auto null_map = ColumnUInt8::create(input_rows_count, 0);
     auto res = ColumnString::create();
     auto& res_offsets = res->get_offsets();
@@ -177,8 +180,9 @@ static Status execute_string_spark_pad(Block& block, uint32_t result, size_t inp
 
     std::visit(
             [&](auto str_tag, auto len_tag, auto pad_tag) {
-                lpad_spark_execute_utf8<decltype(str_tag)::value, decltype(len_tag)::value,
-                                        decltype(pad_tag)::value>(
+                execute_lpad_spark_string_utf8_rows<decltype(str_tag)::value,
+                                                    decltype(len_tag)::value,
+                                                    decltype(pad_tag)::value>(
                         strcol_offsets, strcol_chars, col_len_data, padcol_offsets, padcol_chars,
                         res_offsets, res_chars, input_rows_count);
             },
@@ -192,12 +196,12 @@ static Status execute_string_spark_pad(Block& block, uint32_t result, size_t inp
 }
 
 template <bool bin_const, bool len_const, bool pad_const>
-static void execute_lpad_spark_varbinary_dispatch(const ColumnVarbinary* bincol,
-                                                  const ColumnInt32::Container& col_len_data,
-                                                  const ColumnVarbinary* padcol,
-                                                  ColumnVarbinary* res, size_t n) {
+static void execute_lpad_spark_varbinary_rows(const ColumnVarbinary* bincol,
+                                              const ColumnInt32::Container& col_len_data,
+                                              const ColumnVarbinary* padcol, ColumnVarbinary* res,
+                                              size_t input_rows_count) {
     std::vector<char> row_scratch;
-    for (size_t i = 0; i < n; ++i) {
+    for (size_t i = 0; i < input_rows_count; ++i) {
         StringView bytes = bincol->get_data()[index_check_const<bin_const>(i)];
         const int len = col_len_data[index_check_const<len_const>(i)];
         StringView pad = padcol->get_data()[index_check_const<pad_const>(i)];
@@ -228,44 +232,27 @@ static void execute_lpad_spark_varbinary_dispatch(const ColumnVarbinary* bincol,
     }
 }
 
-static Status execute_varbinary_lpad_core(Block& block, uint32_t result, size_t input_rows_count,
-                                          ColumnPtr* col, const bool* col_const,
-                                          size_t num_arguments) {
-    DCHECK(num_arguments == 2 || num_arguments == 3);
+static Status execute_lpad_spark_varbinary_core(Block& block, uint32_t result,
+                                                size_t input_rows_count,
+                                                const PreparedPadArguments& prepared) {
     auto null_map = ColumnUInt8::create(input_rows_count, 0);
     MutableColumnPtr res_col = ColumnVarbinary::create();
     auto* res = assert_cast<ColumnVarbinary*>(res_col.get());
 
-    ColumnPtr local_col[3];
-    bool local_const[3];
-    local_col[0] = col[0];
-    local_col[1] = col[1];
-    local_const[0] = col_const[0];
-    local_const[1] = col_const[1];
-    if (num_arguments == 2) {
-        auto default_pad = ColumnVarbinary::create();
-        default_pad->insert_data("\0", 1);
-        local_col[2] = std::move(default_pad);
-        local_const[2] = true;
-    } else {
-        local_col[2] = col[2];
-        local_const[2] = col_const[2];
-    }
-
-    const auto* bincol = assert_cast<const ColumnVarbinary*>(local_col[0].get());
-    const auto* col_len = assert_cast<const ColumnInt32*>(local_col[1].get());
+    const auto* bincol = assert_cast<const ColumnVarbinary*>(prepared.columns[0].get());
+    const auto* col_len = assert_cast<const ColumnInt32*>(prepared.columns[1].get());
     const auto& col_len_data = col_len->get_data();
-    const auto* padcol = assert_cast<const ColumnVarbinary*>(local_col[2].get());
+    const auto* padcol = assert_cast<const ColumnVarbinary*>(prepared.columns[2].get());
 
     std::visit(
             [&](auto bin_c, auto len_c, auto pad_c) {
-                execute_lpad_spark_varbinary_dispatch<
-                        decltype(bin_c)::value, decltype(len_c)::value, decltype(pad_c)::value>(
+                execute_lpad_spark_varbinary_rows<decltype(bin_c)::value, decltype(len_c)::value,
+                                                  decltype(pad_c)::value>(
                         bincol, col_len_data, padcol, res, input_rows_count);
             },
-            vectorized::make_bool_variant(local_const[0]),
-            vectorized::make_bool_variant(local_const[1]),
-            vectorized::make_bool_variant(local_const[2]));
+            vectorized::make_bool_variant(prepared.column_const[0]),
+            vectorized::make_bool_variant(prepared.column_const[1]),
+            vectorized::make_bool_variant(prepared.column_const[2]));
 
     block.get_by_position(result).column =
             ColumnNullable::create(std::move(res_col), std::move(null_map));
@@ -274,21 +261,14 @@ static Status execute_varbinary_lpad_core(Block& block, uint32_t result, size_t 
 
 static Status execute_lpad_spark_string_block(Block& block, const ColumnNumbers& arguments,
                                               uint32_t result, size_t input_rows_count) {
-    auto prepared = prepare_string_pad_arguments(block, arguments);
-    return execute_string_spark_pad(block, result, input_rows_count, prepared);
+    auto prepared = prepare_pad_arguments(block, arguments, default_string_pad_column());
+    return execute_lpad_spark_string_core(block, result, input_rows_count, prepared);
 }
 
 static Status execute_lpad_spark_varbinary_block(Block& block, const ColumnNumbers& arguments,
                                                  uint32_t result, size_t input_rows_count) {
-    const size_t n = arguments.size();
-    DCHECK(n == 2 || n == 3);
-    ColumnPtr col[3];
-    bool col_const[3];
-    for (size_t i = 0; i < n; ++i) {
-        std::tie(col[i], col_const[i]) =
-                unpack_if_const(block.get_by_position(arguments[i]).column);
-    }
-    return execute_varbinary_lpad_core(block, result, input_rows_count, col, col_const, n);
+    auto prepared = prepare_pad_arguments(block, arguments, default_varbinary_pad_column());
+    return execute_lpad_spark_varbinary_core(block, result, input_rows_count, prepared);
 }
 
 template <int NumArgs>
