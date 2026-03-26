@@ -1286,8 +1286,17 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
 
     for (auto paths : sub_all_access_paths) {
         if (paths.data_access_path.path[0] == ACCESS_ALL) {
-            paths.data_access_path.path[0] = _key_iterator->column_name();
-            key_all_access_paths.emplace_back(paths);
+            // ACCESS_ALL means element_at(map, key) style access: the key column must be
+            // fully read so that the runtime can match the requested key, while any sub-path
+            // qualifiers (e.g. OFFSET) apply only to the value column.
+            // For key: create a path with just the column name (= full data access).
+            TColumnAccessPath key_path;
+            key_path.__set_type(paths.type);
+            TDataAccessPath key_data_path;
+            key_data_path.__set_path({_key_iterator->column_name()});
+            key_path.__set_data_access_path(key_data_path);
+            key_all_access_paths.emplace_back(std::move(key_path));
+            // For value: pass the full sub-path so qualifiers like OFFSET propagate.
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_all_access_paths.emplace_back(paths);
         } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
@@ -1303,8 +1312,13 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
 
     for (auto paths : sub_predicate_access_paths) {
         if (paths.data_access_path.path[0] == ACCESS_ALL) {
-            paths.data_access_path.path[0] = _key_iterator->column_name();
-            key_predicate_access_paths.emplace_back(paths);
+            // Same logic as above: key needs full data, value gets the sub-path.
+            TColumnAccessPath key_path;
+            key_path.__set_type(paths.type);
+            TDataAccessPath key_data_path;
+            key_data_path.__set_path({_key_iterator->column_name()});
+            key_path.__set_data_access_path(key_data_path);
+            key_predicate_access_paths.emplace_back(std::move(key_path));
             paths.data_access_path.path[0] = _val_iterator->column_name();
             val_predicate_access_paths.emplace_back(paths);
         } else if (paths.data_access_path.path[0] == ACCESS_MAP_KEYS) {
