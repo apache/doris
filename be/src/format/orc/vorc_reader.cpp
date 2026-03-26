@@ -453,9 +453,9 @@ Status OrcReader::on_before_init_reader(
         const TFileScanRangeParams& params, const TFileRangeDesc& range,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    RETURN_IF_ERROR(GenericReader::on_before_init_reader(
-            column_descs, column_names, table_info_node, column_ids, filter_column_ids, params,
-            range, tuple_descriptor, row_descriptor, state, col_name_to_block_idx));
+    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
+            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
+            col_name_to_block_idx));
 
     // Build table_info_node from ORC file type with case-insensitive recursive matching.
     // _reader is available here because init_reader calls _create_file_reader() before this hook.
@@ -724,9 +724,6 @@ Status OrcReader::_init_read_columns() {
 
     // Build _fill_missing_defaults from _column_descs.
     // Default value expressions are pre-computed once per table scan in FileScanner.
-    // Clear first: GenericReader::get_columns() may have auto-populated _fill_missing_defaults
-    // using case-sensitive comparison (e.g. 'id' not found when file has 'Id'), but
-    // _init_read_columns uses by_orc_name for proper case-insensitive matching.
     _fill_missing_defaults.clear();
     if (_column_descs && !_missing_cols.empty()) {
         std::unordered_set<std::string> missing_set(_missing_cols.begin(), _missing_cols.end());

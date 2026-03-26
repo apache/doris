@@ -51,10 +51,8 @@ Status GenericReader::_prepare_fill_columns(const std::vector<ColumnDescriptor>&
     return Status::OK();
 }
 
-Status GenericReader::on_before_init_reader(
+Status GenericReader::_init_common_reader_states(
         std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
         const TFileScanRangeParams& params, const TFileRangeDesc& range,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
@@ -62,6 +60,27 @@ Status GenericReader::on_before_init_reader(
     _fill_col_name_to_block_idx = col_name_to_block_idx;
     RETURN_IF_ERROR(_prepare_fill_columns(column_descs, params, range, tuple_descriptor,
                                           row_descriptor, state));
+
+    // Extract column names for reading: REGULAR + GENERATED columns need file reading
+    for (auto& desc : column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            column_names.push_back(desc.name);
+        }
+    }
+    return Status::OK();
+}
+
+Status GenericReader::on_before_init_reader(
+        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
+        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
+        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
+        const TFileScanRangeParams& params, const TFileRangeDesc& range,
+        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
+    RETURN_IF_ERROR(_init_common_reader_states(column_descs, column_names, params, range,
+                                               tuple_descriptor, row_descriptor, state,
+                                               col_name_to_block_idx));
 
     // Build default table_info_node from file column names (case-insensitive matching).
     // Subclasses (OrcReader, ParquetReader, Hive, Iceberg, etc.) override on_before_init_reader
@@ -76,6 +95,25 @@ Status GenericReader::on_before_init_reader(
         lower_to_native[doris::to_lower(name)] = name;
     }
 
+    // Auto-compute missing columns for simple readers (CSV/JSON/Arrow/etc.).
+    // Parquet/ORC readers overwrite these in _do_init_reader by calling set_fill_column_data.
+    if (_column_descs) {
+        for (const auto& desc : *_column_descs) {
+            if (desc.category != ColumnCategory::REGULAR &&
+                desc.category != ColumnCategory::GENERATED) {
+                continue;
+            }
+            // Skip columns already handled as partition columns to avoid double-fill.
+            if (_fill_partition_values.contains(desc.name)) {
+                continue;
+            }
+            if (!lower_to_native.contains(doris::to_lower(desc.name))) {
+                _fill_missing_defaults[desc.name] = desc.default_expr;
+                _fill_missing_cols.insert(desc.name);
+            }
+        }
+    }
+
     auto info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
     for (const auto* slot : tuple_descriptor->slots()) {
         auto it = lower_to_native.find(slot->col_name_lower_case());
@@ -88,13 +126,6 @@ Status GenericReader::on_before_init_reader(
     }
     table_info_node = info_node;
 
-    // Extract column names for reading: REGULAR + GENERATED columns need file reading
-    for (auto& desc : column_descs) {
-        if (desc.category == ColumnCategory::REGULAR ||
-            desc.category == ColumnCategory::GENERATED) {
-            column_names.push_back(desc.name);
-        }
-    }
     return Status::OK();
 }
 

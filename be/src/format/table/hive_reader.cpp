@@ -36,9 +36,9 @@ Status HiveOrcReader::on_before_init_reader(
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
     // Call parent to run _prepare_fill_columns (partition extraction) and classify UNSET→REGULAR
-    RETURN_IF_ERROR(GenericReader::on_before_init_reader(
-            column_descs, column_names, table_info_node, column_ids, filter_column_ids, params,
-            range, tuple_descriptor, row_descriptor, state, col_name_to_block_idx));
+    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
+            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
+            col_name_to_block_idx));
 
     // Get file type (available because _create_file_reader() runs before this hook)
     const orc::Type* orc_type_ptr = nullptr;
@@ -213,9 +213,9 @@ Status HiveParquetReader::on_before_init_reader(
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
     // Call parent to run _prepare_fill_columns (partition extraction) and classify UNSET→REGULAR
-    RETURN_IF_ERROR(GenericReader::on_before_init_reader(
-            column_descs, column_names, table_info_node, column_ids, filter_column_ids, params,
-            range, tuple_descriptor, row_descriptor, state, col_name_to_block_idx));
+    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
+            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
+            col_name_to_block_idx));
 
     // Get file metadata schema (available because _open_file() runs before this hook)
     const FieldDescriptor* field_desc = nullptr;

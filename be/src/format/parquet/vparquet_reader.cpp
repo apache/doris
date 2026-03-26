@@ -400,9 +400,9 @@ Status ParquetReader::on_before_init_reader(
         const TFileScanRangeParams& params, const TFileRangeDesc& range,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    RETURN_IF_ERROR(GenericReader::on_before_init_reader(
-            column_descs, column_names, table_info_node, column_ids, filter_column_ids, params,
-            range, tuple_descriptor, row_descriptor, state, col_name_to_block_idx));
+    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
+            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
+            col_name_to_block_idx));
 
     // Build table_info_node from Parquet file metadata with case-insensitive recursive matching.
     // File is already opened by init_reader before this hook, so metadata is available.
@@ -525,9 +525,6 @@ Status ParquetReader::_do_init_reader(
 
     // Build _fill_missing_defaults from _column_descs.
     // Default value expressions are pre-computed once per table scan in FileScanner.
-    // Must clear first: GenericReader::on_before_init_reader::get_columns() may have
-    // auto-populated _fill_missing_defaults with name-based missing columns (e.g., new_a)
-    // that are actually present in the file via positional mapping.
     _fill_missing_defaults.clear();
     if (_column_descs && !_missing_cols.empty()) {
         std::unordered_set<std::string> missing_set(_missing_cols.begin(), _missing_cols.end());

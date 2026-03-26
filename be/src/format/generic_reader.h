@@ -101,31 +101,6 @@ public:
         _cached_name_to_type = *name_to_type;
         _get_columns_cached = true;
 
-        // Auto-compute missing columns for simple readers (CSV/JSON/Arrow/etc.).
-        // Parquet/ORC readers compute missing columns in _do_init_reader and call
-        // set_fill_column_data, which sets _fill_data_set_by_reader = true.
-        if (_column_descs && !_fill_data_set_by_reader) {
-            // Build a set of lowercased file column names for case-insensitive lookup.
-            std::unordered_set<std::string> lower_file_cols;
-            for (const auto& [name, _] : *name_to_type) {
-                lower_file_cols.insert(to_lower(name));
-            }
-            for (const auto& desc : *_column_descs) {
-                if (desc.category != ColumnCategory::REGULAR &&
-                    desc.category != ColumnCategory::GENERATED) {
-                    continue;
-                }
-                // Skip columns already handled as partition columns to avoid double-fill.
-                if (_fill_partition_values.contains(desc.name)) {
-                    continue;
-                }
-                if (!lower_file_cols.contains(to_lower(desc.name))) {
-                    _fill_missing_defaults[desc.name] = desc.default_expr;
-                    _fill_missing_cols.insert(desc.name);
-                }
-            }
-        }
-
         return Status::OK();
     }
 
@@ -176,8 +151,6 @@ public:
     /// Get missing columns computed by get_columns().
     const std::unordered_set<std::string>& missing_cols() const { return _fill_missing_cols; }
 
-    /// Store partition/missing column data directly (used internally by Parquet/ORC
-    /// _do_init_reader which computes these values itself).
     void set_fill_column_data(
             const std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
                     partition_values,
@@ -186,7 +159,6 @@ public:
         _fill_partition_values = partition_values;
         _fill_missing_defaults = missing_defaults;
         _fill_col_name_to_block_idx = col_name_to_block_idx;
-        _fill_data_set_by_reader = true;
     }
 
     // ---- Fill-column hooks (called by RowGroupReader and ORC get_next_block) ----
@@ -339,6 +311,12 @@ protected:
     /// Stores results in _prepared_partition_col_descs and _prepared_missing_col_descs.
     /// Call early (before on_before_init_reader) so hooks can access this data.
     /// Prerequisites: file is opened (get_columns() callable).
+    Status _init_common_reader_states(
+            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
+            const TFileScanRangeParams& params, const TFileRangeDesc& range,
+            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
+            RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx);
+
     Status _prepare_fill_columns(const std::vector<ColumnDescriptor>& column_descs,
                                  const TFileScanRangeParams& params, const TFileRangeDesc& range,
                                  const TupleDescriptor* tuple_descriptor,
@@ -380,7 +358,6 @@ protected:
 
     std::unordered_map<std::string, uint32_t>* _fill_col_name_to_block_idx = nullptr;
     std::unordered_set<std::string> _fill_missing_cols;
-    bool _fill_data_set_by_reader = false; // true when set_fill_column_data was called
 
     // ---- Synthesized column handlers ----
     std::vector<std::pair<std::string, SynthesizedColumnHandler>> _synthesized_col_handlers;

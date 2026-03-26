@@ -61,20 +61,11 @@ Status TransactionalHiveReader::on_before_init_reader(
         const TFileScanRangeParams& params, const TFileRangeDesc& range,
         const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
         RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    // Set essential fields and prepare partition values.
-    // Cannot call GenericReader::on_before_init_reader (it calls get_columns() which
-    // doesn't work well for ACID schema), so we inline the minimum required setup.
-    _column_descs = &column_descs;
-    _fill_col_name_to_block_idx = col_name_to_block_idx;
-    RETURN_IF_ERROR(_prepare_fill_columns(column_descs, params, range, tuple_descriptor,
-                                          row_descriptor, state));
+    // Set essential fields and prepare partition values using common hook.
+    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
+            column_descs, _col_names, params, range, tuple_descriptor, row_descriptor, state,
+            col_name_to_block_idx));
     _is_acid = true;
-    for (const auto& desc : column_descs) {
-        if (desc.category == ColumnCategory::REGULAR ||
-            desc.category == ColumnCategory::GENERATED) {
-            _col_names.push_back(desc.name);
-        }
-    }
     // Add ACID column names (originalTransaction, bucket, rowId, etc.)
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());

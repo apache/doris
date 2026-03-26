@@ -1628,19 +1628,17 @@ Status FileScanner::_init_expr_ctxes() {
                   << " is_file_slot=" << is_file_slot << " is_partition="
                   << partition_name_to_key_index_map.contains(it->second->col_name());
         if (partition_name_to_key_index_map.contains(it->second->col_name())) {
-            if (is_file_slot) {
-                // If there is slot which is both a partition column and a file column,
-                // we should not fill the partition column from path.
-                _fill_partition_from_path = false;
-            } else if (!_fill_partition_from_path) {
-                // This should not happen
-                return Status::InternalError(
-                        "Partition column {} is not a file column, but there is already a column "
-                        "which is both a partition column and a file column.",
-                        it->second->col_name());
-            } else {
-                // col_desc.category = ColumnCategory::PARTITION_KEY;
-            }
+            // if (is_file_slot) {
+            //     // If there is slot which is both a partition column and a file column,
+            //     // we should not fill the partition column from path.
+            //     _fill_partition_from_path = false;
+            // } else if (!_fill_partition_from_path) {
+            //     // This should not happen
+            //     return Status::InternalError(
+            //             "Partition column {} is not a file column, but there is already a column "
+            //             "which is both a partition column and a file column.",
+            //             it->second->col_name());
+            // }
             _partition_slot_descs.emplace_back(it->second);
             if (_is_load) {
                 auto iti = full_src_index_map.find(slot_id);
