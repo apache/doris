@@ -357,17 +357,17 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseBackendNotFound) {
     // BE_1 returns a valid 1-row block
     // BE_2 returns an empty block (simulating id_file_map missing)
     // block_order_results references both BE_1 and BE_2
-    _shared_state->response_blocks = std::vector<MutableBlock>(1);
+    _shared_state->response_blocks = std::vector<vectorized::MutableBlock>(1);
 
     // --- BE_1: valid response with 1 row ---
     {
         _shared_state->rpc_struct_map[_backend_id1]
                 .request.mutable_request_block_descs(0)
                 ->add_row_id(0);
-        Block resp_block;
+        vectorized::Block resp_block;
         auto col = _int_type->create_column();
-        reinterpret_cast<ColumnInt32*>(col.get())->insert(
-                Field::create_field<PrimitiveType::TYPE_INT>(42));
+        reinterpret_cast<vectorized::ColumnInt32*>(col.get())->insert(
+                vectorized::Field::create_field<PrimitiveType::TYPE_INT>(42));
         resp_block.insert({make_nullable(std::move(col)), make_nullable(_int_type), "value"});
 
         PMultiGetResponseV2 response;
@@ -405,8 +405,8 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseBackendNotFound) {
     rowid_col->insert_many_defaults(2);
     auto value_col = _int_type->create_column();
     value_col->insert_many_defaults(2);
-    _shared_state->origin_block = Block({{std::move(rowid_col), _string_type, "rowid"},
-                                         {std::move(value_col), _int_type, "value"}});
+    _shared_state->origin_block = vectorized::Block({{std::move(rowid_col), _string_type, "rowid"},
+                                                     {std::move(value_col), _int_type, "value"}});
     _shared_state->rowid_locs = {0};
 
     // merge_multi_response() should return InternalError
@@ -438,7 +438,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
     // After fix: block_maps is fresh per relation. This test verifies the
     // correct behavior for cross-relation data distribution.
 
-    _shared_state->response_blocks = std::vector<MutableBlock>(2);
+    _shared_state->response_blocks = std::vector<vectorized::MutableBlock>(2);
     _shared_state->rpc_struct_map[_backend_id1].request.add_request_block_descs();
     _shared_state->rpc_struct_map[_backend_id2].request.add_request_block_descs();
 
@@ -450,10 +450,10 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
         PMultiGetResponseV2 response;
 
         // blocks[0]: 1 row of INT for relation 0
-        Block rel0_block;
+        vectorized::Block rel0_block;
         auto col = _int_type->create_column();
-        reinterpret_cast<ColumnInt32*>(col.get())->insert(
-                Field::create_field<PrimitiveType::TYPE_INT>(100));
+        reinterpret_cast<vectorized::ColumnInt32*>(col.get())->insert(
+                vectorized::Field::create_field<PrimitiveType::TYPE_INT>(100));
         rel0_block.insert({make_nullable(std::move(col)), make_nullable(_int_type), "price"});
 
         auto* pb0 = response.add_blocks()->mutable_block();
@@ -476,9 +476,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
         response.add_blocks();
 
         // blocks[1]: 1 row of STRING for relation 1
-        Block rel1_block;
+        vectorized::Block rel1_block;
         auto col = _string_type->create_column();
-        reinterpret_cast<ColumnString*>(col.get())->insert_data("Alice", 5);
+        reinterpret_cast<vectorized::ColumnString*>(col.get())->insert_data("Alice", 5);
         rel1_block.insert({make_nullable(std::move(col)), make_nullable(_string_type), "name"});
 
         _shared_state->rpc_struct_map[_backend_id2]
@@ -502,10 +502,11 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
     auto rowid_col1 = _string_type->create_column();
     rowid_col1->insert_many_defaults(1);
     auto sort_col = _int_type->create_column();
-    sort_col->insert(Field::create_field<PrimitiveType::TYPE_INT>(999));
-    _shared_state->origin_block = Block({{std::move(rowid_col0), _string_type, "rowid0"},
-                                         {std::move(rowid_col1), _string_type, "rowid1"},
-                                         {std::move(sort_col), _int_type, "sort_key"}});
+    sort_col->insert(vectorized::Field::create_field<PrimitiveType::TYPE_INT>(999));
+    _shared_state->origin_block =
+            vectorized::Block({{std::move(rowid_col0), _string_type, "rowid0"},
+                               {std::move(rowid_col1), _string_type, "rowid1"},
+                               {std::move(sort_col), _int_type, "sort_key"}});
     _shared_state->rowid_locs = {0, 1};
 
     // merge should succeed — each relation only references the BE that has data
@@ -513,7 +514,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
     ASSERT_TRUE(st.ok()) << "merge_multi_response failed: " << st.to_string();
 
     // Verify results
-    Block result_block;
+    vectorized::Block result_block;
     _shared_state->get_block(&result_block);
     EXPECT_EQ(result_block.rows(), 1);
     // Column order: response_blocks[0] cols, response_blocks[1] cols, sort_key
@@ -522,7 +523,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
 
     // Verify relation 0 data (price = 100)
     auto* price_col = result_block.get_by_position(0).column.get();
-    auto* nullable_price = assert_cast<const ColumnNullable*>(price_col);
+    auto* nullable_price = assert_cast<const vectorized::ColumnNullable*>(price_col);
     EXPECT_FALSE(nullable_price->is_null_at(0));
     EXPECT_EQ(
             *reinterpret_cast<const int*>(nullable_price->get_nested_column().get_data_at(0).data),
@@ -530,7 +531,7 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
 
     // Verify relation 1 data (name = "Alice")
     auto* name_col = result_block.get_by_position(1).column.get();
-    auto* nullable_name = assert_cast<const ColumnNullable*>(name_col);
+    auto* nullable_name = assert_cast<const vectorized::ColumnNullable*>(name_col);
     EXPECT_FALSE(nullable_name->is_null_at(0));
     EXPECT_EQ(nullable_name->get_nested_column().get_data_at(0).to_string(), "Alice");
 }
