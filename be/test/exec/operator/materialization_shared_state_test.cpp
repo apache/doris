@@ -341,10 +341,9 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseMultiBlocks) {
     EXPECT_EQ(merged_value_col2->get_data_at(2).data, nullptr);
 }
 
-// Regression test: when a remote BE returns an empty response block for a relation
-// (e.g., id_file_map was GC'd or the BE restarted), but block_order_results still
-// references that backend_id, merge_multi_response() should return a clear
-// InternalError("backend_id {} not found in block_maps") rather than crashing.
+// Test: when a remote BE returns an empty response block for a relation
+// (e.g., id_file_map was GC'd), merge_multi_response() should return a clear
+// InternalError("... not match request row id count...") rather than crashing.
 //
 // This simulates the scenario in RowIdStorageReader::read_by_rowids() where:
 //   auto id_file_map = get_id_manager()->get_id_file_map(request.query_id());
@@ -422,8 +421,6 @@ TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseBackendNotFound) {
 // With 2 relations, if block_maps is NOT rebuilt per relation, a stale entry
 // from relation 0 (with different schema) could be accessed during relation 1,
 // causing wrong data or type mismatch crashes.
-// After the fix (block_maps inside the loop), this scenario produces a clean
-// "not found in block_maps" error instead.
 TEST_F(MaterializationSharedStateTest, TestMergeMultiResponseStaleBlockMaps) {
     // Setup: 2 relations, 2 backends
     // Relation 0 (table A): BE_1 has 1 row, BE_2 has 0 rows (empty response)

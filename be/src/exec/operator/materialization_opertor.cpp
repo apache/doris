@@ -89,6 +89,10 @@ Status MaterializationSharedState::merge_multi_response() {
             DCHECK(rpc_struct.response.blocks_size() > i);
             RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block(),
                                                       &uncompressed_size, &uncompressed_time));
+            // A BE may return an empty block event if
+            // request.request_block_descs(i).row_id_size() != 0:
+            // If the id_file_map was GC'd on the BE before it could process the request,
+            // refer 'if (!id_file_map)' in RowIdStorageReader::read_by_rowids
             if (rpc_struct.request.request_block_descs(i).row_id_size() != partial_block.rows()) {
                 return Status::InternalError(
                         fmt::format("merge_multi_response, "
@@ -105,8 +109,6 @@ Status MaterializationSharedState::merge_multi_response() {
 
             // Only insert non-empty blocks. A BE may return an empty block if
             // request.request_block_descs(i).row_id_size() is 0
-            // OR if the id_file_map was GC'd on the BE before it could process the request,
-            // refer 'if (!id_file_map)' in RowIdStorageReader::read_by_rowids
             if (!partial_block.is_empty_column()) {
                 // Reset row cursor to 0 — we'll consume rows from this block sequentially.
                 block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
