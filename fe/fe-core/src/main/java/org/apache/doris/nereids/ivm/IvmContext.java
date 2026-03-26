@@ -31,7 +31,7 @@ import java.util.Map;
  *   - deterministic (true):  MOW table — row-id = hash(unique keys), stable across refreshes
  *   - non-deterministic (false): DUP_KEYS table — row-id = random 128-bit per insert
  *
- * normalizedPlan: the plan tree after IvmNormalizeMtmvPlan has injected row-id columns.
+ * normalizedPlan: the plan tree after IvmNormalizeMtmv has injected row-id columns.
  *   Stored here so that IVMRefreshManager can retrieve it for external delta rewriting.
  */
 public class IvmContext {
