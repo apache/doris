@@ -77,8 +77,12 @@ public class TSOService extends MasterDaemon {
     @Override
     protected void runAfterCatalogReady() {
         if (!Config.enable_tso_feature) {
-            isInitialized.set(false);
-            fatalClockBackwardReported.set(false);
+            lock.lock();
+            try {
+                isInitialized.set(false);
+            } finally {
+                lock.unlock();
+            }
             return;
         }
         int maxUpdateRetryCount = Math.max(1, Config.tso_max_update_retry_count);
@@ -156,6 +160,9 @@ public class TSOService extends MasterDaemon {
      * @throws RuntimeException if TSO is not calibrated or other errors occur
      */
     public long getTSO() {
+        if (!Config.enable_tso_feature) {
+            throw new RuntimeException("TSO timestamp is not calibrated, please check");
+        }
         if (!isInitialized.get()) {
             throw new RuntimeException("TSO timestamp is not calibrated, please check");
         }
@@ -272,6 +279,7 @@ public class TSOService extends MasterDaemon {
         writeTimestampToBDBJE(timeWindowEnd);
         windowEndTSO.set(timeWindowEnd);
         isInitialized.set(true);
+        fatalClockBackwardReported.set(false);
 
         LOG.info("TSO timestamp calibrated: lastTimestamp={}, currentMillis={}, nextPhysicalTime={}, timeWindowEnd={}",
                 timeLast, timeNow, nextPhysicalTime, timeWindowEnd);
@@ -431,6 +439,9 @@ public class TSOService extends MasterDaemon {
     private Pair<Long, Long> generateTSO() {
         lock.lock();
         try {
+            if (!Config.enable_tso_feature || !isInitialized.get()) {
+                return Pair.of(0L, 0L);
+            }
             long physicalTime = globalTimestamp.getPhysicalTimestamp();
             if (physicalTime == 0) {
                 return Pair.of(0L, 0L);

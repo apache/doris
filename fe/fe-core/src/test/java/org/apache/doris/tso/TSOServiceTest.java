@@ -19,6 +19,7 @@ package org.apache.doris.tso;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
@@ -168,6 +169,21 @@ public class TSOServiceTest {
     }
 
     @Test
+    public void testRunAfterCatalogReadyDoesNotResetFatalClockBackwardFlagWhenDisabled() {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        try {
+            Config.enable_tso_feature = false;
+            setFatalClockBackwardReportedFlag(tsoService, true);
+
+            tsoService.runAfterCatalogReady();
+
+            Assert.assertTrue(getFatalClockBackwardReportedFlag(tsoService));
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+        }
+    }
+
+    @Test
     public void testRunAfterCatalogReadyUsesAtLeastOneRetryWhenConfigNonPositive() {
         boolean originalEnableTsoFeature = Config.enable_tso_feature;
         try {
@@ -286,6 +302,17 @@ public class TSOServiceTest {
     }
 
     @Test
+    public void testCalibrateTimestampResetsFatalClockBackwardReportedOnSuccess() throws Exception {
+        setFatalClockBackwardReportedFlag(tsoService, true);
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+
+        invokeCalibrateTimestamp(tsoService);
+
+        Assert.assertFalse(getFatalClockBackwardReportedFlag(tsoService));
+    }
+
+    @Test
     public void testUpdateTimestampReturnsEarlyWhenNotCalibrated() throws Exception {
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
@@ -296,6 +323,28 @@ public class TSOServiceTest {
 
         Assert.assertEquals(0L, tsoService.getCurrentTSO());
         Assert.assertEquals(initialWindowEnd, tsoService.getWindowEndTSO());
+    }
+
+    @Test
+    public void testGenerateTSOReturnsZeroWhenDisabledOrNotInitialized() throws Exception {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        try {
+            setGlobalTimestamp(tsoService, 100L, 1L);
+
+            Config.enable_tso_feature = true;
+            setInitializedFlag(tsoService, false);
+            Pair<Long, Long> pairWhenNotInitialized = invokeGenerateTSO(tsoService);
+            Assert.assertEquals(0L, (long) pairWhenNotInitialized.first);
+            Assert.assertEquals(0L, (long) pairWhenNotInitialized.second);
+
+            Config.enable_tso_feature = false;
+            setInitializedFlag(tsoService, true);
+            Pair<Long, Long> pairWhenDisabled = invokeGenerateTSO(tsoService);
+            Assert.assertEquals(0L, (long) pairWhenDisabled.first);
+            Assert.assertEquals(0L, (long) pairWhenDisabled.second);
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+        }
     }
 
     private static void invokeWriteTimestampToBdbJe(TSOService service, long timestamp) throws Exception {
@@ -332,6 +381,14 @@ public class TSOServiceTest {
         m.invoke(service);
     }
 
+    private static Pair<Long, Long> invokeGenerateTSO(TSOService service) throws Exception {
+        Method m = TSOService.class.getDeclaredMethod("generateTSO");
+        m.setAccessible(true);
+        @SuppressWarnings("unchecked")
+        Pair<Long, Long> pair = (Pair<Long, Long>) m.invoke(service);
+        return pair;
+    }
+
     private static void setGlobalTimestamp(TSOService service, long physical, long logical) throws Exception {
         Field f = TSOService.class.getDeclaredField("globalTimestamp");
         f.setAccessible(true);
@@ -352,6 +409,26 @@ public class TSOServiceTest {
             Field f = TSOService.class.getDeclaredField("isInitialized");
             f.setAccessible(true);
             ((java.util.concurrent.atomic.AtomicBoolean) f.get(service)).set(initialized);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static void setFatalClockBackwardReportedFlag(TSOService service, boolean reported) {
+        try {
+            Field f = TSOService.class.getDeclaredField("fatalClockBackwardReported");
+            f.setAccessible(true);
+            ((java.util.concurrent.atomic.AtomicBoolean) f.get(service)).set(reported);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    private static boolean getFatalClockBackwardReportedFlag(TSOService service) {
+        try {
+            Field f = TSOService.class.getDeclaredField("fatalClockBackwardReported");
+            f.setAccessible(true);
+            return ((java.util.concurrent.atomic.AtomicBoolean) f.get(service)).get();
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
