@@ -592,6 +592,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Interval;
 import org.apache.doris.nereids.trees.expressions.literal.LargeIntLiteral;
@@ -1944,6 +1945,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             query = withRelations(query, ((FromRelationsContext) ctx.fromClause()).relations().relation());
         }
         query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
+        query = withQueryOrganization(query, ctx.queryOrganization());
+        query = convertSortOrdinalsToUnboundSlot(query);
         String tableAlias = null;
         if (ctx.tableAlias().strictIdentifier() != null) {
             tableAlias = ctx.tableAlias().strictIdentifier().getText();
@@ -1974,8 +1977,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             tableAlias = ctx.tableAlias().strictIdentifier().getText();
         }
 
+        boolean hasQueryOrganization = ctx.queryOrganization() != null
+                && (ctx.queryOrganization().sortClause() != null
+                        || ctx.queryOrganization().limitClause() != null);
         Command deleteCommand;
-        if (ctx.USING() == null && ctx.cte() == null) {
+        if (ctx.USING() == null && ctx.cte() == null && !hasQueryOrganization) {
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
             deleteCommand = new DeleteFromCommand(tableName, tableAlias, partitionSpec.first,
                     partitionSpec.second, query);
@@ -1985,12 +1991,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 query = withRelations(query, ctx.relations().relation());
             }
             query = withFilter(query, Optional.ofNullable(ctx.whereClause()));
+            query = withQueryOrganization(query, ctx.queryOrganization());
+            query = convertSortOrdinalsToUnboundSlot(query);
             Optional<LogicalPlan> cte = Optional.empty();
             if (ctx.cte() != null) {
                 cte = Optional.ofNullable(withCte(query, ctx.cte()));
             }
             deleteCommand = new DeleteFromUsingCommand(tableName, tableAlias,
-                    partitionSpec.first, partitionSpec.second, query, cte);
+                    partitionSpec.first, partitionSpec.second, query, cte, hasQueryOrganization);
         }
         if (ctx.explain() != null) {
             return withExplain(deleteCommand, ctx.explain());
@@ -4219,6 +4227,37 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             List<OrderKey> orderKeys = visit(sortCtx.get().sortItem(), OrderKey.class);
             return new LogicalSort<>(orderKeys, input);
         });
+    }
+
+    /**
+     * Convert IntegerLikeLiteral expressions in ORDER BY keys to UnboundSlot.
+     * In SELECT queries, ORDER BY with an integer is treated as an ordinal (position reference).
+     * In DELETE/UPDATE commands, there is no user-specified SELECT list, so ordinal resolution
+     * would be meaningless. Convert integer literals to UnboundSlot to prevent the ordinal
+     * interpretation by BindExpression.
+     */
+    private LogicalPlan convertSortOrdinalsToUnboundSlot(LogicalPlan plan) {
+        if (plan instanceof LogicalSort) {
+            LogicalSort<?> sort = (LogicalSort<?>) plan;
+            List<OrderKey> newOrderKeys = sort.getOrderKeys().stream()
+                    .map(key -> {
+                        if (key.getExpr() instanceof IntegerLikeLiteral) {
+                            return key.withExpression(
+                                    new UnboundSlot(String.valueOf(
+                                            ((IntegerLikeLiteral) key.getExpr()).getIntValue())));
+                        }
+                        return key;
+                    })
+                    .collect(ImmutableList.toImmutableList());
+            return sort.withOrderKeys(newOrderKeys);
+        } else if (plan instanceof LogicalLimit) {
+            LogicalPlan child = (LogicalPlan) ((LogicalLimit<?>) plan).child();
+            LogicalPlan newChild = convertSortOrdinalsToUnboundSlot(child);
+            if (newChild != child) {
+                return (LogicalPlan) ((LogicalLimit<?>) plan).withChildren(newChild);
+            }
+        }
+        return plan;
     }
 
     private LogicalPlan withLimit(LogicalPlan input, Optional<LimitClauseContext> limitCtx) {
