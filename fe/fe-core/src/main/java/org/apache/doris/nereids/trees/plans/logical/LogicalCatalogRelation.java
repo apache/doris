@@ -31,10 +31,7 @@ import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DataTrait;
-import org.apache.doris.nereids.properties.FdFactory;
-import org.apache.doris.nereids.properties.FdItem;
 import org.apache.doris.nereids.properties.LogicalProperties;
-import org.apache.doris.nereids.properties.TableFdItem;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -218,41 +215,6 @@ public abstract class LogicalCatalogRelation extends LogicalRelation implements 
     @Override
     public void computeUniform(DataTrait.Builder builder) {
         // No uniform slot for catalog relation
-    }
-
-    private ImmutableSet<FdItem> computeFdItems(Set<Slot> outputSet) {
-        ImmutableSet.Builder<FdItem> builder = ImmutableSet.builder();
-        TableNameInfo tableNameInfo = TableNameInfo.createOrNull(table);
-        if (tableNameInfo == null) {
-            return builder.build();
-        }
-        ConstraintManager cm = Env.getCurrentEnv().getConstraintManager();
-
-        for (PrimaryKeyConstraint c : cm.getPrimaryKeyConstraints(tableNameInfo)) {
-            Set<Column> columns = c.getPrimaryKeys(this.getTable());
-            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
-            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
-                    slotSet, true, false, ImmutableSet.of(table));
-            builder.add(tableFdItem);
-        }
-
-        for (UniqueConstraint c : cm.getUniqueConstraints(tableNameInfo)) {
-            Set<Column> columns = c.getUniqueKeys(this.getTable());
-            boolean allNotNull = true;
-
-            for (Column column : columns) {
-                if (column.isAllowNull()) {
-                    allNotNull = false;
-                    break;
-                }
-            }
-
-            ImmutableSet<SlotReference> slotSet = findSlotsByColumn(outputSet, columns);
-            TableFdItem tableFdItem = FdFactory.INSTANCE.createTableFdItem(
-                    slotSet, true, !allNotNull, ImmutableSet.of(table));
-            builder.add(tableFdItem);
-        }
-        return builder.build();
     }
 
     private ImmutableSet<SlotReference> findSlotsByColumn(Set<Slot> outputSet, Set<Column> columns) {

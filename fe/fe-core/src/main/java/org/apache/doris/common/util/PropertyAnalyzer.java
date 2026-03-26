@@ -566,24 +566,6 @@ public class PropertyAnalyzer {
         return minLoadReplicaNum;
     }
 
-    public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
-        String columnSeparator = oldColumnSeparator;
-        if (properties != null && properties.containsKey(PROPERTIES_COLUMN_SEPARATOR)) {
-            columnSeparator = properties.get(PROPERTIES_COLUMN_SEPARATOR);
-            properties.remove(PROPERTIES_COLUMN_SEPARATOR);
-        }
-        return columnSeparator;
-    }
-
-    public static String analyzeLineDelimiter(Map<String, String> properties, String oldLineDelimiter) {
-        String lineDelimiter = oldLineDelimiter;
-        if (properties != null && properties.containsKey(PROPERTIES_LINE_DELIMITER)) {
-            lineDelimiter = properties.get(PROPERTIES_LINE_DELIMITER);
-            properties.remove(PROPERTIES_LINE_DELIMITER);
-        }
-        return lineDelimiter;
-    }
-
     public static TStorageType analyzeStorageType(Map<String, String> properties) throws AnalysisException {
         // default is COLUMN
         TStorageType tStorageType = TStorageType.COLUMN;
