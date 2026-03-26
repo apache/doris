@@ -94,9 +94,9 @@ if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" == "true" ]]; then
     mkdir -p /etc/tez/conf
     cp -f /mnt/scripts/tez-conf/tez-site.xml /etc/tez/conf/tez-site.xml
     nohup yarn resourcemanager >/tmp/yarn-resourcemanager.log 2>&1 &
-    local rm_pid=$!
+    rm_pid=$!
     nohup yarn nodemanager >/tmp/yarn-nodemanager.log 2>&1 &
-    local nm_pid=$!
+    nm_pid=$!
     wait_for_yarn_services "${rm_pid}" "${nm_pid}"
 
     # Tez write jobs create scratch directories on HDFS. Make sure HDFS is writable.
