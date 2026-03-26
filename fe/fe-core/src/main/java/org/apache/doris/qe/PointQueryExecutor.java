@@ -19,7 +19,6 @@ package org.apache.doris.qe;
 
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
@@ -230,7 +229,7 @@ public class PointQueryExecutor implements CoordInterface {
                     }
                 }
             }
-            TExpr texpr = ExprToThriftVisitor.treeToThrift(literalExpr);
+            TExpr texpr = literalExpr.treeToThrift();
             // For point queries, key column values are always simple literals
             // (CastExpr no-ops are already stripped by treeToThrift).
             Preconditions.checkState(texpr.getNodesSize() == 1,
