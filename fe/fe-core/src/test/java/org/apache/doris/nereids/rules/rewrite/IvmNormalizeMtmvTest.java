@@ -53,21 +53,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
-class IvmNormalizeMtmvPlanTest {
+class IvmNormalizeMtmvTest {
 
     // DUP_KEYS table — row-id = UuidNumeric(), non-deterministic
     private final LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
 
     @Test
     void testGateDisabledKeepsPlanUnchanged() {
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(scan, newJobContext(false));
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(scan, newJobContext(false));
         Assertions.assertSame(scan, result);
     }
 
     @Test
     void testScanInjectsRowIdAtIndexZero() {
         JobContext jobContext = newJobContext(true);
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(scan, jobContext);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(scan, jobContext);
 
         // scan is wrapped in a project
         Assertions.assertInstanceOf(LogicalProject.class, result);
@@ -95,7 +95,7 @@ class IvmNormalizeMtmvPlanTest {
         Slot slot = scan.getOutput().get(0);
         LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(slot), scan);
 
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(project, newJobContext(true));
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(project, newJobContext(true));
 
         // outer project has row-id at index 0
         Assertions.assertInstanceOf(LogicalProject.class, result);
@@ -113,7 +113,7 @@ class IvmNormalizeMtmvPlanTest {
         Slot slot = scan.getOutput().get(0);
         LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(placeholder, slot), scan);
 
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(project, newJobContext(true));
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(project, newJobContext(true));
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
         LogicalProject<?> rewrittenProject = (LogicalProject<?>) result;
@@ -145,7 +145,7 @@ class IvmNormalizeMtmvPlanTest {
                 DMLCommandType.NONE,
                 projectWithPlaceholder);
 
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(sink, newJobContextForRoot(sink, true));
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(sink, newJobContextForRoot(sink, true));
 
         Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
         LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
@@ -178,7 +178,7 @@ class IvmNormalizeMtmvPlanTest {
                 DMLCommandType.NONE,
                 scan);
 
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(sink, newJobContextForRoot(sink, true));
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(sink, newJobContextForRoot(sink, true));
 
         Assertions.assertInstanceOf(LogicalOlapTableSink.class, result);
         LogicalOlapTableSink<?> rewrittenSink = (LogicalOlapTableSink<?>) result;
@@ -200,7 +200,7 @@ class IvmNormalizeMtmvPlanTest {
                 PlanConstructor.getNextRelationId(), mowTable, ImmutableList.of("db"));
 
         JobContext jobContext = newJobContextForScan(mowScan, true);
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(mowScan, jobContext);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(mowScan, jobContext);
 
         Assertions.assertInstanceOf(LogicalProject.class, result);
         Assertions.assertEquals(Column.IVM_ROW_ID_COL, result.getOutput().get(0).getName());
@@ -216,7 +216,7 @@ class IvmNormalizeMtmvPlanTest {
                 PlanConstructor.getNextRelationId(), morTable, ImmutableList.of("db"));
 
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> new IvmNormalizeMtmvPlan().rewriteRoot(morScan, newJobContextForScan(morScan, true)));
+                () -> new IvmNormalizeMtmv().rewriteRoot(morScan, newJobContextForScan(morScan, true)));
     }
 
     @Test
@@ -226,7 +226,7 @@ class IvmNormalizeMtmvPlanTest {
                 PlanConstructor.getNextRelationId(), aggTable, ImmutableList.of("db"));
 
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> new IvmNormalizeMtmvPlan().rewriteRoot(aggScan, newJobContextForScan(aggScan, true)));
+                () -> new IvmNormalizeMtmv().rewriteRoot(aggScan, newJobContextForScan(aggScan, true)));
     }
 
     @Test
@@ -234,7 +234,7 @@ class IvmNormalizeMtmvPlanTest {
         LogicalSort<Plan> sort = new LogicalSort<>(ImmutableList.of(), scan);
 
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> new IvmNormalizeMtmvPlan().rewriteRoot(sort, newJobContext(true)));
+                () -> new IvmNormalizeMtmv().rewriteRoot(sort, newJobContext(true)));
     }
 
     @Test
@@ -244,13 +244,13 @@ class IvmNormalizeMtmvPlanTest {
         LogicalProject<?> project = new LogicalProject<>(ImmutableList.of(slot), sort);
 
         Assertions.assertThrows(org.apache.doris.nereids.exceptions.AnalysisException.class,
-                () -> new IvmNormalizeMtmvPlan().rewriteRoot(project, newJobContext(true)));
+                () -> new IvmNormalizeMtmv().rewriteRoot(project, newJobContext(true)));
     }
 
     @Test
     void testNormalizedPlanStoredInIvmContext() {
         JobContext jobContext = newJobContext(true);
-        Plan result = new IvmNormalizeMtmvPlan().rewriteRoot(scan, jobContext);
+        Plan result = new IvmNormalizeMtmv().rewriteRoot(scan, jobContext);
 
         IvmContext ivmContext = jobContext.getCascadesContext().getIvmContext().get();
         Assertions.assertNotNull(ivmContext.getNormalizedPlan());
