@@ -41,6 +41,7 @@
 #include "exec/sink/scale_writer_partitioning_exchanger.hpp"
 #include "exec/sink/tablet_sink_hash_partitioner.h"
 #include "exprs/vexpr.h"
+#include "format/transformer/merge_partitioner.h"
 #include "runtime/runtime_profile.h"
 #include "util/uid_util.h"
 
@@ -176,6 +177,20 @@ Status ExchangeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& inf
         RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
         custom_profile()->add_info_string(
                 "Partitioner", fmt::format("ScaleWriterPartitioner({})", _partition_count));
+    } else if (_part_type == TPartitionType::MERGE_PARTITIONED) {
+        if (!p._has_merge_partition_info) {
+            return Status::InternalError("Merge partition info is missing");
+        }
+        _partition_count = channels.size();
+        const bool use_new_shuffle_hash_method =
+                _state->query_options().__isset.enable_new_shuffle_hash_method &&
+                _state->query_options().enable_new_shuffle_hash_method;
+        _partitioner = std::make_unique<MergePartitioner>(_partition_count, p._merge_partition_info,
+                                                          use_new_shuffle_hash_method);
+        RETURN_IF_ERROR(_partitioner->init({}));
+        RETURN_IF_ERROR(_partitioner->prepare(state, p._row_desc));
+        custom_profile()->add_info_string("Partitioner",
+                                          fmt::format("MergePartitioner({})", _partition_count));
     }
 
     return Status::OK();
@@ -256,7 +271,8 @@ Status ExchangeSinkLocalState::open(RuntimeState* state) {
     if (_part_type == TPartitionType::HASH_PARTITIONED ||
         _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
         _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
-        _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+        _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
+        _part_type == TPartitionType::MERGE_PARTITIONED) {
         RETURN_IF_ERROR(_partitioner->open(state));
     }
     return Status::OK();
@@ -299,12 +315,17 @@ ExchangeSinkOperatorX::ExchangeSinkOperatorX(
            sink.output_partition.type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
            sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
-           sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED);
+           sink.output_partition.type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED ||
+           sink.output_partition.type == TPartitionType::MERGE_PARTITIONED);
 #endif
     _name = "ExchangeSinkOperatorX";
     _pool = std::make_shared<ObjectPool>();
     if (sink.__isset.output_tuple_id) {
         _output_tuple_id = sink.output_tuple_id;
+    }
+    if (sink.output_partition.__isset.merge_partition_info) {
+        _merge_partition_info = sink.output_partition.merge_partition_info;
+        _has_merge_partition_info = true;
     }
 
     if (_part_type != TPartitionType::UNPARTITIONED) {
@@ -494,8 +515,9 @@ Status ExchangeSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) 
                 (local_state.current_channel_idx + 1) % local_state.channels.size();
     } else if (_part_type == TPartitionType::HASH_PARTITIONED ||
                _part_type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED ||
+               _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED ||
                _part_type == TPartitionType::HIVE_TABLE_SINK_HASH_PARTITIONED ||
-               _part_type == TPartitionType::OLAP_TABLE_SINK_HASH_PARTITIONED) {
+               _part_type == TPartitionType::MERGE_PARTITIONED) {
         RETURN_IF_ERROR(local_state._writer->write(state, block, eos));
     } else if (_part_type == TPartitionType::HIVE_TABLE_SINK_UNPARTITIONED) {
         // Control the number of channels according to the flow, thereby controlling the number of table sink writers.

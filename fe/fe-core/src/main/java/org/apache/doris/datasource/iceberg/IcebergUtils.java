@@ -63,6 +63,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
@@ -73,6 +74,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
@@ -665,6 +668,16 @@ public class IcebergUtils {
                 return null;
             }
 
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(
+                            "Skip dynamic partition pruning for binary partition field: {}",
+                            field.name());
+                }
+                return null;
+            }
+
             Object value = partitionData.get(i);
             try {
                 String partitionString = serializePartitionValue(field.type(), value, timeZone);
@@ -678,11 +691,53 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
+    public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone) {
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        Preconditions.checkArgument(fields.size() == partitionSpec.fields().size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
+        List<String> partitionValues = new ArrayList<>(fields.size());
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            Object value = partitionData.get(i);
+            try {
+                partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
+                        e.getMessage());
+                partitionValues.add(null);
+            }
+        }
+        return partitionValues;
+    }
+
+    public static String getPartitionDataJson(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone) {
+        List<String> partitionValues = getPartitionValues(partitionData, partitionSpec, timeZone);
+        return GsonUtils.GSON.toJson(partitionValues);
+    }
+
+    public static List<String> parsePartitionValuesFromJson(String partitionDataJson) {
+        if (StringUtils.isBlank(partitionDataJson)) {
+            return Lists.newArrayList();
+        }
+        try {
+            java.lang.reflect.Type listType = new TypeToken<List<String>>() {}.getType();
+            return GsonUtils.GSON.fromJson(partitionDataJson, listType);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse partition data JSON: {}", partitionDataJson, e);
+            return Lists.newArrayList();
+        }
+    }
+
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
             case LONG:
+            case FLOAT:
+            case DOUBLE:
             case STRING:
             case UUID:
             case DECIMAL:
@@ -1139,6 +1194,12 @@ public class IcebergUtils {
                 refName = params.getListParams().get(0);
             }
             SnapshotRef snapshotRef = table.refs().get(refName);
+            LOG.info("[BranchDebug] getQuerySpecSnapshot: refName={}, snapshotId={}, "
+                    + "currentSnapshotId={}, allRefs={}",
+                    refName,
+                    snapshotRef != null ? snapshotRef.snapshotId() : "null",
+                    table.currentSnapshot() != null ? table.currentSnapshot().snapshotId() : "null",
+                    table.refs());
             if (params.isBranch()) {
                 if (snapshotRef == null || !snapshotRef.isBranch()) {
                     throw new UserException("Table " + table.name() + " does not have branch named " + refName);

@@ -175,7 +175,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
+            boolean isFileSlot = !partitionKeys.contains(slot.getColumn().getName());
+            if (isIcebergRowIdColumn(slot)) {
+                isFileSlot = false;
+            }
+            slotInfo.setIsFileSlot(isFileSlot);
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -192,11 +196,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
+            boolean isFileSlot = !getPathPartitionKeys().contains(slot.getColumn().getName());
+            if (isIcebergRowIdColumn(slot)) {
+                isFileSlot = false;
+            }
+            slotInfo.setIsFileSlot(isFileSlot);
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
         setColumnPositionMapping();
+    }
+
+    private boolean isIcebergRowIdColumn(SlotDescriptor slot) {
+        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName());
     }
 
     public void setTableSample(TableSample tSample) {

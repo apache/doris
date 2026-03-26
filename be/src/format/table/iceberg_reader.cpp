@@ -99,6 +99,7 @@ IcebergTableReader::IcebergTableReader(std::unique_ptr<GenericReader> file_forma
 
 Status IcebergTableReader::get_next_block_inner(Block* block, size_t* read_rows, bool* eof) {
     RETURN_IF_ERROR(_expand_block_if_need(block));
+
     RETURN_IF_ERROR(_file_format_reader->get_next_block(block, read_rows, eof));
 
     if (_equality_delete_impls.size() > 0) {
@@ -125,6 +126,30 @@ Status IcebergTableReader::init_row_filters() {
     const auto& version = table_desc.format_version;
     if (version < MIN_SUPPORT_DELETE_FILES_VERSION) {
         return Status::OK();
+    }
+
+    // Initialize file information for $row_id generation
+    // Extract from table_desc which contains current file's metadata
+    if (_need_row_id_column) {
+        std::string file_path = table_desc.original_file_path;
+        int32_t partition_spec_id = 0;
+        std::string partition_data_json;
+        if (table_desc.__isset.partition_spec_id) {
+            partition_spec_id = table_desc.partition_spec_id;
+        }
+        if (table_desc.__isset.partition_data_json) {
+            partition_data_json = table_desc.partition_data_json;
+        }
+
+        if (auto* parquet_reader = dynamic_cast<ParquetReader*>(_file_format_reader.get())) {
+            parquet_reader->set_iceberg_rowid_params(file_path, partition_spec_id,
+                                                     partition_data_json, _row_id_column_position);
+        } else if (auto* orc_reader = dynamic_cast<OrcReader*>(_file_format_reader.get())) {
+            orc_reader->set_iceberg_rowid_params(file_path, partition_spec_id, partition_data_json,
+                                                 _row_id_column_position);
+        }
+        LOG(INFO) << "Initialized $row_id generation for file: " << file_path
+                  << ", partition_spec_id: " << partition_spec_id;
     }
 
     std::vector<TIcebergDeleteFileDesc> position_delete_files;
