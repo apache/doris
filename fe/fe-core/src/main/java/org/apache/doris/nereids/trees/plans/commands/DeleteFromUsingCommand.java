@@ -35,14 +35,17 @@ import java.util.Optional;
  */
 public class DeleteFromUsingCommand extends DeleteFromCommand {
     private final Optional<LogicalPlan> cte;
+    private final boolean hasOrderByLimit;
 
     /**
      * constructor
      */
     public DeleteFromUsingCommand(List<String> nameParts, String tableAlias,
-            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery, Optional<LogicalPlan> cte) {
+            boolean isTempPart, List<String> partitions, LogicalPlan logicalQuery,
+            Optional<LogicalPlan> cte, boolean hasOrderByLimit) {
         super(nameParts, tableAlias, isTempPart, partitions, logicalQuery);
         this.cte = cte;
+        this.hasOrderByLimit = hasOrderByLimit;
     }
 
     @Override
@@ -80,7 +83,12 @@ public class DeleteFromUsingCommand extends DeleteFromCommand {
     @Override
     protected void checkTargetTable(OlapTable targetTable) {
         if (targetTable.getKeysType() != KeysType.UNIQUE_KEYS) {
-            throw new AnalysisException("delete command on with using clause only supports unique key model");
+            if (hasOrderByLimit) {
+                throw new AnalysisException(
+                        "delete command with ORDER BY/LIMIT only supports unique key model");
+            }
+            throw new AnalysisException(
+                    "delete command on with using clause only supports unique key model");
         }
     }
 
