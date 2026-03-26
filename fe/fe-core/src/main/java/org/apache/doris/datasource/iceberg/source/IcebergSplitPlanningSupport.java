@@ -536,28 +536,39 @@ class IcebergSplitPlanningSupport {
         split.setTableFormatType(TableFormatType.ICEBERG);
         split.setTargetSplitSize(targetSplitSize);
         if (isPartitionedTable) {
-            int specId = fileScanTask.file().specId();
-            PartitionSpec partitionSpec = icebergTable.specs().get(specId);
-            Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
-                    specId, icebergTable.name());
-            PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
-            if (partitionData != null) {
-                split.setPartitionSpecId(specId);
-                split.setPartitionDataJson(org.apache.doris.datasource.iceberg.IcebergUtils.getPartitionDataJson(
-                        partitionData, partitionSpec, sessionVariable.getTimeZone()));
-            }
-            if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k ->
-                        org.apache.doris.datasource.iceberg.IcebergUtils.getPartitionInfoMap(
-                                partitionData, partitionSpec, sessionVariable.getTimeZone()));
-                if (partitionInfoMap != null) {
-                    split.setIcebergPartitionValues(partitionInfoMap);
-                }
-            } else {
-                partitionMapInfos.put(partitionData, null);
-            }
+            populatePartitionMetadata(split, fileScanTask);
         }
         return split;
+    }
+
+    private void populatePartitionMetadata(IcebergSplit split, FileScanTask fileScanTask) {
+        int specId = fileScanTask.file().specId();
+        PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+        if (partitionSpec == null) {
+            LOG.warn("Skip partition metadata serialization for split because partition spec {} is not present "
+                            + "in current table metadata for table {}. This can happen when planning branch/tag "
+                            + "snapshots that still reference an older spec.",
+                    specId, icebergTable.name());
+            return;
+        }
+
+        PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
+        if (partitionData != null) {
+            split.setPartitionSpecId(specId);
+            split.setPartitionDataJson(org.apache.doris.datasource.iceberg.IcebergUtils.getPartitionDataJson(
+                    partitionData, partitionSpec, sessionVariable.getTimeZone()));
+        }
+
+        if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
+            Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(partitionData, k ->
+                    org.apache.doris.datasource.iceberg.IcebergUtils.getPartitionInfoMap(
+                            partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            if (partitionInfoMap != null) {
+                split.setIcebergPartitionValues(partitionInfoMap);
+            }
+            return;
+        }
+        partitionMapInfos.put(partitionData, null);
     }
 
     private List<IcebergDeleteFileFilter> getDeleteFileFilters(FileScanTask spitTask) {
