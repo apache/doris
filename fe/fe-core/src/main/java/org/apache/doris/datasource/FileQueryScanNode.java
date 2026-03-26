@@ -44,6 +44,7 @@ import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.spi.Split;
 import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
+import org.apache.doris.thrift.TColumnCategory;
 import org.apache.doris.thrift.TExternalScanRange;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -168,11 +169,9 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            boolean isFileSlot = !partitionKeys.contains(slot.getColumn().getName());
-            if (isIcebergRowIdColumn(slot)) {
-                isFileSlot = false;
-            }
-            slotInfo.setIsFileSlot(isFileSlot);
+            TColumnCategory category = classifyColumn(slot, partitionKeys);
+            slotInfo.setCategory(category);
+            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -189,19 +188,27 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            boolean isFileSlot = !getPathPartitionKeys().contains(slot.getColumn().getName());
-            if (isIcebergRowIdColumn(slot)) {
-                isFileSlot = false;
-            }
-            slotInfo.setIsFileSlot(isFileSlot);
+            TColumnCategory category = classifyColumn(slot, getPathPartitionKeys());
+            slotInfo.setCategory(category);
+            slotInfo.setIsFileSlot(category == TColumnCategory.REGULAR || category == TColumnCategory.GENERATED);
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
         setColumnPositionMapping();
     }
 
-    private boolean isIcebergRowIdColumn(SlotDescriptor slot) {
-        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName());
+    /**
+     * Classify a column's category for the BE reader.
+     * Subclasses override this for format-specific classification.
+     */
+    protected TColumnCategory classifyColumn(SlotDescriptor slot, List<String> partitionKeys) {
+        if (Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName())) {
+            return TColumnCategory.SYNTHESIZED;
+        }
+        if (partitionKeys.contains(slot.getColumn().getName())) {
+            return TColumnCategory.PARTITION_KEY;
+        }
+        return TColumnCategory.REGULAR;
     }
 
     public void setTableSample(TableSample tSample) {

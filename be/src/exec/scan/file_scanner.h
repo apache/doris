@@ -128,6 +128,8 @@ protected:
     std::vector<SlotDescriptor*> _file_slot_descs;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
+    // Unified column descriptors for init_reader (includes file, partition, missing, synthesized cols)
+    std::vector<ColumnDescriptor> _column_descs;
 
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
@@ -152,8 +154,6 @@ protected:
     // Get from GenericReader, save the existing columns in file to their type.
     std::unordered_map<std::string, DataTypePtr> _slot_lower_name_to_col_type;
     // Get from GenericReader, save columns that required by scan but not exist in file.
-    // These columns will be filled by default value or null.
-    std::unordered_set<std::string> _missing_cols;
 
     // The col lowercase name of source file to type of source file.
     std::map<std::string, DataTypePtr> _source_file_col_name_types;
@@ -192,7 +192,6 @@ protected:
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _partition_col_descs;
     std::unordered_map<std::string, bool> _partition_value_is_null;
-    std::unordered_map<std::string, VExprContextSPtr> _missing_col_descs;
 
     // idx of skip_bitmap_col in _input_tuple_desc
     int32_t _skip_bitmap_col_idx {-1};
@@ -232,8 +231,6 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
-    bool _need_iceberg_rowid_column = false;
-    int _iceberg_rowid_column_pos = -1;
     // for iceberg row lineage
     RowLineageColumns _row_lineage_columns;
     int64_t _last_bytes_read_from_local = 0;
@@ -250,14 +247,12 @@ private:
     Status _init_src_block(Block* block);
     Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
-    Status _fill_columns_from_path(size_t rows);
-    Status _fill_missing_columns(size_t rows);
     Status _pre_filter_src_block();
     Status _convert_to_output_block(Block* block);
     Status _truncate_char_or_varchar_columns(Block* block);
     void _truncate_char_or_varchar_column(Block* block, int idx, int len);
     Status _generate_partition_columns();
-    Status _generate_missing_columns();
+
     bool _check_partition_prune_expr(const VExprSPtr& expr);
     void _init_runtime_filter_partition_prune_ctxs();
     void _init_runtime_filter_partition_prune_block();
@@ -267,10 +262,10 @@ private:
     void _get_slot_ids(VExpr* expr, std::vector<int>* slot_ids);
     Status _generate_truncate_columns(bool need_to_get_parsed_schema);
     Status _set_fill_or_truncate_columns(bool need_to_get_parsed_schema);
-    Status _init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
-                            FileMetaCache* file_meta_cache_ptr);
-    Status _init_parquet_reader(std::unique_ptr<ParquetReader>&& parquet_reader,
-                                FileMetaCache* file_meta_cache_ptr);
+    Status _init_orc_reader(FileMetaCache* file_meta_cache_ptr,
+                            std::unique_ptr<OrcReader> orc_reader = nullptr);
+    Status _init_parquet_reader(FileMetaCache* file_meta_cache_ptr,
+                                std::unique_ptr<ParquetReader> parquet_reader = nullptr);
     Status _create_row_id_column_iterator();
 
     TFileFormatType::type _get_current_format_type() {

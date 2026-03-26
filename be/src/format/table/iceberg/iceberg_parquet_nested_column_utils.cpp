@@ -26,7 +26,7 @@
 #include <vector>
 
 #include "format/parquet/schema_desc.h"
-#include "format/table/table_format_reader.h"
+#include "format/table/table_schema_change_helper.h"
 
 namespace doris {
 

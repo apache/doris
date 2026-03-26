@@ -45,6 +45,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/column_processor.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
 #include "io/fs/file_meta_cache.h"
@@ -705,22 +706,17 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
     // Create mock profile
     RuntimeProfile profile("test_profile");
 
-    // Create ParquetReader as the underlying file format reader
+    // Create IcebergParquetReader (IS-A ParquetReader via CRTP mixin)
     cctz::time_zone ctz;
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-    auto generic_reader = ParquetReader::create_unique(&profile, scan_params, scan_range, 1024,
-                                                       &ctz, nullptr, &runtime_state, cache.get());
-    ASSERT_NE(generic_reader, nullptr);
-
-    // Set file reader for the generic reader
-    auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
-    parquet_reader->set_file_reader(file_reader);
-
-    // Create IcebergParquetReader
     auto iceberg_reader = std::make_unique<IcebergParquetReader>(
-            std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-            nullptr, cache.get());
+            nullptr /* kv_cache */, &profile, scan_params, scan_range, 1024, &ctz,
+            nullptr /* io_ctx */, &runtime_state, cache.get());
+    ASSERT_NE(iceberg_reader, nullptr);
+
+    // Set file reader for the iceberg reader (it IS the ParquetReader)
+    iceberg_reader->set_file_reader(file_reader);
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
@@ -745,12 +741,18 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
             {"profile", 1},
     };
     const RowDescriptor* row_descriptor = nullptr;
-    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
+    std::vector<ColumnDescriptor> column_descs;
+    for (const auto& name : table_col_names) {
+        ColumnDescriptor desc;
+        desc.name = name;
+        column_descs.push_back(desc);
+    }
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts, tmp,
+    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
+    st = iceberg_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp,
                                      tuple_descriptor, row_descriptor, colname_to_slot_id,
                                      not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
@@ -845,18 +847,11 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     // Create mock profile
     RuntimeProfile profile("test_profile");
 
-    // Create OrcReader as the underlying file format reader
-    cctz::time_zone ctz;
-    TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-
-    auto generic_reader = OrcReader::create_unique(&profile, &runtime_state, scan_params,
-                                                   scan_range, 1024, "CST", nullptr, cache.get());
-    ASSERT_NE(generic_reader, nullptr);
-
-    // Create IcebergOrcReader
+    // Create IcebergOrcReader (IS-A OrcReader via CRTP mixin)
     auto iceberg_reader = std::make_unique<IcebergOrcReader>(
-            std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range, nullptr,
-            nullptr, cache.get());
+            nullptr /* kv_cache */, &profile, &runtime_state, scan_params, scan_range, 1024, "CST",
+            nullptr /* io_ctx */, cache.get());
+    ASSERT_NE(iceberg_reader, nullptr);
 
     // Create complex struct types using helper function
     DataTypePtr coordinates_struct_type, address_struct_type, phone_struct_type;
@@ -877,7 +872,6 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     VExprContextSPtrs conjuncts; // Empty conjuncts for this test
     std::vector<std::string> table_col_names = {"name", "profile"};
     const RowDescriptor* row_descriptor = nullptr;
-    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
     std::unordered_map<std::string, uint32_t> col_name_to_block_idx = {
             {"name", 0},
             {"profile", 1},
@@ -885,8 +879,14 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
     const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
     const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
 
-    st = iceberg_reader->init_reader(table_col_names, &col_name_to_block_idx, conjuncts,
-                                     tuple_descriptor, row_descriptor, colname_to_slot_id,
+    std::vector<ColumnDescriptor> column_descs;
+    for (const auto& name : table_col_names) {
+        ColumnDescriptor desc;
+        desc.name = name;
+        column_descs.push_back(desc);
+    }
+    st = iceberg_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts,
+                                     tuple_descriptor, row_descriptor,
                                      not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
 

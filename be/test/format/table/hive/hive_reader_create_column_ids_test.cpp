@@ -660,25 +660,21 @@ protected:
 
         cctz::time_zone ctz;
         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
-        auto generic_reader =
-                ParquetReader::create_unique(&profile, scan_params, scan_range, 1024, &ctz, nullptr,
-                                             &runtime_state, cache.get());
-        if (!generic_reader) {
+
+        auto hive_reader =
+                std::make_unique<HiveParquetReader>(&profile, scan_params, scan_range, 1024, &ctz,
+                                                    nullptr, &runtime_state, nullptr, cache.get());
+        if (!hive_reader) {
             return {nullptr, nullptr};
         }
 
-        auto parquet_reader = static_cast<ParquetReader*>(generic_reader.get());
-        parquet_reader->set_file_reader(file_reader);
+        hive_reader->set_file_reader(file_reader);
 
         const FieldDescriptor* field_desc = nullptr;
-        st = parquet_reader->get_file_metadata_schema(&field_desc);
+        st = hive_reader->get_file_metadata_schema(&field_desc);
         if (!st.ok() || !field_desc) {
             return {nullptr, nullptr};
         }
-
-        auto hive_reader = std::make_unique<HiveParquetReader>(
-                std::move(generic_reader), &profile, &runtime_state, scan_params, scan_range,
-                nullptr, nullptr, cache.get());
 
         return {std::move(hive_reader), field_desc};
     }
@@ -686,7 +682,6 @@ protected:
     // Helper function: Create and setup OrcReader
     std::tuple<std::unique_ptr<HiveOrcReader>, const orc::Type*> create_orc_reader(
             const std::string& test_file) {
-        // Open the Hive Orc test file
         auto local_fs = io::global_local_filesystem();
         io::FileReaderSPtr file_reader;
         auto st = local_fs->open_file(test_file, &file_reader);
@@ -694,44 +689,30 @@ protected:
             return {nullptr, nullptr};
         }
 
-        // Setup runtime state
         RuntimeState runtime_state = RuntimeState(TQueryOptions(), TQueryGlobals());
-
-        // Setup scan parameters
         TFileScanRangeParams scan_params;
         scan_params.format_type = TFileFormatType::FORMAT_ORC;
-
         TFileRangeDesc scan_range;
         scan_range.start_offset = 0;
-        scan_range.size = file_reader->size(); // Read entire file
+        scan_range.size = file_reader->size();
         scan_range.path = test_file;
-
-        // Create mock profile
         RuntimeProfile profile("test_profile");
 
-        // Create OrcReader as the underlying file format reader
         cctz::time_zone ctz;
         TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
 
-        auto generic_reader =
-                OrcReader::create_unique(&profile, &runtime_state, scan_params, scan_range, 1024,
-                                         "CST", nullptr, cache.get());
-        if (!generic_reader) {
+        auto hive_reader =
+                std::make_unique<HiveOrcReader>(&profile, &runtime_state, scan_params, scan_range,
+                                                1024, "CST", nullptr, nullptr, cache.get());
+        if (!hive_reader) {
             return {nullptr, nullptr};
         }
 
-        auto orc_reader = static_cast<OrcReader*>(generic_reader.get());
-        // Get FieldDescriptor from Orc file
         const orc::Type* orc_type_ptr = nullptr;
-        st = orc_reader->get_file_type(&orc_type_ptr);
+        st = hive_reader->get_file_type(&orc_type_ptr);
         if (!st.ok() || !orc_type_ptr) {
             return {nullptr, nullptr};
         }
-
-        // Create HiveOrcReader
-        auto hive_reader = std::make_unique<HiveOrcReader>(std::move(generic_reader), &profile,
-                                                           &runtime_state, scan_params, scan_range,
-                                                           nullptr, nullptr, cache.get());
 
         return {std::move(hive_reader), orc_type_ptr};
     }
