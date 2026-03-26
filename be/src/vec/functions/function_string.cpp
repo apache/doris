@@ -38,6 +38,7 @@
 #include "vec/columns/column_string.h"
 #include "vec/common/pod_array_fwd.h"
 #include "vec/common/string_ref.h"
+#include "vec/functions/function_lpad_spark.h"
 #include "vec/functions/function_reverse.h"
 #include "vec/functions/function_string_to_string.h"
 #include "vec/functions/function_totype.h"
@@ -1384,6 +1385,8 @@ void register_function_string(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStringRepeat>();
     factory.register_function<FunctionStringLPad>();
     factory.register_function<FunctionStringRPad>();
+    factory.register_function<FunctionLpadSparkString<2>>();
+    factory.register_function<FunctionLpadSparkString<3>>();
     factory.register_function<FunctionToBase64>();
     factory.register_function<FunctionFromBase64>();
     factory.register_function<FunctionSplitPart>();

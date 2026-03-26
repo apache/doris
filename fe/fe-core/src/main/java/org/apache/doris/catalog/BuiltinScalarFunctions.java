@@ -323,6 +323,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LpadSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
@@ -896,6 +897,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Log2.class, "log2"),
             scalar(Lower.class, "lcase", "lower"),
             scalar(Lpad.class, "lpad"),
+            scalar(LpadSpark.class, "lpad_spark"),
             scalar(Ltrim.class, "ltrim"),
             scalar(LtrimIn.class, "ltrim_in"),
             scalar(MakeDate.class, "makedate"),

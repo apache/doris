@@ -342,6 +342,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lower;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lpad;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.LpadSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ltrim;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.LtrimIn;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MakeDate;
@@ -1902,6 +1903,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLpad(Lpad lpad, C context) {
         return visitScalarFunction(lpad, context);
+    }
+
+    default R visitLpadSpark(LpadSpark lpadSpark, C context) {
+        return visitScalarFunction(lpadSpark, context);
     }
 
     default R visitLtrim(Ltrim ltrim, C context) {

@@ -35,6 +35,7 @@
 #include "vec/data_types/data_type_varbinary.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
+#include "vec/functions/function_lpad_spark.h"
 #include "vec/functions/function_totype.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/functions/string_hex_util.h"
@@ -251,6 +252,8 @@ struct FromBase64BinaryImpl {
 using FunctionFromBase64Binary = FunctionStringOperateToNullType<FromBase64BinaryImpl>;
 
 void register_function_binary(SimpleFunctionFactory& factory) {
+    factory.register_function<FunctionLpadSparkVarbinary<2>>();
+    factory.register_function<FunctionLpadSparkVarbinary<3>>();
     factory.register_function<FunctionBinaryLength>();
     factory.register_function<FunctionToBase64Binary>();
     factory.register_function<FunctionFromBase64Binary>();
