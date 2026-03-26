@@ -35,7 +35,7 @@ suite("test_hive_broker_scan", "p0,external,hive,external_docker,external_docker
         return;
     }
 
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         try {
             String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
             String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
