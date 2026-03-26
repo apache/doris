@@ -29,7 +29,6 @@ namespace doris {
 class MaterializationSharedStateTest : public testing::Test {
 protected:
     void SetUp() override {
-        std::cout << "xxxxxxxx Setting up MaterializationSharedStateTest" << std::endl;
         _shared_state = std::make_shared<MaterializationSharedState>();
 
         // Setup test data types
