@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include <glog/logging.h>
-
 #include <memory>
 
 #include "core/data_type/data_type_number.h"

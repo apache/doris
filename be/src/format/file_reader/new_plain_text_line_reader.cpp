@@ -18,7 +18,6 @@
 #include "format/file_reader/new_plain_text_line_reader.h"
 
 #include <gen_cpp/Metrics_types.h>
-#include <glog/logging.h>
 
 #include "util/debug_points.h"
 #ifdef __AVX2__

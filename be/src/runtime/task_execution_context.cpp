@@ -17,8 +17,6 @@
 
 #include "runtime/task_execution_context.h"
 
-#include <glog/logging.h>
-
 #include <condition_variable>
 
 namespace doris {

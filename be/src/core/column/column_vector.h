@@ -24,7 +24,6 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <cstdint>
 #include <cstring>

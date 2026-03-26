@@ -19,7 +19,6 @@
 
 #include <ctype.h>
 #include <gen_cpp/data.pb.h>
-#include <glog/logging.h>
 #include <string.h>
 
 #include <string>

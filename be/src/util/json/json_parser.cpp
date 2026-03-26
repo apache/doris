@@ -21,7 +21,6 @@
 #include "util/json/json_parser.h"
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <cassert>

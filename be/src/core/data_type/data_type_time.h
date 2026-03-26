@@ -22,7 +22,6 @@
 
 #include <gen_cpp/Types_types.h>
 
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
 #include <memory>
 #include <string>

@@ -24,7 +24,6 @@
 #include <arrow/buffer.h>
 #include <cctz/time_zone.h>
 #include <fmt/format.h>
-#include <glog/logging.h>
 #include <stdint.h>
 
 #include <memory>

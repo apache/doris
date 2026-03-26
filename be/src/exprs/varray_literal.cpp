@@ -18,7 +18,6 @@
 #include "exprs/varray_literal.h"
 
 #include <gen_cpp/Exprs_types.h>
-#include <glog/logging.h>
 
 #include <memory>
 #include <ostream>

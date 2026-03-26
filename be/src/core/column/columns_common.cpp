@@ -22,8 +22,6 @@
 
 #include <string.h>
 
-#include <boost/iterator/iterator_facade.hpp>
-
 #include "core/column/column.h"
 #include "core/column/column_array.h" // IWYU pragma: keep
 #include "util/simd/bits.h"

@@ -18,7 +18,6 @@
 #pragma once
 
 #include <gen_cpp/BackendService_types.h>
-#include <glog/logging.h>
 
 #include <map>
 #include <shared_mutex>

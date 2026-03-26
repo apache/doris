@@ -17,8 +17,6 @@
 
 #include "exprs/vmap_literal.h"
 
-#include <glog/logging.h>
-
 #include <memory>
 #include <ostream>
 #include <vector>

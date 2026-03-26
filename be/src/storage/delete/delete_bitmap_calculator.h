@@ -18,7 +18,6 @@
 #pragma once
 
 #include <butil/macros.h>
-#include <glog/logging.h>
 #include <stddef.h>
 #include <stdint.h>
 

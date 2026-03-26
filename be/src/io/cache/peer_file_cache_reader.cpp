@@ -21,7 +21,6 @@
 #include <bvar/reducer.h>
 #include <fmt/format.h>
 #include <gen_cpp/internal_service.pb.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <utility>

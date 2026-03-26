@@ -17,8 +17,6 @@
 
 #include "jni_data_bridge.h"
 
-#include <glog/logging.h>
-
 #include <sstream>
 #include <variant>
 

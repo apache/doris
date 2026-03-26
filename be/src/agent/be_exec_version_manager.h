@@ -18,7 +18,6 @@
 #pragma once
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include "common/exception.h"
 #include "common/status.h"

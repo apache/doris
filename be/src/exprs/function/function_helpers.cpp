@@ -21,7 +21,6 @@
 #include "exprs/function/function_helpers.h"
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include <algorithm>
 #include <memory>

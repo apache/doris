@@ -20,7 +20,6 @@
 #include <fcntl.h>
 #include <fmt/format.h>
 #include <glob.h>
-#include <glog/logging.h>
 #include <openssl/md5.h>
 #include <sys/mman.h>
 #include <sys/stat.h>

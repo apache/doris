@@ -17,8 +17,6 @@
 
 #include "runtime/workload_management/cpu_context.h"
 
-#include <glog/logging.h>
-
 #include "runtime/workload_management/resource_context.h"
 
 namespace doris {

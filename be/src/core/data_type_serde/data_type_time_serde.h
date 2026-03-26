@@ -17,7 +17,6 @@
 
 #pragma once
 #include <gen_cpp/types.pb.h>
-#include <glog/logging.h>
 
 #include <cstdint>
 

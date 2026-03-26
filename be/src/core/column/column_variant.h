@@ -20,7 +20,6 @@
 
 #pragma once
 #include <butil/compiler_specific.h>
-#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 #include <sys/types.h>

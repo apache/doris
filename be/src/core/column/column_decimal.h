@@ -27,7 +27,6 @@
 #include <sys/types.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <vector>
 
 #include "core/assert_cast.h"

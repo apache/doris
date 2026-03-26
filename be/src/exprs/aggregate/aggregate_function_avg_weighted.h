@@ -20,7 +20,6 @@
 #include <stddef.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cmath>
 #include <memory>
 #include <type_traits>

@@ -21,7 +21,6 @@
 #include "core/column/column_array.h"
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstring>
 #include <vector>
 

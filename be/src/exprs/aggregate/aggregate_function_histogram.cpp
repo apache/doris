@@ -18,7 +18,6 @@
 #include "exprs/aggregate/aggregate_function_histogram.h"
 
 #include <fmt/format.h>
-#include <glog/logging.h>
 
 #include "core/data_type/data_type.h"
 #include "core/data_type/define_primitive_type.h"

@@ -25,7 +25,6 @@
 
 #include <algorithm>
 #include <bitset>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstdint>
 #include <functional>
 #include <iterator>

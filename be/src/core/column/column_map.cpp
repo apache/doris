@@ -21,7 +21,6 @@
 #include "core/column/column_map.h"
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <cstddef>
 #include <vector>
 

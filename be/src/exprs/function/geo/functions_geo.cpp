@@ -20,7 +20,6 @@
 #include <glog/logging.h>
 
 #include <algorithm>
-#include <boost/iterator/iterator_facade.hpp>
 #include <utility>
 
 #include "common/compiler_util.h"

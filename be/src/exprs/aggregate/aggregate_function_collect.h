@@ -18,7 +18,6 @@
 #pragma once
 
 #include <assert.h>
-#include <glog/logging.h>
 #include <string.h>
 
 #include <cstddef>
