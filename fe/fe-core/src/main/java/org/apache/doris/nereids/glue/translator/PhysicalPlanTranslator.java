@@ -89,6 +89,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWind
 import org.apache.doris.nereids.rules.rewrite.MergeLimits;
 import org.apache.doris.nereids.stats.StatsErrorEstimator;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
+import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.CTEId;
 import org.apache.doris.nereids.trees.expressions.EqualPredicate;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -3018,6 +3019,20 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (Expression e : groupByExpressions) {
             if (e instanceof SlotReference && outputExpressions.stream().anyMatch(o -> o.anyMatch(e::equals))) {
                 groupSlots.add((SlotReference) e);
+            } else if (!(e instanceof SlotReference)) {
+                SlotReference outputAliasSlot = outputExpressions.stream()
+                        .filter(Alias.class::isInstance)
+                        .map(Alias.class::cast)
+                        .filter(outputAlias -> outputAlias.child().equals(e))
+                        .map(Alias::toSlot)
+                        .map(SlotReference.class::cast)
+                        .findFirst()
+                        .orElse(null);
+                if (outputAliasSlot != null) {
+                    groupSlots.add(outputAliasSlot);
+                    continue;
+                }
+                groupSlots.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), ImmutableList.of()));
             } else {
                 groupSlots.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), ImmutableList.of()));
             }
