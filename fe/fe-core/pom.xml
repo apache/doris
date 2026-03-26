@@ -826,6 +826,12 @@ under the License.
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- fastutil-core: keep as direct dependency to ensure classpath priority
+             over the ancient unrelocated fastutil classes embedded in hive-catalog-shade -->
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil-core</artifactId>
+        </dependency>
     </dependencies>
     <repositories>
         <!-- for hive-catalog-shade -->
