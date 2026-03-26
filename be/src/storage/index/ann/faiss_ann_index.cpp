@@ -1104,7 +1104,15 @@ doris::Status FaissVectorIndex::load(lucene::store::Directory* dir) {
         }
 
         auto reader = std::make_unique<FaissIndexReader>(idx_input);
-        faiss::Index* idx = faiss::read_index(reader.get());
+        // IO_FLAG_SKIP_PRECOMPUTE_TABLE: skip rebuilding IVFPQ precomputed
+        // distance tables for in-memory IVF.  Same rationale as IVF_ON_DISK –
+        // each segment's table can be hundreds of MiBs (see calculation above),
+        // and the per-list on-the-fly compute_residual() + compute_distance_table()
+        // is negligible compared to overall search cost.
+        // The flag is a no-op for HNSW (no IVF code path is reached).
+        const int read_flags =
+                (_index_type == AnnIndexType::IVF) ? faiss::IO_FLAG_SKIP_PRECOMPUTE_TABLE : 0;
+        faiss::Index* idx = faiss::read_index(reader.get(), read_flags);
         auto end_time = std::chrono::high_resolution_clock::now();
         auto duration =
                 std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time);
