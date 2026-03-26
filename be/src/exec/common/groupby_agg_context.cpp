@@ -729,14 +729,12 @@ Status GroupByAggContext::get_serialized_results(RuntimeState* state, Block* blo
                             if (agg_method.hash_table->has_null_key_data()) {
                                 DCHECK(key_columns.size() == 1);
                                 DCHECK(key_columns[0]->is_nullable());
-                                if (agg_method.hash_table->has_null_key_data()) {
-                                    key_columns[0]->insert_data(nullptr, 0);
-                                    _values[num_rows] =
-                                            agg_method.hash_table->template get_null_key_data<
-                                                    AggregateDataPtr>();
-                                    ++num_rows;
-                                    *eos = true;
-                                }
+                                key_columns[0]->insert_data(nullptr, 0);
+                                _values[num_rows] =
+                                        agg_method.hash_table->template get_null_key_data<
+                                                AggregateDataPtr>();
+                                ++num_rows;
+                                *eos = true;
                             } else {
                                 *eos = true;
                             }

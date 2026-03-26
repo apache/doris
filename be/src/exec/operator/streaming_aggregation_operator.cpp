@@ -513,9 +513,6 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
     }
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
-    if (Base::_closed) {
-        return Status::OK();
-    }
     _pre_aggregated_block->clear();
     PODArray<AggregateDataPtr> tmp_places;
     _places.swap(tmp_places);
