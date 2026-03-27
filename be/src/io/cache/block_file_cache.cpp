@@ -823,9 +823,7 @@ FileBlocksHolder BlockFileCache::get_or_set(const UInt128Wrapper& hash, size_t o
     const bool async_touch_on_get_or_set = config::enable_file_cache_async_touch_on_get_or_set;
     int64_t duration = 0;
     {
-        ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->increment();
         std::lock_guard cache_lock(_mutex);
-        ConcurrencyStatsManager::instance().cached_remote_reader_get_or_set_wait_lock->decrement();
         stats->lock_wait_timer += sw.elapsed_time();
         SCOPED_RAW_TIMER(&duration);
         /// Get all blocks which intersect with the given range.
