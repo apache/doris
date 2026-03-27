@@ -103,7 +103,7 @@ public class ListPartitionPrunerV2Test {
         // the original partition of the table (in mock) will be loaded here
         String dbName = "db";
         String tblName = "tb";
-        PartitionValueCacheKey key = new PartitionValueCacheKey("", NameMapping.createForTest("db", "tb"), types);
+        PartitionValueCacheKey key = new PartitionValueCacheKey("", NameMapping.createForTest("db", "tb"), types, false);
         HiveMetaStoreCache.HivePartitionValues partitionValues = cache.getPartitionValues(key);
         Assert.assertEquals(1, partitionValues.getIdToPartitionItem().size());
         Assert.assertTrue(partitionValues.getIdToPartitionItem().containsKey(8882801933302843777L));
@@ -118,7 +118,7 @@ public class ListPartitionPrunerV2Test {
         values.add("c1=5.678000");
         cache.addPartitionsCache(NameMapping.createForTest(dbName, tblName), values, types);
         HiveMetaStoreCache.HivePartitionValues partitionValues2 = cache.getPartitionValues(
-                new PartitionValueCacheKey("", NameMapping.createForTest(dbName, tblName), types));
+                new PartitionValueCacheKey("", NameMapping.createForTest(dbName, tblName), types, false));
         Assert.assertEquals(2, partitionValues2.getIdToPartitionItem().size());
         Assert.assertTrue(partitionValues2.getIdToPartitionItem().containsKey(7070400225537799947L));
         List<PartitionKey> items2 = partitionValues2.getIdToPartitionItem().get(7070400225537799947L).getItems();
@@ -131,7 +131,7 @@ public class ListPartitionPrunerV2Test {
         // simulates the manually added partition table being deleted, leaving only one original partition in mock
         cache.invalidateTableCache(NameMapping.createForTest(dbName, tblName));
         HiveMetaStoreCache.HivePartitionValues partitionValues3 = cache.getPartitionValues(
-                new PartitionValueCacheKey("", NameMapping.createForTest(dbName, tblName), types));
+                new PartitionValueCacheKey("", NameMapping.createForTest(dbName, tblName), types, false));
         Assert.assertEquals(1, partitionValues3.getIdToPartitionItem().size());
         Assert.assertTrue(partitionValues3.getIdToPartitionItem().containsKey(8882801933302843777L));
         List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().get(8882801933302843777L).getItems();

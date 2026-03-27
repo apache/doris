@@ -1123,7 +1123,8 @@ public class ProxyMetaStoreClient implements IMetaStoreClient {
     }
 
     @Override
-    public Partition getPartitionFromView(String s, String s1, String s2) throws MetaException, UnknownTableException, NoSuchObjectException, TException {
+    public Partition getPartitionFromView(String dbName, String tblName, List<String> values)
+            throws MetaException, UnknownTableException, NoSuchObjectException, TException {
         throw new UnsupportedOperationException("getPartitionFromView is not supported.");
     }
 

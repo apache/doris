@@ -284,8 +284,9 @@ public class HiveMetaStoreCache {
         // partition name format: nation=cn/city=beijing,`listPartitionNames` returned string is the encoded string.
         Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
         NameMapping nameMapping = key.nameMapping;
-        List<String> partitionNames = catalog.getClient()
-                .listPartitionNames(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
+        List<String> partitionNames = key.viewBased ? catalog.getClient()
+                .listPartitionNamesFromView(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName())
+                : catalog.getClient().listPartitionNames(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName());
         if (LOG.isDebugEnabled()) {
             LOG.debug("load #{} partitions for {} in catalog {}", partitionNames.size(), key, catalog.getName());
         }
@@ -331,7 +332,9 @@ public class HiveMetaStoreCache {
 
     private Map<Long, PartitionItem> loadFilterPartitionValues(FilterPartitionValueCacheKey key) {
         Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
-        List<Partition> partitions = catalog.getClient().listPartitionsByFilter(
+        List<Partition> partitions = key.viewBased ? catalog.getClient().listPartitionsByFilterFromView(
+                key.nameMapping.getRemoteDbName(), key.nameMapping.getRemoteTblName(), key.filter, (short) -1)
+                : catalog.getClient().listPartitionsByFilter(
                 key.nameMapping.getRemoteDbName(), key.nameMapping.getRemoteTblName(), key.filter, (short) -1);
         Map<Long, PartitionItem> idToPartitionItem = Maps.newHashMapWithExpectedSize(partitions.size());
         for (Partition partition : partitions) {
@@ -359,7 +362,8 @@ public class HiveMetaStoreCache {
                                                                List<String> partitionColumnNames, List<Type> types) {
         Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
         FilterPartitionValueCacheKey key = new FilterPartitionValueCacheKey(BDPAuthContext.get().getHadoopUserName(),
-                dorisTable.getOrBuildNameMapping(), filter, partitionColumnNames, types);
+                dorisTable.getOrBuildNameMapping(), filter, partitionColumnNames, types,
+                ((HMSExternalTable) dorisTable).isViewBased());
         return getFilterPartitionValues(key);
     }
 
@@ -370,7 +374,7 @@ public class HiveMetaStoreCache {
     public int getPartitionNum(ExternalTable dorisTable) {
         Preconditions.checkNotNull(BDPAuthContext.get(), "bdp auth info cannot be null");
         PartitionNumCacheKey key = new PartitionNumCacheKey(BDPAuthContext.get().getHadoopUserName(),
-                dorisTable.getOrBuildNameMapping());
+                dorisTable.getOrBuildNameMapping(), ((HMSExternalTable) dorisTable).isViewBased());
         return getPartitionNum(key);
     }
 
@@ -380,8 +384,9 @@ public class HiveMetaStoreCache {
 
     private HivePartition loadPartition(PartitionCacheKey key) {
         NameMapping nameMapping = key.nameMapping;
-        Partition partition = catalog.getClient()
-                .getPartition(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), key.values);
+        Partition partition = key.viewBased ? catalog.getClient().getPartitionFromView(nameMapping.getRemoteDbName(),
+                nameMapping.getRemoteTblName(), key.values) : catalog.getClient().getPartition(
+                    nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), key.values);
         StorageDescriptor sd = partition.getSd();
         if (LOG.isDebugEnabled()) {
             LOG.debug("load partition format: {}, location: {} for {} in catalog {}",
@@ -422,13 +427,15 @@ public class HiveMetaStoreCache {
 
         BDPAuthContext bdpAuthContext = BDPAuthContext.get();
         Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
-        List<Partition> partitions = catalog.getClient()
-                .getPartitions(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), partitionNames);
+        List<Partition> partitions = oneKey.viewBased ? catalog.getClient().getPartitionsFromView(
+                nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(), partitionNames)
+                : catalog.getClient().getPartitions(nameMapping.getRemoteDbName(), nameMapping.getRemoteTblName(),
+                partitionNames);
         // Compose the return result map.
         for (Partition partition : partitions) {
             StorageDescriptor sd = partition.getSd();
-            ret.put(new PartitionCacheKey(bdpAuthContext.getHadoopUserName(), nameMapping, partition.getValues()),
-                    new HivePartition(nameMapping, false,
+            ret.put(new PartitionCacheKey(bdpAuthContext.getHadoopUserName(), nameMapping, partition.getValues(),
+                    oneKey.viewBased), new HivePartition(nameMapping, false,
                             sd.getInputFormat(), sd.getLocation(), partition.getValues(), partition.getParameters()));
         }
         return ret;
@@ -519,7 +526,7 @@ public class HiveMetaStoreCache {
         BDPAuthContext bdpAuthContext = BDPAuthContext.get();
         Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
         PartitionValueCacheKey key = new PartitionValueCacheKey(bdpAuthContext.getHadoopUserName(),
-                dorisTable.getOrBuildNameMapping(), types);
+                dorisTable.getOrBuildNameMapping(), types, ((HMSExternalTable) dorisTable).isViewBased());
         return getPartitionValues(key);
     }
 
@@ -587,7 +594,7 @@ public class HiveMetaStoreCache {
         BDPAuthContext bdpAuthContext = BDPAuthContext.get();
         Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
         return partitionCache.get(new PartitionCacheKey(bdpAuthContext.getHadoopUserName(),
-            dorisTable.getOrBuildNameMapping(), partitionValues));
+            dorisTable.getOrBuildNameMapping(), partitionValues, ((HMSExternalTable) dorisTable).isViewBased()));
     }
 
     public List<HivePartition> getAllPartitionsWithCache(ExternalTable dorisTable,
@@ -607,7 +614,8 @@ public class HiveMetaStoreCache {
         long start = System.currentTimeMillis();
         NameMapping nameMapping = dorisTable.getOrBuildNameMapping();
         List<PartitionCacheKey> keys = partitionValuesList.stream()
-                .map(p -> new PartitionCacheKey(bdpAuthContext.getHadoopUserName(), nameMapping, p))
+                .map(p -> new PartitionCacheKey(bdpAuthContext.getHadoopUserName(), nameMapping, p,
+                    ((HMSExternalTable) dorisTable).isViewBased()))
                 .collect(Collectors.toList());
 
         List<HivePartition> partitions;
@@ -664,12 +672,13 @@ public class HiveMetaStoreCache {
         });
         List<PartitionCacheKey> partitionCacheKeysToRemove = new ArrayList<>();
         List<FileCacheKey> fileCacheKeysToRemove = new ArrayList<>();
+        boolean isViewBased = ((HMSExternalTable) dorisTable).isViewBased();
         for (PartitionValueCacheKey key : partitionValueCacheKeysToRemove) {
             HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
             if (partitionValues != null) {
                 Long partitionId = partitionValues.partitionNameToIdMap.get(partitionName);
                 List<String> values = partitionValues.partitionValuesMap.get(partitionId);
-                PartitionCacheKey partKey = new PartitionCacheKey(key.hadoopUserName, nameMapping, values);
+                PartitionCacheKey partKey = new PartitionCacheKey(key.hadoopUserName, nameMapping, values, isViewBased);
                 HivePartition partition = partitionCache.getIfPresent(partKey);
                 if (partition != null) {
                     partitionCacheKeysToRemove.add(partKey);
@@ -808,7 +817,7 @@ public class HiveMetaStoreCache {
         BDPAuthContext bdpAuthContext = BDPAuthContext.get();
         Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
         PartitionValueCacheKey key = new PartitionValueCacheKey(bdpAuthContext.getHadoopUserName(),
-                nameMapping, partitionColumnTypes);
+                nameMapping, partitionColumnTypes, false);
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
             return;
@@ -847,7 +856,7 @@ public class HiveMetaStoreCache {
         BDPAuthContext bdpAuthContext = BDPAuthContext.get();
         Preconditions.checkNotNull(bdpAuthContext, "bdp auth info cannot be null");
         PartitionValueCacheKey key = new PartitionValueCacheKey(bdpAuthContext.getHadoopUserName(),
-                nameMapping, null);
+                nameMapping, null, ((HMSExternalTable) dorisTable).isViewBased());
         HivePartitionValues partitionValues = partitionValuesCache.getIfPresent(key);
         if (partitionValues == null) {
             return;
@@ -935,10 +944,12 @@ public class HiveMetaStoreCache {
     public static class PartitionNumCacheKey {
         private String hadoopUserName;
         private NameMapping nameMapping;
+        private boolean viewBased = false;
 
-        public PartitionNumCacheKey(String hadoopUserName, NameMapping nameMapping) {
+        public PartitionNumCacheKey(String hadoopUserName, NameMapping nameMapping, boolean viewBased) {
             this.hadoopUserName = hadoopUserName;
             this.nameMapping = nameMapping;
+            this.viewBased = viewBased;
         }
 
         @Override
@@ -950,19 +961,20 @@ public class HiveMetaStoreCache {
                 return false;
             }
             return hadoopUserName.equals(((PartitionNumCacheKey) obj).hadoopUserName)
-                && nameMapping.equals(((PartitionNumCacheKey) obj).nameMapping);
+                && nameMapping.equals(((PartitionNumCacheKey) obj).nameMapping)
+                && viewBased == ((PartitionNumCacheKey) obj).viewBased;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(hadoopUserName, nameMapping);
+            return Objects.hash(hadoopUserName, nameMapping, viewBased);
         }
 
         @Override
         public String toString() {
             return "PartitionNumCacheKey{" + "hadoopUserName='" + hadoopUserName + '\''
                 + ",dbName='" + nameMapping.getLocalDbName() + '\'' + ", tblName='"
-                + nameMapping.getLocalTblName() + '\'' + '}';
+                + nameMapping.getLocalTblName() + '\'' + ", viewBased='" + viewBased + '\'' + '}';
         }
     }
 
@@ -977,14 +989,16 @@ public class HiveMetaStoreCache {
         // not in key
         private List<String> partitionColumnNames;
         private List<Type> types;
+        private boolean viewBased = false;
 
         public FilterPartitionValueCacheKey(String hadoopUserName, NameMapping nameMapping, String filer,
-                                            List<String> partitionColumnNames, List<Type> types) {
+                                            List<String> partitionColumnNames, List<Type> types, boolean viewBased) {
             this.hadoopUserName = hadoopUserName;
             this.nameMapping = nameMapping;
             this.filter = filer;
             this.partitionColumnNames = partitionColumnNames;
             this.types = types;
+            this.viewBased = viewBased;
         }
 
         @Override
@@ -997,19 +1011,21 @@ public class HiveMetaStoreCache {
             }
             return hadoopUserName.equals(((FilterPartitionValueCacheKey) obj).hadoopUserName)
                 && nameMapping.equals(((FilterPartitionValueCacheKey) obj).nameMapping)
-                && filter.equals(((FilterPartitionValueCacheKey) obj).filter);
+                && filter.equals(((FilterPartitionValueCacheKey) obj).filter)
+                && viewBased == ((FilterPartitionValueCacheKey) obj).viewBased;
         }
 
         @Override
         public int hashCode() {
-            return Objects.hash(hadoopUserName, nameMapping, filter);
+            return Objects.hash(hadoopUserName, nameMapping, filter, viewBased);
         }
 
         @Override
         public String toString() {
             return "FilterPartitionValueCacheKey{" + "hadoopUserName='" + hadoopUserName + '\''
                 + ",dbName='" + nameMapping.getLocalDbName() + '\'' + ", tblName='"
-                + nameMapping.getLocalTblName() + '\'' + ",filter='" + filter + '\'' + '\'' + '}';
+                + nameMapping.getLocalTblName() + '\'' + ",filter='" + filter + '\'' + '\''
+                + ",viewBased='" + viewBased + '\'' + '\'' + '}';
         }
     }
 
@@ -1022,11 +1038,14 @@ public class HiveMetaStoreCache {
         private NameMapping nameMapping;
         // not in key
         private List<Type> types;
+        private boolean viewBased = false;
 
-        public PartitionValueCacheKey(String hadoopUserName, NameMapping nameMapping, List<Type> types) {
+        public PartitionValueCacheKey(String hadoopUserName, NameMapping nameMapping, List<Type> types,
+                                      boolean viewBased) {
             this.hadoopUserName = hadoopUserName;
             this.nameMapping = nameMapping;
             this.types = types;
+            this.viewBased = viewBased;
         }
 
         @Override
@@ -1038,7 +1057,8 @@ public class HiveMetaStoreCache {
                 return false;
             }
             return hadoopUserName.equals(((PartitionValueCacheKey) obj).hadoopUserName)
-                        && nameMapping.equals(((PartitionValueCacheKey) obj).nameMapping);
+                        && nameMapping.equals(((PartitionValueCacheKey) obj).nameMapping)
+                        && viewBased == ((PartitionValueCacheKey) obj).viewBased;
         }
 
         boolean isSameTable(String dbName, String tblName) {
@@ -1048,14 +1068,15 @@ public class HiveMetaStoreCache {
 
         @Override
         public int hashCode() {
-            return Objects.hash(hadoopUserName, nameMapping);
+            return Objects.hash(hadoopUserName, nameMapping, viewBased);
         }
 
         @Override
         public String toString() {
             return "PartitionValueCacheKey{" + "hadoopUserName='" + hadoopUserName + '\'' + ", dbName='"
                     + nameMapping.getLocalDbName() + '\'' + ", tblName='"
-                    + nameMapping.getLocalTblName() + '\'' + '}';
+                    + nameMapping.getLocalTblName() + '\''
+                    + ", viewBased='" + viewBased + '\'' + '}';
         }
     }
 
@@ -1064,11 +1085,14 @@ public class HiveMetaStoreCache {
         private String hadoopUserName;
         private NameMapping nameMapping;
         private List<String> values;
+        private boolean viewBased = false;
 
-        public PartitionCacheKey(String hadoopUserName, NameMapping nameMapping, List<String> values) {
+        public PartitionCacheKey(String hadoopUserName, NameMapping nameMapping, List<String> values,
+                                 boolean viewBased) {
             this.hadoopUserName = hadoopUserName;
             this.nameMapping = nameMapping;
             this.values = values;
+            this.viewBased = viewBased;
         }
 
         @Override
@@ -1081,7 +1105,8 @@ public class HiveMetaStoreCache {
             }
             return hadoopUserName.equals(((PartitionCacheKey) obj).hadoopUserName)
                     && nameMapping.equals(((PartitionCacheKey) obj).nameMapping)
-                    && Objects.equals(values, ((PartitionCacheKey) obj).values);
+                    && Objects.equals(values, ((PartitionCacheKey) obj).values)
+                    && viewBased ==  ((PartitionCacheKey) obj).viewBased;
         }
 
         boolean isSameTable(String dbName, String tblName) {
@@ -1091,7 +1116,7 @@ public class HiveMetaStoreCache {
 
         @Override
         public int hashCode() {
-            return Objects.hash(hadoopUserName, nameMapping, values);
+            return Objects.hash(hadoopUserName, nameMapping, values, viewBased);
         }
 
         @Override
@@ -1099,7 +1124,7 @@ public class HiveMetaStoreCache {
             return "PartitionCacheKey{" + "hadoopUserName='" + hadoopUserName + '\''
                     + ", dbName='" + nameMapping.getLocalDbName() + '\''
                     + ", tblName='" + nameMapping.getLocalTblName() + '\'' + ", values="
-                    + values + '}';
+                    + values + ", viewBased='" + viewBased + '\'' + '}';
         }
     }
 

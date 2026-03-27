@@ -416,6 +416,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
                 case HMS_EXTERNAL_TABLE:
                     HMSExternalTable hmsTable = (HMSExternalTable) table;
+                    if (cascadesContext.getConnectContext().isViewBased()) {
+                        hmsTable.setIsViewBased(true);
+                    }
                     if (Config.enable_query_hive_views && hmsTable.isView()) {
                         isView = true;
                         String hiveCatalog = hmsTable.getCatalog().getName();
@@ -578,6 +581,8 @@ public class BindRelation extends OneAnalysisRuleFactory {
         // so that we can parse and analyze the view sql in external context.
         ctx.changeDefaultCatalog(externalCatalog);
         ctx.setDatabase(externalDb);
+        boolean isViewBased = ctx.isViewBased();
+        ctx.setViewBased(true);
         try {
             return new LogicalView<>(new ExternalView(table, ddlSql),
                     parseAndAnalyzeView(table, convertedSql, cascadesContext));
@@ -585,6 +590,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
             // restore catalog and db in connect context
             ctx.changeDefaultCatalog(previousCatalog);
             ctx.setDatabase(previousDb);
+            ctx.setViewBased(isViewBased);
         }
     }
 

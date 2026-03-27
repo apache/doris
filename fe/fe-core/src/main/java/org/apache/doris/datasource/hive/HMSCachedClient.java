@@ -51,13 +51,23 @@ public interface HMSCachedClient {
 
     List<String> listPartitionNames(String dbName, String tblName);
 
+    List<String> listPartitionNamesFromView(String dbName, String tblName);
+
     List<Partition> listPartitions(String dbName, String tblName);
+
+    List<String> listPartitionNamesFromView(String dbName, String tblName, long maxListPartitionNum);
 
     List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum);
 
+    Partition getPartitionFromView(String dbName, String tblName, List<String> partitionValues);
+
     Partition getPartition(String dbName, String tblName, List<String> partitionValues);
 
+    List<Partition> getPartitionsFromView(String dbName, String tblName, List<String> partitionNames);
+
     List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames);
+
+    Table getTableFromView(String dbName, String tblName);
 
     Table getTable(String dbName, String tblName);
 
@@ -114,6 +124,8 @@ public interface HMSCachedClient {
     void dropPartition(String dbName, String tableName, List<String> partitionValues, boolean deleteData);
 
     int getNumPartitionsByFilter(String dbName, String tableName, String filter);
+
+    List<Partition> listPartitionsByFilterFromView(String dbName, String tableName, String filter, short maxParts);
 
     List<Partition> listPartitionsByFilter(String dbName, String tableName, String filter, short maxParts);
 

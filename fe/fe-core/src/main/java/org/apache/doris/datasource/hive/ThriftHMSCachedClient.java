@@ -258,6 +258,11 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public List<String> listPartitionNamesFromView(String dbName, String tblName) {
+        return listPartitionNamesFromView(dbName, tblName, MAX_LIST_PARTITION_NUM);
+    }
+
+    @Override
     public List<String> listPartitionNames(String dbName, String tblName) {
         return listPartitionNames(dbName, tblName, MAX_LIST_PARTITION_NUM);
     }
@@ -276,6 +281,22 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
     }
 
     @Override
+    public List<String> listPartitionNamesFromView(String dbName, String tblName, long maxListPartitionNum) {
+        // list all parts when the limit is greater than the short maximum
+        short limited = maxListPartitionNum <= Short.MAX_VALUE ? (short) maxListPartitionNum : MAX_LIST_PARTITION_NUM;
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                return client.client.listPartitionNamesFromView(dbName, tblName, limited);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to list partition names for table %s in db %s", e, tblName, dbName);
+        }
+    }
+
+    @Override
     public List<String> listPartitionNames(String dbName, String tblName, long maxListPartitionNum) {
         // list all parts when the limit is greater than the short maximum
         short limited = maxListPartitionNum <= Short.MAX_VALUE ? (short) maxListPartitionNum : MAX_LIST_PARTITION_NUM;
@@ -288,6 +309,22 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             }
         } catch (Exception e) {
             throw new HMSClientException("failed to list partition names for table %s in db %s", e, tblName, dbName);
+        }
+    }
+
+    @Override
+    public Partition getPartitionFromView(String dbName, String tblName, List<String> partitionValues) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                // TODO
+                return client.client.getPartitionFromView(dbName, tblName, partitionValues);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
+                dbName, partitionValues);
         }
     }
 
@@ -312,6 +349,22 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
                     dbName, partitionValuesMsg);
         }
     }
+
+    @Override
+    public List<Partition> getPartitionsFromView(String dbName, String tblName, List<String> partitionNames) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                return client.client.getPartitionsByNamesFromView(dbName, tblName, partitionNames);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get partition for table %s in db %s with value %s", e, tblName,
+                dbName, partitionNames);
+        }
+    }
+
 
     @Override
     public List<Partition> getPartitions(String dbName, String tblName, List<String> partitionNames) {
@@ -351,6 +404,20 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
 
     public Map<String, String> getDefaultColumnValues(String dbName, String tblName) {
         return Maps.newHashMap();
+    }
+
+    @Override
+    public Table getTableFromView(String dbName, String tblName) {
+        try (ThriftHMSClient client = getClient()) {
+            try {
+                return client.client.getTableFromView(dbName, tblName);
+            } catch (Exception e) {
+                client.setThrowable(e);
+                throw e;
+            }
+        } catch (Exception e) {
+            throw new HMSClientException("failed to get table %s in db %s from hms client", e, tblName, dbName);
+        }
     }
 
     @Override
@@ -782,6 +849,16 @@ public class ThriftHMSCachedClient implements HMSCachedClient {
             return client.client.getNumPartitionsByFilter(dbName, tableName, filter);
         } catch (Exception e) {
             throw new RuntimeException("failed to get num partitions by filter for " + dbName + "." + tableName, e);
+        }
+    }
+
+    @Override
+    public List<Partition> listPartitionsByFilterFromView(String dbName, String tableName, String filter,
+                                                          short maxParts) {
+        try (ThriftHMSClient client = getClient()) {
+            return client.client.listPartitionsByFilterFromView(dbName, tableName, filter, maxParts);
+        } catch (Exception e) {
+            throw new RuntimeException("failed to list partitions by filter for " + dbName + "." + tableName, e);
         }
     }
 

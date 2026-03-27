@@ -194,6 +194,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         UNKNOWN, HIVE, HUDI, ICEBERG
     }
 
+    private boolean isViewBased = false;
+
     /**
      * Create hive metastore external table.
      *
@@ -523,6 +525,14 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return dlaType;
     }
 
+    public void setIsViewBased(boolean isViewBased) {
+        this.isViewBased = isViewBased;
+    }
+
+    public boolean isViewBased() {
+        return isViewBased;
+    }
+
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
@@ -630,6 +640,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     public Partition getPartition(List<String> partitionValues) {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
+        if (isViewBased) {
+            return client.getPartitionFromView(getRemoteDbName(), remoteName, partitionValues);
+        }
         return client.getPartition(getRemoteDbName(), remoteName, partitionValues);
     }
 
@@ -637,7 +650,8 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     public Set<String> getPartitionNames() {
         makeSureInitialized();
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
-        List<String> names = client.listPartitionNames(getRemoteDbName(), getRemoteName());
+        List<String> names = isViewBased ? client.listPartitionNamesFromView(getRemoteDbName(), getRemoteName())
+                : client.listPartitionNames(getRemoteDbName(), getRemoteName());
         return new HashSet<>(names);
     }
 
@@ -1235,6 +1249,9 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
 
     private Table loadHiveTable() {
         HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
+        if (isViewBased) {
+            return client.getTableFromView(dbName, remoteName);
+        }
         return client.getTable(getRemoteDbName(), remoteName);
     }
 

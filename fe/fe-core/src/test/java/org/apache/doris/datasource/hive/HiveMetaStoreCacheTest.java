@@ -85,13 +85,14 @@ public class HiveMetaStoreCacheTest {
         HiveMetaStoreCache.PartitionCacheKey partitionCacheKey = new HiveMetaStoreCache.PartitionCacheKey(
                 "",
                 nameMapping,
-                new ArrayList<>()
+                new ArrayList<>(),
+                false
         );
         partitionCache.put(partitionCacheKey,
                 new HivePartition(nameMapping, false, "", "", new ArrayList<>(), new HashMap<>()));
 
         HiveMetaStoreCache.PartitionValueCacheKey partitionValueCacheKey
-                = new HiveMetaStoreCache.PartitionValueCacheKey("", nameMapping, new ArrayList<>());
+                = new HiveMetaStoreCache.PartitionValueCacheKey("", nameMapping, new ArrayList<>(), false);
         partitionValuesCache.put(partitionValueCacheKey, new HiveMetaStoreCache.HivePartitionValues());
 
     }

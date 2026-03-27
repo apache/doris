@@ -272,6 +272,10 @@ public class ConnectContext {
     @Setter
     private volatile BDPAuthContext bdpAuthContext = null;
 
+    @Getter
+    @Setter
+    private boolean isViewBased = false;
+
     public void setUserQueryTimeout(int queryTimeout) {
         if (queryTimeout > 0) {
             sessionVariable.setQueryTimeoutS(queryTimeout);
