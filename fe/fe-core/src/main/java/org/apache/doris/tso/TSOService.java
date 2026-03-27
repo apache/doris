@@ -247,6 +247,11 @@ public class TSOService extends MasterDaemon {
         if (isInitialized.get()) {
             return;
         }
+        // Fail fast: calibration must persist the window end before the service can be considered initialized.
+        // Otherwise, a restart may lose the boundary and break TSO monotonicity guarantees.
+        if (!Config.enable_tso_persist_journal) {
+            throw new RuntimeException("TSO calibration requires enable_tso_persist_journal=true");
+        }
         // Check if Env is ready before calibration
         Env env = Env.getCurrentEnv();
         if (env == null || !env.isReady() || !env.isMaster()) {

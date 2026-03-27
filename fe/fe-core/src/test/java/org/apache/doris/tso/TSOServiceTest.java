@@ -188,9 +188,11 @@ public class TSOServiceTest {
         boolean originalEnableTsoFeature = Config.enable_tso_feature;
         try {
             Config.enable_tso_feature = true;
+            Config.enable_tso_persist_journal = true;
             Config.tso_max_update_retry_count = 0;
             Mockito.when(env.isReady()).thenReturn(true);
             Mockito.when(env.isMaster()).thenReturn(true);
+            mockPersistReady();
             tsoService.runAfterCatalogReady();
             Assert.assertTrue(tsoService.getTSO() > 0);
         } finally {
@@ -288,6 +290,7 @@ public class TSOServiceTest {
 
     @Test
     public void testCalibrateTimestampThrowsWhenClockBackwardExceedsThreshold() throws Exception {
+        Config.enable_tso_persist_journal = true;
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
         long now = System.currentTimeMillis() + Config.tso_time_offset_debug_mode;
@@ -303,13 +306,28 @@ public class TSOServiceTest {
 
     @Test
     public void testCalibrateTimestampResetsFatalClockBackwardReportedOnSuccess() throws Exception {
+        Config.enable_tso_persist_journal = true;
         setFatalClockBackwardReportedFlag(tsoService, true);
         Mockito.when(env.isReady()).thenReturn(true);
         Mockito.when(env.isMaster()).thenReturn(true);
+        mockPersistReady();
 
         invokeCalibrateTimestamp(tsoService);
 
         Assert.assertFalse(getFatalClockBackwardReportedFlag(tsoService));
+    }
+
+    @Test
+    public void testCalibrateTimestampThrowsWhenPersistJournalDisabled() throws Exception {
+        Config.enable_tso_persist_journal = false;
+        Mockito.when(env.isReady()).thenReturn(true);
+        Mockito.when(env.isMaster()).thenReturn(true);
+        try {
+            invokeCalibrateTimestamp(tsoService);
+            Assert.fail();
+        } catch (RuntimeException e) {
+            Assert.assertTrue(e.getMessage().contains("enable_tso_persist_journal=true"));
+        }
     }
 
     @Test
@@ -432,6 +450,13 @@ public class TSOServiceTest {
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
+    }
+
+    private void mockPersistReady() {
+        EditLog editLog = Mockito.mock(EditLog.class);
+        Journal journal = Mockito.mock(Journal.class);
+        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        Mockito.when(editLog.getJournal()).thenReturn(journal);
     }
 
     private static final class EnvMockUp extends MockUp<Env> {
