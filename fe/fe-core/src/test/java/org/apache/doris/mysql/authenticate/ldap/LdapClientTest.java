@@ -121,9 +121,9 @@ public class LdapClientTest {
         try (TestLogAppender appender = TestLogAppender.attach(LdapClient.class)) {
             Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
             Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LDAP-AUTH LdapClient.getGroups: user=zhangsan, groups=1, elapsed="));
+                    "LdapClient.getGroups: user=zhangsan, groups=1, elapsed="));
             Assert.assertFalse(appender.contains(Level.WARN,
-                    "LDAP-AUTH LdapClient.getGroups slow: user=zhangsan"));
+                    "LdapClient.getGroups slow: user=zhangsan"));
         }
     }
 

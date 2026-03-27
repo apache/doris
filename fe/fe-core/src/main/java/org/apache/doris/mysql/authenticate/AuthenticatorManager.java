@@ -167,7 +167,7 @@ public class AuthenticatorManager {
         boolean debugEnabled = LOG.isDebugEnabled();
         long resolveStart = 0L;
         if (debugEnabled) {
-            LOG.debug("LDAP-AUTH AuthenticatorManager: user={}, authenticator={}",
+            LOG.debug("AuthenticatorManager: user={}, authenticator={}",
                     userName, primaryAuthenticator.getClass().getSimpleName());
             resolveStart = System.currentTimeMillis();
         }
@@ -180,7 +180,7 @@ public class AuthenticatorManager {
         AuthenticateRequest request = primaryRequest.get();
         if (debugEnabled) {
             long resolveElapsed = System.currentTimeMillis() - resolveStart;
-            LOG.debug("LDAP-AUTH resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
+            LOG.debug("resolvePassword: user={}, elapsed={}ms", userName, resolveElapsed);
             resolveStart = System.currentTimeMillis();
         }
         remoteIp = request.getRemoteIp();
@@ -192,7 +192,7 @@ public class AuthenticatorManager {
         AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, request);
         if (debugEnabled) {
             long authenticateElapsed = System.currentTimeMillis() - resolveStart;
-            LOG.debug("LDAP-AUTH authenticate: user={}, elapsed={}ms", userName, authenticateElapsed);
+            LOG.debug("authenticate: user={}, elapsed={}ms", userName, authenticateElapsed);
         }
         if (primaryResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);

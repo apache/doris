@@ -97,9 +97,9 @@ public class LdapManagerTest {
         try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
             Assert.assertTrue(ldapManager.checkUserPasswd(USER1, "123"));
             Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LDAP-AUTH LdapManager.checkUserPasswd: user=user1, result=cached_passwd_match, elapsed="));
+                    "LdapManager.checkUserPasswd: user=user1, result=cached_passwd_match, elapsed="));
             Assert.assertFalse(appender.contains(Level.WARN,
-                    "LDAP-AUTH LdapManager.checkUserPasswd slow: user=user1"));
+                    "LdapManager.checkUserPasswd slow: user=user1"));
         }
     }
 
@@ -111,9 +111,9 @@ public class LdapManagerTest {
         try (TestLogAppender appender = TestLogAppender.attach(LdapManager.class)) {
             Assert.assertNotNull(ldapManager.getUserInfo(USER1));
             Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LDAP-AUTH LdapManager.getUserInfo: user=user1, cacheHit=false, elapsed="));
+                    "LdapManager.getUserInfo: user=user1, cacheHit=false, elapsed="));
             Assert.assertFalse(appender.contains(Level.WARN,
-                    "LDAP-AUTH LdapManager.getUserInfo slow: user=user1"));
+                    "LdapManager.getUserInfo slow: user=user1"));
         }
     }
 }

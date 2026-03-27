@@ -121,9 +121,9 @@ public class LdapAuthenticatorTest {
             AuthenticateResponse response = ldapAuthenticator.authenticate(request);
             Assert.assertTrue(response.isSuccess());
             Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LDAP-AUTH LdapAuthenticator.authenticate: user=user, success=true, elapsed="));
+                    "LdapAuthenticator.authenticate: user=user, success=true, elapsed="));
             Assert.assertFalse(appender.contains(Level.WARN,
-                    "LDAP-AUTH LdapAuthenticator.authenticate slow: user=user"));
+                    "LdapAuthenticator.authenticate slow: user=user"));
         }
     }
 
@@ -161,9 +161,9 @@ public class LdapAuthenticatorTest {
         try (TestLogAppender appender = TestLogAppender.attach(LdapAuthenticator.class)) {
             Assert.assertTrue(ldapAuthenticator.canDeal("ss"));
             Assert.assertTrue(appender.contains(Level.DEBUG,
-                    "LDAP-AUTH LdapAuthenticator.canDeal: user=ss, result=true, elapsed="));
+                    "LdapAuthenticator.canDeal: user=ss, result=true, elapsed="));
             Assert.assertFalse(appender.contains(Level.WARN,
-                    "LDAP-AUTH LdapAuthenticator.canDeal slow: user=ss"));
+                    "LdapAuthenticator.canDeal slow: user=ss"));
         }
     }
 
