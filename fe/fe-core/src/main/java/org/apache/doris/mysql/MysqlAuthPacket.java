@@ -18,15 +18,24 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
+import org.apache.doris.common.util.Util;
 
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Map;
 
 // MySQL protocol handshake response packet, which contain authenticate information.
 public class MysqlAuthPacket extends MysqlPacket {
+    private static final Logger LOG = LogManager.getLogger(MysqlAuthPacket.class);
+    private static final String OIDC_CLIENT_PLUGIN_NAME = "authentication_openid_connect_client";
+    private static final int AUTH_RESPONSE_LOG_BYTES = 12;
+    private static final int AUTH_RESPONSE_LOG_CHARS = 32;
+
     private int maxPacketSize;
     private int characterSet;
     private String userName;
@@ -106,6 +115,9 @@ public class MysqlAuthPacket extends MysqlPacket {
         if (buffer.remaining() > 0 && capability.isPluginAuth()) {
             pluginName = new String(MysqlProto.readNulTerminateString(buffer));
         }
+        if (OIDC_CLIENT_PLUGIN_NAME.equals(pluginName)) {
+            logOidcAuthResponse();
+        }
         // attribute map, no use now.
         if (buffer.remaining() > 0 && capability.isConnectAttrs()) {
             connectAttributes = Maps.newHashMap();
@@ -128,5 +140,35 @@ public class MysqlAuthPacket extends MysqlPacket {
     @Override
     public void writeTo(MysqlSerializer serializer) {
 
+    }
+
+    private void logOidcAuthResponse() {
+        if (!LOG.isInfoEnabled()) {
+            return;
+        }
+        LOG.info("decoded OIDC mysql auth response: capabilityLenenc={}, authResponseLength={}, "
+                        + "authResponsePrefixHex={}, authResponsePrefixText={}",
+                capability.isPluginAuthDataLengthEncoded(),
+                authResponse == null ? 0 : authResponse.length,
+                prefixHex(authResponse),
+                prefixText(authResponse));
+    }
+
+    private static String prefixHex(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        int prefixLength = Math.min(bytes.length, AUTH_RESPONSE_LOG_BYTES);
+        byte[] prefix = new byte[prefixLength];
+        System.arraycopy(bytes, 0, prefix, 0, prefixLength);
+        return Util.bytesToHex(prefix);
+    }
+
+    private static String prefixText(byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return "";
+        }
+        int prefixLength = Math.min(bytes.length, AUTH_RESPONSE_LOG_CHARS);
+        return new String(bytes, 0, prefixLength, StandardCharsets.UTF_8).replace("\n", "\\n");
     }
 }
