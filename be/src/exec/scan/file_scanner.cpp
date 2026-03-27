@@ -35,6 +35,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
@@ -455,6 +456,12 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
+        if (_need_iceberg_rowid_column && _current_range.__isset.table_format_params &&
+            _current_range.table_format_params.table_format_type == "iceberg") {
+            if (auto* iceberg_reader = dynamic_cast<IcebergTableReader*>(_cur_reader.get())) {
+                iceberg_reader->set_row_id_column_position(_iceberg_rowid_column_pos);
+            }
+        }
         {
             SCOPED_TIMER(_get_block_timer);
 
@@ -529,8 +536,22 @@ Status FileScanner::_init_src_block(Block* block) {
     if (!_is_load) {
         _src_block_ptr = block;
 
+        bool update_name_to_idx = _src_block_name_to_idx.empty();
+        _iceberg_rowid_column_pos = -1;
+        if (_need_iceberg_rowid_column && _current_range.__isset.table_format_params &&
+            _current_range.table_format_params.table_format_type == "iceberg") {
+            int row_id_idx = block->get_position_by_name(BeConsts::ICEBERG_ROWID_COL);
+            if (row_id_idx >= 0) {
+                _iceberg_rowid_column_pos = row_id_idx;
+                if (!update_name_to_idx &&
+                    !_src_block_name_to_idx.contains(BeConsts::ICEBERG_ROWID_COL)) {
+                    update_name_to_idx = true;
+                }
+            }
+        }
+
         // Build name to index map only once on first call
-        if (_src_block_name_to_idx.empty()) {
+        if (update_name_to_idx) {
             _src_block_name_to_idx = block->get_name_to_pos_map();
         }
         return Status::OK();
@@ -1215,6 +1236,9 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         std::unique_ptr<IcebergParquetReader> iceberg_reader = IcebergParquetReader::create_unique(
                 std::move(parquet_reader), _profile, _state, *_params, range, _kv_cache,
                 _io_ctx.get(), file_meta_cache_ptr);
+        if (_need_iceberg_rowid_column) {
+            iceberg_reader->set_need_row_id_column(true);
+        }
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
                 slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
@@ -1330,6 +1354,9 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
                 std::move(orc_reader), _profile, _state, *_params, range, _kv_cache, _io_ctx.get(),
                 file_meta_cache_ptr);
 
+        if (_need_iceberg_rowid_column) {
+            iceberg_reader->set_need_row_id_column(true);
+        }
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1417,6 +1444,11 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
     _slot_lower_name_to_col_type.clear();
     std::unordered_map<std::string, DataTypePtr> name_to_col_type;
     RETURN_IF_ERROR(_cur_reader->get_columns(&name_to_col_type, &_missing_cols));
+    if (_need_iceberg_rowid_column && _current_range.__isset.table_format_params &&
+        _current_range.table_format_params.table_format_type == "iceberg") {
+        _missing_cols.erase(BeConsts::ICEBERG_ROWID_COL);
+        _missing_cols.erase(to_lower(BeConsts::ICEBERG_ROWID_COL));
+    }
     for (const auto& [col_name, col_type] : name_to_col_type) {
         auto col_name_lower = to_lower(col_name);
         if (_partition_col_descs.contains(col_name_lower)) {
@@ -1658,6 +1690,10 @@ Status FileScanner::_init_expr_ctxes() {
         }
         if (it->second->col_name().starts_with(BeConsts::GLOBAL_ROWID_COL)) {
             _row_id_column_iterator_pair.second = _default_val_row_desc->get_column_id(slot_id);
+            continue;
+        }
+        if (it->second->col_name() == BeConsts::ICEBERG_ROWID_COL) {
+            _need_iceberg_rowid_column = true;
             continue;
         }
 

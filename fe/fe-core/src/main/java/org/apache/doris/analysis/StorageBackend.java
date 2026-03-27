@@ -58,10 +58,6 @@ public class StorageBackend implements ParseNode {
         }*/
     }
 
-    public void setStorageDesc(StorageDesc storageDesc) {
-        this.storageDesc = storageDesc;
-    }
-
     public StorageDesc getStorageDesc() {
         return storageDesc;
     }

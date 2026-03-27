@@ -86,7 +86,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> {
     protected String planNodeName;
 
     protected PlanNodeId id;  // unique w/in plan tree; assigned by planner
-    protected PlanFragmentId fragmentId;  // assigned by planner after fragmentation step
     protected long limit; // max. # of rows to be returned; 0: no limit
     protected long offset;
 

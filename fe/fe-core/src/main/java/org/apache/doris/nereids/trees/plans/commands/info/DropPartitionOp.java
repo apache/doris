@@ -45,7 +45,6 @@ public class DropPartitionOp extends AlterTableOp {
         this.ifExists = ifExists;
         this.partitionName = partitionName;
         this.isTempPartition = isTempPartition;
-        this.needTableStable = false;
         this.forceDrop = forceDrop;
     }
 

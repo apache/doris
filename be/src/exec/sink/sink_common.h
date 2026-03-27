@@ -15,18 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.distribute;
+#pragma once
 
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.WorkerScanSource;
+#include <cstdint>
 
-import java.util.List;
+namespace doris {
 
-/** DefaultNereidsSpecifyInstances */
-public class BucketSpecifyInstances extends NereidsSpecifyInstances<BucketScanSource> {
-    public BucketSpecifyInstances(
-            StatementContext statementContext, List<WorkerScanSource<BucketScanSource>> workerScanSources) {
-        super(statementContext, workerScanSources);
-    }
+constexpr int8_t kInsertOperation = 1;
+constexpr int8_t kDeleteOperation = 2;
+constexpr int8_t kUpdateOperation = 3;
+constexpr int8_t kUpdateInsertOperation = 4;
+constexpr int8_t kUpdateDeleteOperation = 5;
+
+// The standard operation column name for merge sinks
+constexpr const char* kOperationColumnName = "operation";
+
+inline bool is_delete_op(int8_t op) {
+    return op == kDeleteOperation || op == kUpdateDeleteOperation || op == kUpdateOperation;
 }
+
+inline bool is_insert_op(int8_t op) {
+    return op == kInsertOperation || op == kUpdateInsertOperation || op == kUpdateOperation;
+}
+
+} // namespace doris

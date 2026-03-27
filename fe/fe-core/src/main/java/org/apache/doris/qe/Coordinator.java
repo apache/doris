@@ -509,21 +509,6 @@ public class Coordinator implements CoordInterface {
         this.queryGlobals.setLoadZeroTolerance(loadZeroTolerance);
     }
 
-    public void clearExportStatus() {
-        lock.lock();
-        try {
-            this.pipelineExecContexts.clear();
-            this.queryStatus.updateStatus(TStatusCode.OK, "");
-            if (this.exportFiles == null) {
-                this.exportFiles = Lists.newArrayList();
-            }
-            this.exportFiles.clear();
-            this.needCheckPipelineExecContexts.clear();
-        } finally {
-            lock.unlock();
-        }
-    }
-
     public List<TTabletCommitInfo> getCommitInfos() {
         return commitInfos;
     }
@@ -3141,14 +3126,6 @@ public class Coordinator implements CoordInterface {
                     return get();
                 }
             };
-        }
-
-        public void setSerializeFragments(ByteString serializedFragments) {
-            this.serializedFragments = serializedFragments;
-        }
-
-        public ByteString getSerializedFragments() {
-            return serializedFragments;
         }
 
         public long serializeFragments() throws TException {

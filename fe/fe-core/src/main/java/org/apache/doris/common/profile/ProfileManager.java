@@ -107,10 +107,6 @@ public class ProfileManager extends MasterDaemon {
             return profile.getProfileBrief();
         }
 
-        public double getError() {
-            return statsErrorEstimator.getQError();
-        }
-
         public void setStatsErrorEstimator(StatsErrorEstimator statsErrorEstimator) {
             this.statsErrorEstimator = statsErrorEstimator;
         }

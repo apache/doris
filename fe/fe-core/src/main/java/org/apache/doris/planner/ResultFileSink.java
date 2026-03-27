@@ -93,11 +93,6 @@ public class ResultFileSink extends DataSink {
         fileSinkOptions.setDeleteExistingFiles(deleteExistingFiles);
     }
 
-    public void resetByDataStreamSink(DataStreamSink dataStreamSink) {
-        exchNodeId = dataStreamSink.getExchNodeId();
-        outputPartition = dataStreamSink.getOutputPartition();
-    }
-
     public void setOutputTupleId(TupleId tupleId) {
         outputTupleId = tupleId;
     }

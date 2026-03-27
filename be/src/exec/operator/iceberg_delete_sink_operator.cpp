@@ -15,18 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.distribute;
+#include "iceberg_delete_sink_operator.h"
 
-import org.apache.doris.nereids.StatementContext;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.WorkerScanSource;
+#include "common/status.h"
 
-import java.util.List;
-
-/** DefaultSpecifyInstances */
-public class DefaultSpecifyInstances extends NereidsSpecifyInstances<DefaultScanSource> {
-    public DefaultSpecifyInstances(
-            StatementContext statementContext, List<WorkerScanSource<DefaultScanSource>> workerToScanSources) {
-        super(statementContext, workerToScanSources);
-    }
+namespace doris {
+#include "common/compile_check_begin.h"
+Status IcebergDeleteSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    auto& p = _parent->cast<Parent>();
+    RETURN_IF_ERROR(_writer->init_properties(p._pool));
+    return Status::OK();
 }
+
+} // namespace doris

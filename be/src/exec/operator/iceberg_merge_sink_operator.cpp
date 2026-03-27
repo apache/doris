@@ -15,9 +15,21 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.plans.distribute.worker.job;
+#include "iceberg_merge_sink_operator.h"
 
-/** ScanRange */
-public class ScanRange {
+#include "common/status.h"
 
+namespace doris {
+#include "common/compile_check_begin.h"
+
+Status IcebergMergeSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
+    RETURN_IF_ERROR(Base::init(state, info));
+    SCOPED_TIMER(exec_time_counter());
+    SCOPED_TIMER(_init_timer);
+    auto& p = _parent->cast<Parent>();
+    RETURN_IF_ERROR(_writer->init_properties(p._pool, p._row_desc));
+    return Status::OK();
 }
+
+#include "common/compile_check_end.h"
+} // namespace doris
