@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.Function.BinaryType;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -33,7 +33,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_javaUdf_basicSql() {
         FunctionName name = new FunctionName("testDb", "my_add");
         Type[] argTypes = {Type.INT, Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "com.example.MyAdd", null, null);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -54,7 +54,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_javaUdf_alwaysNullable() {
         FunctionName name = new FunctionName("testDb", "nullable_fn");
         Type[] argTypes = {Type.STRING};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.STRING, false, null, "com.example.NullFn", null, null);
         fn.setNullableMode(NullableMode.ALWAYS_NULLABLE);
 
@@ -67,7 +67,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_javaUdf_dependOnArgument() {
         FunctionName name = new FunctionName("testDb", "notnull_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "com.example.NotNullFn", null, null);
         // Default NullableMode is DEPEND_ON_ARGUMENT
 
@@ -80,7 +80,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_javaUdf_withPrepareFnAndCloseFn() {
         FunctionName name = new FunctionName("testDb", "prepared_fn");
         Type[] argTypes = {Type.DOUBLE};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.DOUBLE, false, null, "com.example.Fn", "com.example.Prepare", "com.example.Close");
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -93,7 +93,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_javaUdf_withoutPrepareFnAndCloseFn() {
         FunctionName name = new FunctionName("testDb", "simple_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "sym", null, null);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -108,7 +108,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_ifNotExists() {
         FunctionName name = new FunctionName("testDb", "my_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "sym", null, null);
 
         String sql = FunctionToSqlConverter.toSql(fn, true);
@@ -123,7 +123,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_native_usesObjectFile() {
         FunctionName name = new FunctionName("testDb", "native_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.NATIVE, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
                 Type.INT, false, null, "native_sym", null, null);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -140,7 +140,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_global() {
         FunctionName name = new FunctionName("testDb", "global_fn");
         Type[] argTypes = {Type.BIGINT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.BIGINT, false, null, "com.example.GlobalFn", null, null);
         fn.setGlobal(true);
 
@@ -153,7 +153,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_global_ifNotExists() {
         FunctionName name = new FunctionName("testDb", "global_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "sym", null, null);
         fn.setGlobal(true);
 
@@ -222,7 +222,7 @@ public class FunctionToSqlConverterTest {
                 "my_init", "my_update", "my_merge",
                 "my_serialize", "my_finalize",
                 "my_get_value", "my_remove");
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
@@ -246,7 +246,7 @@ public class FunctionToSqlConverterTest {
                 Type.INT, null,
                 "init_fn", "update_fn", "merge_fn",
                 null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
@@ -266,7 +266,7 @@ public class FunctionToSqlConverterTest {
                 Type.STRING, null,
                 "init", "update", "merge",
                 null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
@@ -284,7 +284,7 @@ public class FunctionToSqlConverterTest {
                 Type.BIGINT, null,
                 "init", "update", "merge",
                 null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
 
@@ -342,7 +342,7 @@ public class FunctionToSqlConverterTest {
     void testDispatcher_routesScalarFunction() {
         FunctionName name = new FunctionName("testDb", "dispatch_scalar");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "sym", null, null);
 
         // Call via the dispatcher overload: toSql(Function, boolean)
@@ -393,7 +393,7 @@ public class FunctionToSqlConverterTest {
                 Type.INT, null,
                 "init", "update", "merge",
                 null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
         fn.setSymbolName("native_sym");
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -410,7 +410,7 @@ public class FunctionToSqlConverterTest {
                 Type.INT, null,
                 "init", "update", "merge",
                 null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
         // symbolName is null by default
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
@@ -424,7 +424,7 @@ public class FunctionToSqlConverterTest {
     void testScalarFunction_sqlEndsWithSemicolon() {
         FunctionName name = new FunctionName("testDb", "end_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "sym", null, null);
 
         String sql = FunctionToSqlConverter.toSql(fn, false);
