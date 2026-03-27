@@ -295,7 +295,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                         "Property " + PropertyAnalyzer.PROPERTIES_ENABLE_TSO
                                 + " can not be enabled when experimental_enable_tso_feature is disabled");
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
