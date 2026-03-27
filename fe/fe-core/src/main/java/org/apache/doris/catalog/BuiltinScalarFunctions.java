@@ -165,6 +165,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormatSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
@@ -734,6 +735,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
             scalar(DateFormat.class, "date_format"),
+            scalar(DateFormatSpark.class, "date_format_spark"),
             scalar(DateTrunc.class, "date_trunc"),
             scalar(DateV2.class, "datev2"),
             scalar(DayCeil.class, "day_ceil"),

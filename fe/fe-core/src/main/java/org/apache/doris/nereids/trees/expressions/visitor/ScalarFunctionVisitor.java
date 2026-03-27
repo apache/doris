@@ -175,6 +175,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormatSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
@@ -1163,6 +1164,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDateFormat(DateFormat dateFormat, C context) {
         return visitScalarFunction(dateFormat, context);
+    }
+
+    default R visitDateFormatSpark(DateFormatSpark dateFormatSpark, C context) {
+        return visitScalarFunction(dateFormatSpark, context);
     }
 
     default R visitDateTrunc(DateTrunc dateTrunc, C context) {

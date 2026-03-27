@@ -20,6 +20,7 @@
 #include "runtime/define_primitive_type.h"
 #include "vec/data_types/data_type_date_or_datetime_v2.h" // IWYU pragma: keep
 #include "vec/functions/date_time_transforms.h"
+#include "vec/functions/function_date_format_spark.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -27,6 +28,9 @@ namespace doris::vectorized {
 using FunctionDateFormatV2 = FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATEV2>>;
 using FunctionDateTimeV2DateFormat =
         FunctionDateTimeStringToString<DateFormatImpl<TYPE_DATETIMEV2>>;
+using FunctionDateFormatSparkV2 = FunctionDateTimeStringToString<DateFormatSparkImpl<TYPE_DATEV2>>;
+using FunctionDateTimeV2DateFormatSpark =
+        FunctionDateTimeStringToString<DateFormatSparkImpl<TYPE_DATETIMEV2>>;
 // old version
 using FunctionFromUnixTimeOneArg = FunctionDateTimeStringToString<FromUnixTimeImpl<false, false>>;
 using FunctionFromUnixTimeTwoArg = FunctionDateTimeStringToString<FromUnixTimeImpl<true, false>>;
@@ -50,6 +54,8 @@ void register_function_date_time_string_to_string(SimpleFunctionFactory& factory
     factory.register_function<FunctionFromUnixTimeNewDecimalOneArg>();
     factory.register_function<FunctionFromUnixTimeNewDecimalTwoArg>();
     factory.register_function<FunctionDateTimeV2DateFormat>();
+    factory.register_function<FunctionDateFormatSparkV2>();
+    factory.register_function<FunctionDateTimeV2DateFormatSpark>();
     factory.register_function<FunctionTimeFormatDate>();
     factory.register_function<FunctionTimeFormatDateTime>();
     factory.register_function<FunctionTimeFormatTime>();
