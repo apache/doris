@@ -138,17 +138,25 @@ public class MTMVPlanUtil {
 
     /**
      * Execute a Nereids command in an MTMV context with optional audit logging.
-     *
-     * @param mtmv           the materialized view
-     * @param command        the command to execute
-     * @param stmtCtx        pre-configured StatementContext (may contain snapshots, predicates, etc.)
-     * @param auditStmt      descriptive string for audit log; null to skip audit logging
-     * @param enableIvmNormalMTMVPlan whether apply the ivm normal mv plan rule
-     * @return the StmtExecutor used (caller may extract queryId or stats)
+     * Creates a new MTMV ConnectContext internally. Callers that need the ConnectContext
+     * to exist before the StatementContext is constructed (so that {@code new StatementContext()}
+     * captures the correct thread-local) should use
+     * {@link #executeCommand(ConnectContext, Command, StatementContext, String, boolean)} instead.
      */
     public static StmtExecutor executeCommand(MTMV mtmv, Command command,
             StatementContext stmtCtx, @Nullable String auditStmt, boolean enableIvmNormalMTMVPlan) throws Exception {
         ConnectContext ctx = createMTMVContext(mtmv, DISABLE_RULES_WHEN_RUN_MTMV_TASK);
+        stmtCtx.setConnectContext(ctx);
+        return executeCommand(ctx, command, stmtCtx, auditStmt, enableIvmNormalMTMVPlan);
+    }
+
+    /**
+     * Execute a Nereids command using a pre-created ConnectContext.
+     * Use this overload when the ConnectContext must be created before the StatementContext
+     * so that {@code new StatementContext()} captures the correct thread-local ConnectContext.
+     */
+    public static StmtExecutor executeCommand(ConnectContext ctx, Command command,
+            StatementContext stmtCtx, @Nullable String auditStmt, boolean enableIvmNormalMTMVPlan) throws Exception {
         ctx.setStatementContext(stmtCtx);
         ctx.getState().setNereids(true);
         ctx.getSessionVariable().setEnableMaterializedViewRewrite(false);
