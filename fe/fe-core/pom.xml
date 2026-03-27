@@ -58,30 +58,6 @@ under the License.
                 <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
             </properties>
         </profile>
-        <profile>
-            <id>protoc_rosetta</id>
-            <activation>
-                <os>
-                    <family>mac</family>
-                    <arch>aarch64</arch>
-                </os>
-            </activation>
-            <properties>
-                <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
-                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}:exe:osx-x86_64</grpc.java.artifact>
-            </properties>
-        </profile>
-        <profile>
-            <id>protoc_command</id>
-            <activation>
-                <file>
-                    <exists>${doris.thirdparty}/installed/bin/protoc</exists>
-                </file>
-            </activation>
-            <properties>
-                <protoc.command>${doris.thirdparty}/installed/bin/protoc</protoc.command>
-            </properties>
-        </profile>
     </profiles>
     <dependencies>
         <dependency>
@@ -96,6 +72,11 @@ under the License.
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-thrift</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-grpc</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -252,11 +233,6 @@ under the License.
         <dependency>
             <groupId>org.objenesis</groupId>
             <artifactId>objenesis</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
-        <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
         <dependency>
@@ -438,18 +414,6 @@ under the License.
         <dependency>
             <groupId>hu.webarticum</groupId>
             <artifactId>tree-printer</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-protobuf</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-stub</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
@@ -905,38 +869,6 @@ under the License.
                 <configuration>
                     <skip>true</skip>
                 </configuration>
-            </plugin>
-            <!-- protobuf -->
-            <plugin>
-                <groupId>com.github.os72</groupId>
-                <artifactId>protoc-jar-maven-plugin</artifactId>
-                <version>3.11.4</version>
-                <executions>
-                    <execution>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <protocCommand>${protoc.command}</protocCommand>
-                            <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
-                            <protocArtifact>${protoc.artifact}</protocArtifact>
-                            <protocVersion>${protobuf.version}</protocVersion>
-                            <inputDirectories>
-                                <include>${doris.home}/gensrc/proto</include>
-                            </inputDirectories>
-                            <outputTargets>
-                                <outputTarget>
-                                    <type>java</type>
-                                </outputTarget>
-                                <outputTarget>
-                                    <type>grpc-java</type>
-                                    <pluginArtifact>${grpc.java.artifact}</pluginArtifact>
-                                </outputTarget>
-                            </outputTargets>
-                        </configuration>
-                    </execution>
-                </executions>
             </plugin>
             <!-- run make to generate Version and builtin -->
             <!-- also parse the proto for FE -->
