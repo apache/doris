@@ -113,6 +113,10 @@ public class SummaryProfile {
     public static final String READ_BYTES_PER_SECOND = "Read Bytes Per Second";
     public static final String REMOTE_READ_BYTES_PER_SECOND = "Remote Read Bytes Per Second";
 
+    // Written last in queryFinished(), after all BE fragment profiles are merged.
+    // Readers can poll for this field to know the profile is fully collected.
+    public static final String IS_PROFILE_COLLECTION_COMPLETED = "Is Profile Collection Completed";
+
     public static final String PARSE_SQL_TIME = "Parse SQL Time";
     public static final String NEREIDS_LOCK_TABLE_TIME = "Nereids Lock Table Time";
     public static final String NEREIDS_ANALYSIS_TIME = "Nereids Analysis Time";
@@ -508,6 +512,10 @@ public class SummaryProfile {
     // This method is used to display the final data status when the overall query ends.
     // This can avoid recalculating some strings and so on every time during the update process.
     public void queryFinished() {
+        // Mark profile collection as complete. This is written last, after all BE fragment
+        // profiles have been merged (called post-waitForFragmentsDone). Pollers can wait for
+        // this field to avoid reading a partial profile.
+        executionSummaryProfile.addInfoString(IS_PROFILE_COLLECTION_COMPLETED, "true");
         if (assignedWeightPerBackend != null) {
             Map<String, Long> m = assignedWeightPerBackend.entrySet().stream()
                     .sorted(Map.Entry.comparingByValue())
