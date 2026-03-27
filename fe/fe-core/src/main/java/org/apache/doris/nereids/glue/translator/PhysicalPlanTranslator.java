@@ -306,11 +306,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      */
     public PlanFragment translatePlan(PhysicalPlan physicalPlan) {
         PlanFragment rootFragment = physicalPlan.accept(this, context);
-        // Always refresh the root fragment output exprs from the final physical plan outputs.
-        // Intermediate translation steps (for example distribute/merge or multi-phase aggregate)
-        // may temporarily install output exprs that point to pre-projection or pre-merge tuples.
-        // If we keep those stale SlotRefs, BE result sink preparation can fail with "invalid slot id".
-        rootFragment.setOutputExprs(translateOutputExprs(physicalPlan.getOutput()));
+        boolean canTranslateRootOutput = physicalPlan.getOutput().stream()
+                .allMatch(slot -> context.findSlotRef(slot.getExprId()) != null);
+        // Prefer the final physical output slots when they are fully bound.
+        // If they are not bound, preserve the explicit root fragment output exprs installed by
+        // child translation, e.g. for defer materialize topn followed by a projection.
+        if (canTranslateRootOutput || CollectionUtils.isEmpty(rootFragment.getOutputExprs())) {
+            rootFragment.setOutputExprs(translateOutputExprs(physicalPlan.getOutput()));
+        }
         Collections.reverse(context.getPlanFragments());
         if (context.getSessionVariable() != null && context.getSessionVariable().forbidUnknownColStats) {
             Set<ScanNode> scans = context.getScanNodeWithUnknownColumnStats();
