@@ -192,7 +192,7 @@ suite("st10_drop_partition_cleanup") {
             waitTabletCacheInfoNonEmpty.call(p2Tablets)
             waitBrpcMetricLE.call(ttlMgrSetMetric, ttlMgrSetSizeBeforeDropPartition)
 
-            qt_part_survivor """select count(*) from ${tableName} where k1 >= 1000"""
+            sql """select count(*) from ${tableName} where k1 >= 1000"""
             sql """drop table if exists ${tableName}"""
         }
     }
