@@ -33,7 +33,6 @@ under the License.
 
     <modules>
         <module>fe-authentication-plugin-ldap</module>
-        <module>fe-authentication-plugin-oidc</module>
         <module>fe-authentication-plugin-password</module>
     </modules>
 </project>
