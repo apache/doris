@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.SlotDescriptor;
@@ -40,6 +41,7 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.properties.DataTrait;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -55,6 +57,7 @@ import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanChecker;
@@ -84,6 +87,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -145,6 +149,9 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
         Database database = (Database) Env.getCurrentInternalCatalog().getDbOrMetaException("test_db");
         bumpPartitionsAndReplicas(
                 (OlapTable) database.getTableOrMetaException("binlog_scan_schema_t"), 2L);
+        createTable("create table test_db.t_topn_lazy(c1 int, c2 int, c3 int) "
+                + "duplicate key(c1) distributed by hash(c1) buckets 1 "
+                + "properties('replication_num' = '1', 'light_schema_change' = 'true');");
         connectContext.getSessionVariable().setDisableNereidsRules("prune_empty_partition");
     }
 
@@ -641,6 +648,39 @@ public class PhysicalPlanTranslatorTest extends TestWithFeService {
             for (Expr outputExpr : fragment.getOutputExprs()) {
                 Assertions.assertNotNull(outputExpr);
             }
+        }
+    }
+
+    @Test
+    public void testRootFragmentOutputExprsKeepComputedProjectionAboveDeferredTopN() throws Exception {
+        boolean originEnableTwoPhaseReadOpt = connectContext.getSessionVariable().enableTwoPhaseReadOpt;
+        long originTopnOptLimitThreshold = connectContext.getSessionVariable().topnOptLimitThreshold;
+        int originTopnLazyMaterializationThreshold =
+                connectContext.getSessionVariable().topNLazyMaterializationThreshold;
+        try {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = true;
+            connectContext.getSessionVariable().topnOptLimitThreshold = 1000;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold = -1;
+
+            String sql = "select c1 + 1, c2 + 1 from "
+                    + "(select c1, c2 from test_db.t_topn_lazy order by c1 limit 10) t";
+            PlanChecker checker = PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .implement();
+            PhysicalPlan plan = checker.getPhysicalPlan();
+            plan = new PlanPostProcessors(checker.getCascadesContext()).process(plan);
+            PlanFragment rootFragment = new PhysicalPlanTranslator(
+                    new PlanTranslatorContext(checker.getCascadesContext())).translatePlan(plan);
+
+            Assertions.assertEquals(2, rootFragment.getOutputExprs().size());
+            rootFragment.getOutputExprs().forEach(Assertions::assertNotNull);
+            Assertions.assertTrue(rootFragment.getOutputExprs().stream().allMatch(ArithmeticExpr.class::isInstance));
+        } finally {
+            connectContext.getSessionVariable().enableTwoPhaseReadOpt = originEnableTwoPhaseReadOpt;
+            connectContext.getSessionVariable().topnOptLimitThreshold = originTopnOptLimitThreshold;
+            connectContext.getSessionVariable().topNLazyMaterializationThreshold =
+                    originTopnLazyMaterializationThreshold;
         }
     }
 }
