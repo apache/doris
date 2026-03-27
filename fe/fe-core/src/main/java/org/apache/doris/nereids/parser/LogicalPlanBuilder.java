@@ -3278,12 +3278,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitSimpleCase(DorisParser.SimpleCaseContext context) {
         Expression e = getExpression(context.value);
         List<WhenClause> whenClauses = context.whenClause().stream()
-                .map(w -> new WhenClause(new EqualTo(e, getExpression(w.condition)), getExpression(w.result)))
+                .map(w -> new WhenClause(getExpression(w.condition), getExpression(w.result)))
                 .collect(ImmutableList.toImmutableList());
         if (context.elseExpression == null) {
-            return new CaseWhen(whenClauses);
+            return new CaseWhen(e, whenClauses);
         }
-        return new CaseWhen(whenClauses, getExpression(context.elseExpression));
+        return new CaseWhen(e, whenClauses, getExpression(context.elseExpression));
     }
 
     /**
