@@ -17,8 +17,8 @@
 
 package org.apache.doris.mysql.authenticate.plugin;
 
-import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.AuthenticationRequest;
+import org.apache.doris.authentication.AuthenticationResult;
 import org.apache.doris.authentication.BasicPrincipal;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.authentication.handler.AuthenticationPluginManager;
