@@ -69,6 +69,8 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     private int connectTimeout;
     private int readTimeout;
     private int retryTimes;
+    private long maxFieldSize;
+    private int maxWriteBatchRows;
 
     public boolean dateTimePredicatePushDown;
 
@@ -191,6 +193,10 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
                 props.getOrDefault(MCProperties.READ_TIMEOUT, MCProperties.DEFAULT_READ_TIMEOUT));
         retryTimes = Integer.parseInt(
                 props.getOrDefault(MCProperties.RETRY_COUNT, MCProperties.DEFAULT_RETRY_COUNT));
+        maxFieldSize = Long.parseLong(
+                props.getOrDefault(MCProperties.MAX_FIELD_SIZE, MCProperties.DEFAULT_MAX_FIELD_SIZE));
+        maxWriteBatchRows = Integer.parseInt(
+                props.getOrDefault(MCProperties.MAX_WRITE_BATCH_ROWS, MCProperties.DEFAULT_MAX_WRITE_BATCH_ROWS));
 
         RestOptions restOptions = RestOptions.newBuilder()
                 .withConnectTimeout(connectTimeout)
@@ -318,6 +324,16 @@ public class MaxComputeExternalCatalog extends ExternalCatalog {
     public int getReadTimeout() {
         makeSureInitialized();
         return readTimeout;
+    }
+
+    public long getMaxFieldSize() {
+        makeSureInitialized();
+        return maxFieldSize;
+    }
+
+    public int getMaxWriteBatchRows() {
+        makeSureInitialized();
+        return maxWriteBatchRows;
     }
 
     public boolean getDateTimePredicatePushDown() {

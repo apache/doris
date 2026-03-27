@@ -2222,6 +2222,8 @@ class Suite implements GroovyInterceptable {
 
     void testFoldConst(String foldSql) {
         def sessionVarOrigValue = sql("select @@debug_skip_fold_constant")
+        def sqlCacheOrigValue = sql("select @@enable_sql_cache")
+        sql("set enable_sql_cache=false")
         String openFoldConstant = "set debug_skip_fold_constant=false";
         sql(openFoldConstant)
         // logger.info(foldSql)
@@ -2236,8 +2238,9 @@ class Suite implements GroovyInterceptable {
         List<List<Object>> resultExpected = tupleResult2.first
         logger.info("result expected: " + resultExpected.toString())
 
-        // restore debug_skip_fold_constant original value
+        // restore original session values
         sql("set debug_skip_fold_constant=${sessionVarOrigValue[0][0]}")
+        sql("set enable_sql_cache=${sqlCacheOrigValue[0][0]}")
 
         String errorMsg = null
         try {

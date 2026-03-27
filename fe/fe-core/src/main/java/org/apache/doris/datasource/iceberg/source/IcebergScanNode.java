@@ -39,9 +39,9 @@ import org.apache.doris.datasource.credentials.CredentialUtils;
 import org.apache.doris.datasource.credentials.VendedCredentialsFactory;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalMetaCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergUtils;
-import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.cache.IcebergManifestCacheLoader;
 import org.apache.doris.datasource.iceberg.cache.ManifestCacheValue;
 import org.apache.doris.datasource.iceberg.profile.IcebergMetricsReporter;
@@ -272,6 +272,12 @@ public class IcebergScanNode extends FileQueryScanNode {
         TIcebergFileDesc fileDesc = new TIcebergFileDesc();
         fileDesc.setFormatVersion(formatVersion);
         fileDesc.setOriginalFilePath(icebergSplit.getOriginalPath());
+        if (icebergSplit.getPartitionSpecId() != null) {
+            fileDesc.setPartitionSpecId(icebergSplit.getPartitionSpecId());
+        }
+        if (icebergSplit.getPartitionDataJson() != null) {
+            fileDesc.setPartitionDataJson(icebergSplit.getPartitionDataJson());
+        }
         if (formatVersion < MIN_DELETE_FILE_SUPPORT_VERSION) {
             fileDesc.setContent(FileContent.DATA.id());
         } else {
@@ -576,7 +582,11 @@ public class IcebergScanNode extends FileQueryScanNode {
         }
 
         // Initialize manifest cache for efficient manifest file access
-        IcebergManifestCache cache = IcebergUtils.getManifestCache(source.getCatalog());
+        IcebergExternalMetaCache cache = Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(source.getCatalog().getId());
+        if (!(source.getTargetTable() instanceof ExternalTable)) {
+            throw new RuntimeException("Iceberg scan target table is not an external table");
+        }
+        ExternalTable targetExternalTable = (ExternalTable) source.getTargetTable();
 
         // Convert query conjuncts to Iceberg filter expression
         // This combines all predicates with AND logic for partition/file pruning
@@ -620,8 +630,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 continue;
             }
             // Load delete files from cache (or from storage if not cached)
-            ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache, manifest,
-                    icebergTable, this::recordManifestCacheAccess);
+            ManifestCacheValue value = IcebergManifestCacheLoader.loadDeleteFilesWithCache(cache,
+                    targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
             deleteFiles.addAll(value.getDeleteFiles());
         }
 
@@ -653,8 +663,8 @@ public class IcebergScanNode extends FileQueryScanNode {
                 }
 
                 // Load data files from cache (or from storage if not cached)
-                ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache, manifest,
-                        icebergTable, this::recordManifestCacheAccess);
+                ManifestCacheValue value = IcebergManifestCacheLoader.loadDataFilesWithCache(cache,
+                        targetExternalTable, manifest, icebergTable, this::recordManifestCacheAccess);
 
                 // Process each data file in the manifest
                 for (org.apache.iceberg.DataFile dataFile : value.getDataFiles()) {
@@ -770,14 +780,17 @@ public class IcebergScanNode extends FileQueryScanNode {
         split.setTableFormatType(TableFormatType.ICEBERG);
         split.setTargetSplitSize(targetSplitSize);
         if (isPartitionedTable) {
+            int specId = fileScanTask.file().specId();
+            PartitionSpec partitionSpec = icebergTable.specs().get(specId);
+            Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
+                    specId, icebergTable.name());
             PartitionData partitionData = (PartitionData) fileScanTask.file().partition();
+            if (partitionData != null) {
+                split.setPartitionSpecId(specId);
+                split.setPartitionDataJson(IcebergUtils.getPartitionDataJson(
+                        partitionData, partitionSpec, sessionVariable.getTimeZone()));
+            }
             if (sessionVariable.isEnableRuntimeFilterPartitionPrune()) {
-                // Get specId and corresponding PartitionSpec to handle partition evolution
-                int specId = fileScanTask.file().specId();
-                PartitionSpec partitionSpec = icebergTable.specs().get(specId);
-
-                Preconditions.checkNotNull(partitionSpec, "Partition spec with specId %s not found for table %s",
-                        specId, icebergTable.name());
                 Map<String, String> partitionInfoMap = partitionMapInfos.computeIfAbsent(
                         partitionData, k -> {
                             return IcebergUtils.getPartitionInfoMap(partitionData, partitionSpec,

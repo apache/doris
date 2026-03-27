@@ -48,6 +48,8 @@ public:
     ~BlockFileCacheTtlMgr();
 
     void register_tablet_id(int64_t tablet_id);
+    void stop();
+    void resume();
 
     // Background thread to update ttl_info_map
     void run_backgroud_update_ttl_info_map();
@@ -73,6 +75,7 @@ private:
     std::thread _update_ttl_thread;
     std::thread _expiration_check_thread;
     std::thread _tablet_id_flush_thread;
+    std::mutex _thread_lifecycle_mutex;
 
     std::mutex _ttl_info_mutex;
 

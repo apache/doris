@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -101,27 +102,31 @@ public class PhysicalDictionarySink<CHILD_TYPE extends Plan> extends PhysicalTab
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
-                getLogicalProperties(), statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDictionarySink<>(database, dictionary,
+                allowAdaptiveLoad, cols, outputExprs, groupExpression,
+                getLogicalProperties(), statistics, children.get(0)));
     }
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
-                getLogicalProperties(), statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDictionarySink<>(database, dictionary,
+                allowAdaptiveLoad, cols, outputExprs, groupExpression,
+                getLogicalProperties(), statistics, child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
-                logicalProperties.get(), statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDictionarySink<>(database, dictionary,
+                allowAdaptiveLoad, cols, outputExprs, groupExpression,
+                logicalProperties.get(), statistics, children.get(0)));
     }
 
     @Override
     public PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalDictionarySink<>(database, dictionary, allowAdaptiveLoad, cols, outputExprs, groupExpression,
-                getLogicalProperties(), statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalDictionarySink<>(database, dictionary,
+                allowAdaptiveLoad, cols, outputExprs, groupExpression,
+                getLogicalProperties(), statistics, child()));
     }
 
     @Override

@@ -20,12 +20,14 @@ package org.apache.doris.qe;
 import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
@@ -43,6 +45,8 @@ import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.rpc.TCustomProtocolFactory;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TExpr;
+import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TScanRangeLocations;
@@ -56,6 +60,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
+import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -194,7 +199,7 @@ public class PointQueryExecutor implements CoordInterface {
     }
 
     void addKeyTuples(
-            InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
+            InternalService.PTabletKeyLookupRequest.Builder requestBuilder) throws TException {
         // TODO handle IN predicates
         Map<String, Expr> columnExpr = Maps.newHashMap();
         KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
@@ -205,9 +210,39 @@ public class PointQueryExecutor implements CoordInterface {
             SlotRef columnSlot = left.unwrapSlotRef();
             columnExpr.put(columnSlot.getColumnName(), right);
         }
-        // add key tuple in keys order
+        // Serialize each literal expr as TExprNode bytes for typed value transfer.
+        // BE deserializes the TExprNode and uses DataType::get_field() to extract
+        // typed Field values directly, avoiding string parsing.
+        TSerializer serializer = new TSerializer();
         for (Column column : shortCircuitQueryContext.scanNode.getOlapTable().getBaseSchemaKeyColumns()) {
-            kBuilder.addKeyColumnRep(columnExpr.get(column.getName()).getStringValue());
+            Expr literalExpr = columnExpr.get(column.getName());
+            // Ensure the literal type matches the column type for proper TExprNode
+            // deserialization on BE side. Prepared statement parameters may have
+            // mismatched types (e.g., setBigDecimal for INT column produces a
+            // DecimalLiteral, but BE expects INT_LITERAL for INT columns).
+            if (literalExpr instanceof LiteralExpr) {
+                Type colType = column.getType();
+                if (!colType.equals(literalExpr.getType())
+                        && !colType.matchesType(literalExpr.getType())) {
+                    try {
+                        literalExpr = LiteralExpr.create(
+                                ((LiteralExpr) literalExpr).getStringValue(), colType);
+                    } catch (org.apache.doris.common.AnalysisException e) {
+                        throw new TException("Failed to re-type literal for key column "
+                                + column.getName() + ": " + e.getMessage(), e);
+                    }
+                }
+            }
+            TExpr texpr = ExprToThriftVisitor.treeToThrift(literalExpr);
+            // For point queries, key column values are always simple literals
+            // (CastExpr no-ops are already stripped by treeToThrift).
+            Preconditions.checkState(texpr.getNodesSize() == 1,
+                    "Expected single TExprNode for key column literal of " + column.getName()
+                    + ", got " + texpr.getNodesSize());
+            TExprNode exprNode = texpr.getNodes().get(0);
+            byte[] serialized = serializer.serialize(exprNode);
+            kBuilder.addKeyColumnLiterals(
+                    com.google.protobuf.ByteString.copyFrom(serialized));
         }
         requestBuilder.addKeyTuples(kBuilder);
     }

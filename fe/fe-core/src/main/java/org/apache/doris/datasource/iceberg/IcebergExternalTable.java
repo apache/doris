@@ -25,12 +25,14 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalTable;
+import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.mvcc.EmptyMvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
 import org.apache.doris.datasource.mvcc.MvccTable;
+import org.apache.doris.datasource.mvcc.MvccUtil;
 import org.apache.doris.datasource.systable.IcebergSysTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.mtmv.MTMVBaseTableIf;
@@ -39,6 +41,7 @@ import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVSnapshotIdSnapshot;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.nereids.trees.plans.commands.info.SortFieldInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.BaseAnalysisTask;
 import org.apache.doris.statistics.ExternalAnalysisTask;
@@ -58,6 +61,7 @@ import org.apache.iceberg.view.SQLViewRepresentation;
 import org.apache.iceberg.view.View;
 import org.apache.iceberg.view.ViewVersion;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -77,6 +81,11 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
         super(id, name, remoteName, catalog, db, TableType.ICEBERG_EXTERNAL_TABLE);
     }
 
+    @Override
+    public String getMetaCacheEngine() {
+        return IcebergExternalMetaCache.ENGINE;
+    }
+
     public String getIcebergCatalogType() {
         return ((IcebergExternalCatalog) catalog).getIcebergCatalogType();
     }
@@ -93,6 +102,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         boolean isView = isView();
         return IcebergUtils.loadSchemaCacheValue(this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView);
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
+        IcebergSnapshotCacheValue snapshotValue = IcebergUtils.getSnapshotCacheValue(
+                MvccUtil.getSnapshotFromContext(this), this);
+        return Optional.of(IcebergUtils.getSchemaCacheValue(this, snapshotValue));
     }
 
     @Override
@@ -255,8 +271,27 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     }
 
     @Override
+    protected boolean needInternalHiddenColumns() {
+        ConnectContext ctx = ConnectContext.get();
+        return ctx != null && ctx.needIcebergRowIdForTable(this.getId());
+    }
+
+    @Override
     public List<Column> getFullSchema() {
-        return IcebergUtils.getIcebergSchema(this);
+        List<Column> schema = IcebergUtils.getIcebergSchema(this);
+
+        // 添加隐藏列: __DORIS_ICEBERG_ROWID_COL__
+        // 只有在 Util.showHiddenColumns() 或内部需要时返回
+        if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
+            schema = new ArrayList<>(schema);
+            schema.add(createIcebergRowIdColumn());
+        }
+
+        return schema;
+    }
+
+    private Column createIcebergRowIdColumn() {
+        return IcebergRowId.createHiddenColumn();
     }
 
     @Override

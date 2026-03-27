@@ -49,7 +49,6 @@
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
 #include "util/slice.h"
-#include "util/string_parser.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -59,8 +58,6 @@ class ColumnMetaPB;
 }
 
 class TabletColumn;
-
-extern bool is_olap_string_type(FieldType field_type);
 
 class TypeInfo;
 
@@ -75,11 +72,6 @@ public:
     virtual int cmp(const void* left, const void* right) const = 0;
 
     virtual void deep_copy(void* dest, const void* src, Arena& arena) const = 0;
-
-    virtual void direct_copy(void* dest, const void* src) const = 0;
-
-    virtual Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
-                               const int scale = 0) const = 0;
 
     virtual void set_to_max(void* buf) const = 0;
     virtual void set_to_min(void* buf) const = 0;
@@ -97,13 +89,6 @@ public:
         _deep_copy(dest, src, arena);
     }
 
-    void direct_copy(void* dest, const void* src) const override { _direct_copy(dest, src); }
-
-    Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
-                       const int scale = 0) const override {
-        return _from_string(buf, scan_key, precision, scale);
-    }
-
     void set_to_max(void* buf) const override { _set_to_max(buf); }
     void set_to_min(void* buf) const override { _set_to_min(buf); }
     size_t size() const override { return _size; }
@@ -114,8 +99,6 @@ public:
     ScalarTypeInfo(TypeTraitsClass t)
             : _cmp(TypeTraitsClass::cmp),
               _deep_copy(TypeTraitsClass::deep_copy),
-              _direct_copy(TypeTraitsClass::direct_copy),
-              _from_string(TypeTraitsClass::from_string),
               _set_to_max(TypeTraitsClass::set_to_max),
               _set_to_min(TypeTraitsClass::set_to_min),
               _size(TypeTraitsClass::size),
@@ -125,10 +108,6 @@ private:
     int (*_cmp)(const void* left, const void* right);
 
     void (*_deep_copy)(void* dest, const void* src, Arena& arena);
-    void (*_direct_copy)(void* dest, const void* src);
-
-    Status (*_from_string)(void* buf, const std::string& scan_key, const int precision,
-                           const int scale);
 
     void (*_set_to_max)(void* buf);
     void (*_set_to_min)(void* buf);
@@ -223,63 +202,6 @@ public:
         }
     }
 
-    void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = static_cast<CollectionValue*>(dest);
-        // NOTICE: The address pointed by null_signs of the dest_value can NOT be modified here.
-        auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_null_signs());
-        direct_copy(&base, dest, src);
-    }
-
-    void direct_copy(uint8_t** base, void* dest, const void* src) const {
-        auto dest_value = static_cast<CollectionValue*>(dest);
-        auto src_value = static_cast<const CollectionValue*>(src);
-
-        auto nulls_size = src_value->has_null() ? src_value->length() : 0;
-        dest_value->set_data(src_value->length() ? (*base + nulls_size) : nullptr);
-        dest_value->set_length(src_value->length());
-        dest_value->set_has_null(src_value->has_null());
-        if (src_value->has_null()) {
-            // direct copy null_signs
-            dest_value->set_null_signs(reinterpret_cast<bool*>(*base));
-            memcpy(dest_value->mutable_null_signs(), src_value->null_signs(), src_value->length());
-        }
-        *base += nulls_size + src_value->length() * _item_type_info->size();
-
-        // Direct copy item.
-        if (_item_type_info->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-            for (uint32_t i = 0; i < src_value->length(); ++i) {
-                if (dest_value->is_null_at(i)) {
-                    continue;
-                }
-                dynamic_cast<const ArrayTypeInfo*>(_item_type_info.get())
-                        ->direct_copy(base, (uint8_t*)(dest_value->mutable_data()) + i * _item_size,
-                                      (uint8_t*)(src_value->data()) + i * _item_size);
-            }
-        } else {
-            for (uint32_t i = 0; i < src_value->length(); ++i) {
-                if (dest_value->is_null_at(i)) {
-                    continue;
-                }
-                auto dest_address = (uint8_t*)(dest_value->mutable_data()) + i * _item_size;
-                auto src_address = (uint8_t*)(src_value->data()) + i * _item_size;
-                if (is_olap_string_type(_item_type_info->type())) {
-                    auto dest_slice = reinterpret_cast<Slice*>(dest_address);
-                    auto src_slice = reinterpret_cast<const Slice*>(src_address);
-                    dest_slice->data = reinterpret_cast<char*>(*base);
-                    dest_slice->size = src_slice->size;
-                    *base += src_slice->size;
-                }
-                _item_type_info->direct_copy(dest_address, src_address);
-            }
-        }
-    }
-
-    Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
-                       const int scale = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "ArrayTypeInfo not support from_string");
-    }
-
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
     }
@@ -332,16 +254,6 @@ public:
     }
 
     void deep_copy(void* dest, const void* src, Arena& arena) const override { DCHECK(false); }
-
-    void direct_copy(void* dest, const void* src) const override { CHECK(false); }
-
-    void direct_copy(uint8_t** base, void* dest, const void* src) const { CHECK(false); }
-
-    Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
-                       const int scale = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "MapTypeInfo not support from_string");
-    }
 
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
@@ -452,58 +364,6 @@ public:
             _type_infos[i]->deep_copy(dest_value->mutable_child_value(i), src_value->child_value(i),
                                       arena);
         }
-    }
-
-    void direct_copy(void* dest, const void* src) const override {
-        auto dest_value = static_cast<StructValue*>(dest);
-        auto base = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
-        direct_copy(&base, dest, src);
-    }
-
-    void direct_copy(uint8_t** base, void* dest, const void* src) const {
-        auto dest_value = static_cast<StructValue*>(dest);
-        auto src_value = static_cast<const StructValue*>(src);
-
-        dest_value->set_size(src_value->size());
-        dest_value->set_has_null(src_value->has_null());
-        *base += src_value->size() * sizeof(*src_value->values());
-
-        for (uint32_t i = 0; i < src_value->size(); ++i) {
-            dest_value->set_child_value(nullptr, i);
-            if (src_value->is_null_at(i)) continue;
-            dest_value->set_child_value(*base, i);
-            *base += _type_infos[i]->size();
-        }
-
-        for (uint32_t i = 0; i < src_value->size(); ++i) {
-            if (dest_value->is_null_at(i)) {
-                continue;
-            }
-            auto dest_address = dest_value->mutable_child_value(i);
-            auto src_address = src_value->child_value(i);
-            if (_type_infos[i]->type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
-                dynamic_cast<const StructTypeInfo*>(_type_infos[i].get())
-                        ->direct_copy(base, dest_address, src_address);
-            } else if (_type_infos[i]->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
-                dynamic_cast<const ArrayTypeInfo*>(_type_infos[i].get())
-                        ->direct_copy(base, dest_address, src_address);
-            } else {
-                if (is_olap_string_type(_type_infos[i]->type())) {
-                    auto dest_slice = reinterpret_cast<Slice*>(dest_address);
-                    auto src_slice = reinterpret_cast<const Slice*>(src_address);
-                    dest_slice->data = reinterpret_cast<char*>(*base);
-                    dest_slice->size = src_slice->size;
-                    *base += src_slice->size;
-                }
-                _type_infos[i]->direct_copy(dest_address, src_address);
-            }
-        }
-    }
-
-    Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
-                       const int scale = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(
-                "StructTypeInfo not support from_string");
     }
 
     void set_to_max(void* buf) const override {
@@ -738,26 +598,12 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         memcpy(dest, src, sizeof(CppType));
     }
 
-    static inline void direct_copy(void* dest, const void* src) {
-        memcpy(dest, src, sizeof(CppType));
-    }
-
     static inline void set_to_max(void* buf) {
         set_cpp_type_value(buf, type_limit<CppType>::max());
     }
 
     static inline void set_to_min(void* buf) {
         set_cpp_type_value(buf, type_limit<CppType>::min());
-    }
-
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        CppType value = 0;
-        if (scan_key.length() > 0) {
-            value = static_cast<CppType>(strtol(scan_key.c_str(), nullptr, 10));
-        }
-        set_cpp_type_value(buf, value);
-        return Status::OK();
     }
 };
 
@@ -788,53 +634,9 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
         : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT, true> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        int128_t value = 0;
-
-        const char* value_string = scan_key.c_str();
-        char* end = nullptr;
-        value = strtol(value_string, &end, 10);
-        if (*end != 0) {
-            value = 0;
-        } else if (value > LONG_MIN && value < LONG_MAX) {
-            // use strtol result directly
-        } else {
-            bool is_negative = false;
-            if (*value_string == '-' || *value_string == '+') {
-                if (*(value_string++) == '-') {
-                    is_negative = true;
-                }
-            }
-
-            uint128_t current = 0;
-            uint128_t max_int128 = ~((int128_t)(1) << 127);
-            while (*value_string != 0) {
-                if (current > max_int128 / 10) {
-                    break;
-                }
-
-                current = current * 10 + (*(value_string++) - '0');
-            }
-            if (*value_string != 0 || (!is_negative && current > max_int128) ||
-                (is_negative && current > max_int128 + 1)) {
-                current = 0;
-            }
-
-            value = is_negative ? -current : current;
-        }
-
-        *reinterpret_cast<PackedInt128*>(buf) = value;
-
-        return Status::OK();
-    }
-
     // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
     // not aligned to 16 byte
     static void deep_copy(void* dest, const void* src, Arena& arena) {
-        *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
-    }
-    static void direct_copy(void* dest, const void* src) {
         *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
     }
 
@@ -849,17 +651,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        uint32_t value;
-        if (!IPv4Value::from_string(value, scan_key)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV4>::from_string meet PARSE_FAILURE");
-        }
-        *reinterpret_cast<uint32_t*>(buf) = value;
-        return Status::OK();
-    }
-
     static void set_to_max(void* buf) {
         *reinterpret_cast<uint32_t*>(buf) = 0xFFFFFFFF; // 255.255.255.255
     }
@@ -872,17 +663,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV4>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        uint128_t value;
-        if (!IPv6Value::from_string(value, scan_key)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "FieldTypeTraits<OLAP_FIELD_TYPE_IPV6>::from_string meet PARSE_FAILURE");
-        }
-        memcpy(buf, &value, sizeof(uint128_t));
-        return Status::OK();
-    }
-
     static void set_to_max(void* buf) {
         *reinterpret_cast<int128_t*>(buf) = -1; // ffff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
     }
@@ -893,41 +673,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_IPV6>
 };
 
 template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT>
-        : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_FLOAT, true> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        CppType value = 0.0f;
-        if (scan_key.length() > 0) {
-            value = static_cast<CppType>(atof(scan_key.c_str()));
-        }
-        *reinterpret_cast<CppType*>(buf) = value;
-        return Status::OK();
-    }
-};
-
-template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE>
-        : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DOUBLE, true> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        CppType value = 0.0;
-        if (scan_key.length() > 0) {
-            value = atof(scan_key.c_str());
-        }
-        *reinterpret_cast<CppType*>(buf) = value;
-        return Status::OK();
-    }
-};
-
-template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        CppType* data_ptr = reinterpret_cast<CppType*>(buf);
-        return data_ptr->from_string(scan_key);
-    }
     static void set_to_max(void* buf) {
         CppType* data = reinterpret_cast<CppType*>(buf);
         data->integer = 999999999999999999L;
@@ -941,95 +688,8 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL>
 };
 
 template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL32> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int32_t value = StringParser::string_to_decimal<TYPE_DECIMAL32>(
-                scan_key.c_str(), scan_key.size(), 9, scale, &result);
-
-        if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL32>::from_string meet PARSE_FAILURE");
-        }
-        *reinterpret_cast<int32_t*>(buf) = value;
-        return Status::OK();
-    }
-};
-
-template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL64> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int64_t value = StringParser::string_to_decimal<TYPE_DECIMAL64>(
-                scan_key.c_str(), scan_key.size(), 18, scale, &result);
-        if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL64>::from_string meet PARSE_FAILURE");
-        }
-        *reinterpret_cast<int64_t*>(buf) = value;
-        return Status::OK();
-    }
-};
-
-template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL128I> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        int128_t value = StringParser::string_to_decimal<TYPE_DECIMAL128I>(
-                scan_key.c_str(), scan_key.size(), 38, scale, &result);
-        if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL128I>::from_string meet PARSE_FAILURE");
-        }
-        *reinterpret_cast<PackedInt128*>(buf) = value;
-        return Status::OK();
-    }
-};
-
-template <>
-struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256>
-        : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DECIMAL256> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        StringParser::ParseResult result = StringParser::PARSE_SUCCESS;
-        auto value = StringParser::string_to_decimal<TYPE_DECIMAL256>(
-                scan_key.c_str(), cast_set<int>(scan_key.size()),
-                BeConsts::MAX_DECIMAL256_PRECISION, scale, &result);
-        if (result == StringParser::PARSE_FAILURE) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "FieldTypeTraits<OLAP_FIELD_TYPE_DECIMAL256>::from_string meet PARSE_FAILURE");
-        }
-        *reinterpret_cast<wide::Int256*>(buf) = value;
-        return Status::OK();
-    }
-};
-
-template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        tm time_tm;
-        char* res = strptime(scan_key.c_str(), "%Y-%m-%d", &time_tm);
-
-        if (nullptr != res) {
-            int value = (time_tm.tm_year + 1900) * 16 * 32 + (time_tm.tm_mon + 1) * 32 +
-                        time_tm.tm_mday;
-            *reinterpret_cast<CppType*>(buf) = value;
-        } else {
-            // 1400 - 01 - 01
-            *reinterpret_cast<CppType*>(buf) = 716833;
-        }
-
-        return Status::OK();
-    }
-
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
         *reinterpret_cast<CppType*>(buf) = 5119903;
@@ -1043,22 +703,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATE>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        tm time_tm;
-        char* res = strptime(scan_key.c_str(), "%Y-%m-%d", &time_tm);
-
-        if (nullptr != res) {
-            uint32_t value =
-                    ((time_tm.tm_year + 1900) << 9) | ((time_tm.tm_mon + 1) << 5) | time_tm.tm_mday;
-            *reinterpret_cast<CppType*>(buf) = value;
-        } else {
-            *reinterpret_cast<CppType*>(buf) = MIN_DATE_V2;
-        }
-
-        return Status::OK();
-    }
-
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
         *reinterpret_cast<CppType*>(buf) = MAX_DATE_V2;
@@ -1072,21 +716,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATEV2>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        DateV2Value<DateTimeV2ValueType> datetimev2_value;
-        std::string date_format = "%Y-%m-%d %H:%i:%s.%f";
-
-        if (datetimev2_value.from_date_format_str(date_format.data(), date_format.size(),
-                                                  scan_key.data(), scan_key.size())) {
-            *reinterpret_cast<CppType*>(buf) = datetimev2_value.to_date_int_val();
-        } else {
-            *reinterpret_cast<CppType*>(buf) = MIN_DATETIME_V2;
-        }
-
-        return Status::OK();
-    }
-
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
         *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
@@ -1100,25 +729,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIMEV2>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        tm time_tm;
-        char* res = strptime(scan_key.c_str(), "%Y-%m-%d %H:%M:%S", &time_tm);
-
-        if (nullptr != res) {
-            CppType value = ((time_tm.tm_year + 1900) * 10000L + (time_tm.tm_mon + 1) * 100L +
-                             time_tm.tm_mday) *
-                                    1000000L +
-                            time_tm.tm_hour * 10000L + time_tm.tm_min * 100L + time_tm.tm_sec;
-            *reinterpret_cast<CppType*>(buf) = value;
-        } else {
-            // 1400 - 01 - 01
-            *reinterpret_cast<CppType*>(buf) = 14000101000000L;
-        }
-
-        return Status::OK();
-    }
-
     static void set_to_max(void* buf) {
         // 9999-12-31 23:59:59
         *reinterpret_cast<CppType*>(buf) = 99991231235959L;
@@ -1129,20 +739,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_DATETIME>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ>
         : public BaseFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        CastParameters params;
-        TimestampTzValue value;
-        auto tz = cctz::utc_time_zone();
-        if (!CastToTimstampTz::from_string(StringRef(scan_key), value, params, &tz, 6)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>("parse timestamptz error, value: {}",
-                                                              scan_key);
-        }
-        *reinterpret_cast<CppType*>(buf) = value.to_date_int_val();
-
-        return Status::OK();
-    }
-
     static void set_to_max(void* buf) {
         // max is 9999 * 16 * 32 + 12 * 32 + 31;
         *reinterpret_cast<CppType*>(buf) = MAX_DATETIME_V2;
@@ -1161,42 +757,10 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
         auto r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        size_t value_len = scan_key.length();
-        if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "the len of value string is too long, len={}, max_len={}", value_len,
-                    OLAP_VARCHAR_MAX_LENGTH);
-        }
-
-        auto slice = reinterpret_cast<Slice*>(buf);
-        memcpy(slice->data, scan_key.c_str(), value_len);
-        if (slice->size < value_len) {
-            /*
-             * CHAR type is of fixed length. Size in slice can be modified
-             * only if value_len is greater than the fixed length. ScanKey
-             * inputted by user may be greater than fixed length.
-             */
-            slice->size = value_len;
-        } else {
-            // append \0 to the tail
-            memset(slice->data + value_len, 0, slice->size - value_len);
-        }
-        return Status::OK();
-    }
-
     static void deep_copy(void* dest, const void* src, Arena& arena) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = arena.alloc(r_slice->size);
-        memcpy(l_slice->data, r_slice->data, r_slice->size);
-        l_slice->size = r_slice->size;
-    }
-
-    static void direct_copy(void* dest, const void* src) {
-        auto l_slice = reinterpret_cast<Slice*>(dest);
-        auto r_slice = reinterpret_cast<const Slice*>(src);
         memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
@@ -1213,21 +777,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        size_t value_len = scan_key.length();
-        if (value_len > OLAP_VARCHAR_MAX_LENGTH) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "the len of value string is too long, len={}, max_len={}", value_len,
-                    OLAP_VARCHAR_MAX_LENGTH);
-        }
-
-        auto slice = reinterpret_cast<Slice*>(buf);
-        memcpy(slice->data, scan_key.c_str(), value_len);
-        slice->size = value_len;
-        return Status::OK();
-    }
-
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
@@ -1237,21 +786,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_VARCHAR>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_STRING>
         : public FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR> {
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        size_t value_len = scan_key.length();
-        if (value_len > config::string_type_length_soft_limit_bytes) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "the len of value string is too long, len={}, max_len={}", value_len,
-                    config::string_type_length_soft_limit_bytes);
-        }
-
-        auto slice = reinterpret_cast<Slice*>(buf);
-        memcpy(slice->data, scan_key.c_str(), value_len);
-        slice->size = value_len;
-        return Status::OK();
-    }
-
     static void set_to_min(void* buf) {
         auto slice = reinterpret_cast<Slice*>(buf);
         slice->size = 0;
@@ -1264,13 +798,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_JSONB>
     static int cmp(const void* left, const void* right) {
         LOG(WARNING) << "can not compare JSONB values";
         return -1; // always update ?
-    }
-
-    static Status from_string(void* buf, const std::string& scan_key, const int precision,
-                              const int scale) {
-        // TODO support schema change
-        return Status::Error<ErrorCode::INVALID_SCHEMA>(
-                "FieldTypeTraits<OLAP_FIELD_TYPE_JSONB> not support from_string");
     }
 
     static void set_to_min(void* buf) {

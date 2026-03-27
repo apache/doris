@@ -17,53 +17,34 @@
 
 package org.apache.doris.datasource.odbc.sink;
 
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TDataSink;
-import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
-import org.apache.doris.thrift.TOdbcTableSink;
-import org.apache.doris.thrift.TOdbcTableType;
 
+/**
+ * @deprecated ODBC tables are no longer supported. This class is retained only for
+ * compilation compatibility. It will throw {@link UnsupportedOperationException}
+ * if any attempt is made to use it at runtime.
+ */
+@Deprecated
 public class OdbcTableSink extends DataSink {
-    private final TOdbcTableType odbcType;
-    private final String tblName;
-    private final String originTblName;
-    private final String connectString;
-    private final boolean useTransaction;
 
     public OdbcTableSink(OdbcTable odbcTable) {
-        connectString = odbcTable.getConnectString();
-        originTblName = odbcTable.getName();
-        odbcType = odbcTable.getOdbcTableType();
-        tblName = JdbcTable.databaseProperName(odbcType, odbcTable.getOdbcTableName());
-        useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
+        throw new UnsupportedOperationException(
+                "ODBC tables are no longer supported. Please use JDBC Catalog instead.");
     }
 
     @Override
     public String getExplainString(String prefix, TExplainLevel explainLevel) {
-        StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(prefix + "ODBC TABLE SINK:\n");
-        strBuilder.append(prefix + "TABLENAME IN DORIS: ").append(originTblName).append("\n");
-        strBuilder.append(prefix + "TABLE TYPE: ").append(odbcType.toString()).append("\n");
-        strBuilder.append(prefix + "TABLENAME OF EXTERNAL TABLE: ").append(tblName).append("\n");
-        strBuilder.append(prefix + "EnableTransaction: ").append(useTransaction ? "true" : "false").append("\n");
-        return strBuilder.toString();
+        return prefix + "ODBC TABLE SINK: deprecated\n";
     }
 
     @Override
     protected TDataSink toThrift() {
-        TDataSink tDataSink = new TDataSink(TDataSinkType.ODBC_TABLE_SINK);
-        TOdbcTableSink odbcTableSink = new TOdbcTableSink();
-        odbcTableSink.setConnectString(connectString);
-        odbcTableSink.setTable(tblName);
-        odbcTableSink.setUseTransaction(useTransaction);
-        tDataSink.setOdbcTableSink(odbcTableSink);
-        return tDataSink;
+        throw new UnsupportedOperationException("ODBC tables are no longer supported.");
     }
 
     @Override

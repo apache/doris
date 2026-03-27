@@ -553,7 +553,7 @@ suite("iceberg_on_hms_and_filesystem_and_dlf", "p2,external") {
     hmsTestQueryAndInsert(hms_kerberos_old_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_old")
     //new kerberos
     hmsTestQueryAndInsert(hms_kerberos_new_prop + warehouse + oss_storage_properties, "iceberg_hms_on_oss_kerberos_new")
-    warehouse  """
+    warehouse = """
                   'warehouse' = 'oss://${oss_bucket_endpoint_parent_path}/iceberg-hms-warehouse',
     """
     testQueryAndInsert(iceberg_hms_type_prop + hms_prop + warehouse + oss_region_param + oss_storage_properties, "iceberg_hms_on_oss")

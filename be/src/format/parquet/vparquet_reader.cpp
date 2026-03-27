@@ -388,6 +388,9 @@ void ParquetReader::_init_file_description() {
     if (_scan_range.__isset.fs_name) {
         _file_description.fs_name = _scan_range.fs_name;
     }
+    if (_scan_range.__isset.file_cache_admission) {
+        _file_description.file_cache_admission = _scan_range.file_cache_admission;
+    }
 }
 
 Status ParquetReader::init_reader(
@@ -625,6 +628,20 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     return Status::OK();
 }
 
+void ParquetReader::set_iceberg_rowid_params(const std::string& file_path,
+                                             int32_t partition_spec_id,
+                                             const std::string& partition_data_json,
+                                             int row_id_column_pos) {
+    _iceberg_rowid_params.enabled = true;
+    _iceberg_rowid_params.file_path = file_path;
+    _iceberg_rowid_params.partition_spec_id = partition_spec_id;
+    _iceberg_rowid_params.partition_data_json = partition_data_json;
+    _iceberg_rowid_params.row_id_column_pos = row_id_column_pos;
+    if (_current_group_reader != nullptr) {
+        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
+    }
+}
+
 Status ParquetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     const auto& schema_desc = _file_metadata->schema();
@@ -697,6 +714,11 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
         _reader_statistics.predicate_filter_time += _current_group_reader->predicate_filter_time();
         _reader_statistics.dict_filter_rewrite_time +=
                 _current_group_reader->dict_filter_rewrite_time();
+        if (_io_ctx) {
+            _io_ctx->condition_cache_filtered_rows +=
+                    _current_group_reader->condition_cache_filtered_rows();
+        }
+
         if (_current_row_group_index.row_group_id + 1 == _total_groups) {
             *eof = true;
         } else {
@@ -820,11 +842,17 @@ Status ParquetReader::_next_row_group_reader() {
                     : group_file_reader,
             _read_table_columns, _current_row_group_index.row_group_id, row_group, _ctz, _io_ctx,
             position_delete_ctx, _lazy_read_ctx, _state, _column_ids, _filter_column_ids));
+    if (_iceberg_rowid_params.enabled) {
+        _current_group_reader->set_iceberg_rowid_params(_iceberg_rowid_params);
+    }
     _row_group_eof = false;
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
+    if (_condition_cache_ctx) {
+        _current_group_reader->set_condition_cache_context(_condition_cache_ctx);
+    }
 
     _current_group_reader->_table_info_node_ptr = _table_info_node_ptr;
     return _current_group_reader->init(_file_metadata->schema(), candidate_row_ranges, _col_offsets,
@@ -877,7 +905,7 @@ std::vector<io::PrefetchRange> ParquetReader::_generate_random_access_ranges(
     return result;
 }
 
-bool ParquetReader::_is_misaligned_range_group(const tparquet::RowGroup& row_group) {
+bool ParquetReader::_is_misaligned_range_group(const tparquet::RowGroup& row_group) const {
     int64_t start_offset = _get_column_start_offset(row_group.columns[0].meta_data);
 
     auto& last_column = row_group.columns[row_group.columns.size() - 1].meta_data;
@@ -889,6 +917,34 @@ bool ParquetReader::_is_misaligned_range_group(const tparquet::RowGroup& row_gro
         return true;
     }
     return false;
+}
+
+int64_t ParquetReader::get_total_rows() const {
+    if (!_t_metadata) return 0;
+    if (!_filter_groups) return _t_metadata->num_rows;
+    int64_t total = 0;
+    for (const auto& rg : _t_metadata->row_groups) {
+        if (!_is_misaligned_range_group(rg)) {
+            total += rg.num_rows;
+        }
+    }
+    return total;
+}
+
+void ParquetReader::set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {
+    _condition_cache_ctx = std::move(ctx);
+    if (!_condition_cache_ctx || !_t_metadata || !_filter_groups) {
+        return;
+    }
+    // Find the first assigned row group to compute base_granule.
+    int64_t first_row = 0;
+    for (const auto& rg : _t_metadata->row_groups) {
+        if (!_is_misaligned_range_group(rg)) {
+            _condition_cache_ctx->base_granule = first_row / ConditionCacheContext::GRANULE_SIZE;
+            return;
+        }
+        first_row += rg.num_rows;
+    }
 }
 
 Status ParquetReader::_process_page_index_filter(
@@ -1282,7 +1338,7 @@ Status ParquetReader::_process_column_stat_filter(
     return Status::OK();
 }
 
-int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) {
+int64_t ParquetReader::_get_column_start_offset(const tparquet::ColumnMetaData& column) const {
     return has_dict_page(column) ? column.dictionary_page_offset : column.data_page_offset;
 }
 

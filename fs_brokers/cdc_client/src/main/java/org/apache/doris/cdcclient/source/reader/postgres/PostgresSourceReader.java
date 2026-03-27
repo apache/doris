@@ -64,6 +64,7 @@ import java.util.Properties;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import io.debezium.connector.postgresql.PostgresOffsetContext;
 import io.debezium.connector.postgresql.SourceInfo;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
@@ -204,6 +205,8 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.initial());
+        } else if (DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startupMode)) {
+            configFactory.startupOptions(StartupOptions.snapshot());
         } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
         } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
@@ -428,6 +431,25 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     e.getMessage(),
                     e);
         }
+    }
+
+    /**
+     * Strip lsn_proc and lsn_commit from the binlog state offset before it is passed to debezium's
+     * WalPositionLocator. In pgoutput non-streaming mode (proto_version=1, used by debezium 1.9.x
+     * even on PG14), BEGIN and DML messages within a transaction share the same XLogData.data_start
+     * as the transaction's begin_lsn. When begin_lsn equals the previous transaction's commit_lsn
+     * (i.e. no other WAL write exists between them), WalPositionLocator adds that lsn to lsnSeen
+     * during the find phase and then incorrectly filters the DML as already-processed during actual
+     * streaming. Removing these keys sets lastCommitStoredLsn=null, so the find phase exits
+     * immediately at the first received message and switch-off happens before any DML is filtered.
+     * See https://issues.apache.org/jira/browse/FLINK-39265.
+     */
+    @Override
+    public Map<String, String> extractBinlogStateOffset(Object splitState) {
+        Map<String, String> offset = super.extractBinlogStateOffset(splitState);
+        offset.remove(PostgresOffsetContext.LAST_COMPLETELY_PROCESSED_LSN_KEY);
+        offset.remove(PostgresOffsetContext.LAST_COMMIT_LSN_KEY);
+        return offset;
     }
 
     @Override

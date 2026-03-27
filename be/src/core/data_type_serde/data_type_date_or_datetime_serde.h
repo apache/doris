@@ -51,9 +51,6 @@ public:
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
-
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
 
@@ -119,6 +116,9 @@ public:
     std::string to_olap_string(const Field& field) const override;
 
 protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
+
     template <bool is_date>
     Status _read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
                                    int64_t end, const cctz::time_zone& ctz) const;

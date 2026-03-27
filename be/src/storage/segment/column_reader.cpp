@@ -1252,27 +1252,6 @@ Status MapFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_acc
     return Status::OK();
 }
 
-Status MapFileColumnIterator::read_null_map(size_t* n, NullMap& null_map) {
-    if (!_map_reader->is_nullable()) {
-        return Status::InternalError("read_null_map is not supported for non-nullable column");
-    }
-    if (!_null_iterator) {
-        // Schema-change scenario: column became nullable but old segment has no null data.
-        null_map.resize(*n);
-        memset(null_map.data(), 0, *n);
-        return Status::OK();
-    }
-    auto null_col = ColumnUInt8::create();
-    auto null_col_ptr = null_col->get_ptr();
-    size_t read_rows = *n;
-    bool has_null = false;
-    RETURN_IF_ERROR(_null_iterator->next_batch(&read_rows, null_col_ptr, &has_null));
-    *n = read_rows;
-    null_map.resize(read_rows);
-    memcpy(null_map.data(), null_col->get_data().data(), read_rows);
-    return Status::OK();
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 StructFileColumnIterator::StructFileColumnIterator(
@@ -1487,27 +1466,6 @@ Status StructFileColumnIterator::set_access_paths(
         RETURN_IF_ERROR(sub_iterator->set_access_paths(sub_all_access_paths_of_this,
                                                        sub_predicate_access_paths_of_this));
     }
-    return Status::OK();
-}
-
-Status StructFileColumnIterator::read_null_map(size_t* n, NullMap& null_map) {
-    if (!_struct_reader->is_nullable()) {
-        return Status::InternalError("read_null_map is not supported for non-nullable column");
-    }
-    if (!_null_iterator) {
-        // Schema-change scenario: column became nullable but old segment has no null data.
-        null_map.resize(*n);
-        memset(null_map.data(), 0, *n);
-        return Status::OK();
-    }
-    auto null_col = ColumnUInt8::create();
-    auto null_col_ptr = null_col->get_ptr();
-    size_t read_rows = *n;
-    bool has_null = false;
-    RETURN_IF_ERROR(_null_iterator->next_batch(&read_rows, null_col_ptr, &has_null));
-    *n = read_rows;
-    null_map.resize(read_rows);
-    memcpy(null_map.data(), null_col->get_data().data(), read_rows);
     return Status::OK();
 }
 
@@ -1769,27 +1727,6 @@ Status ArrayFileColumnIterator::set_access_paths(const TColumnAccessPaths& all_a
     return Status::OK();
 }
 
-Status ArrayFileColumnIterator::read_null_map(size_t* n, NullMap& null_map) {
-    if (!_array_reader->is_nullable()) {
-        return Status::InternalError("read_null_map is not supported for non-nullable column");
-    }
-    if (!_null_iterator) {
-        // Schema-change scenario: column became nullable but old segment has no null data.
-        null_map.resize(*n);
-        memset(null_map.data(), 0, *n);
-        return Status::OK();
-    }
-    auto null_col = ColumnUInt8::create();
-    auto null_col_ptr = null_col->get_ptr();
-    size_t read_rows = *n;
-    bool has_null = false;
-    RETURN_IF_ERROR(_null_iterator->next_batch(&read_rows, null_col_ptr, &has_null));
-    *n = read_rows;
-    null_map.resize(read_rows);
-    memcpy(null_map.data(), null_col->get_data().data(), read_rows);
-    return Status::OK();
-}
-
 ////////////////////////////////////////////////////////////////////////////////
 
 FileColumnIterator::FileColumnIterator(std::shared_ptr<ColumnReader> reader) : _reader(reader) {}
@@ -1961,53 +1898,6 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
 #ifdef BE_TEST
     _reader->check_data_by_zone_map_for_test(dst);
 #endif
-    return Status::OK();
-}
-
-Status FileColumnIterator::read_null_map(size_t* n, NullMap& null_map) {
-    if (!_reader->is_nullable()) {
-        return Status::InternalError("read_null_map is not supported for non-nullable column");
-    }
-
-    null_map.resize(*n);
-    size_t remaining = *n;
-    size_t offset = 0;
-
-    while (remaining > 0) {
-        if (!_page.has_remaining()) {
-            bool eos = false;
-            RETURN_IF_ERROR(_load_next_page(&eos));
-            if (eos) {
-                break;
-            }
-        }
-
-        if (!_page.has_null) {
-            size_t nrows_in_page = std::min(remaining, _page.remaining());
-            memset(null_map.data() + offset, 0, nrows_in_page);
-            offset += nrows_in_page;
-            _current_ordinal += nrows_in_page;
-            _page.offset_in_page += nrows_in_page;
-            remaining -= nrows_in_page;
-            continue;
-        }
-
-        size_t nrows_in_page = std::min(remaining, _page.remaining());
-        size_t this_run = 0;
-        while (this_run < nrows_in_page) {
-            bool is_null = false;
-            size_t run_len = _page.null_decoder.GetNextRun(&is_null, nrows_in_page - this_run);
-            memset(null_map.data() + offset + this_run, is_null ? 1 : 0, run_len);
-            this_run += run_len;
-        }
-
-        offset += nrows_in_page;
-        _page.offset_in_page += nrows_in_page;
-        _current_ordinal += nrows_in_page;
-        remaining -= nrows_in_page;
-    }
-
-    *n = offset;
     return Status::OK();
 }
 
@@ -2246,8 +2136,7 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             const auto serde = DataTypeFactory::instance()
                                        .create_data_type(t, _precision, _scale, _len)
                                        ->get_serde();
-            DataTypeSerDe::FormatOptions opt;
-            RETURN_IF_ERROR(serde->from_olap_string(_default_value, _default_value_field, opt));
+            RETURN_IF_ERROR(serde->from_fe_string(_default_value, _default_value_field));
         }
     } else if (_is_nullable) {
         _default_value_field = Field::create_field<TYPE_NULL>(Null {});

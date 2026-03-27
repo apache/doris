@@ -107,10 +107,6 @@ public class PatternDescribableProcessor extends AbstractProcessor {
         return false;
     }
 
-    private void generateExpressionTypeMapping() {
-
-    }
-
     private void generatePlanPatterns(String className, String parentClassName, boolean isMemoPattern,
             PlanPatternGeneratorAnalyzer patternGeneratorAnalyzer) throws IOException {
         String generatePatternCode = patternGeneratorAnalyzer.generatePatterns(

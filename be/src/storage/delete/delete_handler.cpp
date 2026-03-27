@@ -27,15 +27,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "exprs/function/cast/cast_parameters.h"
-#include "exprs/function/cast/cast_to_boolean.h"
-#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
-#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
-#include "exprs/function/cast/cast_to_datev2_impl.hpp"
-#include "exprs/function/cast/cast_to_decimal.h"
-#include "exprs/function/cast/cast_to_float.h"
-#include "exprs/function/cast/cast_to_int.h"
-#include "exprs/function/cast/cast_to_ip.h"
+#include "core/data_type_serde/data_type_serde.h"
 #include "storage/olap_common.h"
 #include "storage/predicate/block_column_predicate.h"
 #include "storage/predicate/predicate_creator.h"
@@ -51,185 +43,62 @@ using ::google::protobuf::RepeatedPtrField;
 
 namespace doris {
 
+// Parses a string value into a Field using the serde's from_fe_string, then builds
+// a HybridSetBase for IN/NOT_IN predicates.
+// The type-dispatch via switch/case is still needed because build_set<PType>() and
+// HybridSet::insert(const void*) require compile-time PrimitiveType, and Field::get<PType>()
+// must be invoked with the correct type to extract the underlying CppType value.
 template <PrimitiveType PType>
-Status convert(const DataTypePtr& data_type, const std::string& str, Arena& arena,
-               typename PrimitiveTypeTraits<PType>::CppType& res) {
-    if constexpr (PType == TYPE_TINYINT || PType == TYPE_SMALLINT || PType == TYPE_INT ||
-                  PType == TYPE_BIGINT || PType == TYPE_LARGEINT) {
-        CastParameters parameters;
-        if (!CastToInt::from_string<false>({str.data(), str.size()}, res, parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
+void insert_field_to_set(const Field& field, HybridSetBase* set) {
+    if constexpr (is_string_type(PType)) {
+        // StringSet::insert expects const StringRef*, so we must construct a StringRef
+        // from the std::string returned by Field::get<>.
+        const auto& tmp = field.get<PType>();
+        StringRef ref(tmp.data(), tmp.size());
+        set->insert(reinterpret_cast<const void*>(&ref));
+    } else {
+        auto tmp = field.get<PType>();
+        set->insert(reinterpret_cast<const void*>(&tmp));
     }
-    if constexpr (PType == TYPE_FLOAT || PType == TYPE_DOUBLE) {
-        CastParameters parameters;
-        if (!CastToFloat::from_string({str.data(), str.size()}, res, parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_DATE) {
-        CastParameters parameters;
-        if (!CastToDateOrDatetime::from_string<false>({str.data(), str.size()}, res, nullptr,
-                                                      parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_DATETIME) {
-        CastParameters parameters;
-        if (!CastToDateOrDatetime::from_string<true>({str.data(), str.size()}, res, nullptr,
-                                                     parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_DATEV2) {
-        CastParameters parameters;
-        if (!CastToDateV2::from_string({str.data(), str.size()}, res, nullptr, parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_DATETIMEV2) {
-        CastParameters parameters;
-        if (!CastToDatetimeV2::from_string({str.data(), str.size()}, res, nullptr,
-                                           data_type->get_scale(), parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_TIMESTAMPTZ) {
-        CastParameters parameters;
-        if (!CastToTimstampTz::from_string({str.data(), str.size()}, res, parameters, nullptr,
-                                           data_type->get_scale())) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_CHAR) {
-        size_t target = assert_cast<const DataTypeString*>(remove_nullable(data_type).get())->len();
-        res = {str.data(), str.size()};
-        if (target > str.size()) {
-            char* buffer = arena.alloc(target);
-            memset(buffer, 0, target);
-            memcpy(buffer, str.data(), str.size());
-            res = {buffer, target};
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_STRING || PType == TYPE_VARCHAR) {
-        char* buffer = arena.alloc(str.size());
-        memcpy(buffer, str.data(), str.size());
-        res = {buffer, str.size()};
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_BOOLEAN) {
-        CastParameters parameters;
-        UInt8 tmp;
-        if (!CastToBool::from_string({str.data(), str.size()}, tmp, parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        res = tmp != 0;
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_IPV4) {
-        CastParameters parameters;
-        if (!CastToIPv4::from_string({str.data(), str.size()}, res, parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_IPV6) {
-        CastParameters parameters;
-        if (!CastToIPv6::from_string({str.data(), str.size()}, res, parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    if constexpr (PType == TYPE_DECIMALV2) {
-        CastParameters parameters;
-        Decimal128V2 tmp;
-        if (!CastToDecimal::from_string({str.data(), str.size()}, tmp, data_type->get_precision(),
-                                        data_type->get_scale(), parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        res = DecimalV2Value(tmp.value);
-        return Status::OK();
-    } else if constexpr (is_decimal(PType)) {
-        CastParameters parameters;
-        if (!CastToDecimal::from_string({str.data(), str.size()}, res, data_type->get_precision(),
-                                        data_type->get_scale(), parameters)) {
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid {} string. str={}", type_to_string(data_type->get_primitive_type()),
-                    str);
-        }
-        return Status::OK();
-    }
-    return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-            "unsupported data type in delete handler. type={}",
-            type_to_string(data_type->get_primitive_type()));
 }
 
-#define CONVERT_CASE(PType)                                            \
-    case PType: {                                                      \
-        set = build_set<PType>();                                      \
-        for (const auto& s : str) {                                    \
-            typename PrimitiveTypeTraits<PType>::CppType tmp;          \
-            RETURN_IF_ERROR(convert<PType>(data_type, s, arena, tmp)); \
-            set->insert(reinterpret_cast<const void*>(&tmp));          \
-        }                                                              \
-        return Status::OK();                                           \
+#define FROM_FE_STRING_CASE(PType)                            \
+    case PType: {                                             \
+        set = build_set<PType>();                             \
+        for (const auto& s : str) {                           \
+            Field field;                                      \
+            RETURN_IF_ERROR(serde->from_fe_string(s, field)); \
+            insert_field_to_set<PType>(field, set.get());     \
+        }                                                     \
+        return Status::OK();                                  \
     }
-Status convert(const DataTypePtr& data_type, const std::list<std::string>& str, Arena& arena,
+Status convert(const DataTypePtr& data_type, const std::list<std::string>& str,
                std::shared_ptr<HybridSetBase>& set) {
+    auto serde = data_type->get_serde();
     switch (data_type->get_primitive_type()) {
-        CONVERT_CASE(TYPE_TINYINT);
-        CONVERT_CASE(TYPE_SMALLINT);
-        CONVERT_CASE(TYPE_INT);
-        CONVERT_CASE(TYPE_BIGINT);
-        CONVERT_CASE(TYPE_LARGEINT);
-        CONVERT_CASE(TYPE_FLOAT);
-        CONVERT_CASE(TYPE_DOUBLE);
-        CONVERT_CASE(TYPE_DATE);
-        CONVERT_CASE(TYPE_DATETIME);
-        CONVERT_CASE(TYPE_DATEV2);
-        CONVERT_CASE(TYPE_DATETIMEV2);
-        CONVERT_CASE(TYPE_TIMESTAMPTZ);
-        CONVERT_CASE(TYPE_BOOLEAN);
-        CONVERT_CASE(TYPE_IPV4);
-        CONVERT_CASE(TYPE_IPV6);
-        CONVERT_CASE(TYPE_DECIMALV2);
-        CONVERT_CASE(TYPE_DECIMAL32);
-        CONVERT_CASE(TYPE_DECIMAL64);
-        CONVERT_CASE(TYPE_DECIMAL128I);
-        CONVERT_CASE(TYPE_DECIMAL256);
-        CONVERT_CASE(TYPE_CHAR);
-        CONVERT_CASE(TYPE_VARCHAR);
-        CONVERT_CASE(TYPE_STRING);
+        FROM_FE_STRING_CASE(TYPE_TINYINT);
+        FROM_FE_STRING_CASE(TYPE_SMALLINT);
+        FROM_FE_STRING_CASE(TYPE_INT);
+        FROM_FE_STRING_CASE(TYPE_BIGINT);
+        FROM_FE_STRING_CASE(TYPE_LARGEINT);
+        FROM_FE_STRING_CASE(TYPE_FLOAT);
+        FROM_FE_STRING_CASE(TYPE_DOUBLE);
+        FROM_FE_STRING_CASE(TYPE_DATE);
+        FROM_FE_STRING_CASE(TYPE_DATETIME);
+        FROM_FE_STRING_CASE(TYPE_DATEV2);
+        FROM_FE_STRING_CASE(TYPE_DATETIMEV2);
+        FROM_FE_STRING_CASE(TYPE_TIMESTAMPTZ);
+        FROM_FE_STRING_CASE(TYPE_BOOLEAN);
+        FROM_FE_STRING_CASE(TYPE_IPV4);
+        FROM_FE_STRING_CASE(TYPE_IPV6);
+        FROM_FE_STRING_CASE(TYPE_DECIMALV2);
+        FROM_FE_STRING_CASE(TYPE_DECIMAL32);
+        FROM_FE_STRING_CASE(TYPE_DECIMAL64);
+        FROM_FE_STRING_CASE(TYPE_DECIMAL128I);
+        FROM_FE_STRING_CASE(TYPE_DECIMAL256);
+        FROM_FE_STRING_CASE(TYPE_CHAR);
+        FROM_FE_STRING_CASE(TYPE_VARCHAR);
+        FROM_FE_STRING_CASE(TYPE_STRING);
     default:
         return Status::Error<ErrorCode::INVALID_ARGUMENT>(
                 "unsupported data type in delete handler. type={}",
@@ -237,43 +106,14 @@ Status convert(const DataTypePtr& data_type, const std::list<std::string>& str, 
     }
     return Status::OK();
 }
-#undef CONVERT_CASE
+#undef FROM_FE_STRING_CASE
 
-#define CONVERT_CASE(PType)                                                                       \
-    case PType: {                                                                                 \
-        typename PrimitiveTypeTraits<PType>::CppType tmp;                                         \
-        RETURN_IF_ERROR(convert<PType>(type, res.value_str.front(), arena, tmp));                 \
-        v = Field::create_field<PType>(tmp);                                                      \
-        switch (res.condition_op) {                                                               \
-        case PredicateType::EQ:                                                                   \
-            predicate = create_comparison_predicate<PredicateType::EQ>(index, col_name, type, v,  \
-                                                                       true);                     \
-            return Status::OK();                                                                  \
-        case PredicateType::NE:                                                                   \
-            predicate = create_comparison_predicate<PredicateType::NE>(index, col_name, type, v,  \
-                                                                       true);                     \
-            return Status::OK();                                                                  \
-        case PredicateType::GT:                                                                   \
-            predicate = create_comparison_predicate<PredicateType::GT>(index, col_name, type, v,  \
-                                                                       true);                     \
-            return Status::OK();                                                                  \
-        case PredicateType::GE:                                                                   \
-            predicate = create_comparison_predicate<PredicateType::GE>(index, col_name, type, v,  \
-                                                                       true);                     \
-            return Status::OK();                                                                  \
-        case PredicateType::LT:                                                                   \
-            predicate = create_comparison_predicate<PredicateType::LT>(index, col_name, type, v,  \
-                                                                       true);                     \
-            return Status::OK();                                                                  \
-        case PredicateType::LE:                                                                   \
-            predicate = create_comparison_predicate<PredicateType::LE>(index, col_name, type, v,  \
-                                                                       true);                     \
-            return Status::OK();                                                                  \
-        default:                                                                                  \
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(                                    \
-                    "invalid condition operator. operator={}", type_to_op_str(res.condition_op)); \
-        }                                                                                         \
-    }
+// Parses a single condition value string into a Field and creates a comparison predicate.
+// Uses serde->from_fe_string to do the parsing, which handles all type-specific
+// conversions (including decimal scale, etc.).
+// For CHAR type, the value is padded with '\0' to the declared column length, consistent
+// with the IN list path in convert() above.
+// For VARCHAR/STRING, the Field is created directly from the raw string.
 Status parse_to_predicate(const uint32_t index, const std::string col_name, const DataTypePtr& type,
                           DeleteHandler::ConditionParseResult& res, Arena& arena,
                           std::shared_ptr<ColumnPredicate>& predicate) {
@@ -285,70 +125,53 @@ Status parse_to_predicate(const uint32_t index, const std::string col_name, cons
                                                  type->get_primitive_type());
         return Status::OK();
     }
+
     Field v;
-    switch (type->get_primitive_type()) {
-        CONVERT_CASE(TYPE_TINYINT);
-        CONVERT_CASE(TYPE_SMALLINT);
-        CONVERT_CASE(TYPE_INT);
-        CONVERT_CASE(TYPE_BIGINT);
-        CONVERT_CASE(TYPE_LARGEINT);
-        CONVERT_CASE(TYPE_FLOAT);
-        CONVERT_CASE(TYPE_DOUBLE);
-        CONVERT_CASE(TYPE_DATE);
-        CONVERT_CASE(TYPE_DATETIME);
-        CONVERT_CASE(TYPE_DATEV2);
-        CONVERT_CASE(TYPE_DATETIMEV2);
-        CONVERT_CASE(TYPE_TIMESTAMPTZ);
-        CONVERT_CASE(TYPE_BOOLEAN);
-        CONVERT_CASE(TYPE_IPV4);
-        CONVERT_CASE(TYPE_IPV6);
-        CONVERT_CASE(TYPE_DECIMALV2);
-        CONVERT_CASE(TYPE_DECIMAL32);
-        CONVERT_CASE(TYPE_DECIMAL64);
-        CONVERT_CASE(TYPE_DECIMAL128I);
-        CONVERT_CASE(TYPE_DECIMAL256);
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING: {
-        v = Field::create_field<TYPE_STRING>(res.value_str.front());
-        switch (res.condition_op) {
-        case PredicateType::EQ:
-            predicate =
-                    create_comparison_predicate<PredicateType::EQ>(index, col_name, type, v, true);
-            return Status::OK();
-        case PredicateType::NE:
-            predicate =
-                    create_comparison_predicate<PredicateType::NE>(index, col_name, type, v, true);
-            return Status::OK();
-        case PredicateType::GT:
-            predicate =
-                    create_comparison_predicate<PredicateType::GT>(index, col_name, type, v, true);
-            return Status::OK();
-        case PredicateType::GE:
-            predicate =
-                    create_comparison_predicate<PredicateType::GE>(index, col_name, type, v, true);
-            return Status::OK();
-        case PredicateType::LT:
-            predicate =
-                    create_comparison_predicate<PredicateType::LT>(index, col_name, type, v, true);
-            return Status::OK();
-        case PredicateType::LE:
-            predicate =
-                    create_comparison_predicate<PredicateType::LE>(index, col_name, type, v, true);
-            return Status::OK();
-        default:
-            return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                    "invalid condition operator. operator={}", type_to_op_str(res.condition_op));
+    if (type->get_primitive_type() == TYPE_CHAR) {
+        // CHAR type: create Field and pad with '\0' to the declared column length,
+        // consistent with IN list path (convert() above) and create_comparison_predicate.
+        const auto& str = res.value_str.front();
+        auto char_len = cast_set<size_t>(
+                assert_cast<const DataTypeString*>(remove_nullable(type).get())->len());
+        auto target = std::max(char_len, str.size());
+        if (target > str.size()) {
+            std::string padded(target, '\0');
+            memcpy(padded.data(), str.data(), str.size());
+            v = Field::create_field<TYPE_CHAR>(std::move(padded));
+        } else {
+            v = Field::create_field<TYPE_CHAR>(str);
         }
-        break;
+    } else if (is_string_type(type->get_primitive_type())) {
+        // VARCHAR/STRING: create Field directly from the raw string, no padding needed.
+        v = Field::create_field<TYPE_STRING>(res.value_str.front());
+    } else {
+        auto serde = type->get_serde();
+        RETURN_IF_ERROR(serde->from_fe_string(res.value_str.front(), v));
     }
+
+    switch (res.condition_op) {
+    case PredicateType::EQ:
+        predicate = create_comparison_predicate<PredicateType::EQ>(index, col_name, type, v, true);
+        return Status::OK();
+    case PredicateType::NE:
+        predicate = create_comparison_predicate<PredicateType::NE>(index, col_name, type, v, true);
+        return Status::OK();
+    case PredicateType::GT:
+        predicate = create_comparison_predicate<PredicateType::GT>(index, col_name, type, v, true);
+        return Status::OK();
+    case PredicateType::GE:
+        predicate = create_comparison_predicate<PredicateType::GE>(index, col_name, type, v, true);
+        return Status::OK();
+    case PredicateType::LT:
+        predicate = create_comparison_predicate<PredicateType::LT>(index, col_name, type, v, true);
+        return Status::OK();
+    case PredicateType::LE:
+        predicate = create_comparison_predicate<PredicateType::LE>(index, col_name, type, v, true);
+        return Status::OK();
     default:
-        return Status::Error<ErrorCode::INVALID_ARGUMENT>(
-                "unsupported data type in delete handler. type={}",
-                type_to_string(type->get_primitive_type()));
+        return Status::Error<ErrorCode::INVALID_ARGUMENT>("invalid condition operator. operator={}",
+                                                          type_to_op_str(res.condition_op));
     }
-    return Status::OK();
-#undef CONVERT_CASE
 }
 
 Status parse_to_in_predicate(const uint32_t index, const std::string& col_name,
@@ -358,14 +181,14 @@ Status parse_to_in_predicate(const uint32_t index, const std::string& col_name,
     switch (res.condition_op) {
     case PredicateType::IN_LIST: {
         std::shared_ptr<HybridSetBase> set;
-        RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
+        RETURN_IF_ERROR(convert(type, res.value_str, set));
         predicate =
                 create_in_list_predicate<PredicateType::IN_LIST>(index, col_name, type, set, true);
         break;
     }
     case PredicateType::NOT_IN_LIST: {
         std::shared_ptr<HybridSetBase> set;
-        RETURN_IF_ERROR(convert(type, res.value_str, arena, set));
+        RETURN_IF_ERROR(convert(type, res.value_str, set));
         predicate = create_in_list_predicate<PredicateType::NOT_IN_LIST>(index, col_name, type, set,
                                                                          true);
         break;

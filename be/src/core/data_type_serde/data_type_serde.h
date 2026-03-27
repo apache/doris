@@ -196,8 +196,23 @@ public:
         const cctz::time_zone* timezone = nullptr;
 
         /**
-         * Ignore scale when converting decimal to string, because decimal in zone map is stored in
-         * unscaled value.
+         * Controls how the `scale` parameter is passed to decimal parsing in from_olap_string().
+         *
+         * - true:  parse with scale=0 (treat the string as a raw unscaled integer).
+         *          Used for DecimalV3 (Decimal32/64/128I/256) whose zonemap stores the raw
+         *          internal integer. E.g., Decimal(9,2) value 123.45 is stored as "12345";
+         *          parsing with scale=0 yields internal int 12345, which is correct.
+         *
+         * - false: parse with the data type's actual scale.
+         *          Used for DecimalV2 whose zonemap stores a human-readable string with
+         *          decimal point via decimal12_t::to_string().
+         *          E.g., DecimalV2 value 123.456 is stored as "123.456000000";
+         *          parsing with scale=9 correctly restores the original value.
+         *
+         * Note: for DecimalV2, read_decimal_text_impl() currently hardcodes
+         * DecimalV2Value::SCALE=9 regardless of the passed-in scale, so the flag
+         * does not actually affect DecimalV2 parsing today. However, callers should
+         * still set it correctly for semantic clarity and future-proofing.
          */
         bool ignore_scale = false;
 
@@ -309,11 +324,24 @@ public:
                                      const FormatOptions& options) const {
         return Status::NotSupported("from_string is not supported");
     }
-    // Convert string which is read from OLAP table to corresponding type.
-    // Only used for basic data types, such as Ip, Date, Number, etc.
-    virtual Status from_olap_string(const std::string& str, Field& field,
-                                    const FormatOptions& options) const {
-        return Status::NotSupported("from_olap_string is not supported");
+    /// Parse a string stored in ZoneMap index back into a Field.
+    /// This is the inverse of to_olap_string(). For DecimalV3, to_olap_string() stores the
+    /// raw unscaled integer, so from_zonemap_string() internally sets ignore_scale=true to
+    /// avoid double-scaling. For DecimalV2 and other types, ignore_scale has no effect.
+    /// Callers: zone_map_index.cpp (min/max deserialization).
+    virtual Status from_zonemap_string(const std::string& str, Field& field) const {
+        FormatOptions options;
+        options.ignore_scale = true;
+        return from_olap_string(str, field, options);
+    }
+
+    /// Parse a human-readable string from FE (delete conditions, default values,
+    /// schema change defaults) into a Field. Uses standard decimal parsing with full
+    /// scale. Callers: delete_handler.cpp, column_reader.cpp (DefaultValueColumnIterator),
+    /// schema_change.cpp.
+    virtual Status from_fe_string(const std::string& str, Field& field) const {
+        FormatOptions options;
+        return from_olap_string(str, field, options);
     }
 
     // For strict mode, we should not have nullable columns, as we will directly report errors when string conversion fails instead of handling them
@@ -484,6 +512,15 @@ public:
                                                       FieldInfo& info);
 
 protected:
+    /// Internal implementation for parsing OLAP storage strings into Fields.
+    /// Not called directly by external code — use from_zonemap_string() or from_fe_string()
+    /// instead. Subclasses override this to provide type-specific deserialization.
+    /// For decimals, options.ignore_scale controls whether scale is applied during parsing.
+    virtual Status from_olap_string(const std::string& str, Field& field,
+                                    const FormatOptions& options) const {
+        return Status::NotSupported("from_olap_string is not supported");
+    }
+
     bool _return_object_as_string = false;
     // This parameter indicates what level the serde belongs to and is mainly used for complex types
     // The default level is 1, and each time you nest, the level increases by 1,

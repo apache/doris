@@ -67,23 +67,6 @@ void TabletReader::ReaderParams::check_validation() const {
     }
 }
 
-std::string TabletReader::ReaderParams::to_string() const {
-    std::stringstream ss;
-    ss << "tablet=" << tablet->tablet_id() << " reader_type=" << int(reader_type)
-       << " aggregation=" << aggregation << " version=" << version
-       << " start_key_include=" << start_key_include << " end_key_include=" << end_key_include;
-
-    for (const auto& key : start_key) {
-        ss << " keys=" << key;
-    }
-
-    for (const auto& key : end_key) {
-        ss << " end_keys=" << key;
-    }
-
-    return ss.str();
-}
-
 Status TabletReader::init(const ReaderParams& read_params) {
     SCOPED_RAW_TIMER(&_stats.tablet_reader_init_timer_ns);
 
@@ -373,15 +356,10 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.start_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.start_keys[i].init_scan_key(
-                _tablet_schema, read_params.start_key[i].values(), schema);
+        Status res =
+                _keys_param.start_keys[i].init(_tablet_schema, read_params.start_key[i], schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
-            return res;
-        }
-        res = _keys_param.start_keys[i].from_tuple(read_params.start_key[i]);
-        if (!res.ok()) {
-            LOG(WARNING) << "fail to init row cursor from Keys. res=" << res << "key_index=" << i;
             return res;
         }
     }
@@ -396,16 +374,9 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
                     read_params.end_key[i].size(), scan_key_size);
         }
 
-        Status res = _keys_param.end_keys[i].init_scan_key(_tablet_schema,
-                                                           read_params.end_key[i].values(), schema);
+        Status res = _keys_param.end_keys[i].init(_tablet_schema, read_params.end_key[i], schema);
         if (!res.ok()) {
             LOG(WARNING) << "fail to init row cursor. res = " << res;
-            return res;
-        }
-
-        res = _keys_param.end_keys[i].from_tuple(read_params.end_key[i]);
-        if (!res.ok()) {
-            LOG(WARNING) << "fail to init row cursor from Keys. res=" << res << " key_index=" << i;
             return res;
         }
     }

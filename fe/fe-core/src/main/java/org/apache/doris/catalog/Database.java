@@ -448,9 +448,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             } finally {
                 table.writeUnlock();
             }
-            if (table.getType() == TableType.ELASTICSEARCH) {
-                Env.getCurrentEnv().getEsRepository().registerTable((EsTable) table);
-            }
         }
         return Pair.of(result, isTableExist);
     }

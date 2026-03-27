@@ -22,13 +22,16 @@ import org.apache.doris.analysis.TableSample;
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NotImplementedException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
@@ -67,12 +70,16 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.net.URI;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * FileQueryScanNode for querying the file access type of catalog, now only support
@@ -97,6 +104,12 @@ public abstract class FileQueryScanNode extends FileScanNode {
     protected TableScanParams scanParams;
 
     protected FileSplitter fileSplitter;
+
+    // The data cache function only works for queries on Hive, Iceberg, Hudi(via HMS), and Paimon tables.
+    // See: https://doris.incubator.apache.org/docs/dev/lakehouse/data-cache
+    private static final Set<String> CACHEABLE_CATALOGS = new HashSet<>(
+            Arrays.asList("hms", "iceberg", "paimon")
+    );
 
     /**
      * External file scan node for Query hms table
@@ -156,7 +169,11 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!partitionKeys.contains(slot.getColumn().getName()));
+            boolean isFileSlot = !partitionKeys.contains(slot.getColumn().getName());
+            if (isIcebergRowIdColumn(slot)) {
+                isFileSlot = false;
+            }
+            slotInfo.setIsFileSlot(isFileSlot);
             params.addToRequiredSlots(slotInfo);
         }
         setDefaultValueExprs(getTargetTable(), destSlotDescByName, null, params, false);
@@ -173,11 +190,19 @@ public abstract class FileQueryScanNode extends FileScanNode {
         for (SlotDescriptor slot : desc.getSlots()) {
             TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
             slotInfo.setSlotId(slot.getId().asInt());
-            slotInfo.setIsFileSlot(!getPathPartitionKeys().contains(slot.getColumn().getName()));
+            boolean isFileSlot = !getPathPartitionKeys().contains(slot.getColumn().getName());
+            if (isIcebergRowIdColumn(slot)) {
+                isFileSlot = false;
+            }
+            slotInfo.setIsFileSlot(isFileSlot);
             params.addToRequiredSlots(slotInfo);
         }
         // Update required slots and column_idxs in scanRangeLocations.
         setColumnPositionMapping();
+    }
+
+    private boolean isIcebergRowIdColumn(SlotDescriptor slot) {
+        return Column.ICEBERG_ROWID_COL.equalsIgnoreCase(slot.getColumn().getName());
     }
 
     public void setTableSample(TableSample tSample) {
@@ -311,11 +336,18 @@ public abstract class FileQueryScanNode extends FileScanNode {
 
         int numBackends = backendPolicy.numBackends();
         List<String> pathPartitionKeys = getPathPartitionKeys();
+
+        boolean admissionResult = true;
+        if (ConnectContext.get().getSessionVariable().isEnableFileCache()
+                && Config.enable_file_cache_admission_control) {
+            admissionResult = fileCacheAdmissionCheck();
+        }
+
         if (isBatchMode()) {
             // File splits are generated lazily, and fetched by backends while scanning.
             // Only provide the unique ID of split source to backend.
-            splitAssignment = new SplitAssignment(
-                    backendPolicy, this, this::splitToScanRange, locationProperties, pathPartitionKeys);
+            splitAssignment = new SplitAssignment(backendPolicy, this, this::splitToScanRange,
+                    locationProperties, pathPartitionKeys, admissionResult);
             splitAssignment.init();
             if (executor != null) {
                 executor.getSummaryProfile().setGetSplitsFinishTime();
@@ -369,7 +401,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             for (Backend backend : assignment.keySet()) {
                 Collection<Split> splits = assignment.get(backend);
                 for (Split split : splits) {
-                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys));
+                    scanRangeLocations.add(splitToScanRange(backend, locationProperties, split, pathPartitionKeys,
+                            admissionResult));
                     totalFileSize += split.getLength();
                 }
                 scanBackendIds.add(backend.getId());
@@ -394,7 +427,8 @@ public abstract class FileQueryScanNode extends FileScanNode {
             Backend backend,
             Map<String, String> locationProperties,
             Split split,
-            List<String> pathPartitionKeys) throws UserException {
+            List<String> pathPartitionKeys,
+            boolean admissionResult) throws UserException {
         FileSplit fileSplit = (FileSplit) split;
         TScanRangeLocations curLocations = newLocations();
         // If fileSplit has partition values, use the values collected from hive partitions.
@@ -414,6 +448,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         // set file format type, and the type might fall back to native format in setScanParams
         rangeDesc.setFormatType(getFileFormatType());
         setScanParams(rangeDesc, fileSplit);
+        rangeDesc.setFileCacheAdmission(admissionResult);
 
         curLocations.getScanRange().getExtScanRange().getFileScanRange().addToRanges(rangeDesc);
         TScanRangeLocation location = new TScanRangeLocation();
@@ -649,6 +684,55 @@ public abstract class FileQueryScanNode extends FileScanNode {
             return scan;
         }
         return this.scanParams;
+    }
+
+    protected boolean fileCacheAdmissionCheck() throws UserException {
+        boolean admissionResultAtTableLevel = true;
+        TableIf tableIf = getTargetTable();
+        String table = tableIf.getName();
+
+        if (tableIf instanceof ExternalTable) {
+            ExternalTable externalTableIf = (ExternalTable) tableIf;
+            String database = tableIf.getDatabase().getFullName();
+            String catalog = externalTableIf.getCatalog().getName();
+
+            if (CACHEABLE_CATALOGS.contains(externalTableIf.getCatalog().getType())) {
+                UserIdentity currentUser = ConnectContext.get().getCurrentUserIdentity();
+                String userIdentity = currentUser.getQualifiedUser() + "@" + currentUser.getHost();
+
+                AtomicReference<String> reason = new AtomicReference<>("");
+
+                long startTime = System.nanoTime();
+
+                admissionResultAtTableLevel = FileCacheAdmissionManager.getInstance().isAdmittedAtTableLevel(
+                        userIdentity, catalog, database, table, reason);
+
+                long endTime = System.nanoTime();
+                double durationMs = (double) (endTime - startTime) / 1_000_000;
+
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("File cache admission control cost {} ms", String.format("%.6f", durationMs));
+                }
+
+                addFileCacheAdmissionLog(userIdentity, admissionResultAtTableLevel, reason.get(), durationMs);
+            } else {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug("Skip file cache admission control for non-cacheable table: {}.{}.{}",
+                            catalog, database, table);
+                }
+            }
+        } else {
+            if (LOG.isDebugEnabled()) {
+                DatabaseIf databaseIf = tableIf.getDatabase();
+                String database = databaseIf == null ? "null" : databaseIf.getFullName();
+                String catalog = databaseIf == null || databaseIf.getCatalog() == null
+                        ? "null" : databaseIf.getCatalog().getName();
+                LOG.debug("Skip file cache admission control for non-external table: {}.{}.{}",
+                        catalog, database, table);
+            }
+        }
+
+        return admissionResultAtTableLevel;
     }
 
     protected long applyMaxFileSplitNumLimit(long targetSplitSize, long totalFileSize) {

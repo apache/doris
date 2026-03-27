@@ -20,7 +20,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.MapType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.foundation.format.FormatOptions;
 
 import com.google.common.collect.Lists;
 import org.apache.commons.lang3.StringUtils;
@@ -77,23 +76,6 @@ public class MapLiteral extends LiteralExpr {
             return "\"" + expr.getStringValue() + "\"";
         }
         return expr.getStringValue();
-    }
-
-    @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        List<String> list = new ArrayList<>(children.size());
-        ++options.level;
-        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
-            // we should use type to decide we output array is suitable for json format
-            if (children.get(i).getType().isComplexType()) {
-                // map key type do not support complex type
-                throw new UnsupportedOperationException("Unsupported key type for MAP: " + children.get(i).getType());
-            }
-            list.add(children.get(i).getStringValueInComplexTypeForQuery(options)
-                    + options.getMapKeyDelim() + children.get(i + 1).getStringValueInComplexTypeForQuery(options));
-        }
-        --options.level;
-        return "{" + StringUtils.join(list, options.getCollectionDelim()) + "}";
     }
 
     @Override

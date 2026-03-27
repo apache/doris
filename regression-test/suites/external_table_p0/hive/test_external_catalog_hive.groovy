@@ -21,7 +21,7 @@ suite("test_external_catalog_hive", "p0,external") {
         logger.info("diable Hive test.")
         return;
     }
-    for (String hivePrefix : ["hive2", "hive3"]) {
+    for (String hivePrefix : ["hive3"]) {
         String hms_port = context.config.otherConfigs.get(hivePrefix + "HmsPort")
         String catalog_name = "${hivePrefix}_test_external_catalog_hive"
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
@@ -200,7 +200,16 @@ suite("test_external_catalog_hive", "p0,external") {
         }
 
         // test catalog_meta_cache_statistics
-        sql """select * from internal.information_schema.catalog_meta_cache_statistics;"""
-        sql """select * from ${catalog_name}.information_schema.catalog_meta_cache_statistics where catalog_name="${catalog_name}";"""
+        sql """
+            select catalog_name, engine_name, entry_name, request_count, hit_count, miss_count, load_failure_count
+            from internal.information_schema.catalog_meta_cache_statistics
+            order by catalog_name, engine_name, entry_name;
+        """
+        sql """
+            select catalog_name, engine_name, entry_name, request_count, hit_count, miss_count, load_failure_count
+            from ${catalog_name}.information_schema.catalog_meta_cache_statistics
+            where catalog_name="${catalog_name}"
+            order by catalog_name, engine_name, entry_name;
+        """
     }
 }

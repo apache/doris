@@ -152,7 +152,6 @@ public class OlapScanNode extends ScanNode {
      */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
-    private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
@@ -237,20 +236,12 @@ public class OlapScanNode extends ScanNode {
         this.tableSample = tSample;
     }
 
-    public Set<Long> getNereidsPrunedTabletIds() {
-        return nereidsPrunedTabletIds;
-    }
-
     public void setNereidsPrunedTabletIds(Set<Long> nereidsPrunedTabletIds) {
         this.nereidsPrunedTabletIds = nereidsPrunedTabletIds;
     }
 
     public long getTotalTabletsNum() {
         return totalTabletsNum;
-    }
-
-    public boolean getForceOpenPreAgg() {
-        return forceOpenPreAgg;
     }
 
     public ArrayList<Long> getScanTabletIds() {
@@ -1249,7 +1240,16 @@ public class OlapScanNode extends ScanNode {
                 .flatMap(tupleId -> normalizer.getDescriptorTable().getTupleDesc(tupleId).getSlots().stream())
                 .collect(Collectors.toList());
         List<Pair<SlotId, String>> selectColumns = slots.stream()
-                .map(slot -> Pair.of(slot.getId(), slot.getColumn().getName()))
+                .map(slot -> {
+                    // For variant subcolumns, use the materialized column name (e.g. "data.int_1")
+                    // to distinguish different subcolumns of the same variant column in cache digest.
+                    List<String> subColPath = slot.getSubColLables();
+                    String colName = slot.getColumn().getName();
+                    if (subColPath != null && !subColPath.isEmpty()) {
+                        colName = colName + "." + String.join(".", subColPath);
+                    }
+                    return Pair.of(slot.getId(), colName);
+                })
                 .collect(Collectors.toList());
         for (Column partitionColumn : olapTable.getPartitionInfo().getPartitionColumns()) {
             boolean selectPartitionColumn = false;
@@ -1323,11 +1323,6 @@ public class OlapScanNode extends ScanNode {
     public TupleId getTupleId() {
         Preconditions.checkNotNull(desc);
         return desc.getId();
-    }
-
-    @VisibleForTesting
-    public String getReasonOfPreAggregation() {
-        return reasonOfPreAggregation;
     }
 
     @VisibleForTesting

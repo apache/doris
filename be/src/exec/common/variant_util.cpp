@@ -42,6 +42,7 @@
 #include <mutex>
 #include <optional>
 #include <ostream>
+#include <ranges>
 #include <set>
 #include <stack>
 #include <string>
@@ -377,6 +378,11 @@ void get_column_by_type(const DataTypePtr& data_type, const std::string& name, T
                            "", child, {});
         column.set_length(TabletColumn::get_field_length_by_type(TPrimitiveType::ARRAY, 0));
         column.add_sub_column(child);
+        return;
+    }
+    if (data_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
+        column.set_variant_max_subcolumns_count(assert_cast<const DataTypeVariant*>(data_type.get())
+                                                        ->variant_max_subcolumns_count());
         return;
     }
     // size is not fixed when type is string or json
@@ -806,7 +812,9 @@ Status VariantCompactionUtil::aggregate_path_to_stats(
         if (!column->is_variant_type() || column->unique_id() < 0) {
             continue;
         }
-
+        if (!should_check_variant_path_stats(*column)) {
+            continue;
+        }
         for (const auto& segment : segment_cache.get_segments()) {
             std::shared_ptr<ColumnReader> column_reader;
             OlapReaderStatistics stats;
@@ -846,6 +854,10 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
 
     for (const auto& column : rs->tablet_schema()->columns()) {
         if (!column->is_variant_type()) {
+            continue;
+        }
+        if (column->variant_enable_nested_group()) {
+            (*uid_to_variant_extended_info)[column->unique_id()].has_nested_group = true;
             continue;
         }
         for (const auto& segment : segment_cache.get_segments()) {
@@ -889,11 +901,6 @@ Status VariantCompactionUtil::aggregate_variant_extended_info(
             // 4. extract nested paths
             auto& nested_paths = (*uid_to_variant_extended_info)[column->unique_id()].nested_paths;
             variant_column_reader->get_nested_paths(&nested_paths);
-
-            // 5. check if has nested group from stats
-            if (source_stats->has_nested_group) {
-                (*uid_to_variant_extended_info)[column->unique_id()].has_nested_group = true;
-            }
         }
     }
     return Status::OK();
@@ -936,6 +943,13 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     if (output->tablet_schema()->num_variant_columns() == 0) {
         return Status::OK();
     }
+    for (const auto& rowset : intputs) {
+        for (const auto& column : rowset->tablet_schema()->columns()) {
+            if (column->is_variant_type() && !should_check_variant_path_stats(*column)) {
+                return Status::OK();
+            }
+        }
+    }
     // check no extended schema in input rowsets
     for (const auto& rowset : intputs) {
         for (const auto& column : rowset->tablet_schema()->columns()) {
@@ -966,6 +980,11 @@ Status VariantCompactionUtil::check_path_stats(const std::vector<RowsetSharedPtr
     // if there is a delete predicate in the input rowsets, we skip the path stats check
     for (auto& rowset : intputs) {
         if (rowset->rowset_meta()->has_delete_predicate()) {
+            return Status::OK();
+        }
+    }
+    for (const auto& column : output->tablet_schema()->columns()) {
+        if (column->is_variant_type() && !should_check_variant_path_stats(*column)) {
             return Status::OK();
         }
     }
@@ -1188,18 +1207,14 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_data_types(
 Status VariantCompactionUtil::get_extended_compaction_schema(
         const std::vector<RowsetSharedPtr>& rowsets, TabletSchemaSPtr& target) {
     std::unordered_map<int32_t, VariantExtendedInfo> uid_to_variant_extended_info;
-    // collect path stats from all rowsets and segments
-    for (const auto& rs : rowsets) {
-        RETURN_IF_ERROR(aggregate_variant_extended_info(rs, &uid_to_variant_extended_info));
-    }
-
-    // If any variant column has nested group, skip extended schema and use normal compaction.
-    // Nested groups require special handling that is not yet supported in extended schema compaction.
-    for (const auto& [uid, info] : uid_to_variant_extended_info) {
-        if (info.has_nested_group) {
-            LOG(INFO) << "Variant column uid=" << uid
-                      << " has nested group, skip extended schema compaction";
-            return Status::OK();
+    const bool has_extendable_variant =
+            std::ranges::any_of(target->columns(), [](const TabletColumnPtr& column) {
+                return column->is_variant_type() && should_check_variant_path_stats(*column);
+            });
+    if (has_extendable_variant) {
+        // collect path stats from all rowsets and segments
+        for (const auto& rs : rowsets) {
+            RETURN_IF_ERROR(aggregate_variant_extended_info(rs, &uid_to_variant_extended_info));
         }
     }
 
@@ -1216,6 +1231,22 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
         VLOG_DEBUG << "column " << column->name() << " unique id " << column->unique_id();
 
+        const auto info_it = uid_to_variant_extended_info.find(column->unique_id());
+        const VariantExtendedInfo empty_extended_info;
+        const VariantExtendedInfo& extended_info = info_it == uid_to_variant_extended_info.end()
+                                                           ? empty_extended_info
+                                                           : info_it->second;
+        if (!should_check_variant_path_stats(*column)) {
+            VLOG_DEBUG << "skip extended schema compaction for variant uid=" << column->unique_id()
+                       << " because the column disables variant path stats";
+            continue;
+        }
+        if (extended_info.has_nested_group) {
+            LOG(INFO) << "Variant column uid=" << column->unique_id()
+                      << " has nested group, keep original column in compaction schema";
+            continue;
+        }
+
         if (column->variant_enable_doc_mode()) {
             const int bucket_num = std::max(1, column->variant_doc_hash_shard_count());
             for (int b = 0; b < bucket_num; ++b) {
@@ -1228,34 +1259,30 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
         }
 
         // 1. append typed columns
-        RETURN_IF_ERROR(get_compaction_typed_columns(
-                target, uid_to_variant_extended_info[column->unique_id()].typed_paths, column,
-                output_schema, uid_to_paths_set_info[column->unique_id()]));
+        RETURN_IF_ERROR(get_compaction_typed_columns(target, extended_info.typed_paths, column,
+                                                     output_schema,
+                                                     uid_to_paths_set_info[column->unique_id()]));
         // 2. append nested columns
         RETURN_IF_ERROR(get_compaction_nested_columns(
-                uid_to_variant_extended_info[column->unique_id()].nested_paths,
-                uid_to_variant_extended_info[column->unique_id()].path_to_data_types, column,
-                output_schema, uid_to_paths_set_info[column->unique_id()]));
+                extended_info.nested_paths, extended_info.path_to_data_types, column, output_schema,
+                uid_to_paths_set_info[column->unique_id()]));
 
         // 3. get the subpaths
-        get_subpaths(column->variant_max_subcolumns_count(),
-                     uid_to_variant_extended_info[column->unique_id()].path_to_none_null_values,
+        get_subpaths(column->variant_max_subcolumns_count(), extended_info.path_to_none_null_values,
                      uid_to_paths_set_info[column->unique_id()]);
 
         // 4. append subcolumns
         if (column->variant_max_subcolumns_count() > 0 || !column->get_sub_columns().empty()) {
             get_compaction_subcolumns_from_subpaths(
                     uid_to_paths_set_info[column->unique_id()], column, target,
-                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
-                    uid_to_variant_extended_info[column->unique_id()].sparse_paths, output_schema);
+                    extended_info.path_to_data_types, extended_info.sparse_paths, output_schema);
         }
         // variant_max_subcolumns_count == 0 and no typed paths materialized
         // it means that all subcolumns are materialized, may be from old data
         else {
             get_compaction_subcolumns_from_data_types(
                     uid_to_paths_set_info[column->unique_id()], column, target,
-                    uid_to_variant_extended_info[column->unique_id()].path_to_data_types,
-                    output_schema);
+                    extended_info.path_to_data_types, output_schema);
         }
 
         // append sparse column(s)
@@ -1846,7 +1873,7 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
     auto& [paths, values] = *result;
     assert(paths.size() == values.size());
     size_t old_num_rows = column_variant.rows();
-    if (config.enable_flatten_nested) {
+    if (config.deprecated_enable_flatten_nested) {
         // here we should check the paths in variant and paths in result,
         // if two paths which same prefix have different structure, we should throw an exception
         std::vector<PathInData> check_paths;
@@ -2155,7 +2182,9 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 
     std::vector<ParseConfig> configs(variant_column_pos.size());
     for (size_t i = 0; i < variant_column_pos.size(); ++i) {
-        configs[i].enable_flatten_nested = tablet_schema.variant_flatten_nested();
+        // Deprecated legacy flatten-nested switch. Distinct from variant_enable_nested_group.
+        configs[i].deprecated_enable_flatten_nested =
+                tablet_schema.deprecated_variant_flatten_nested();
         const auto& column = tablet_schema.column(variant_schema_pos[i]);
         if (!column.is_variant_type()) {
             return Status::InternalError("column is not variant type, column name: {}",

@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -86,8 +87,9 @@ public class PhysicalTVFTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<
     public PhysicalTVFTableSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTVFTableSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTVFTableSink<>(tvfName, properties, cols,
+                outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                children.get(0)));
     }
 
     @Override
@@ -102,8 +104,8 @@ public class PhysicalTVFTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<
 
     @Override
     public PhysicalTVFTableSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTVFTableSink<>(tvfName, properties, cols,
+                outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
@@ -111,15 +113,16 @@ public class PhysicalTVFTableSink<CHILD_TYPE extends Plan> extends PhysicalSink<
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "PhysicalTVFTableSink's children size must be 1, but real is %s", children.size());
-        return new PhysicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
-                groupExpression, logicalProperties.get(), physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTVFTableSink<>(tvfName, properties, cols,
+                outputExprs, groupExpression, logicalProperties.get(), physicalProperties, statistics,
+                children.get(0)));
     }
 
     @Override
     public PhysicalTVFTableSink<Plan> withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalTVFTableSink<>(tvfName, properties, cols, outputExprs,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalTVFTableSink<>(tvfName, properties, cols,
+                outputExprs, groupExpression, getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

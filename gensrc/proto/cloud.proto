@@ -1839,7 +1839,10 @@ enum MetaServiceCode {
     STREAMING_JOB_PROGRESS_NOT_FOUND = 5006;
 
     // Rate limit
+    // Request is rejected by the RPC-specific QPS limiter.
     MAX_QPS_LIMIT = 6001;
+    // Request is rejected by the MetaService-wide rate limiter instead of a single RPC limiter.
+    MS_TOO_BUSY = 6002;
 
     ERR_ENCRYPT = 7001;
     ERR_DECPYPT = 7002;

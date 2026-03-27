@@ -249,7 +249,8 @@ enum TTaskType {
     PUSH_INDEX_POLICY = 35,
 
     // CLOUD
-    CALCULATE_DELETE_BITMAP = 1000
+    CALCULATE_DELETE_BITMAP = 1000,
+    MAKE_CLOUD_COMMITTED_RS_VISIBLE = 1001
 }
 
 // level of verboseness for "explain" output
@@ -758,6 +759,7 @@ enum TMetadataType {
   HUDI = 11,
   PAIMON = 12,
   PARQUET = 13,
+  STREAMS = 14,
 }
 
 // deprecated

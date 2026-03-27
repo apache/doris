@@ -21,6 +21,7 @@
 #include <string>
 
 #include "common/exception.h"
+#include "core/column/column_fixed_length_object.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_fwd.h"
@@ -131,6 +132,69 @@ Status AggLocalState::_get_results_with_serialized_key(RuntimeState* state, Bloc
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (shared_state.use_simple_count) {
+                            DCHECK_EQ(shared_state.aggregate_evaluators.size(), 1);
+
+                            value_data_types[0] = shared_state.aggregate_evaluators[0]
+                                                          ->function()
+                                                          ->get_serialized_type();
+                            if (mem_reuse) {
+                                value_columns[0] =
+                                        std::move(*block->get_by_position(key_size).column)
+                                                .mutate();
+                            } else {
+                                value_columns[0] = shared_state.aggregate_evaluators[0]
+                                                           ->function()
+                                                           ->create_serialize_column();
+                            }
+
+                            auto& count_col =
+                                    assert_cast<ColumnFixedLengthObject&>(*value_columns[0]);
+                            uint32_t num_rows = 0;
+                            {
+                                SCOPED_TIMER(_hash_table_iterate_timer);
+                                auto& it = agg_method.begin;
+                                while (it != agg_method.end && num_rows < state->batch_size()) {
+                                    keys[num_rows] = it.get_first();
+                                    auto inline_count =
+                                            reinterpret_cast<const UInt64&>(it.get_second());
+                                    count_col.insert_data(
+                                            reinterpret_cast<const char*>(&inline_count),
+                                            sizeof(UInt64));
+                                    ++it;
+                                    ++num_rows;
+                                }
+                            }
+
+                            {
+                                SCOPED_TIMER(_insert_keys_to_column_timer);
+                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                            }
+
+                            // Handle null key if present
+                            if (agg_method.begin == agg_method.end) {
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (num_rows < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_col.resize(num_rows + 1);
+                                        *reinterpret_cast<UInt64*>(count_col.get_data().data() +
+                                                                   num_rows * sizeof(UInt64)) =
+                                                std::bit_cast<UInt64>(mapped);
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
+                            }
+                            return;
+                        }
+
                         if (shared_state.values.size() < size + 1) {
                             shared_state.values.resize(size + 1);
                         }
@@ -255,6 +319,52 @@ Status AggLocalState::_get_with_serialized_key_result(RuntimeState* state, Block
                         const auto size = std::min(data.size(), size_t(state->batch_size()));
                         using KeyType = std::decay_t<decltype(agg_method)>::Key;
                         std::vector<KeyType> keys(size);
+
+                        if (shared_state.use_simple_count) {
+                            // Inline count: mapped slot stores UInt64 count directly
+                            // (not a real AggregateDataPtr). Iterate hash table directly.
+                            DCHECK_EQ(value_columns.size(), 1);
+                            auto& count_column = assert_cast<ColumnInt64&>(*value_columns[0]);
+                            uint32_t num_rows = 0;
+                            {
+                                SCOPED_TIMER(_hash_table_iterate_timer);
+                                auto& it = agg_method.begin;
+                                while (it != agg_method.end && num_rows < state->batch_size()) {
+                                    keys[num_rows] = it.get_first();
+                                    auto& mapped = it.get_second();
+                                    count_column.insert_value(static_cast<Int64>(
+                                            reinterpret_cast<const UInt64&>(mapped)));
+                                    ++it;
+                                    ++num_rows;
+                                }
+                            }
+                            {
+                                SCOPED_TIMER(_insert_keys_to_column_timer);
+                                agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+                            }
+
+                            // Handle null key if present
+                            if (agg_method.begin == agg_method.end) {
+                                if (agg_method.hash_table->has_null_key_data()) {
+                                    DCHECK(key_columns.size() == 1);
+                                    DCHECK(key_columns[0]->is_nullable());
+                                    if (key_columns[0]->size() < state->batch_size()) {
+                                        key_columns[0]->insert_data(nullptr, 0);
+                                        auto mapped =
+                                                agg_method.hash_table->template get_null_key_data<
+                                                        AggregateDataPtr>();
+                                        count_column.insert_value(
+                                                static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
+                                        *eos = true;
+                                    }
+                                } else {
+                                    *eos = true;
+                                }
+                            }
+                            return;
+                        }
+
+                        // Normal (non-simple-count) path
                         if (shared_state.values.size() < size) {
                             shared_state.values.resize(size);
                         }
@@ -539,6 +649,12 @@ Status AggSourceOperatorX::reset_hash_table(RuntimeState* state) {
     RETURN_IF_ERROR(ss.reset_hash_table());
     ss.agg_arena_pool.clear(true);
     return Status::OK();
+}
+
+Status AggSourceOperatorX::get_serialized_block(RuntimeState* state, Block* block, bool* eos) {
+    auto& local_state = get_local_state(state);
+    // Always use the serialized intermediate output path, regardless of _needs_finalize.
+    return local_state._get_results_with_serialized_key(state, block, eos);
 }
 
 void AggLocalState::_emplace_into_hash_table(AggregateDataPtr* places, ColumnRawPtrs& key_columns,

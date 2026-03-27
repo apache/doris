@@ -1876,7 +1876,7 @@ TEST_F(SchemaUtilTest, parse_and_materialize_variant_columns_ambiguous_paths) {
     // The variant column is at index 0
     std::vector<uint32_t> variant_pos = {0};
     ParseConfig config;
-    config.enable_flatten_nested = true;
+    config.deprecated_enable_flatten_nested = true;
 
     // Should throw due to ambiguous paths
     Status st = variant_util::parse_and_materialize_variant_columns(block, variant_pos, {config});
