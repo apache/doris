@@ -19,12 +19,12 @@
 #include <gen_cpp/internal_service.pb.h>
 
 #include "common/status.h"
-#include "operator.h"
+#include "core/block/block.h"
 #include "exec/operator/union_sink_operator.h"
 #include "exec/pipeline/rec_cte_shared_state.h"
+#include "operator.h"
 #include "util/brpc_client_cache.h"
 #include "util/uid_util.h"
-#include "core/block/block.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -325,7 +325,6 @@ private:
 
     bool _is_used_by_other_rec_cte = false;
 };
-
 
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -530,7 +530,7 @@ Status QueryContext::send_block_to_cte_scan(
 }
 
 void QueryContext::registe_cte_scan(const TUniqueId& instance_id, int node_id,
-                                    pipeline::RecCTEScanLocalState* scan) {
+                                    RecCTEScanLocalState* scan) {
     std::unique_lock<std::mutex> l(_cte_scan_lock);
     auto key = std::make_pair(instance_id, node_id);
     DCHECK(!_cte_scan.contains(key)) << "Duplicate registe cte scan for instance "

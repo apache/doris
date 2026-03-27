@@ -296,8 +296,7 @@ public:
     Status send_block_to_cte_scan(const TUniqueId& instance_id, int node_id,
                                   const google::protobuf::RepeatedPtrField<doris::PBlock>& pblocks,
                                   bool eos);
-    void registe_cte_scan(const TUniqueId& instance_id, int node_id,
-                          pipeline::RecCTEScanLocalState* scan);
+    void registe_cte_scan(const TUniqueId& instance_id, int node_id, RecCTEScanLocalState* scan);
     void deregiste_cte_scan(const TUniqueId& instance_id, int node_id);
 
     std::vector<int> get_fragment_ids() {

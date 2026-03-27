@@ -30,8 +30,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 // Free function used by rec_cte sink operators to materialize a block through expressions.
-inline Status materialize_block(const VExprContextSPtrs& exprs, Block* src_block,
-                                Block* res_block, bool need_clone) {
+inline Status materialize_block(const VExprContextSPtrs& exprs, Block* src_block, Block* res_block,
+                                bool need_clone) {
     ColumnsWithTypeAndName columns;
     auto rows = src_block->rows();
     for (const auto& expr : exprs) {
@@ -47,7 +47,6 @@ inline Status materialize_block(const VExprContextSPtrs& exprs, Block* src_block
 }
 
 class RuntimeState;
-
 
 class DataQueue;
 

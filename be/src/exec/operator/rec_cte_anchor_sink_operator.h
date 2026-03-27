@@ -20,15 +20,14 @@
 #include <memory>
 
 #include "common/status.h"
-#include "operator.h"
+#include "core/block/block.h"
 #include "exec/operator/union_sink_operator.h"
 #include "exec/pipeline/rec_cte_shared_state.h"
-#include "core/block/block.h"
+#include "operator.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
-
 
 class DataQueue;
 
@@ -58,7 +57,8 @@ public:
     friend class RecCTEAnchorSinkLocalState;
     RecCTEAnchorSinkOperatorX(int sink_id, int dest_id, const TPlanNode& tnode,
                               const DescriptorTbl& descs)
-            : Base(sink_id, tnode.node_id, dest_id), _row_descriptor(descs, tnode.row_tuples) {}
+            : Base(sink_id, tnode.node_id, dest_id),
+              _row_descriptor(descs, tnode.row_tuples, tnode.nullable_tuples) {}
 
     ~RecCTEAnchorSinkOperatorX() override = default;
 
@@ -122,7 +122,6 @@ private:
 
     bool _need_notify_rec_side_ready = true;
 };
-
 
 #include "common/compile_check_end.h"
 } // namespace doris
