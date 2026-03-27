@@ -66,7 +66,7 @@ suite("predefine_type_multi_index_doc_value", "p1"){
                 MATCH_NAME 'actor.login' : string,
                 MATCH_NAME 'type' : string,
                 MATCH_NAME 'payload.action' : string,
-                MATCH_NAME 'created_at' : datetime,
+                MATCH_NAME 'created_at' : string,
                 MATCH_NAME 'payload.issue.number' : int,
                 MATCH_NAME 'payload.comment.body' : string,
                 MATCH_NAME 'type.name' : string

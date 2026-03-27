@@ -155,10 +155,6 @@ public class RuntimeProfile {
         this.counterLock = new ReentrantReadWriteLock();
     }
 
-    public void setIsCancel(Boolean isCancel) {
-        this.isCancel = isCancel;
-    }
-
     public Boolean getIsCancel() {
         return isCancel;
     }
@@ -202,11 +198,6 @@ public class RuntimeProfile {
     public Map<String, RuntimeProfile> getChildMap() {
         return childMap;
     }
-
-    public Map<String, TreeSet<String>> getChildCounterMap() {
-        return childCounterMap;
-    }
-
 
     public Counter addCounter(String name, TUnit type, String parentCounterName) {
         counterLock.writeLock().lock();

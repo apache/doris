@@ -75,10 +75,6 @@ public class BrokerReader {
         this.client = client;
     }
 
-    public long getCurrentPos() {
-        return currentPos;
-    }
-
     public byte[] pread(TBrokerFD fd, long offset, int length) throws IOException, EOFException {
         TBrokerPReadRequest tPReadRequest = new TBrokerPReadRequest(
                 TBrokerVersion.VERSION_ONE, fd, offset, length);

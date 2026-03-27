@@ -44,6 +44,8 @@ enum TDataSinkType {
     BLACKHOLE_SINK = 16,
     TVF_TABLE_SINK = 17,
     MAXCOMPUTE_TABLE_SINK = 18,
+    ICEBERG_DELETE_SINK = 19,
+    ICEBERG_MERGE_SINK = 20,
 }
 
 enum TResultSinkType {
@@ -132,7 +134,7 @@ struct TResultFileSinkOptions {
     14: optional TParquetVersion parquet_version
     15: optional string orc_schema
 
-    16: optional bool delete_existing_files;
+    16: optional bool delete_existing_files; // deprecated: FE now handles outfile cleanup and clears this flag before BE execution; kept for compatibility with older FE
     17: optional string file_suffix;
     18: optional bool with_bom;
 
@@ -415,6 +417,14 @@ struct TIcebergCommitData {
     5: optional list<string> partition_values 
     6: optional list<string> referenced_data_files
     7: optional TIcebergColumnStats column_stats
+    // For equality delete files: field IDs of columns used for equality matching
+    8: optional list<i32> equality_field_ids
+    // For position delete files: the data file path that this delete file references
+    9: optional string referenced_data_file_path
+    // Partition spec ID for delete files
+    10: optional i32 partition_spec_id
+    // Partition data JSON for delete files
+    11: optional string partition_data_json
 }
 
 struct TSortField {
@@ -443,6 +453,46 @@ struct TIcebergTableSink {
     // When set, BE should use these values directly instead of computing from data
     15: optional map<string, string> static_partition_values;
     16: optional PlanNodes.TSortInfo sort_info;
+}
+
+struct TIcebergDeleteSink {
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional TFileContent delete_type  // POSITION_DELETES or EQUALITY_DELETES
+    4: optional list<i32> equality_field_ids  // For equality delete
+    5: optional PlanNodes.TFileFormatType file_format
+    6: optional PlanNodes.TFileCompressType compress_type
+    7: optional string output_path
+    8: optional string table_location
+    9: optional map<string, string> hadoop_config
+    10: optional Types.TFileType file_type
+    11: optional i32 partition_spec_id
+    12: optional string partition_data_json
+    13: optional list<Types.TNetworkAddress> broker_addresses;
+}
+
+// Merge sink for Iceberg UPDATE: mix of position delete + data insert
+struct TIcebergMergeSink {
+    // table write side (same as TIcebergTableSink)
+    1: optional string db_name
+    2: optional string tb_name
+    3: optional string schema_json
+    4: optional map<i32, string> partition_specs_json
+    5: optional i32 partition_spec_id
+    6: optional list<TSortField> sort_fields
+    7: optional PlanNodes.TFileFormatType file_format
+    8: optional PlanNodes.TFileCompressType compression_type
+    9: optional string output_path
+    10: optional string original_output_path
+    11: optional map<string, string> hadoop_config
+    12: optional Types.TFileType file_type
+    13: optional list<Types.TNetworkAddress> broker_addresses;
+
+    // delete side (position delete only)
+    20: optional TFileContent delete_type
+    21: optional string table_location
+    22: optional i32 partition_spec_id_for_delete
+    23: optional string partition_data_json_for_delete
 }
 
 enum TDictLayoutType {
@@ -480,7 +530,7 @@ struct TTVFTableSink {
     7: optional string column_separator
     8: optional string line_delimiter
     9: optional i64 max_file_size_bytes
-    10: optional bool delete_existing_files
+    10: optional bool delete_existing_files // deprecated: FE handles TVF cleanup before execution and always sends false
     11: optional map<string, string> hadoop_config
     12: optional PlanNodes.TFileCompressType compression_type
     13: optional i64 backend_id              // local TVF: specify BE
@@ -514,6 +564,7 @@ struct TMaxComputeTableSink {
     14: optional list<string> partition_columns  // partition column names for dynamic partition
     15: optional string write_session_id          // Storage API write session ID
     16: optional map<string, string> properties // contains authentication properties
+    17: optional i32 max_write_batch_rows          // max rows per Arrow batch for write
 }
 
 struct TDataSink {
@@ -534,4 +585,6 @@ struct TDataSink {
   16: optional TBlackholeSink blackhole_sink
   17: optional TTVFTableSink tvf_table_sink
   18: optional TMaxComputeTableSink max_compute_table_sink
+  19: optional TIcebergDeleteSink iceberg_delete_sink
+  20: optional TIcebergMergeSink iceberg_merge_sink
 }

@@ -25,6 +25,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -69,6 +70,12 @@ public class ShowCreateTableCommand extends ShowCommand {
             ShowResultSetMetaData.builder()
             .addColumn(new Column("Materialized View", ScalarType.createVarchar(20)))
             .addColumn(new Column("Create Materialized View", ScalarType.createVarchar(30)))
+            .build();
+
+    private static final ShowResultSetMetaData STREAM_META_DATA =
+            ShowResultSetMetaData.builder()
+            .addColumn(new Column("Stream", ScalarType.createVarchar(20)))
+            .addColumn(new Column("Create Stream", ScalarType.createVarchar(30)))
             .build();
 
     private final TableNameInfo tblNameInfo;
@@ -152,6 +159,9 @@ public class ShowCreateTableCommand extends ShowCommand {
             if (table instanceof View) {
                 rows.add(Lists.newArrayList(table.getName(), createTableStmt.get(0), "utf8mb4", "utf8mb4_0900_bin"));
                 return new ShowResultSet(VIEW_META_DATA, rows);
+            } else if (table instanceof BaseTableStream) {
+                rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
+                return new ShowResultSet(STREAM_META_DATA, rows);
             } else {
                 rows.add(Lists.newArrayList(Util.getTempTableDisplayName(table.getName()), createTableStmt.get(0)));
                 return (table.getType() != Table.TableType.MATERIALIZED_VIEW

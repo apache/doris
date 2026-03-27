@@ -218,7 +218,9 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
                         colName);
                 continue;
             }
-            ddls.add(SchemaChangeHelper.buildDropColumnSql(db, tableId.table(), colName));
+            ddls.add(
+                    SchemaChangeHelper.buildDropColumnSql(
+                            db, resolveTargetTable(tableId.table()), colName));
         }
 
         for (Column col : pgAdded) {
@@ -243,7 +245,7 @@ public class PostgresDebeziumJsonDeserializer extends DebeziumJsonDeserializer {
             ddls.add(
                     SchemaChangeHelper.buildAddColumnSql(
                             db,
-                            tableId.table(),
+                            resolveTargetTable(tableId.table()),
                             col.name(),
                             colType + nullable,
                             defaultObj != null ? String.valueOf(defaultObj) : null,

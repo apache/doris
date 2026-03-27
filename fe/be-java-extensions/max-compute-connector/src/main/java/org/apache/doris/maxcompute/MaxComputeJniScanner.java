@@ -33,6 +33,7 @@ import com.aliyun.odps.table.read.split.InputSplit;
 import com.aliyun.odps.table.read.split.impl.IndexedInputSplit;
 import com.aliyun.odps.table.read.split.impl.RowRangeInputSplit;
 import com.google.common.base.Strings;
+import org.apache.arrow.vector.BaseVariableWidthVector;
 import org.apache.arrow.vector.FieldVector;
 import org.apache.arrow.vector.VectorSchemaRoot;
 import org.apache.log4j.Logger;
@@ -59,6 +60,13 @@ public class MaxComputeJniScanner extends JniScanner {
     }
 
     private static final Logger LOG = Logger.getLogger(MaxComputeJniScanner.class);
+
+    // 256MB byte budget per scanner batch — limits the C++ Block size at the source.
+    // With large rows (e.g. 585KB/row STRING), batch_size=4096 would create ~2.4GB Blocks.
+    // The pipeline's AsyncResultWriter queues up to 3 Blocks per instance, and with
+    // parallel_pipeline_task_num instances, total queue memory = instances * 3 * block_size.
+    // 256MB keeps queue memory manageable: 5 instances * 3 * 256MB = 3.8GB.
+    private static final long MAX_BATCH_BYTES = 256 * 1024 * 1024L;
 
     private static final String ACCESS_KEY = "access_key";
     private static final String SECRET_KEY = "secret_key";
@@ -90,6 +98,8 @@ public class MaxComputeJniScanner extends JniScanner {
     private String table;
 
     private SplitReader<VectorSchemaRoot> currentSplitReader;
+    private VectorSchemaRoot currentBatch = null;
+    private int currentBatchRowOffset = 0;
     private MaxComputeColumnValue columnValue;
 
     private Map<String, Integer> readColumnsToId;
@@ -215,8 +225,17 @@ public class MaxComputeJniScanner extends JniScanner {
 
     @Override
     public void close() throws IOException {
+        if (currentSplitReader != null) {
+            try {
+                currentSplitReader.close();
+            } catch (Exception e) {
+                LOG.warn("Failed to close MaxCompute split reader for table " + project + "." + table, e);
+            }
+        }
         startOffset = -1;
         splitSize = -1;
+        currentBatch = null;
+        currentBatchRowOffset = 0;
         currentSplitReader = null;
         settings = null;
         scan = null;
@@ -234,45 +253,74 @@ public class MaxComputeJniScanner extends JniScanner {
         return readVectors(expectedRows);
     }
 
+    private VectorSchemaRoot getNextBatch() throws IOException {
+        try {
+            if (!currentSplitReader.hasNext()) {
+                currentSplitReader.close();
+                currentSplitReader = null;
+                return null;
+            }
+            return currentSplitReader.get();
+        } catch (Exception e) {
+            String errorMsg = "MaxComputeJniScanner readVectors get batch fail";
+            LOG.warn(errorMsg, e);
+            throw new IOException(e.getMessage(), e);
+        }
+    }
+
     private int readVectors(int expectedRows) throws IOException {
         int curReadRows = 0;
+        long accumulatedBytes = 0;
         while (curReadRows < expectedRows) {
-            try {
-                if (!currentSplitReader.hasNext()) {
-                    currentSplitReader.close();
-                    currentSplitReader = null;
-                    break;
-                }
-            } catch (Exception e) {
-                String errorMsg = "MaxComputeJniScanner readVectors hasNext fail";
-                LOG.warn(errorMsg, e);
-                throw new IOException(e.getMessage(), e);
+            // Stop early if accumulated variable-width bytes approach int32 limit
+            if (accumulatedBytes >= MAX_BATCH_BYTES) {
+                break;
             }
-
+            if (currentBatch == null) {
+                currentBatch = getNextBatch();
+                if (currentBatch == null || currentBatch.getRowCount() == 0) {
+                    currentBatch = null;
+                    break;
+                }
+                currentBatchRowOffset = 0;
+            }
             try {
-                VectorSchemaRoot data = currentSplitReader.get();
-                if (data.getRowCount() == 0) {
+                int rowsToAppend = Math.min(expectedRows - curReadRows,
+                        currentBatch.getRowCount() - currentBatchRowOffset);
+                List<FieldVector> fieldVectors = currentBatch.getFieldVectors();
+
+                // Limit rows to avoid int32 overflow in VectorColumn's String byte buffer
+                rowsToAppend = limitRowsByVarWidthBytes(
+                        fieldVectors, currentBatchRowOffset, rowsToAppend,
+                        MAX_BATCH_BYTES - accumulatedBytes);
+                if (rowsToAppend <= 0) {
                     break;
                 }
 
-                List<FieldVector> fieldVectors = data.getFieldVectors();
-                int batchRows = 0;
                 long startTime = System.nanoTime();
                 for (FieldVector column : fieldVectors) {
                     Integer readColumnId = readColumnsToId.get(column.getName());
-                    batchRows = column.getValueCount();
                     if (readColumnId == null) {
                         continue;
                     }
                     columnValue.reset(column);
-                    for (int j = 0; j < batchRows; j++) {
+                    for (int j = currentBatchRowOffset; j < currentBatchRowOffset + rowsToAppend; j++) {
                         columnValue.setColumnIdx(j);
                         appendData(readColumnId, columnValue);
                     }
                 }
                 appendDataTime += System.nanoTime() - startTime;
 
-                curReadRows += batchRows;
+                // Track bytes for the rows just appended
+                accumulatedBytes += estimateVarWidthBytes(
+                        fieldVectors, currentBatchRowOffset, rowsToAppend);
+
+                currentBatchRowOffset += rowsToAppend;
+                curReadRows += rowsToAppend;
+                if (currentBatchRowOffset >= currentBatch.getRowCount()) {
+                    currentBatch = null;
+                    currentBatchRowOffset = 0;
+                }
             } catch (Exception e) {
                 String errorMsg = String.format("MaxComputeJniScanner Fail to read arrow data. "
                         + "curReadRows = {}, expectedRows = {}", curReadRows, expectedRows);
@@ -280,7 +328,89 @@ public class MaxComputeJniScanner extends JniScanner {
                 throw new RuntimeException(errorMsg, e);
             }
         }
+        if (LOG.isDebugEnabled() && curReadRows > 0 && curReadRows < expectedRows) {
+            LOG.debug("readVectors: returning " + curReadRows + " rows (limited by byte budget)"
+                    + ", totalVarWidthBytes=" + accumulatedBytes
+                    + ", expectedRows=" + expectedRows);
+        }
         return curReadRows;
+    }
+
+    /**
+     * Limit the number of rows to append so that no single variable-width column
+     * exceeds the remaining byte budget. This prevents int32 overflow in
+     * VectorColumn's appendIndex for String/Binary child byte arrays.
+     *
+     * Uses Arrow's offset buffer for O(1)-per-row byte size calculation —
+     * no data copying involved.
+     */
+    private int limitRowsByVarWidthBytes(List<FieldVector> fieldVectors,
+            int offset, int maxRows, long remainingBudget) {
+        if (remainingBudget <= 0) {
+            return 0;
+        }
+        int safeRows = maxRows;
+        for (FieldVector fv : fieldVectors) {
+            if (fv instanceof BaseVariableWidthVector) {
+                BaseVariableWidthVector vec = (BaseVariableWidthVector) fv;
+                // Find how many rows fit within the budget for THIS column
+                int rows = findMaxRowsWithinBudget(vec, offset, maxRows, remainingBudget);
+                safeRows = Math.min(safeRows, rows);
+            }
+        }
+        // Always allow at least 1 row to make progress, even if it exceeds budget
+        return Math.max(1, safeRows);
+    }
+
+    /**
+     * Binary search for the maximum number of rows starting at 'offset'
+     * whose total bytes in the variable-width vector fit within 'budget'.
+     */
+    private int findMaxRowsWithinBudget(BaseVariableWidthVector vec,
+            int offset, int maxRows, long budget) {
+        if (maxRows <= 0) {
+            return 0;
+        }
+        // Total bytes for all maxRows
+        long totalBytes = (long) vec.getOffsetBuffer().getInt((long) (offset + maxRows) * 4)
+                - (long) vec.getOffsetBuffer().getInt((long) offset * 4);
+        if (totalBytes <= budget) {
+            return maxRows;
+        }
+        // Binary search for the cutoff point
+        int lo = 1;
+        int hi = maxRows - 1;
+        int startOff = vec.getOffsetBuffer().getInt((long) offset * 4);
+        while (lo <= hi) {
+            int mid = lo + (hi - lo) / 2;
+            long bytes = (long) vec.getOffsetBuffer().getInt((long) (offset + mid) * 4) - startOff;
+            if (bytes <= budget) {
+                lo = mid + 1;
+            } else {
+                hi = mid - 1;
+            }
+        }
+        // 'hi' is the largest count whose bytes <= budget (could be 0)
+        return hi;
+    }
+
+    /**
+     * Estimate total variable-width bytes for the given row range across all columns.
+     * Returns the max bytes of any single column (since each column has its own
+     * VectorColumn child buffer and the overflow is per-column).
+     */
+    private long estimateVarWidthBytes(List<FieldVector> fieldVectors,
+            int offset, int rows) {
+        long maxColumnBytes = 0;
+        for (FieldVector fv : fieldVectors) {
+            if (fv instanceof BaseVariableWidthVector) {
+                BaseVariableWidthVector vec = (BaseVariableWidthVector) fv;
+                long bytes = (long) vec.getOffsetBuffer().getInt((long) (offset + rows) * 4)
+                        - (long) vec.getOffsetBuffer().getInt((long) offset * 4);
+                maxColumnBytes = Math.max(maxColumnBytes, bytes);
+            }
+        }
+        return maxColumnBytes;
     }
 
     private static Object deserialize(String serializedString) throws IOException, ClassNotFoundException {

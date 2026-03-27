@@ -2578,6 +2578,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Maximum number of buckets allowed when creating a table or adding a partition. "
+                    + "This config shares the same default value with autobucket_max_buckets for consistency. "
+                    + "Behavior: "
+                    + "1. For user-specified buckets (CREATE TABLE / ALTER TABLE ADD PARTITION): "
+                    + "if bucket number exceeds this limit, the operation will be rejected with an error message. "
+                    + "2. For auto-bucket feature (Dynamic Partition): "
+                    + "bucket number will be capped at autobucket_max_buckets automatically. "
+                    + "Set to 0 or negative value to disable this limit for user-specified buckets."})
+    public static int max_bucket_num_per_partition = autobucket_max_buckets;
+
     @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
 
@@ -2780,9 +2791,16 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"Specifies the authentication type"},
-            options = {"default", "ldap"})
+    @ConfField(description = {
+            "Specifies the primary MySQL authenticator name, either a built-in authenticator "
+                    + "or an authentication plugin name"},
+            options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
+
+    @ConfField(description = {
+            "Specifies the authentication chain used after primary authentication failure, "
+                    + "multiple integration names are comma-separated"})
+    public static String authentication_chain = "";
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
@@ -2912,6 +2930,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "Interval at which the dictionary triggers a data expiration check, in seconds."})
     public static int dictionary_auto_refresh_interval_seconds = 5;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Whether to enable the experimental Table Stream functionality" },
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_table_stream = false;
 
     //==========================================================================
     //                    begin of cloud config

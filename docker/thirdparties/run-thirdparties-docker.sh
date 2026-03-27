@@ -25,6 +25,7 @@ set -eo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 . "${ROOT}/custom_settings.env"
+. "${ROOT}/juicefs-helpers.sh"
 
 usage() {
     echo "
@@ -231,12 +232,15 @@ reserve_ports() {
 }
 
 JFS_META_FORMATTED=0
-DORIS_ROOT="$(cd "${ROOT}/../.." &>/dev/null && pwd)"
-. "${DORIS_ROOT}/thirdparty/juicefs-helpers.sh"
-JUICEFS_LOCAL_BIN="${DORIS_ROOT}/thirdparty/installed/juicefs_bin/juicefs"
+DORIS_ROOT="${DORIS_ROOT:-$(cd "${ROOT}/../.." &>/dev/null && pwd)}"
+JUICEFS_RUNTIME_ROOT="${ROOT}/juicefs"
+
+JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 
 find_juicefs_hadoop_jar() {
     local -a jar_globs=(
+        "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
+        "${ROOT}/docker-compose/hive/scripts/auxlib/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
@@ -256,13 +260,13 @@ detect_juicefs_version() {
 
 download_juicefs_hadoop_jar() {
     local juicefs_version="$1"
-    local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_libs"
+    local cache_dir="${JUICEFS_RUNTIME_ROOT}/lib"
     juicefs_download_hadoop_jar_to_cache "${juicefs_version}" "${cache_dir}"
 }
 
 install_juicefs_cli() {
     local juicefs_version="$1"
-    local cache_dir="${DORIS_ROOT}/thirdparty/installed/juicefs_bin"
+    local cache_dir="${JUICEFS_RUNTIME_ROOT}/bin"
     local archive_name="juicefs-${juicefs_version}-linux-amd64.tar.gz"
     local download_url="https://github.com/juicedata/juicefs/releases/download/v${juicefs_version}/${archive_name}"
     local tmp_dir
@@ -380,6 +384,14 @@ prepare_juicefs_meta_for_hive() {
         echo "JuiceFS metadata is already formatted."
         JFS_META_FORMATTED=1
         return 0
+    fi
+
+    # Clean stale bucket data before formatting. When meta is not formatted,
+    # any leftover data in the bucket directory is orphaned from a previous run
+    # and will cause "juicefs format" to fail with "Storage ... is not empty".
+    if [[ -d "${bucket_dir}" ]]; then
+        echo "Cleaning stale JuiceFS bucket directory: ${bucket_dir}"
+        sudo rm -rf "${bucket_dir:?}"/*
     fi
 
     if ! run_juicefs_cli \
@@ -572,26 +584,14 @@ start_iceberg() {
             echo "${ICEBERG_DIR}/data does not exist"
             cd "${ICEBERG_DIR}" \
             && rm -f iceberg_data*.zip \
-            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data_paimon_101.zip \
-            && sudo unzip iceberg_data_paimon_101.zip \
+            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_data_spark40.zip \
+            && sudo unzip iceberg_data_spark40.zip \
             && sudo mv iceberg_data data \
-            && sudo rm -rf iceberg_data_paimon_101.zip
+            && sudo rm -rf iceberg_data_spark40.zip
             cd -
         else
             echo "${ICEBERG_DIR}/data exist, continue !"
         fi
-
-        if [[ ! -f "${ICEBERG_DIR}/data/input/jars/iceberg-aws-bundle-1.10.0.jar" ]]; then 
-            echo "iceberg 1.10.0 jars does not exist"
-            cd "${ICEBERG_DIR}" \
-            && rm -f iceberg_1_10_0*.jars.tar.gz\
-            && wget -P "${ROOT}"/docker-compose/iceberg https://"${s3BucketName}.${s3Endpoint}"/regression/datalake/pipeline_data/iceberg_1_10_0.jars.tar.gz \
-            && sudo tar xzvf iceberg_1_10_0.jars.tar.gz -C "data/input/jars" \
-            && sudo rm -rf iceberg_1_10_0.jars.tar.gz
-            cd -
-        else 
-            echo "iceberg 1.10.0 jars exist, continue !"
-        fi        
 
         sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d --wait
     fi

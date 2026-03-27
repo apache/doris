@@ -37,7 +37,6 @@ import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
@@ -48,13 +47,13 @@ import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.datasource.doris.RemoteDorisExternalTable;
 import org.apache.doris.datasource.doris.RemoteOlapTable;
 import org.apache.doris.datasource.doris.source.RemoteDorisScanNode;
-import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.source.EsScanNode;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HMSExternalTable.DLAType;
 import org.apache.doris.datasource.hive.source.HiveScanNode;
 import org.apache.doris.datasource.hudi.source.HudiScanNode;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergMergeOperation;
 import org.apache.doris.datasource.iceberg.source.IcebergScanNode;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.jdbc.sink.JdbcTableSink;
@@ -63,7 +62,6 @@ import org.apache.doris.datasource.lakesoul.LakeSoulExternalTable;
 import org.apache.doris.datasource.lakesoul.source.LakeSoulScanNode;
 import org.apache.doris.datasource.maxcompute.MaxComputeExternalTable;
 import org.apache.doris.datasource.maxcompute.source.MaxComputeScanNode;
-import org.apache.doris.datasource.odbc.source.OdbcScanNode;
 import org.apache.doris.datasource.paimon.source.PaimonScanNode;
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.datasource.trinoconnector.source.TrinoConnectorScanNode;
@@ -83,6 +81,7 @@ import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.DistributionSpecHash;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecHiveTableSinkUnPartitioned;
+import org.apache.doris.nereids.properties.DistributionSpecMerge;
 import org.apache.doris.nereids.properties.DistributionSpecOlapTableSinkHashPartitioned;
 import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.properties.DistributionSpecStorageAny;
@@ -139,6 +138,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
@@ -149,7 +150,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalLazyMaterializeTVFS
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalMaxComputeTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -199,6 +199,8 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
+import org.apache.doris.planner.IcebergDeleteSink;
+import org.apache.doris.planner.IcebergMergeSink;
 import org.apache.doris.planner.IcebergTableSink;
 import org.apache.doris.planner.IntersectNode;
 import org.apache.doris.planner.JoinNodeBase;
@@ -609,6 +611,47 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     @Override
+    public PlanFragment visitPhysicalIcebergDeleteSink(PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink,
+                                                       PlanTranslatorContext context) {
+        PlanFragment rootFragment = icebergDeleteSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        IcebergDeleteSink sink = new IcebergDeleteSink(
+                (IcebergExternalTable) icebergDeleteSink.getTargetTable(),
+                icebergDeleteSink.getDeleteContext());
+        rootFragment.setSink(sink);
+        return rootFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalIcebergMergeSink(PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink,
+                                                      PlanTranslatorContext context) {
+        PlanFragment rootFragment = icebergMergeSink.child().accept(this, context);
+        rootFragment.setOutputPartition(DataPartition.UNPARTITIONED);
+        List<Expr> outputExprs = Lists.newArrayList();
+        for (Slot slot : icebergMergeSink.getOutput()) {
+            SlotRef slotRef = Objects.requireNonNull(context.findSlotRef(slot.getExprId()),
+                    "Missing slot ref for iceberg merge sink output");
+            SlotDescriptor slotDesc = slotRef.getDesc();
+            if (slotDesc != null && slotDesc.getColumn() == null) {
+                String label = slotDesc.getLabel();
+                if (label != null && !label.isEmpty()) {
+                    if (IcebergMergeOperation.OPERATION_COLUMN.equalsIgnoreCase(label)
+                            || Column.ICEBERG_ROWID_COL.equalsIgnoreCase(label)) {
+                        slotDesc.setMaterializedColumnName(label);
+                    }
+                }
+            }
+            outputExprs.add(slotRef);
+        }
+        rootFragment.setOutputExprs(outputExprs);
+        IcebergMergeSink sink = new IcebergMergeSink(
+                (IcebergExternalTable) icebergMergeSink.getTargetTable(),
+                icebergMergeSink.getDeleteContext());
+        rootFragment.setSink(sink);
+        return rootFragment;
+    }
+
+    @Override
     public PlanFragment visitPhysicalJdbcTableSink(PhysicalJdbcTableSink<? extends Plan> jdbcTableSink,
             PlanTranslatorContext context) {
         PlanFragment rootFragment = jdbcTableSink.child().accept(this, context);
@@ -619,7 +662,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         JdbcTableSink sink = new JdbcTableSink(
-                ((JdbcExternalTable) jdbcTableSink.getTargetTable()).getJdbcTable(),
+                (JdbcExternalTable) jdbcTableSink.getTargetTable(),
                 insertCols
         );
         rootFragment.setSink(sink);
@@ -756,7 +799,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableIf table = esScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         EsScanNode esScanNode = new EsScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                table instanceof EsExternalTable, context.getScanContext());
+                context.getScanContext());
         esScanNode.setNereidsId(esScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(esScan.getId(), esScanNode.getId());
         Utils.execWithUncheckedException(esScanNode::init);
@@ -842,7 +885,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TableIf table = jdbcScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
         JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                table instanceof JdbcExternalTable, context.getScanContext());
+                context.getScanContext());
         jdbcScanNode.setNereidsId(jdbcScan.getId());
         context.getNereidsIdToPlanNodeIdMap().put(jdbcScan.getId(), jdbcScanNode.getId());
 
@@ -863,24 +906,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return planFragment;
     }
 
-    @Override
-    public PlanFragment visitPhysicalOdbcScan(PhysicalOdbcScan odbcScan, PlanTranslatorContext context) {
-        List<Slot> slots = odbcScan.getOutput();
-        TableIf table = odbcScan.getTable();
-        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, table, context);
-        OdbcScanNode odbcScanNode = new OdbcScanNode(context.nextPlanNodeId(), tupleDescriptor,
-                (OdbcTable) table, context.getScanContext());
-        odbcScanNode.setNereidsId(odbcScan.getId());
-        context.getNereidsIdToPlanNodeIdMap().put(odbcScan.getId(), odbcScanNode.getId());
-        Utils.execWithUncheckedException(odbcScanNode::init);
-        context.addScanNode(odbcScanNode, odbcScan);
-        translateRuntimeFilter(odbcScan, odbcScanNode, context);
-        DataPartition dataPartition = DataPartition.RANDOM;
-        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), odbcScanNode, dataPartition);
-        context.addPlanFragment(planFragment);
-        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), odbcScan);
-        return planFragment;
-    }
+    // ODBC scan removed: ENGINE=ODBC is no longer supported
 
     @Override
     public PlanFragment visitPhysicalOlapScan(PhysicalOlapScan olapScan, PlanTranslatorContext context) {
@@ -1357,9 +1383,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 break;
             case MIX:
                 pushAggOp = TPushAggOp.MIX;
-                break;
-            case COUNT_NULL:
-                pushAggOp = TPushAggOp.COUNT_NULL;
                 break;
             default:
                 throw new AnalysisException("Unsupported storage layer aggregate: "
@@ -3143,6 +3166,30 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return new DataPartition(TPartitionType.HIVE_TABLE_SINK_HASH_PARTITIONED, partitionExprs);
         } else if (distributionSpec instanceof DistributionSpecHiveTableSinkUnPartitioned) {
             return new DataPartition(TPartitionType.HIVE_TABLE_SINK_UNPARTITIONED);
+        } else if (distributionSpec instanceof DistributionSpecMerge) {
+            DistributionSpecMerge mergeSpec = (DistributionSpecMerge) distributionSpec;
+            Expr operationExpr = context.findSlotRef(mergeSpec.getOperationExprId());
+            List<Expr> insertPartitionExprs = Lists.newArrayList();
+            for (ExprId exprId : mergeSpec.getInsertPartitionExprIds()) {
+                insertPartitionExprs.add(context.findSlotRef(exprId));
+            }
+            List<Expr> deletePartitionExprs = Lists.newArrayList();
+            for (ExprId exprId : mergeSpec.getDeletePartitionExprIds()) {
+                deletePartitionExprs.add(context.findSlotRef(exprId));
+            }
+            List<DataPartition.IcebergPartitionField> insertPartitionFields = Lists.newArrayList();
+            for (DistributionSpecMerge.IcebergPartitionField field : mergeSpec.getInsertPartitionFields()) {
+                Expr sourceExpr = context.findSlotRef(field.getSourceExprId());
+                insertPartitionFields.add(new DataPartition.IcebergPartitionField(
+                        sourceExpr,
+                        field.getTransform(),
+                        field.getParam(),
+                        field.getName(),
+                        field.getSourceId()));
+            }
+            return new DataPartition(TPartitionType.MERGE_PARTITIONED, operationExpr,
+                    insertPartitionExprs, deletePartitionExprs, mergeSpec.isInsertRandom(),
+                    insertPartitionFields, mergeSpec.getPartitionSpecId());
         } else {
             throw new RuntimeException("Unknown DistributionSpec: " + distributionSpec);
         }
@@ -3222,16 +3269,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return true;
-    }
-
-    private List<Expr> translateToLegacyConjuncts(Set<Expression> conjuncts) {
-        List<Expr> outputExprs = Lists.newArrayList();
-        if (conjuncts != null) {
-            conjuncts.stream()
-                    .map(e -> ExpressionTranslator.translate(e, context))
-                    .forEach(outputExprs::add);
-        }
-        return outputExprs;
     }
 
     private boolean isComplexDataType(DataType dataType) {

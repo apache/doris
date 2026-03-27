@@ -162,6 +162,10 @@ public class MetadataGenerator {
 
     private static final ImmutableMap<String, Integer> AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
 
+    private static final ImmutableMap<String, Integer> TABLE_STREAMS_COLUMN_TO_INDEX;
+
+    private static final ImmutableMap<String, Integer> TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
+
     static {
         ImmutableMap.Builder<String, Integer> activeQueriesbuilder = new ImmutableMap.Builder();
         List<Column> activeQueriesColList = SchemaTable.TABLE_MAP.get("active_queries").getFullSchema();
@@ -248,6 +252,22 @@ public class MetadataGenerator {
                     authenticationIntegrationsColList.get(i).getName().toLowerCase(), i);
         }
         AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX = authenticationIntegrationsBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> tableStreamsBuilder = new ImmutableMap.Builder();
+        List<Column> streamsBuilderColList = SchemaTable.TABLE_MAP.get("table_streams")
+                .getFullSchema();
+        for (int i = 0; i < streamsBuilderColList.size(); i++) {
+            tableStreamsBuilder.put(streamsBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        TABLE_STREAMS_COLUMN_TO_INDEX = tableStreamsBuilder.build();
+
+        ImmutableMap.Builder<String, Integer> tableStreamConsumptionBuilder = new ImmutableMap.Builder();
+        List<Column> tableStreamConsumptionBuilderColList = SchemaTable.TABLE_MAP.get("table_stream_consumption")
+                .getFullSchema();
+        for (int i = 0; i < tableStreamConsumptionBuilderColList.size(); i++) {
+            tableStreamConsumptionBuilder.put(tableStreamConsumptionBuilderColList.get(i).getName().toLowerCase(), i);
+        }
+        TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX = tableStreamConsumptionBuilder.build();
     }
 
     public static TFetchSchemaTableDataResult getMetadataTable(TFetchSchemaTableDataRequest request) throws TException {
@@ -365,6 +385,14 @@ public class MetadataGenerator {
             case AUTHENTICATION_INTEGRATIONS:
                 result = authenticationIntegrationsMetadataResult(schemaTableParams);
                 columnIndex = AUTHENTICATION_INTEGRATIONS_COLUMN_TO_INDEX;
+                break;
+            case TABLE_STREAMS:
+                result = streamMetadataResult(schemaTableParams);
+                columnIndex = TABLE_STREAMS_COLUMN_TO_INDEX;
+                break;
+            case TABLE_STREAM_CONSUMPTION:
+                result = streamConsumptionMetadataResult(schemaTableParams);
+                columnIndex = TABLE_STREAM_CONSUMPTION_COLUMN_TO_INDEX;
                 break;
             default:
                 return errorResult("invalid schema table name.");
@@ -2058,4 +2086,21 @@ public class MetadataGenerator {
         return dataBatch;
     }
 
+    private static TFetchSchemaTableDataResult streamMetadataResult(TSchemaTableRequestParams params) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Env.getCurrentEnv().getTableStreamManager().fillTableStreamValuesMetadataResult(dataBatch);
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
+
+    private static TFetchSchemaTableDataResult streamConsumptionMetadataResult(TSchemaTableRequestParams params) {
+        TFetchSchemaTableDataResult result = new TFetchSchemaTableDataResult();
+        List<TRow> dataBatch = Lists.newArrayList();
+        Env.getCurrentEnv().getTableStreamManager().fillStreamConsumptionValuesMetadataResult(dataBatch);
+        result.setDataBatch(dataBatch);
+        result.setStatus(new TStatus(TStatusCode.OK));
+        return result;
+    }
 }

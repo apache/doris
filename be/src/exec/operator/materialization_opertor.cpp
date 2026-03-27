@@ -53,8 +53,25 @@ void MaterializationSharedState::get_block(Block* block) {
     origin_block.clear();
 }
 
+// Merges RPC responses from multiple BEs into `response_blocks` in the original row order.
+//
+// After parallel multiget_data_v2 RPCs complete, each BE's response contains a partial block
+// with only the rows that BE owns (ordered by file_id/row_id). This function reassembles them
+// into the correct TopN output order using `block_order_results` as the ordering guide.
+//
+// Data flow:
+//   rpc_struct_map[backend_id].response  (per-BE partial blocks, unordered across BEs)
+//       + block_order_results[i][j]      (maps each output row → its source backend_id)
+//       → response_blocks[i]             (final merged result in original TopN row order)
 Status MaterializationSharedState::merge_multi_response() {
+    // Outer loop: iterate over each relation (i.e., each rowid column / table).
+    // A query with lazy materialization on 2 tables would have block_order_results.size() == 2,
+    // each with its own set of response_blocks and RPC request_block_descs.
     for (int i = 0; i < block_order_results.size(); ++i) {
+        // Maps backend_id → (deserialized block from that BE, row cursor into the block).
+        // The cursor tracks how many rows we've consumed from this BE's block so far,
+        // since the rows in the partial block are in the same order as the row_ids we sent.
+
         // block_maps must be rebuilt for each relation (each i), because a backend that
         // returned a non-empty block for relation i-1 may return an empty block for
         // relation i (e.g. it holds rows only from one of the two tables in a UNION ALL).
@@ -62,6 +79,9 @@ Status MaterializationSharedState::merge_multi_response() {
         // relation and miss entries for the current one, causing the
         // "backend_id not found in block_maps" error.
         std::unordered_map<int64_t, std::pair<Block, int>> block_maps;
+
+        // Phase 1: Deserialize the i-th response block from every BE into block_maps.
+        // Each BE's response.blocks(i) corresponds to the i-th relation's fetched columns.
         for (auto& [backend_id, rpc_struct] : rpc_struct_map) {
             Block partial_block;
             size_t uncompressed_size = 0;
@@ -69,19 +89,49 @@ Status MaterializationSharedState::merge_multi_response() {
             DCHECK(rpc_struct.response.blocks_size() > i);
             RETURN_IF_ERROR(partial_block.deserialize(rpc_struct.response.blocks(i).block(),
                                                       &uncompressed_size, &uncompressed_time));
+            // Check multiget result rows matches request row id count.
+            // 1. A BE may return an empty block event if
+            // request.request_block_descs(i).row_id_size() != 0:
+            // If the id_file_map was GC'd on the BE before it could process the request,
+            // refer 'if (!id_file_map)' in RowIdStorageReader::read_by_rowids.
+            // 2. Report error in any case where the row count doesn't match, even if it's not empty,
+            //    since that indicates a bug in BE's row fetching logic or serialization logic.
+            if (rpc_struct.request.request_block_descs(i).row_id_size() != partial_block.rows()) {
+                return Status::InternalError(
+                        fmt::format("merge_multi_response, "
+                                    "backend_id {} returned block with row count {} not match "
+                                    "request row id count {}",
+                                    backend_id, partial_block.rows(),
+                                    rpc_struct.request.request_block_descs(i).row_id_size()));
+            }
             if (rpc_struct.response.blocks(i).has_profile()) {
                 auto response_profile =
                         RuntimeProfile::from_proto(rpc_struct.response.blocks(i).profile());
                 _update_profile_info(backend_id, response_profile.get());
             }
 
+            // Only insert non-empty blocks. A BE may return an empty block if
+            // request.request_block_descs(i).row_id_size() is 0
             if (!partial_block.is_empty_column()) {
+                // Reset row cursor to 0 — we'll consume rows from this block sequentially.
                 block_maps[backend_id] = std::make_pair(std::move(partial_block), 0);
             }
         }
 
+        // return error if any column in response block is not compatible with source block column
+        for (int k = 0; k < response_blocks[i].columns(); ++k) {
+            const auto& resp_col_type = response_blocks[i].get_datatype_by_position(k);
+            for (const auto& [_, source_block_rows] : block_maps) {
+                RETURN_IF_ERROR(resp_col_type->check_column(
+                        *source_block_rows.first.get_by_position(k).column));
+            }
+        }
+        // Phase 2: Walk the original row order and copy each row from the correct BE's block
+        // into response_blocks[i]. block_order_results[i][j] tells us which backend_id owns
+        // row j. A value of 0 means the rowid was NULL (e.g., from an outer join).
         for (int j = 0; j < block_order_results[i].size(); ++j) {
             auto backend_id = block_order_results[i][j];
+            // Non-null rowid: copy the next row from this BE's partial block.
             if (backend_id) {
                 if (UNLIKELY(block_maps.find(backend_id) == block_maps.end())) {
                     return Status::InternalError(
@@ -89,13 +139,17 @@ Status MaterializationSharedState::merge_multi_response() {
                                         "backend_id {} not found in block_maps",
                                         backend_id));
                 }
+                // source_block_rows.first  = the deserialized Block from this BE
+                // source_block_rows.second = current row cursor (how many rows consumed so far)
                 auto& source_block_rows = block_maps[backend_id];
                 DCHECK(source_block_rows.second < source_block_rows.first.rows());
+                // Copy column-by-column from the source block's current row into response_blocks.
                 for (int k = 0; k < response_blocks[i].columns(); ++k) {
                     response_blocks[i].get_column_by_position(k)->insert_from(
                             *source_block_rows.first.get_by_position(k).column,
                             source_block_rows.second);
                 }
+                // Advance the cursor — next time we see this backend_id, we take the next row.
                 source_block_rows.second++;
             } else {
                 for (int k = 0; k < response_blocks[i].columns(); ++k) {
@@ -106,6 +160,9 @@ Status MaterializationSharedState::merge_multi_response() {
     }
 
     // clear request/response
+    // Phase 3: Clear the row_id and file_id arrays in each RPC request to prepare for the
+    // next batch. The request template (column_descs, slots, etc.) is reused across batches;
+    // only the per-row data (file_id, row_id) needs to be cleared.
     for (auto& [_, rpc_struct] : rpc_struct_map) {
         for (int i = 0; i < rpc_struct.request.request_block_descs_size(); ++i) {
             rpc_struct.request.mutable_request_block_descs(i)->clear_row_id();
@@ -151,9 +208,9 @@ Status MaterializationSharedState::create_muiltget_result(const Columns& columns
     for (int i = 0; i < columns.size(); ++i) {
         const uint8_t* null_map = nullptr;
         const ColumnString* column_rowid = nullptr;
-        auto& column = columns[i];
+        const auto& column = columns[i];
 
-        if (auto column_ptr = check_and_get_column<ColumnNullable>(*column)) {
+        if (const auto* const column_ptr = check_and_get_column<ColumnNullable>(*column)) {
             null_map = column_ptr->get_null_map_data().data();
             column_rowid =
                     assert_cast<const ColumnString*>(column_ptr->get_nested_column_ptr().get());
@@ -214,7 +271,7 @@ Status MaterializationSharedState::init_multi_requests(
     // Initialize the base struct of PMultiGetRequestV2
     multi_get_request.set_be_exec_version(state->be_exec_version());
     multi_get_request.set_wg_id(state->get_query_ctx()->workload_group()->id());
-    auto query_id = multi_get_request.mutable_query_id();
+    auto* query_id = multi_get_request.mutable_query_id();
     query_id->set_hi(state->query_id().hi);
     query_id->set_lo(state->query_id().lo);
     DCHECK_EQ(materialization_node.column_descs_lists.size(),
@@ -226,24 +283,24 @@ Status MaterializationSharedState::init_multi_requests(
     response_blocks = std::vector<MutableBlock>(materialization_node.column_descs_lists.size());
 
     for (int i = 0; i < materialization_node.column_descs_lists.size(); ++i) {
-        auto request_block_desc = multi_get_request.add_request_block_descs();
+        auto* request_block_desc = multi_get_request.add_request_block_descs();
         request_block_desc->set_fetch_row_store(materialization_node.fetch_row_stores[i]);
         // Initialize the column_descs and slot_locs
-        auto& column_descs = materialization_node.column_descs_lists[i];
-        for (auto& column_desc_item : column_descs) {
+        const auto& column_descs = materialization_node.column_descs_lists[i];
+        for (const auto& column_desc_item : column_descs) {
             TabletColumn(column_desc_item).to_schema_pb(request_block_desc->add_column_descs());
         }
 
-        auto& slot_locs = materialization_node.slot_locs_lists[i];
+        const auto& slot_locs = materialization_node.slot_locs_lists[i];
         tuple_desc->to_protobuf(request_block_desc->mutable_desc());
 
-        auto& column_idxs = materialization_node.column_idxs_lists[i];
+        const auto& column_idxs = materialization_node.column_idxs_lists[i];
         for (auto idx : column_idxs) {
             request_block_desc->add_column_idxs(idx);
         }
 
         std::vector<SlotDescriptor*> slots_res;
-        for (auto& slot_loc_item : slot_locs) {
+        for (const auto& slot_loc_item : slot_locs) {
             slots[slot_loc_item]->to_protobuf(request_block_desc->add_slots());
             slots_res.emplace_back(slots[slot_loc_item]);
         }
@@ -276,7 +333,7 @@ Status MaterializationOperator::init(const doris::TPlanNode& tnode, doris::Runti
     _materialization_node = tnode.materialization_node;
     _gc_id_map = tnode.materialization_node.gc_id_map;
     // Create result_expr_ctx_lists_ from thrift exprs.
-    auto& fetch_expr_lists = tnode.materialization_node.fetch_expr_lists;
+    const auto& fetch_expr_lists = tnode.materialization_node.fetch_expr_lists;
     RETURN_IF_ERROR(VExpr::create_expr_trees(fetch_expr_lists, _rowid_exprs));
     return Status::OK();
 }
@@ -305,7 +362,7 @@ Status MaterializationOperator::pull(RuntimeState* state, Block* output_block, b
     if (*eos) {
         for (const auto& [backend_id, child_info] :
              local_state._materialization_state.backend_profile_info_string) {
-            auto child_profile = local_state.operator_profile()->create_child(
+            auto* child_profile = local_state.operator_profile()->create_child(
                     "RowIDFetcher: BackendId:" + std::to_string(backend_id));
             for (const auto& [info_key, info_value] :
                  local_state._materialization_state.backend_profile_info_string[backend_id]) {
@@ -332,7 +389,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
         if (in_block->rows() != 0) {
             local_state._materialization_state.rowid_locs.resize(_rowid_exprs.size());
             for (int i = 0; i < _rowid_exprs.size(); ++i) {
-                auto& rowid_expr = _rowid_exprs[i];
+                const auto& rowid_expr = _rowid_exprs[i];
                 RETURN_IF_ERROR(rowid_expr->execute(
                         in_block, &local_state._materialization_state.rowid_locs[i]));
                 columns.emplace_back(
@@ -348,7 +405,7 @@ Status MaterializationOperator::push(RuntimeState* state, Block* in_block, bool 
         bthread::CountdownEvent counter(static_cast<int>(size));
         MonotonicStopWatch rpc_timer(true);
         for (auto& [backend_id, rpc_struct] : local_state._materialization_state.rpc_struct_map) {
-            auto callback = brpc::NewCallback(fetch_callback, &counter);
+            auto* callback = brpc::NewCallback(fetch_callback, &counter);
             rpc_struct.cntl->set_timeout_ms(state->execution_timeout() * 1000);
             // send brpc request
             rpc_struct.stub->multiget_data_v2(rpc_struct.cntl.get(), &rpc_struct.request,

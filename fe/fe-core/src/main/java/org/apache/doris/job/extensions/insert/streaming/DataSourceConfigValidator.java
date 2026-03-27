@@ -45,6 +45,7 @@ public class DataSourceConfigValidator {
 
     // Known suffixes for per-table config keys (format: "table.<tableName>.<suffix>")
     private static final Set<String> ALLOW_TABLE_LEVEL_SUFFIXES = Sets.newHashSet(
+            DataSourceConfigKeys.TABLE_TARGET_TABLE_SUFFIX,
             DataSourceConfigKeys.TABLE_EXCLUDE_COLUMNS_SUFFIX
     );
 
@@ -66,6 +67,10 @@ public class DataSourceConfigValidator {
                 String suffix = parts[parts.length - 1];
                 if (!ALLOW_TABLE_LEVEL_SUFFIXES.contains(suffix)) {
                     throw new IllegalArgumentException("Unknown per-table config key: '" + key + "'");
+                }
+                if (value == null || value.trim().isEmpty()) {
+                    throw new IllegalArgumentException(
+                            "Value for per-table config key '" + key + "' must not be empty");
                 }
                 continue;
             }
@@ -105,7 +110,8 @@ public class DataSourceConfigValidator {
 
         if (key.equals(DataSourceConfigKeys.OFFSET)
                 && !(value.equals(DataSourceConfigKeys.OFFSET_INITIAL)
-                || value.equals(DataSourceConfigKeys.OFFSET_LATEST))) {
+                || value.equals(DataSourceConfigKeys.OFFSET_LATEST)
+                || value.equals(DataSourceConfigKeys.OFFSET_SNAPSHOT))) {
             return false;
         }
         return true;

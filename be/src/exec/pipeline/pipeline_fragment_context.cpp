@@ -64,6 +64,8 @@
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
+#include "exec/operator/iceberg_delete_sink_operator.h"
+#include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
@@ -167,6 +169,35 @@ bool PipelineFragmentContext::is_timeout(timespec now) const {
     return _fragment_watcher.elapsed_time_seconds(now) > _timeout;
 }
 
+// notify_close() transitions the PFC from "waiting for external close notification" to
+// "self-managed close". For recursive CTE fragments, the old PFC is kept alive until
+// the rerun_fragment(wait_for_destroy) RPC calls this to trigger shutdown.
+// Returns true if all tasks have already closed (i.e., the PFC can be safely destroyed).
+bool PipelineFragmentContext::notify_close() {
+    bool all_closed = false;
+    bool need_remove = false;
+    {
+        std::lock_guard<std::mutex> l(_task_mutex);
+        if (_closed_tasks >= _total_tasks) {
+            if (_need_notify_close) {
+                // Fragment was cancelled and waiting for notify to close.
+                // Record that we need to remove from fragment mgr, but do it
+                // after releasing _task_mutex to avoid ABBA deadlock with
+                // dump_pipeline_tasks() (which acquires _pipeline_map lock
+                // first, then _task_mutex via debug_string()).
+                need_remove = true;
+            }
+            all_closed = true;
+        }
+        // make fragment release by self after cancel
+        _need_notify_close = false;
+    }
+    if (need_remove) {
+        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+    }
+    return all_closed;
+}
+
 // Must not add lock in this method. Because it will call query ctx cancel. And
 // QueryCtx cancel will call fragment ctx cancel. And Also Fragment ctx's running
 // Method like exchange sink buffer will call query ctx cancel. If we add lock here
@@ -176,12 +207,8 @@ void PipelineFragmentContext::cancel(const Status reason) {
             .tag("query_id", print_id(_query_id))
             .tag("fragment_id", _fragment_id)
             .tag("reason", reason.to_string());
-    {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks >= _total_tasks) {
-            // All tasks in this PipelineXFragmentContext already closed.
-            return;
-        }
+    if (notify_close()) {
+        return;
     }
     // Timeout is a special error code, we need print current stack to debug timeout issue.
     if (reason.is<ErrorCode::TIMEOUT>()) {
@@ -417,10 +444,6 @@ Status PipelineFragmentContext::_build_pipeline_tasks_for_instance(
 
                 task_runtime_state->set_task_execution_context(shared_from_this());
                 task_runtime_state->set_be_number(local_params.backend_num);
-                if (_need_notify_close) {
-                    // rec cte require child rf to wait infinitely to make sure all rpc done
-                    task_runtime_state->set_force_make_rf_wait_infinite();
-                }
 
                 if (_params.__isset.backend_id) {
                     task_runtime_state->set_backend_id(_params.backend_id);
@@ -676,18 +699,20 @@ Status PipelineFragmentContext::_create_tree_helper(
     int num_children = tnodes[*node_idx].num_children;
     bool current_followed_by_shuffled_operator = followed_by_shuffled_operator;
     bool current_require_bucket_distribution = require_bucket_distribution;
+    // TODO: Create CacheOperator is confused now
     OperatorPtr op = nullptr;
+    OperatorPtr cache_op = nullptr;
     RETURN_IF_ERROR(_create_operator(pool, tnodes[*node_idx], descs, op, cur_pipe,
                                      parent == nullptr ? -1 : parent->node_id(), child_idx,
                                      followed_by_shuffled_operator,
-                                     current_require_bucket_distribution));
+                                     current_require_bucket_distribution, cache_op));
     // Initialization must be done here. For example, group by expressions in agg will be used to
     // decide if a local shuffle should be planed, so it must be initialized here.
     RETURN_IF_ERROR(op->init(tnode, _runtime_state.get()));
     // assert(parent != nullptr || (node_idx == 0 && root_expr != nullptr));
     if (parent != nullptr) {
         // add to parent's child(s)
-        RETURN_IF_ERROR(parent->set_child(op));
+        RETURN_IF_ERROR(parent->set_child(cache_op ? cache_op : op));
     } else {
         *root = op;
     }
@@ -1099,6 +1124,22 @@ Status PipelineFragmentContext::_create_data_sink(ObjectPool* pool, const TDataS
         }
         break;
     }
+    case TDataSinkType::ICEBERG_DELETE_SINK: {
+        if (!thrift_sink.__isset.iceberg_delete_sink) {
+            return Status::InternalError("Missing iceberg delete sink.");
+        }
+        _sink = std::make_shared<IcebergDeleteSinkOperatorX>(pool, next_sink_operator_id(),
+                                                             row_desc, output_exprs);
+        break;
+    }
+    case TDataSinkType::ICEBERG_MERGE_SINK: {
+        if (!thrift_sink.__isset.iceberg_merge_sink) {
+            return Status::InternalError("Missing iceberg merge sink.");
+        }
+        _sink = std::make_shared<IcebergMergeSinkOperatorX>(pool, next_sink_operator_id(), row_desc,
+                                                            output_exprs);
+        break;
+    }
     case TDataSinkType::MAXCOMPUTE_TABLE_SINK: {
         if (!thrift_sink.__isset.max_compute_table_sink) {
             return Status::InternalError("Missing max compute table sink.");
@@ -1235,7 +1276,8 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                                                  PipelinePtr& cur_pipe, int parent_idx,
                                                  int child_idx,
                                                  const bool followed_by_shuffled_operator,
-                                                 const bool require_bucket_distribution) {
+                                                 const bool require_bucket_distribution,
+                                                 OperatorPtr& cache_op) {
     std::vector<DataSinkOperatorPtr> sink_ops;
     Defer defer = Defer([&]() {
         if (op) {
@@ -1332,7 +1374,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             _dag[downstream_pipeline_id].push_back(new_pipe->id());
 
             DataSinkOperatorPtr cache_sink(new CacheSinkOperatorX(
-                    next_sink_operator_id(), cache_source_id, op->operator_id()));
+                    next_sink_operator_id(), op->node_id(), op->operator_id()));
             RETURN_IF_ERROR(new_pipe->set_sink(cache_sink));
             return Status::OK();
         };
@@ -1358,6 +1400,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
 
+                cache_op = op;
                 op = std::make_shared<DistinctStreamingAggOperatorX>(pool, next_operator_id(),
                                                                      tnode, descs);
                 RETURN_IF_ERROR(new_pipe->add_operator(op, _parallel_instances));
@@ -1372,7 +1415,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             if (need_create_cache_op) {
                 PipelinePtr new_pipe;
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
-
+                cache_op = op;
                 op = std::make_shared<StreamingAggOperatorX>(pool, next_operator_id(), tnode,
                                                              descs);
                 RETURN_IF_ERROR(cur_pipe->operators().front()->set_child(op));
@@ -1388,6 +1431,7 @@ Status PipelineFragmentContext::_create_operator(ObjectPool* pool, const TPlanNo
             PipelinePtr new_pipe;
             if (need_create_cache_op) {
                 RETURN_IF_ERROR(create_query_cache_operator(new_pipe));
+                cache_op = op;
             }
 
             if (enable_spill) {
@@ -1772,9 +1816,16 @@ Status PipelineFragmentContext::submit() {
         }
     }
     if (!st.ok()) {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        if (_closed_tasks >= _total_tasks) {
-            _close_fragment_instance();
+        bool need_remove = false;
+        {
+            std::lock_guard<std::mutex> l(_task_mutex);
+            if (_closed_tasks >= _total_tasks) {
+                need_remove = _close_fragment_instance();
+            }
+        }
+        // Call remove_pipeline_context() outside _task_mutex to avoid ABBA deadlock.
+        if (need_remove) {
+            _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
         }
         return Status::InternalError("Submit pipeline failed. err = {}, BE: {}", st.to_string(),
                                      BackendOptions::get_localhost());
@@ -1802,14 +1853,17 @@ void PipelineFragmentContext::print_profile(const std::string& extra_info) {
 }
 // If all pipeline tasks binded to the fragment instance are finished, then we could
 // close the fragment instance.
-void PipelineFragmentContext::_close_fragment_instance() {
+// Returns true if the caller should call remove_pipeline_context() **after** releasing
+// _task_mutex. We must not call remove_pipeline_context() here because it acquires
+// _pipeline_map's shard lock, and this function is called while _task_mutex is held.
+// Acquiring _pipeline_map while holding _task_mutex creates an ABBA deadlock with
+// dump_pipeline_tasks(), which acquires _pipeline_map first and then _task_mutex
+// (via debug_string()).
+bool PipelineFragmentContext::_close_fragment_instance() {
     if (_is_fragment_instance_closed) {
-        return;
+        return false;
     }
-    Defer defer_op {[&]() {
-        _is_fragment_instance_closed = true;
-        _notify_cv.notify_all();
-    }};
+    Defer defer_op {[&]() { _is_fragment_instance_closed = true; }};
     _fragment_level_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     if (!_need_notify_close) {
         auto st = send_report(true);
@@ -1850,10 +1904,9 @@ void PipelineFragmentContext::_close_fragment_instance() {
                                          collect_realtime_load_channel_profile());
     }
 
-    if (!_need_notify_close) {
-        // all submitted tasks done
-        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
-    }
+    // Return whether the caller needs to remove from the pipeline map.
+    // The caller must do this after releasing _task_mutex.
+    return !_need_notify_close;
 }
 
 void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
@@ -1866,10 +1919,17 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id) {
             }
         }
     }
-    std::lock_guard<std::mutex> l(_task_mutex);
-    ++_closed_tasks;
-    if (_closed_tasks >= _total_tasks) {
-        _close_fragment_instance();
+    bool need_remove = false;
+    {
+        std::lock_guard<std::mutex> l(_task_mutex);
+        ++_closed_tasks;
+        if (_closed_tasks >= _total_tasks) {
+            need_remove = _close_fragment_instance();
+        }
+    }
+    // Call remove_pipeline_context() outside _task_mutex to avoid ABBA deadlock.
+    if (need_remove) {
+        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
     }
 }
 
@@ -1908,7 +1968,7 @@ Status PipelineFragmentContext::send_report(bool done) {
     // Load will set _is_report_success to true because load wants to know
     // the process.
     if (!_is_report_success && done && exec_status.ok()) {
-        return Status::NeedSendAgain("");
+        return Status::OK();
     }
 
     // If both _is_report_success and _is_report_on_cancel are false,
@@ -1918,6 +1978,10 @@ Status PipelineFragmentContext::send_report(bool done) {
     // When limit is reached the fragment is also cancelled, but _is_report_on_cancel will
     // be set to false, to avoid sending fault report to FE.
     if (!_is_report_success && !_is_report_on_cancel) {
+        if (done) {
+            // if done is true, which means the query is finished successfully, we can safely close the fragment instance without sending report to FE, and just return OK status here.
+            return Status::OK();
+        }
         return Status::NeedSendAgain("");
     }
 
@@ -1995,9 +2059,8 @@ std::string PipelineFragmentContext::debug_string() {
     fmt::memory_buffer debug_string_buffer;
     fmt::format_to(debug_string_buffer,
                    "PipelineFragmentContext Info: _closed_tasks={}, _total_tasks={}, "
-                   "need_notify_close={}, has_task_execution_ctx_ref_count={}\n",
-                   _closed_tasks, _total_tasks, _need_notify_close,
-                   _has_task_execution_ctx_ref_count);
+                   "need_notify_close={}, fragment_id={}, _rec_cte_stage={}\n",
+                   _closed_tasks, _total_tasks, _need_notify_close, _fragment_id, _rec_cte_stage);
     for (size_t j = 0; j < _tasks.size(); j++) {
         fmt::format_to(debug_string_buffer, "Tasks in instance {}:\n", j);
         for (size_t i = 0; i < _tasks[j].size(); i++) {
@@ -2072,54 +2135,26 @@ PipelineFragmentContext::collect_realtime_load_channel_profile() const {
     return load_channel_profile;
 }
 
-Status PipelineFragmentContext::wait_close(bool close) {
-    if (_exec_env->new_load_stream_mgr()->get(_query_id) != nullptr) {
-        return Status::InternalError("stream load do not support reset");
-    }
-    if (!_need_notify_close) {
-        return Status::InternalError("_need_notify_close is false, do not support reset");
-    }
-
-    {
-        std::unique_lock<std::mutex> lock(_task_mutex);
-        while (!(_is_fragment_instance_closed.load() && !_has_task_execution_ctx_ref_count)) {
-            if (_query_ctx->is_cancelled()) {
-                return Status::Cancelled("Query has been cancelled");
-            }
-            _notify_cv.wait_for(lock, std::chrono::seconds(1));
+// Collect runtime filter IDs registered by all tasks in this PFC.
+// Used during recursive CTE stage transitions to know which filters to deregister
+// before creating the new PFC for the next recursion round.
+// Called from rerun_fragment(wait_for_destroy) while tasks are still closing.
+// Thread safety: safe because _tasks is structurally immutable after prepare() —
+// the vector sizes do not change, and individual RuntimeState filter sets are
+// written only during open() which has completed by the time we reach rerun.
+std::set<int> PipelineFragmentContext::get_deregister_runtime_filter() const {
+    std::set<int> result;
+    for (const auto& _task : _tasks) {
+        for (const auto& task : _task) {
+            auto set = task.first->runtime_state()->get_deregister_runtime_filter();
+            result.merge(set);
         }
     }
-
-    if (close) {
-        auto st = send_report(true);
-        if (!st) {
-            LOG(WARNING) << fmt::format("Failed to send report for query {}, fragment {}: {}",
-                                        print_id(_query_id), _fragment_id, st.to_string());
-        }
-        _exec_env->fragment_mgr()->remove_pipeline_context({_query_id, _fragment_id});
+    if (_runtime_state) {
+        auto set = _runtime_state->get_deregister_runtime_filter();
+        result.merge(set);
     }
-    return Status::OK();
-}
-
-Status PipelineFragmentContext::set_to_rerun() {
-    {
-        std::lock_guard<std::mutex> l(_task_mutex);
-        SCOPED_SWITCH_THREAD_MEM_TRACKER_LIMITER(_query_ctx->query_mem_tracker());
-        for (auto& tasks : _tasks) {
-            for (const auto& task : tasks) {
-                task.first->runtime_state()->reset_to_rerun();
-            }
-        }
-    }
-    _release_resource();
-    _runtime_state->reset_to_rerun();
-    return Status::OK();
-}
-
-Status PipelineFragmentContext::rebuild(ThreadPool* thread_pool) {
-    _submitted = false;
-    _is_fragment_instance_closed = false;
-    return _build_and_prepare_full_pipeline(thread_pool);
+    return result;
 }
 
 void PipelineFragmentContext::_release_resource() {

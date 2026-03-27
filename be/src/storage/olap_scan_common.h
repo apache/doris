@@ -56,51 +56,13 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-template <PrimitiveType primitive_type, class T>
-std::string cast_to_string(T value, int scale) {
-    if constexpr (primitive_type == TYPE_DECIMAL32) {
-        return ((Decimal<int32_t>)value).to_string(scale);
-    } else if constexpr (primitive_type == TYPE_DECIMAL64) {
-        return ((Decimal<int64_t>)value).to_string(scale);
-    } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
-        return ((Decimal<int128_t>)value).to_string(scale);
-    } else if constexpr (primitive_type == TYPE_DECIMAL256) {
-        return ((Decimal<wide::Int256>)value).to_string(scale);
-    } else if constexpr (primitive_type == TYPE_TINYINT) {
-        return std::to_string(static_cast<int>(value));
-    } else if constexpr (primitive_type == TYPE_LARGEINT) {
-        return int128_to_string(value);
-    } else if constexpr (primitive_type == TYPE_DATETIMEV2) {
-        auto datetimev2_val = static_cast<DateV2Value<DateTimeV2ValueType>>(value);
-        char buf[30];
-        datetimev2_val.to_string(buf);
-        std::stringstream ss;
-        ss << buf;
-        return ss.str();
-    } else if constexpr (primitive_type == TYPE_TIMESTAMPTZ) {
-        auto timestamptz_val = static_cast<TimestampTzValue>(value);
-        return timestamptz_val.to_string(cctz::utc_time_zone(), scale);
-    } else if constexpr (primitive_type == TYPE_TIMEV2) {
-        return TimeValue::to_string(value, scale);
-    } else if constexpr (primitive_type == TYPE_IPV4) {
-        return IPv4Value::to_string(value);
-    } else if constexpr (primitive_type == TYPE_IPV6) {
-        return IPv6Value::to_string(value);
-    } else if constexpr (primitive_type == TYPE_BOOLEAN) {
-        return CastToString::from_number(value);
-    } else {
-        return boost::lexical_cast<std::string>(value);
-    }
-}
-
 /**
  * @brief Column's value range
  **/
 template <PrimitiveType primitive_type>
 class ColumnValueRange {
 public:
-    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
-                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
+    using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
     using SetType = std::set<CppType, doris::Less<CppType>>;
     using IteratorType = typename SetType::iterator;
 
@@ -244,9 +206,6 @@ protected:
 
 private:
     ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
-                     bool contain_null);
-
-    ColumnValueRange(std::string col_name, const CppType& min, const CppType& max,
                      bool is_nullable_col, bool contain_null, int precision, int scale);
 
     const static CppType TYPE_MIN; // Column type's min value
@@ -270,7 +229,6 @@ private:
             primitive_type == PrimitiveType::TYPE_DOUBLE ||
             primitive_type == PrimitiveType::TYPE_LARGEINT ||
             primitive_type == PrimitiveType::TYPE_DECIMALV2 ||
-            primitive_type == PrimitiveType::TYPE_HLL ||
             primitive_type == PrimitiveType::TYPE_VARCHAR ||
             primitive_type == PrimitiveType::TYPE_CHAR ||
             primitive_type == PrimitiveType::TYPE_STRING ||
@@ -289,13 +247,53 @@ const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUB
 template <>
 const typename ColumnValueRange<TYPE_DOUBLE>::CppType ColumnValueRange<TYPE_DOUBLE>::TYPE_MAX;
 
+/// OlapScanKeys accumulates multi-column prefix scan keys from per-column ColumnValueRange
+/// constraints, and converts them into OlapScanRange objects for the storage layer.
+///
+/// Overall pipeline (with examples for table t(k1 INT, k2 INT, v INT)):
+///
+///  1. _normalize_conjuncts()  (scan_operator.cpp)
+///     Parses SQL WHERE conjuncts into per-column ColumnValueRange objects.
+///       e.g. "WHERE k1 IN (1,2) AND k2 = 10"
+///         => ColumnValueRange<k1>: fixed_values = {1, 2}
+///         => ColumnValueRange<k2>: fixed_values = {10}
+///
+///  2. _build_key_ranges_and_filters()  (olap_scan_operator.cpp)
+///     Iterates key columns in schema order, calling extend_scan_key() for each column
+///     to expand internal _begin_scan_keys / _end_scan_keys.
+///
+///  3. extend_scan_key()  (this class)
+///     Appends one more column dimension to existing scan keys (Cartesian product for
+///     fixed values, or min/max for range values).
+///       After k1: _begin_scan_keys = [(1), (2)]     _end_scan_keys = [(1), (2)]
+///       After k2: _begin_scan_keys = [(1,10), (2,10)] _end_scan_keys = [(1,10), (2,10)]
+///
+///  4. get_key_range()  (olap_scan_common.cpp)
+///     Converts each (_begin_scan_keys[i], _end_scan_keys[i]) pair into an OlapScanRange.
+///       => OlapScanRange{ begin=(1,10), end=(1,10), has_lower_bound=true, ... }
+///       => OlapScanRange{ begin=(2,10), end=(2,10), has_lower_bound=true, ... }
+///
+///  5. If no key predicates exist, get_key_range returns empty; the caller creates a single
+///     default OlapScanRange with has_lower_bound=false (represents full table scan).
+///
 class OlapScanKeys {
 public:
-    // TODO(gabriel): use ColumnPredicate to extend scan key
+    /// Extend internal scan key pairs with the next key column's ColumnValueRange.
+    ///
+    /// - If the range has fixed values, produces a Cartesian product of existing keys
+    ///   and the fixed values (subject to max_scan_key_num limit).
+    /// - If the range is a scope (min..max), appends min to begin keys and max to end keys,
+    ///   and sets _has_range_value=true (no further columns can be appended).
+    ///
+    /// @param exact_value [out]: true if the range covers the column's values exactly
+    ///                           (can be erased from residual predicates).
+    /// @param eos         [out]: true if the range is provably empty (no rows to scan).
+    /// @param should_break[out]: true if the range cannot be encoded and we should stop.
     template <PrimitiveType primitive_type>
     Status extend_scan_key(ColumnValueRange<primitive_type>& range, int32_t max_scan_key_num,
                            bool* exact_value, bool* eos, bool* should_break);
 
+    /// Convert accumulated scan key pairs into OlapScanRange objects for the storage layer.
     Status get_key_range(std::vector<std::unique_ptr<OlapScanRange>>* key_range);
 
     bool has_range_value() const { return _has_range_value; }
@@ -312,8 +310,8 @@ public:
         ss << "ScanKeys:";
 
         for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-            ss << "ScanKey=" << (_begin_include ? "[" : "(") << _begin_scan_keys[i] << " : "
-               << _end_scan_keys[i] << (_end_include ? "]" : ")");
+            ss << "ScanKey=" << (_begin_include ? "[" : "(") << _begin_scan_keys[i].debug_string()
+               << " : " << _end_scan_keys[i].debug_string() << (_end_include ? "]" : ")");
         }
         return ss.str();
     }
@@ -342,9 +340,9 @@ using ColumnValueRangeType = std::variant<
         ColumnValueRange<TYPE_STRING>, ColumnValueRange<TYPE_DATE>, ColumnValueRange<TYPE_DATEV2>,
         ColumnValueRange<TYPE_DATETIME>, ColumnValueRange<TYPE_DATETIMEV2>,
         ColumnValueRange<TYPE_TIMESTAMPTZ>, ColumnValueRange<TYPE_DECIMALV2>,
-        ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_HLL>,
-        ColumnValueRange<TYPE_DECIMAL32>, ColumnValueRange<TYPE_DECIMAL64>,
-        ColumnValueRange<TYPE_DECIMAL128I>, ColumnValueRange<TYPE_DECIMAL256>>;
+        ColumnValueRange<TYPE_BOOLEAN>, ColumnValueRange<TYPE_DECIMAL32>,
+        ColumnValueRange<TYPE_DECIMAL64>, ColumnValueRange<TYPE_DECIMAL128I>,
+        ColumnValueRange<TYPE_DECIMAL256>>;
 
 template <PrimitiveType primitive_type>
 const typename ColumnValueRange<primitive_type>::CppType
@@ -358,20 +356,6 @@ const typename ColumnValueRange<primitive_type>::CppType
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange()
         : _column_type(INVALID_TYPE), _precision(-1), _scale(-1) {}
-
-template <PrimitiveType primitive_type>
-ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const CppType& min,
-                                                   const CppType& max, bool contain_null)
-        : _column_name(std::move(col_name)),
-          _column_type(primitive_type),
-          _low_value(min),
-          _high_value(max),
-          _low_op(FILTER_LARGER_OR_EQUAL),
-          _high_op(FILTER_LESS_OR_EQUAL),
-          _is_nullable_col(true),
-          _contain_null(contain_null),
-          _precision(-1),
-          _scale(-1) {}
 
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, const CppType& min,
@@ -519,13 +503,19 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
 
         auto no_split = [&]() -> bool {
             begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(get_range_min_value(), scale()),
-                    contain_null());
+            if (contain_null()) {
+                begin_scan_keys.back().add_null();
+            } else {
+                begin_scan_keys.back().add_field(
+                        Field::create_field<primitive_type>(get_range_min_value()));
+            }
             end_scan_keys.emplace_back();
-            end_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(get_range_max_value(), scale()),
-                    empty_range_only_null ? true : false);
+            if (empty_range_only_null) {
+                end_scan_keys.back().add_null();
+            } else {
+                end_scan_keys.back().add_field(
+                        Field::create_field<primitive_type>(get_range_max_value()));
+            }
             return true;
         };
         if (empty_range_only_null || max_scan_key_num == 1) {
@@ -562,8 +552,7 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
         }
         while (true) {
             begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(min_value, scale()));
+            begin_scan_keys.back().add_field(Field::create_field<primitive_type>(min_value));
 
             if (cast(max_value) - min_value < step_size) {
                 min_value = max_value;
@@ -572,8 +561,7 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             }
 
             end_scan_keys.emplace_back();
-            end_scan_keys.back().add_value(
-                    cast_to_string<primitive_type, CppType>(min_value, scale()));
+            end_scan_keys.back().add_field(Field::create_field<primitive_type>(min_value));
 
             if (Compare::equal(min_value, max_value)) {
                 break;
@@ -582,11 +570,8 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             ++real_step_size;
             if (real_step_size > MAX_STEP_SIZE) {
                 throw Exception(Status::InternalError(
-                        "convert_to_avg_range_value meet error. type={}, step_size={}, "
-                        "min_value={}, max_value={}",
-                        int(primitive_type), step_size,
-                        cast_to_string<primitive_type, CppType>(min_value, scale()),
-                        cast_to_string<primitive_type, CppType>(max_value, scale())));
+                        "convert_to_avg_range_value meet error. type={}, step_size={}",
+                        int(primitive_type), step_size));
             }
         }
 
@@ -816,27 +801,96 @@ void ColumnValueRange<primitive_type>::intersection(ColumnValueRange<primitive_t
     }
 }
 
+/// Extend the accumulated scan key pairs (_begin_scan_keys / _end_scan_keys) by appending
+/// one more key column's ColumnValueRange.
+///
+/// Called once per key column in schema order by _build_key_ranges_and_filters().
+/// The function handles two kinds of ColumnValueRange:
+///   (A) Fixed values  — from IN / = predicates  (begin == end for each value, point lookup)
+///   (B) Scope range   — from > / >= / < / <= predicates  (begin = min, end = max)
+///
+/// ======== Example 1: Two fixed-value columns (IN + =) ========
+/// Table t(k1 INT, k2 INT, v INT), key columns = (k1, k2).
+/// WHERE k1 IN (1, 2) AND k2 = 10
+///
+///   Call 1: extend_scan_key(k1's range {fixed_values={1,2}})
+///     _begin_scan_keys was empty, so create one pair per fixed value:
+///       _begin = [(1), (2)]    _end = [(1), (2)]    include=[true, true]
+///
+///   Call 2: extend_scan_key(k2's range {fixed_values={10}})
+///     _begin is non-empty, so do Cartesian product (existing keys × new fixed values):
+///       _begin = [(1,10), (2,10)]    _end = [(1,10), (2,10)]    include=[true, true]
+///
+/// ======== Example 2: Fixed + range (IN + between) ========
+/// WHERE k1 IN (1, 2) AND k2 >= 5 AND k2 < 10
+///
+///   Call 1: extend_scan_key(k1's range {fixed_values={1,2}})
+///       _begin = [(1), (2)]    _end = [(1), (2)]
+///
+///   Call 2: extend_scan_key(k2's range {scope [5, 10)})
+///     k2 is a scope range, so append min=5 to all begin keys, max=10 to all end keys:
+///       _begin = [(1,5), (2,5)]    _end = [(1,10), (2,10)]
+///       _begin_include = true (>=)    _end_include = false (<)
+///     Set _has_range_value = true → no further columns can be appended.
+///
+/// ======== Example 3: Single range column ========
+/// WHERE k1 >= 100 AND k1 <= 200
+///
+///   Call 1: extend_scan_key(k1's range {scope [100, 200]})
+///     _begin was empty, so create one pair:
+///       _begin = [(100)]    _end = [(200)]    include=[true, true]
+///     Set _has_range_value = true.
+///
+/// ======== Example 4: Too many fixed values (exceeds max_scan_key_num) ========
+/// WHERE k1 IN (1, 2, ..., 10000) — exceeds limit
+///
+///   If is_range_value_convertible(): convert fixed set {1..10000} to scope [1, 10000],
+///   then extend as a range (same as Example 3), and set *exact_value = false
+///   (the predicate must be kept for residual filtering).
+///
+///   If NOT convertible (e.g. BOOLEAN/NULL type): set *should_break = true, stop extending.
+///
+/// ======== Example 5: Range splitting (convert_to_avg_range_value) ========
+/// WHERE k1 >= 1 AND k1 <= 100, with max_scan_key_num = 4
+/// If k1 is an integer type that supports splitting:
+///   convert_to_close_range: adjust to closed range [1, 100]
+///   convert_to_avg_range_value: split into ~4 sub-ranges:
+///       _begin = [(1), (26), (51), (76)]    _end = [(25), (50), (75), (100)]
+///   Set _has_range_value = true.
+///
+/// @param range           [in/out] The next key column's ColumnValueRange (may be mutated
+///                                  if fixed values must be converted to a range).
+/// @param max_scan_key_num [in]    Upper limit on total number of scan key pairs.
+/// @param exact_value      [out]   Set to true if the column's predicate is fully captured
+///                                  by scan keys (can be erased from residual filters).
+/// @param eos              [out]   Set to true if the range is provably empty.
+/// @param should_break     [out]   Set to true if extending must stop (un-convertible overflow).
 template <PrimitiveType primitive_type>
 Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                                      int32_t max_scan_key_num, bool* exact_value, bool* eos,
                                      bool* should_break) {
-    using CppType = std::conditional_t<primitive_type == TYPE_HLL, StringRef,
-                                       typename PrimitiveTypeTraits<primitive_type>::CppType>;
     using ConstIterator = typename ColumnValueRange<primitive_type>::SetType::const_iterator;
 
-    // 1. clear ScanKey if some column range is empty
+    // 1. If the column's value range is empty (contradictory predicates, e.g. k1 > 10 AND k1 < 5),
+    //    clear all accumulated keys — no rows can match.
     if (range.is_empty_value_range()) {
         _begin_scan_keys.clear();
         _end_scan_keys.clear();
         return Status::OK();
     }
 
-    // 2. stop extend ScanKey when it's already extend a range value
+    // 2. Once a previous column was extended as a scope range, we cannot append more columns,
+    //    because the begin/end keys would have different semantics per pair.
+    //    e.g. after k1 in [5, 10), appending k2 values is meaningless for short-key index.
     if (_has_range_value) {
         return Status::OK();
     }
 
-    //if a column doesn't have any predicate, we will try converting the range to fixed values
+    // 3. Overflow check: if fixed_value_count × existing_key_count > max_scan_key_num,
+    //    Cartesian product would be too large.
+    //    - If convertible: degrade fixed values {v1,v2,...} to scope [min(v), max(v)],
+    //      set *exact_value = false (keep predicate as residual filter).
+    //    - If not convertible (BOOLEAN etc.): stop extending (*should_break = true).
     auto scan_keys_size = _begin_scan_keys.empty() ? 1 : _begin_scan_keys.size();
     if (range.is_fixed_value_range()) {
         if (range.get_fixed_value_size() > max_scan_key_num / scan_keys_size) {
@@ -849,6 +903,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
             }
         }
     } else {
+        // 4. Range-splitting optimization: if this is the FIRST key column and it's a scope
+        //    range on a splittable integer type, try to split [low, high] into multiple
+        //    sub-ranges for parallel / pipelined scanning.
+        //    e.g. k1 in [1, 100] with max_scan_key_num=4 → [(1,25), (26,50), (51,75), (76,100)]
         if (_begin_scan_keys.empty() && range.is_fixed_value_convertible() && _is_convertible &&
             !range.is_reject_split_type()) {
             *eos |= range.convert_to_close_range(_begin_scan_keys, _end_scan_keys, _begin_include,
@@ -863,20 +921,23 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
         }
     }
 
-    // 3.1 extend ScanKey with FixedValueRange
+    // ====================================================================
+    // 5. Actually extend scan keys with this column's values.
+    // ====================================================================
+
     if (range.is_fixed_value_range()) {
-        // 3.1.1 construct num of fixed value ScanKey (begin_key == end_key)
+        // ---- 5a. Fixed values (IN / =): point lookup, begin == end per value. ----
         if (_begin_scan_keys.empty()) {
+            // First column: create one key pair per fixed value.
+            //   e.g. k1 IN (1, 2) → _begin=[(1),(2)]  _end=[(1),(2)]
             auto fixed_value_set = range.get_fixed_value_set();
             ConstIterator iter = fixed_value_set.begin();
 
             for (; iter != fixed_value_set.end(); ++iter) {
                 _begin_scan_keys.emplace_back();
-                _begin_scan_keys.back().add_value(
-                        cast_to_string<primitive_type, CppType>(*iter, range.scale()));
+                _begin_scan_keys.back().add_field(Field::create_field<primitive_type>(*iter));
                 _end_scan_keys.emplace_back();
-                _end_scan_keys.back().add_value(
-                        cast_to_string<primitive_type, CppType>(*iter, range.scale()));
+                _end_scan_keys.back().add_field(Field::create_field<primitive_type>(*iter));
             }
 
             if (range.contain_null()) {
@@ -885,8 +946,10 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                 _end_scan_keys.emplace_back();
                 _end_scan_keys.back().add_null();
             }
-        } // 3.1.2 produces the Cartesian product of ScanKey and fixed_value
-        else {
+        } else {
+            // Subsequent column: Cartesian product of existing keys × new fixed values.
+            //   e.g. existing = [(1),(2)], k2 IN (10, 20)
+            //     → [(1,10),(1,20),(2,10),(2,20)]
             auto fixed_value_set = range.get_fixed_value_set();
             size_t original_key_range_size = _begin_scan_keys.size();
 
@@ -897,20 +960,16 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                 ConstIterator iter = fixed_value_set.begin();
 
                 for (; iter != fixed_value_set.end(); ++iter) {
-                    // alter the first ScanKey in original place
+                    // Reuse i-th slot for the first value, append new slots for the rest.
                     if (iter == fixed_value_set.begin()) {
-                        _begin_scan_keys[i].add_value(
-                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
-                        _end_scan_keys[i].add_value(
-                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
-                    } // append follow ScanKey
-                    else {
+                        _begin_scan_keys[i].add_field(Field::create_field<primitive_type>(*iter));
+                        _end_scan_keys[i].add_field(Field::create_field<primitive_type>(*iter));
+                    } else {
                         _begin_scan_keys.push_back(start_base_key_range);
-                        _begin_scan_keys.back().add_value(
-                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
+                        _begin_scan_keys.back().add_field(
+                                Field::create_field<primitive_type>(*iter));
                         _end_scan_keys.push_back(end_base_key_range);
-                        _end_scan_keys.back().add_value(
-                                cast_to_string<primitive_type, CppType>(*iter, range.scale()));
+                        _end_scan_keys.back().add_field(Field::create_field<primitive_type>(*iter));
                     }
                 }
 
@@ -923,13 +982,20 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
             }
         }
 
+        // Fixed values are always closed intervals (begin == end, point lookup).
         _begin_include = true;
         _end_include = true;
-    } // Extend ScanKey with range value
-    else {
+    } else {
+        // ---- 5b. Scope range (> / >= / < / <=): append min to begin, max to end. ----
+        // After this, no more columns can be appended (_has_range_value = true),
+        // because the range semantics only apply to the last appended column.
+        //   e.g. existing = [(1),(2)], k2 >= 5 AND k2 < 10
+        //     → _begin = [(1,5),(2,5)]  _end = [(1,10),(2,10)]
+        //     → begin_include=true, end_include=false
         _has_range_value = true;
 
-        /// if max < min, this range should only contains a null value.
+        // Special case: max < min means the range itself is empty,
+        // but contain_null() is true, so only null values match this column.
         if (Compare::less(range.get_range_max_value(), range.get_range_min_value())) {
             CHECK(range.contain_null());
             if (_begin_scan_keys.empty()) {
@@ -944,23 +1010,32 @@ Status OlapScanKeys::extend_scan_key(ColumnValueRange<primitive_type>& range,
                 }
             }
         } else if (_begin_scan_keys.empty()) {
+            // First column as a range:
+            //   e.g. k1 >= 100 AND k1 <= 200  → _begin=[(100)]  _end=[(200)]
             _begin_scan_keys.emplace_back();
-            _begin_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
-                                                      range.get_range_min_value(), range.scale()),
-                                              range.contain_null());
+            if (range.contain_null()) {
+                _begin_scan_keys.back().add_null();
+            } else {
+                _begin_scan_keys.back().add_field(
+                        Field::create_field<primitive_type>(range.get_range_min_value()));
+            }
             _end_scan_keys.emplace_back();
-            _end_scan_keys.back().add_value(cast_to_string<primitive_type, CppType>(
-                    range.get_range_max_value(), range.scale()));
+            _end_scan_keys.back().add_field(
+                    Field::create_field<primitive_type>(range.get_range_max_value()));
         } else {
+            // Subsequent column as a range: append min/max to every existing key pair.
             for (int i = 0; i < _begin_scan_keys.size(); ++i) {
-                _begin_scan_keys[i].add_value(cast_to_string<primitive_type, CppType>(
-                                                      range.get_range_min_value(), range.scale()),
-                                              range.contain_null());
+                if (range.contain_null()) {
+                    _begin_scan_keys[i].add_null();
+                } else {
+                    _begin_scan_keys[i].add_field(
+                            Field::create_field<primitive_type>(range.get_range_min_value()));
+                }
             }
 
             for (int i = 0; i < _end_scan_keys.size(); ++i) {
-                _end_scan_keys[i].add_value(cast_to_string<primitive_type, CppType>(
-                        range.get_range_max_value(), range.scale()));
+                _end_scan_keys[i].add_field(
+                        Field::create_field<primitive_type>(range.get_range_max_value()));
             }
         }
         _begin_include = range.is_begin_include();

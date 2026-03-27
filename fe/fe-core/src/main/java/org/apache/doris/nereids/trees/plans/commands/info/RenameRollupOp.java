@@ -38,7 +38,6 @@ public class RenameRollupOp extends AlterTableOp {
         super(AlterOpType.RENAME);
         this.rollupName = rollupName;
         this.newRollupName = newRollupName;
-        this.needTableStable = false;
     }
 
     public String getRollupName() {

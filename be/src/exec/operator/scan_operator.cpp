@@ -247,7 +247,6 @@ static void init_slot_value_range(
     M(TIMESTAMPTZ)               \
     M(VARCHAR)                   \
     M(STRING)                    \
-    M(HLL)                       \
     M(DECIMAL32)                 \
     M(DECIMAL64)                 \
     M(DECIMAL128I)               \
@@ -264,6 +263,21 @@ static void init_slot_value_range(
     }
 }
 
+/// Step 1 of the scan-key generation pipeline.
+///
+/// Parse SQL WHERE conjuncts into per-column ColumnValueRange objects stored in
+/// _slot_id_to_value_range.  Each ColumnValueRange captures all constraints on
+/// one column (fixed values from IN / =, or min/max bounds from < / <= / > / >=).
+///
+/// Example – "WHERE k1 IN (1, 2) AND k2 >= 5 AND k2 < 10 AND v > 100":
+///   => ColumnValueRange<k1>: fixed_values = {1, 2}
+///   => ColumnValueRange<k2>: scope [5, 10)  (low=5 >=, high=10 <)
+///   => ColumnValueRange<v>:  scope (100, MAX]  (low=100 >, high=MAX <=)
+///   The k1/k2 ranges will later become scan keys (since they're key columns);
+///   v's range stays as a residual predicate / olap filter.
+///
+/// After this step, _build_key_ranges_and_filters() picks up the key-column
+/// ColumnValueRanges and feeds them to OlapScanKeys::extend_scan_key().
 template <typename Derived>
 Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     auto& p = _parent->cast<typename Derived::Parent>();
@@ -918,10 +932,6 @@ Status ScanLocalStateBase::_change_value_range(bool is_equal_op,
                          (PrimitiveType == TYPE_DATEV2) || (PrimitiveType == TYPE_TIMESTAMPTZ) ||
                          (PrimitiveType == TYPE_DATETIME) || is_string_type(PrimitiveType)) {
         func(temp_range, to_olap_filter_type(fn_name), value.template get<PrimitiveType>());
-    } else if constexpr (PrimitiveType == TYPE_HLL) {
-        auto tmp = value.template get<PrimitiveType>();
-        func(temp_range, to_olap_filter_type(fn_name),
-             StringRef(reinterpret_cast<const char*>(&tmp), sizeof(tmp)));
     } else {
         static_assert(always_false_v<PrimitiveType>);
     }
@@ -1000,7 +1010,7 @@ Status ScanLocalState<Derived>::_start_scanners(
     auto& p = _parent->cast<typename Derived::Parent>();
     _scanner_ctx.store(ScannerContext::create_shared(state(), this, p._output_tuple_desc,
                                                      p.output_row_descriptor(), scanners, p.limit(),
-                                                     _scan_dependency
+                                                     _scan_dependency, &p._shared_scan_limit
 #ifdef BE_TEST
                                                      ,
                                                      max_scanners_concurrency(state())
@@ -1158,6 +1168,7 @@ ScanOperatorX<LocalStateType>::ScanOperatorX(ObjectPool* pool, const TPlanNode& 
     if (tnode.__isset.push_down_count) {
         _push_down_count = tnode.push_down_count;
     }
+    _shared_scan_limit.store(this->_limit, std::memory_order_relaxed);
 }
 
 template <typename LocalStateType>

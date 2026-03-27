@@ -26,6 +26,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertCommandContext;
+import org.apache.doris.thrift.TFileContent;
 import org.apache.doris.thrift.TIcebergCommitData;
 import org.apache.doris.thrift.TUpdateMode;
 import org.apache.doris.transaction.Transaction;
@@ -34,12 +35,15 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.iceberg.AppendFiles;
 import org.apache.iceberg.DataFile;
+import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.OverwriteFiles;
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.ReplacePartitions;
 import org.apache.iceberg.RewriteFiles;
+import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.SnapshotRef;
 import org.apache.iceberg.Table;
@@ -55,6 +59,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -62,15 +67,19 @@ import java.util.Optional;
 public class IcebergTransaction implements Transaction {
 
     private static final Logger LOG = LogManager.getLogger(IcebergTransaction.class);
+    private static final String DELETE_ISOLATION_LEVEL = "delete_isolation_level";
+    private static final String DELETE_ISOLATION_LEVEL_DEFAULT = "serializable";
 
     private final IcebergMetadataOps ops;
     private Table table;
 
     private org.apache.iceberg.Transaction transaction;
     private final List<TIcebergCommitData> commitDataList = Lists.newArrayList();
+    private Optional<Expression> conflictDetectionFilter = Optional.empty();
 
     private IcebergInsertCommandContext insertCtx;
     private String branchName;
+    private Long baseSnapshotId;
 
     // Rewrite operation support
     long startingSnapshotId = -1L; // Track the starting snapshot ID for rewrite operations
@@ -88,6 +97,18 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
+    public void setConflictDetectionFilter(Expression filter) {
+        conflictDetectionFilter = Optional.ofNullable(filter);
+    }
+
+    public void clearConflictDetectionFilter() {
+        conflictDetectionFilter = Optional.empty();
+    }
+
+    public List<TIcebergCommitData> getCommitDataList() {
+        return commitDataList;
+    }
+
     public void updateRewriteFiles(List<DataFile> filesToDelete) {
         synchronized (this) {
             this.filesToDelete.addAll(filesToDelete);
@@ -100,6 +121,7 @@ public class IcebergTransaction implements Transaction {
             ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
+                this.baseSnapshotId = null;
                 // check branch
                 if (insertCtx != null && insertCtx.getBranchName().isPresent()) {
                     this.branchName = insertCtx.getBranchName().get();
@@ -133,9 +155,11 @@ public class IcebergTransaction implements Transaction {
             ops.getExecutionAuthenticator().execute(() -> {
                 // create and start the iceberg transaction
                 this.table = IcebergUtils.getIcebergTable(dorisTable);
+                this.baseSnapshotId = null;
 
                 // Capture the starting snapshot ID for validation during rewrite commit
-                this.startingSnapshotId = table.currentSnapshot().snapshotId();
+                Long snapshotId = getSnapshotIdIfPresent(table);
+                this.startingSnapshotId = snapshotId != null ? snapshotId : -1L;
 
                 // For rewrite operations, we work directly on the main table
                 // No branch information needed
@@ -226,6 +250,219 @@ public class IcebergTransaction implements Transaction {
         }
     }
 
+    /**
+     * Begin delete operation for Iceberg table
+     */
+    public void beginDelete(ExternalTable dorisTable) throws UserException {
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                // create and start the iceberg transaction
+                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                this.baseSnapshotId = getSnapshotIdIfPresent(table);
+                if (table instanceof org.apache.iceberg.HasTableOperations) {
+                    int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
+                            .current().formatVersion();
+                    if (formatVersion < 2) {
+                        throw new IllegalArgumentException("Iceberg table " + dorisTable.getName()
+                                + " must have format version 2 or higher for position deletes");
+                    }
+                }
+                this.transaction = table.newTransaction();
+                LOG.info("Started delete transaction for table: {}", dorisTable.getName());
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin delete for iceberg table " + dorisTable.getName()
+                    + " because: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Begin merge operation for Iceberg UPDATE (single scan RowDelta).
+     */
+    public void beginMerge(ExternalTable dorisTable) throws UserException {
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                this.branchName = null;
+                this.table = IcebergUtils.getIcebergTable(dorisTable);
+                this.baseSnapshotId = getSnapshotIdIfPresent(table);
+                if (table instanceof org.apache.iceberg.HasTableOperations) {
+                    int formatVersion = ((org.apache.iceberg.HasTableOperations) table).operations()
+                            .current().formatVersion();
+                    if (formatVersion < 2) {
+                        throw new IllegalArgumentException("Iceberg table " + dorisTable.getName()
+                                + " must have format version 2 or higher for position deletes");
+                    }
+                }
+                this.transaction = table.newTransaction();
+                LOG.info("Started merge transaction for table: {}", dorisTable.getName());
+                return null;
+            });
+        } catch (Exception e) {
+            throw new UserException("Failed to begin merge for iceberg table " + dorisTable.getName()
+                    + " because: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Finish delete operation by committing DeleteFiles using RowDelta API
+     */
+    public void finishDelete(NameMapping nameMapping) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("iceberg table {} delete operation finished!", nameMapping.getFullLocalName());
+        }
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                updateManifestAfterDelete();
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to finish delete for iceberg table {}.", nameMapping.getFullLocalName(), e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Finish merge operation by committing data and delete files using RowDelta.
+     */
+    public void finishMerge(NameMapping nameMapping) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("iceberg table {} merge operation finished!", nameMapping.getFullLocalName());
+        }
+        try {
+            ops.getExecutionAuthenticator().execute(() -> {
+                updateManifestAfterMerge();
+            });
+        } catch (Exception e) {
+            LOG.warn("Failed to finish merge for iceberg table {}.", nameMapping.getFullLocalName(), e);
+            throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * Update manifest after delete operation using RowDelta API
+     */
+    private void updateManifestAfterDelete() {
+        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
+
+        if (commitDataList.isEmpty()) {
+            LOG.info("No delete files to commit");
+            return;
+        }
+        List<DeleteFile> deleteFiles = convertCommitDataToDeleteFiles(fileFormat, commitDataList);
+
+        if (deleteFiles.isEmpty()) {
+            LOG.info("No delete files generated from commit data");
+            return;
+        }
+
+        // Create RowDelta operation
+        RowDelta rowDelta = transaction.newRowDelta();
+        applyRowDeltaValidations(rowDelta, transaction.table(), commitDataList,
+                collectReferencedDataFiles(commitDataList));
+        rowDelta.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+
+        // Add all delete files
+        for (DeleteFile deleteFile : deleteFiles) {
+            rowDelta.addDeletes(deleteFile);
+        }
+
+        // Commit the delete operation
+        rowDelta.commit();
+
+        LOG.info("Committed {} delete files", deleteFiles.size());
+    }
+
+    private List<DeleteFile> convertCommitDataToDeleteFiles(FileFormat fileFormat,
+            List<TIcebergCommitData> commitDataList) {
+        if (commitDataList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        PartitionSpec currentSpec = transaction.table().spec();
+        Map<Integer, PartitionSpec> specsById = transaction.table().specs();
+        Map<Integer, List<TIcebergCommitData>> commitDataBySpecId = new HashMap<>();
+        List<TIcebergCommitData> missingSpecId = new ArrayList<>();
+
+        for (TIcebergCommitData commitData : commitDataList) {
+            if (commitData.isSetPartitionSpecId()) {
+                commitDataBySpecId.computeIfAbsent(commitData.getPartitionSpecId(), k -> new ArrayList<>())
+                        .add(commitData);
+            } else {
+                missingSpecId.add(commitData);
+            }
+        }
+
+        if (!missingSpecId.isEmpty()) {
+            Preconditions.checkState(!currentSpec.isPartitioned(),
+                    "Missing partition spec id for delete files in partitioned table %s",
+                    transaction.table().name());
+            commitDataBySpecId.computeIfAbsent(currentSpec.specId(), k -> new ArrayList<>())
+                    .addAll(missingSpecId);
+        }
+
+        List<DeleteFile> deleteFiles = new ArrayList<>();
+        for (Map.Entry<Integer, List<TIcebergCommitData>> entry : commitDataBySpecId.entrySet()) {
+            int specId = entry.getKey();
+            PartitionSpec spec = specsById.get(specId);
+            Preconditions.checkState(spec != null,
+                    "Unknown partition spec id %s for delete files in table %s",
+                    specId, transaction.table().name());
+            deleteFiles.addAll(IcebergWriterHelper.convertToDeleteFiles(fileFormat, spec, entry.getValue()));
+        }
+
+        return deleteFiles;
+    }
+
+    private void updateManifestAfterMerge() {
+        if (commitDataList.isEmpty()) {
+            LOG.info("No commit data for merge operation");
+            return;
+        }
+
+        FileFormat fileFormat = IcebergUtils.getFileFormat(transaction.table());
+
+        List<TIcebergCommitData> dataCommitData = new ArrayList<>();
+        List<TIcebergCommitData> deleteCommitData = new ArrayList<>();
+
+        for (TIcebergCommitData commitData : commitDataList) {
+            if (commitData.isSetFileContent()
+                    && commitData.getFileContent() == TFileContent.POSITION_DELETES) {
+                deleteCommitData.add(commitData);
+            } else {
+                dataCommitData.add(commitData);
+            }
+        }
+
+        List<DataFile> dataFiles = new ArrayList<>();
+        if (!dataCommitData.isEmpty()) {
+            WriteResult writeResult = IcebergWriterHelper.convertToWriterResult(
+                    transaction.table(), dataCommitData);
+            dataFiles.addAll(Arrays.asList(writeResult.dataFiles()));
+        }
+
+        List<DeleteFile> deleteFiles = convertCommitDataToDeleteFiles(fileFormat, deleteCommitData);
+
+        if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
+            LOG.info("No data or delete files generated from commit data");
+            return;
+        }
+
+        RowDelta rowDelta = transaction.newRowDelta();
+        applyRowDeltaValidations(rowDelta, transaction.table(), commitDataList,
+                collectReferencedDataFiles(deleteCommitData));
+        rowDelta.scanManifestsWith(ops.getThreadPoolWithPreAuth());
+
+        for (DataFile dataFile : dataFiles) {
+            rowDelta.addRows(dataFile);
+        }
+        for (DeleteFile deleteFile : deleteFiles) {
+            rowDelta.addDeletes(deleteFile);
+        }
+
+        rowDelta.commit();
+        LOG.info("Committed merge with {} data files and {} delete files",
+                dataFiles.size(), deleteFiles.size());
+    }
+
     public void finishInsert(NameMapping nameMapping) {
         if (LOG.isDebugEnabled()) {
             LOG.info("iceberg table {} insert table finished!", nameMapping.getFullLocalName());
@@ -294,7 +531,20 @@ public class IcebergTransaction implements Transaction {
     }
 
     public long getUpdateCnt() {
-        return commitDataList.stream().mapToLong(TIcebergCommitData::getRowCount).sum();
+        long dataRows = 0;
+        long deleteRows = 0;
+        for (TIcebergCommitData commitData : commitDataList) {
+            if (commitData.isSetFileContent()
+                    && commitData.getFileContent() == TFileContent.POSITION_DELETES) {
+                deleteRows += commitData.getRowCount();
+            } else {
+                dataRows += commitData.getRowCount();
+            }
+        }
+        // For UPDATE/MERGE, dataRows includes both inserted and update-inserted rows,
+        // which equals the number of rows affected. Position deletes are internal
+        // implementation details and should not be double-counted.
+        return dataRows > 0 ? dataRows : deleteRows;
     }
 
     /**
@@ -345,6 +595,171 @@ public class IcebergTransaction implements Transaction {
             Arrays.stream(result.dataFiles()).forEach(appendFiles::appendFile);
         }
         appendFiles.commit();
+    }
+
+    private Long getSnapshotIdIfPresent(Table icebergTable) {
+        if (icebergTable == null || icebergTable.currentSnapshot() == null) {
+            return null;
+        }
+        return icebergTable.currentSnapshot().snapshotId();
+    }
+
+    private void applyBaseSnapshotValidation(RowDelta rowDelta) {
+        if (baseSnapshotId != null) {
+            rowDelta.validateFromSnapshot(baseSnapshotId);
+        }
+    }
+
+    private void applyRowDeltaValidations(RowDelta rowDelta, Table icebergTable,
+            List<TIcebergCommitData> commitDataList, List<String> referencedDataFiles) {
+        applyBaseSnapshotValidation(rowDelta);
+        applyConflictDetectionFilter(rowDelta, icebergTable, commitDataList);
+        if (isSerializableIsolationLevel(icebergTable)) {
+            rowDelta.validateNoConflictingDataFiles();
+        }
+        rowDelta.validateDeletedFiles();
+        rowDelta.validateNoConflictingDeleteFiles();
+        if (!referencedDataFiles.isEmpty()) {
+            rowDelta.validateDataFilesExist(referencedDataFiles);
+        }
+    }
+
+    private void applyConflictDetectionFilter(RowDelta rowDelta, Table icebergTable,
+            List<TIcebergCommitData> commitDataList) {
+        Optional<Expression> partitionFilter = buildConflictDetectionFilter(icebergTable, commitDataList);
+        Optional<Expression> combined =
+                combineConflictDetectionFilters(conflictDetectionFilter, partitionFilter);
+        combined.ifPresent(rowDelta::conflictDetectionFilter);
+    }
+
+    private Optional<Expression> combineConflictDetectionFilters(Optional<Expression> queryFilter,
+            Optional<Expression> partitionFilter) {
+        if (queryFilter.isPresent() && partitionFilter.isPresent()) {
+            return Optional.of(Expressions.and(queryFilter.get(), partitionFilter.get()));
+        }
+        return queryFilter.isPresent() ? queryFilter : partitionFilter;
+    }
+
+    private Optional<Expression> buildConflictDetectionFilter(Table icebergTable,
+            List<TIcebergCommitData> commitDataList) {
+        if (icebergTable == null || commitDataList == null || commitDataList.isEmpty()) {
+            return Optional.empty();
+        }
+
+        PartitionSpec spec = icebergTable.spec();
+        if (!spec.isPartitioned()) {
+            return Optional.empty();
+        }
+        if (!areAllIdentityPartitions(spec)) {
+            return Optional.empty();
+        }
+
+        Schema schema = icebergTable.schema();
+        int currentSpecId = spec.specId();
+
+        Expression combined = null;
+        for (TIcebergCommitData commitData : commitDataList) {
+            if (commitData.isSetPartitionSpecId()
+                    && commitData.getPartitionSpecId() != currentSpecId) {
+                return Optional.empty();
+            }
+            if (!commitData.isSetPartitionSpecId() && spec.isPartitioned()) {
+                return Optional.empty();
+            }
+
+            List<String> partitionValues = extractPartitionValues(commitData);
+            if (partitionValues.isEmpty() || partitionValues.size() != spec.fields().size()) {
+                return Optional.empty();
+            }
+
+            Expression partitionExpr = buildIdentityPartitionExpression(spec, schema, partitionValues);
+            if (partitionExpr == null) {
+                return Optional.empty();
+            }
+            combined = combined == null ? partitionExpr : Expressions.or(combined, partitionExpr);
+        }
+        return combined == null ? Optional.empty() : Optional.of(combined);
+    }
+
+    private boolean areAllIdentityPartitions(PartitionSpec spec) {
+        for (PartitionField field : spec.fields()) {
+            if (!field.transform().isIdentity()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Expression buildIdentityPartitionExpression(PartitionSpec spec, Schema schema,
+            List<String> partitionValues) {
+        Expression expression = null;
+        List<PartitionField> fields = spec.fields();
+        for (int i = 0; i < fields.size(); i++) {
+            PartitionField field = fields.get(i);
+            Types.NestedField sourceField = schema.findField(field.sourceId());
+            if (sourceField == null) {
+                return null;
+            }
+            String valueStr = partitionValues.get(i);
+            if ("null".equals(valueStr)) {
+                valueStr = null;
+            }
+            Object value = IcebergUtils.parsePartitionValueFromString(valueStr, sourceField.type());
+            Expression predicate = value == null
+                    ? Expressions.isNull(sourceField.name())
+                    : Expressions.equal(sourceField.name(), value);
+            expression = expression == null ? predicate : Expressions.and(expression, predicate);
+        }
+        return expression;
+    }
+
+    private List<String> extractPartitionValues(TIcebergCommitData commitData) {
+        if (commitData == null) {
+            return Collections.emptyList();
+        }
+        if (commitData.getPartitionValues() != null && !commitData.getPartitionValues().isEmpty()) {
+            return commitData.getPartitionValues();
+        }
+        if (commitData.getPartitionDataJson() != null && !commitData.getPartitionDataJson().isEmpty()) {
+            return IcebergUtils.parsePartitionValuesFromJson(commitData.getPartitionDataJson());
+        }
+        return Collections.emptyList();
+    }
+
+    private boolean isSerializableIsolationLevel(Table icebergTable) {
+        if (icebergTable == null) {
+            return true;
+        }
+        String level = icebergTable.properties()
+                .getOrDefault(DELETE_ISOLATION_LEVEL, DELETE_ISOLATION_LEVEL_DEFAULT);
+        return "serializable".equalsIgnoreCase(level);
+    }
+
+    private List<String> collectReferencedDataFiles(List<TIcebergCommitData> commitDataList) {
+        if (commitDataList == null || commitDataList.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        List<String> referencedDataFiles = new ArrayList<>();
+        for (TIcebergCommitData commitData : commitDataList) {
+            if (commitData.isSetFileContent()
+                    && commitData.getFileContent() != TFileContent.POSITION_DELETES) {
+                continue;
+            }
+            if (commitData.isSetReferencedDataFiles()) {
+                for (String dataFile : commitData.getReferencedDataFiles()) {
+                    if (dataFile != null && !dataFile.isEmpty()) {
+                        referencedDataFiles.add(dataFile);
+                    }
+                }
+            }
+            if (commitData.isSetReferencedDataFilePath()
+                    && commitData.getReferencedDataFilePath() != null
+                    && !commitData.getReferencedDataFilePath().isEmpty()) {
+                referencedDataFiles.add(commitData.getReferencedDataFilePath());
+            }
+        }
+        return referencedDataFiles;
     }
 
     private void commitReplaceTxn(List<WriteResult> pendingResults) {

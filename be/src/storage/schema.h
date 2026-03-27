@@ -121,23 +121,6 @@ public:
         _init(columns, col_ids, num_key_columns);
     }
 
-    Schema(const std::vector<const doris::StorageField*>& cols, size_t num_key_columns) {
-        std::vector<ColumnId> col_ids(cols.size());
-        _unique_ids.resize(cols.size());
-        for (uint32_t cid = 0; cid < cols.size(); ++cid) {
-            col_ids[cid] = cid;
-            if (cols.at(cid)->name() == DELETE_SIGN) {
-                _delete_sign_idx = cid;
-            }
-            if (cols.at(cid)->name() == VERSION_COL) {
-                _version_col_idx = cid;
-            }
-            _unique_ids[cid] = cols[cid]->unique_id();
-        }
-
-        _init(cols, col_ids, num_key_columns);
-    }
-
     Schema(const Schema&);
     Schema& operator=(const Schema& other);
 
@@ -154,26 +137,11 @@ public:
 
     const doris::StorageField* column(ColumnId cid) const { return _cols[cid]; }
 
-    doris::StorageField* mutable_column(ColumnId cid) const { return _cols[cid]; }
-
     size_t num_key_columns() const { return _num_key_columns; }
-    size_t schema_size() const { return _schema_size; }
-
-    size_t column_offset(ColumnId cid) const { return _col_offsets[cid]; }
-
-    size_t column_size(ColumnId cid) const { return _cols[cid]->size(); }
-
-    bool is_null(const char* row, int index) const {
-        return *reinterpret_cast<const bool*>(row + _col_offsets[index]);
-    }
-    void set_is_null(void* row, uint32_t cid, bool is_null) const {
-        *reinterpret_cast<bool*>((char*)row + _col_offsets[cid]) = is_null;
-    }
 
     size_t num_columns() const { return _cols.size(); }
     size_t num_column_ids() const { return _col_ids.size(); }
     const std::vector<ColumnId>& column_ids() const { return _col_ids; }
-    const std::vector<int32_t>& unique_ids() const { return _unique_ids; }
     ColumnId column_id(size_t index) const { return _col_ids[index]; }
     int32_t unique_id(size_t index) const { return _unique_ids[index]; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
@@ -188,8 +156,6 @@ public:
 private:
     void _init(const std::vector<TabletColumnPtr>& cols, const std::vector<ColumnId>& col_ids,
                size_t num_key_columns);
-    void _init(const std::vector<const doris::StorageField*>& cols,
-               const std::vector<ColumnId>& col_ids, size_t num_key_columns);
 
     void _copy_from(const Schema& other);
 
@@ -197,15 +163,11 @@ private:
     // a column in current row, not the unique id-identifier of each column
     std::vector<ColumnId> _col_ids;
     std::vector<int32_t> _unique_ids;
-    // NOTE: Both _cols[cid] and _col_offsets[cid] can only be accessed when the cid is
+    // NOTE: _cols[cid] can only be accessed when the cid is
     // contained in _col_ids
     std::vector<doris::StorageField*> _cols;
-    // The value of each item indicates the starting offset of the corresponding column in
-    // current row. e.g. _col_offsets[idx] is the offset of _cols[idx] (idx must in _col_ids)
-    std::vector<size_t> _col_offsets;
 
     size_t _num_key_columns;
-    size_t _schema_size;
     int32_t _delete_sign_idx = -1;
     bool _has_sequence_col = false;
     int32_t _rowid_col_idx = -1;

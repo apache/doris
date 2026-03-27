@@ -30,9 +30,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "common/status.h"               // for Status
-#include "core/column/column_array.h"    // ColumnArray
-#include "core/column/column_nullable.h" // NullMap
+#include "common/status.h"            // for Status
+#include "core/column/column_array.h" // ColumnArray
 #include "core/data_type/data_type.h"
 #include "io/cache/cached_remote_file_reader.h"
 #include "io/fs/file_reader_writer_fwd.h"
@@ -361,10 +360,6 @@ public:
 
     virtual bool is_all_dict_encoding() const { return false; }
 
-    virtual Status read_null_map(size_t* n, NullMap& null_map) {
-        return Status::NotSupported("read_null_map not implemented");
-    }
-
     virtual Status set_access_paths(const TColumnAccessPaths& all_access_paths,
                                     const TColumnAccessPaths& predicate_access_paths) {
         if (!predicate_access_paths.empty()) {
@@ -462,8 +457,6 @@ public:
     bool is_nullable() { return _reader->is_nullable(); }
 
     bool is_all_dict_encoding() const override { return _is_all_dict_encoding; }
-
-    Status read_null_map(size_t* n, NullMap& null_map) override;
 
     Status init_prefetcher(const SegmentPrefetchParams& params) override;
     void collect_prefetchers(
@@ -590,8 +583,6 @@ public:
 
     void remove_pruned_sub_iterators() override;
 
-    Status read_null_map(size_t* n, NullMap& null_map) override;
-
 private:
     std::shared_ptr<ColumnReader> _map_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -633,8 +624,6 @@ public:
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
 
-    Status read_null_map(size_t* n, NullMap& null_map) override;
-
 private:
     std::shared_ptr<ColumnReader> _struct_reader = nullptr;
     ColumnIteratorUPtr _null_iterator;
@@ -673,8 +662,6 @@ public:
     void collect_prefetchers(
             std::map<PrefetcherInitMethod, std::vector<SegmentPrefetcher*>>& prefetchers,
             PrefetcherInitMethod init_method) override;
-
-    Status read_null_map(size_t* n, NullMap& null_map) override;
 
 private:
     std::shared_ptr<ColumnReader> _array_reader = nullptr;

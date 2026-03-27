@@ -114,7 +114,7 @@ suite("test_pushdown_explain") {
     }
     explain {
         sql("select count(a) from (select nullable_col as a from test_null_columns) t1;")
-        contains "pushAggOp=COUNT_NULL"
+        contains "pushAggOp=NONE"
     }
     explain {
         sql("select count(a), min(a) from (select non_nullable_col as a from test_null_columns) t1;")
