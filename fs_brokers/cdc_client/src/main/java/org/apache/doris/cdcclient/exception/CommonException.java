@@ -15,20 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc.request;
+package org.apache.doris.cdcclient.exception;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+public class CommonException extends RuntimeException {
+    public CommonException() {
+        super();
+    }
 
-import java.util.Map;
+    public CommonException(String message) {
+        super(message);
+    }
 
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class JobBaseConfig {
-    private String jobId;
-    private String dataSource;
-    private Map<String, String> config;
-    private String frontendAddress;
+    public CommonException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
+    public CommonException(Throwable cause) {
+        super(cause);
+    }
+
+    protected CommonException(
+            String message,
+            Throwable cause,
+            boolean enableSuppression,
+            boolean writableStackTrace) {
+        super(message, cause, enableSuppression, writableStackTrace);
+    }
 }

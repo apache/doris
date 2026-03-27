@@ -112,7 +112,7 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
         // Initialize thread pool for parallel polling
