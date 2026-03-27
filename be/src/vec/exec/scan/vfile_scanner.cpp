@@ -366,7 +366,7 @@ Status VFileScanner::_process_late_arrival_conjuncts() {
             RETURN_IF_ERROR(_conjuncts[i]->clone(_state, _push_down_conjuncts[i]));
         }
         RETURN_IF_ERROR(_process_conjuncts_for_dict_filter());
-        _discard_conjuncts();
+        // Remove _discard_conjuncts() to keep _conjuncts for unified filtering across different split types (e.g. Native + JNI)
     }
     if (_applied_rf_num == _total_rf_num) {
         _local_state->scanner_profile()->add_info_string("ApplyAllRuntimeFilters", "True");
