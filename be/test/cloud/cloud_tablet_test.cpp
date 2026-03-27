@@ -947,7 +947,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaMultipleProperties) {
     sp->clear_all_call_backs();
 }
 
-TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlAndInMemory) {
+TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlWithoutChangingInMemory) {
     EXPECT_EQ(0, _tablet->tablet_meta()->ttl_seconds());
     EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
 
@@ -969,7 +969,7 @@ TEST_F(CloudTabletSyncMetaTest, TestSyncMetaSyncsTtlAndInMemory) {
     EXPECT_TRUE(st.ok());
 
     EXPECT_EQ(3600, _tablet->tablet_meta()->ttl_seconds());
-    EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
+    EXPECT_FALSE(_tablet->tablet_meta()->tablet_schema()->is_in_memory());
     EXPECT_TRUE(_tablet->tablet_meta()->tablet_schema()->disable_auto_compaction());
     EXPECT_EQ(_tablet->tablet_meta()->compaction_policy(), "time_series");
 
