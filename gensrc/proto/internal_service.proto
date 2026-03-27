@@ -75,11 +75,10 @@ message PTransmitRecCTEBlockResult {
 
 message PRerunFragmentParams {
     enum Opcode {
-    wait = 1;    // wait fragment execute done
-    release = 2; // release current round's resource
-    rebuild = 3; // rebuild next round pipeline tasks
-    submit = 4;  // submit tasks to execute
-    close = 5;   // close fragment
+    WAIT_FOR_DESTROY = 1;     // deregister RF, destroy old PFC, async wait for tasks to close via brpc closure
+    REBUILD = 2;              // rebuild next round pipeline tasks
+    SUBMIT = 3;               // submit tasks to execute
+    FINAL_CLOSE = 4;          // async wait for tasks to close, send report, and clean up (last round)
     }
     optional PUniqueId query_id = 1;
     optional int32 fragment_id = 2;
@@ -615,6 +614,7 @@ message PSendFilterSizeRequest {
     required PUniqueId query_id = 2;
     required PNetworkAddress source_addr = 3;
     required uint64 filter_size = 4;
+    optional uint32 stage = 5;
 };
 
 message PSendFilterSizeResponse {
@@ -625,6 +625,7 @@ message PSyncFilterSizeRequest {
     required int32 filter_id = 1;
     required PUniqueId query_id = 2;
     required uint64 filter_size = 3;
+    optional uint32 stage = 5;
 };
 
 message PSyncFilterSizeResponse {
@@ -646,6 +647,7 @@ message PMergeFilterRequest {
     optional bool ignored = 12;
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
+    optional uint32 stage = 15;
 };
 
 message PMergeFilterResponse {
@@ -667,6 +669,7 @@ message PPublishFilterRequestV2 {
     repeated int32 fragment_ids = 12; // deprecated
     optional uint64 local_merge_time = 13;
     optional bool disabled = 14;
+    optional uint32 stage = 15;
 };
 
 message PPublishFilterResponse {

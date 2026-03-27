@@ -198,7 +198,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public void fetchRemoteMeta(Map<String, String> properties) throws Exception {
         Backend backend = StreamingJobUtils.selectBackend();
         JobBaseConfig requestParams =
-                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
+                new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/fetchEndOffset")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -570,7 +570,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     private void initSourceReader() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
         JobBaseConfig requestParams =
-                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
+                new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/initReader")
                 .setParams(new Gson().toJson(requestParams)).build();
@@ -618,7 +618,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         StreamingJobUtils.deleteJobMeta(jobId);
         Backend backend = StreamingJobUtils.selectBackend();
         JobBaseConfig requestParams =
-                new JobBaseConfig(getJobId(), sourceType.name(), sourceProperties, getFrontendAddress());
+                new JobBaseConfig(getJobId().toString(), sourceType.name(), sourceProperties, getFrontendAddress());
         InternalService.PRequestCdcClientRequest request = InternalService.PRequestCdcClientRequest.newBuilder()
                 .setApi("/api/close")
                 .setParams(new Gson().toJson(requestParams)).build();

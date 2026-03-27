@@ -388,7 +388,9 @@ std::string QueryContext::print_all_pipeline_context() {
 void QueryContext::set_pipeline_context(const int fragment_id,
                                         std::shared_ptr<PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-    _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
+    // Use insert_or_assign instead of insert to support overwriting old entries
+    // when recursive CTE recreates PipelineFragmentContext between rounds.
+    _fragment_id_to_pipeline_ctx.insert_or_assign(fragment_id, pip_ctx);
 }
 
 doris::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
@@ -469,10 +471,6 @@ QueryContext::_collect_realtime_query_profile() {
                                     print_id(_query_id), fragment_id);
                 LOG_ERROR(msg);
                 DCHECK(false) << msg;
-                continue;
-            }
-
-            if (fragment_ctx->need_notify_close()) {
                 continue;
             }
 

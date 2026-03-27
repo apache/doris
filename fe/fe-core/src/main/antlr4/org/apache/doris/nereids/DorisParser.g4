@@ -204,6 +204,10 @@ supportedCreateStatement
     | CREATE (OR REPLACE)? VIEW (IF NOT EXISTS)? name=multipartIdentifier
         (LEFT_PAREN cols=simpleColumnDefs RIGHT_PAREN)?
         (COMMENT STRING_LITERAL)? AS? query                               #createView
+    | CREATE (OR REPLACE)? STREAM (IF NOT EXISTS)? name=multipartIdentifier
+            ON TABLE baseTable=multipartIdentifier
+            (COMMENT STRING_LITERAL)?
+            properties=propertyClause?                                    #createStream
     | CREATE FILE name=STRING_LITERAL
         ((FROM | IN) database=identifier)? properties=propertyClause            #createFile
     | CREATE (EXTERNAL | TEMPORARY)? TABLE (IF NOT EXISTS)? name=multipartIdentifier
@@ -367,6 +371,7 @@ supportedDropStatement
     | DROP INVERTED INDEX TOKEN_FILTER (IF EXISTS)? name=identifier             #dropIndexTokenFilter
     | DROP INVERTED INDEX CHAR_FILTER (IF EXISTS)? name=identifier              #dropIndexCharFilter
     | DROP INVERTED INDEX NORMALIZER (IF EXISTS)? name=identifier               #dropIndexNormalizer
+    | DROP STREAM (IF EXISTS)? name=multipartIdentifier FORCE?                  #dropStream
     ;
 
 supportedShowStatement
@@ -488,6 +493,8 @@ supportedShowStatement
     | SHOW WARM UP JOB wildWhere?                                                   #showWarmUpJob
     | SHOW PYTHON VERSIONS                                                           #showPythonVersions
     | SHOW PYTHON PACKAGES IN STRING_LITERAL                                         #showPythonPackages
+    | SHOW STREAMS ((FROM | IN) database=multipartIdentifier)? wildWhere?           #showStreams
+    | SHOW CREATE STREAM name=multipartIdentifier                                   #showCreateStream
     ;
 
 supportedLoadStatement
@@ -2298,6 +2305,7 @@ nonReserved
     | STOP
     | STORAGE
     | STREAM
+    | STREAMS
     | STREAMING
     | STRING
     | STRUCT
