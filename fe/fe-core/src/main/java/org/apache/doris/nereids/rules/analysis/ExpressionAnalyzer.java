@@ -764,6 +764,32 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
 
     @Override
     public Expression visitCaseWhen(CaseWhen caseWhen, ExpressionRewriteContext context) {
+        if (caseWhen.getValue().isPresent()) {
+            // Simple case: CASE value WHEN cond THEN result ...
+            // Analyze value once, then construct EqualTo(analyzedValue, analyzedCond) per WhenClause
+            Expression analyzedValue = caseWhen.getValue().get().accept(this, context);
+
+            List<WhenClause> newWhenClauses = new ArrayList<>();
+            for (WhenClause whenClause : caseWhen.getWhenClauses()) {
+                Expression operand = whenClause.getOperand().accept(this, context);
+                Expression result = whenClause.getResult().accept(this, context);
+                Expression equalTo = TypeCoercionUtils.processComparisonPredicate(
+                        new EqualTo(analyzedValue, operand));
+                newWhenClauses.add(new WhenClause(equalTo, result));
+            }
+
+            CaseWhen newCaseWhen;
+            if (caseWhen.getDefaultValue().isPresent()) {
+                Expression analyzedDefault = caseWhen.getDefaultValue().get().accept(this, context);
+                newCaseWhen = new CaseWhen(newWhenClauses, analyzedDefault);
+            } else {
+                newCaseWhen = new CaseWhen(newWhenClauses);
+            }
+            newCaseWhen.checkLegalityBeforeTypeCoercion();
+            return TypeCoercionUtils.processCaseWhen(newCaseWhen);
+        }
+
+        // Searched case: standard handling
         Builder<Expression> rewrittenChildren = ImmutableList.builderWithExpectedSize(caseWhen.arity());
         for (Expression child : caseWhen.children()) {
             rewrittenChildren.add(child.accept(this, context));
