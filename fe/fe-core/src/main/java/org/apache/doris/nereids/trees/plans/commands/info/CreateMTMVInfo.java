@@ -186,7 +186,7 @@ public class CreateMTMVInfo extends CreateTableInfo {
         try {
             analyzeAndFillRewriteSqlMap(querySql, ctx);
             querySql = BaseViewInfo.rewriteSql(rewriteMap, querySql);
-            if (!simpleColumnDefinitions.isEmpty()) {
+            if (refreshInfo.getRefreshMethod() == RefreshMethod.INCREMENTAL && !simpleColumnDefinitions.isEmpty()) {
                 querySql = BaseViewInfo.rewriteProjectsToUserDefineAlias(querySql, simpleColumnDefinitions.stream()
                         .map(SimpleColumnDefinition::getName)
                         .collect(Collectors.toList()));
