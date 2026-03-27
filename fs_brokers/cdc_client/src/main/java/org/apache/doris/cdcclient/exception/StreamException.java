@@ -15,20 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.job.cdc.request;
+package org.apache.doris.cdcclient.exception;
 
-import lombok.AllArgsConstructor;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+public class StreamException extends RuntimeException {
+    public StreamException() {
+        super();
+    }
 
-import java.util.Map;
+    public StreamException(String message) {
+        super(message);
+    }
 
-@Data
-@AllArgsConstructor
-@NoArgsConstructor
-public class JobBaseConfig {
-    private String jobId;
-    private String dataSource;
-    private Map<String, String> config;
-    private String frontendAddress;
+    public StreamException(String message, Throwable cause) {
+        super(message, cause);
+    }
+
+    public StreamException(Throwable cause) {
+        super(cause);
+    }
+
+    protected StreamException(
+            String message,
+            Throwable cause,
+            boolean enableSuppression,
+            boolean writableStackTrace) {
+        super(message, cause, enableSuppression, writableStackTrace);
+    }
 }
