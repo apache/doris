@@ -339,6 +339,9 @@ public class MTMVTask extends AbstractTask {
     private void exec(Set<String> refreshPartitionNames,
             Map<TableIf, String> tableWithPartKey)
             throws Exception {
+        // Create MTMV context first so that new StatementContext() captures the
+        // correct thread-local ConnectContext (with MTMV disabled rules, etc.).
+        ConnectContext mtmvCtx = MTMVPlanUtil.createMTMVContext(mtmv, MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         StatementContext statementContext = new StatementContext();
         for (Entry<MvccTableInfo, MvccSnapshot> entry : snapshots.entrySet()) {
             statementContext.setSnapshot(entry.getKey(), entry.getValue());
@@ -352,7 +355,7 @@ public class MTMVTask extends AbstractTask {
             recordComputeGroup(ctx);
         };
         boolean enableIvmNormalMTMVPlan = mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL;
-        executor = MTMVPlanUtil.executeCommand(mtmv, command, statementContext,
+        executor = MTMVPlanUtil.executeCommand(mtmvCtx, command, statementContext,
                 getDummyStmt(refreshPartitionNames), enableIvmNormalMTMVPlan, customizer);
         lastQueryId = DebugUtil.printId(executor.getContext().queryId());
         if (getStatus() == TaskStatus.CANCELED) {
