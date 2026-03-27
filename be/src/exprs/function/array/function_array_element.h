@@ -174,21 +174,21 @@ private:
     template <typename ColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              const UInt8* idx_null_map, bool is_const_index) const {
         const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
+        const auto& index_data = reinterpret_cast<const ColumnInt64&>(indices).get_data();
 
         auto dst_column = nested_column.clone_empty();
         auto& dst_data = reinterpret_cast<ColumnType&>(*dst_column).get_data();
         dst_data.resize(offsets.size());
 
-        // process
         for (size_t row = 0; row < offsets.size(); ++row) {
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
-            auto index = indices.get_int(row);
-            // array is nullable
+            size_t idx = index_check_const(row, is_const_index);
+            auto index = (idx_null_map && idx_null_map[idx]) ? 0 : index_data[idx];
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
-            // calc index in nested column
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
             } else if (!null_flag && index < 0 && -index <= len) {
@@ -196,30 +196,24 @@ private:
             } else {
                 null_flag = true;
             }
-            // nested column nullable check
             if (!null_flag && nested_null_map && nested_null_map[index]) {
                 null_flag = true;
             }
-            // actual data copy
-            if (null_flag) {
-                dst_null_map[row] = true;
-                dst_data[row] = typename ColumnType::value_type();
-            } else {
-                DCHECK(index >= 0 && index < nested_data.size());
-                dst_null_map[row] = false;
-                dst_data[row] = nested_data[index];
-            }
+            dst_null_map[row] = null_flag;
+            dst_data[row] = !null_flag ? nested_data[index] : typename ColumnType::value_type();
         }
         return dst_column;
     }
 
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              const UInt8* idx_null_map, bool is_const_index) const {
         const auto& src_str_offs =
                 reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& src_str_chars =
                 reinterpret_cast<const ColumnString&>(nested_column).get_chars();
+        const auto& index_data = reinterpret_cast<const ColumnInt64&>(indices).get_data();
 
         // prepare return data
         auto dst_column = ColumnString::create();
@@ -228,14 +222,12 @@ private:
         auto& dst_str_chars = dst_column->get_chars();
         dst_str_chars.reserve(src_str_chars.size());
 
-        // process
         for (size_t row = 0; row < offsets.size(); ++row) {
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
-            auto index = indices.get_int(row);
-            // array is nullable
+            size_t idx = index_check_const(row, is_const_index);
+            auto index = (idx_null_map && idx_null_map[idx]) ? 0 : index_data[idx];
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
-            // calc index in nested column
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
             } else if (!null_flag && index < 0 && -index <= len) {
@@ -243,13 +235,10 @@ private:
             } else {
                 null_flag = true;
             }
-            // nested column nullable check
             if (!null_flag && nested_null_map && nested_null_map[index]) {
                 null_flag = true;
             }
-            // actual string copy
             if (!null_flag) {
-                DCHECK(index >= 0 && index < src_str_offs.size());
                 dst_null_map[row] = false;
                 auto element_size = src_str_offs[index] - src_str_offs[index - 1];
                 dst_str_offs[row] = dst_str_offs[row - 1] + element_size;
@@ -292,19 +281,19 @@ private:
 
     ColumnPtr _execute_common(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
-                              const UInt8* nested_null_map, UInt8* dst_null_map) const {
-        // prepare return data
+                              const UInt8* nested_null_map, UInt8* dst_null_map,
+                              const UInt8* idx_null_map, bool is_const_index) const {
+        const auto& index_data = reinterpret_cast<const ColumnInt64&>(indices).get_data();
+
         auto dst_column = nested_column.clone_empty();
         dst_column->reserve(offsets.size());
 
-        // process
         for (size_t row = 0; row < offsets.size(); ++row) {
             size_t off = offsets[row - 1];
             size_t len = offsets[row] - off;
-            auto index = indices.get_int(row);
-            // array is nullable
+            size_t idx = index_check_const(row, is_const_index);
+            auto index = (idx_null_map && idx_null_map[idx]) ? 0 : index_data[idx];
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
-            // calc index in nested column
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
             } else if (!null_flag && index < 0 && -index <= len) {
@@ -312,11 +301,9 @@ private:
             } else {
                 null_flag = true;
             }
-            // nested column nullable check
             if (!null_flag && nested_null_map && nested_null_map[index]) {
                 null_flag = true;
             }
-            // actual data copy
             if (!null_flag) {
                 dst_null_map[row] = false;
                 dst_column->insert_from(nested_column, index);
@@ -350,24 +337,31 @@ private:
         auto left_element_type = remove_nullable(
                 assert_cast<const DataTypeArray&>(*remove_nullable(arguments[0].type))
                         .get_nested_type());
-        // because we impl use_default_implementation_for_nulls
-        // we should handle array index column by-self, and array index should not be nullable.
-        auto idx_col = remove_nullable(arguments[1].column);
+        const UInt8* idx_null_map = nullptr;
+        auto idx_col_with_const = unpack_if_const(arguments[1].column);
+        if (idx_col_with_const.first->is_nullable()) {
+            const auto& idx_null_column =
+                    reinterpret_cast<const ColumnNullable&>(*idx_col_with_const.first);
+            idx_null_map = idx_null_column.get_null_map_column().get_data().data();
+        }
+        const auto& idx_col = remove_nullable(idx_col_with_const.first);
+        bool is_const_index = idx_col_with_const.second;
         // we should dispatch branch according to data type rather than column type
 
         auto call = [&](const auto& type) -> bool {
             using DispatchType = std::decay_t<decltype(type)>;
             res = _execute_number<typename DispatchType::ColumnType>(
-                    offsets, *nested_column, src_null_map, *idx_col, nested_null_map, dst_null_map);
+                    offsets, *nested_column, src_null_map, *idx_col, nested_null_map, dst_null_map,
+                    idx_null_map, is_const_index);
             return true;
         };
 
         if (is_string_type(left_element_type->get_primitive_type())) {
             res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map);
+                                  dst_null_map, idx_null_map, is_const_index);
         } else if (!dispatch_switch_scalar(left_element_type->get_primitive_type(), call)) {
             res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map);
+                                  dst_null_map, idx_null_map, is_const_index);
         }
         return res;
     }
