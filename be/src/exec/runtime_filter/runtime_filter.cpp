@@ -35,6 +35,7 @@ Status RuntimeFilter::_push_to_remote(RuntimeState* state, const TNetworkAddress
     }
 
     auto merge_filter_request = std::make_shared<PMergeFilterRequest>();
+    merge_filter_request->set_stage(_stage);
     auto merge_filter_callback = DummyBrpcCallback<PMergeFilterResponse>::create_shared();
     auto merge_filter_closure =
             AutoReleaseClosure<PMergeFilterRequest, DummyBrpcCallback<PMergeFilterResponse>>::
@@ -123,8 +124,9 @@ Status RuntimeFilter::_init_with_desc(const TRuntimeFilterDesc* desc,
 }
 
 std::string RuntimeFilter::_debug_string() const {
-    return fmt::format("{}, mode: {}", _wrapper ? _wrapper->debug_string() : "<null wrapper>",
-                       _has_remote_target ? "GLOBAL" : "LOCAL");
+    return fmt::format("{}, mode: {}, stage: {}",
+                       _wrapper ? _wrapper->debug_string() : "<null wrapper>",
+                       _has_remote_target ? "GLOBAL" : "LOCAL", _stage);
 }
 
 void RuntimeFilter::_check_wrapper_state(
