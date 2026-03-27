@@ -23,11 +23,11 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.cloud.storage.ListObjectsResult;
 import org.apache.doris.cloud.storage.ObjectFile;
 import org.apache.doris.cloud.storage.RemoteBase;
+import org.apache.doris.common.CheckpointException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.master.Checkpoint;
-import org.apache.doris.common.CheckpointException;
 import org.apache.doris.persist.Storage;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
@@ -43,6 +43,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -173,8 +174,8 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
                         "beginSnapshot failed: " + beginResp.getStatus().getMsg());
             }
             snapshotId = beginResp.getSnapshotId();
-            String imageUrl = beginResp.getImageUrl();
             Cloud.ObjectStoreInfoPB objInfo = beginResp.getObjInfo();
+            String imageUrl = normalizeRelativeImageUrl(objInfo, beginResp.getImageUrl());
 
             currentSnapshot.set(new SnapshotState(snapshotId, imageUrl));
             LOG.info("{}beginSnapshot ok, snapshot_id={}, image_url={}",
@@ -189,14 +190,16 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
                     imageFile.getAbsolutePath(), journalId, imageSize);
 
             // ---- Step 3: Upload image via multipart upload ----
+            String uploadFile = imageUrl + imageFile.getName();
             String objectKey = buildObjectKey(objInfo, imageUrl, imageFile.getName());
             RemoteBase.ObjectInfo remoteObjInfo = new RemoteBase.ObjectInfo(objInfo);
             RemoteBase remote = RemoteBase.newInstance(remoteObjInfo);
             try {
                 final String snapshotIdFinal = snapshotId;
+                final String uploadFileFinal = uploadFile;
                 remote.multipartUploadObject(imageFile, objectKey, (uploadId) -> {
                     try {
-                        updateSnapshotUpload(snapshotIdFinal, objectKey, uploadId);
+                        updateSnapshotUpload(snapshotIdFinal, uploadFileFinal, uploadId);
                         return Pair.of(true, "");
                     } catch (Exception e) {
                         LOG.warn("updateSnapshot failed during multipart upload", e);
@@ -246,7 +249,7 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
      * Returns the image file and the replayed journal ID.
      */
     private Pair<File, Long> createFEImage() throws Exception {
-        Checkpoint checkpoint = Env.getCurrentEnv().getCheckpoint();
+        Checkpoint checkpoint = Env.getCurrentEnv().getCheckpointer();
         if (checkpoint == null) {
             throw new DdlException("Checkpoint service is not initialized");
         }
@@ -270,16 +273,85 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
 
     /**
      * Build the full object key for uploading image.
-     * The key combines the obj_info prefix, the image_url, and the file name.
+     * Avoid duplicate prefix when image_url already contains obj_info.prefix.
      */
     private String buildObjectKey(
             Cloud.ObjectStoreInfoPB objInfo, String imageUrl, String fileName) {
-        String prefix = objInfo.hasPrefix() ? objInfo.getPrefix() : "";
-        if (!prefix.isEmpty() && !prefix.endsWith("/")) {
-            prefix = prefix + "/";
+        String basePath = normalizeObjectPath(objInfo, imageUrl);
+        return basePath + fileName;
+    }
+
+    private String normalizeRelativeImageUrl(Cloud.ObjectStoreInfoPB objInfo, String imageUrl) {
+        String relativePath = toRelativeObjectPath(objInfo, imageUrl);
+        if (!relativePath.endsWith("/")) {
+            relativePath = relativePath + "/";
         }
-        String url = imageUrl.endsWith("/") ? imageUrl : imageUrl + "/";
-        return prefix + url + fileName;
+        return relativePath;
+    }
+
+    /**
+     * Build an object path from obj_info prefix and a logical path (such as image_url),
+     * ensuring the storage prefix is present exactly once.
+     */
+    private String normalizeObjectPath(Cloud.ObjectStoreInfoPB objInfo, String path) {
+        String normalizedPrefix = trimSlashes(objInfo.hasPrefix() ? objInfo.getPrefix() : "");
+        String normalizedPath = trimLeadingSlashes(path == null ? "" : path);
+        if (!normalizedPath.endsWith("/")) {
+            normalizedPath = normalizedPath + "/";
+        }
+        if (normalizedPrefix.isEmpty()) {
+            return normalizedPath;
+        }
+        if (normalizedPath.equals(normalizedPrefix + "/")
+                || normalizedPath.startsWith(normalizedPrefix + "/")) {
+            return normalizedPath;
+        }
+        return normalizedPrefix + "/" + normalizedPath;
+    }
+
+    private String trimLeadingSlashes(String s) {
+        int i = 0;
+        while (i < s.length() && s.charAt(i) == '/') {
+            i++;
+        }
+        return i == 0 ? s : s.substring(i);
+    }
+
+    private String trimTrailingSlashes(String s) {
+        int i = s.length() - 1;
+        while (i >= 0 && s.charAt(i) == '/') {
+            i--;
+        }
+        return i == s.length() - 1 ? s : s.substring(0, i + 1);
+    }
+
+    private String trimSlashes(String s) {
+        return trimTrailingSlashes(trimLeadingSlashes(s));
+    }
+
+    private String toRelativeObjectPath(Cloud.ObjectStoreInfoPB objInfo, String path) {
+        String normalizedPath = trimLeadingSlashes(path == null ? "" : path);
+        String normalizedPrefix = trimSlashes(objInfo.hasPrefix() ? objInfo.getPrefix() : "");
+        if (normalizedPrefix.isEmpty()) {
+            return normalizedPath;
+        }
+        if (normalizedPath.equals(normalizedPrefix)) {
+            return "";
+        }
+        String prefixedPath = normalizedPrefix + "/";
+        if (normalizedPath.startsWith(prefixedPath)) {
+            return normalizedPath.substring(prefixedPath.length());
+        }
+        return normalizedPath;
+    }
+
+    private String firstNonEmpty(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     /**
@@ -508,20 +580,44 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
         LOG.info("cloneSnapshot from file: {}", clusterSnapshotFile);
 
         // 1. Parse the cluster snapshot JSON file
-        String jsonContent = new String(Files.readAllBytes(Paths.get(clusterSnapshotFile)), StandardCharsets.UTF_8);
-        JsonObject json = JsonParser.parseString(jsonContent).getAsJsonObject();
+        Path snapshotPath = Paths.get(clusterSnapshotFile);
+        if (!Files.exists(snapshotPath)) {
+            throw new DdlException("cloneSnapshot file not found: " + clusterSnapshotFile);
+        }
 
-        String snapshotId = getJsonString(json, "snapshot_id");
+        String jsonContent;
+        try {
+            jsonContent = new String(Files.readAllBytes(snapshotPath), StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new DdlException("cloneSnapshot failed to read file: " + clusterSnapshotFile, e);
+        }
+
+        JsonObject json;
+        try {
+            json = JsonParser.parseString(jsonContent).getAsJsonObject();
+        } catch (Exception e) {
+            throw new DdlException("cloneSnapshot: invalid JSON in file: " + clusterSnapshotFile, e);
+        }
+
+        // Backward compatibility:
+        // old file format used "from_snapshot_id"/"instance_id"/"is_successor"/"name".
+        String snapshotId = firstNonEmpty(
+                getJsonString(json, "snapshot_id"),
+                getJsonString(json, "from_snapshot_id"));
         String fromInstanceId = getJsonString(json, "from_instance_id");
-        String newInstanceId = getJsonString(json, "new_instance_id");
+        String newInstanceId = firstNonEmpty(
+                getJsonString(json, "new_instance_id"),
+                getJsonString(json, "instance_id"));
         String cloneTypeStr = getJsonString(json, "clone_type");
+        Boolean isSuccessor = getJsonBoolean(json, "is_successor");
+        String snapshotName = getJsonString(json, "name");
 
         if (snapshotId == null || fromInstanceId == null || newInstanceId == null) {
             throw new DdlException("cloneSnapshot: missing required fields in JSON file: "
-                    + "snapshot_id, from_instance_id, new_instance_id");
+                    + "snapshot_id/from_snapshot_id, from_instance_id, new_instance_id/instance_id");
         }
 
-        Cloud.CloneInstanceRequest.CloneType cloneType = parseCloneType(cloneTypeStr);
+        Cloud.CloneInstanceRequest.CloneType cloneType = parseCloneType(cloneTypeStr, isSuccessor);
 
         // 2. Build CloneInstance RPC request
         Cloud.CloneInstanceRequest.Builder reqBuilder = Cloud.CloneInstanceRequest.newBuilder()
@@ -530,6 +626,9 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
                 .setNewInstanceId(newInstanceId)
                 .setCloneType(cloneType)
                 .setRequestIp(FrontendOptions.getLocalHostAddressCached());
+        if (snapshotName != null && !snapshotName.isEmpty()) {
+            reqBuilder.setSnapshotName(snapshotName);
+        }
 
         // For WRITABLE clone, obj_info and storage_vault may be in the JSON
         if (json.has("obj_info")) {
@@ -585,7 +684,7 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
         RemoteBase remote = RemoteBase.newInstance(remoteObjInfo);
         try {
             // List files in the image URL prefix to find the actual image file
-            String prefix = imageUrl.endsWith("/") ? imageUrl : imageUrl + "/";
+            String prefix = normalizeObjectPath(objInfo, imageUrl);
             ListObjectsResult listing = remote.listObjects(prefix, null);
 
             if (listing.getObjectInfoList().isEmpty()) {
@@ -659,8 +758,11 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
     /**
      * Parse clone type string to proto enum.
      */
-    private Cloud.CloneInstanceRequest.CloneType parseCloneType(String typeStr) {
+    private Cloud.CloneInstanceRequest.CloneType parseCloneType(String typeStr, Boolean isSuccessor) {
         if (typeStr == null || typeStr.isEmpty()) {
+            if (Boolean.TRUE.equals(isSuccessor)) {
+                return Cloud.CloneInstanceRequest.CloneType.ROLLBACK;
+            }
             return Cloud.CloneInstanceRequest.CloneType.READ_ONLY;
         }
         switch (typeStr.toUpperCase()) {
@@ -685,5 +787,16 @@ public class DorisCloudSnapshotHandler extends CloudSnapshotHandler {
             return null;
         }
         return elem.getAsString();
+    }
+
+    /**
+     * Safely get a boolean field from JsonObject.
+     */
+    private Boolean getJsonBoolean(JsonObject json, String key) {
+        JsonElement elem = json.get(key);
+        if (elem == null || elem.isJsonNull()) {
+            return null;
+        }
+        return elem.getAsBoolean();
     }
 }

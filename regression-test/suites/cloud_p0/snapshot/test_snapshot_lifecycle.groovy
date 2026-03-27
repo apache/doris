@@ -30,34 +30,20 @@ suite("test_snapshot_lifecycle") {
     def testStartTime = System.currentTimeMillis()
     logger.info("=== Starting test_snapshot_lifecycle at ${testStartTime} ===")
 
-    // ---------------------------------------------------------------
-    // Helper: poll information_schema.cluster_snapshots until a
-    // snapshot with the given label reaches the expected state,
-    // or until timeout (seconds). Returns the result row or null.
-    // ---------------------------------------------------------------
-    def waitForSnapshotState = { String label, String targetState, int maxWaitSec ->
+    def waitForSnapshotRow = { String label, int maxWaitSec ->
         def deadline = System.currentTimeMillis() + maxWaitSec * 1000L
         while (System.currentTimeMillis() < deadline) {
-            def stateRows = sql """
-                SELECT STATUS FROM information_schema.cluster_snapshots
+            def fullRows = sql """
+                SELECT * FROM information_schema.cluster_snapshots
                 WHERE LABEL = '${label}'
                 ORDER BY CREATE_AT DESC LIMIT 1
             """
-            if (stateRows != null && !stateRows.isEmpty()) {
-                def state = stateRows[0][0].toString()
-                logger.info("Snapshot label=${label} current state=${state}")
-                if (state == targetState) {
-                    def fullRows = sql """
-                        SELECT * FROM information_schema.cluster_snapshots
-                        WHERE LABEL = '${label}'
-                        ORDER BY CREATE_AT DESC LIMIT 1
-                    """
-                    return fullRows[0]
-                }
+            if (fullRows != null && !fullRows.isEmpty()) {
+                return fullRows[0]
             }
-            Thread.sleep(5000)
+            Thread.sleep(3000)
         }
-        logger.warn("Timeout (${maxWaitSec}s) waiting for snapshot label=${label} to reach ${targetState}")
+        logger.warn("Timeout (${maxWaitSec}s) waiting for snapshot label=${label} to appear")
         return null
     }
 
@@ -182,40 +168,21 @@ suite("test_snapshot_lifecycle") {
         sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '3600', 'label' = '${label1}') """
         logger.info("Submitted manual snapshot with label=${label1}")
 
-        // Poll for the snapshot — it may take time for the async workflow
-        // to complete (begin → upload → commit). We accept either
-        // SNAPSHOT_NORMAL (completed) or SNAPSHOT_PREPARE (still in progress).
-        def snapshot1 = waitForSnapshotState(label1, "SNAPSHOT_NORMAL", 180)
-        if (snapshot1 == null) {
-            // Check if it is at least in PREPARE state
-            def stateRows = sql """
-                SELECT STATUS FROM information_schema.cluster_snapshots WHERE LABEL = '${label1}'
-            """
-            if (stateRows != null && !stateRows.isEmpty()) {
-                logger.info("Snapshot ${label1} exists in state: ${stateRows[0][0]}")
-                // Re-fetch full row for downstream field access
-                def fullRows = sql """
-                    SELECT * FROM information_schema.cluster_snapshots WHERE LABEL = '${label1}'
-                """
-                snapshot1 = fullRows[0]
-            } else {
-                assertTrue(false, "Snapshot ${label1} not found in information_schema after 180s")
-            }
-        }
-
-        if (snapshot1 != null) {
-            def snapshotId1 = snapshot1[0].toString()
-            createdSnapshotIds.add(snapshotId1)
-            logger.info("Snapshot 1 created with ID=${snapshotId1}")
-
-            // Verify fields
-            assertEquals(label1, snapshot1[9].toString(), "LABEL should match")
-            assertEquals(3600L, snapshot1[8] as long, "TTL should be 3600")
-            // AUTO should be false for manual snapshot
-            def autoVal = snapshot1[7]
-            logger.info("AUTO field value: ${autoVal} (type: ${autoVal?.getClass()?.name})")
-            assertFalse(autoVal as boolean, "AUTO should be false for manual snapshot")
-        }
+        // Poll for the snapshot row and verify key fields.
+        def snapshot1 = waitForSnapshotRow(label1, 180)
+        assertTrue(snapshot1 != null, "Snapshot ${label1} should appear in information_schema")
+        def snapshotId1 = snapshot1[0].toString()
+        createdSnapshotIds.add(snapshotId1)
+        logger.info("Snapshot 1 created with ID=${snapshotId1}")
+        def status1 = snapshot1[1].toString()
+        assertTrue(status1 == "SNAPSHOT_PREPARE" || status1 == "SNAPSHOT_NORMAL",
+                "Snapshot state should be PREPARE or NORMAL, actual=${status1}")
+        assertEquals(label1, snapshot1[9].toString(), "LABEL should match")
+        assertEquals(3600L, snapshot1[8] as long, "TTL should be 3600")
+        // AUTO should be false for manual snapshot
+        def autoVal = snapshot1[7]
+        logger.info("AUTO field value: ${autoVal} (type: ${autoVal?.getClass()?.name})")
+        assertFalse(autoVal as boolean, "AUTO should be false for manual snapshot")
 
         // ===================================================================
         // Test 5: Query Snapshots with Filters
@@ -232,9 +199,7 @@ suite("test_snapshot_lifecycle") {
             SELECT * FROM information_schema.cluster_snapshots WHERE LABEL = '${label1}'
         """
         logger.info("Filtered by label=${label1}: count=${filtered.size()}")
-        if (snapshot1 != null) {
-            assertTrue(filtered.size() >= 1, "Should find at least one snapshot with our label")
-        }
+        assertTrue(filtered.size() >= 1, "Should find at least one snapshot with our label")
 
         // Query with LIKE pattern
         def likeResult = sql """
@@ -251,50 +216,42 @@ suite("test_snapshot_lifecycle") {
         sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = '${label2}') """
         logger.info("Submitted second snapshot with label=${label2}")
 
-        // Give it a moment to register
-        Thread.sleep(10000)
-
-        def rows2 = sql """
-            SELECT * FROM information_schema.cluster_snapshots WHERE LABEL = '${label2}'
-        """
-        logger.info("Second snapshot query result: ${rows2}")
-        if (rows2 != null && !rows2.isEmpty()) {
-            def snapshotId2 = rows2[0][0].toString()
-            createdSnapshotIds.add(snapshotId2)
-            logger.info("Snapshot 2 created with ID=${snapshotId2}")
-
-            assertEquals(label2, rows2[0][9].toString(), "LABEL should match")
-            assertEquals(600L, rows2[0][8] as long, "TTL should be 600")
-        }
+        def snapshot2 = waitForSnapshotRow(label2, 180)
+        assertTrue(snapshot2 != null, "Snapshot ${label2} should appear in information_schema")
+        def snapshotId2 = snapshot2[0].toString()
+        createdSnapshotIds.add(snapshotId2)
+        logger.info("Snapshot 2 created with ID=${snapshotId2}")
+        def status2 = snapshot2[1].toString()
+        assertTrue(status2 == "SNAPSHOT_PREPARE" || status2 == "SNAPSHOT_NORMAL",
+                "Second snapshot state should be PREPARE or NORMAL, actual=${status2}")
+        assertEquals(label2, snapshot2[9].toString(), "LABEL should match")
+        assertEquals(600L, snapshot2[8] as long, "TTL should be 600")
 
         // ===================================================================
         // Test 7: Drop Snapshot
         // ===================================================================
         logger.info("=== Test 7: Drop Snapshot ===")
 
-        if (createdSnapshotIds.size() > 0) {
-            def dropId = createdSnapshotIds[0]
-            logger.info("Dropping snapshot ID=${dropId}")
-            sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${dropId}' """
+        assertTrue(createdSnapshotIds.size() > 0, "Need at least one snapshot to verify drop")
+        def dropId = createdSnapshotIds[0]
+        logger.info("Dropping snapshot ID=${dropId}")
+        sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${dropId}' """
 
-            // Verify the snapshot is gone
-            Thread.sleep(5000)
-            def afterDrop = sql """
-                SELECT STATUS FROM information_schema.cluster_snapshots WHERE ID = '${dropId}'
-            """
-            logger.info("After drop, query for ID=${dropId}: count=${afterDrop.size()}")
-            // The dropped snapshot should not appear or should be in a non-NORMAL state
-            if (afterDrop.size() > 0) {
-                def stateAfterDrop = afterDrop[0][0].toString()
-                logger.info("Snapshot ${dropId} state after drop: ${stateAfterDrop}")
-                // After drop, it should not be in NORMAL state
-                assertTrue(stateAfterDrop != "SNAPSHOT_NORMAL",
-                    "Dropped snapshot should not be in NORMAL state")
-            }
-            createdSnapshotIds.remove(0)
-        } else {
-            logger.info("No snapshots to drop, skipping drop test")
+        // Verify the snapshot is gone
+        Thread.sleep(5000)
+        def afterDrop = sql """
+            SELECT STATUS FROM information_schema.cluster_snapshots WHERE ID = '${dropId}'
+        """
+        logger.info("After drop, query for ID=${dropId}: count=${afterDrop.size()}")
+        // The dropped snapshot should not appear or should be in a non-NORMAL state
+        if (afterDrop.size() > 0) {
+            def stateAfterDrop = afterDrop[0][0].toString()
+            logger.info("Snapshot ${dropId} state after drop: ${stateAfterDrop}")
+            // After drop, it should not be in NORMAL state
+            assertTrue(stateAfterDrop != "SNAPSHOT_NORMAL",
+                "Dropped snapshot should not be in NORMAL state")
         }
+        createdSnapshotIds.remove(0)
 
         // ===================================================================
         // Test 8: Duplicate Label Rejection
@@ -306,32 +263,28 @@ suite("test_snapshot_lifecycle") {
         // This depends on timing — if all previous snapshots have completed,
         // this test just verifies the submission path.
         def labelDup = "lifecycle_dup_" + testStartTime
+        sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = '${labelDup}') """
+        logger.info("First submission of ${labelDup} accepted")
+
+        // Immediately try to submit another one — may be rejected if first is still running
         try {
-            sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = '${labelDup}') """
-            logger.info("First submission of ${labelDup} accepted")
-
-            // Immediately try to submit another one — may be rejected if first is still running
-            try {
-                sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = '${labelDup}_2') """
-                logger.info("Second submission also accepted (first may have completed quickly)")
-            } catch (Exception e) {
-                logger.info("Second submission rejected as expected: ${e.message}")
-                assertTrue(e.message.contains("already") || e.message.contains("progress")
-                    || e.message.contains("running"),
-                    "Rejection should indicate an in-progress snapshot")
-            }
-
-            // Cleanup duplicate test snapshots
-            Thread.sleep(5000)
-            def dupRows = sql """
-                SELECT ID FROM information_schema.cluster_snapshots
-                WHERE LABEL LIKE 'lifecycle_dup_%'
-            """
-            for (row in dupRows) {
-                createdSnapshotIds.add(row[0].toString())
-            }
+            sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = '${labelDup}_2') """
+            logger.info("Second submission also accepted (first may have completed quickly)")
         } catch (Exception e) {
-            logger.info("Duplicate test encountered error: ${e.message}")
+            logger.info("Second submission rejected as expected: ${e.message}")
+            assertTrue(e.message.contains("already") || e.message.contains("progress")
+                || e.message.contains("running"),
+                "Rejection should indicate an in-progress snapshot")
+        }
+
+        // Cleanup duplicate test snapshots
+        Thread.sleep(5000)
+        def dupRows = sql """
+            SELECT ID FROM information_schema.cluster_snapshots
+            WHERE LABEL LIKE 'lifecycle_dup_%'
+        """
+        for (row in dupRows) {
+            createdSnapshotIds.add(row[0].toString())
         }
 
         // ===================================================================

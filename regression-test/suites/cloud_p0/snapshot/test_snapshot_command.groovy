@@ -21,59 +21,79 @@ suite('test_snapshot_command') {
         return
     }
 
-    // create snapshot — submitJob is now implemented in DorisCloudSnapshotHandler.
-    // In environments without full snapshot infrastructure the RPC may fail,
-    // so we accept either success or a MetaService/RPC error, but NOT
-    // "submitJob is not implemented".
-    def createSuccess = false
-    try {
-        sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = 'test_snapshot_cmd'); """
-        createSuccess = true
-        logger.info("create snapshot command succeeded")
-    } catch (Exception e) {
-        logger.info("create snapshot command error (acceptable): ${e.message}")
-        // Should NOT be the old unimplemented stub error
-        assertFalse(e.message.contains("submitJob is not implemented"),
-            "submitJob should no longer throw NotImplementedException")
-    }
+    def label = "test_snapshot_cmd_" + System.currentTimeMillis()
+    def createdSnapshotId = null
 
-    // snapshot feature off
-    sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE OFF; """
-
-    // snapshot feature on
-    sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE ON; """
-
-    // set auto snapshot properties
-    sql """ ADMIN SET AUTO CLUSTER SNAPSHOT PROPERTIES('max_reserved_snapshots'='10', 'snapshot_interval_seconds'='3600'); """
-
-    // show snapshot properties
-    def result = sql """ select * from information_schema.cluster_snapshot_properties; """
-    logger.info("show result: " + result)
-    assertTrue(result != null, "cluster_snapshot_properties query should succeed")
-
-    // list snapshot
-    result = sql """ select * from information_schema.cluster_snapshots; """
-    logger.info("list snapshots: " + result)
-
-    result = sql """ select * from information_schema.cluster_snapshots where id like '%1%'; """
-    logger.info("filtered snapshots: " + result)
-
-    // drop snapshot — may fail if ID does not exist, that is acceptable
-    try {
-        sql """ ADMIN DROP CLUSTER SNAPSHOT where SNAPSHOT_id = '1213'; """
-    } catch (Exception e) {
-        logger.info("drop non-existent snapshot error (acceptable): ${e.message}")
-    }
-
-    // Cleanup: drop the snapshot created above if it was successful
-    if (createSuccess) {
-        try {
-            def snapshots = sql """ select ID from information_schema.cluster_snapshots where LABEL = 'test_snapshot_cmd' """
-            for (row in snapshots) {
-                sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${row[0]}' """
+    def waitSnapshotByLabel = { String targetLabel, int timeoutSec ->
+        def deadline = System.currentTimeMillis() + timeoutSec * 1000L
+        while (System.currentTimeMillis() < deadline) {
+            def rows = sql """
+                SELECT ID, STATUS, LABEL, TTL
+                FROM information_schema.cluster_snapshots
+                WHERE LABEL = '${targetLabel}'
+                ORDER BY CREATE_AT DESC
+                LIMIT 1
+            """
+            if (rows != null && !rows.isEmpty()) {
+                return rows[0]
             }
-        } catch (Exception e) {
-            logger.info("cleanup error (acceptable): ${e.message}")
+            Thread.sleep(2000)
+        }
+        return null
+    }
+
+    try {
+        sql """ ADMIN CREATE CLUSTER SNAPSHOT PROPERTIES('ttl' = '600', 'label' = '${label}') """
+        def snapshotRow = waitSnapshotByLabel(label, 120)
+        assertTrue(snapshotRow != null, "snapshot should be visible in information_schema")
+        createdSnapshotId = snapshotRow[0].toString()
+        def snapshotStatus = snapshotRow[1].toString()
+        assertTrue(snapshotStatus == "SNAPSHOT_PREPARE" || snapshotStatus == "SNAPSHOT_NORMAL",
+                "snapshot status should be PREPARE or NORMAL, actual=${snapshotStatus}")
+        assertEquals(label, snapshotRow[2].toString(), "snapshot label should match")
+        assertEquals(600L, snapshotRow[3] as long, "snapshot ttl should match")
+
+        // snapshot feature off
+        sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE OFF """
+
+        // snapshot feature on
+        sql """ ADMIN SET CLUSTER SNAPSHOT FEATURE ON """
+
+        // set auto snapshot properties
+        sql """ ADMIN SET AUTO CLUSTER SNAPSHOT PROPERTIES(
+            'max_reserved_snapshots' = '10',
+            'snapshot_interval_seconds' = '3600'
+        ) """
+
+        // show snapshot properties
+        def props = sql """ SELECT * FROM information_schema.cluster_snapshot_properties """
+        assertTrue(props != null && !props.isEmpty(), "cluster_snapshot_properties query should succeed")
+        assertEquals(10L, props[0][2] as long, "max_reserved_snapshots should be 10")
+        assertEquals(3600L, props[0][3] as long, "snapshot_interval_seconds should be 3600")
+
+        // list and filter snapshot
+        def allSnapshots = sql """ SELECT ID, LABEL FROM information_schema.cluster_snapshots """
+        assertTrue(allSnapshots != null, "cluster_snapshots query should succeed")
+        def filtered = sql """ SELECT ID FROM information_schema.cluster_snapshots WHERE LABEL = '${label}' """
+        assertTrue(filtered.any { it[0].toString() == createdSnapshotId },
+                "created snapshot should be queryable by label")
+
+        sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${createdSnapshotId}' """
+        Thread.sleep(2000)
+        def afterDrop = sql """ SELECT STATUS FROM information_schema.cluster_snapshots WHERE ID = '${createdSnapshotId}' """
+        if (afterDrop != null && !afterDrop.isEmpty()) {
+            assertTrue(afterDrop[0][0].toString() != "SNAPSHOT_NORMAL",
+                    "dropped snapshot should not remain NORMAL")
+        }
+        createdSnapshotId = null
+    } finally {
+        if (createdSnapshotId != null) {
+            try {
+                sql """ ADMIN DROP CLUSTER SNAPSHOT WHERE snapshot_id = '${createdSnapshotId}' """
+            } catch (Exception e) {
+                logger.info("cleanup snapshot failed: ${e.message}")
+            }
         }
     }
+
 }
