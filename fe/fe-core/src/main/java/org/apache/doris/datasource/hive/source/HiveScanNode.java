@@ -49,6 +49,7 @@ import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan.SelectedPartitions;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -217,8 +218,10 @@ public class HiveScanNode extends FileQueryScanNode {
                 .getMetaStoreCache((HMSExternalCatalog) hmsTable.getCatalog());
         Executor scheduleExecutor = Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         String bindBrokerName = hmsTable.getCatalog().bindBrokerName();
+        BDPAuthContext currentBdpAuthContext = BDPAuthContext.get();
+        Preconditions.checkNotNull(currentBdpAuthContext, "bdp auth info cannot be null");
         AtomicInteger numFinishedPartitions = new AtomicInteger(0);
-        CompletableFuture.runAsync(() -> {
+        CompletableFuture.runAsync(bindBdpAuth(currentBdpAuthContext, () -> {
             for (HivePartition partition : prunedPartitions) {
                 if (batchException.get() != null || splitAssignment.isStop()) {
                     break;
@@ -258,7 +261,14 @@ public class HiveScanNode extends FileQueryScanNode {
             if (batchException.get() != null) {
                 splitAssignment.setException(batchException.get());
             }
-        });
+        }));
+    }
+
+    static Runnable bindBdpAuth(BDPAuthContext bdpAuthContext, Runnable runnable) {
+        return () -> {
+            bdpAuthContext.setThreadLocalInfo();
+            runnable.run();
+        };
     }
 
     @Override
