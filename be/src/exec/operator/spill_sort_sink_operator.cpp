@@ -214,9 +214,9 @@ Status SpillSortSinkLocalState::_execute_spill_sort(RuntimeState* state) {
         RETURN_IF_ERROR(_spilling_writer->write_block(state, block));
         block.clear_column_data();
     }
+    RETURN_IF_ERROR(parent._sort_sink_operator->reset(_runtime_state.get()));
 
     RETURN_IF_ERROR(_spilling_writer->close());
-    parent._sort_sink_operator->reset(_runtime_state.get());
     return Status::OK();
 }
 

@@ -98,7 +98,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
-    Status reset(RuntimeState* state);
+    Status reset(RuntimeState* state) override;
 
     Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
