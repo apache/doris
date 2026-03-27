@@ -20,6 +20,7 @@ package org.apache.doris.datasource.iceberg.source;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.datasource.SplitAssignment;
 import org.apache.doris.datasource.TableFormatType;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanContext;
@@ -50,6 +51,47 @@ public class IcebergScanNodeTest {
         @Override
         public boolean isBatchMode() {
             return false;
+        }
+    }
+
+    private static class ProducerAwareIcebergScanNode extends IcebergScanNode {
+        ProducerAwareIcebergScanNode(SessionVariable sv) {
+            super(new PlanNodeId(0), new TupleDescriptor(new TupleId(0)), sv, ScanContext.EMPTY);
+        }
+
+        void setSplitAssignmentForTest(SplitAssignment splitAssignment) {
+            this.splitAssignment = splitAssignment;
+        }
+    }
+
+    private static class RecordingPlanningSplitProducer implements PlanningSplitProducer {
+        private int startCalls = 0;
+        private int stopCalls = 0;
+        private int lastNumBackends = -1;
+        private SplitSink lastSink;
+        private boolean batchMode = false;
+        private int approximateSplits = 1;
+
+        @Override
+        public boolean isBatchMode() {
+            return batchMode;
+        }
+
+        @Override
+        public int numApproximateSplits() {
+            return approximateSplits;
+        }
+
+        @Override
+        public void start(int numBackends, SplitSink sink) {
+            startCalls++;
+            lastNumBackends = numBackends;
+            lastSink = sink;
+        }
+
+        @Override
+        public void stop() {
+            stopCalls++;
         }
     }
 
@@ -142,5 +184,28 @@ public class IcebergScanNodeTest {
                 .getDeleteFiles()
                 .get(0);
         Assert.assertEquals(org.apache.doris.thrift.TFileFormatType.FORMAT_ORC, deleteFileDesc.getFileFormat());
+    }
+
+    @Test
+    public void testPlanningSplitProducerDelegationAndStop() throws Exception {
+        SessionVariable sv = new SessionVariable();
+        ProducerAwareIcebergScanNode node = new ProducerAwareIcebergScanNode(sv);
+        RecordingPlanningSplitProducer producer = new RecordingPlanningSplitProducer();
+        node.setPlanningSplitProducer(producer);
+        node.setSplitAssignmentForTest(Mockito.mock(SplitAssignment.class));
+
+        node.startSplit(3);
+        Assert.assertEquals(1, producer.startCalls);
+        Assert.assertEquals(3, producer.lastNumBackends);
+        Assert.assertTrue(producer.lastSink instanceof SplitAssignmentSink);
+
+        producer.batchMode = true;
+        Assert.assertTrue(node.isBatchMode());
+        producer.approximateSplits = 7;
+        Assert.assertEquals(7, node.numApproximateSplits());
+
+        node.setSplitAssignmentForTest(null);
+        node.stop();
+        Assert.assertEquals(1, producer.stopCalls);
     }
 }

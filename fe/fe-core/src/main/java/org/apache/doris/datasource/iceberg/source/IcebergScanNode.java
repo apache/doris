@@ -110,8 +110,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.Executor;
 
 public class IcebergScanNode extends FileQueryScanNode {
 
@@ -158,6 +157,7 @@ public class IcebergScanNode extends FileQueryScanNode {
     private String cachedFsIdentifier;
 
     private Boolean isBatchMode = null;
+    private PlanningSplitProducer planningSplitProducer;
 
     // ReferencedDataFile path -> List<DeleteFile> / List<TIcebergDeleteFileDesc> (exclude equal delete)
     public Map<String, List<DeleteFile>> deleteFilesByReferencedDataFile = new HashMap<>();
@@ -465,55 +465,7 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public void startSplit(int numBackends) throws UserException {
-        try {
-            preExecutionAuthenticator.execute(() -> {
-                doStartSplit();
-                return null;
-            });
-        } catch (Exception e) {
-            throw new UserException(e.getMessage(), e);
-        }
-    }
-
-    public void doStartSplit() throws UserException {
-        TableScan scan = createTableScan();
-        CompletableFuture.runAsync(() -> {
-            AtomicReference<CloseableIterable<FileScanTask>> taskRef = new AtomicReference<>();
-            try {
-                preExecutionAuthenticator.execute(
-                        () -> {
-                            CloseableIterable<FileScanTask> fileScanTasks = planFileScanTask(scan);
-                            taskRef.set(fileScanTasks);
-
-                            CloseableIterator<FileScanTask> iterator = fileScanTasks.iterator();
-                            while (splitAssignment.needMoreSplit() && iterator.hasNext()) {
-                                try {
-                                    splitAssignment.addToQueue(Lists.newArrayList(createIcebergSplit(iterator.next())));
-                                } catch (UserException e) {
-                                    throw new RuntimeException(e);
-                                }
-                            }
-                        }
-                );
-                splitAssignment.finishSchedule();
-                recordManifestCacheProfile();
-            } catch (Exception e) {
-                Optional<NotSupportedException> opt = checkNotSupportedException(e);
-                if (opt.isPresent()) {
-                    splitAssignment.setException(new UserException(opt.get().getMessage(), opt.get()));
-                } else {
-                    splitAssignment.setException(new UserException(e.getMessage(), e));
-                }
-            } finally {
-                if (taskRef.get() != null) {
-                    try {
-                        taskRef.get().close();
-                    } catch (IOException e) {
-                        // ignore
-                    }
-                }
-            }
-        }, Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor());
+        getPlanningSplitProducer().start(numBackends, new SplitAssignmentSink(splitAssignment));
     }
 
     @VisibleForTesting
@@ -899,6 +851,10 @@ public class IcebergScanNode extends FileQueryScanNode {
 
     @Override
     public boolean isBatchMode() {
+        return getPlanningSplitProducer().isBatchMode();
+    }
+
+    private boolean isBatchModeInternal() {
         Boolean cached = isBatchMode;
         if (cached != null) {
             return cached;
@@ -958,6 +914,87 @@ public class IcebergScanNode extends FileQueryScanNode {
             } else {
                 throw new RuntimeException(ExceptionUtils.getRootCauseMessage(e), e);
             }
+        }
+    }
+
+    @Override
+    public int numApproximateSplits() {
+        return getPlanningSplitProducer().numApproximateSplits();
+    }
+
+    private int numApproximateSplitsInternal() {
+        return NUM_SPLITS_PER_PARTITION * partitionMapInfos.size() > 0 ? partitionMapInfos.size() : 1;
+    }
+
+    @Override
+    public void stop() {
+        if (planningSplitProducer != null) {
+            planningSplitProducer.stop();
+        }
+        super.stop();
+    }
+
+    private PlanningSplitProducer getPlanningSplitProducer() {
+        if (planningSplitProducer == null) {
+            planningSplitProducer = createPlanningSplitProducer();
+        }
+        return planningSplitProducer;
+    }
+
+    @VisibleForTesting
+    protected PlanningSplitProducer createPlanningSplitProducer() {
+        return new LocalParallelPlanningSplitProducer(new IcebergPlanningContext());
+    }
+
+    @VisibleForTesting
+    void setPlanningSplitProducer(PlanningSplitProducer planningSplitProducer) {
+        this.planningSplitProducer = planningSplitProducer;
+    }
+
+    private class IcebergPlanningContext implements LocalParallelPlanningSplitProducer.PlanningContext {
+        @Override
+        public boolean isBatchMode() {
+            return isBatchModeInternal();
+        }
+
+        @Override
+        public int numApproximateSplits() {
+            return numApproximateSplitsInternal();
+        }
+
+        @Override
+        public TableScan createTableScan() throws UserException {
+            return IcebergScanNode.this.createTableScan();
+        }
+
+        @Override
+        public CloseableIterable<FileScanTask> planFileScanTask(TableScan scan) {
+            return IcebergScanNode.this.planFileScanTask(scan);
+        }
+
+        @Override
+        public Split createSplit(FileScanTask task) {
+            return createIcebergSplit(task);
+        }
+
+        @Override
+        public void recordManifestCacheProfile() {
+            IcebergScanNode.this.recordManifestCacheProfile();
+        }
+
+        @Override
+        public Optional<NotSupportedException> checkNotSupportedException(Exception e) {
+            return IcebergScanNode.this.checkNotSupportedException(e);
+        }
+
+        @Override
+        public ExecutionAuthenticator getExecutionAuthenticator() {
+            return preExecutionAuthenticator;
+        }
+
+        @Override
+        public Executor getScheduleExecutor() {
+            return Env.getCurrentEnv().getExtMetaCacheMgr().getScheduleExecutor();
         }
     }
 
@@ -1121,11 +1158,6 @@ public class IcebergScanNode extends FileQueryScanNode {
             ((IcebergSplit) splits.get(i)).setTableLevelRowCount(countPerSplit);
         }
         ((IcebergSplit) splits.get(size - 1)).setTableLevelRowCount(countPerSplit + totalCount % size);
-    }
-
-    @Override
-    public int numApproximateSplits() {
-        return NUM_SPLITS_PER_PARTITION * partitionMapInfos.size() > 0 ? partitionMapInfos.size() : 1;
     }
 
     private Optional<NotSupportedException> checkNotSupportedException(Exception e) {
