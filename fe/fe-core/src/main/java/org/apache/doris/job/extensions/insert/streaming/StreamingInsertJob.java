@@ -47,10 +47,13 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.InsertTask;
+import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
+import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
+import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.load.loadv2.LoadStatistic;
@@ -72,12 +75,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.tablefunction.S3TableValuedFunction;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
-
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -85,7 +88,6 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
-
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -300,8 +302,11 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.tvfType = currentTvf.getFunctionName();
             this.originTvfProps = currentTvf.getProperties().getMap();
             this.offsetProvider = SourceOffsetProviderFactory.createSourceOffsetProvider(currentTvf.getFunctionName());
-            // validate offset props
-            if (jobProperties.getOffsetProperty() != null) {
+            this.offsetProvider.ensureInitialized(getJobId(), originTvfProps);
+            this.offsetProvider.initOnCreate();
+            // validate offset props, only for s3 cause s3 tvf no offset prop
+            if (jobProperties.getOffsetProperty() != null
+                    && S3TableValuedFunction.NAME.equals(tvfType)) {
                 Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
             }
@@ -536,6 +541,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 if (originTvfProps == null) {
                     this.originTvfProps = getCurrentTvf().getProperties().getMap();
                 }
+                // when fe restart, offsetProvider.jobId may be null
+                offsetProvider.ensureInitialized(getJobId(), originTvfProps);
                 offsetProvider.fetchRemoteMeta(originTvfProps);
             } else {
                 offsetProvider.fetchRemoteMeta(new HashMap<>());
@@ -757,7 +764,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
-        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty()) && this.tvfType != null) {
+        if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())
+                && S3TableValuedFunction.NAME.equals(this.tvfType)) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             if (Config.isCloudMode()) {
@@ -1016,6 +1024,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
             LoadJob loadJob = loadJobs.get(0);
             LoadStatistic loadStatistic = loadJob.getLoadStatistic();
+
+            String offsetJson = offsetProvider.getCommitOffsetJson(
+                    runningStreamTask.getRunningOffset(),
+                    runningStreamTask.getTaskId(),
+                    runningStreamTask.getScanBackendIds());
+
+            if (StringUtils.isBlank(offsetJson)) {
+                throw new TransactionException("Can not found offset for attachment, load job id is " + runningStreamTask.getTaskId());
+            }
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
                         runningStreamTask.getTaskId(),
@@ -1023,7 +1040,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                         loadStatistic.getLoadBytes(),
                         loadStatistic.getFileNumber(),
                         loadStatistic.getTotalFileSizeB(),
-                        runningStreamTask.getRunningOffset().toSerializedJson()));
+                        offsetJson));
         } finally {
             if (shouldReleaseLock) {
                 writeUnlock();
@@ -1278,6 +1295,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
      */
     public void cleanup() throws JobException {
         log.info("cleanup streaming job {}", getJobId());
+
         // s3 tvf clean offset
         if (tvfType != null && Config.isCloudMode()) {
             Cloud.DeleteStreamingJobResponse resp = null;
@@ -1296,6 +1314,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             } catch (RpcException e) {
                 log.warn("failed to delete streaming job {}", resp, e);
             }
+        }
+
+        // For TVF path, provider fields may be null after FE restart
+        if (this.offsetProvider instanceof JdbcTvfSourceOffsetProvider) {
+            if (originTvfProps == null) {
+                this.originTvfProps = getCurrentTvf().getProperties().getMap();
+            }
+            offsetProvider.ensureInitialized(getJobId(), originTvfProps);
         }
 
         if (this.offsetProvider instanceof JdbcSourceOffsetProvider) {

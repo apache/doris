@@ -135,7 +135,7 @@ public class ClientController {
     }
 
     @RequestMapping(path = "/api/getTaskOffset/{taskId}", method = RequestMethod.POST)
-    public Object getTaskIdOffset(@PathVariable String taskId) {
+    public Object getTaskIdOffset(@PathVariable("taskId") String taskId) {
         return RestResponse.success(pipelineCoordinator.getOffsetWithTaskId(taskId));
     }
 }
