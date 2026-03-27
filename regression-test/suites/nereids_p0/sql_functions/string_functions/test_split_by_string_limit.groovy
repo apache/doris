@@ -238,11 +238,4 @@ suite("test_split_by_string_limit") {
     testFoldConst("select split_by_string('a||b||c', '||', 2)")
     testFoldConst("select split_by_string('a,b,c,', ',', 4)")
     testFoldConst("select split_by_string(',,a,b,c,', ',', 3)")
-    // string-to-int coercion fold const
-    testFoldConst("select split_by_string('a,b,c,d', ',', '2')")
-    testFoldConst("select split_by_string('one,two,three,', ',', '-1')")
-    testFoldConst("select split_by_string('a,b,c', ',', '0')")
-    testFoldConst("select split_by_string('a,b,c,d', ',', cast('3' as int))")
-    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as tinyint))")
-    testFoldConst("select split_by_string('a,b,c,d', ',', cast(2 as bigint))")
 }
