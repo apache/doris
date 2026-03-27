@@ -121,6 +121,7 @@ public abstract class Type {
     public static final StructType GENERIC_STRUCT = new StructType(Lists.newArrayList(
             new StructField("generic_struct", new ScalarType(PrimitiveType.NULL_TYPE))));
     public static final StructType STRUCT = new StructType();
+    public static final FileType FILE = FileType.INSTANCE;
     // In the past, variant metadata used the ScalarType type.
     // Now, we use VariantType, which inherits from ScalarType, as the new metadata storage.
     public static final VariantType VARIANT = new VariantType();
@@ -374,6 +375,7 @@ public abstract class Type {
                         || getPrimitiveType() == PrimitiveType.STRING
                         || isJsonbType()
                         || isComplexType()
+                        || isFileType()
                         || isObjectStored()
                         || isVariantType());
     }
@@ -568,6 +570,10 @@ public abstract class Type {
         return isScalarType(PrimitiveType.VARIANT);
     }
 
+    public boolean isFileType() {
+        return this instanceof FileType;
+    }
+
     public boolean isVarbinaryType() {
         return isScalarType(PrimitiveType.VARBINARY);
     }
@@ -578,11 +584,12 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isObjectStored() || isComplexType() || isJsonbType() || isVariantType();
+        return isObjectStored() || isComplexType() || isJsonbType() || isVariantType()
+                || isFileType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll, bitmap, array, map, struct, jsonb, variant column must use with specific function, and don't"
+            "Doris hll, bitmap, array, map, struct, file, jsonb, variant column must use with specific function, and don't"
                     + " support filter, group by or order by. please run 'help hll' or 'help bitmap' or 'help array'"
                     + " or 'help map' or 'help struct' or 'help jsonb' or 'help variant' in your mysql client.";
 
@@ -946,6 +953,8 @@ public abstract class Type {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
                     type = ScalarType.createTimeV2Type(scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.FILE) {
+                    type = Type.FILE;
                 } else {
                     type = ScalarType.createType(
                             PrimitiveType.fromThrift(scalarType.getType()));

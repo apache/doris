@@ -94,6 +94,7 @@ class DataTypeArray;
 class DataTypeMap;
 class DataTypeVariant;
 class DataTypeStruct;
+class DataTypeFile;
 class DataTypeBitMap;
 class DataTypeQuantileState;
 template <PrimitiveType T>
@@ -151,6 +152,7 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_MAP:
     case TYPE_HLL:
     case TYPE_VARBINARY:
+    case TYPE_FILE:
         return false;
     case TYPE_TINYINT:
     case TYPE_SMALLINT:

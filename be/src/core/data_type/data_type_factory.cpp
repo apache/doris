@@ -46,6 +46,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_date_time.h"
 #include "core/data_type/data_type_decimal.h"
+#include "core/data_type/data_type_file.h"
 #include "core/data_type/data_type_fixed_length_object.h"
 #include "core/data_type/data_type_hll.h"
 #include "core/data_type/data_type_ipv4.h"
@@ -176,6 +177,9 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         break;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
         result = std::make_shared<DataTypeVariant>(0, false);
+        break;
+    case FieldType::OLAP_FIELD_TYPE_FILE:
+        result = std::make_shared<DataTypeFile>();
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<DataTypeJsonb>();
@@ -449,6 +453,9 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         break;
     case TYPE_VARIANT:
         nested = std::make_shared<DataTypeVariant>(0, false);
+        break;
+    case TYPE_FILE:
+        nested = std::make_shared<DataTypeFile>();
         break;
     case TYPE_STRING:
     case TYPE_CHAR:

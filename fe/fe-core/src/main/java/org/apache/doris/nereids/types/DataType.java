@@ -86,6 +86,7 @@ public abstract class DataType {
                     .put(Type.IPV4.getPrimitiveType(), IPv4Type.INSTANCE)
                     .put(Type.IPV6.getPrimitiveType(), IPv6Type.INSTANCE)
                     .put(Type.VARBINARY.getPrimitiveType(), VarBinaryType.INSTANCE)
+                    .put(Type.FILE.getPrimitiveType(), FileType.INSTANCE)
                     .build();
         }
     }
@@ -385,6 +386,9 @@ public abstract class DataType {
             case "variant":
                 dataType = VariantType.INSTANCE;
                 break;
+            case "file":
+                dataType = FileType.INSTANCE;
+                break;
             case "varbinary":
                 // NOTICE, Maybe. not supported create table, and varbinary do not have len now
                 dataType = VarBinaryType.INSTANCE;
@@ -439,6 +443,7 @@ public abstract class DataType {
             case IPV4: return IPv4Type.INSTANCE;
             case IPV6: return IPv6Type.INSTANCE;
             case VARBINARY: return VarBinaryType.createVarBinaryType(type.getLength());
+            case FILE: return FileType.INSTANCE;
             case AGG_STATE: {
                 org.apache.doris.catalog.AggStateType catalogType = ((org.apache.doris.catalog.AggStateType) type);
                 List<DataType> types = catalogType.getSubTypes().stream().map(DataType::fromCatalogType)
@@ -727,6 +732,10 @@ public abstract class DataType {
 
     public boolean isStructType() {
         return this instanceof StructType;
+    }
+
+    public boolean isFileType() {
+        return this instanceof FileType;
     }
 
     public boolean isOnlyMetricType() {

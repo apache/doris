@@ -345,8 +345,8 @@ Status HttpClient::init(const std::string& url, bool set_fail_on_error) {
         return Status::InternalError("fail to set CURLOPT_WRITEDATA");
     }
 
-    std::string escaped_url;
-    RETURN_IF_ERROR(_escape_url(url, &escaped_url));
+    std::string escaped_url = url;
+    // RETURN_IF_ERROR(_escape_url(url, &escaped_url));
     // set url
     code = curl_easy_setopt(_curl, CURLOPT_URL, escaped_url.c_str());
     if (code != CURLE_OK) {
@@ -441,20 +441,24 @@ Status HttpClient::execute(const std::function<bool(const void* data, size_t len
 }
 
 Status HttpClient::get_content_md5(std::string* md5) const {
+    return get_header(HttpHeaders::CONTENT_MD5, md5);
+}
+
+Status HttpClient::get_header(const std::string& name, std::string* value) const {
     struct curl_header* header_ptr;
-    auto code = curl_easy_header(_curl, HttpHeaders::CONTENT_MD5, 0, CURLH_HEADER, 0, &header_ptr);
+    auto code = curl_easy_header(_curl, name.c_str(), 0, CURLH_HEADER, 0, &header_ptr);
     if (code == CURLHE_MISSING || code == CURLHE_NOHEADERS) {
         // no such headers exists
-        md5->clear();
+        value->clear();
         return Status::OK();
     } else if (code != CURLHE_OK) {
-        auto msg = fmt::format("failed to get http header {}: {} ({})", HttpHeaders::CONTENT_MD5,
+        auto msg = fmt::format("failed to get http header {}: {} ({})", name,
                                header_error_msg(code), code);
         LOG(WARNING) << msg << ", trace=" << get_stack_trace();
         return Status::HttpError(std::move(msg));
     }
 
-    *md5 = header_ptr->value;
+    *value = header_ptr->value;
     return Status::OK();
 }
 

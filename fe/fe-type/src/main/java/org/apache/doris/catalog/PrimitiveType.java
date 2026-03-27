@@ -79,6 +79,7 @@ public enum PrimitiveType {
     STRUCT("STRUCT", 16, TPrimitiveType.STRUCT, false),
     STRING("STRING", 16, TPrimitiveType.STRING, true),
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT, false),
+    FILE("FILE", 16, TPrimitiveType.FILE, false),
     TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE, false),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY, false);
@@ -147,6 +148,7 @@ public enum PrimitiveType {
         supportedTypes.add(BITMAP);
         supportedTypes.add(ARRAY);
         supportedTypes.add(MAP);
+        supportedTypes.add(FILE);
         supportedTypes.add(QUANTILE_STATE);
         supportedTypes.add(AGG_STATE);
     }
@@ -257,6 +259,8 @@ public enum PrimitiveType {
                 return STRUCT;
             case VARIANT:
                 return VARIANT;
+            case FILE:
+                return FILE;
             case VARBINARY:
                 return VARBINARY;
             case ALL:

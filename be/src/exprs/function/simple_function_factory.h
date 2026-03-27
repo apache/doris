@@ -74,6 +74,7 @@ void register_function_utility(SimpleFunctionFactory& factory);
 void register_function_json(SimpleFunctionFactory& factory);
 void register_function_jsonb(SimpleFunctionFactory& factory);
 void register_function_to_json(SimpleFunctionFactory& factory);
+void register_function_file(SimpleFunctionFactory& factory);
 void register_function_json_transform(SimpleFunctionFactory& factory);
 void register_function_json_hash(SimpleFunctionFactory& factory);
 void register_function_hash(SimpleFunctionFactory& factory);
@@ -312,6 +313,7 @@ public:
             register_function_json(instance);
             register_function_jsonb(instance);
             register_function_to_json(instance);
+            register_function_file(instance);
             register_function_hash(instance);
             register_function_comparison_eq_for_null(instance);
             register_function_like(instance);

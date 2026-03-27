@@ -160,6 +160,7 @@ enum class FieldType {
     OLAP_FIELD_TYPE_IPV4 = 38,
     OLAP_FIELD_TYPE_IPV6 = 39,
     OLAP_FIELD_TYPE_TIMESTAMPTZ = 40,
+    OLAP_FIELD_TYPE_FILE = 41,
 };
 
 // Define all aggregation methods supported by StorageField

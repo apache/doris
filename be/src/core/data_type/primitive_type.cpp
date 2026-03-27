@@ -141,6 +141,8 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
         return TYPE_VARBINARY;
     case TPrimitiveType::TIMESTAMPTZ:
         return TYPE_TIMESTAMPTZ;
+    case TPrimitiveType::FILE:
+        return TYPE_FILE;
     default:
         CHECK(false) << ", meet unknown type " << ttype;
         return INVALID_TYPE;
@@ -256,6 +258,8 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
         return TPrimitiveType::VARBINARY;
     case TYPE_TIMESTAMPTZ:
         return TPrimitiveType::TIMESTAMPTZ;
+    case TYPE_FILE:
+        return TPrimitiveType::FILE;
     default:
         return TPrimitiveType::INVALID_TYPE;
     }
@@ -373,6 +377,8 @@ std::string type_to_string(PrimitiveType t) {
 
     case TYPE_TIMESTAMPTZ:
         return "TIMESTAMPTZ";
+    case TYPE_FILE:
+        return "FILE";
     default:
         return "";
     };
