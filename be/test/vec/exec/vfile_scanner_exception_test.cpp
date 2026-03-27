@@ -321,7 +321,7 @@ TEST_F(VfileScannerExceptionTest, process_late_arrival_conjuncts_retain) {
     texpr.nodes.push_back(expr_node);
 
     vectorized::VExprContextSPtr ctx;
-    Status st = vectorized::VExpr::create_expr_tree(&_obj_pool, texpr, &ctx);
+    Status st = vectorized::VExpr::create_expr_tree(texpr, ctx);
     ASSERT_TRUE(st.ok());
     st = ctx->prepare(&_runtime_state, RowDescriptor());
     ASSERT_TRUE(st.ok());
