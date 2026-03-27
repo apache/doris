@@ -46,6 +46,8 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ConstraintManager;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
+import org.apache.doris.catalog.stream.BaseTableStream;
+import org.apache.doris.catalog.stream.TableStreamManager;
 import org.apache.doris.clone.ColocateTableCheckerAndBalancer;
 import org.apache.doris.clone.DynamicPartitionScheduler;
 import org.apache.doris.clone.TabletChecker;
@@ -592,6 +594,8 @@ public class Env {
 
     private LineageEventProcessor lineageEventProcessor;
 
+    private TableStreamManager tableStreamManager;
+
     // if a config is relative to a daemon thread. record the relation here. we will proactively change interval of it.
     private final Map<String, Supplier<MasterDaemon>> configtoThreads = ImmutableMap
             .of("dynamic_partition_check_interval_seconds", this::getDynamicPartitionScheduler);
@@ -703,6 +707,10 @@ public class Env {
             throw new Exception("The keyManager is null, possibly due to a missing implementation of KeyManager");
         }
         return keyManager;
+    }
+
+    public TableStreamManager getTableStreamManager() {
+        return tableStreamManager;
     }
 
     private static class SingletonHolder {
@@ -860,6 +868,7 @@ public class Env {
         if (Config.agent_task_health_check_intervals_ms > 0) {
             this.agentTaskCleanupDaemon = new AgentTaskCleanupDaemon();
         }
+        this.tableStreamManager = new TableStreamManager();
     }
 
     public void registerTempTableAndSession(Table table) {
@@ -2590,6 +2599,18 @@ public class Env {
     public long saveDictionaryManager(CountingDataOutputStream out, long checksum) throws IOException {
         this.dictionaryManager.write(out);
         LOG.info("finished save dictMgr to image");
+        return checksum;
+    }
+
+    public long loadTableStreamManager(DataInputStream in, long checksum) throws IOException {
+        this.tableStreamManager = TableStreamManager.read(in);
+        LOG.info("finished replay TableStreamManager from image");
+        return checksum;
+    }
+
+    public long saveTableStreamManager(CountingDataOutputStream out, long checksum) throws IOException {
+        this.tableStreamManager.write(out);
+        LOG.info("finished save TableStreamManager to image");
         return checksum;
     }
 
@@ -4432,7 +4453,29 @@ public class Env {
             return;
         }
 
-        // 1.2 other table type
+        // 1.2 stream
+        if (table.getType() == TableType.STREAM) {
+            BaseTableStream stream = (BaseTableStream) table;
+
+            sb.append("CREATE STREAM ");
+            sb.append('`').append(table.getName()).append('`').append('\n');
+            TableIf baseTable = stream.getBaseTableNullable();
+            if (baseTable != null) {
+                sb.append("ON TABLE ").append(baseTable.getNameWithFullQualifiers());
+            } else {
+                sb.append("ON TABLE ").append("UNKNOWN");
+            }
+            // (COMMENT STRING_LITERAL)?
+            addTableComment(table, sb);
+            // properties=propertyClause?
+            sb.append("\nPROPERTIES (\n");
+            stream.appendProperties(sb);
+            sb.append(")");
+            createTableStmt.add(sb + ";");
+            return;
+        }
+
+        // 1.3 other table type
         sb.append("CREATE ");
         if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL
                 || table.getType() == TableType.ELASTICSEARCH || table.getType() == TableType.BROKER
@@ -4800,6 +4843,9 @@ public class Env {
             if (table instanceof MTMV) {
                 ((MTMV) table).compatible(Env.getCurrentEnv().getCatalogMgr());
             }
+            if (table instanceof BaseTableStream) {
+                getTableStreamManager().addTableStream((BaseTableStream) table);
+            }
         } else {
             ExternalCatalog externalCatalog = (ExternalCatalog) catalogMgr.getCatalog(info.getCtlName());
             if (externalCatalog != null) {
@@ -4819,21 +4865,33 @@ public class Env {
             throw new DdlException("DropMTMVCommand is null");
         }
         DropMTMVInfo dropMTMVInfo = command.getDropMTMVInfo();
-        dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false,
-                true, dropMTMVInfo.isIfExists(), false, true);
+        dropTable(dropMTMVInfo.getCatalogName(), dropMTMVInfo.getDbName(), dropMTMVInfo.getTableName(), false, true,
+                false, dropMTMVInfo.isIfExists(), false, true);
     }
 
     public void dropTable(String catalogName, String dbName, String tableName, boolean isView, boolean isMtmv,
-                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
+                          boolean isStream, boolean ifExists, boolean mustTemporary, boolean force)
+            throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(dbName, tableName, isView, isMtmv, ifExists, mustTemporary, force);
+        catalogIf.dropTable(dbName, tableName, isView, isMtmv, isStream, ifExists, mustTemporary, force);
     }
 
     public void dropView(String catalogName, String dbName, String tableName, boolean ifExists) throws DdlException {
         CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
                 catalog -> new DdlException(("Unknown catalog " + catalog)));
-        catalogIf.dropTable(dbName, tableName, true, false, ifExists,  false, false);
+        catalogIf.dropTable(dbName, tableName, true, false, false, ifExists,  false, false);
+    }
+
+    public void dropStream(String catalogName, String dbName, String tableName, boolean ifExists,
+                           boolean force) throws DdlException {
+        if (!Config.enable_table_stream) {
+            throw new DdlException("Table Stream is experimental."
+                    + " Please set enable_table_stream=true to enable it.");
+        }
+        CatalogIf<?> catalogIf = catalogMgr.getCatalogOrException(catalogName,
+                catalog -> new DdlException(("Unknown catalog " + catalog)));
+        catalogIf.dropTable(dbName, tableName, false, false, true, ifExists,  false, force);
     }
 
     public boolean unprotectDropTable(Database db, Table table, boolean isForceDrop, boolean isReplay,

@@ -852,7 +852,8 @@ public class Alter {
             String viewName = view.getName();
             if (comment != null) {
                 view.setComment(comment);
-            } else {
+            }
+            if (!Strings.isNullOrEmpty(inlineViewDef)) {
                 view.setInlineViewDefWithSessionVariables(inlineViewDef, alterViewInfo.getSessionVariables());
                 view.setNewFullSchema(newFullSchema);
             }

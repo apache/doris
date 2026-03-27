@@ -100,9 +100,6 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
     }
     _dependency = dependency;
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
-    if (auto ctx = task_exec_ctx(); ctx) {
-        ctx->ref_task_execution_ctx();
-    }
 }
 
 int64_t ScannerContext::acquire_limit_quota(int64_t desired) {
@@ -217,9 +214,6 @@ ScannerContext::~ScannerContext() {
             static_cast<void>(task_executor_scheduler->task_executor()->remove_task(_task_handle));
         }
         _task_handle = nullptr;
-    }
-    if (auto ctx = task_exec_ctx(); ctx) {
-        ctx->unref_task_execution_ctx();
     }
 }
 

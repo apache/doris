@@ -280,13 +280,11 @@ Status ConcurrentContextMap<Key, Value, ValueType>::apply_if_not_exists(
 }
 
 template <typename Key, typename Value, typename ValueType>
-void ConcurrentContextMap<Key, Value, ValueType>::erase(const Key& query_id) {
+bool ConcurrentContextMap<Key, Value, ValueType>::erase(const Key& query_id) {
     auto id = get_map_id(query_id, _internal_map.size());
-    {
-        std::unique_lock lock(*_internal_map[id].first);
-        auto& map = _internal_map[id].second;
-        map.erase(query_id);
-    }
+    std::unique_lock lock(*_internal_map[id].first);
+    auto& map = _internal_map[id].second;
+    return map.erase(query_id) != 0;
 }
 
 template <typename Key, typename Value, typename ValueType>
@@ -344,6 +342,10 @@ void FragmentMgr::stop() {
     // destructred and remove it from _query_ctx_map_delay_delete which is destructring. it's UB.
     _query_ctx_map_delay_delete.clear();
     _pipeline_map.clear();
+    {
+        std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
+        _rerunnable_params_map.clear();
+    }
 }
 
 std::string FragmentMgr::to_http_path(const std::string& file_name) {
@@ -676,16 +678,28 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
 }
 
 void FragmentMgr::remove_pipeline_context(std::pair<TUniqueId, int> key) {
-    int64_t now = duration_cast<std::chrono::milliseconds>(
-                          std::chrono::system_clock::now().time_since_epoch())
-                          .count();
-    g_fragment_executing_count << -1;
-    g_fragment_last_active_time.set_value(now);
-
-    _pipeline_map.erase(key);
+    if (_pipeline_map.erase(key)) {
+        int64_t now = duration_cast<std::chrono::milliseconds>(
+                              std::chrono::system_clock::now().time_since_epoch())
+                              .count();
+        g_fragment_executing_count << -1;
+        g_fragment_last_active_time.set_value(now);
+    }
 }
 
 void FragmentMgr::remove_query_context(const TUniqueId& key) {
+    // Clean up any saved rerunnable params for this query to avoid memory leaks.
+    // This covers both cancel and normal destruction paths.
+    {
+        std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
+        for (auto it = _rerunnable_params_map.begin(); it != _rerunnable_params_map.end();) {
+            if (it->first.first == key) {
+                it = _rerunnable_params_map.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
     _query_ctx_map_delay_delete.erase(key);
 #ifndef BE_TEST
     _query_ctx_map.erase(key);
@@ -920,6 +934,19 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
                     print_id(params.query_id), params.fragment_id);
         }
         _pipeline_map.insert({params.query_id, params.fragment_id}, context);
+    }
+
+    // Save params for recursive CTE child fragments so we can recreate the PFC later.
+    // For recursive CTE, the child fragment needs to be destroyed and rebuilt between rounds,
+    // so we save the original params here and use them in rerun_fragment(rebuild).
+    if (params.__isset.need_notify_close && params.need_notify_close) {
+        std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
+        _rerunnable_params_map[{params.query_id, params.fragment_id}] = {
+                .deregister_runtime_filter_ids = {},
+                .params = params,
+                .parent = parent,
+                .finish_callback = cb,
+                .query_ctx = query_ctx};
     }
 
     if (!params.__isset.need_wait_execution_trigger || !params.need_wait_execution_trigger) {
@@ -1337,6 +1364,10 @@ Status FragmentMgr::apply_filterv2(const PPublishFilterRequestV2* request,
 
         // 2. create the filter wrapper to replace or ignore/disable the target filters
         if (!filters.empty()) {
+            // Discard stale-stage requests from old recursive CTE rounds.
+            if (filters[0]->stage() != request->stage()) {
+                return Status::OK();
+            }
             RETURN_IF_ERROR(filters[0]->assign(*request, attach_data));
             std::ranges::for_each(filters, [&](auto& filter) { filter->signal(filters[0].get()); });
         }
@@ -1462,35 +1493,112 @@ Status FragmentMgr::transmit_rec_cte_block(
     }
 }
 
-Status FragmentMgr::rerun_fragment(const TUniqueId& query_id, int fragment,
+// Orchestrates the recursive CTE fragment lifecycle through 4 phases:
+//
+// wait_for_destroy: collect deregister RF IDs, store brpc closure, trigger old PFC close
+// rebuild: increment stage, deregister old RFs, create+prepare new PFC from saved params
+// submit: submit the new PFC's pipeline tasks for execution
+// final_close: async wait for close, send final report, clean up (last round only)
+//
+// The brpc ClosureGuard is stored in the PFC so the RPC response is deferred until
+// the PFC is fully destroyed. This gives the caller (RecCTESourceOperatorX) a
+// synchronization point to know when the old PFC has finished all its tasks.
+Status FragmentMgr::rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& guard,
+                                   const TUniqueId& query_id, int fragment_id,
                                    PRerunFragmentParams_Opcode stage) {
-    if (auto q_ctx = get_query_ctx(query_id)) {
-        SCOPED_ATTACH_TASK(q_ctx.get());
-        auto fragment_ctx = _pipeline_map.find({query_id, fragment});
+    if (stage == PRerunFragmentParams::WAIT_FOR_DESTROY ||
+        stage == PRerunFragmentParams::FINAL_CLOSE) {
+        auto fragment_ctx = _pipeline_map.find({query_id, fragment_id});
         if (!fragment_ctx) {
             return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
-                                    print_id(query_id), fragment);
+                                    print_id(query_id), fragment_id);
         }
 
-        if (stage == PRerunFragmentParams::wait) {
-            return fragment_ctx->wait_close(false);
-        } else if (stage == PRerunFragmentParams::release) {
-            return fragment_ctx->set_to_rerun();
-        } else if (stage == PRerunFragmentParams::rebuild) {
-            return fragment_ctx->rebuild(_thread_pool.get());
-        } else if (stage == PRerunFragmentParams::submit) {
-            return fragment_ctx->submit();
-        } else if (stage == PRerunFragmentParams::close) {
-            return fragment_ctx->wait_close(true);
-        } else {
-            return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
+        if (stage == PRerunFragmentParams::WAIT_FOR_DESTROY) {
+            std::unique_lock<std::mutex> lk(_rerunnable_params_lock);
+            auto it = _rerunnable_params_map.find({query_id, fragment_id});
+            if (it == _rerunnable_params_map.end()) {
+                lk.unlock();
+                auto st = fragment_ctx->listen_wait_close(guard, true);
+                if (!st.ok()) {
+                    LOG(WARNING) << fmt::format(
+                            "wait_for_destroy fragment context (query-id: {}, fragment-id: "
+                            "{}) failed: {}",
+                            print_id(query_id), fragment_id, st.to_string());
+                }
+                return Status::NotFound(
+                        "Rerunnable params (query-id: {}, fragment-id: {}) not found",
+                        print_id(query_id), fragment_id);
+            }
+
+            it->second.deregister_runtime_filter_ids.merge(
+                    fragment_ctx->get_deregister_runtime_filter());
         }
+
+        auto* query_ctx = fragment_ctx->get_query_ctx();
+        SCOPED_ATTACH_TASK(query_ctx);
+        RETURN_IF_ERROR(
+                fragment_ctx->listen_wait_close(guard, stage == PRerunFragmentParams::FINAL_CLOSE));
+        fragment_ctx->notify_close();
+        return Status::OK();
+    } else if (stage == PRerunFragmentParams::REBUILD) {
+        auto q_ctx = get_query_ctx(query_id);
+        if (!q_ctx) {
+            return Status::NotFound(
+                    "rerun_fragment: Query context (query-id: {}) not found, maybe finished",
+                    print_id(query_id));
+        }
+        SCOPED_ATTACH_TASK(q_ctx.get());
+        RerunableFragmentInfo info;
+        {
+            std::lock_guard<std::mutex> lk(_rerunnable_params_lock);
+            auto it = _rerunnable_params_map.find({query_id, fragment_id});
+            if (it == _rerunnable_params_map.end()) {
+                return Status::NotFound("rebuild (query-id: {}, fragment-id: {}) not found",
+                                        print_id(query_id), fragment_id);
+            }
+            it->second.stage++;
+            // Deregister old runtime filters so new ones can be registered in the new PFC.
+            for (int32_t filter_id : it->second.deregister_runtime_filter_ids) {
+                q_ctx->runtime_filter_mgr()->remove_filter(filter_id);
+            }
+            info = it->second;
+        }
+
+        auto context = std::make_shared<PipelineFragmentContext>(
+                q_ctx->query_id(), info.params, q_ctx, _exec_env, info.finish_callback,
+                [this](const ReportStatusRequest& req, auto&& ctx) {
+                    return this->trigger_pipeline_context_report(req, std::move(ctx));
+                });
+        // Propagate the recursion stage so that runtime filters created by this PFC
+        // carry the correct stage number.
+        context->set_rec_cte_stage(info.stage);
+
+        Status prepare_st = Status::OK();
+        ASSIGN_STATUS_IF_CATCH_EXCEPTION(prepare_st = context->prepare(_thread_pool.get()),
+                                         prepare_st);
+        if (!prepare_st.ok()) {
+            q_ctx->cancel(prepare_st, info.params.fragment_id);
+            return prepare_st;
+        }
+
+        // Insert new PFC into _pipeline_map (old one was removed)
+        _pipeline_map.insert({info.params.query_id, info.params.fragment_id}, context);
+
+        // Update QueryContext mapping (must support overwrite)
+        q_ctx->set_pipeline_context(info.params.fragment_id, context);
+        return Status::OK();
+
+    } else if (stage == PRerunFragmentParams::SUBMIT) {
+        auto fragment_ctx = _pipeline_map.find({query_id, fragment_id});
+        if (!fragment_ctx) {
+            return Status::NotFound("Fragment context (query-id: {}, fragment-id: {}) not found",
+                                    print_id(query_id), fragment_id);
+        }
+        return fragment_ctx->submit();
     } else {
-        return Status::NotFound(
-                "reset_fragment: Query context (query-id: {}) not found, maybe finished",
-                print_id(query_id));
+        return Status::InvalidArgument("Unknown rerun fragment opcode: {}", stage);
     }
-    return Status::OK();
 }
 
 Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
@@ -1503,7 +1611,6 @@ Status FragmentMgr::reset_global_rf(const TUniqueId& query_id,
                 "reset_fragment: Query context (query-id: {}) not found, maybe finished",
                 print_id(query_id));
     }
-    return Status::OK();
 }
 
 #include "common/compile_check_end.h"

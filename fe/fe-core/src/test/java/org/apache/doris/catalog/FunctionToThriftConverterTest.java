@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.catalog.Function.BinaryType;
 import org.apache.doris.thrift.TAggregateFunction;
 import org.apache.doris.thrift.TFunction;
 import org.apache.doris.thrift.TFunctionBinaryType;
@@ -32,7 +33,7 @@ public class FunctionToThriftConverterTest {
     void testScalarFunctionJavaUdf_symbolIsPopulated() {
         FunctionName name = new FunctionName("db1", "java_udf_fn");
         Type[] argTypes = {Type.INT, Type.STRING};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.DOUBLE, false, null, "com.example.MyFn", null, null);
 
         TFunction result = FunctionToThriftConverter.toThrift(
@@ -47,7 +48,7 @@ public class FunctionToThriftConverterTest {
     void testScalarFunctionRpc_symbolIsPopulated() {
         FunctionName name = new FunctionName("db1", "rpc_fn");
         Type[] argTypes = {Type.BIGINT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.RPC, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.RPC, name, argTypes,
                 Type.INT, false, null, "rpc_symbol_name", null, null);
 
         TFunction result = FunctionToThriftConverter.toThrift(
@@ -61,7 +62,7 @@ public class FunctionToThriftConverterTest {
     void testScalarFunctionNative_symbolIsEmpty() {
         FunctionName name = new FunctionName("db1", "native_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.NATIVE, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
                 Type.INT, false, null, "ignored_symbol", null, null);
 
         TFunction result = FunctionToThriftConverter.toThrift(
@@ -82,7 +83,7 @@ public class FunctionToThriftConverterTest {
                 Type.BIGINT, null,
                 "init_fn", "update_fn", "merge_fn",
                 "serialize_fn", "finalize_fn", "get_value_fn", "remove_fn");
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         TFunction result = FunctionToThriftConverter.toThrift(
                 fn, Type.BIGINT, argTypes, new Boolean[]{true});
@@ -108,7 +109,7 @@ public class FunctionToThriftConverterTest {
                 name, argTypes, Type.BIGINT, false,
                 Type.STRING, null,
                 "init", "update", "merge", null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         TFunction result = FunctionToThriftConverter.toThrift(
                 fn, Type.BIGINT, argTypes, new Boolean[]{true});
@@ -126,7 +127,7 @@ public class FunctionToThriftConverterTest {
                 name, argTypes, Type.BIGINT, false,
                 Type.BIGINT, null,
                 "init", "update", "merge", null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
         // Clear intermediateType so the converter falls back to returnType
         fn.setIntermediateType(null);
 
@@ -147,7 +148,7 @@ public class FunctionToThriftConverterTest {
                 Type.DOUBLE, null,
                 "init", "update", "merge",
                 null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         TFunction result = FunctionToThriftConverter.toThrift(
                 fn, Type.DOUBLE, argTypes, new Boolean[]{true});
@@ -169,7 +170,7 @@ public class FunctionToThriftConverterTest {
     void testBaseFields_nameHandling() {
         FunctionName name = new FunctionName("test_db", "test_func");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "sym", null, null);
 
         TFunction result = FunctionToThriftConverter.toThrift(
@@ -184,7 +185,7 @@ public class FunctionToThriftConverterTest {
     void testBaseFields_signatureAndBinaryType() {
         FunctionName name = new FunctionName("db1", "sig_fn");
         Type[] argTypes = {Type.INT, Type.DOUBLE};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.STRING, false, null, "sym", null, null);
 
         TFunction result = FunctionToThriftConverter.toThrift(
@@ -199,7 +200,7 @@ public class FunctionToThriftConverterTest {
     void testBaseFields_functionProperties() {
         FunctionName name = new FunctionName("db1", "prop_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, true, null, "sym", null, null);
         fn.setId(42L);
         fn.setChecksum("abc123");
@@ -222,7 +223,7 @@ public class FunctionToThriftConverterTest {
     void testBaseFields_emptyChecksum_notSet() {
         FunctionName name = new FunctionName("db1", "no_checksum_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.NATIVE, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
                 Type.INT, false, null, "", null, null);
         // Default checksum is "" — should NOT be set on the thrift object
 
@@ -238,7 +239,7 @@ public class FunctionToThriftConverterTest {
     void testRealReturnTypeWithPrecision_usesRealReturnType() {
         FunctionName name = new FunctionName("db1", "decimal_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.NATIVE, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
                 Type.DOUBLE, false, null, "", null, null);
 
         ScalarType realReturnType = ScalarType.createDecimalV3Type(18, 6);
@@ -254,7 +255,7 @@ public class FunctionToThriftConverterTest {
     void testRealReturnTypeWithoutPrecision_usesFunctionReturnType() {
         FunctionName name = new FunctionName("db1", "simple_fn");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.NATIVE, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
                 Type.DOUBLE, false, null, "", null, null);
 
         // Type.INT does not contain precision, so fn.getReturnType() (DOUBLE) should be used
@@ -270,7 +271,7 @@ public class FunctionToThriftConverterTest {
     void testDispatcher_routesScalarFunctionCorrectly() {
         FunctionName name = new FunctionName("db1", "dispatch_scalar");
         Type[] argTypes = {Type.INT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.JAVA_UDF, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.JAVA_UDF, name, argTypes,
                 Type.INT, false, null, "sym", null, null);
 
         // Call the dispatcher overload that takes Function (not ScalarFunction)
@@ -290,7 +291,7 @@ public class FunctionToThriftConverterTest {
                 name, argTypes, Type.INT, false,
                 Type.INT, null,
                 "init", "update", "merge", null, null, null, null);
-        fn.setBinaryType(TFunctionBinaryType.NATIVE);
+        fn.setBinaryType(BinaryType.NATIVE);
 
         // Call the dispatcher overload that takes Function (not AggregateFunction)
         TFunction result = FunctionToThriftConverter.toThrift(
@@ -306,7 +307,7 @@ public class FunctionToThriftConverterTest {
     void testArgTypes_realArgTypesSameLength() {
         FunctionName name = new FunctionName("db1", "arg_fn");
         Type[] argTypes = {Type.INT, Type.BIGINT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.NATIVE, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
                 Type.INT, false, null, "", null, null);
 
         Type[] realArgTypes = {Type.INT, Type.BIGINT};
@@ -321,7 +322,7 @@ public class FunctionToThriftConverterTest {
     void testArgTypes_realArgTypesDifferentLength() {
         FunctionName name = new FunctionName("db1", "vararg_fn");
         Type[] argTypes = {Type.INT, Type.BIGINT};
-        ScalarFunction fn = ScalarFunction.createUdf(TFunctionBinaryType.NATIVE, name, argTypes,
+        ScalarFunction fn = ScalarFunction.createUdf(BinaryType.NATIVE, name, argTypes,
                 Type.INT, true, null, "", null, null);
 
         // Pass different number of realArgTypes to trigger the alternate branch

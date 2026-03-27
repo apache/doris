@@ -32,7 +32,6 @@ import org.apache.doris.nereids.trees.expressions.functions.Udf;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -47,7 +46,7 @@ import java.util.stream.Collectors;
 public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSignature, Udf {
     private final String dbName;
     private final long functionId;
-    private final TFunctionBinaryType binaryType;
+    private final Function.BinaryType binaryType;
     private final FunctionSignature signature;
     private final NullableMode nullableMode;
     private final String objectFile;
@@ -63,7 +62,7 @@ public class PythonUdf extends ScalarFunction implements ExplicitlyCastableSigna
     /**
      * Constructor of UDF
      */
-    public PythonUdf(String name, long functionId, String dbName, TFunctionBinaryType binaryType,
+    public PythonUdf(String name, long functionId, String dbName, Function.BinaryType binaryType,
                      FunctionSignature signature,
                      NullableMode nullableMode, String objectFile, String symbol, String prepareFn, String closeFn,
                      String checkSum, boolean isStaticLoad, long expirationTime,

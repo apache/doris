@@ -119,6 +119,7 @@ import org.apache.doris.catalog.constraint.Constraint;
 import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
 import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
 import org.apache.doris.catalog.constraint.UniqueConstraint;
+import org.apache.doris.catalog.stream.OlapTableStream;
 import org.apache.doris.cloud.backup.CloudRestoreJob;
 import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.catalog.CloudReplica;
@@ -499,7 +500,8 @@ public class GsonUtils {
             .registerSubtype(OdbcTable.class, OdbcTable.class.getSimpleName())
             .registerSubtype(SchemaTable.class, SchemaTable.class.getSimpleName())
             .registerSubtype(View.class, View.class.getSimpleName())
-            .registerSubtype(Dictionary.class, Dictionary.class.getSimpleName());
+            .registerSubtype(Dictionary.class, Dictionary.class.getSimpleName())
+            .registerSubtype(OlapTableStream.class, OlapTableStream.class.getSimpleName());
 
     // runtime adapter for class "PartitionInfo"
     private static RuntimeTypeAdapterFactory<PartitionInfo> partitionInfoTypeAdapterFactory
