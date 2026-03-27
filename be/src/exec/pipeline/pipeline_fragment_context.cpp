@@ -1941,6 +1941,7 @@ void PipelineFragmentContext::decrement_running_task(PipelineId pipeline_id, int
     ++_closed_tasks;
     if (_closed_tasks >= _total_tasks) {
         _close_fragment_instance();
+    }
     bool need_remove = false;
     {
         std::lock_guard<std::mutex> l(_task_mutex);
