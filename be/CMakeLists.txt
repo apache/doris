@@ -706,6 +706,11 @@ else()
         -lresolv
         -liconv
     )
+    # On macOS arm64, large binaries (>2GB) can cause the virtual address space
+    # to overlap with the dyld shared cache region, resulting in "dyld cache not
+    # loaded: syscall to map cache into shared region failed". Use -dead_strip to
+    # remove unreachable code/data and reduce binary size.
+    add_link_options(-Wl,-dead_strip)
 endif()
 
 

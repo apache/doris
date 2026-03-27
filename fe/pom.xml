@@ -259,6 +259,7 @@ under the License.
         <module>fe-authentication</module>
         <module>fe-thrift</module>
         <module>fe-type</module>
+        <module>fe-grpc</module>
     </modules>
     <properties>
         <doris.hive.catalog.shade.version>3.1.1</doris.hive.catalog.shade.version>

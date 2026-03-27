@@ -37,7 +37,6 @@ public class DropRollupOp extends AlterTableOp {
         super(AlterOpType.DROP_ROLLUP);
         this.rollupName = rollupName;
         this.properties = properties;
-        this.needTableStable = false;
     }
 
     @Override

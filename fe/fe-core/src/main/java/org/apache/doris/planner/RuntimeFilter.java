@@ -283,20 +283,12 @@ public final class RuntimeFilter {
         return tFilter;
     }
 
-    public List<RuntimeFilterTarget> getTargets() {
-        return targets;
-    }
-
     public boolean hasTargets() {
         return !targets.isEmpty();
     }
 
     public Expr getSrcExpr() {
         return srcExpr;
-    }
-
-    public List<Expr> getOrigTargetExprs() {
-        return origTargetExprs;
     }
 
     public List<Map<TupleId, List<SlotId>>> getTargetSlots() {

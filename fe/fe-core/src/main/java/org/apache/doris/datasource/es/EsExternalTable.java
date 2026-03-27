@@ -18,12 +18,16 @@
 package org.apache.doris.datasource.es;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsTable;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
+
+import lombok.Getter;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
@@ -35,7 +39,46 @@ import java.util.Optional;
  */
 public class EsExternalTable extends ExternalTable {
 
-    private EsTable esTable;
+    private static final Logger LOG = LogManager.getLogger(EsExternalTable.class);
+
+    private static final int DEFAULT_MAX_DOCVALUE_FIELDS = 20;
+
+    // Runtime ES state — populated by initEsState()
+    @Getter
+    private String indexName;
+    @Getter
+    private String mappingType = null;
+    @Getter
+    private String userName = "";
+    @Getter
+    private String passwd = "";
+    @Getter
+    private String hosts;
+    @Getter
+    private String[] seeds;
+    @Getter
+    private boolean enableDocValueScan;
+    @Getter
+    private boolean enableKeywordSniff;
+    @Getter
+    private boolean nodesDiscovery;
+    @Getter
+    private boolean httpSslEnabled;
+    @Getter
+    private boolean likePushDown;
+    @Getter
+    private boolean includeHiddenIndex;
+    @Getter
+    private int maxDocValueFields = DEFAULT_MAX_DOCVALUE_FIELDS;
+    @Getter
+    private Map<String, String> column2typeMap = new HashMap<>();
+
+    private EsRestClient client;
+    private EsMetaStateTracker esMetaStateTracker;
+    @Getter
+    private EsTablePartitions esTablePartitions;
+    @Getter
+    private Throwable lastMetaDataSyncException = null;
 
     /**
      * Create elasticsearch external table.
@@ -53,14 +96,9 @@ public class EsExternalTable extends ExternalTable {
     protected synchronized void makeSureInitialized() {
         super.makeSureInitialized();
         if (!objectCreated) {
-            esTable = toEsTable();
+            initEsState();
             objectCreated = true;
         }
-    }
-
-    public EsTable getEsTable() {
-        makeSureInitialized();
-        return esTable;
     }
 
     @Override
@@ -84,28 +122,71 @@ public class EsExternalTable extends ExternalTable {
 
     public Map<String, String> getColumn2type() {
         Optional<SchemaCacheValue> schemaCacheValue = getSchemaCacheValue();
-        return schemaCacheValue.map(value -> ((EsSchemaCacheValue) value).getColumn2typeMap()).orElse(null);
+        return schemaCacheValue.map(value -> ((EsSchemaCacheValue) value).getColumn2typeMap()).orElse(new HashMap<>());
     }
 
-    private EsTable toEsTable() {
-        List<Column> schema = getFullSchema();
-        Map<String, String> column2typeMap = getColumn2type();
+    /**
+     * Get fetch fields context (col -> col.keyword mapping for keyword sniff).
+     */
+    public Map<String, String> fieldsContext() throws UserException {
+        makeSureInitialized();
+        return esMetaStateTracker.searchContext().fetchFieldsContext();
+    }
+
+    /**
+     * Get doc value fields context for doc_value scan optimization.
+     */
+    public Map<String, String> docValueContext() throws UserException {
+        makeSureInitialized();
+        return esMetaStateTracker.searchContext().docValueFieldsContext();
+    }
+
+    /**
+     * Get fields that need date compatibility handling.
+     */
+    public List<String> needCompatDateFields() throws UserException {
+        makeSureInitialized();
+        return esMetaStateTracker.searchContext().needCompatDateFields();
+    }
+
+    /**
+     * Initialize all ES runtime state from catalog configuration.
+     * Replaces the old toEsTable() bridge pattern.
+     */
+    private void initEsState() {
         EsExternalCatalog esCatalog = (EsExternalCatalog) catalog;
-        EsTable esTable = new EsTable(this.id, this.name, schema, TableType.ES_EXTERNAL_TABLE);
-        esTable.setIndexName(name);
-        esTable.setClient(esCatalog.getEsRestClient());
-        esTable.setUserName(esCatalog.getUsername());
-        esTable.setPasswd(esCatalog.getPassword());
-        esTable.setEnableDocValueScan(esCatalog.enableDocValueScan());
-        esTable.setEnableKeywordSniff(esCatalog.enableKeywordSniff());
-        esTable.setNodesDiscovery(esCatalog.enableNodesDiscovery());
-        esTable.setHttpSslEnabled(esCatalog.enableSsl());
-        esTable.setLikePushDown(esCatalog.enableLikePushDown());
-        esTable.setSeeds(esCatalog.getNodes());
-        esTable.setHosts(String.join(",", esCatalog.getNodes()));
-        esTable.syncTableMetaData();
-        esTable.setIncludeHiddenIndex(esCatalog.enableIncludeHiddenIndex());
-        esTable.setColumn2typeMap(column2typeMap);
-        return esTable;
+
+        this.indexName = name;
+        this.userName = esCatalog.getUsername();
+        this.passwd = esCatalog.getPassword();
+        this.enableDocValueScan = esCatalog.enableDocValueScan();
+        this.enableKeywordSniff = esCatalog.enableKeywordSniff();
+        this.nodesDiscovery = esCatalog.enableNodesDiscovery();
+        this.httpSslEnabled = esCatalog.enableSsl();
+        this.likePushDown = esCatalog.enableLikePushDown();
+        this.includeHiddenIndex = esCatalog.enableIncludeHiddenIndex();
+        this.seeds = esCatalog.getNodes();
+        this.hosts = String.join(",", esCatalog.getNodes());
+        this.client = esCatalog.getEsRestClient();
+        this.column2typeMap = getColumn2type();
+
+        // Initialize metadata tracker and sync
+        this.esMetaStateTracker = new EsMetaStateTracker(client, this);
+        syncTableMetaData();
+    }
+
+    /**
+     * Sync es index meta from remote ES Cluster.
+     */
+    public void syncTableMetaData() {
+        try {
+            esMetaStateTracker.run();
+            this.esTablePartitions = esMetaStateTracker.searchContext().tablePartitions();
+        } catch (Throwable e) {
+            LOG.warn("Exception happens when fetch index [{}] meta data from remote es cluster. err: ",
+                    this.name, e);
+            this.esTablePartitions = null;
+            this.lastMetaDataSyncException = e;
+        }
     }
 }

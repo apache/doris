@@ -124,10 +124,6 @@ public class DataStreamSink extends DataSink {
         return runtimeFilters;
     }
 
-    public void setRuntimeFilters(List<RuntimeFilter> runtimeFilters) {
-        this.runtimeFilters = runtimeFilters;
-    }
-
     public void addRuntimeFilter(RuntimeFilter runtimeFilter) {
         this.runtimeFilters.add(runtimeFilter);
     }

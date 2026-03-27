@@ -74,6 +74,10 @@ public:
                        FileMetaCache* meta_cache);
     ~IcebergTableReader() override = default;
 
+    void set_need_row_id_column(bool need) { _need_row_id_column = need; }
+    bool need_row_id_column() const { return _need_row_id_column; }
+    void set_row_id_column_position(int position) { _row_id_column_position = position; }
+
     Status init_row_filters() final;
 
     Status get_next_block_inner(Block* block, size_t* read_rows, bool* eof) final;
@@ -103,6 +107,10 @@ protected:
             std::string, std::unique_ptr<DeleteRows>, std::hash<std::string>, std::equal_to<>,
             std::allocator<std::pair<const std::string, std::unique_ptr<DeleteRows>>>, 8,
             std::mutex>;
+
+    // $row_id metadata column generation state
+    bool _need_row_id_column = false;
+    int _row_id_column_position = -1;
     /**
      * https://iceberg.apache.org/spec/#position-delete-files
      * The rows in the delete file must be sorted by file_path then position to optimize filtering rows while scanning.

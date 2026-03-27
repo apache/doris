@@ -25,19 +25,20 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
-import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ReplicaAllocation;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.stream.BaseTableStream;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.es.EsProperties;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
@@ -293,6 +294,10 @@ public class PropertyAnalyzer {
 
     // number of buckets when using doc snapshot serialization
     public static final String PROPERTIES_VARIANT_DOC_HASH_SHARD_COUNT = "variant_doc_hash_shard_count";
+
+    // stream properties
+    public static final String PROPERTIES_STREAM_TYPE = "type";
+    public static final String PROPERTIES_STREAM_SHOW_INITIAL_ROWS = "show_initial_rows";
 
     public enum RewriteType {
         PUT,      // always put property
@@ -564,24 +569,6 @@ public class PropertyAnalyzer {
             properties.remove(PROPERTIES_MIN_LOAD_REPLICA_NUM);
         }
         return minLoadReplicaNum;
-    }
-
-    public static String analyzeColumnSeparator(Map<String, String> properties, String oldColumnSeparator) {
-        String columnSeparator = oldColumnSeparator;
-        if (properties != null && properties.containsKey(PROPERTIES_COLUMN_SEPARATOR)) {
-            columnSeparator = properties.get(PROPERTIES_COLUMN_SEPARATOR);
-            properties.remove(PROPERTIES_COLUMN_SEPARATOR);
-        }
-        return columnSeparator;
-    }
-
-    public static String analyzeLineDelimiter(Map<String, String> properties, String oldLineDelimiter) {
-        String lineDelimiter = oldLineDelimiter;
-        if (properties != null && properties.containsKey(PROPERTIES_LINE_DELIMITER)) {
-            lineDelimiter = properties.get(PROPERTIES_LINE_DELIMITER);
-            properties.remove(PROPERTIES_LINE_DELIMITER);
-        }
-        return lineDelimiter;
     }
 
     public static TStorageType analyzeStorageType(Map<String, String> properties) throws AnalysisException {
@@ -1948,7 +1935,7 @@ public class PropertyAnalyzer {
         // validate the properties of es catalog
         if ("es".equalsIgnoreCase(properties.get("type"))) {
             try {
-                EsResource.valid(properties, true);
+                EsProperties.valid(properties, true);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
             }
@@ -2308,5 +2295,20 @@ public class PropertyAnalyzer {
             throw new AnalysisException(PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP
                     + " must be a valid integer");
         }
+    }
+
+    public static BaseTableStream.StreamConsumeType analyzeStreamType(Map<String, String> properties)
+            throws AnalysisException {
+        if (properties != null && properties.containsKey(PROPERTIES_STREAM_TYPE)) {
+            String value = properties.get(PROPERTIES_STREAM_TYPE);
+            BaseTableStream.StreamConsumeType type = BaseTableStream.StreamConsumeType.getType(value);
+            if (type.equals(BaseTableStream.StreamConsumeType.UNKNOWN)) {
+                throw new AnalysisException("not supported " + PropertyAnalyzer.PROPERTIES_STREAM_TYPE
+                        +  ": " + value);
+            }
+            properties.remove(PROPERTIES_STREAM_TYPE);
+            return type;
+        }
+        return BaseTableStream.StreamConsumeType.DEFAULT;
     }
 }

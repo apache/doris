@@ -1069,8 +1069,8 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-            boolean mustTemporary, boolean force) throws DdlException {
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());

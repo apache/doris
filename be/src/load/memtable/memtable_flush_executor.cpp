@@ -222,6 +222,9 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
                                  int64_t submit_task_time) {
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable_ptr->tablet_id();
+    // Count the task as running before registering the deferred cleanup so
+    // cancel/shutdown paths keep flush_running_count symmetric on every exit.
+    _stats.flush_running_count++;
     Defer defer {[&]() {
         std::lock_guard<std::mutex> lock(_mutex);
         _stats.flush_submit_count--;
@@ -240,7 +243,6 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
     }
     DBUG_EXECUTE_IF("FlushToken.flush_memtable.wait_after_first_shutdown",
                     { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
-    _stats.flush_running_count++;
     // double check if shutdown to avoid wait running task finish count not accurate
     if (_is_shutdown()) {
         return;

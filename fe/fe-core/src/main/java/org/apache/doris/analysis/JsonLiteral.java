@@ -55,10 +55,6 @@ public class JsonLiteral extends LiteralExpr {
         value = other.value;
     }
 
-    public void setBeConverted(String val) {
-        this.beConverted = val;
-    }
-
     @Override
     public Expr clone() {
         return new JsonLiteral(this);

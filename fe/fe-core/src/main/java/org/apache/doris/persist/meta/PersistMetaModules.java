@@ -40,11 +40,11 @@ public class PersistMetaModules {
             "masterInfo", "frontends", "backends", "datasource", "db", "alterJob", "recycleBin",
             "globalVariable", "cluster", "broker", "resources", "exportJob", "backupHandler",
             "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
-            "plugins", "deleteHandler", "sqlBlockRule", "authenticationIntegrations", "policy",
+            "plugins", "deleteHandler", "sqlBlockRule", "policy",
             "globalFunction", "workloadGroups",
             "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
             "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore",
-            "constraintManager"
+            "constraintManager", "authenticationIntegrations"
     );
 
     // The modules in `CloudEnv`.

@@ -434,10 +434,6 @@ public class StmtExecutor {
         return isForwardedToMaster;
     }
 
-    public boolean isMoreStmtExists() {
-        return moreStmtExists;
-    }
-
     public void setMoreStmtExists(boolean moreStmtExists) {
         this.moreStmtExists = moreStmtExists;
     }
@@ -1060,12 +1056,6 @@ public class StmtExecutor {
             return;
         }
         new MasterOpExecutor(context).syncJournal();
-    }
-
-    /**
-     * get variables in stmt.
-     */
-    private void analyzeVariablesInStmt() throws DdlException {
     }
 
     private boolean isQuery() {

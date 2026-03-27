@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.jdbc.sink;
 
-import org.apache.doris.catalog.JdbcTable;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.planner.DataPartition;
 import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.PlanNodeId;
@@ -43,15 +43,15 @@ public class JdbcTableSink extends DataSink {
     private final boolean useTransaction;
     private String insertSql;
 
-    private JdbcTable jdbcTable;
+    private JdbcExternalTable extTable;
 
-    public JdbcTableSink(JdbcTable jdbcTable, List<String> insertCols) {
-        this.jdbcTable = jdbcTable;
-        jdbcType = jdbcTable.getJdbcTableType();
-        externalTableName = jdbcTable.getProperRemoteFullTableName(jdbcType);
+    public JdbcTableSink(JdbcExternalTable extTable, List<String> insertCols) {
+        this.extTable = extTable;
+        jdbcType = extTable.getJdbcTableType();
+        externalTableName = extTable.getProperRemoteFullTableName(jdbcType);
         useTransaction = ConnectContext.get().getSessionVariable().isEnableOdbcTransaction();
-        dorisTableName = jdbcTable.getName();
-        insertSql = jdbcTable.getInsertSql(insertCols);
+        dorisTableName = extTable.getName();
+        insertSql = extTable.getInsertSql(insertCols);
     }
 
     @Override
@@ -70,8 +70,8 @@ public class JdbcTableSink extends DataSink {
     protected TDataSink toThrift() {
         TDataSink tDataSink = new TDataSink(TDataSinkType.JDBC_TABLE_SINK);
         TJdbcTableSink jdbcTableSink = new TJdbcTableSink();
-        TJdbcTable jdbcTable = this.jdbcTable.toThrift().getJdbcTable();
-        jdbcTableSink.setJdbcTable(jdbcTable);
+        TJdbcTable tJdbcTable = extTable.toThrift().getJdbcTable();
+        jdbcTableSink.setJdbcTable(tJdbcTable);
         jdbcTableSink.setInsertSql(insertSql);
         jdbcTableSink.setUseTransaction(useTransaction);
         jdbcTableSink.setTableType(jdbcType);

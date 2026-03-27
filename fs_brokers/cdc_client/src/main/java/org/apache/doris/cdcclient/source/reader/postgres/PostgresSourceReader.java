@@ -55,7 +55,6 @@ import org.apache.flink.table.types.DataType;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -91,7 +90,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         synchronized (SLOT_CREATION_LOCK) {
@@ -159,7 +158,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     /** Generate PostgreSQL source config from Map config */
     private PostgresSourceConfig generatePostgresConfig(
-            Map<String, String> cdcConfig, Long jobId, int subtaskId) {
+            Map<String, String> cdcConfig, String jobId, int subtaskId) {
         PostgresSourceConfigFactory configFactory = new PostgresSourceConfigFactory();
 
         // Parse JDBC URL to extract connection info
@@ -192,14 +191,9 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         configFactory.includeSchemaChanges(false);
 
         // Set table list
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        if (StringUtils.isNotEmpty(includingTables)) {
-            String[] includingTbls =
-                    Arrays.stream(includingTables.split(","))
-                            .map(t -> schema + "." + t.trim())
-                            .toArray(String[]::new);
-            configFactory.tableList(includingTbls);
-        }
+        String[] tableList = ConfigUtil.getTableList(schema, cdcConfig);
+        Preconditions.checkArgument(tableList.length >= 1, "include_tables or table is required");
+        configFactory.tableList(tableList);
 
         // Set startup options
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
@@ -257,7 +251,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return configFactory.create(subtaskId);
     }
 
-    private String getSlotName(Long jobId) {
+    private String getSlotName(String jobId) {
         return "doris_cdc_" + jobId;
     }
 
@@ -380,7 +374,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
      * @return the fresh {@link TableChanges.TableChange}
      */
     private TableChanges.TableChange refreshSingleTableSchema(
-            TableId tableId, Map<String, String> config, long jobId) {
+            TableId tableId, Map<String, String> config, String jobId) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
@@ -408,7 +402,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
      * `CommitFeOffset` fails, Data after the startOffset will not be cleared.
      */
     @Override
-    public void commitSourceOffset(Long jobId, SourceSplit sourceSplit) {
+    public void commitSourceOffset(String jobId, SourceSplit sourceSplit) {
         try {
             if (sourceSplit instanceof StreamSplit) {
                 Offset offsetToCommit = ((StreamSplit) sourceSplit).getStartingOffset();

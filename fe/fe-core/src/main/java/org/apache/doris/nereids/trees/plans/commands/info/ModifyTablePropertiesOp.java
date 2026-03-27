@@ -83,7 +83,7 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COLOCATE_WITH)) {
-            this.needTableStable = false;
+            // do nothing, colocate property will be processed in SchemaChangeHandler
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_TYPE).equalsIgnoreCase("column")) {
                 throw new AnalysisException("Can only change storage type to COLUMN");
@@ -92,13 +92,11 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_DISTRIBUTION_TYPE).equalsIgnoreCase("random")) {
                 throw new AnalysisException("Can only change distribution type from HASH to RANDOM");
             }
-            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK).equalsIgnoreCase("true")) {
                 throw new AnalysisException(
                         "Property " + PropertyAnalyzer.PROPERTIES_SEND_CLEAR_ALTER_TASK + " should be set to true");
             }
-            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
             // do nothing, these 2 properties will be analyzed when creating alter job
@@ -123,15 +121,12 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             if (isInMemory == true) {
                 throw new AnalysisException("Not support set 'in_memory'='true' now!");
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TABLET_TYPE)) {
             throw new AnalysisException("Alter tablet type not supported");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_MIN_LOAD_REPLICA_NUM)) {
             // do nothing, will be alter in Alter.processAlterOlapTable
-            this.needTableStable = false;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
-            this.needTableStable = false;
             String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
             if (!Strings.isNullOrEmpty(storagePolicy)
                     && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
@@ -147,7 +142,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE)) {
             // do nothing, will be alter in SchemaChangeHandler.updateTableProperties
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED)) {
-            this.needTableStable = false;
             setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
                     PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
@@ -164,7 +158,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                         "Table compaction policy only support for " + PropertyAnalyzer.TIME_SERIES_COMPACTION_POLICY
                                 + " or " + PropertyAnalyzer.SIZE_BASED_COMPACTION_POLICY);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_GOAL_SIZE_MBYTES)) {
             long goalSizeMbytes;
@@ -180,7 +173,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                 throw new AnalysisException("Invalid time_series_compaction_goal_size_mbytes format: "
                         + goalSizeMbytesStr);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_FILE_COUNT_THRESHOLD)) {
             long fileCountThreshold;
@@ -196,7 +188,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                 throw new AnalysisException("Invalid time_series_compaction_file_count_threshold format: "
                         + fileCountThresholdStr);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_TIME_THRESHOLD_SECONDS)) {
             long timeThresholdSeconds;
@@ -212,7 +203,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                 throw new AnalysisException("Invalid time_series_compaction_time_threshold_seconds format: "
                         + timeThresholdSecondsStr);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_EMPTY_ROWSETS_THRESHOLD)) {
             long emptyRowsetsThreshold;
@@ -228,7 +218,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                 throw new AnalysisException("Invalid time_series_compaction_empty_rowsets_threshold format: "
                         + emptyRowsetsThresholdStr);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD)) {
             long levelThreshold;
@@ -245,7 +234,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                 throw new AnalysisException("Invalid time_series_compaction_level_threshold format: "
                         + levelThresholdStr);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_VERTICAL_COMPACTION_NUM_COLUMNS_PER_GROUP)) {
             int numColumnsPerGroup;
@@ -262,7 +250,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                 throw new AnalysisException("Invalid vertical_compaction_num_columns_per_group format: "
                         + numColumnsPerGroupStr);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD)) {
             if (properties.get(PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD).equalsIgnoreCase("true")) {
@@ -278,7 +265,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + PropertyAnalyzer.PROPERTIES_SKIP_WRITE_INDEX_ON_LOAD
                                 + " should be set to true or false");
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT)) {
             throw new AnalysisException(
@@ -293,7 +279,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + PropertyAnalyzer.PROPERTIES_ENABLE_SINGLE_REPLICA_COMPACTION
                                 + " should be set to true or false");
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_ENABLE_MOW_LIGHT_DELETE)
@@ -314,7 +299,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                         "enable_mow_light_delete property is "
                                 + "only supported for unique merge-on-write table");
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION)) {
             if (!properties.get(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).equalsIgnoreCase("true")
@@ -324,22 +308,17 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION
                                 + " should be set to true or false");
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_INTERVAL_MS)) {
             PropertyAnalyzer.analyzeGroupCommitIntervalMs(properties, false);
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_DATA_BYTES)) {
             PropertyAnalyzer.analyzeGroupCommitDataBytes(properties, false);
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_GROUP_COMMIT_MODE)) {
             PropertyAnalyzer.analyzeGroupCommitMode(properties, false);
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_FILE_CACHE_TTL_SECONDS)) {
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_PARTITION_RETENTION_COUNT)) {
             // do a check here for valid value
@@ -353,7 +332,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             if (retentionCount <= 0) {
                 throw new AnalysisException("partition.retention_count should be > 0");
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_VAULT_NAME)) {
             throw new AnalysisException("You can not modify storage vault name");
@@ -376,7 +354,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                                 + " or " + PropertyAnalyzer.DISABLE_AUTO_ANALYZE_POLICY
                                 + " or " + PropertyAnalyzer.USE_CATALOG_AUTO_ANALYZE_POLICY);
             }
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_SKIP_BITMAP_COLUMN)) {
             throw new AnalysisException("You can not modify property 'enable_unique_key_skip_bitmap_column'.");
@@ -384,7 +361,6 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
                 || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_DICT_PAGE_SIZE)) {
             throw new AnalysisException("You can not modify storage_page_size|storage_dict_page_size property.");
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
-            this.needTableStable = false;
             this.opType = AlterOpType.MODIFY_TABLE_PROPERTY_SYNC;
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());

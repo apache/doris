@@ -698,7 +698,14 @@ Status SegmentIterator::_prepare_seek(const StorageReadOptions::KeyRange& key_ra
         }
     }
     if (!_seek_schema) {
-        _seek_schema = std::make_unique<Schema>(key_fields, key_fields.size());
+        // Schema constructors accept a vector of TabletColumnPtr. Convert
+        // StorageField pointers to TabletColumnPtr by copying their descriptors.
+        std::vector<TabletColumnPtr> cols;
+        cols.reserve(key_fields.size());
+        for (const StorageField* f : key_fields) {
+            cols.emplace_back(std::make_shared<TabletColumn>(f->get_desc()));
+        }
+        _seek_schema = std::make_unique<Schema>(cols, cols.size());
     }
     // todo(wb) need refactor here, when using pk to search, _seek_block is useless
     if (_seek_block.size() == 0) {
@@ -1623,7 +1630,13 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
                                 is_include);
 
     const auto& key_col_ids = key.schema()->column_ids();
-    _convert_rowcursor_to_short_key(key, key_col_ids.size());
+
+    // Clone the key once and pad CHAR fields to storage format before the binary search.
+    // _seek_block holds storage-format data where CHAR is zero-padded to column length,
+    // while RowCursor holds CHAR in compute format (unpadded). Padding once here avoids
+    // repeated allocation inside the comparison loop.
+    RowCursor padded_key = key.clone();
+    padded_key.pad_char_fields();
 
     ssize_t start_block_id = 0;
     auto start_iter = sk_index_decoder->lower_bound(index_key);
@@ -1652,7 +1665,7 @@ Status SegmentIterator::_lookup_ordinal_from_sk_index(const RowCursor& key, bool
     while (start < end) {
         rowid_t mid = (start + end) / 2;
         RETURN_IF_ERROR(_seek_and_peek(mid));
-        int cmp = _compare_short_key_with_seek_block(key_col_ids);
+        int cmp = _compare_short_key_with_seek_block(padded_key, key_col_ids);
         if (cmp > 0) {
             start = mid + 1;
         } else if (cmp == 0) {

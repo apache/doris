@@ -52,6 +52,7 @@ public class PartitionExprUtilTest extends TestWithFeService {
         Config.dynamic_partition_enable = true;
         Config.dynamic_partition_check_interval_seconds = 1;
         Config.autobucket_max_buckets = 10000;
+        Config.max_bucket_num_per_partition = 0;
         createDatabase("test");
         exeEnv = ExecuteEnv.getInstance();
     }

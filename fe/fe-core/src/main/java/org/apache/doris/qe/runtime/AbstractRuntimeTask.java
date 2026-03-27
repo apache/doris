@@ -42,8 +42,4 @@ public abstract class AbstractRuntimeTask<ChildId, Child extends AbstractRuntime
     public Map<ChildId, Child> getChildrenTasks() {
         return childrenTasks.allTaskMap();
     }
-
-    protected Child childTask(ChildId childId) {
-        return childrenTasks.get(childId);
-    }
 }
