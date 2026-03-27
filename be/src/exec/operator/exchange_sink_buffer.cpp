@@ -88,7 +88,7 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
                                        PlanNodeId node_id, RuntimeState* state,
                                        const std::vector<InstanceLoId>& sender_ins_ids)
-        : HasTaskExecutionCtx(state, false),
+        : HasTaskExecutionCtx(state),
           _queue_capacity(0),
           _is_failed(false),
           _query_id(std::move(query_id)),

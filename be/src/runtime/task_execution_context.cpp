@@ -19,10 +19,7 @@
 
 #include <glog/logging.h>
 
-#include <atomic>
 #include <condition_variable>
-
-#include "util/stack_util.h"
 
 namespace doris {
 void TaskExecutionContext::ref_task_execution_ctx() {
@@ -36,25 +33,8 @@ void TaskExecutionContext::unref_task_execution_ctx() {
     }
 }
 
-HasTaskExecutionCtx::HasTaskExecutionCtx(RuntimeState* state, bool maintain_ref_count)
-        : task_exec_ctx_(state->get_task_execution_context()),
-          _maintain_ref_count(maintain_ref_count) {
-    if (!_maintain_ref_count) {
-        return;
-    }
-    TaskExecutionContextSPtr task_exec_ctx = task_exec_ctx_.lock();
-    if (task_exec_ctx) {
-        task_exec_ctx->ref_task_execution_ctx();
-    }
-}
+HasTaskExecutionCtx::HasTaskExecutionCtx(RuntimeState* state)
+        : task_exec_ctx_(state->get_task_execution_context()) {}
 
-HasTaskExecutionCtx::~HasTaskExecutionCtx() {
-    if (!_maintain_ref_count) {
-        return;
-    }
-    TaskExecutionContextSPtr task_exec_ctx = task_exec_ctx_.lock();
-    if (task_exec_ctx) {
-        task_exec_ctx->unref_task_execution_ctx();
-    }
-}
+HasTaskExecutionCtx::~HasTaskExecutionCtx() = default;
 } // namespace doris

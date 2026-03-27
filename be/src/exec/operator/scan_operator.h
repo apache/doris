@@ -308,7 +308,7 @@ protected:
     VExprContextSPtrs _stale_expr_ctxs;
     VExprContextSPtrs _common_expr_ctxs_push_down;
 
-    std::shared_ptr<ScannerContext> _scanner_ctx = nullptr;
+    atomic_shared_ptr<ScannerContext> _scanner_ctx = nullptr;
 
     // Save all function predicates which may be pushed down to data source.
     std::vector<FunctionFilter> _push_down_functions;
@@ -371,8 +371,8 @@ public:
     void set_low_memory_mode(RuntimeState* state) override {
         auto& local_state = get_local_state(state);
 
-        if (local_state._scanner_ctx) {
-            local_state._scanner_ctx->clear_free_blocks();
+        if (auto ctx = local_state._scanner_ctx.load()) {
+            ctx->clear_free_blocks();
         }
     }
 

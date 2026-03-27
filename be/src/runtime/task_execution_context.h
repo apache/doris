@@ -54,7 +54,7 @@ using TaskExecutionContextSPtr = std::shared_ptr<TaskExecutionContext>;
 struct HasTaskExecutionCtx {
     using Weak = typename TaskExecutionContextSPtr::weak_type;
 
-    HasTaskExecutionCtx(RuntimeState* state, bool maintain_ref_count);
+    HasTaskExecutionCtx(RuntimeState* state);
 
     virtual ~HasTaskExecutionCtx();
 
@@ -64,7 +64,6 @@ public:
 
 private:
     Weak task_exec_ctx_;
-    bool _maintain_ref_count;
 };
 
 } // namespace doris
