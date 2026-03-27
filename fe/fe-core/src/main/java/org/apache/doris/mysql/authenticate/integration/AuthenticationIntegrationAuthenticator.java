@@ -29,6 +29,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.Authenticator;
+import org.apache.doris.mysql.authenticate.password.AuthPacketAwarePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.authenticate.password.Password;
@@ -61,7 +62,7 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         this.chainConfig = chainConfig;
         this.chainConfigName = chainConfigName;
         validateChainConfig(chainConfig, chainConfigName);
-        this.passwordResolver = new ClearPasswordResolver();
+        this.passwordResolver = new AuthPacketAwarePasswordResolver(new ClearPasswordResolver());
     }
 
     @Override

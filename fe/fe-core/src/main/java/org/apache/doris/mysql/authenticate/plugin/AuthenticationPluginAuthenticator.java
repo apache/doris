@@ -32,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
 import org.apache.doris.mysql.authenticate.Authenticator;
+import org.apache.doris.mysql.authenticate.password.AuthPacketAwarePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
 import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.authenticate.password.NativePassword;
@@ -81,7 +82,10 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
                 .properties(initProps == null ? Collections.emptyMap() : initProps)
                 .build();
         plugin = resolvedPluginManager.createPlugin(integration);
-        passwordResolver = plugin.requiresClearPassword() ? new ClearPasswordResolver() : new NativePasswordResolver();
+        PasswordResolver baseResolver = plugin.requiresClearPassword()
+                ? new ClearPasswordResolver()
+                : new NativePasswordResolver();
+        passwordResolver = new AuthPacketAwarePasswordResolver(baseResolver);
     }
 
     @Override
