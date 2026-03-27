@@ -23,4 +23,8 @@ your_profile_name:
       port: 9030
       username: root
       schema: dbt
+      # optional: set Doris session variables for each connection
+      # session_variables:
+      #   time_zone: "Asia/Shanghai"
+      #   exec_mem_limit: 8589934592
 ```
