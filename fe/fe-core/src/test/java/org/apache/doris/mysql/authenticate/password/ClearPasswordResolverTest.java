@@ -64,8 +64,8 @@ class ClearPasswordResolverTest {
         MysqlChannel channel = Mockito.mock(MysqlChannel.class);
         MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
         Mockito.when(authPacket.getPluginName()).thenReturn(OIDC_CLIENT_PLUGIN);
+        Mockito.when(authPacket.getAuthResponse()).thenReturn("token-from-client".getBytes(StandardCharsets.UTF_8));
         Mockito.when(channel.getRemoteIp()).thenReturn(REMOTE_IP);
-        Mockito.when(channel.fetchOnePacket()).thenReturn(clearTextResponse("token-from-client"));
 
         AuthenticateRequest request = resolver.resolveAuthenticateRequest(
                 USER_NAME,
@@ -79,6 +79,7 @@ class ClearPasswordResolverTest {
         Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, request.getCredentialType());
         Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8), request.getCredential());
         Assertions.assertInstanceOf(ClearPassword.class, request.getPassword());
+        Mockito.verify(channel, Mockito.never()).fetchOnePacket();
     }
 
     private static ByteBuffer clearTextResponse(String password) {

@@ -28,7 +28,9 @@ import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.authenticate.ldap.LdapManager;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
+import org.apache.doris.mysql.authenticate.password.ClearPasswordResolver;
 import org.apache.doris.mysql.authenticate.password.NativePassword;
+import org.apache.doris.mysql.authenticate.password.NativePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.PasswordResolver;
 import org.apache.doris.mysql.authenticate.plugin.AuthenticationPluginAuthenticator;
 import org.apache.doris.mysql.privilege.Auth;
@@ -47,6 +49,7 @@ import java.io.IOException;
 import java.lang.reflect.Field;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.Collections;
 import java.util.Optional;
 
@@ -370,6 +373,69 @@ class AuthenticatorManagerTest {
         Mockito.verify(chainResolver).resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any());
         Mockito.verify(chainAuthenticator).authenticate(Mockito.any());
+    }
+
+    @Test
+    void testAuthenticateFallsBackToAuthenticationChainWithOriginalOidcTokenAfterPrimaryResolverSwitch()
+            throws Exception {
+        Config.authentication_chain = "corp_oidc";
+
+        byte[] originalOidcToken = "oidc-token".getBytes(StandardCharsets.UTF_8);
+        byte[] nativePasswordResponse = "native-password-response".getBytes(StandardCharsets.UTF_8);
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(new NativePasswordResolver());
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failedResponse);
+
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(chainAuthenticator.getPasswordResolver()).thenReturn(new ClearPasswordResolver());
+        Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(new AuthenticateResponse(true,
+                        org.apache.doris.analysis.UserIdentity.createAnalyzedUserIdentWithIp(USER_NAME, REMOTE_IP),
+                        true));
+
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        MysqlChannel channel = context.getMysqlChannel();
+        Mockito.when(channel.fetchOnePacket())
+                .thenReturn(ByteBuffer.wrap(nativePasswordResponse))
+                .thenThrow(new AssertionError("fallback should reuse original OIDC token from auth packet"));
+
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        AtomicReference<byte[]> authResponseRef = new AtomicReference<>(originalOidcToken.clone());
+        Mockito.when(authPacket.getPluginName()).thenReturn("authentication_openid_connect_client");
+        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.DEFAULT_CAPABILITY);
+        Mockito.when(authPacket.getAuthResponse()).thenAnswer(invocation -> authResponseRef.get());
+        Mockito.doAnswer(invocation -> {
+            byte[] authResponse = invocation.getArgument(0);
+            authResponseRef.set(authResponse);
+            return null;
+        }).when(authPacket).setAuthResponse(Mockito.any());
+
+        MysqlHandshakePacket handshakePacket = Mockito.mock(MysqlHandshakePacket.class);
+        Mockito.when(handshakePacket.checkAuthPluginSameAsDoris(Mockito.anyString())).thenReturn(false);
+        Mockito.when(handshakePacket.getAuthPluginData()).thenReturn(new byte[] {1, 2, 3});
+
+        boolean result = manager.authenticate(context, USER_NAME, channel,
+                MysqlSerializer.newInstance(), authPacket, handshakePacket);
+
+        Assertions.assertTrue(result);
+        ArgumentCaptor<AuthenticateRequest> requestCaptor = ArgumentCaptor.forClass(AuthenticateRequest.class);
+        Mockito.verify(chainAuthenticator).authenticate(requestCaptor.capture());
+        AuthenticateRequest chainRequest = requestCaptor.getValue();
+        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, chainRequest.getCredentialType());
+        Assertions.assertArrayEquals(originalOidcToken, chainRequest.getCredential());
+        Assertions.assertInstanceOf(ClearPassword.class, chainRequest.getPassword());
+        Assertions.assertEquals("oidc-token", ((ClearPassword) chainRequest.getPassword()).getPassword());
+        Mockito.verify(channel, Mockito.times(1)).fetchOnePacket();
     }
 
     @Test

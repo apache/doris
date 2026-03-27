@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
@@ -321,6 +322,25 @@ public class MysqlProtoTest {
         mockAccess();
         ConnectContext context = new ConnectContext(streamConnection);
         Assert.assertFalse(MysqlProto.negotiate(context));
+    }
+
+    @Test
+    public void testNegotiateClientClosedConnectionDuringHandshake() throws Exception {
+        new Expectations() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                minTimes = 0;
+
+                channel.fetchOnePacket();
+                minTimes = 0;
+                result = null;
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assert.assertEquals("Client closed connection during handshake", context.getState().getErrorMessage());
     }
 
     @Test

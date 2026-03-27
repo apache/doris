@@ -37,10 +37,27 @@ import java.util.Optional;
 
 public class ClearPasswordResolver implements PasswordResolver {
     private static final String OIDC_CLIENT_PLUGIN_NAME = "authentication_openid_connect_client";
+
+    private Optional<Password> resolveOidcTokenFromAuthPacket(MysqlAuthPacket authPacket) {
+        if (authPacket == null || !OIDC_CLIENT_PLUGIN_NAME.equals(authPacket.getPluginName())) {
+            return Optional.empty();
+        }
+        byte[] authResponse = authPacket.getAuthResponse();
+        if (authResponse == null || authResponse.length == 0) {
+            return Optional.empty();
+        }
+        return Optional.of(new ClearPassword(new String(authResponse, StandardCharsets.UTF_8)));
+    }
+
     @Override
     public Optional<Password> resolvePassword(ConnectContext context, MysqlChannel channel, MysqlSerializer serializer,
             MysqlAuthPacket authPacket,
             MysqlHandshakePacket handshakePacket) throws IOException {
+        Optional<Password> oidcToken = resolveOidcTokenFromAuthPacket(authPacket);
+        if (oidcToken.isPresent()) {
+            return oidcToken;
+        }
+
         // server send authentication switch packet to request password clear text.
         // https://dev.mysql.com/doc/internals/en/authentication-method-change.html
         serializer.reset();

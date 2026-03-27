@@ -40,6 +40,16 @@ import java.util.Optional;
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
     public static final boolean SERVER_USE_SSL = Config.enable_ssl;
+    private static final String CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE =
+            "Client closed connection during handshake";
+
+    private static boolean failHandshake(ConnectContext context, String errMsg) {
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("{}: remote={}", errMsg, context.getMysqlChannel().getRemoteHostPortString());
+        }
+        context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, errMsg);
+        return false;
+    }
 
 
     private static String parseUser(ConnectContext context, byte[] scramble, String user) {
@@ -105,6 +115,9 @@ public class MysqlProto {
 
         // Server receive request packet from client, we need to determine which request type it is.
         ByteBuffer clientRequestPacket = channel.fetchOnePacket();
+        if (clientRequestPacket == null) {
+            return failHandshake(context, CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE);
+        }
         MysqlCapability capability = new MysqlCapability(MysqlProto.readLowestInt4(clientRequestPacket));
 
         // Server receive SSL connection request packet from client.
@@ -125,10 +138,6 @@ public class MysqlProto {
                 mysqlSslContext.init();
                 channel.initSslBuffer();
                 sslConnectionRequest = clientRequestPacket;
-                if (sslConnectionRequest == null) {
-                    // receive response failed.
-                    return false;
-                }
                 MysqlSslPacket sslPacket = new MysqlSslPacket();
                 if (!sslPacket.readFrom(sslConnectionRequest)) {
                     ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
@@ -165,8 +174,7 @@ public class MysqlProto {
         }
 
         if (handshakeResponse == null) {
-            // receive response failed.
-            return false;
+            return failHandshake(context, CLIENT_CLOSED_CONNECTION_DURING_HANDSHAKE);
         }
         if (capability.isDeprecatedEOF()) {
             context.getMysqlChannel().setClientDeprecatedEOF();
