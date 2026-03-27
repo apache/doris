@@ -60,7 +60,7 @@ ResultBlockBuffer<ResultCtxType>::ResultBlockBuffer(TUniqueId id, RuntimeState* 
 
 template <typename ResultCtxType>
 Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_status,
-                                               int64_t num_rows) {
+                                               int64_t num_rows, bool& is_fully_closed) {
     std::unique_lock<std::mutex> l(_lock);
     _returned_rows.fetch_add(num_rows);
     // close will be called multiple times and error status needs to be collected.
@@ -77,9 +77,13 @@ Status ResultBlockBuffer<ResultCtxType>::close(const TUniqueId& id, Status exec_
                                         print_id(id));
     }
     if (!_result_sink_dependencies.empty()) {
+        // Still waiting for other instances to finish; this is not the final close.
+        is_fully_closed = false;
         return _status;
     }
 
+    // All instances have closed: the buffer is now fully closed.
+    is_fully_closed = true;
     _is_close = true;
     _arrow_data_arrival.notify_all();
 
