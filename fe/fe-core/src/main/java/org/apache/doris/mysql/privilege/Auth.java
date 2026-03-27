@@ -245,7 +245,10 @@ public class Auth implements Writable {
         Set<Role> roles = Sets.newHashSet();
         Set<String> roleNames = userRoleManager.getRolesByUser(userIdentity);
         for (String roleName : roleNames) {
-            roles.add(roleManager.getRole(roleName));
+            Role role = roleManager.getRole(roleName);
+            if (role != null) {
+                roles.add(role);
+            }
         }
         if (isLdapAuthEnabled()) {
             Set<Role> ldapRoles = ldapManager.getUserRoles(userIdentity.getQualifiedUser());
@@ -256,7 +259,10 @@ public class Auth implements Writable {
         ConnectContext ctx = ConnectContext.get();
         if (ctx != null && userIdentity.equals(ctx.getCurrentUserIdentity())) {
             for (String roleName : ctx.getAuthenticatedRoles()) {
-                roles.add(roleManager.getRole(roleName));
+                Role role = roleManager.getRole(roleName);
+                if (role != null) {
+                    roles.add(role);
+                }
             }
         }
         return roles;

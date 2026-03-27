@@ -52,10 +52,20 @@ public final class IntegrationPropertyRoleMappingEvaluator implements RoleMappin
         Objects.requireNonNull(integration, "integration");
         Objects.requireNonNull(principal, "principal");
 
-        CachedMapping cachedMapping = cache.get(integration.getName());
-        if (cachedMapping == null || !cachedMapping.matches(integration)) {
-            cachedMapping = compile(integration);
-            cache.put(integration.getName(), cachedMapping);
+        CachedMapping cachedMapping;
+        try {
+            cachedMapping = cache.compute(integration.getName(), (ignored, existing) -> {
+                if (existing != null && existing.matches(integration)) {
+                    return existing;
+                }
+                try {
+                    return compile(integration);
+                } catch (AuthenticationException e) {
+                    throw new CachedMappingBuildException(e);
+                }
+            });
+        } catch (CachedMappingBuildException e) {
+            throw e.getAuthenticationException();
         }
         if (!cachedMapping.hasRules()) {
             return Collections.emptySet();
@@ -167,6 +177,19 @@ public final class IntegrationPropertyRoleMappingEvaluator implements RoleMappin
 
         private Set<String> evaluate(UnifiedRoleMappingCelEngine.EvaluationContext context) {
             return engine.evaluate(context);
+        }
+    }
+
+    private static final class CachedMappingBuildException extends RuntimeException {
+        private final AuthenticationException authenticationException;
+
+        private CachedMappingBuildException(AuthenticationException authenticationException) {
+            super(authenticationException);
+            this.authenticationException = authenticationException;
+        }
+
+        private AuthenticationException getAuthenticationException() {
+            return authenticationException;
         }
     }
 

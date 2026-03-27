@@ -44,11 +44,11 @@ public class AuthenticationIntegrationMgr implements Writable {
     @SerializedName(value = "nTi")
     private Map<String, AuthenticationIntegrationMeta> nameToIntegration = new LinkedHashMap<>();
 
-    private void readLock() {
+    void readLock() {
         lock.readLock().lock();
     }
 
-    private void readUnlock() {
+    void readUnlock() {
         lock.readLock().unlock();
     }
 

@@ -194,6 +194,12 @@ public class MetaPersistMethod {
                         Env.class.getDeclaredMethod("saveAuthenticationIntegrations",
                                 CountingDataOutputStream.class, long.class);
                 break;
+            case "roleMappings":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadRoleMappings", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveRoleMappings", CountingDataOutputStream.class, long.class);
+                break;
             case "policy":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadPolicy", DataInputStream.class, long.class);

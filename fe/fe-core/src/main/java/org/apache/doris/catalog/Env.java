@@ -2525,6 +2525,12 @@ public class Env {
         return checksum;
     }
 
+    public long loadRoleMappings(DataInputStream in, long checksum) throws IOException {
+        roleMappingMgr = RoleMappingMgr.read(in);
+        LOG.info("finished replay role mappings from image");
+        return checksum;
+    }
+
     /**
      * Load policy through file.
      **/
@@ -2851,6 +2857,11 @@ public class Env {
 
     public long saveAuthenticationIntegrations(CountingDataOutputStream out, long checksum) throws IOException {
         this.authenticationIntegrationMgr.write(out);
+        return checksum;
+    }
+
+    public long saveRoleMappings(CountingDataOutputStream out, long checksum) throws IOException {
+        this.roleMappingMgr.write(out);
         return checksum;
     }
 

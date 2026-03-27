@@ -51,10 +51,20 @@ public final class DefinitionBackedRoleMappingEvaluator implements RoleMappingEv
             return Collections.emptySet();
         }
 
-        CachedMapping cached = cache.get(integration.getName());
-        if (cached == null || !cached.matches(definition)) {
-            cached = compile(definition);
-            cache.put(integration.getName(), cached);
+        CachedMapping cached;
+        try {
+            cached = cache.compute(integration.getName(), (ignored, existing) -> {
+                if (existing != null && existing.matches(definition)) {
+                    return existing;
+                }
+                try {
+                    return compile(definition);
+                } catch (AuthenticationException e) {
+                    throw new CachedMappingBuildException(e);
+                }
+            });
+        } catch (CachedMappingBuildException e) {
+            throw e.getAuthenticationException();
         }
         return cached.evaluate(UnifiedRoleMappingCelEngine.fromPrincipal(principal));
     }
@@ -85,6 +95,19 @@ public final class DefinitionBackedRoleMappingEvaluator implements RoleMappingEv
 
         private Set<String> evaluate(UnifiedRoleMappingCelEngine.EvaluationContext context) {
             return engine.evaluate(context);
+        }
+    }
+
+    private static final class CachedMappingBuildException extends RuntimeException {
+        private final AuthenticationException authenticationException;
+
+        private CachedMappingBuildException(AuthenticationException authenticationException) {
+            super(authenticationException);
+            this.authenticationException = authenticationException;
+        }
+
+        private AuthenticationException getAuthenticationException() {
+            return authenticationException;
         }
     }
 }

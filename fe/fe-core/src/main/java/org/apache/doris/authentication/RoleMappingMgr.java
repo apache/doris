@@ -72,30 +72,36 @@ public class RoleMappingMgr implements Writable {
             List<CreateRoleMappingCommand.RoleMappingRule> rules, String comment, String createUser)
             throws DdlException {
         Env env = Objects.requireNonNull(Env.getCurrentEnv(), "currentEnv can not be null");
-        writeLock();
+        AuthenticationIntegrationMgr integrationMgr = env.getAuthenticationIntegrationMgr();
+        integrationMgr.readLock();
         try {
-            if (nameToRoleMapping.containsKey(mappingName)) {
-                if (ifNotExists) {
-                    return;
+            writeLock();
+            try {
+                if (nameToRoleMapping.containsKey(mappingName)) {
+                    if (ifNotExists) {
+                        return;
+                    }
+                    throw new DdlException("Role mapping " + mappingName + " already exists");
                 }
-                throw new DdlException("Role mapping " + mappingName + " already exists");
-            }
-            if (env.getAuthenticationIntegrationMgr().getAuthenticationIntegration(integrationName) == null) {
-                throw new DdlException("Authentication integration " + integrationName + " does not exist");
-            }
-            if (integrationToMappingName.containsKey(integrationName)) {
-                throw new DdlException("Authentication integration " + integrationName
-                        + " already has a role mapping");
-            }
+                if (integrationMgr.getAuthenticationIntegration(integrationName) == null) {
+                    throw new DdlException("Authentication integration " + integrationName + " does not exist");
+                }
+                if (integrationToMappingName.containsKey(integrationName)) {
+                    throw new DdlException("Authentication integration " + integrationName
+                            + " already has a role mapping");
+                }
 
-            List<RoleMappingMeta.RuleMeta> validatedRules = validateAndNormalizeRules(rules, env);
-            RoleMappingMeta meta = RoleMappingMeta.fromCreateSql(
-                    mappingName, integrationName, validatedRules, comment, createUser);
-            validateCompilable(meta);
-            putRoleMappingInternal(meta);
-            env.getEditLog().logCreateRoleMapping(meta);
+                List<RoleMappingMeta.RuleMeta> validatedRules = validateAndNormalizeRules(rules, env);
+                RoleMappingMeta meta = RoleMappingMeta.fromCreateSql(
+                        mappingName, integrationName, validatedRules, comment, createUser);
+                validateCompilable(meta);
+                putRoleMappingInternal(meta);
+                env.getEditLog().logCreateRoleMapping(meta);
+            } finally {
+                writeUnlock();
+            }
         } finally {
-            writeUnlock();
+            integrationMgr.readUnlock();
         }
     }
 

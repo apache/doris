@@ -48,7 +48,7 @@ public class DropRoleMappingCommand extends DropCommand {
 
     @Override
     public void doRun(ConnectContext ctx, StmtExecutor executor) throws Exception {
-        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ctx, PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         Env.getCurrentEnv().getRoleMappingMgr().dropRoleMapping(mappingName, ifExists);
