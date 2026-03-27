@@ -32,6 +32,7 @@
 #include "core/block/block.h"
 #include "exec/operator/exchange_source_operator.h"
 #include "exec/operator/operator.h"
+#include "exec/operator/rec_cte_source_operator.h"
 #include "exec/operator/scan_operator.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/pipeline/pipeline.h"
@@ -682,7 +683,7 @@ Status PipelineTask::execute(bool* done) {
                 }
             }
 
-            if (_eos) {
+            if (_eos && !_sink->need_rerun(_state)) {
                 RETURN_IF_ERROR(close(Status::OK(), false));
             }
 
@@ -723,6 +724,20 @@ Status PipelineTask::execute(bool* done) {
             });
             RETURN_IF_ERROR(block->check_type_and_column());
             status = _sink->sink(_state, block, _eos);
+
+            if (_eos) {
+                if (_sink->need_rerun(_state)) {
+                    if (auto* source = dynamic_cast<ExchangeSourceOperatorX*>(_root);
+                        source != nullptr) {
+                        RETURN_IF_ERROR(source->reset(_state));
+                        _eos = false;
+                    } else {
+                        return Status::InternalError(
+                                "Only ExchangeSourceOperatorX can be rerun, real is {}",
+                                _root->get_name());
+                    }
+                }
+            }
 
             if (status.is<ErrorCode::END_OF_FILE>()) {
                 set_wake_up_early();
@@ -905,7 +920,7 @@ Status PipelineTask::close(Status exec_status, bool close_sink) {
         for (auto& op : _operators) {
             auto tem = op->close(_state);
             if (!tem.ok() && s.ok()) {
-                s = tem;
+                s = std::move(tem);
             }
         }
     }
@@ -1043,7 +1058,9 @@ Status PipelineTask::wake_up(Dependency* dep) {
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
-    RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    if (auto f = _fragment_context.lock(); f) {
+        RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
+    }
     return Status::OK();
 }
 

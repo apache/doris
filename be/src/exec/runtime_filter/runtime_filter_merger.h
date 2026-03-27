@@ -78,6 +78,8 @@ public:
         _expected_producer_num = num;
     }
 
+    int get_expected_producer_num() const { return _expected_producer_num; }
+
     bool add_rf_size(uint64_t size) {
         _received_rf_size_num++;
         if (_expected_producer_num < _received_rf_size_num) {

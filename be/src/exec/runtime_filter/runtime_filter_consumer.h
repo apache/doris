@@ -41,11 +41,11 @@ public:
         APPLIED, // The consumer will switch to this state after the expression is acquired
     };
 
-    static Status create(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc, int node_id,
+    static Status create(const RuntimeState* state, const TRuntimeFilterDesc* desc, int node_id,
                          std::shared_ptr<RuntimeFilterConsumer>* res) {
         *res = std::shared_ptr<RuntimeFilterConsumer>(
-                new RuntimeFilterConsumer(query_ctx, desc, node_id));
-        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &query_ctx->query_options()));
+                new RuntimeFilterConsumer(state, desc, node_id));
+        RETURN_IF_ERROR((*res)->_init_with_desc(desc, &state->query_options()));
         return Status::OK();
     }
 
@@ -86,17 +86,18 @@ public:
     }
 
 private:
-    RuntimeFilterConsumer(const QueryContext* query_ctx, const TRuntimeFilterDesc* desc,
-                          int node_id)
+    RuntimeFilterConsumer(const RuntimeState* state, const TRuntimeFilterDesc* desc, int node_id)
             : RuntimeFilter(desc),
               _probe_expr(desc->planId_to_target_expr.find(node_id)->second),
               _registration_time(MonotonicMillis()),
               _rf_state(State::NOT_READY) {
+        auto* query_ctx = state->get_query_ctx();
         // If bitmap filter is not applied, it will cause the query result to be incorrect
         // local rf must wait until timeout, otherwise it may lead results incorrectness, because LEFT_SEMI_DIRECT_RETURN_OPT
         bool wait_infinitely = query_ctx->runtime_filter_wait_infinitely() ||
                                _runtime_filter_type == RuntimeFilterType::BITMAP_FILTER ||
-                               !has_remote_target();
+                               !has_remote_target() ||
+                               state->force_make_rf_wait_infinite();
         _rf_wait_time_ms = wait_infinitely ? query_ctx->execution_timeout() * 1000
                                            : query_ctx->runtime_filter_wait_time_ms();
         DorisMetrics::instance()->runtime_filter_consumer_num->increment(1);

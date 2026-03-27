@@ -62,7 +62,7 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
                                int num_parallel_instances
 #endif
                                )
-        : HasTaskExecutionCtx(state),
+        : HasTaskExecutionCtx(state, true),
           _state(state),
           _local_state(local_state),
           _output_tuple_desc(output_row_descriptor
