@@ -19,28 +19,41 @@
 
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_number.h"
-#include "exec/pipeline/dependency.h"
+#include "exec/common/groupby_agg_context.h"
 
 namespace doris {
 
-class AggSharedStateTest : public testing::Test {
+// Expose protected sort-limit state for unit testing.
+class TestableGroupByAggContext : public GroupByAggContext {
+public:
+    TestableGroupByAggContext()
+            : GroupByAggContext(/*agg_evaluators=*/{}, /*groupby_expr_ctxs=*/{},
+                               /*agg_state_offsets=*/{}, /*total_agg_state_size=*/0,
+                               /*agg_state_alignment=*/1, /*is_first_phase=*/true) {}
+
+    MutableColumns& limit_columns() { return _limit_columns; }
+    int& limit_columns_min_ref() { return _limit_columns_min; }
+    std::priority_queue<HeapLimitCursor>& limit_heap_ref() { return _limit_heap; }
+};
+
+class GroupByAggContextLimitTest : public testing::Test {
 protected:
     void SetUp() override {
-        _shared_state = std::make_shared<AggSharedState>();
+        _ctx = std::make_shared<TestableGroupByAggContext>();
 
         // Setup test data
         auto int_type = std::make_shared<DataTypeInt32>();
-        _shared_state->limit_columns.push_back(int_type->create_column());
+        _ctx->limit_columns().push_back(int_type->create_column());
 
         // Setup order directions (ascending)
-        _shared_state->order_directions = {1};
-        _shared_state->null_directions = {1};
+        _ctx->order_directions = {1};
+        _ctx->null_directions = {1};
 
         // Create test column
         _test_column = int_type->create_column();
         auto* col_data = reinterpret_cast<ColumnInt32*>(_test_column.get());
 
-        // Insert test values: 5, 3, 1, -2, -1, 0
+        // Insert test values: 5, 3, 1, -1, 0, 2
         col_data->insert(Field::create_field<TYPE_INT>(5));
         col_data->insert(Field::create_field<TYPE_INT>(3));
         col_data->insert(Field::create_field<TYPE_INT>(1));
@@ -49,47 +62,47 @@ protected:
         col_data->insert(Field::create_field<TYPE_INT>(2));
 
         _key_columns.push_back(_test_column.get());
-        // prepare the heap data first [5, 3, 1, -2]
+        // prepare the heap data first [5, 3, 1, -1]
         for (int i = 0; i < 4; ++i) {
-            for (int j = 0; j < _key_columns.size(); ++j) {
-                _shared_state->limit_columns[j]->insert_from(*_key_columns[j], i);
+            for (size_t j = 0; j < _key_columns.size(); ++j) {
+                _ctx->limit_columns()[j]->insert_from(*_key_columns[j], i);
             }
             // build agg limit heap
-            _shared_state->limit_heap.emplace(
-                    _shared_state->limit_columns[0]->size() - 1, _shared_state->limit_columns,
-                    _shared_state->order_directions, _shared_state->null_directions);
+            _ctx->limit_heap_ref().emplace(_ctx->limit_columns()[0]->size() - 1,
+                                           _ctx->limit_columns(), _ctx->order_directions,
+                                           _ctx->null_directions);
         }
-        // keep the top limit values, only 3 value in heap [-1, 3, 1]
-        _shared_state->limit_heap.pop();
-        _shared_state->limit_columns_min = _shared_state->limit_heap.top()._row_id;
+        // keep the top limit values, only 3 values in heap [-1, 3, 1]
+        _ctx->limit_heap_ref().pop();
+        _ctx->limit_columns_min_ref() = _ctx->limit_heap_ref().top()._row_id;
     }
 
-    std::shared_ptr<AggSharedState> _shared_state;
+    std::shared_ptr<TestableGroupByAggContext> _ctx;
     MutableColumnPtr _test_column;
     ColumnRawPtrs _key_columns;
 };
 
-TEST_F(AggSharedStateTest, TestRefreshTopLimit) {
+TEST_F(GroupByAggContextLimitTest, TestRefreshTopLimit) {
     // Test with limit = 3 (keep top 3 values)
-    _shared_state->limit = 3;
+    _ctx->limit = 3;
 
     // Add values one by one and verify the minimum value is tracked correctly
-    EXPECT_EQ(_shared_state->limit_columns_min, 1);
+    EXPECT_EQ(_ctx->limit_columns_min_ref(), 1);
 
-    _shared_state->refresh_top_limit(4, _key_columns);
-    EXPECT_EQ(_shared_state->limit_columns_min, 2);
+    _ctx->refresh_top_limit(4, _key_columns);
+    EXPECT_EQ(_ctx->limit_columns_min_ref(), 2);
 
-    _shared_state->refresh_top_limit(5, _key_columns);
-    EXPECT_EQ(_shared_state->limit_columns_min, 2); // 1 should still be max
+    _ctx->refresh_top_limit(5, _key_columns);
+    EXPECT_EQ(_ctx->limit_columns_min_ref(), 2); // 1 should still be max
 
-    auto heap_size = _shared_state->limit_heap.size();
+    auto heap_size = _ctx->limit_heap_ref().size();
     EXPECT_EQ(heap_size, 3);
 
-    EXPECT_EQ(_shared_state->limit_heap.top()._row_id, 2); // 1 should be the top value
-    _shared_state->limit_heap.pop();
-    EXPECT_EQ(_shared_state->limit_heap.top()._row_id, 4); // 0 should be the top value
-    _shared_state->limit_heap.pop();
-    EXPECT_EQ(_shared_state->limit_heap.top()._row_id, 3); // -1 should be the top value
+    EXPECT_EQ(_ctx->limit_heap_ref().top()._row_id, 2); // 1 should be the top value
+    _ctx->limit_heap_ref().pop();
+    EXPECT_EQ(_ctx->limit_heap_ref().top()._row_id, 4); // 0 should be the top value
+    _ctx->limit_heap_ref().pop();
+    EXPECT_EQ(_ctx->limit_heap_ref().top()._row_id, 3); // -1 should be the top value
 }
 
 } // namespace doris

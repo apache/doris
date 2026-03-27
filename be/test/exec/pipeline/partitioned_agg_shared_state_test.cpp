@@ -21,6 +21,7 @@
 #include <memory>
 
 #include "exec/common/agg_utils.h"
+#include "exec/common/groupby_agg_context.h"
 #include "exec/pipeline/dependency.h"
 #include "exec/spill/spill_file_manager.h"
 #include "io/fs/local_file_system.h"
@@ -156,22 +157,22 @@ TEST_F(PartitionedAggSharedStateTest, InMemSharedStateDefaultsNull) {
     EXPECT_EQ(state._in_mem_shared_state, nullptr);
 }
 
-// Hash table contribution: AggSharedState constructor always creates agg_data.
+// Hash table contribution: GroupByAggContext always creates hash_table_data.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateCreatesNonNullAggData) {
-    AggSharedState agg_state;
-    EXPECT_NE(agg_state.agg_data, nullptr);
+    GroupByAggContext ctx({}, {}, {}, 0, 1, true);
+    EXPECT_NE(ctx.hash_table_data(), nullptr);
 }
 
 // Hash table contribution: default method_variant is monostate (index 0) → 0 bytes.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateDefaultVariantIsMonostate) {
-    AggSharedState agg_state;
-    EXPECT_EQ(agg_state.agg_data->method_variant.index(), 0);
+    GroupByAggContext ctx({}, {}, {}, 0, 1, true);
+    EXPECT_EQ(ctx.hash_table_data()->method_variant.index(), 0);
 }
 
-// Container contribution: aggregate_data_container defaults to null → 0 bytes.
+// Container contribution: agg_data_container defaults to null → 0 bytes.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateAggContainerDefaultsNull) {
-    AggSharedState agg_state;
-    EXPECT_EQ(agg_state.aggregate_data_container, nullptr);
+    GroupByAggContext ctx({}, {}, {}, 0, 1, true);
+    EXPECT_EQ(ctx.agg_data_container(), nullptr);
 }
 
 // Container contribution: freshly constructed container has 0 memory_usage.
@@ -193,29 +194,33 @@ TEST_F(PartitionedAggSharedStateTest, AggregateDataContainerMemoryGrowsAfterAppe
 // with monostate variant and null container → 0 bytes from both sources.
 TEST_F(PartitionedAggSharedStateTest, PartitionedAggStateLinkedToAggStateWithDefaultData) {
     AggSharedState agg_state;
+    agg_state.groupby_agg_ctx = std::make_unique<GroupByAggContext>(
+            std::vector<AggFnEvaluator*>{}, VExprContextSPtrs{}, Sizes{}, 0, 1, true);
     PartitionedAggSharedState state;
     state._in_mem_shared_state = &agg_state;
     state._is_spilled = true;
 
     EXPECT_NE(state._in_mem_shared_state, nullptr);
-    EXPECT_NE(state._in_mem_shared_state->agg_data, nullptr);
+    EXPECT_NE(state._in_mem_shared_state->groupby_agg_ctx->hash_table_data(), nullptr);
     // monostate → hash table contributes 0 bytes
-    EXPECT_EQ(state._in_mem_shared_state->agg_data->method_variant.index(), 0);
+    EXPECT_EQ(state._in_mem_shared_state->groupby_agg_ctx->hash_table_data()->method_variant.index(), 0);
     // null container → container contributes 0 bytes
-    EXPECT_EQ(state._in_mem_shared_state->aggregate_data_container, nullptr);
+    EXPECT_EQ(state._in_mem_shared_state->groupby_agg_ctx->agg_data_container(), nullptr);
 }
 
 // Container contribution through AggSharedState: memory_usage reflects arena allocation.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateContainerMemoryUsage) {
     AggSharedState agg_state;
-    agg_state.aggregate_data_container =
+    agg_state.groupby_agg_ctx = std::make_unique<GroupByAggContext>(
+            std::vector<AggFnEvaluator*>{}, VExprContextSPtrs{}, Sizes{}, 0, 1, true);
+    agg_state.groupby_agg_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);
-    ASSERT_NE(agg_state.aggregate_data_container, nullptr);
-    EXPECT_EQ(agg_state.aggregate_data_container->memory_usage(), 0);
+    ASSERT_NE(agg_state.groupby_agg_ctx->agg_data_container(), nullptr);
+    EXPECT_EQ(agg_state.groupby_agg_ctx->agg_data_container()->memory_usage(), 0);
 
     uint32_t key = 99;
-    agg_state.aggregate_data_container->append_data<uint32_t>(key);
-    EXPECT_GT(agg_state.aggregate_data_container->memory_usage(), 0);
+    agg_state.groupby_agg_ctx->agg_data_container()->append_data<uint32_t>(key);
+    EXPECT_GT(agg_state.groupby_agg_ctx->agg_data_container()->memory_usage(), 0);
 }
 
 } // namespace doris

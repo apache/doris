@@ -208,7 +208,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_GT(inner_sink_local_state->get_hash_table_size(), 0);
+    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -302,7 +302,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_EQ(inner_sink_local_state->get_hash_table_size(), 0);
+    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -401,7 +401,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_EQ(inner_sink_local_state->get_hash_table_size(), 0);
+    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -718,13 +718,15 @@ TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeWithAggContaine
     auto agg_sptr = std::make_shared<AggSharedState>();
     shared_state->_in_mem_shared_state_sptr = agg_sptr;
     shared_state->_in_mem_shared_state = agg_sptr.get();
-    agg_sptr->aggregate_data_container =
+    agg_sptr->groupby_agg_ctx = std::make_unique<GroupByAggContext>(
+            std::vector<AggFnEvaluator*>{}, VExprContextSPtrs{}, Sizes{}, 0, 1, true);
+    agg_sptr->groupby_agg_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);
     // ~13 sub-containers of 8192 entries each ≈ 1.28 MB → exceeds 1MB threshold
     for (uint32_t i = 0; i < 100000; ++i) {
-        agg_sptr->aggregate_data_container->append_data<uint32_t>(i);
+        agg_sptr->groupby_agg_ctx->agg_data_container()->append_data<uint32_t>(i);
     }
-    const size_t container_bytes = agg_sptr->aggregate_data_container->memory_usage();
+    const size_t container_bytes = agg_sptr->groupby_agg_ctx->agg_data_container()->memory_usage();
     ASSERT_GT(container_bytes, 1UL << 20);
 
     SpillFileSPtr spill_file;
@@ -918,17 +920,17 @@ TEST_F(PartitionedAggregationSourceOperatorTest, FlushHashTableToSubSpillFilesSu
 
     auto* in_mem_state = shared_state->_in_mem_shared_state;
     ASSERT_NE(in_mem_state, nullptr);
-    ASSERT_NE(in_mem_state->aggregate_data_container, nullptr);
+    ASSERT_NE(in_mem_state->groupby_agg_ctx->agg_data_container(), nullptr);
 
     // Set up the repartitioner the same way _flush_and_repartition does.
     const int new_level = local_state->_current_partition.level + 1;
     const int fanout = static_cast<int>(source_operator->_partition_count);
-    size_t num_keys = in_mem_state->probe_expr_ctxs.size();
+    size_t num_keys = in_mem_state->groupby_agg_ctx->groupby_expr_ctxs().size();
     std::vector<size_t> key_column_indices(num_keys);
     std::vector<DataTypePtr> key_data_types(num_keys);
     for (size_t i = 0; i < num_keys; ++i) {
         key_column_indices[i] = i;
-        key_data_types[i] = in_mem_state->probe_expr_ctxs[i]->root()->data_type();
+        key_data_types[i] = in_mem_state->groupby_agg_ctx->groupby_expr_ctxs()[i]->root()->data_type();
     }
     std::vector<SpillFileSPtr> output_spill_files;
     ASSERT_TRUE(SpillRepartitioner::create_output_spill_files(
@@ -1008,7 +1010,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest,
     // never reached — the repartitioner does not need setup_output.
     auto* in_mem_state = shared_state->_in_mem_shared_state;
     ASSERT_NE(in_mem_state, nullptr);
-    ASSERT_NE(in_mem_state->aggregate_data_container, nullptr);
+    ASSERT_NE(in_mem_state->groupby_agg_ctx->agg_data_container(), nullptr);
     auto st = local_state->_flush_hash_table_to_sub_spill_files(_helper.runtime_state.get());
     EXPECT_TRUE(st.ok()) << st.to_string();
 

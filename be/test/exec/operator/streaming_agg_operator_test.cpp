@@ -134,7 +134,7 @@ TEST_F(StreamingAggOperatorTest, test1) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 3);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 3);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
@@ -145,7 +145,7 @@ TEST_F(StreamingAggOperatorTest, test1) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 4);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 4);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
@@ -190,7 +190,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 3);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 3);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
@@ -202,7 +202,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 3);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 3);
         EXPECT_FALSE(op->need_more_input_data(state.get()));
     }
 
@@ -268,7 +268,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 3);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 3);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
@@ -281,7 +281,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 3);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 3);
         EXPECT_FALSE(op->need_more_input_data(state.get()));
     }
 
@@ -352,7 +352,7 @@ TEST_F(StreamingAggOperatorTest, test4) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 3);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 3);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
@@ -368,7 +368,7 @@ TEST_F(StreamingAggOperatorTest, test4) {
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
 
-        EXPECT_EQ(local_state->_get_hash_table_size(), 4);
+        EXPECT_EQ(local_state->_groupby_agg_ctx->hash_table_size(), 4);
         EXPECT_TRUE(op->need_more_input_data(state.get()));
     }
 
