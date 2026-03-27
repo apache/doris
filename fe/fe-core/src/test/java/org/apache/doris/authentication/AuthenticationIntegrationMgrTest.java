@@ -26,6 +26,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
@@ -109,7 +111,29 @@ class AuthenticationIntegrationMgrTest {
         Mockito.verifyNoMoreInteractions(runtime);
         Mockito.verify(roleMappingMgr).hasRoleMapping("corp_ldap");
         Mockito.verifyNoMoreInteractions(roleMappingMgr);
-        Mockito.verifyNoInteractions(editLog);
+
+        InOrder editLogInOrder = Mockito.inOrder(editLog);
+        ArgumentCaptor<AuthenticationIntegrationMeta> createCaptor =
+                ArgumentCaptor.forClass(AuthenticationIntegrationMeta.class);
+        ArgumentCaptor<AuthenticationIntegrationMeta> alterCaptor =
+                ArgumentCaptor.forClass(AuthenticationIntegrationMeta.class);
+        ArgumentCaptor<DropAuthenticationIntegrationOperationLog> dropCaptor =
+                ArgumentCaptor.forClass(DropAuthenticationIntegrationOperationLog.class);
+        editLogInOrder.verify(editLog).logCreateAuthenticationIntegration(createCaptor.capture());
+        editLogInOrder.verify(editLog, Mockito.times(3)).logAlterAuthenticationIntegration(alterCaptor.capture());
+        editLogInOrder.verify(editLog).logDropAuthenticationIntegration(dropCaptor.capture());
+        Mockito.verifyNoMoreInteractions(editLog);
+
+        Assertions.assertEquals("corp_ldap", createCaptor.getValue().getName());
+        Assertions.assertEquals("ldap", createCaptor.getValue().getType());
+
+        Assertions.assertEquals(3, alterCaptor.getAllValues().size());
+        Assertions.assertEquals("ldap://127.0.0.1:1389",
+                alterCaptor.getAllValues().get(0).getProperties().get("ldap.server"));
+        Assertions.assertFalse(alterCaptor.getAllValues().get(1).getProperties().containsKey("ldap.admin_password"));
+        Assertions.assertEquals("new comment", alterCaptor.getAllValues().get(2).getComment());
+
+        Assertions.assertEquals("corp_ldap", dropCaptor.getValue().getIntegrationName());
     }
 
     @Test
