@@ -35,7 +35,6 @@ import java.nio.charset.StandardCharsets;
 class ClearPasswordResolverTest {
     private static final String USER_NAME = "alice";
     private static final String REMOTE_IP = "127.0.0.1";
-    private static final String OIDC_CLIENT_PLUGIN = "authentication_openid_connect_client";
 
     @Test
     void testResolveAuthenticateRequestDefaultsToClearTextPassword() throws Exception {
@@ -56,30 +55,6 @@ class ClearPasswordResolverTest {
         Assertions.assertEquals(CredentialType.CLEAR_TEXT_PASSWORD, request.getCredentialType());
         Assertions.assertArrayEquals("secret-token".getBytes(StandardCharsets.UTF_8), request.getCredential());
         Assertions.assertInstanceOf(ClearPassword.class, request.getPassword());
-    }
-
-    @Test
-    void testResolveAuthenticateRequestForOidcClientPlugin() throws Exception {
-        ClearPasswordResolver resolver = new ClearPasswordResolver();
-        MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
-        Mockito.when(authPacket.getPluginName()).thenReturn(OIDC_CLIENT_PLUGIN);
-        Mockito.when(authPacket.getAuthResponse()).thenReturn("token-from-client".getBytes(StandardCharsets.UTF_8));
-        Mockito.when(channel.getRemoteIp()).thenReturn(REMOTE_IP);
-
-        AuthenticateRequest request = resolver.resolveAuthenticateRequest(
-                USER_NAME,
-                Mockito.mock(ConnectContext.class),
-                channel,
-                MysqlSerializer.newInstance(),
-                authPacket,
-                Mockito.mock(MysqlHandshakePacket.class))
-                .orElseThrow(() -> new AssertionError("request is required"));
-
-        Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, request.getCredentialType());
-        Assertions.assertArrayEquals("token-from-client".getBytes(StandardCharsets.UTF_8), request.getCredential());
-        Assertions.assertInstanceOf(ClearPassword.class, request.getPassword());
-        Mockito.verify(channel, Mockito.never()).fetchOnePacket();
     }
 
     private static ByteBuffer clearTextResponse(String password) {

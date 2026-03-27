@@ -44,6 +44,9 @@ public class CreateRoleMappingCommand extends Command implements ForwardWithSync
     private final List<RoleMappingRule> rules;
     private final String comment;
 
+    /**
+     * Create a role mapping command.
+     */
     public CreateRoleMappingCommand(String mappingName, boolean ifNotExists,
             String integrationName, List<RoleMappingRule> rules, String comment) {
         super(PlanType.CREATE_ROLE_MAPPING_COMMAND);

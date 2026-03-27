@@ -61,7 +61,8 @@ public class RoleMappingMeta extends UserAuditMetadata implements Writable {
         super(createUser, createTime, alterUser, modifyTime);
         this.name = Objects.requireNonNull(name, "name can not be null");
         this.integrationName = Objects.requireNonNull(integrationName, "integrationName can not be null");
-        this.rules = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(rules, "rules can not be null")));
+        this.rules = Collections.unmodifiableList(new ArrayList<>(Objects.requireNonNull(rules,
+            "rules can not be null")));
         this.comment = comment;
     }
 

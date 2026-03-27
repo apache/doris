@@ -40,13 +40,11 @@ public class PersistMetaModules {
             "masterInfo", "frontends", "backends", "datasource", "db", "alterJob", "recycleBin",
             "globalVariable", "cluster", "broker", "resources", "exportJob", "backupHandler",
             "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
-            "plugins", "deleteHandler", "sqlBlockRule", "policy",
+            "plugins", "deleteHandler", "sqlBlockRule", "authenticationIntegrations", "policy",
             "globalFunction", "workloadGroups",
             "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
             "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore",
             "constraintManager"
-            // TODO: Re-enable "authenticationIntegrations" after persistence requirements are confirmed.
-            // , "authenticationIntegrations"
     );
 
     // The modules in `CloudEnv`.

@@ -41,11 +41,6 @@ under the License.
             <version>${project.version}</version>
         </dependency>
         <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java</artifactId>
-            <version>4.33.0</version>
-        </dependency>
-        <dependency>
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-authentication-spi</artifactId>
             <version>${project.version}</version>
@@ -59,16 +54,6 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-extension-spi</artifactId>
             <version>${project.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-api</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-engine</artifactId>
-            <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
@@ -91,7 +76,6 @@ under the License.
             <groupId>org.apache.doris</groupId>
             <artifactId>fe-authentication-plugin-oidc</artifactId>
             <version>${project.version}</version>
-            <scope>test</scope>
         </dependency>
     </dependencies>
 </project>

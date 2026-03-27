@@ -2513,13 +2513,8 @@ public class Env {
     }
 
     public long loadAuthenticationIntegrations(DataInputStream in, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Consume persisted bytes to keep image stream alignment,
-        // but do not restore into in-memory state for now.
-        AuthenticationIntegrationMgr.read(in);
-        authenticationIntegrationMgr = new AuthenticationIntegrationMgr();
-        LOG.info("skip replay authentication integrations from image temporarily");
+        authenticationIntegrationMgr = AuthenticationIntegrationMgr.read(in);
+        LOG.info("finished replay authentication integrations from image");
         return checksum;
     }
 
@@ -2836,10 +2831,7 @@ public class Env {
     }
 
     public long saveAuthenticationIntegrations(CountingDataOutputStream out, long checksum) throws IOException {
-        // TODO(authentication-integration): Re-enable image persistence
-        // when authentication integration is fully integrated.
-        // Persist an empty manager temporarily.
-        new AuthenticationIntegrationMgr().write(out);
+        this.authenticationIntegrationMgr.write(out);
         return checksum;
     }
 
