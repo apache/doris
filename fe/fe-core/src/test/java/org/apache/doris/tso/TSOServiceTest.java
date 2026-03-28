@@ -65,7 +65,7 @@ public class TSOServiceTest {
         Config.tso_max_get_retry_count = 1;
         Config.tso_max_update_retry_count = 1;
         Config.tso_service_update_interval_ms = 1;
-        Config.enable_tso_persist_journal = false;
+        Config.enable_tso_persist_journal = true;
         Config.tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
         env = Mockito.mock(Env.class);
@@ -100,13 +100,19 @@ public class TSOServiceTest {
 
     @Test
     public void testGetTSOThrowsWhenEnvNotReady() {
-        setInitializedFlag(tsoService, true);
-        Mockito.when(env.isReady()).thenReturn(false);
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
         try {
-            tsoService.getTSO();
-            Assert.fail();
-        } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
+            Config.enable_tso_feature = true;
+            setInitializedFlag(tsoService, true);
+            Mockito.when(env.isReady()).thenReturn(false);
+            try {
+                tsoService.getTSO();
+                Assert.fail();
+            } catch (RuntimeException e) {
+                Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
+            }
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
         }
     }
 
@@ -124,29 +130,41 @@ public class TSOServiceTest {
 
     @Test
     public void testGetTSOThrowsOnLogicalOverflow() throws Exception {
-        setInitializedFlag(tsoService, true);
-        Mockito.when(env.isReady()).thenReturn(true);
-        Mockito.when(env.isMaster()).thenReturn(true);
-        setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER);
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
         try {
-            tsoService.getTSO();
-            Assert.fail();
-        } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
-            Assert.assertNotNull(e.getCause());
-            Assert.assertTrue(e.getCause().getMessage().contains("logical counter overflow"));
-            Assert.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
+            Config.enable_tso_feature = true;
+            setInitializedFlag(tsoService, true);
+            Mockito.when(env.isReady()).thenReturn(true);
+            Mockito.when(env.isMaster()).thenReturn(true);
+            setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER);
+            try {
+                tsoService.getTSO();
+                Assert.fail();
+            } catch (RuntimeException e) {
+                Assert.assertTrue(e.getMessage().contains("Failed to get TSO"));
+                Assert.assertNotNull(e.getCause());
+                Assert.assertTrue(e.getCause().getMessage().contains("logical counter overflow"));
+                Assert.assertEquals(TSOTimestamp.MAX_LOGICAL_COUNTER, getGlobalLogicalCounter(tsoService));
+            }
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
         }
     }
 
     @Test
     public void testGetTSOAcceptsLogicalCounterUpperBound() throws Exception {
-        setInitializedFlag(tsoService, true);
-        Mockito.when(env.isReady()).thenReturn(true);
-        Mockito.when(env.isMaster()).thenReturn(true);
-        setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER - 1);
-        long tso = tsoService.getTSO();
-        Assert.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        try {
+            Config.enable_tso_feature = true;
+            setInitializedFlag(tsoService, true);
+            Mockito.when(env.isReady()).thenReturn(true);
+            Mockito.when(env.isMaster()).thenReturn(true);
+            setGlobalTimestamp(tsoService, 100L, TSOTimestamp.MAX_LOGICAL_COUNTER - 1);
+            long tso = tsoService.getTSO();
+            Assert.assertEquals(TSOTimestamp.composeTimestamp(100L, TSOTimestamp.MAX_LOGICAL_COUNTER), tso);
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+        }
     }
 
     @Test
@@ -230,12 +248,18 @@ public class TSOServiceTest {
 
     @Test
     public void testWriteTimestampToBdbJeSkipsWhenEnvNotReady() throws Exception {
-        EditLog editLog = Mockito.mock(EditLog.class);
-        Mockito.when(env.isReady()).thenReturn(false);
-        Mockito.when(env.getEditLog()).thenReturn(editLog);
+        boolean originalEnableTsoPersistJournal = Config.enable_tso_persist_journal;
+        try {
+            Config.enable_tso_persist_journal = false;
+            EditLog editLog = Mockito.mock(EditLog.class);
+            Mockito.when(env.isReady()).thenReturn(false);
+            Mockito.when(env.getEditLog()).thenReturn(editLog);
 
-        invokeWriteTimestampToBdbJe(tsoService, 123L);
-        Mockito.verifyNoInteractions(editLog);
+            invokeWriteTimestampToBdbJe(tsoService, 123L);
+            Mockito.verifyNoInteractions(editLog);
+        } finally {
+            Config.enable_tso_persist_journal = originalEnableTsoPersistJournal;
+        }
     }
 
     @Test
