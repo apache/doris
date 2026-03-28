@@ -354,6 +354,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         long elementCnt = 0;
         long matchCnt = 0;
         long startTime = System.nanoTime();
+        boolean usedHeadPath = false;
         Status st = Status.OK;
         try {
             remotePath = AzurePropertyUtils.validateAndNormalizeUri(remotePath);
@@ -370,6 +371,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                     && S3Util.isDeterministicPattern(keyPattern)) {
                 Status headStatus = globListByGetProperties(bucket, keyPattern, result, fileNameOnly, startTime);
                 if (headStatus != null) {
+                    usedHeadPath = true;
                     return headStatus;
                 }
                 // If headStatus is null, fall through to use listing
@@ -444,11 +446,13 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             st = new Status(Status.ErrCode.COMMON_ERROR,
                     "errors while glob file " + remotePath + ": " + e.getMessage());
         } finally {
-            long endTime = System.nanoTime();
-            long duration = endTime - startTime;
-            LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                    remotePath, elementCnt, roundCnt, matchCnt,
-                    duration / 1000);
+            if (!usedHeadPath) {
+                long endTime = System.nanoTime();
+                long duration = endTime - startTime;
+                LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
+                        remotePath, elementCnt, roundCnt, matchCnt,
+                        duration / 1000);
+            }
         }
         return st;
     }
@@ -468,15 +472,15 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             List<RemoteFile> result, boolean fileNameOnly, long startTime) {
         try {
             // First expand [...] brackets to {...} braces, then expand {..} ranges, then expand braces
+            // Use limit-aware expansion to avoid large allocations before checking the limit
             String expandedPattern = S3Util.expandBracketPatterns(keyPattern);
             expandedPattern = S3Util.extendGlobs(expandedPattern);
-            List<String> expandedPaths = S3Util.expandBracePatterns(expandedPattern);
-
-            // Fall back to listing if too many paths to avoid overwhelming Azure with requests
-            // Controlled by config: s3_head_request_max_paths
-            if (expandedPaths.size() > Config.s3_head_request_max_paths) {
-                LOG.info("Expanded path count {} exceeds limit {}, falling back to LIST",
-                        expandedPaths.size(), Config.s3_head_request_max_paths);
+            List<String> expandedPaths;
+            try {
+                expandedPaths = S3Util.expandBracePatterns(expandedPattern, Config.s3_head_request_max_paths);
+            } catch (S3Util.BraceExpansionTooLargeException e) {
+                LOG.info("Brace expansion exceeded limit {}, falling back to LIST",
+                        Config.s3_head_request_max_paths);
                 return null;
             }
 
