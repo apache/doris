@@ -431,6 +431,10 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
             # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+
+            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
+            # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
