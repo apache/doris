@@ -63,6 +63,9 @@ import java.util.regex.Pattern;
 
 public class S3Util {
     private static final Logger LOG = LogManager.getLogger(Util.class);
+    // Hard cap on the size of a single numeric range expansion (e.g. {1..N})
+    // to prevent OOM from patterns like {1..100000000}
+    private static final int MAX_RANGE_EXPANSION_SIZE = 10000;
 
     private static AwsCredentialsProvider getAwsCredencialsProvider(CloudCredential credential) {
         AwsCredentials awsCredential;
@@ -348,6 +351,10 @@ public class S3Util {
                         start = end;
                         end = temp;
                     }
+                    // Skip excessively large ranges to avoid OOM from patterns like {1..100000000}
+                    if ((long) end - start + 1 > MAX_RANGE_EXPANSION_SIZE) {
+                        continue;
+                    }
                     for (int i = start; i <= end; i++) {
                         if (!allNumbers.contains(i)) {
                             allNumbers.add(i);
@@ -615,9 +622,9 @@ public class S3Util {
      * Stops expansion early if the limit is exceeded, avoiding large allocations.
      *
      * @param pathPattern Path with optional brace patterns
-     * @param maxPaths Maximum number of expanded paths allowed (must be > 0)
+     * @param maxPaths Maximum number of expanded paths allowed; 0 or negative means unlimited
      * @return List of expanded concrete paths
-     * @throws BraceExpansionTooLargeException if expansion exceeds maxPaths
+     * @throws BraceExpansionTooLargeException if expansion exceeds maxPaths (when maxPaths > 0)
      */
     public static List<String> expandBracePatterns(String pathPattern, int maxPaths) {
         List<String> result = new ArrayList<>();

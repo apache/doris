@@ -450,7 +450,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                 long endTime = System.nanoTime();
                 long duration = endTime - startTime;
                 LOG.info("process {} elements under prefix {} for {} round, match {} elements, take {} micro second",
-                        remotePath, elementCnt, roundCnt, matchCnt,
+                        elementCnt, remotePath, roundCnt, matchCnt,
                         duration / 1000);
             }
         }
