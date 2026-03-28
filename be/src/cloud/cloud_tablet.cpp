@@ -506,6 +506,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                         LOG_WARNING("add rowset warm up error ").error(st);
                                     }
                                 }},
+                                .tablet_id = _tablet_meta->tablet_id(),
                         });
                     }
 
@@ -539,6 +540,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
                                         LOG_WARNING("add rowset warm up error ").error(st);
                                     }
                                 }},
+                                .tablet_id = _tablet_meta->tablet_id(),
                         };
                         self->update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), 1);
                         _engine.file_cache_block_downloader().submit_download_task(std::move(meta));

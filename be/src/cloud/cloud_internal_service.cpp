@@ -554,6 +554,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                 .is_warmup = true},
                         .download_done = std::move(download_done),
+                        .tablet_id = tablet_id,
                 };
 
                 g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
@@ -629,6 +630,7 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                 .is_warmup = true},
                         .download_done = std::move(download_done),
+                        .tablet_id = tablet_id,
                 };
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
