@@ -1,0 +1,81 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+suite("test_ignore_not_found_segment", "nonConcurrent") {
+    def tableName = "test_ignore_not_found_segment_tbl"
+
+    def backendId_to_backendIP = [:]
+    def backendId_to_backendHttpPort = [:]
+    getBackendIpHttpPort(backendId_to_backendIP, backendId_to_backendHttpPort)
+
+    def set_be_config = { key, value ->
+        for (String backend_id: backendId_to_backendIP.keySet()) {
+            def (code, out, err) = update_be_config(backendId_to_backendIP.get(backend_id), backendId_to_backendHttpPort.get(backend_id), key, value)
+            logger.info("set be config ${key}=${value}, code: ${code}, out: ${out}, err: ${err}")
+        }
+    }
+
+    sql "DROP TABLE IF EXISTS ${tableName}"
+    sql """
+        CREATE TABLE ${tableName} (
+            `k1` int NOT NULL,
+            `v1` string NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`k1`)
+        DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+        PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "disable_auto_compaction" = "true"
+        );
+    """
+
+    // Insert data across multiple segments (each INSERT creates a new segment)
+    sql "INSERT INTO ${tableName} VALUES (1, 'aaa'), (2, 'bbb');"
+    sql "INSERT INTO ${tableName} VALUES (3, 'ccc'), (4, 'ddd');"
+    sql "INSERT INTO ${tableName} VALUES (5, 'eee'), (6, 'fff');"
+
+    // Verify baseline: all 6 rows are visible
+    qt_baseline "SELECT count(*) FROM ${tableName}"
+
+    // Test 1: With ignore_not_found_segment=true (default), injecting NOT_FOUND
+    // should return partial results (0 rows since all segments fail to load)
+    try {
+        set_be_config.call("ignore_not_found_segment", "true")
+        GetDebugPoint().enableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
+
+        qt_ignore_enabled "SELECT count(*) FROM ${tableName}"
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
+    }
+
+    // Test 2: With ignore_not_found_segment=false, injecting NOT_FOUND should cause query failure
+    try {
+        set_be_config.call("ignore_not_found_segment", "false")
+        GetDebugPoint().enableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
+
+        test {
+            sql "SELECT count(*) FROM ${tableName}"
+            exception "NOT_FOUND"
+        }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
+        set_be_config.call("ignore_not_found_segment", "true")
+    }
+
+    // Test 3: After clearing the debug point, data should be fully accessible again
+    qt_recovery "SELECT count(*) FROM ${tableName}"
+}
