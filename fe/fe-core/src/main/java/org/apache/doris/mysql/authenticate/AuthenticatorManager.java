@@ -39,6 +39,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -56,10 +57,13 @@ import java.util.ServiceLoader;
  */
 public class AuthenticatorManager {
     private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
+    private static final String OIDC_CLIENT_PLUGIN_NAME = "authentication_openid_connect_client";
 
     private static volatile Authenticator defaultAuthenticator = null;
     private static volatile Authenticator authTypeAuthenticator = null;
     private static volatile String authTypeIdentifier = null;
+    private final MysqlAuthPacketCredentialExtractor authPacketCredentialExtractor =
+            new MysqlAuthPacketCredentialExtractor();
 
     public AuthenticatorManager(String type) {
         String normalizedType = normalizeAuthTypeIdentifier(type);
@@ -241,7 +245,8 @@ public class AuthenticatorManager {
             return null;
         }
 
-        AuthenticateRequest chainRequest = primaryRequest;
+        AuthenticateRequest chainRequest = normalizeAuthenticationChainRequest(userName, channel, authPacket,
+                primaryRequest);
         if (!canReuseRequestForAuthenticationChain(chainRequest)) {
             Optional<AuthenticateRequest> fallbackRequest = resolveAuthenticateRequest(chainAuthenticator, userName,
                     context, channel, serializer, authPacket, handshakePacket);
@@ -257,6 +262,30 @@ public class AuthenticatorManager {
 
     private boolean hasAuthenticationChain() {
         return !AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty();
+    }
+
+    private AuthenticateRequest normalizeAuthenticationChainRequest(String userName, MysqlChannel channel,
+            MysqlAuthPacket authPacket, AuthenticateRequest primaryRequest) {
+        Optional<AuthenticateRequest> authPacketRequest =
+                authPacketCredentialExtractor.extractAuthenticateRequest(userName, channel, authPacket);
+        if (authPacketRequest.isPresent()) {
+            return authPacketRequest.get();
+        }
+        if (!OIDC_CLIENT_PLUGIN_NAME.equals(authPacket.getPluginName())
+                || !(primaryRequest.getPassword() instanceof ClearPassword)) {
+            return primaryRequest;
+        }
+        ClearPassword clearPassword = (ClearPassword) primaryRequest.getPassword();
+        return AuthenticateRequest.builder()
+                .userName(primaryRequest.getUserName())
+                .password(clearPassword)
+                .remoteHost(primaryRequest.getRemoteHost())
+                .remotePort(primaryRequest.getRemotePort())
+                .clientType(primaryRequest.getClientType())
+                .credentialType(CredentialType.OIDC_ID_TOKEN)
+                .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
+                .properties(primaryRequest.getProperties())
+                .build();
     }
 
     private boolean canReuseRequestForAuthenticationChain(AuthenticateRequest request) {

@@ -142,6 +142,7 @@ class AuthenticationIntegrationMgrTest {
         mgr.createAuthenticationIntegration("corp_ldap", false, map(
                 "type", "ldap",
                 "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER);
+        Mockito.clearInvocations(editLog, runtime, roleMappingMgr);
 
         Assertions.assertThrows(DdlException.class,
                 () -> mgr.createAuthenticationIntegration("corp_ldap", false, map("type", "ldap"), null, CREATE_USER));
@@ -174,6 +175,7 @@ class AuthenticationIntegrationMgrTest {
                 "type", "ldap",
                 "ldap.server", "ldap://127.0.0.1:389"), null, CREATE_USER);
         Mockito.when(roleMappingMgr.hasRoleMapping("corp_ldap")).thenReturn(true);
+        Mockito.clearInvocations(editLog, runtime, roleMappingMgr);
 
         DdlException exception = Assertions.assertThrows(DdlException.class,
                 () -> mgr.dropAuthenticationIntegration("corp_ldap", false));
