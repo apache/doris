@@ -19,6 +19,7 @@ package org.apache.doris.paimon;
 
 import org.apache.doris.common.classloader.JniScannerClassLoader;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Test;
 
@@ -30,6 +31,7 @@ import java.sql.Driver;
 import java.sql.DriverManager;
 import java.sql.DriverPropertyInfo;
 import java.sql.SQLFeatureNotSupportedException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -39,6 +41,21 @@ import java.util.jar.JarOutputStream;
 import java.util.logging.Logger;
 
 public class PaimonJdbcDriverUtilsTest {
+    private final List<Driver> registeredDrivers = new ArrayList<>();
+    private final List<Path> tempJars = new ArrayList<>();
+
+    @After
+    public void tearDown() throws Exception {
+        for (Driver driver : registeredDrivers) {
+            DriverManager.deregisterDriver(driver);
+        }
+        registeredDrivers.clear();
+        for (Path tempJar : tempJars) {
+            Files.deleteIfExists(tempJar);
+        }
+        tempJars.clear();
+    }
+
     @Test
     public void testRegisterDriverIfNeeded() throws Exception {
         Path driverJar = createDriverJar();
@@ -46,10 +63,12 @@ public class PaimonJdbcDriverUtilsTest {
         params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_URL, driverJar.toUri().toURL().toString());
         params.put(PaimonJdbcDriverUtils.PAIMON_JDBC_DRIVER_CLASS, DummyJdbcDriver.class.getName());
 
-        JniScannerClassLoader scannerClassLoader = new JniScannerClassLoader("paimon-test", List.of(), null);
+        JniScannerClassLoader scannerClassLoader =
+                new JniScannerClassLoader("paimon-test", List.of(), ClassLoader.getPlatformClassLoader());
         PaimonJdbcDriverUtils.registerDriverIfNeeded(params, scannerClassLoader);
 
         Driver driver = DriverManager.getDriver("jdbc:dummy:test");
+        registeredDrivers.add(driver);
         Assert.assertTrue(driver.acceptsURL("jdbc:dummy:test"));
     }
 
@@ -65,6 +84,7 @@ public class PaimonJdbcDriverUtilsTest {
 
     private Path createDriverJar() throws IOException {
         Path jarPath = Files.createTempFile("paimon-jdbc-driver", ".jar");
+        tempJars.add(jarPath);
         String resourceName = DummyJdbcDriver.class.getName().replace('.', '/') + ".class";
         try (JarOutputStream jarOutputStream = new JarOutputStream(Files.newOutputStream(jarPath));
                 InputStream inputStream = DummyJdbcDriver.class.getClassLoader().getResourceAsStream(resourceName)) {

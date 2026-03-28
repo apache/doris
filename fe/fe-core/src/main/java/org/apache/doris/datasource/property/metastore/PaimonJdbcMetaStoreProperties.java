@@ -166,7 +166,7 @@ public class PaimonJdbcMetaStoreProperties extends AbstractPaimonProperties {
             return Collections.emptyMap();
         }
         if (StringUtils.isBlank(driverClass)) {
-            throw new IllegalStateException("jdbc.driver_class or paimon.jdbc.driver_class is required when "
+            throw new IllegalArgumentException("jdbc.driver_class or paimon.jdbc.driver_class is required when "
                     + "jdbc.driver_url or paimon.jdbc.driver_url is specified");
         }
         Map<String, String> backendPaimonOptions = new HashMap<>();
