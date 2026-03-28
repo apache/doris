@@ -416,20 +416,14 @@ struct TQueryOptions {
   // Target file size in bytes for Iceberg write operations
   // Default 0 means use config::iceberg_sink_max_file_size
   178: optional i64 iceberg_write_target_file_size_bytes = 0;
-  179: optional bool enable_parquet_filter_by_bloom_filter = true;
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
   182: optional i32 ivf_nprobe = 1;
-  
-  // Enable hybrid sorting: dynamically selects between PdqSort and TimSort based on 
-  // runtime profiling to choose the most efficient algorithm for the data pattern
-  183: optional bool enable_use_hybrid_sort = false;
-  184: optional i32 cte_max_recursion_depth;
+
+  179: optional bool enable_parquet_filter_by_bloom_filter = true;
 
   183: optional bool enable_aggregate_function_null_v2 = false;
 
-  185: optional bool enable_parquet_file_page_cache = true;
-  
   186: optional bool enable_streaming_agg_hash_join_force_passthrough;
 
   187: optional bool enable_distinct_streaming_agg_force_passthrough;
@@ -446,6 +440,8 @@ struct TQueryOptions {
   // When true, the streaming aggregation operator can use more aggressive
   // hash table expansion thresholds since all data is local.
   202: optional bool single_backend_query = false;
+
+  185: optional bool enable_parquet_file_page_cache = true;
 
   203: optional bool enable_inverted_index_wand_query = true;
 
