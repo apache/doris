@@ -114,7 +114,7 @@ public:
         *index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), segment_prefix, _context.rowset_id.to_string(), segment_id,
                 _context.tablet_schema->get_inverted_index_storage_format(),
-                std::move(idx_file_v2_ptr), can_use_ram_dir);
+                std::move(idx_file_v2_ptr), can_use_ram_dir, _context.tablet_id);
         return Status::OK();
     }
 
