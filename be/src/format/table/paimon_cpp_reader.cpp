@@ -269,9 +269,11 @@ std::vector<std::string> PaimonCppReader::_build_read_columns() const {
 
 std::map<std::string, std::string> PaimonCppReader::_build_options() const {
     std::map<std::string, std::string> options;
-    if (_range_params && _range_params->__isset.paimon_options && !_range_params->paimon_options.empty()) {
+    if (_range_params && _range_params->__isset.paimon_options &&
+        !_range_params->paimon_options.empty()) {
         options.insert(_range_params->paimon_options.begin(), _range_params->paimon_options.end());
-    } else if (_range.__isset.table_format_params && _range.table_format_params.__isset.paimon_params &&
+    } else if (_range.__isset.table_format_params &&
+               _range.table_format_params.__isset.paimon_params &&
                _range.table_format_params.paimon_params.__isset.paimon_options) {
         options.insert(_range.table_format_params.paimon_params.paimon_options.begin(),
                        _range.table_format_params.paimon_params.paimon_options.end());
