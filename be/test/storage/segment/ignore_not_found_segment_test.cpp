@@ -44,7 +44,7 @@ protected:
     }
 
     void TearDown() override {
-        DebugPoints::instance()->clear();
+        DebugPoints::instance()->remove("BetaRowset::load_segment.return_not_found");
         config::ignore_not_found_segment = _saved_ignore;
         config::enable_debug_points = _saved_debug_points;
 
@@ -76,7 +76,7 @@ protected:
             "empty": false
         })";
         RowsetMetaPB pb;
-        json2pb::JsonToProtoMessage(json, &pb);
+        EXPECT_TRUE(json2pb::JsonToProtoMessage(json, &pb));
         pb.set_start_version(0);
         pb.set_end_version(1);
         pb.set_num_segments(num_segments);

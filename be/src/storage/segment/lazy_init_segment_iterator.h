@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "common/config.h"
 #include "core/block/block.h"
 #include "storage/segment/common.h"
 #include "storage/segment/segment.h"
