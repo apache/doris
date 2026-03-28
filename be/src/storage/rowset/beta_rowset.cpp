@@ -251,7 +251,14 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
     int64_t seg_id = seg_id_begin;
     while (seg_id < seg_id_end) {
         std::shared_ptr<segment_v2::Segment> segment;
-        RETURN_IF_ERROR(load_segment(seg_id, nullptr, &segment));
+        auto st = load_segment(seg_id, nullptr, &segment);
+        if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_segment) {
+            LOG(WARNING) << "segment not found, skip it. rowset_id=" << rowset_id()
+                         << ", seg_id=" << seg_id;
+            seg_id++;
+            continue;
+        }
+        RETURN_IF_ERROR(st);
         segments->push_back(std::move(segment));
         seg_id++;
     }
@@ -260,6 +267,9 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
 
 Status BetaRowset::load_segment(int64_t seg_id, OlapReaderStatistics* stats,
                                 segment_v2::SegmentSharedPtr* segment) {
+    DBUG_EXECUTE_IF("BetaRowset::load_segment.return_not_found", {
+        return Status::Error<ErrorCode::NOT_FOUND>("injected segment not found, seg_id={}", seg_id);
+    });
     auto fs = _rowset_meta->fs();
     if (!fs) {
         return Status::Error<INIT_FAILED>("get fs failed");

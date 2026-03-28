@@ -1643,6 +1643,8 @@ DEFINE_mBool(enable_parquet_page_index, "true");
 
 DEFINE_mBool(ignore_not_found_file_in_external_table, "true");
 
+DEFINE_mBool(ignore_not_found_segment, "true");
+
 DEFINE_mBool(enable_hdfs_mem_limiter, "true");
 
 DEFINE_mInt16(topn_agg_limit_multiplier, "2");

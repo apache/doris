@@ -91,8 +91,14 @@ Status SegmentLoader::load_segments(const BetaRowsetSharedPtr& rowset,
         return Status::OK();
     }
     for (int64_t i = 0; i < rowset->num_segments(); i++) {
-        RETURN_IF_ERROR(load_segment(rowset, i, cache_handle, use_cache, need_load_pk_index_and_bf,
-                                     index_load_stats));
+        auto st = load_segment(rowset, i, cache_handle, use_cache, need_load_pk_index_and_bf,
+                               index_load_stats);
+        if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_segment) {
+            LOG(WARNING) << "segment not found, skip it. rowset_id=" << rowset->rowset_id()
+                         << ", seg_id=" << i;
+            continue;
+        }
+        RETURN_IF_ERROR(st);
     }
     cache_handle->set_inited();
     return Status::OK();
