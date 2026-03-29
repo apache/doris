@@ -103,7 +103,6 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
         ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(2);
 
@@ -206,8 +205,7 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tableName,
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
-        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
+        executeCheckPassword(request, response);
         String fullDbName = getFullDbName(dbName);
         OlapTable table;
         try {
@@ -254,7 +252,6 @@ public class TableSchemaAction extends RestBaseController {
             @PathVariable(value = TABLE_KEY) final String tblName,
             HttpServletRequest request, HttpServletResponse response) {
         ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
         GsonSchemaResponse gsonSchemaResponse = new GsonSchemaResponse();
         if (StringUtils.isBlank(catalogName)) {
             catalogName = InternalCatalog.INTERNAL_CATALOG_NAME;

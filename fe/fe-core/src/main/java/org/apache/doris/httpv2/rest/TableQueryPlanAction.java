@@ -114,7 +114,6 @@ public class TableQueryPlanAction extends RestBaseController {
         }
 
         ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
         // just allocate 2 slot for top holder map
         Map<String, Object> resultMap = new HashMap<>(4);
 
