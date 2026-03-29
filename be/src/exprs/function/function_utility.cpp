@@ -20,10 +20,13 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <algorithm>
 #include <chrono> // IWYU pragma: keep
+#include <cmath>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
 #include <utility>
+#include <vector>
 
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -138,11 +141,124 @@ public:
     }
 };
 
+class FunctionHumanReadableSeconds : public IFunction {
+public:
+    static constexpr auto name = "human_readable_seconds";
+
+    static FunctionPtr create() { return std::make_shared<FunctionHumanReadableSeconds>(); }
+
+    String get_name() const override { return name; }
+
+    size_t get_number_of_arguments() const override { return 1; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& /*arguments*/) const override {
+        return std::make_shared<DataTypeString>();
+    }
+
+    Status execute_impl(FunctionContext* /*context*/, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        const auto& argument_column =
+                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const auto* data_column = check_and_get_column<ColumnFloat64>(*argument_column);
+        if (data_column == nullptr) {
+            return Status::InvalidArgument("Illegal column {} of first argument of function {}",
+                                           argument_column->get_name(), name);
+        }
+
+        auto result_column = ColumnString::create();
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            auto value = data_column->get_element(i);
+            auto text = _to_human_readable(value);
+            result_column->insert_data(text.data(), text.size());
+        }
+
+        block.replace_by_position(result, std::move(result_column));
+        return Status::OK();
+    }
+
+private:
+    static std::string _append_unit(int64_t value, const char* singular, const char* plural) {
+        return std::to_string(value) + " " + (value == 1 ? singular : plural);
+    }
+
+    static std::string _to_human_readable(double seconds) {
+        if (std::isnan(seconds)) {
+            return "nan";
+        }
+        if (std::isinf(seconds)) {
+            return seconds > 0 ? "inf" : "-inf";
+        }
+
+        bool negative = seconds < 0;
+        double abs_seconds = std::fabs(seconds);
+        if (abs_seconds >= static_cast<double>(std::numeric_limits<int64_t>::max())) {
+            abs_seconds = static_cast<double>(std::numeric_limits<int64_t>::max());
+        }
+
+        double integral_part = 0;
+        double fractional_part = std::modf(abs_seconds, &integral_part);
+        int64_t remain = static_cast<int64_t>(integral_part);
+        int64_t millis = static_cast<int64_t>(std::llround(fractional_part * 1000.0));
+        if (millis == 1000) {
+            ++remain;
+            millis = 0;
+        }
+        constexpr int64_t WEEK = 7 * 24 * 60 * 60;
+        constexpr int64_t DAY = 24 * 60 * 60;
+        constexpr int64_t HOUR = 60 * 60;
+        constexpr int64_t MINUTE = 60;
+
+        const int64_t weeks = remain / WEEK;
+        remain %= WEEK;
+        const int64_t days = remain / DAY;
+        remain %= DAY;
+        const int64_t hours = remain / HOUR;
+        remain %= HOUR;
+        const int64_t minutes = remain / MINUTE;
+        const int64_t secs = remain % MINUTE;
+
+        std::vector<std::string> parts;
+        parts.reserve(5);
+        if (weeks > 0) {
+            parts.emplace_back(_append_unit(weeks, "week", "weeks"));
+        }
+        if (days > 0) {
+            parts.emplace_back(_append_unit(days, "day", "days"));
+        }
+        if (hours > 0) {
+            parts.emplace_back(_append_unit(hours, "hour", "hours"));
+        }
+        if (minutes > 0) {
+            parts.emplace_back(_append_unit(minutes, "minute", "minutes"));
+        }
+        if (secs > 0 || (parts.empty() && millis == 0)) {
+            parts.emplace_back(_append_unit(secs, "second", "seconds"));
+        }
+        if (millis > 0) {
+            parts.emplace_back(_append_unit(millis, "millisecond", "milliseconds"));
+        }
+
+        std::string result;
+        if (negative &&
+            (weeks > 0 || days > 0 || hours > 0 || minutes > 0 || secs > 0 || millis > 0)) {
+            result.push_back('-');
+        }
+        for (size_t i = 0; i < parts.size(); ++i) {
+            if (i != 0) {
+                result += ", ";
+            }
+            result += parts[i];
+        }
+        return result;
+    }
+};
+
 const std::string FunctionVersion::version = "5.7.99";
 
 void register_function_utility(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionSleep>();
     factory.register_function<FunctionVersion>();
+    factory.register_function<FunctionHumanReadableSeconds>();
 }
 
 } // namespace doris
