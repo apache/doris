@@ -128,6 +128,30 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
     return Status::OK();
 }
 
+Status PprofUtils::get_svg_profile(const std::string& profile_file, std::string* output) {
+    std::string pprof_cmd;
+    RETURN_IF_ERROR(PprofUtils::get_pprof_cmd(&pprof_cmd));
+
+    std::string self_cmdline;
+    RETURN_IF_ERROR(PprofUtils::get_self_cmdline(&self_cmdline));
+
+    std::string cmd_output;
+    std::string final_cmd =
+            pprof_cmd + absl::Substitute(" --svg $0 $1", self_cmdline, profile_file);
+    AgentUtils util;
+    LOG(INFO) << "begin to run command: " << final_cmd;
+    bool rc = util.exec_cmd(final_cmd, &cmd_output, false);
+
+    static_cast<void>(io::global_local_filesystem()->delete_file(profile_file));
+
+    if (!rc) {
+        return Status::InternalError("Failed to execute command: {}", cmd_output);
+    }
+
+    *output = std::move(cmd_output);
+    return Status::OK();
+}
+
 Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
                                        const std::string& flame_graph_tool_dir, bool return_file,
                                        std::string* svg_file_or_content) {
