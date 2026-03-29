@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DecimalV3Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.NumericLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -67,7 +68,9 @@ import java.time.format.ResolverStyle;
 import java.time.format.TextStyle;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.WeekFields;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 
 /**
@@ -1338,6 +1341,85 @@ public class DateTimeExtractAndTransform {
     @ExecFunction(name = "sec_to_time")
     public static Expression secToTime(DoubleLiteral sec) {
         return new TimeV2Literal(sec.getValue() * 1000000);
+    }
+
+    /**
+     * human_readable_seconds function for constant folding
+     */
+    @ExecFunction(name = "human_readable_seconds")
+    public static Expression humanReadableSeconds(NumericLiteral sec) {
+        return new VarcharLiteral(formatHumanReadableSeconds(sec.getDouble()));
+    }
+
+    private static String formatHumanReadableSeconds(double seconds) {
+        if (Double.isNaN(seconds)) {
+            return "nan";
+        }
+        if (Double.isInfinite(seconds)) {
+            return seconds > 0 ? "inf" : "-inf";
+        }
+
+        boolean negative = seconds < 0;
+        double absSeconds = Math.abs(seconds);
+        if (absSeconds >= (double) Long.MAX_VALUE) {
+            absSeconds = (double) Long.MAX_VALUE;
+        }
+
+        long remain = (long) absSeconds;
+        long millis = Math.round((absSeconds - remain) * 1000.0d);
+        if (millis == 1000) {
+            remain++;
+            millis = 0;
+        }
+        final long week = 7L * 24 * 60 * 60;
+        final long day = 24L * 60 * 60;
+        final long hour = 60L * 60;
+        final long minute = 60L;
+
+        long weeks = remain / week;
+        remain %= week;
+        long days = remain / day;
+        remain %= day;
+        long hours = remain / hour;
+        remain %= hour;
+        long minutes = remain / minute;
+        long secs = remain % minute;
+
+        List<String> parts = new ArrayList<>(5);
+        if (weeks > 0) {
+            parts.add(formatUnit(weeks, "week", "weeks"));
+        }
+        if (days > 0) {
+            parts.add(formatUnit(days, "day", "days"));
+        }
+        if (hours > 0) {
+            parts.add(formatUnit(hours, "hour", "hours"));
+        }
+        if (minutes > 0) {
+            parts.add(formatUnit(minutes, "minute", "minutes"));
+        }
+        if (secs > 0 || (parts.isEmpty() && millis == 0)) {
+            parts.add(formatUnit(secs, "second", "seconds"));
+        }
+        if (millis > 0) {
+            parts.add(formatUnit(millis, "millisecond", "milliseconds"));
+        }
+
+        StringBuilder result = new StringBuilder();
+        if (negative && (weeks > 0 || days > 0 || hours > 0 || minutes > 0 || secs > 0 || millis > 0)) {
+            result.append('-');
+        }
+        for (int i = 0; i < parts.size(); i++) {
+            if (i > 0) {
+                result.append(", ");
+            }
+            result.append(parts.get(i));
+        }
+        return result.toString();
+    }
+
+    private static String formatUnit(long value, String singular, String plural) {
+        return value + " " + (value == 1 ? singular : plural);
     }
 
     /**
