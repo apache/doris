@@ -198,6 +198,7 @@ import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
+import org.apache.doris.planner.GroupJoinNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
 import org.apache.doris.planner.IcebergDeleteSink;
@@ -1210,6 +1211,18 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PhysicalHashAggregate<? extends Plan> aggregate,
             PlanTranslatorContext context) {
 
+        // Try group join optimization: fuse Agg + [Project +] HashJoin into a single GroupJoinNode
+        if (shouldUseGroupJoin(aggregate)) {
+            Plan child = aggregate.child(0);
+            PhysicalProject<? extends Plan> project = null;
+            if (child instanceof PhysicalProject) {
+                project = (PhysicalProject<? extends Plan>) child;
+                child = project.child(0);
+            }
+            return translateGroupJoin(aggregate, project,
+                    (PhysicalHashJoin<?, ?>) child, context);
+        }
+
         PlanFragment inputPlanFragment = aggregate.child(0).accept(this, context);
         List<List<Expr>> distributeExprLists = getDistributeExprs(aggregate.child(0));
 
@@ -1361,6 +1374,180 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         return inputPlanFragment;
+    }
+
+    /**
+     * Check if group join optimization is applicable:
+     * - Session variable enable_group_join is true
+     * - Child is PhysicalHashJoin with INNER_JOIN
+     */
+    private boolean shouldUseGroupJoin(PhysicalHashAggregate<? extends Plan> aggregate) {
+        if (ConnectContext.get() == null
+                || !ConnectContext.get().getSessionVariable().enableGroupJoin) {
+            return false;
+        }
+        // Look through optional Project layer: Agg -> [Project ->] HashJoin
+        Plan joinCandidate = aggregate.child(0);
+        if (joinCandidate instanceof PhysicalProject) {
+            joinCandidate = joinCandidate.child(0);
+        }
+        if (!(joinCandidate instanceof PhysicalHashJoin)) {
+            return false;
+        }
+        PhysicalHashJoin<?, ?> join = (PhysicalHashJoin<?, ?>) joinCandidate;
+        // Only support inner join for now
+        if (join.getJoinType() != JoinType.INNER_JOIN) {
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Translate a fused Agg + HashJoin into a single GroupJoinNode.
+     * We first visit the hash join normally to create the join plan fragment,
+     * then build the aggregation info and create a GroupJoinNode that replaces
+     * the HashJoinNode in the fragment.
+     */
+    private PlanFragment translateGroupJoin(
+            PhysicalHashAggregate<? extends Plan> aggregate,
+            @Nullable PhysicalProject<? extends Plan> project,
+            PhysicalHashJoin<? extends Plan, ? extends Plan> hashJoin,
+            PlanTranslatorContext context) {
+
+        // 1. Visit from the direct child of agg (project or join) to create the fragment
+        Plan directChild = project != null ? project : hashJoin;
+        PlanFragment joinFragment = directChild.accept(this, context);
+        // The plan root may be the HashJoinNode (possibly with projectList set by Project visitor)
+        PlanNode planRoot = joinFragment.getPlanRoot();
+        HashJoinNode hashJoinNode;
+        if (planRoot instanceof HashJoinNode) {
+            hashJoinNode = (HashJoinNode) planRoot;
+        } else {
+            // If a SelectNode was inserted by visitPhysicalProject, get the join below it
+            hashJoinNode = (HashJoinNode) planRoot.getChild(0);
+        }
+
+        // 2. Build aggregation info (same logic as visitPhysicalHashAggregate)
+        List<Expression> groupByExpressions = aggregate.getGroupByExpressions();
+        List<NamedExpression> outputExpressions = aggregate.getOutputExpressions();
+
+        List<SlotReference> groupSlots = collectGroupBySlots(groupByExpressions, outputExpressions);
+        ArrayList<Expr> execGroupingExpressions = Lists.newArrayListWithCapacity(groupByExpressions.size());
+        for (Expression e : groupByExpressions) {
+            execGroupingExpressions.add(ExpressionTranslator.translate(e, context));
+        }
+
+        List<Slot> aggFunctionOutput = Lists.newArrayList();
+        ArrayList<FunctionCallExpr> execAggregateFunctions = Lists.newArrayListWithCapacity(outputExpressions.size());
+        AtomicBoolean hasPartialInAggFunc = new AtomicBoolean(false);
+        Set<AggregateExpression> processedAggregateExpressions = Sets.newIdentityHashSet();
+        for (NamedExpression o : outputExpressions) {
+            if (o.containsType(AggregateExpression.class)) {
+                aggFunctionOutput.add(o.toSlot());
+                o.foreach(c -> {
+                    if (c instanceof SessionVarGuardExpr) {
+                        SessionVarGuardExpr guardExpr = (SessionVarGuardExpr) c;
+                        if (guardExpr.child() instanceof AggregateExpression) {
+                            AggregateExpression aggregateExpression = (AggregateExpression) guardExpr.child();
+                            if (processedAggregateExpressions.add(aggregateExpression)) {
+                                execAggregateFunctions.add(
+                                        (FunctionCallExpr) ExpressionTranslator.translate(guardExpr, context));
+                                hasPartialInAggFunc.set(
+                                        aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
+                            }
+                        }
+                        return true;
+                    }
+                    if (c instanceof AggregateExpression) {
+                        AggregateExpression aggregateExpression = (AggregateExpression) c;
+                        if (processedAggregateExpressions.add(aggregateExpression)) {
+                            execAggregateFunctions.add(
+                                    (FunctionCallExpr) ExpressionTranslator.translate(aggregateExpression, context));
+                            hasPartialInAggFunc.set(
+                                    aggregateExpression.getAggregateParam().aggMode.productAggregateBuffer);
+                        }
+                        return true;
+                    }
+                    return false;
+                });
+            }
+        }
+        boolean isPartial = hasPartialInAggFunc.get();
+
+        // 3. Generate agg output tuple
+        List<Slot> slotList = Lists.newArrayList();
+        slotList.addAll(groupSlots);
+        slotList.addAll(aggFunctionOutput);
+        TupleDescriptor aggOutputTupleDesc = generateTupleDesc(slotList, null, context);
+
+        List<Integer> aggFunOutputIds = ImmutableList.of();
+        if (!aggFunctionOutput.isEmpty()) {
+            aggFunOutputIds = Lists.newArrayListWithCapacity(
+                    aggOutputTupleDesc.getSlots().size() - groupSlots.size());
+            ArrayList<SlotDescriptor> slots = aggOutputTupleDesc.getSlots();
+            for (int i = groupSlots.size(); i < slots.size(); i++) {
+                aggFunOutputIds.add(slots.get(i).getId().asInt());
+            }
+        }
+        AggregateInfo aggInfo = AggregateInfo.create(execGroupingExpressions, execAggregateFunctions,
+                aggFunOutputIds, isPartial, aggOutputTupleDesc, aggregate.getAggPhase().toExec());
+
+        // 4. Create GroupJoinNode to replace the HashJoinNode
+        GroupJoinNode groupJoinNode = new GroupJoinNode(
+                hashJoinNode.getId(),
+                hashJoinNode.getChild(0),
+                hashJoinNode.getChild(1),
+                hashJoinNode.getJoinOp(),
+                Lists.newArrayList(hashJoinNode.getEqJoinConjuncts()),
+                hashJoinNode.getOtherJoinConjuncts(),
+                aggInfo);
+
+        // Copy join properties
+        groupJoinNode.setDistributionMode(hashJoinNode.getDistributionMode());
+        for (SlotId slotId : hashJoinNode.getHashOutputSlotIds()) {
+            groupJoinNode.addSlotIdToHashOutputSlotIds(slotId);
+        }
+        groupJoinNode.setNereidsId(hashJoin.getId());
+        groupJoinNode.setOtherJoinConjuncts(hashJoinNode.getOtherJoinConjuncts());
+        groupJoinNode.addConjuncts(hashJoinNode.getConjuncts());
+
+        // Copy the intermediate tuple descriptors from the hash join
+        if (hashJoinNode.getvIntermediateTupleDescList() != null) {
+            groupJoinNode.setvIntermediateTupleDescList(
+                    Lists.newArrayList(hashJoinNode.getvIntermediateTupleDescList()));
+        }
+
+        // Copy agg properties
+        if (isPartial || aggregate.getAggregateParam().aggPhase.isLocal()) {
+            groupJoinNode.unsetNeedsFinalize();
+        }
+
+        // Save the join's output tuple before overwriting with agg output
+        groupJoinNode.setJoinOutputTupleDesc(hashJoinNode.getOutputTupleDesc());
+
+        // Carry the join-level projectList (from Project node, e.g. price*(1-discount))
+        // so BE's hash join probe computes intermediate expressions.
+        // The agg output tuple is communicated via TGroupJoinNode fields.
+        if (hashJoinNode.getProjectList() != null && !hashJoinNode.getProjectList().isEmpty()) {
+            groupJoinNode.setProjectList(hashJoinNode.getProjectList());
+        }
+        groupJoinNode.setOutputTupleDesc(aggOutputTupleDesc);
+
+        // Replace the plan root in the fragment
+        if (planRoot == hashJoinNode) {
+            joinFragment.setPlanRoot(groupJoinNode);
+        } else {
+            // planRoot is a SelectNode wrapping the HashJoinNode — replace child
+            planRoot.setChild(0, groupJoinNode);
+        }
+
+        if (aggregate.getStats() != null) {
+            groupJoinNode.setCardinality((long) aggregate.getStats().getRowCount());
+        }
+        context.getNereidsIdToPlanNodeIdMap().put(aggregate.getId(), groupJoinNode.getId());
+        updateLegacyPlanIdToPhysicalPlan(joinFragment.getPlanRoot(), aggregate);
+
+        return joinFragment;
     }
 
     @Override
