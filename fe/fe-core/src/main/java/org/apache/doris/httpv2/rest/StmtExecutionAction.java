@@ -92,7 +92,6 @@ public class StmtExecutionAction extends RestBaseController {
         }
 
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
-        checkAdminAuth(authInfo.userIdentity);
         String fullDbName = getFullDbName(dbName);
         if (Config.enable_all_http_auth) {
             checkDbAuth(authInfo.userIdentity, fullDbName, PrivPredicate.ADMIN);
@@ -140,7 +139,6 @@ public class StmtExecutionAction extends RestBaseController {
         }
 
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
-        checkAdminAuth(authInfo.userIdentity);
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             ns = InternalCatalog.INTERNAL_CATALOG_NAME;

@@ -67,8 +67,7 @@ public class BackendsAction extends RestBaseController {
 
     @RequestMapping(path = "/api/backends", method = {RequestMethod.GET})
     public Object getBackends(HttpServletRequest request, HttpServletResponse response) {
-        ActionAuthorizationInfo authInfo = executeCheckPassword(request, response);
-        checkAdminAuth(authInfo.userIdentity);
+        executeCheckPassword(request, response);
 
         boolean needAlive = false;
         String isAlive = request.getParameter(IS_ALIVE);
