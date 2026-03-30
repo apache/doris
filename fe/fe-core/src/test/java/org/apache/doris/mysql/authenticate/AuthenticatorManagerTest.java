@@ -590,7 +590,7 @@ class AuthenticatorManagerTest {
         Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
         Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
                 Mockito.any(), Mockito.any(), Mockito.any()))
-                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+                .thenReturn(authenticateRequest(new NativePassword(new byte[] {1}, new byte[] {2})));
         Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
                 .thenReturn(AuthenticateResponse.failedResponse);
 
