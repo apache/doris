@@ -90,7 +90,9 @@ public:
             : Scanner(state, profile),
               _params(params),
               _col_name_to_slot_id(colname_to_slot_id),
-              _real_tuple_desc(tuple_desc) {};
+              _real_tuple_desc(tuple_desc) {
+        _configure_file_scan_handlers();
+    };
 
     Status read_lines_from_range(const TFileRangeDesc& range, const std::list<int64_t>& row_ids,
                                  Block* result_block, const ExternalFileMappingInfo& external_info,
@@ -236,6 +238,12 @@ private:
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
+    Status (FileScanner::*_init_src_block_handler)(Block* block) = nullptr;
+    Status (FileScanner::*_process_src_block_after_read_handler)(Block* block) = nullptr;
+    bool (FileScanner::*_should_push_down_predicates_handler)(
+            TFileFormatType::type format_type) const = nullptr;
+    bool (FileScanner::*_should_enable_condition_cache_handler)() const = nullptr;
+
     // Condition cache for external tables
     uint64_t _condition_cache_digest = 0;
     segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
@@ -243,8 +251,15 @@ private:
     std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
     int64_t _condition_cache_hit_count = 0;
 
+    void _configure_file_scan_handlers();
+
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
+    Status _init_src_block_for_load(Block* block);
+    Status _init_src_block_for_query(Block* block);
+    Status _process_src_block_after_read(Block* block);
+    Status _process_src_block_after_read_for_load(Block* block);
+    Status _process_src_block_after_read_for_query(Block* block);
     Status _check_output_block_types();
     Status _cast_to_input_block(Block* block);
     Status _pre_filter_src_block();
@@ -286,6 +301,11 @@ private:
     }
 
     bool _should_enable_condition_cache();
+    bool _should_enable_condition_cache_for_load() const;
+    bool _should_enable_condition_cache_for_query() const;
+    bool _should_push_down_predicates(TFileFormatType::type format_type) const;
+    bool _should_push_down_predicates_for_load(TFileFormatType::type format_type) const;
+    bool _should_push_down_predicates_for_query(TFileFormatType::type format_type) const;
     void _init_reader_condition_cache();
     void _finalize_reader_condition_cache();
 

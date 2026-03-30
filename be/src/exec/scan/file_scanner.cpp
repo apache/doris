@@ -58,6 +58,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 #include "format/arrow/arrow_stream_reader.h"
+#include "format/count_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
 #include "format/native/native_reader.h"
@@ -124,6 +125,25 @@ FileScanner::FileScanner(RuntimeState* state, FileScanLocalState* local_state, i
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_params->src_tuple_id);
     _real_tuple_desc = _input_tuple_desc == nullptr ? _output_tuple_desc : _input_tuple_desc;
     _is_load = (_input_tuple_desc != nullptr);
+    _configure_file_scan_handlers();
+}
+
+void FileScanner::_configure_file_scan_handlers() {
+    if (_is_load) {
+        _init_src_block_handler = &FileScanner::_init_src_block_for_load;
+        _process_src_block_after_read_handler =
+                &FileScanner::_process_src_block_after_read_for_load;
+        _should_push_down_predicates_handler = &FileScanner::_should_push_down_predicates_for_load;
+        _should_enable_condition_cache_handler =
+                &FileScanner::_should_enable_condition_cache_for_load;
+    } else {
+        _init_src_block_handler = &FileScanner::_init_src_block_for_query;
+        _process_src_block_after_read_handler =
+                &FileScanner::_process_src_block_after_read_for_query;
+        _should_push_down_predicates_handler = &FileScanner::_should_push_down_predicates_for_query;
+        _should_enable_condition_cache_handler =
+                &FileScanner::_should_enable_condition_cache_for_query;
+    }
 }
 
 Status FileScanner::init(RuntimeState* state, const VExprContextSPtrs& conjuncts) {
@@ -476,17 +496,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             // If the push_down_agg_type is COUNT, no need to do the rest,
             // because we only save a number in block.
             if (_get_push_down_agg_type() != TPushAggOp::type::COUNT) {
-                // Convert the src block columns type to string in-place.
-                RETURN_IF_ERROR(_cast_to_input_block(block));
-                // Readers fill partition/missing columns internally via fill_remaining_columns.
-                // Apply _pre_conjunct_ctxs to filter src block.
-                RETURN_IF_ERROR(_pre_filter_src_block());
-
-                // Convert src block to output block (dest block), string to dest data type and apply filters.
-                RETURN_IF_ERROR(_convert_to_output_block(block));
-                // Truncate char columns or varchar columns if size is smaller than file columns
-                // or not found in the file column schema.
-                RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
+                RETURN_IF_ERROR(_process_src_block_after_read(block));
             }
         }
         break;
@@ -507,16 +517,15 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
  * This is a temporary method, and will be replaced by tvf.
  */
 Status FileScanner::_check_output_block_types() {
-    if (_is_load) {
-        TFileFormatType::type format_type = _params->format_type;
-        if (format_type == TFileFormatType::FORMAT_PARQUET ||
-            format_type == TFileFormatType::FORMAT_ORC) {
-            for (auto slot : _output_tuple_desc->slots()) {
-                if (is_complex_type(slot->type()->get_primitive_type())) {
-                    return Status::InternalError(
-                            "Parquet/orc doesn't support complex types in broker/stream load, "
-                            "please use tvf(table value function) to insert complex types.");
-                }
+    // Only called from _init_src_block_for_load, so _is_load is always true.
+    TFileFormatType::type format_type = _params->format_type;
+    if (format_type == TFileFormatType::FORMAT_PARQUET ||
+        format_type == TFileFormatType::FORMAT_ORC) {
+        for (auto slot : _output_tuple_desc->slots()) {
+            if (is_complex_type(slot->type()->get_primitive_type())) {
+                return Status::InternalError(
+                        "Parquet/orc doesn't support complex types in broker/stream load, "
+                        "please use tvf(table value function) to insert complex types.");
             }
         }
     }
@@ -524,17 +533,22 @@ Status FileScanner::_check_output_block_types() {
 }
 
 Status FileScanner::_init_src_block(Block* block) {
-    if (!_is_load) {
-        _src_block_ptr = block;
+    DCHECK(_init_src_block_handler != nullptr);
+    return (this->*_init_src_block_handler)(block);
+}
 
-        bool update_name_to_idx = _src_block_name_to_idx.empty();
+Status FileScanner::_init_src_block_for_query(Block* block) {
+    _src_block_ptr = block;
 
-        // Build name to index map only once on first call
-        if (update_name_to_idx) {
-            _src_block_name_to_idx = block->get_name_to_pos_map();
-        }
-        return Status::OK();
+    // Build name to index map only once on first call.
+    if (_src_block_name_to_idx.empty()) {
+        _src_block_name_to_idx = block->get_name_to_pos_map();
     }
+    return Status::OK();
+}
+
+Status FileScanner::_init_src_block_for_load(Block* block) {
+    static_cast<void>(block);
     RETURN_IF_ERROR(_check_output_block_types());
 
     // if (_src_block_init) {
@@ -583,9 +597,7 @@ Status FileScanner::_init_src_block(Block* block) {
 }
 
 Status FileScanner::_cast_to_input_block(Block* block) {
-    if (!_is_load) {
-        return Status::OK();
-    }
+    // Only called from _process_src_block_after_read_for_load, so _is_load is always true.
     SCOPED_TIMER(_cast_to_input_block_timer);
     // cast primitive type(PT0) to primitive type(PT1)
     uint32_t idx = 0;
@@ -619,9 +631,7 @@ Status FileScanner::_cast_to_input_block(Block* block) {
 }
 
 Status FileScanner::_pre_filter_src_block() {
-    if (!_is_load) {
-        return Status::OK();
-    }
+    // Only called from _process_src_block_after_read_for_load, so _is_load is always true.
     if (!_pre_conjunct_ctxs.empty()) {
         SCOPED_TIMER(_pre_filter_timer);
         auto origin_column_num = _src_block_ptr->columns();
@@ -634,9 +644,7 @@ Status FileScanner::_pre_filter_src_block() {
 }
 
 Status FileScanner::_convert_to_output_block(Block* block) {
-    if (!_is_load) {
-        return Status::OK();
-    }
+    // Only called from _process_src_block_after_read_for_load, so _is_load is always true.
     SCOPED_TIMER(_convert_to_output_block_timer);
     // The block is passed from scanner context's free blocks,
     // which is initialized by output columns
@@ -753,6 +761,30 @@ Status FileScanner::_convert_to_output_block(Block* block) {
     RETURN_IF_ERROR(Block::filter_block(block, dest_size, dest_size));
 
     _counter.num_rows_filtered += rows - block->rows();
+    return Status::OK();
+}
+
+Status FileScanner::_process_src_block_after_read(Block* block) {
+    DCHECK(_process_src_block_after_read_handler != nullptr);
+    return (this->*_process_src_block_after_read_handler)(block);
+}
+
+Status FileScanner::_process_src_block_after_read_for_query(Block* block) {
+    static_cast<void>(block);
+    return Status::OK();
+}
+
+Status FileScanner::_process_src_block_after_read_for_load(Block* block) {
+    // Convert the src block columns type in-place.
+    RETURN_IF_ERROR(_cast_to_input_block(block));
+    // Readers fill partition/missing columns internally via fill_remaining_columns.
+    // Apply _pre_conjunct_ctxs to filter src block.
+    RETURN_IF_ERROR(_pre_filter_src_block());
+
+    // Convert src block to output block (dest block), then apply filters.
+    RETURN_IF_ERROR(_convert_to_output_block(block));
+    // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
+    RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
     return Status::OK();
 }
 
@@ -895,8 +927,7 @@ Status FileScanner::_get_next_reader() {
             }
         }
 
-        // JNI reader can only push down column value range
-        bool push_down_predicates = !_is_load && format_type != TFileFormatType::FORMAT_JNI;
+        bool push_down_predicates = _should_push_down_predicates(format_type);
         bool need_to_get_parsed_schema = false;
         switch (format_type) {
         case TFileFormatType::FORMAT_JNI: {
@@ -1103,21 +1134,38 @@ Status FileScanner::_get_next_reader() {
         }
 
         _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
-        if (_get_push_down_agg_type() == TPushAggOp::type::COUNT &&
-            range.__isset.table_format_params &&
-            range.table_format_params.table_level_row_count >= 0) {
-            // This is a table level count push down operation, no need to call
-            // _set_fill_or_truncate_columns.
-            // in _set_fill_or_truncate_columns, we will use [range.start_offset, end offset]
-            // to filter the row group. But if this is count push down, the offset is undefined,
-            // causing incorrect row group filter and may return empty result.
-        } else {
+
+        // For table-level COUNT pushdown, offsets are undefined so we must skip
+        // _set_fill_or_truncate_columns (it uses [start_offset, end_offset] to
+        // filter row groups, which would produce incorrect empty results).
+        bool is_table_level_count = _get_push_down_agg_type() == TPushAggOp::type::COUNT &&
+                                    range.__isset.table_format_params &&
+                                    range.table_format_params.table_level_row_count >= 0;
+        if (!is_table_level_count) {
             Status status = _set_fill_or_truncate_columns(need_to_get_parsed_schema);
             if (status.is<END_OF_FILE>()) { // all parquet row groups are filtered
                 continue;
             } else if (!status.ok()) {
                 return Status::InternalError("failed to set_fill_or_truncate_columns, err: {}",
                                              status.to_string());
+            }
+        }
+
+        // Unified COUNT(*) pushdown: replace the real reader with CountReader
+        // decorator if the reader accepts COUNT and can provide a total row count.
+        if (_cur_reader->get_push_down_agg_type() == TPushAggOp::type::COUNT) {
+            int64_t total_rows = -1;
+            if (is_table_level_count) {
+                // FE-provided count (may account for table-format deletions)
+                total_rows = range.table_format_params.table_level_row_count;
+            } else if (_cur_reader->supports_count_pushdown()) {
+                // File metadata count (ORC footer / Parquet row groups)
+                total_rows = _cur_reader->get_total_rows();
+            }
+            if (total_rows >= 0) {
+                auto batch_size = _state->query_options().batch_size;
+                _cur_reader = std::make_unique<CountReader>(total_rows, batch_size,
+                                                            std::move(_cur_reader));
             }
         }
         _cur_reader_eof = false;
@@ -1711,17 +1759,45 @@ Status FileScanner::_init_expr_ctxes() {
     }
 
     // set column name to default value expr map
-    for (auto* slot_desc : _real_tuple_desc->slots()) {
+    // new inline TFileScanSlotInfo.default_value_expr (preferred)
+    for (const auto& slot_info : _params->required_slots) {
+        auto slot_id = slot_info.slot_id;
+        auto it = full_src_slot_map.find(slot_id);
+        if (it == std::end(full_src_slot_map)) {
+            continue;
+        }
+        const std::string& col_name = it->second->col_name();
+
         VExprContextSPtr ctx;
-        auto it = _params->default_value_of_src_slot.find(slot_desc->id());
-        if (it != std::end(_params->default_value_of_src_slot)) {
-            if (!it->second.nodes.empty()) {
-                RETURN_IF_ERROR(VExpr::create_expr_tree(it->second, ctx));
-                RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
-                RETURN_IF_ERROR(ctx->open(_state));
-            }
+        bool has_default = false;
+
+        // Prefer inline default_value_expr from TFileScanSlotInfo (new FE)
+        if (slot_info.__isset.default_value_expr && !slot_info.default_value_expr.nodes.empty()) {
+            RETURN_IF_ERROR(VExpr::create_expr_tree(slot_info.default_value_expr, ctx));
+            RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
+            RETURN_IF_ERROR(ctx->open(_state));
+            has_default = true;
+        } else if (slot_info.__isset.default_value_expr) {
+            // Empty nodes means null default (same as legacy empty TExpr)
+            has_default = true;
+        }
+
+        // // Fall back to legacy default_value_of_src_slot map (old FE)
+        // if (!has_default) {
+        //     auto legacy_it = _params->default_value_of_src_slot.find(slot_id);
+        //     if (legacy_it != std::end(_params->default_value_of_src_slot)) {
+        //         if (!legacy_it->second.nodes.empty()) {
+        //             RETURN_IF_ERROR(VExpr::create_expr_tree(legacy_it->second, ctx));
+        //             RETURN_IF_ERROR(ctx->prepare(_state, *_default_val_row_desc));
+        //             RETURN_IF_ERROR(ctx->open(_state));
+        //         }
+        //         has_default = true;
+        //     }
+        // }
+
+        if (has_default) {
             // if expr is empty, the default value will be null
-            _col_default_value_ctx.emplace(slot_desc->col_name(), ctx);
+            _col_default_value_ctx.emplace(col_name, ctx);
         }
     }
 
@@ -1776,8 +1852,32 @@ Status FileScanner::_init_expr_ctxes() {
 }
 
 bool FileScanner::_should_enable_condition_cache() {
-    return _condition_cache_digest != 0 && !_is_load &&
+    DCHECK(_should_enable_condition_cache_handler != nullptr);
+    return _condition_cache_digest != 0 && (this->*_should_enable_condition_cache_handler)() &&
            (!_conjuncts.empty() || !_push_down_conjuncts.empty());
+}
+
+bool FileScanner::_should_enable_condition_cache_for_load() const {
+    return false;
+}
+
+bool FileScanner::_should_enable_condition_cache_for_query() const {
+    return true;
+}
+
+bool FileScanner::_should_push_down_predicates(TFileFormatType::type format_type) const {
+    DCHECK(_should_push_down_predicates_handler != nullptr);
+    return (this->*_should_push_down_predicates_handler)(format_type);
+}
+
+bool FileScanner::_should_push_down_predicates_for_load(TFileFormatType::type format_type) const {
+    static_cast<void>(format_type);
+    return false;
+}
+
+bool FileScanner::_should_push_down_predicates_for_query(TFileFormatType::type format_type) const {
+    // JNI readers handle predicate conversion in their own paths.
+    return format_type != TFileFormatType::FORMAT_JNI;
 }
 
 void FileScanner::_init_reader_condition_cache() {

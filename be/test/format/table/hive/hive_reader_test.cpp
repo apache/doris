@@ -573,10 +573,8 @@ TEST_F(HiveReaderTest, read_hive_parquet_file) {
                                       slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    ASSERT_TRUE(hive_reader->set_fill_columns(partition_columns, missing_columns).ok());
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
 
     // Create block for reading nested structure (not flattened)
     Block block;
@@ -700,10 +698,8 @@ TEST_F(HiveReaderTest, read_hive_rrc_file) {
             row_descriptor, not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    ASSERT_TRUE(hive_reader->set_fill_columns(partition_columns, missing_columns).ok());
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
 
     // Create block for reading nested structure (not flattened)
     Block block;

@@ -327,14 +327,12 @@ public:
                 nullptr, scan_params, scan_range, scan_range.size, &local_ctz, nullptr, nullptr);
         local_reader->set_file_reader(local_file_reader);
         phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
-        static_cast<void>(local_reader->init_reader(column_names, &col_name_to_block_idx, {}, tmp,
-                                                    tuple_desc, nullptr, nullptr, nullptr,
-                                                    nullptr));
+        static_cast<void>(local_reader->_do_init_reader(column_names, &col_name_to_block_idx, {},
+                                                        tmp, tuple_desc, nullptr, nullptr, nullptr,
+                                                        nullptr));
 
-        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-                partition_columns;
-        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        static_cast<void>(local_reader->set_fill_columns(partition_columns, missing_columns));
+        // set_fill_columns logic is now inlined in _do_init_reader,
+        // so no separate call is needed.
 
         bool eof = false;
         std::string dump;

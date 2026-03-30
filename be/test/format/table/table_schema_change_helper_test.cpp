@@ -26,7 +26,6 @@
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "format/table/iceberg_reader.h"
-#include "format/table/table_format_reader.h"
 #include "testutil/desc_tbl_builder.h"
 
 namespace doris {

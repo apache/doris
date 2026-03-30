@@ -330,6 +330,11 @@ public:
     // Pass condition cache context to the reader for HIT/MISS tracking.
     virtual void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) {}
 
+    // Returns true if this reader can produce an accurate total row count from metadata
+    // without reading actual data. Used to determine if CountReader decorator can be applied.
+    // Only ORC and Parquet readers support this (via file footer metadata).
+    virtual bool supports_count_pushdown() const { return false; }
+
     // Returns the total number of rows the reader will produce.
     // Used to pre-allocate condition cache with the correct number of granules.
     virtual int64_t get_total_rows() const { return 0; }

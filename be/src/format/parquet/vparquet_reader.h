@@ -205,6 +205,8 @@ public:
 
     void set_condition_cache_context(std::shared_ptr<ConditionCacheContext> ctx) override;
 
+    bool supports_count_pushdown() const override { return true; }
+
     int64_t get_total_rows() const override;
 
     bool has_delete_operations() const override {

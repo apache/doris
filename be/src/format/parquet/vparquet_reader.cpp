@@ -806,24 +806,6 @@ Status ParquetReader::_do_get_next_block(Block* block, size_t* read_rows, bool* 
             return Status::OK();
         }
     }
-    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        auto rows = std::min(_current_group_reader->get_remaining_rows(), (int64_t)_batch_size);
-
-        _current_group_reader->set_remaining_rows(_current_group_reader->get_remaining_rows() -
-                                                  rows);
-        auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
-            col->resize(rows);
-        }
-        block->set_columns(std::move(mutate_columns));
-
-        *read_rows = rows;
-        if (_current_group_reader->get_remaining_rows() == 0) {
-            _current_group_reader.reset(nullptr);
-        }
-
-        return Status::OK();
-    }
 
     // Limit memory per batch for load paths.
     // _load_bytes_per_row is updated after each batch so the *next* call pre-shrinks _batch_size

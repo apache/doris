@@ -45,6 +45,7 @@
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/data_type_struct.h"
+#include "format/column_descriptor.h"
 #include "format/column_processor.h"
 #include "format/parquet/vparquet_column_chunk_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -757,10 +758,8 @@ TEST_F(IcebergReaderTest, read_iceberg_parquet_file) {
                                      not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    ASSERT_TRUE(iceberg_reader->set_fill_columns(partition_columns, missing_columns).ok());
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
 
     // Create block for reading nested structure (not flattened)
     Block block;
@@ -890,10 +889,8 @@ TEST_F(IcebergReaderTest, read_iceberg_orc_file) {
                                      not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts);
     ASSERT_TRUE(st.ok()) << st;
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    ASSERT_TRUE(iceberg_reader->set_fill_columns(partition_columns, missing_columns).ok());
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
 
     // Create block for reading nested structure (not flattened)
     Block block;

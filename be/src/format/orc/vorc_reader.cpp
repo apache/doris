@@ -2558,21 +2558,6 @@ Status OrcReader::_get_next_block_impl(Block* block, size_t* read_rows, bool* eo
              config::load_reader_max_block_bytes > 0)
                     ? config::load_reader_max_block_bytes
                     : 0;
-    if (_push_down_agg_type == TPushAggOp::type::COUNT) {
-        auto rows = std::min(get_remaining_rows(), (int64_t)_batch_size);
-
-        set_remaining_rows(get_remaining_rows() - rows);
-        auto mutate_columns = block->mutate_columns();
-        for (auto& col : mutate_columns) {
-            col->resize(rows);
-        }
-        block->set_columns(std::move(mutate_columns));
-        *read_rows = rows;
-        if (get_remaining_rows() == 0) {
-            *eof = true;
-        }
-        return Status::OK();
-    }
 
     if (max_block_bytes > 0 && _load_bytes_per_row > 0 && _row_reader) {
         size_t new_batch_size = std::max(

@@ -187,14 +187,26 @@ public class NereidsLoadPlanInfoCollector extends DefaultPlanVisitor<Void, PlanT
                 params.putToExprOfDestSlot(entry.getKey().asInt(), ExprToThriftVisitor.treeToThrift(entry.getValue()));
             }
 
+            // Build slot_id -> index map for required_slots to set default_value_expr inline.
+            Map<Integer, Integer> slotIdToRequiredIdx = Maps.newHashMap();
+            for (int i = 0; i < params.getRequiredSlots().size(); i++) {
+                slotIdToRequiredIdx.put(params.getRequiredSlots().get(i).getSlotId(), i);
+            }
+
             for (Map.Entry<SlotId, Expr> entry : srcSlotIdToDefaultValueMap.entrySet()) {
+                TExpr defaultExpr;
                 if (entry.getValue() != null) {
-                    params.putToDefaultValueOfSrcSlot(entry.getKey().asInt(),
-                            ExprToThriftVisitor.treeToThrift(entry.getValue()));
+                    defaultExpr = ExprToThriftVisitor.treeToThrift(entry.getValue());
                 } else {
-                    TExpr tExpr = new TExpr();
-                    tExpr.setNodes(Lists.newArrayList());
-                    params.putToDefaultValueOfSrcSlot(entry.getKey().asInt(), tExpr);
+                    defaultExpr = new TExpr();
+                    defaultExpr.setNodes(Lists.newArrayList());
+                }
+                // Populate legacy map (for backward compatibility with old BE)
+                params.putToDefaultValueOfSrcSlot(entry.getKey().asInt(), defaultExpr);
+                // Also embed default expr directly in the TFileScanSlotInfo
+                Integer idx = slotIdToRequiredIdx.get(entry.getKey().asInt());
+                if (idx != null) {
+                    params.getRequiredSlots().get(idx).setDefaultValueExpr(defaultExpr);
                 }
             }
 

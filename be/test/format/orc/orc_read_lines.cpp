@@ -140,11 +140,8 @@ static void read_orc_line(int64_t line, std::string block_dump,
 
     EXPECT_TRUE(status.ok());
 
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    auto st = reader->set_fill_columns(partition_columns, missing_columns);
-    EXPECT_TRUE(st.ok()) << st;
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = slot_desc->type();
@@ -159,7 +156,7 @@ static void read_orc_line(int64_t line, std::string block_dump,
 
     bool eof = false;
     size_t read_row = 0;
-    st = reader->get_next_block(block.get(), &read_row, &eof);
+    Status st = reader->get_next_block(block.get(), &read_row, &eof);
     EXPECT_TRUE(st.ok()) << st;
     auto row_id_string_column = static_cast<const ColumnString&>(
             *block->get_by_position(block->get_position_by_name("row_id")).column.get());

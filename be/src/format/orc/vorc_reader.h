@@ -254,6 +254,8 @@ public:
         _condition_cache_ctx = std::move(ctx);
     }
 
+    bool supports_count_pushdown() const override { return true; }
+
     int64_t get_total_rows() const override {
         return _row_reader ? _row_reader->getNumberOfRows() : 0;
     }

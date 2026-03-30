@@ -38,7 +38,7 @@
 #include "core/data_type/data_type.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/string_view.h"
-#include "format/column_processor.h"
+#include "format/column_descriptor.h"
 #include "format/parquet/vparquet_reader.h"
 #include "gtest/gtest_pred_impl.h"
 #include "io/fs/file_meta_cache.h"
@@ -55,7 +55,7 @@ class VExprContext;
 static std::vector<ColumnDescriptor> to_column_descs(const std::vector<std::string>& names) {
     std::vector<ColumnDescriptor> descs;
     for (const auto& name : names) {
-        descs.push_back({name, nullptr, ColumnCategory::REGULAR});
+        descs.push_back({name, nullptr, ColumnCategory::REGULAR, nullptr});
     }
     return descs;
 }
@@ -123,21 +123,19 @@ public:
         slot_id_to_expr_ctxs[0].emplace_back(conjuncts[0]);
         slot_id_to_expr_ctxs[1].emplace_back(conjuncts[1]);
 
+        auto column_descs = to_column_descs(column_names);
         if constexpr (filter_all) {
-            st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx,
-                                       conjuncts, tmp, tuple_desc, nullptr, nullptr, nullptr,
+            st = p_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp,
+                                       tuple_desc, nullptr, nullptr, nullptr,
                                        &slot_id_to_expr_ctxs);
         } else {
-            st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx, {},
-                                       tmp, nullptr, nullptr, nullptr, nullptr, nullptr);
+            st = p_reader->init_reader(column_descs, &col_name_to_block_idx, {}, tmp, nullptr,
+                                       nullptr, nullptr, nullptr, nullptr);
         }
 
         EXPECT_TRUE(st.ok()) << st;
-        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-                partition_columns;
-        std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        st = p_reader->set_fill_columns(partition_columns, missing_columns);
-        EXPECT_TRUE(st.ok()) << st;
+        // set_fill_columns logic is now inlined in _do_init_reader,
+        // so no separate call is needed.
         bool eof = false;
         size_t total_rows = 0;
         bool all_null = true;
@@ -218,17 +216,16 @@ public:
         slot_id_to_expr_ctxs[1].emplace_back(conjuncts[0]);
         slot_id_to_expr_ctxs[2].emplace_back(conjuncts[1]);
 
-        st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx, conjuncts,
-                                   tmp, tuple_desc, nullptr, nullptr, nullptr,
-                                   &slot_id_to_expr_ctxs);
+        auto column_descs = to_column_descs(column_names);
+        st = p_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
+                                   nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
         EXPECT_TRUE(st.ok()) << st;
 
         std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
                 partition_columns;
         partition_columns.emplace("part_col", std::make_tuple("1", tuple_desc->slots()[2]));
         std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-        st = p_reader->set_fill_columns(partition_columns, missing_columns);
-        EXPECT_TRUE(st.ok()) << st;
+        p_reader->set_fill_column_data(partition_columns, missing_columns, &col_name_to_block_idx);
 
         bool eof = false;
         size_t total_rows = 0;
@@ -360,10 +357,8 @@ TEST_F(ParquetReaderTest, normal) {
     phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>> tmp;
     static_cast<void>(p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp,
                                                 nullptr, nullptr, nullptr, nullptr, nullptr));
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    static_cast<void>(p_reader->set_fill_columns(partition_columns, missing_columns));
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = make_nullable(slot_desc->type());
@@ -426,11 +421,8 @@ TEST_F(ParquetReaderTest, uuid_varbinary) {
     st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
                                    nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    st = p_reader->set_fill_columns(partition_columns, missing_columns);
-    EXPECT_TRUE(st.ok()) << st;
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = make_nullable(slot_desc->type());
@@ -500,11 +492,8 @@ TEST_F(ParquetReaderTest, varbinary_varbinary) {
     st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
                                    nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    st = p_reader->set_fill_columns(partition_columns, missing_columns);
-    EXPECT_TRUE(st.ok()) << st;
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = make_nullable(slot_desc->type());
@@ -576,11 +565,8 @@ TEST_F(ParquetReaderTest, varbinary_string) {
     st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
                                    nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    st = p_reader->set_fill_columns(partition_columns, missing_columns);
-    EXPECT_TRUE(st.ok()) << st;
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = make_nullable(slot_desc->type());
@@ -652,11 +638,8 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
     st = p_reader->_do_init_reader(column_names, &col_name_to_block_idx, {}, tmp, nullptr, nullptr,
                                    nullptr, nullptr, nullptr);
     EXPECT_TRUE(st.ok()) << st;
-    std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
-            partition_columns;
-    std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    st = p_reader->set_fill_columns(partition_columns, missing_columns);
-    EXPECT_TRUE(st.ok()) << st;
+    // set_fill_columns logic is now inlined in _do_init_reader,
+    // so no separate call is needed.
     BlockUPtr block = Block::create_unique();
     for (const auto& slot_desc : tuple_desc->slots()) {
         auto data_type = make_nullable(slot_desc->type());
@@ -983,16 +966,16 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     std::unordered_map<int, VExprContextSPtrs> slot_id_to_expr_ctxs;
     slot_id_to_expr_ctxs[0].emplace_back(conjuncts[0]);
 
-    st = p_reader->init_reader(to_column_descs(column_names), &col_name_to_block_idx, conjuncts,
-                               tmp, tuple_desc, nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
+    auto column_descs = to_column_descs(column_names);
+    st = p_reader->init_reader(column_descs, &col_name_to_block_idx, conjuncts, tmp, tuple_desc,
+                               nullptr, nullptr, nullptr, &slot_id_to_expr_ctxs);
     EXPECT_TRUE(st.ok()) << st;
 
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     partition_columns.emplace("part_col", std::make_tuple("1", tuple_desc->slots()[0]));
     std::unordered_map<std::string, VExprContextSPtr> missing_columns;
-    st = p_reader->set_fill_columns(partition_columns, missing_columns);
-    EXPECT_TRUE(st.ok()) << st;
+    p_reader->set_fill_column_data(partition_columns, missing_columns, &col_name_to_block_idx);
 
     bool eof = false;
     size_t total_rows = 0;
