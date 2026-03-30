@@ -29,7 +29,7 @@ import java.util.Map;
 /**
  * Use for persistence, Repository will persist properties of file system.
  */
-public abstract class PersistentFileSystem implements FileSystem {
+public abstract class PersistentFileSystem implements LegacyFileSystemApi {
     public static final String STORAGE_TYPE = "_DORIS_STORAGE_TYPE_";
     @SerializedName("prop")
     public Map<String, String> properties = Maps.newHashMap();

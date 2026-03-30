@@ -21,6 +21,10 @@ import org.apache.doris.fs.remote.RemoteFile;
 
 import java.util.List;
 
+/**
+ * @deprecated use {@link FileIterator} instead
+ */
+@Deprecated
 public class RemoteFiles {
 
     private final List<RemoteFile> files;

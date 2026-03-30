@@ -17,12 +17,16 @@
 
 package org.apache.doris.fs.io;
 
+import org.apache.doris.fs.Location;
+
 import org.apache.hadoop.fs.Path;
 
 /**
- * This is temporary class to isolate the path parsing logic from the rest of the codebase.
- * Maybe refactored later
+ * This is a temporary class to isolate the path parsing logic from the rest of the codebase.
+ *
+ * @deprecated use {@link Location} instead
  */
+@Deprecated
 public class ParsedPath {
     private String origPath;
 
@@ -37,5 +41,12 @@ public class ParsedPath {
 
     public Path toHadoopPath() {
         return new Path(origPath);
+    }
+
+    /**
+     * Converts this ParsedPath to the new {@link Location} value type.
+     */
+    public Location toLocation() {
+        return Location.of(origPath);
     }
 }

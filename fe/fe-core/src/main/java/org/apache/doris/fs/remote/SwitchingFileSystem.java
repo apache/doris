@@ -20,15 +20,15 @@ package org.apache.doris.fs.remote;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemLookup;
+import org.apache.doris.fs.LegacyFileSystemApi;
 
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class SwitchingFileSystem implements FileSystem {
+public class SwitchingFileSystem implements LegacyFileSystemApi {
 
     private final FileSystemLookup lookup;
 
@@ -121,7 +121,7 @@ public class SwitchingFileSystem implements FileSystem {
         return fileSystem(remotePath).listDirectories(remotePath, result);
     }
 
-    public FileSystem fileSystem(String location) {
+    public LegacyFileSystemApi fileSystem(String location) {
         LocationPath path = LocationPath.of(location, storagePropertiesMap);
         FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
                 path.getFsIdentifier(), path.getStorageProperties()

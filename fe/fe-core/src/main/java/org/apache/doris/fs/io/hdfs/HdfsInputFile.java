@@ -18,10 +18,10 @@
 package org.apache.doris.fs.io.hdfs;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.fs.Location;
 import org.apache.doris.fs.io.DorisInput;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisInputStream;
-import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import org.apache.hadoop.fs.FileStatus;
@@ -32,11 +32,11 @@ import java.util.Objects;
 
 /**
  * HdfsInputFile provides an implementation of DorisInputFile for reading data from HDFS.
- * It wraps a ParsedPath and DFSFileSystem to open files and retrieve file metadata from HDFS.
+ * It wraps a Location and DFSFileSystem to open files and retrieve file metadata from HDFS.
  */
 public class HdfsInputFile implements DorisInputFile {
-    // The ParsedPath representing the file location in HDFS.
-    private final ParsedPath path;
+    // The Location representing the file location in HDFS.
+    private final Location location;
     // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
     // The DFSFileSystem used to interact with HDFS.
@@ -48,16 +48,16 @@ public class HdfsInputFile implements DorisInputFile {
     private FileStatus status;
 
     /**
-     * Constructs a HdfsInputFile with the given ParsedPath, file length, and DFSFileSystem.
+     * Constructs a HdfsInputFile with the given Location, file length, and DFSFileSystem.
      *
-     * @param path the ParsedPath representing the file location
+     * @param location the Location representing the file location
      * @param length the length of the file, or -1 if unknown
      * @param dfs the DFSFileSystem used to interact with HDFS
      */
-    public HdfsInputFile(ParsedPath path, long length, DFSFileSystem dfs) {
-        this.path = Objects.requireNonNull(path, "path is null");
+    public HdfsInputFile(Location location, long length, DFSFileSystem dfs) {
+        this.location = Objects.requireNonNull(location, "location is null");
         this.dfs = Objects.requireNonNull(dfs, "hdfs file system is null");
-        this.hadoopPath = path.toHadoopPath();
+        this.hadoopPath = new Path(location.toString());
         this.length = length;
     }
 
@@ -80,7 +80,7 @@ public class HdfsInputFile implements DorisInputFile {
      */
     @Override
     public DorisInputStream newStream() throws IOException {
-        return new HdfsInputStream(path, dfs.openFile(hadoopPath));
+        return new HdfsInputStream(location.toString(), dfs.openFile(hadoopPath));
     }
 
     /**
@@ -116,18 +116,18 @@ public class HdfsInputFile implements DorisInputFile {
      */
     @Override
     public boolean exists() throws IOException {
-        Status status = dfs.exists(path.toString());
-        return status.ok();
+        Status existsStatus = dfs.exists(location.toString());
+        return existsStatus.ok();
     }
 
     /**
-     * Returns the ParsedPath associated with this input file.
+     * Returns the Location associated with this input file.
      *
-     * @return the ParsedPath
+     * @return the Location
      */
     @Override
-    public ParsedPath path() {
-        return path;
+    public Location location() {
+        return location;
     }
 
     /**
@@ -137,7 +137,7 @@ public class HdfsInputFile implements DorisInputFile {
      */
     @Override
     public String toString() {
-        return path().toString();
+        return location.toString();
     }
 
     /**

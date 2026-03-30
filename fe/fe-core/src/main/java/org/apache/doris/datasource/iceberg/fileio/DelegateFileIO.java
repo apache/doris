@@ -19,8 +19,8 @@ package org.apache.doris.datasource.iceberg.fileio;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.LegacyFileSystemApi;
 import org.apache.doris.fs.io.ParsedPath;
 
 import com.google.common.collect.Iterables;
@@ -52,7 +52,7 @@ public class DelegateFileIO implements SupportsBulkOperations {
     /**
      * The underlying Doris file system used for file operations.
      */
-    private FileSystem fileSystem;
+    private LegacyFileSystemApi fileSystem;
 
     /**
      * Default constructor.
@@ -66,7 +66,7 @@ public class DelegateFileIO implements SupportsBulkOperations {
      *
      * @param fileSystem the Doris file system to delegate operations to
      */
-    public DelegateFileIO(FileSystem fileSystem) {
+    public DelegateFileIO(LegacyFileSystemApi fileSystem) {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem is null");
     }
 

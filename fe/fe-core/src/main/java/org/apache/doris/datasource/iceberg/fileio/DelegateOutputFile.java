@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fs.LegacyFileSystemApi;
 import org.apache.doris.fs.io.DorisOutputFile;
 import org.apache.doris.fs.io.ParsedPath;
 
@@ -40,7 +40,7 @@ public class DelegateOutputFile implements OutputFile {
     /**
      * The underlying Doris file system used for file operations.
      */
-    private final FileSystem fileSystem;
+    private final LegacyFileSystemApi fileSystem;
     /**
      * The DorisOutputFile instance representing the output file.
      */
@@ -52,7 +52,7 @@ public class DelegateOutputFile implements OutputFile {
      * @param fileSystem the Doris file system to delegate operations to
      * @param path the ParsedPath representing the file location
      */
-    public DelegateOutputFile(FileSystem fileSystem, ParsedPath path) {
+    public DelegateOutputFile(LegacyFileSystemApi fileSystem, ParsedPath path) {
         this.fileSystem = Objects.requireNonNull(fileSystem, "fileSystem is null");
         this.outputFile = fileSystem.newOutputFile(path);
     }

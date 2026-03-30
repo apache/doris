@@ -17,11 +17,20 @@
 
 package org.apache.doris.fs.remote;
 
+import org.apache.doris.fs.FileEntry;
+import org.apache.doris.fs.Location;
+
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import org.apache.hadoop.fs.BlockLocation;
 import org.apache.hadoop.fs.Path;
 
+/**
+ * Represents a file or directory in remote storage.
+ *
+ * @deprecated use {@link FileEntry} instead, which has no Hadoop dependency
+ */
+@Deprecated
 // represent a file or a dir in remote storage
 public class RemoteFile {
     // Only file name, not full path
@@ -97,6 +106,54 @@ public class RemoteFile {
 
     public BlockLocation[] getBlockLocations() {
         return blockLocations;
+    }
+
+    /**
+     * Converts this RemoteFile to a {@link FileEntry}.
+     *
+     * @return a new FileEntry representing the same file metadata
+     */
+    public FileEntry toFileEntry() {
+        FileEntry.Builder builder = FileEntry.builder(
+                        path != null ? Location.of(path.toString()) : Location.of(name))
+                .directory(isDirectory)
+                .length(size)
+                .blockSize(blockSize)
+                .modificationTime(modificationTime);
+        if (blockLocations != null) {
+            for (BlockLocation bl : blockLocations) {
+                try {
+                    builder.addBlock(new FileEntry.BlockInfo(
+                            bl.getOffset(), bl.getLength(), java.util.Arrays.asList(bl.getHosts())));
+                } catch (java.io.IOException e) {
+                    builder.addBlock(new FileEntry.BlockInfo(
+                            bl.getOffset(), bl.getLength(), java.util.Collections.emptyList()));
+                }
+            }
+        }
+        return builder.build();
+    }
+
+    /**
+     * Creates a RemoteFile from a {@link FileEntry}.
+     *
+     * @param entry the FileEntry to convert
+     * @return a new RemoteFile representing the same file metadata
+     */
+    public static RemoteFile fromFileEntry(FileEntry entry) {
+        Path hadoopPath = new Path(entry.location().toString());
+        BlockLocation[] bls = new BlockLocation[entry.blocks().size()];
+        for (int i = 0; i < bls.length; i++) {
+            FileEntry.BlockInfo bi = entry.blocks().get(i);
+            bls[i] = new BlockLocation(null, bi.hosts().toArray(new String[0]), bi.offset(), bi.length());
+        }
+        return new RemoteFile(
+                hadoopPath,
+                entry.isDirectory(),
+                entry.length(),
+                entry.blockSize(),
+                entry.modificationTime(),
+                bls.length == 0 ? null : bls);
     }
 
     @Override

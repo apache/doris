@@ -17,8 +17,8 @@
 
 package org.apache.doris.fs.io.hdfs;
 
+import org.apache.doris.fs.Location;
 import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.ParsedPath;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import org.apache.hadoop.fs.Path;
@@ -29,25 +29,25 @@ import java.util.Objects;
 
 /**
  * HdfsOutputFile provides an implementation of DorisOutputFile for writing data to HDFS.
- * It wraps a ParsedPath and DFSFileSystem to create or overwrite files in HDFS.
+ * It wraps a Location and DFSFileSystem to create or overwrite files in HDFS.
  */
 public class HdfsOutputFile implements DorisOutputFile {
-    // The ParsedPath representing the file location in HDFS.
-    private final ParsedPath path;
+    // The Location representing the file location in HDFS.
+    private final Location location;
     // The Hadoop Path object corresponding to the file.
     private final Path hadoopPath;
     // The DFSFileSystem used to interact with HDFS.
     private final DFSFileSystem dfs;
 
     /**
-     * Constructs a HdfsOutputFile with the given ParsedPath and DFSFileSystem.
+     * Constructs a HdfsOutputFile with the given Location and DFSFileSystem.
      *
-     * @param path the ParsedPath representing the file location
+     * @param location the Location representing the file location
      * @param dfs the DFSFileSystem used to interact with HDFS
      */
-    public HdfsOutputFile(ParsedPath path, DFSFileSystem dfs) {
-        this.path = Objects.requireNonNull(path, "path is null");
-        this.hadoopPath = path.toHadoopPath();
+    public HdfsOutputFile(Location location, DFSFileSystem dfs) {
+        this.location = Objects.requireNonNull(location, "location is null");
+        this.hadoopPath = new Path(location.toString());
         this.dfs = Objects.requireNonNull(dfs, "dfs is null");
     }
 
@@ -74,13 +74,13 @@ public class HdfsOutputFile implements DorisOutputFile {
     }
 
     /**
-     * Returns the ParsedPath associated with this output file.
+     * Returns the Location associated with this output file.
      *
-     * @return the ParsedPath
+     * @return the Location
      */
     @Override
-    public ParsedPath path() {
-        return path;
+    public Location location() {
+        return location;
     }
 
     /**
@@ -90,6 +90,6 @@ public class HdfsOutputFile implements DorisOutputFile {
      */
     @Override
     public String toString() {
-        return path().toString();
+        return location.toString();
     }
 }

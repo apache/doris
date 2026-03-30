@@ -17,131 +17,138 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.ParsedPath;
-import org.apache.doris.fs.remote.RemoteFile;
 
-import java.util.List;
-import java.util.Map;
+import java.io.Closeable;
+import java.io.IOException;
+import java.util.Collection;
 import java.util.Set;
 
 /**
- * File system interface.
- * All file operations should use DFSFileSystem.
- * @see org.apache.doris.fs.remote.dfs.DFSFileSystem
- * If the file system use the object storage's SDK, use ObjStorage
- * @see org.apache.doris.fs.remote.ObjFileSystem
- * Read and Write operation put in FileOperations
- * @see org.apache.doris.fs.operations.FileOperations
+ * Core filesystem abstraction for Apache Doris.
+ * <p>
+ * All methods use {@link Location} for path arguments and throw {@link IOException}
+ * on failure rather than returning a {@link org.apache.doris.backup.Status} object.
+ * <p>
+ * Implementations must be thread-safe. Instances may be shared and cached.
+ *
+ * @see LegacyFileSystemAdapter for adapting existing Status-based implementations
+ * @see MemoryFileSystem for in-memory testing
+ * @see LegacyFileSystemApi for the legacy Status-based interface (deprecated)
  */
-public interface FileSystem {
-    Map<String, String> getProperties();
+public interface FileSystem extends Closeable {
 
-    Status exists(String remotePath);
+    // ─────────────────────────── I/O FILE ACCESS ───────────────────────────
 
-    default Status directoryExists(String dir) {
-        return exists(dir);
-    }
+    /**
+     * Creates a new {@link DorisInputFile} for reading from the given location.
+     * Does not check existence; the file is opened lazily when
+     * {@link DorisInputFile#newInput()} or {@link DorisInputFile#newStream()} is called.
+     */
+    DorisInputFile newInputFile(Location location);
 
-    Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize);
+    /**
+     * Creates a new {@link DorisInputFile} with a known file length.
+     * The {@code length} hint may be used to skip a remote {@code stat()} call.
+     */
+    DorisInputFile newInputFile(Location location, long length);
 
-    Status upload(String localPath, String remotePath);
+    /**
+     * Creates a new {@link DorisOutputFile} for writing to the given location.
+     */
+    DorisOutputFile newOutputFile(Location location);
 
-    Status directUpload(String content, String remoteFile);
+    // ─────────────────────────── METADATA OPERATIONS ───────────────────────────
 
-    Status rename(String origFilePath, String destFilePath);
+    /**
+     * Returns {@code true} if the location exists (file or directory).
+     *
+     * @throws IOException if the existence check fails for a reason other than "not found"
+     */
+    boolean exists(Location location) throws IOException;
 
-    default Status renameDir(String origFilePath, String destFilePath) {
-        return renameDir(origFilePath, destFilePath, () -> {});
-    }
+    // ─────────────────────────── MUTATION OPERATIONS ───────────────────────────
 
-    default Status renameDir(String origFilePath,
-                             String destFilePath,
-                             Runnable runWhenPathNotExist) {
-        throw new UnsupportedOperationException("Unsupported operation rename dir on current file system.");
-    }
+    /**
+     * Deletes the file at the given location.
+     *
+     * @throws IOException if deletion fails or the location is a directory
+     */
+    void deleteFile(Location location) throws IOException;
 
-    default Status deleteAll(List<String> remotePaths) {
-        for (String remotePath : remotePaths) {
-            Status deleteStatus = delete(remotePath);
-            if (!deleteStatus.ok()) {
-                return deleteStatus;
-            }
+    /**
+     * Deletes multiple files. Default implementation calls {@link #deleteFile} in a loop;
+     * implementations may override for batch efficiency.
+     */
+    default void deleteFiles(Collection<Location> locations) throws IOException {
+        for (Location location : locations) {
+            deleteFile(location);
         }
-        return Status.OK;
-    }
-
-    Status delete(String remotePath);
-
-    default Status deleteDirectory(String dir) {
-        return delete(dir);
-    }
-
-    Status makeDir(String remotePath);
-
-    /*
-     * List files in remotePath
-     * @param remotePath remote path
-     * @param recursive whether to list files recursively
-     * <pre>
-     * If the path is a directory,
-     *   if recursive is false, returns files in the directory;
-     *   if recursive is true, return files in the subtree rooted at the path.
-     * If the path is a file, return the file's status and block locations.
-     * </pre>
-     * */
-    Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result);
-
-    /**
-     * List files in remotePath by wildcard <br/>
-     * The {@link RemoteFile}'name will only contain file name (Not full path)
-     * @param remotePath remote path
-     * @param result All eligible files under the path
-     * @return
-     */
-    default Status globList(String remotePath, List<RemoteFile> result) {
-        return globList(remotePath, result, true);
     }
 
     /**
-     * List files in remotePath by wildcard <br/>
-     * @param remotePath remote path
-     * @param result All eligible files under the path
-     * @param fileNameOnly for {@link RemoteFile}'name: whether the full path is included.<br/>
-     *                     true: only contains file name, false: contains full path<br/>
-     * @return
+     * Atomically renames (moves) a file from {@code source} to {@code target}.
+     *
+     * @throws IOException if the rename fails
      */
-    Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly);
+    void renameFile(Location source, Location target) throws IOException;
 
     /**
-     * List files in remotePath <br/>
-     * @param remotePath remote path
-     * @param result All eligible files under the path
-     * @param startFile start file name
-     * @param fileSizeLimit limit the total size of files to be listed.
-     * @param fileNumLimit limit the total number of files to be listed.
-     * @return
+     * Recursively deletes a directory and all its contents.
+     *
+     * @throws IOException if deletion fails
      */
-    default GlobListResult globListWithLimit(String remotePath, List<RemoteFile> result,
-            String startFile, long fileSizeLimit, long fileNumLimit) {
-        throw new UnsupportedOperationException("Unsupported operation glob list with limit on current file system.");
+    void deleteDirectory(Location location) throws IOException;
+
+    /**
+     * Creates a directory (and any missing parent directories).
+     *
+     * @throws IOException if creation fails
+     */
+    void createDirectory(Location location) throws IOException;
+
+    /**
+     * Renames (moves) a directory from {@code source} to {@code target}.
+     *
+     * @throws IOException if the rename fails
+     */
+    void renameDirectory(Location source, Location target) throws IOException;
+
+    // ─────────────────────────── LISTING OPERATIONS ───────────────────────────
+
+    /**
+     * Returns a lazy iterator over files under {@code location}.
+     * <p>
+     * If {@code recursive} is {@code false}, only direct children are listed.
+     * If {@code recursive} is {@code true}, the entire subtree is traversed.
+     * The iterator must be closed after use (use try-with-resources).
+     *
+     * @throws IOException if the listing request fails
+     */
+    FileIterator listFiles(Location location, boolean recursive) throws IOException;
+
+    /**
+     * Returns the set of direct child directory locations under {@code location}.
+     *
+     * @throws IOException if the listing request fails
+     */
+    Set<Location> listDirectories(Location location) throws IOException;
+
+    /**
+     * Returns a lazy iterator of files matching the glob {@code pattern}.
+     * Default implementation throws {@link UnsupportedOperationException}.
+     * Override for native glob support (e.g., HDFS glob).
+     */
+    default FileIterator globFiles(Location pattern) throws IOException {
+        throw new UnsupportedOperationException(
+                "globFiles not supported by " + getClass().getSimpleName());
     }
 
-    default Status listDirectories(String remotePath, Set<String> result) {
-        throw new UnsupportedOperationException("Unsupported operation list directories on current file system.");
-    }
-
-    default DorisOutputFile newOutputFile(ParsedPath path) {
-        throw new UnsupportedOperationException("Unsupported operation new output file on current file system.");
-    }
-
-    default DorisInputFile newInputFile(ParsedPath path) {
-        return newInputFile(path, -1);
-    }
-
-    default DorisInputFile newInputFile(ParsedPath path, long length) {
-        throw new UnsupportedOperationException("Unsupported operation new input file on current file system.");
-    }
+    /**
+     * Releases resources held by this filesystem (connections, thread pools, etc.).
+     * Idempotent — safe to call multiple times.
+     */
+    @Override
+    void close() throws IOException;
 }

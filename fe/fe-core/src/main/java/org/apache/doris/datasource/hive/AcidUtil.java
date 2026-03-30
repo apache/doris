@@ -22,7 +22,7 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystem;
+import org.apache.doris.fs.LegacyFileSystemApi;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import lombok.EqualsAndHashCode;
@@ -132,7 +132,7 @@ public class AcidUtil {
     }
 
 
-    private static boolean isValidMetaDataFile(FileSystem fileSystem, String baseDir)
+    private static boolean isValidMetaDataFile(LegacyFileSystemApi fileSystem, String baseDir)
             throws IOException {
         String fileLocation = baseDir + "_metadata_acid";
         Status status = fileSystem.exists(fileLocation);
@@ -162,7 +162,7 @@ public class AcidUtil {
         return true;
     }
 
-    private static boolean isValidBase(FileSystem fileSystem, String baseDir,
+    private static boolean isValidBase(LegacyFileSystemApi fileSystem, String baseDir,
             ParsedBase base, ValidWriteIdList writeIdList) throws IOException {
         if (base.writeId == Long.MIN_VALUE) {
             //Ref: https://issues.apache.org/jira/browse/HIVE-13369
@@ -239,7 +239,7 @@ public class AcidUtil {
     //Since the hive3 library cannot read the hive4 transaction table normally, and there are many problems
     // when using the Hive 4 library directly, this method is implemented.
     //Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState
-    public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
+    public static FileCacheValue getAcidState(LegacyFileSystemApi fileSystem, HivePartition partition,
             Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
                                               boolean isFullAcid) throws Exception {
 

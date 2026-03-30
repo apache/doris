@@ -26,5 +26,5 @@ public interface FileSystemLookup {
      * Looks up and returns a cached FileSystem for the given key.
      * Creates a new instance if not cached.
      */
-    FileSystem lookup(FileSystemCache.FileSystemCacheKey key);
+    LegacyFileSystemApi lookup(FileSystemCache.FileSystemCacheKey key);
 }

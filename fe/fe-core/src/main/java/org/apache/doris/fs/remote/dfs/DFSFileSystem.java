@@ -25,6 +25,7 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.fs.FsStorageType;
+import org.apache.doris.fs.Location;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisOutputFile;
 import org.apache.doris.fs.io.ParsedPath;
@@ -587,11 +588,11 @@ public class DFSFileSystem extends RemoteFileSystem {
 
     @Override
     public DorisOutputFile newOutputFile(ParsedPath path) {
-        return new HdfsOutputFile(path, this);
+        return new HdfsOutputFile(Location.of(path.toString()), this);
     }
 
     @Override
     public DorisInputFile newInputFile(ParsedPath path, long length) {
-        return new HdfsInputFile(path, length, this);
+        return new HdfsInputFile(Location.of(path.toString()), length, this);
     }
 }

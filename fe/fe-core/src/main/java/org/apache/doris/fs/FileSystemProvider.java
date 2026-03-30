@@ -20,5 +20,5 @@ package org.apache.doris.fs;
 import org.apache.doris.datasource.SessionContext;
 
 public interface FileSystemProvider {
-    FileSystem get(SessionContext ctx);
+    LegacyFileSystemApi get(SessionContext ctx);
 }

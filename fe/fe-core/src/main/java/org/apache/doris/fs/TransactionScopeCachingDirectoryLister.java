@@ -68,12 +68,13 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     @Override
-    public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
+    public RemoteIterator<RemoteFile> listFiles(LegacyFileSystemApi fs, boolean recursive,
+            TableIf table, String location)
             throws FileSystemIOException {
         return listInternal(fs, recursive, table, new TransactionDirectoryListingCacheKey(transactionId, location));
     }
 
-    private RemoteIterator<RemoteFile> listInternal(FileSystem fs, boolean recursive, TableIf table,
+    private RemoteIterator<RemoteFile> listInternal(LegacyFileSystemApi fs, boolean recursive, TableIf table,
                                                     TransactionDirectoryListingCacheKey cacheKey)
             throws FileSystemIOException {
         FetchingValueHolder cachedValueHolder;
@@ -94,7 +95,7 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
         return cachingRemoteIterator(cachedValueHolder, cacheKey);
     }
 
-    private RemoteIterator<RemoteFile> createListingRemoteIterator(FileSystem fs, boolean recursive,
+    private RemoteIterator<RemoteFile> createListingRemoteIterator(LegacyFileSystemApi fs, boolean recursive,
                                                                    TableIf table,
                                                                    TransactionDirectoryListingCacheKey cacheKey)
             throws FileSystemIOException {

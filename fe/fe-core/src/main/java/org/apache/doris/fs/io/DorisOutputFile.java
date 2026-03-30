@@ -17,6 +17,8 @@
 
 package org.apache.doris.fs.io;
 
+import org.apache.doris.fs.Location;
+
 import java.io.IOException;
 import java.io.OutputStream;
 
@@ -25,7 +27,7 @@ import java.io.OutputStream;
  * <p>
  * This interface provides methods to create output streams for writing file content,
  * either as a new file or by overwriting an existing file.
- * It also provides a method to retrieve the file's path.
+ * It also provides a method to retrieve the file's location.
  * Implementations of this interface allow Doris to interact with various file systems
  * in a unified way for output operations.
  */
@@ -51,9 +53,19 @@ public interface DorisOutputFile {
     OutputStream createOrOverwrite() throws IOException;
 
     /**
+     * Returns the location of this output file.
+     * Replaces the old {@link #path()} method.
+     */
+    Location location();
+
+    /**
      * Returns the path of this output file as a ParsedPath object.
      *
      * @return the ParsedPath representing the file location
+     * @deprecated use {@link #location()} instead
      */
-    ParsedPath path();
+    @Deprecated
+    default ParsedPath path() {
+        return new ParsedPath(location().toString());
+    }
 }

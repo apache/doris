@@ -23,6 +23,10 @@ import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Objects;
 
+/**
+ * @deprecated use {@link FileIterator} instead
+ */
+@Deprecated
 public class RemoteFileRemoteIterator
         implements RemoteIterator<RemoteFile> {
     private final List<RemoteFile> remoteFileList;

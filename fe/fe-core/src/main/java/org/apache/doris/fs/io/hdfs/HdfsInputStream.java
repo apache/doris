@@ -18,7 +18,6 @@
 package org.apache.doris.fs.io.hdfs;
 
 import org.apache.doris.fs.io.DorisInputStream;
-import org.apache.doris.fs.io.ParsedPath;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 
@@ -28,24 +27,24 @@ import java.util.Objects;
 
 /**
  * HdfsInputStream provides an input stream implementation for reading data from HDFS
- * using ParsedPath and FSDataInputStream.
+ * using a path string and FSDataInputStream.
  * It extends DorisInputStream and wraps Hadoop's FSDataInputStream, providing additional checks and error handling.
  */
 public class HdfsInputStream extends DorisInputStream {
-    // The ParsedPath representing the file location in HDFS.
-    private final ParsedPath path;
+    // The file path string for error reporting.
+    private final String path;
     // The underlying Hadoop FSDataInputStream used for reading.
     private final FSDataInputStream stream;
     // Indicates whether the stream has been closed.
     private boolean closed;
 
     /**
-     * Constructs a HdfsInputStream with the given ParsedPath and FSDataInputStream.
+     * Constructs a HdfsInputStream with the given path string and FSDataInputStream.
      *
-     * @param path the ParsedPath representing the file location
+     * @param path the file path string for error reporting
      * @param stream the underlying Hadoop FSDataInputStream
      */
-    HdfsInputStream(ParsedPath path, FSDataInputStream stream) {
+    HdfsInputStream(String path, FSDataInputStream stream) {
         this.path = Objects.requireNonNull(path, "path is null");
         this.stream = Objects.requireNonNull(stream, "stream is null");
     }
