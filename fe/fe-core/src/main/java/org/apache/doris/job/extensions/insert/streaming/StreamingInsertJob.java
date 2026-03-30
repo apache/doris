@@ -1039,8 +1039,8 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
 
 
             if (StringUtils.isBlank(offsetJson)) {
-                throw new TransactionException("Cannot find offset for attachment, load job id is " +
-                        runningStreamTask.getTaskId());
+                throw new TransactionException("Cannot find offset for attachment, load job id is "
+                        + runningStreamTask.getTaskId());
             }
             txnState.setTxnCommitAttachment(new StreamingTaskTxnCommitAttachment(
                         getJobId(),
