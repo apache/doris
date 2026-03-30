@@ -40,8 +40,8 @@ GroupByAggContext::GroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators
                                      VExprContextSPtrs groupby_expr_ctxs, Sizes agg_state_offsets,
                                      size_t total_agg_state_size, size_t agg_state_alignment,
                                      bool is_first_phase)
-        : AggContext(std::move(agg_evaluators), std::move(agg_state_offsets),
-                     total_agg_state_size, agg_state_alignment),
+        : AggContext(std::move(agg_evaluators), std::move(agg_state_offsets), total_agg_state_size,
+                     agg_state_alignment),
           _hash_table_data(std::make_unique<AggregatedDataVariants>()),
           _groupby_expr_ctxs(std::move(groupby_expr_ctxs)),
           _is_first_phase(is_first_phase) {}
@@ -183,10 +183,11 @@ size_t GroupByAggContext::get_reserve_mem_size(RuntimeState* state) const {
 }
 
 size_t GroupByAggContext::estimated_memory_for_merging(size_t rows) const {
-    size_t size = std::visit(
-            Overload {[&](std::monostate& arg) -> size_t { return 0; },
-                      [&](auto& agg_method) { return agg_method.hash_table->estimate_memory(rows); }},
-            _hash_table_data->method_variant);
+    size_t size = std::visit(Overload {[&](std::monostate& arg) -> size_t { return 0; },
+                                       [&](auto& agg_method) {
+                                           return agg_method.hash_table->estimate_memory(rows);
+                                       }},
+                             _hash_table_data->method_variant);
     size += _agg_data_container->estimate_memory(rows);
     return size;
 }
@@ -366,8 +367,7 @@ bool GroupByAggContext::emplace_into_hash_table_limit(AggregateDataPtr* places, 
                     Block::filter_block_internal(block, need_computes);
                     if (key_locs) {
                         for (int i = 0; i < key_locs->size(); ++i) {
-                            key_columns[i] =
-                                    block->get_by_position((*key_locs)[i]).column.get();
+                            key_columns[i] = block->get_by_position((*key_locs)[i]).column.get();
                         }
                     }
                     num_rows = (uint32_t)block->rows();
@@ -394,8 +394,7 @@ bool GroupByAggContext::emplace_into_hash_table_limit(AggregateDataPtr* places, 
                 };
 
                 auto creator_for_null_key = [&](auto& mapped) {
-                    mapped = _agg_arena.aligned_alloc(_total_agg_state_size,
-                                                      _agg_state_alignment);
+                    mapped = _agg_arena.aligned_alloc(_total_agg_state_size, _agg_state_alignment);
                     auto st = create_agg_state(mapped);
                     if (!st) {
                         throw Exception(st.code(), st.to_string());
@@ -499,8 +498,8 @@ Status GroupByAggContext::merge_for_spill(Block* block) {
 Status GroupByAggContext::_execute_batch_add_evaluators(Block* block, AggregateDataPtr* places,
                                                         bool expand_hash_table) {
     for (int i = 0; i < _agg_evaluators.size(); ++i) {
-        RETURN_IF_ERROR(_agg_evaluators[i]->execute_batch_add(
-                block, _agg_state_offsets[i], places, _agg_arena, expand_hash_table));
+        RETURN_IF_ERROR(_agg_evaluators[i]->execute_batch_add(block, _agg_state_offsets[i], places,
+                                                              _agg_arena, expand_hash_table));
     }
     return Status::OK();
 }
@@ -508,8 +507,8 @@ Status GroupByAggContext::_execute_batch_add_evaluators(Block* block, AggregateD
 Status GroupByAggContext::_execute_batch_add_selected_evaluators(Block* block,
                                                                  AggregateDataPtr* places) {
     for (int i = 0; i < _agg_evaluators.size(); ++i) {
-        RETURN_IF_ERROR(_agg_evaluators[i]->execute_batch_add_selected(
-                block, _agg_state_offsets[i], places, _agg_arena));
+        RETURN_IF_ERROR(_agg_evaluators[i]->execute_batch_add_selected(block, _agg_state_offsets[i],
+                                                                       places, _agg_arena));
     }
     return Status::OK();
 }
@@ -565,8 +564,8 @@ Status GroupByAggContext::_merge_evaluators(Block* block, size_t rows,
                         column.get(), _agg_arena, rows);
             }
         } else {
-            RETURN_IF_ERROR(_agg_evaluators[i]->execute_batch_add(
-                    block, _agg_state_offsets[i], _places.data(), _agg_arena));
+            RETURN_IF_ERROR(_agg_evaluators[i]->execute_batch_add(block, _agg_state_offsets[i],
+                                                                  _places.data(), _agg_arena));
         }
     }
     return Status::OK();
@@ -592,8 +591,7 @@ void GroupByAggContext::_serialize_agg_values(MutableColumns& value_columns,
     }
 }
 
-void GroupByAggContext::_insert_finalized_values(MutableColumns& value_columns,
-                                                  uint32_t num_rows) {
+void GroupByAggContext::_insert_finalized_values(MutableColumns& value_columns, uint32_t num_rows) {
     for (size_t i = 0; i < _agg_evaluators.size(); ++i) {
         _agg_evaluators[i]->insert_result_info_vec(_values, _agg_state_offsets[i],
                                                    value_columns[i].get(), num_rows);
@@ -601,7 +599,7 @@ void GroupByAggContext::_insert_finalized_values(MutableColumns& value_columns,
 }
 
 void GroupByAggContext::_insert_finalized_single(AggregateDataPtr mapped,
-                                                  MutableColumns& value_columns) {
+                                                 MutableColumns& value_columns) {
     for (size_t i = 0; i < _agg_evaluators.size(); ++i) {
         _agg_evaluators[i]->insert_result_info(mapped + _agg_state_offsets[i],
                                                value_columns[i].get());
@@ -611,7 +609,7 @@ void GroupByAggContext::_insert_finalized_single(AggregateDataPtr mapped,
 // ==================== Streaming preagg support ====================
 
 bool GroupByAggContext::should_expand_preagg_hash_table(int64_t input_rows, int64_t returned_rows,
-                                                         bool is_single_backend) {
+                                                        bool is_single_backend) {
     if (!_should_expand_hash_table) {
         return false;
     }
@@ -636,8 +634,8 @@ bool GroupByAggContext::should_expand_preagg_hash_table(int64_t input_rows, int6
                 }
 
                 const int64_t aggregated_input_rows = input_rows - returned_rows;
-                double current_reduction = static_cast<double>(aggregated_input_rows) /
-                                           static_cast<double>(ht_rows);
+                double current_reduction =
+                        static_cast<double>(aggregated_input_rows) / static_cast<double>(ht_rows);
 
                 if (aggregated_input_rows <= 0) {
                     return true;
@@ -664,8 +662,8 @@ bool GroupByAggContext::should_skip_preagg(size_t rows, size_t mem_limit, int64_
 }
 
 Status GroupByAggContext::streaming_serialize_passthrough(Block* in_block, Block* out_block,
-                                                          ColumnRawPtrs& key_columns,
-                                                          uint32_t rows, bool mem_reuse) {
+                                                          ColumnRawPtrs& key_columns, uint32_t rows,
+                                                          bool mem_reuse) {
     size_t key_size = _groupby_expr_ctxs.size();
     size_t agg_size = _agg_evaluators.size();
 
@@ -685,9 +683,8 @@ Status GroupByAggContext::streaming_serialize_passthrough(Block* in_block, Block
     }
 
     if (!mem_reuse) {
-        agg_context_utils::build_serialized_output_block(out_block, key_columns, rows,
-                                                         _groupby_expr_ctxs, value_columns,
-                                                         data_types);
+        agg_context_utils::build_serialized_output_block(
+                out_block, key_columns, rows, _groupby_expr_ctxs, value_columns, data_types);
     } else {
         for (size_t i = 0; i < key_size; ++i) {
             std::move(*out_block->get_by_position(i).column)

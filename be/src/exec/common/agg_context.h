@@ -40,7 +40,7 @@ using Sizes = std::vector<size_t>;
 class AggContext {
 public:
     AggContext(std::vector<AggFnEvaluator*> agg_evaluators, Sizes agg_state_offsets,
-              size_t total_agg_state_size, size_t agg_state_alignment)
+               size_t total_agg_state_size, size_t agg_state_alignment)
             : _agg_evaluators(std::move(agg_evaluators)),
               _agg_state_offsets(std::move(agg_state_offsets)),
               _total_agg_state_size(total_agg_state_size),

@@ -87,14 +87,12 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
 
     if (use_simple_count) {
         _groupby_agg_ctx = std::make_unique<InlineCountAggContext>(
-                std::move(evaluators), std::move(probe_expr_ctxs),
-                p._offsets_of_aggregate_states, p._total_size_of_aggregate_states,
-                p._align_aggregate_states, p._is_first_phase);
+                std::move(evaluators), std::move(probe_expr_ctxs), p._offsets_of_aggregate_states,
+                p._total_size_of_aggregate_states, p._align_aggregate_states, p._is_first_phase);
     } else {
         _groupby_agg_ctx = std::make_unique<GroupByAggContext>(
-                std::move(evaluators), std::move(probe_expr_ctxs),
-                p._offsets_of_aggregate_states, p._total_size_of_aggregate_states,
-                p._align_aggregate_states, p._is_first_phase);
+                std::move(evaluators), std::move(probe_expr_ctxs), p._offsets_of_aggregate_states,
+                p._total_size_of_aggregate_states, p._align_aggregate_states, p._is_first_phase);
     }
 
     // Configure sort-limit on context
@@ -144,8 +142,8 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
     uint32_t rows = (uint32_t)in_block->rows();
 
     if (_groupby_agg_ctx->should_skip_preagg(rows, p._spill_streaming_agg_mem_limit,
-                                              _input_num_rows, _cur_num_rows_returned,
-                                              _is_single_backend)) {
+                                             _input_num_rows, _cur_num_rows_returned,
+                                             _is_single_backend)) {
         // Sort limit handling for passthrough path
         if (_groupby_agg_ctx->limit > 0) {
             DCHECK(_groupby_agg_ctx->do_sort_limit);

@@ -32,8 +32,8 @@ namespace doris {
 UngroupByAggContext::UngroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators,
                                          Sizes agg_state_offsets, size_t total_agg_state_size,
                                          size_t agg_state_alignment)
-        : AggContext(std::move(agg_evaluators), std::move(agg_state_offsets),
-                     total_agg_state_size, agg_state_alignment) {}
+        : AggContext(std::move(agg_evaluators), std::move(agg_state_offsets), total_agg_state_size,
+                     agg_state_alignment) {}
 
 UngroupByAggContext::~UngroupByAggContext() = default;
 
@@ -45,8 +45,7 @@ void UngroupByAggContext::init_profile(RuntimeProfile* profile) {
     _deserialize_data_timer = ADD_TIMER(profile, "DeserializeAndMergeTime");
     _get_results_timer = ADD_TIMER(profile, "GetResultsTime");
 
-    auto* memory_usage =
-            profile->create_child("MemoryUsage", true, true);
+    auto* memory_usage = profile->create_child("MemoryUsage", true, true);
     _memory_used_counter = profile->get_counter("MemoryUsage");
     _memory_usage_arena = ADD_COUNTER(memory_usage, "Arena", TUnit::BYTES);
 }

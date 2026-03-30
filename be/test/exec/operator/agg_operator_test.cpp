@@ -590,10 +590,9 @@ TEST_F(AggOperatorTestWithGroupBy, other_case_2) {
         auto* ctx = static_cast<GroupByAggContext*>(
                 static_cast<AggSharedState*>(shared_state.get())->agg_ctx.get());
         std::vector<AggregateDataPtr> places(block.rows());
-        ctx->emplace_into_hash_table(places.data(), key_columns, block.rows(),
-                                     ctx->hash_table_compute_timer(),
-                                     ctx->hash_table_emplace_timer(),
-                                     ctx->hash_table_input_counter());
+        ctx->emplace_into_hash_table(
+                places.data(), key_columns, block.rows(), ctx->hash_table_compute_timer(),
+                ctx->hash_table_emplace_timer(), ctx->hash_table_input_counter());
 
         EXPECT_EQ(ctx->hash_table_size(), 4); // [1,2,3,null]
     }

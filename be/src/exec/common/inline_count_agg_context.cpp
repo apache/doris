@@ -33,12 +33,11 @@ namespace doris {
 
 // ==================== Hash table write ====================
 
-void InlineCountAggContext::emplace_into_hash_table(AggregateDataPtr* /*places*/,
-                                                    ColumnRawPtrs& key_columns,
-                                                    uint32_t num_rows,
-                                                    RuntimeProfile::Counter* hash_table_compute_timer,
-                                                    RuntimeProfile::Counter* hash_table_emplace_timer,
-                                                    RuntimeProfile::Counter* hash_table_input_counter) {
+void InlineCountAggContext::emplace_into_hash_table(
+        AggregateDataPtr* /*places*/, ColumnRawPtrs& key_columns, uint32_t num_rows,
+        RuntimeProfile::Counter* hash_table_compute_timer,
+        RuntimeProfile::Counter* hash_table_emplace_timer,
+        RuntimeProfile::Counter* hash_table_input_counter) {
     agg_context_utils::visit_agg_method(*_hash_table_data, [&](auto& agg_method) {
         SCOPED_TIMER(hash_table_compute_timer);
         using HashMethodType = std::decay_t<decltype(agg_method)>;
@@ -55,10 +54,8 @@ void InlineCountAggContext::emplace_into_hash_table(AggregateDataPtr* /*places*/
         auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
         SCOPED_TIMER(hash_table_emplace_timer);
-        lazy_emplace_batch(agg_method, state, num_rows, creator,
-                           creator_for_null_key, [&](uint32_t, auto& mapped) {
-                               ++reinterpret_cast<UInt64&>(mapped);
-                           });
+        lazy_emplace_batch(agg_method, state, num_rows, creator, creator_for_null_key,
+                           [&](uint32_t, auto& mapped) { ++reinterpret_cast<UInt64&>(mapped); });
 
         COUNTER_UPDATE(hash_table_input_counter, num_rows);
     });
@@ -114,8 +111,7 @@ Status InlineCountAggContext::merge(Block* block) {
 }
 
 void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
-                                                const IColumn* merge_column,
-                                                uint32_t num_rows) {
+                                                const IColumn* merge_column, uint32_t num_rows) {
     agg_context_utils::visit_agg_method(*_hash_table_data, [&](auto& agg_method) {
         SCOPED_TIMER(_hash_table_compute_timer);
         using HashMethodType = std::decay_t<decltype(agg_method)>;
@@ -123,11 +119,9 @@ void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
         AggState state(key_columns);
         agg_method.init_serialized_keys(key_columns, num_rows);
 
-        const auto& col =
-                assert_cast<const ColumnFixedLengthObject&>(*merge_column);
+        const auto& col = assert_cast<const ColumnFixedLengthObject&>(*merge_column);
         const auto* col_data =
-                reinterpret_cast<const AggregateFunctionCountData*>(
-                        col.get_data().data());
+                reinterpret_cast<const AggregateFunctionCountData*>(col.get_data().data());
 
         auto creator = [&](const auto& ctor, auto& key, auto& origin) {
             HashMethodType::try_presis_key_and_origin(key, origin, _agg_arena);
@@ -138,10 +132,9 @@ void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
         auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
         SCOPED_TIMER(_hash_table_emplace_timer);
-        lazy_emplace_batch(agg_method, state, num_rows, creator,
-                           creator_for_null_key, [&](uint32_t i, auto& mapped) {
-                               reinterpret_cast<UInt64&>(mapped) +=
-                                       col_data[i].count;
+        lazy_emplace_batch(agg_method, state, num_rows, creator, creator_for_null_key,
+                           [&](uint32_t i, auto& mapped) {
+                               reinterpret_cast<UInt64&>(mapped) += col_data[i].count;
                            });
 
         COUNTER_UPDATE(_hash_table_input_counter, num_rows);
@@ -150,8 +143,7 @@ void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
 
 // ==================== Result output ====================
 
-Status InlineCountAggContext::serialize(RuntimeState* state, Block* block,
-                                                     bool* eos) {
+Status InlineCountAggContext::serialize(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     size_t key_size = _groupby_expr_ctxs.size();
     DCHECK_EQ(_agg_evaluators.size(), 1);
@@ -177,19 +169,15 @@ Status InlineCountAggContext::serialize(RuntimeState* state, Block* block,
         using KeyType = std::decay_t<decltype(agg_method)>::Key;
         std::vector<KeyType> keys(size);
 
-        auto& count_col =
-                assert_cast<ColumnFixedLengthObject&>(*value_column);
+        auto& count_col = assert_cast<ColumnFixedLengthObject&>(*value_column);
         uint32_t num_rows = 0;
         {
             SCOPED_TIMER(_hash_table_iterate_timer);
             auto& it = agg_method.begin;
             while (it != agg_method.end && num_rows < state->batch_size()) {
                 keys[num_rows] = it.get_first();
-                auto inline_count =
-                        std::bit_cast<UInt64>(it.get_second());
-                count_col.insert_data(
-                        reinterpret_cast<const char*>(&inline_count),
-                        sizeof(UInt64));
+                auto inline_count = std::bit_cast<UInt64>(it.get_second());
+                count_col.insert_data(reinterpret_cast<const char*>(&inline_count), sizeof(UInt64));
                 ++it;
                 ++num_rows;
             }
@@ -208,13 +196,10 @@ Status InlineCountAggContext::serialize(RuntimeState* state, Block* block,
                 if (num_rows < state->batch_size()) {
                     key_columns[0]->insert_data(nullptr, 0);
                     auto mapped =
-                            agg_method.hash_table->template get_null_key_data<
-                                    AggregateDataPtr>();
-                    auto inline_count =
-                            std::bit_cast<UInt64>(mapped);
-                    count_col.insert_data(
-                            reinterpret_cast<const char*>(&inline_count),
-                            sizeof(UInt64));
+                            agg_method.hash_table->template get_null_key_data<AggregateDataPtr>();
+                    auto inline_count = std::bit_cast<UInt64>(mapped);
+                    count_col.insert_data(reinterpret_cast<const char*>(&inline_count),
+                                          sizeof(UInt64));
                     *eos = true;
                 }
             } else {
@@ -228,14 +213,13 @@ Status InlineCountAggContext::serialize(RuntimeState* state, Block* block,
         value_columns.emplace_back(std::move(value_column));
         DataTypes value_types {value_data_type};
         agg_context_utils::build_serialized_output_block(block, key_columns, _groupby_expr_ctxs,
-                                                        value_columns, value_types);
+                                                         value_columns, value_types);
     }
 
     return Status::OK();
 }
 
-Status InlineCountAggContext::finalize(
-        RuntimeState* state, Block* block, bool* eos) {
+Status InlineCountAggContext::finalize(RuntimeState* state, Block* block, bool* eos) {
     bool mem_reuse = make_nullable_keys.empty() && block->mem_reuse();
 
     size_t key_size = _groupby_expr_ctxs.size();
@@ -267,8 +251,7 @@ Status InlineCountAggContext::finalize(
             while (it != agg_method.end && num_rows < state->batch_size()) {
                 keys[num_rows] = it.get_first();
                 auto& mapped = it.get_second();
-                count_column.insert_value(static_cast<Int64>(
-                        std::bit_cast<UInt64>(mapped)));
+                count_column.insert_value(static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
                 ++it;
                 ++num_rows;
             }
@@ -286,10 +269,8 @@ Status InlineCountAggContext::finalize(
                 if (key_columns[0]->size() < state->batch_size()) {
                     key_columns[0]->insert_data(nullptr, 0);
                     auto mapped =
-                            agg_method.hash_table->template get_null_key_data<
-                                    AggregateDataPtr>();
-                    count_column.insert_value(
-                            static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
+                            agg_method.hash_table->template get_null_key_data<AggregateDataPtr>();
+                    count_column.insert_value(static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
                     *eos = true;
                 }
             } else {
@@ -302,7 +283,7 @@ Status InlineCountAggContext::finalize(
         MutableColumns value_columns;
         value_columns.emplace_back(std::move(value_column));
         agg_context_utils::assemble_finalized_output(block, _finalize_schema, key_columns,
-                                                    value_columns, key_size);
+                                                     value_columns, key_size);
     }
 
     return Status::OK();

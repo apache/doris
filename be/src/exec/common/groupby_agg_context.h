@@ -43,9 +43,8 @@ using VExprContextSPtrs = std::vector<VExprContextSPtr>;
 class GroupByAggContext : public AggContext {
 public:
     GroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators,
-                     VExprContextSPtrs groupby_expr_ctxs, Sizes agg_state_offsets,
-                     size_t total_agg_state_size, size_t agg_state_alignment,
-                     bool is_first_phase);
+                      VExprContextSPtrs groupby_expr_ctxs, Sizes agg_state_offsets,
+                      size_t total_agg_state_size, size_t agg_state_alignment, bool is_first_phase);
 
     virtual ~GroupByAggContext();
 
@@ -116,8 +115,8 @@ public:
     /// Emplace with sort-limit filtering. Returns true if aggregation should proceed.
     /// When key_locs is provided, re-fetches key_columns from block after filtering.
     bool emplace_into_hash_table_limit(AggregateDataPtr* places, Block* block,
-                                       const std::vector<int>* key_locs,
-                                       ColumnRawPtrs& key_columns, uint32_t num_rows);
+                                       const std::vector<int>* key_locs, ColumnRawPtrs& key_columns,
+                                       uint32_t num_rows);
 
     // ==================== Streaming preagg support ====================
 

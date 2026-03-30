@@ -238,7 +238,8 @@ Status PartitionedAggSourceOperatorX::get_block(RuntimeState* state, Block* bloc
     // ── Fast path: not spilled ─────────────────────────────────────────
     if (!local_state._shared_state->_is_spilled) {
         auto* runtime_state = local_state._runtime_state.get();
-        static_cast<GroupByAggContext*>(local_state._shared_state->_in_mem_shared_state->agg_ctx.get())
+        static_cast<GroupByAggContext*>(
+                local_state._shared_state->_in_mem_shared_state->agg_ctx.get())
                 ->agg_data_container()
                 ->init_once();
         status = _agg_source_operator->get_block(runtime_state, block, eos);

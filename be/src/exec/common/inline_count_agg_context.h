@@ -51,8 +51,7 @@ public:
 
     /// Emplace only (count++ done internally), skip execute_batch_add.
     Status emplace_and_forward(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
-                               uint32_t num_rows, Block* block,
-                               bool expand_hash_table) override;
+                               uint32_t num_rows, Block* block, bool expand_hash_table) override;
 
     /// Merge path: read count from ColumnFixedLengthObject (AggregateFunctionCountData)
     /// and add to mapped UInt64.

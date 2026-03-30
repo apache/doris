@@ -25,8 +25,8 @@
 #include "exec/common/groupby_agg_context.h"
 #include "exec/common/inline_count_agg_context.h"
 #include "exec/common/ungroupby_agg_context.h"
-#include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exec/operator/operator.h"
+#include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "runtime/runtime_profile.h"
 
@@ -93,8 +93,8 @@ Status AggSinkLocalState::open(RuntimeState* state) {
             evaluators.push_back(evaluator->clone(state, p._pool));
         }
 
-        bool should_limit_output = p._limit != -1 && !p._have_conjuncts &&
-                                   !Base::_shared_state->enable_spill;
+        bool should_limit_output =
+                p._limit != -1 && !p._have_conjuncts && !Base::_shared_state->enable_spill;
         bool use_simple_count = p._aggregate_evaluators.size() == 1 &&
                                 p._aggregate_evaluators[0]->function()->is_simple_count() &&
                                 !should_limit_output && !Base::_shared_state->enable_spill;

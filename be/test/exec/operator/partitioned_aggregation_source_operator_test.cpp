@@ -209,7 +209,9 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlock) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())
+                      ->hash_table_size(),
+              0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -303,7 +305,9 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpill) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())
+                      ->hash_table_size(),
+              0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -402,7 +406,9 @@ TEST_F(PartitionedAggregationSourceOperatorTest, GetBlockWithSpillError) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             sink_local_state->_runtime_state->get_sink_local_state());
-    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())
+                      ->hash_table_size(),
+              0);
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -720,7 +726,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeWithAggContaine
     shared_state->_in_mem_shared_state_sptr = agg_sptr;
     shared_state->_in_mem_shared_state = agg_sptr.get();
     agg_sptr->agg_ctx = std::make_unique<GroupByAggContext>(
-            std::vector<AggFnEvaluator*>{}, VExprContextSPtrs{}, Sizes{}, 0, 1, true);
+            std::vector<AggFnEvaluator*> {}, VExprContextSPtrs {}, Sizes {}, 0, 1, true);
     auto* groupby_ctx = static_cast<GroupByAggContext*>(agg_sptr->agg_ctx.get());
     groupby_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);
@@ -1013,7 +1019,8 @@ TEST_F(PartitionedAggregationSourceOperatorTest,
     // never reached — the repartitioner does not need setup_output.
     auto* in_mem_state = shared_state->_in_mem_shared_state;
     ASSERT_NE(in_mem_state, nullptr);
-    ASSERT_NE(static_cast<GroupByAggContext*>(in_mem_state->agg_ctx.get())->agg_data_container(), nullptr);
+    ASSERT_NE(static_cast<GroupByAggContext*>(in_mem_state->agg_ctx.get())->agg_data_container(),
+              nullptr);
     auto st = local_state->_flush_hash_table_to_sub_spill_files(_helper.runtime_state.get());
     EXPECT_TRUE(st.ok()) << st.to_string();
 
