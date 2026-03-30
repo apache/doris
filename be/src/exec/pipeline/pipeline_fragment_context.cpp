@@ -257,7 +257,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
 
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
-            task.first->terminate();
+            task.first->unblock_all_dependencies();
         }
     }
 }
