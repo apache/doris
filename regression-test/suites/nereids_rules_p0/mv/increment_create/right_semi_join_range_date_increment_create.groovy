@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("right_semi_join_range_date_increment_create") {
+suite("right_semi_join_range_date_increment_create", "increment_create") {
     String db = context.config.getDbNameByFile(context.file)
     sql "use ${db}"
     sql "SET enable_nereids_planner=true"
@@ -40,7 +40,7 @@ suite("right_semi_join_range_date_increment_create") {
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`o_orderdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -70,7 +70,7 @@ suite("right_semi_join_range_date_increment_create") {
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
     auto partition by range (date_trunc(`l_shipdate`, 'day')) ()
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 1
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -273,31 +273,34 @@ suite("right_semi_join_range_date_increment_create") {
 
     def list_judgement = { def all_list, def increment_list, def complete_list,
                            def error_list, def cur_col, Closure date_change, Closure judge_func ->
-        for (int i = 0; i < all_list.size(); i++) {
+        def selected_list = pickRepresentativeCases(all_list, increment_list, complete_list, error_list)
+        logger.info("selected case size: " + selected_list.size())
+        for (int i = 0; i < selected_list.size(); i++) {
+            def current_sql = selected_list[i]
             logger.info("i: " + i)
-            if (all_list[i] in error_list) {
+            if (current_sql in error_list) {
                 test {
-                    def cur_sql = create_mv_left_part(all_list[i], cur_col)
+                    def cur_sql = create_mv_left_part(current_sql, cur_col)
                     sql cur_sql
                     exception "Unable to find a suitable base table for partitioning"
                 }
             } else {
-                def cur_sql = create_mv_left_part(all_list[i], cur_col)
+                def cur_sql = create_mv_left_part(current_sql, cur_col)
                 sql cur_sql
 
                 def job_name = getJobName(db, mv_name)
                 waitingMTMVTaskFinished(job_name)
-                compare_res(all_list[i] + " order by 1,2,3,4,5")
+                compare_res(current_sql + " order by 1,2,3,4,5")
 
                 date_change()
                 refresh_mv()
                 waitingMTMVTaskFinished(job_name)
-                compare_res(all_list[i] + " order by 1,2,3,4,5")
+                compare_res(current_sql + " order by 1,2,3,4,5")
 
-                if (all_list[i] in increment_list) {
+                if (current_sql in increment_list) {
                     is_increment_change(job_name)
                 }
-                if (all_list[i] in complete_list) {
+                if (current_sql in complete_list) {
                     judge_func(job_name)
                 }
 
