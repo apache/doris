@@ -186,8 +186,8 @@ TEST_F(IgnoreNotFoundSegmentTest, LazyInitIteratorReturnsEofOnNotFound) {
     StorageReadOptions opts;
     opts.tablet_schema = rowset->tablet_schema();
 
-    auto iter = std::make_unique<segment_v2::LazyInitSegmentIterator>(
-            rowset, 0, false, schema, opts);
+    auto iter =
+            std::make_unique<segment_v2::LazyInitSegmentIterator>(rowset, 0, false, schema, opts);
 
     // Explicit init should succeed (segment skipped, inner iterator is null)
     auto st = iter->init(opts);
@@ -212,8 +212,8 @@ TEST_F(IgnoreNotFoundSegmentTest, LazyInitIteratorFailsWhenConfigDisabled) {
     StorageReadOptions opts;
     opts.tablet_schema = rowset->tablet_schema();
 
-    auto iter = std::make_unique<segment_v2::LazyInitSegmentIterator>(
-            rowset, 0, false, schema, opts);
+    auto iter =
+            std::make_unique<segment_v2::LazyInitSegmentIterator>(rowset, 0, false, schema, opts);
 
     // init should fail with NOT_FOUND
     auto st = iter->init(opts);
@@ -232,8 +232,8 @@ TEST_F(IgnoreNotFoundSegmentTest, LazyInitIteratorNextBatchLazyPath) {
     StorageReadOptions opts;
     opts.tablet_schema = rowset->tablet_schema();
 
-    auto iter = std::make_unique<segment_v2::LazyInitSegmentIterator>(
-            rowset, 0, false, schema, opts);
+    auto iter =
+            std::make_unique<segment_v2::LazyInitSegmentIterator>(rowset, 0, false, schema, opts);
 
     // Don't call init() explicitly - let next_batch trigger lazy init
     Block block;
