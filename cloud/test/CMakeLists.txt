@@ -46,6 +46,7 @@ add_executable(meta_service_test
    meta_service_tablet_stats_test.cpp
    meta_service_versioned_read_test.cpp
    schema_kv_test.cpp
+   compaction_rw_separation_test.cpp
 )
 
 add_executable(meta_server_test meta_server_test.cpp)
