@@ -39,8 +39,6 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 import org.apache.doris.thrift.TStatusCode;
 
-import org.apache.doris.system.Backend;
-
 import lombok.Getter;
 import lombok.extern.log4j.Log4j2;
 

@@ -47,11 +47,9 @@ import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.InsertTask;
-import org.apache.doris.job.cdc.split.BinlogSplit;
 import org.apache.doris.job.offset.Offset;
 import org.apache.doris.job.offset.SourceOffsetProvider;
 import org.apache.doris.job.offset.SourceOffsetProviderFactory;
-import org.apache.doris.job.offset.jdbc.JdbcOffset;
 import org.apache.doris.job.offset.jdbc.JdbcSourceOffsetProvider;
 import org.apache.doris.job.offset.jdbc.JdbcTvfSourceOffsetProvider;
 import org.apache.doris.job.util.StreamingJobUtils;
@@ -81,6 +79,7 @@ import org.apache.doris.thrift.TRow;
 import org.apache.doris.transaction.TransactionException;
 import org.apache.doris.transaction.TransactionState;
 import org.apache.doris.transaction.TxnStateChangeCallback;
+
 import com.google.common.base.Preconditions;
 import com.google.gson.annotations.SerializedName;
 import lombok.Getter;
@@ -88,6 +87,7 @@ import lombok.Setter;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -660,7 +660,14 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
         this.jobStatistic.setLoadBytes(this.jobStatistic.getLoadBytes() + attachment.getLoadBytes());
         this.jobStatistic.setFileNumber(this.jobStatistic.getFileNumber() + attachment.getNumFiles());
         this.jobStatistic.setFileSize(this.jobStatistic.getFileSize() + attachment.getFileBytes());
-        offsetProvider.updateOffset(offsetProvider.deserializeOffset(attachment.getOffset()));
+        Offset endOffset = offsetProvider.deserializeOffset(attachment.getOffset());
+        offsetProvider.updateOffset(endOffset);
+        if (!isReplay) {
+            offsetProvider.onTaskCommitted(attachment.getScannedRows(), attachment.getLoadBytes());
+            if (runningStreamTask != null) {
+                offsetProvider.applyEndOffsetToTask(runningStreamTask.getRunningOffset(), endOffset);
+            }
+        }
 
         //update metric
         if (MetricRepo.isInit && !isReplay) {
@@ -1030,6 +1037,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                     runningStreamTask.getTaskId(),
                     runningStreamTask.getScanBackendIds());
 
+
             if (StringUtils.isBlank(offsetJson)) {
                 throw new TransactionException("Can not found offset for attachment, load job id is " + runningStreamTask.getTaskId());
             }
@@ -1203,10 +1211,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 }
                 checkDataQuality(offsetRequest);
                 updateNoTxnJobStatisticAndOffset(offsetRequest);
-                if (offsetRequest.getScannedRows() == 0 && offsetRequest.getLoadBytes() == 0) {
-                    JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
-                    op.setHasMoreData(false);
-                }
+                offsetProvider.onTaskCommitted(offsetRequest.getScannedRows(), offsetRequest.getLoadBytes());
                 if (offsetRequest.getTableSchemas() != null) {
                     JdbcSourceOffsetProvider op = (JdbcSourceOffsetProvider) offsetProvider;
                     op.setTableSchemas(offsetRequest.getTableSchemas());

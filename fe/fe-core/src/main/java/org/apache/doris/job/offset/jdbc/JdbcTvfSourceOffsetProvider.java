@@ -41,6 +41,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.tablefunction.CdcStreamTableValuedFunction;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
@@ -48,6 +49,7 @@ import com.google.gson.Gson;
 import lombok.extern.log4j.Log4j2;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.collections4.MapUtils;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -122,7 +124,8 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
 
     /**
      * Rewrites the cdc_stream TVF SQL with current offset meta and taskId,
-     * so the BE knows where to start reading and can report the end offset back via taskOffsetCache.
+     * so the BE knows where to start reading and can report
+     * the end offset back via taskOffsetCache.
      */
     @Override
     public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset runningOffset, long taskId) {
@@ -133,6 +136,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
                 UnboundTVFRelation originTvfRel = (UnboundTVFRelation) plan;
                 props.putAll(originTvfRel.getProperties().getMap());
                 props.put(CdcStreamTableValuedFunction.META_KEY, new Gson().toJson(offset.generateMeta()));
+                props.put(CdcStreamTableValuedFunction.JOB_ID_KEY, String.valueOf(jobId));
                 props.put(CdcStreamTableValuedFunction.TASK_ID_KEY, String.valueOf(taskId));
                 return new UnboundTVFRelation(
                         originTvfRel.getRelationId(), originTvfRel.getFunctionName(), new Properties(props));
@@ -337,6 +341,27 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     @Override
     public String getPersistInfo() {
         return null;
+    }
+
+    @Override
+    public void applyEndOffsetToTask(Offset runningOffset, Offset endOffset) {
+        if (!(runningOffset instanceof JdbcOffset) || !(endOffset instanceof JdbcOffset)) {
+            return;
+        }
+        JdbcOffset running = (JdbcOffset) runningOffset;
+        JdbcOffset end = (JdbcOffset) endOffset;
+        if (running.snapshotSplit()) {
+            for (int i = 0; i < running.getSplits().size() && i < end.getSplits().size(); i++) {
+                SnapshotSplit rSplit = (SnapshotSplit) running.getSplits().get(i);
+                SnapshotSplit eSplit = (SnapshotSplit) end.getSplits().get(i);
+                rSplit.setHighWatermark(eSplit.getHighWatermark());
+            }
+        } else {
+            BinlogSplit rSplit = (BinlogSplit) running.getSplits().get(0);
+            BinlogSplit eSplit = (BinlogSplit) end.getSplits().get(0);
+            // deserializeOffset stores binlog position in startingOffset
+            rSplit.setEndingOffset(eSplit.getStartingOffset());
+        }
     }
 
 }

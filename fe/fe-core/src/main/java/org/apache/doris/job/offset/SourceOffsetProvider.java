@@ -21,7 +21,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
-import org.apache.doris.system.Backend;
+
 import java.util.List;
 import java.util.Map;
 
@@ -42,7 +42,7 @@ public interface SourceOffsetProvider {
      * Only sets in-memory fields; safe to call on both fresh start and FE restart.
      * May perform remote calls (e.g. fetching snapshot splits), so throws JobException.
      */
-    default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {};
+    default void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {}
 
     /**
      * Performs one-time initialization that must run only on fresh job creation, not on FE restart.
@@ -135,6 +135,20 @@ public interface SourceOffsetProvider {
     default String getCommitOffsetJson(Offset runningOffset, long taskId, List<Long> scanBackendIds) {
         return runningOffset.toSerializedJson();
     }
+
+    /**
+     * Called after each task is committed. Providers that track data availability
+     * (e.g. JDBC binlog) can use this to update internal state such as hasMoreData.
+     * Default: no-op.
+     */
+    default void onTaskCommitted(long scannedRows, long loadBytes) {}
+
+    /**
+     * Applies the end offset from a committed task back onto the running offset object
+     * in-place, so that showRange() can display the full [start, end] interval.
+     * Default: no-op (only meaningful for JDBC providers).
+     */
+    default void applyEndOffsetToTask(Offset runningOffset, Offset endOffset) {}
 
     /**
      * Returns true if the provider has reached a natural completion point

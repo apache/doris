@@ -25,7 +25,6 @@ import org.apache.doris.job.base.Job;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.offset.Offset;
-import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TRow;
 

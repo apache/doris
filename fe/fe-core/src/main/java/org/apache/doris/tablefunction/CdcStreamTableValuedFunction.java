@@ -28,10 +28,12 @@ import org.apache.doris.job.common.DataSourceType;
 import org.apache.doris.job.util.StreamingJobUtils;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileType;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang3.StringUtils;
+
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -47,6 +49,7 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
     private static final String HTTP_ENABLE_CHUNK_RESPONSE_KEY = "http.enable.chunk.response";
     private static final String HTTP_METHOD_KEY = "http.method";
     private static final String HTTP_PAYLOAD_KEY = "http.payload";
+    public static final String JOB_ID_KEY = "job.id";
     public static final String TASK_ID_KEY = "task.id";
     public static final String META_KEY = "meta";
 
@@ -73,7 +76,8 @@ public class CdcStreamTableValuedFunction extends ExternalFileTableValuedFunctio
 
     private String generateParams(Map<String, String> properties) throws AnalysisException {
         FetchRecordRequest recordRequest = new FetchRecordRequest();
-        recordRequest.setJobId(UUID.randomUUID().toString().replace("-", ""));
+        String defaultJobId = UUID.randomUUID().toString().replace("-", "");
+        recordRequest.setJobId(properties.getOrDefault(JOB_ID_KEY, defaultJobId));
         recordRequest.setDataSource(properties.get(DataSourceConfigKeys.TYPE));
         recordRequest.setConfig(properties);
         try {
