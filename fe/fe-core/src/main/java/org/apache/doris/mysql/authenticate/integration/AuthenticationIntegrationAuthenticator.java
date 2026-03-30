@@ -100,7 +100,7 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
                         outcome.getIntegration().getName(),
                         request.getUserName(),
                         outcome.getAuthResult().getException().getMessage());
-                return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(
+                return AuthenticateResponse.failed(summarizeFailure(outcome.getIntegration(),
                         outcome.getAuthResult().getException(),
                         "Authentication integration '" + outcome.getIntegration().getName()
                                 + "' rejected the credential"));
@@ -210,5 +210,28 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         if (parseAuthenticationChain(chainConfig).isEmpty()) {
             throw new IllegalStateException(chainConfigName + " must not be empty");
         }
+    }
+
+    private AuthenticationFailureSummary summarizeFailure(AuthenticationIntegration integration,
+            AuthenticationException exception, String fallbackMessage) {
+        return AuthenticationFailureSummary.forException(exception, fallbackMessage,
+                oidcClientVisibleFailureMessage(integration, exception));
+    }
+
+    private String oidcClientVisibleFailureMessage(AuthenticationIntegration integration,
+            AuthenticationException exception) {
+        if (!"oidc".equalsIgnoreCase(integration.getType())
+                || exception.getFailureType() != AuthenticationFailureType.BAD_CREDENTIAL) {
+            return "";
+        }
+        String detailMessage = Strings.nullToEmpty(exception.getMessage());
+        if (detailMessage.startsWith("OIDC token signature validation failed")) {
+            return "OIDC token signature validation failed";
+        }
+        if (detailMessage.startsWith("OIDC token ")
+                || "Authentication request username does not match OIDC token username".equals(detailMessage)) {
+            return detailMessage;
+        }
+        return "";
     }
 }

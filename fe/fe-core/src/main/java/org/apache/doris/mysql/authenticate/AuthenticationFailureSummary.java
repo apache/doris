@@ -27,23 +27,36 @@ import java.util.Objects;
 public final class AuthenticationFailureSummary {
     private final AuthenticationFailureType failureType;
     private final String detailMessage;
+    private final String clientVisibleMessage;
 
-    private AuthenticationFailureSummary(AuthenticationFailureType failureType, String detailMessage) {
+    private AuthenticationFailureSummary(AuthenticationFailureType failureType, String detailMessage,
+            String clientVisibleMessage) {
         this.failureType = Objects.requireNonNull(failureType, "failureType");
         this.detailMessage = Strings.nullToEmpty(detailMessage);
+        this.clientVisibleMessage = Strings.nullToEmpty(clientVisibleMessage);
     }
 
     public static AuthenticationFailureSummary forFailureType(AuthenticationFailureType failureType,
             String detailMessage) {
-        return new AuthenticationFailureSummary(failureType, detailMessage);
+        return new AuthenticationFailureSummary(failureType, detailMessage, "");
+    }
+
+    public static AuthenticationFailureSummary forClientVisibleFailure(AuthenticationFailureType failureType,
+            String detailMessage, String clientVisibleMessage) {
+        return new AuthenticationFailureSummary(failureType, detailMessage, clientVisibleMessage);
     }
 
     public static AuthenticationFailureSummary forException(AuthenticationException exception, String fallbackMessage) {
+        return forException(exception, fallbackMessage, "");
+    }
+
+    public static AuthenticationFailureSummary forException(AuthenticationException exception, String fallbackMessage,
+            String clientVisibleMessage) {
         AuthenticationException safeException = Objects.requireNonNull(exception, "exception");
         String detailMessage = Strings.isNullOrEmpty(safeException.getMessage())
                 ? fallbackMessage
                 : safeException.getMessage();
-        return new AuthenticationFailureSummary(safeException.getFailureType(), detailMessage);
+        return new AuthenticationFailureSummary(safeException.getFailureType(), detailMessage, clientVisibleMessage);
     }
 
     public AuthenticationFailureType getFailureType() {
@@ -54,7 +67,18 @@ public final class AuthenticationFailureSummary {
         return detailMessage;
     }
 
+    public boolean hasClientVisibleMessage() {
+        return !clientVisibleMessage.isEmpty();
+    }
+
+    public String getClientVisibleMessage() {
+        return clientVisibleMessage;
+    }
+
     public boolean isSensitiveToClient() {
+        if (hasClientVisibleMessage()) {
+            return false;
+        }
         return failureType == AuthenticationFailureType.BAD_CREDENTIAL
                 || failureType == AuthenticationFailureType.USER_NOT_FOUND
                 || failureType == AuthenticationFailureType.ACCESS_DENIED;
@@ -71,6 +95,7 @@ public final class AuthenticationFailureSummary {
         return "AuthenticationFailureSummary{"
                 + "failureType=" + failureType
                 + ", detailMessage='" + detailMessage + '\''
+                + ", clientVisibleMessage='" + clientVisibleMessage + '\''
                 + '}';
     }
 }

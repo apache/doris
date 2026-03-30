@@ -363,6 +363,12 @@ public class AuthenticatorManager {
 
     private void ensureAuthenticationErrorReported(ConnectContext context, String userName, String remoteIp,
             Password password, List<AuthenticationFailureSummary> failureSummaries) {
+        Optional<String> clientVisibleFailureMessage = findClientVisibleFailureMessage(failureSummaries);
+        if (clientVisibleFailureMessage.isPresent()
+                && shouldExposeClientVisibleFailureMessage(context, failureSummaries)) {
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, clientVisibleFailureMessage.get());
+            return;
+        }
         if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             return;
         }
@@ -380,6 +386,35 @@ public class AuthenticatorManager {
             return;
         }
         failureSummaries.add(response.getFailureSummary());
+    }
+
+    private Optional<String> findClientVisibleFailureMessage(List<AuthenticationFailureSummary> failureSummaries) {
+        for (AuthenticationFailureSummary failureSummary : failureSummaries) {
+            if (failureSummary.hasClientVisibleMessage()) {
+                return Optional.of(failureSummary.getClientVisibleMessage());
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean containsSensitiveFailure(List<AuthenticationFailureSummary> failureSummaries) {
+        for (AuthenticationFailureSummary failureSummary : failureSummaries) {
+            if (failureSummary.isSensitiveToClient()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean shouldExposeClientVisibleFailureMessage(ConnectContext context,
+            List<AuthenticationFailureSummary> failureSummaries) {
+        if (containsSensitiveFailure(failureSummaries)) {
+            return false;
+        }
+        if (context.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+            return true;
+        }
+        return ErrorCode.ERR_ACCESS_DENIED_ERROR.equals(context.getState().getErrorCode());
     }
 
     private boolean containsOnlyOperationalFailures(List<AuthenticationFailureSummary> failureSummaries) {

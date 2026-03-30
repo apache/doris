@@ -367,6 +367,81 @@ public class MysqlProtoTest {
     }
 
     @Test
+    public void testNegotiateSendsAuthenticatorErrorWhenResponseNotSent() throws Exception {
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+
+        new Expectations() {
+            {
+                authenticatorManager.authenticate((ConnectContext) any, anyString, (MysqlChannel) any,
+                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    boolean authenticate(ConnectContext context, String qualifiedUser, MysqlChannel mysqlChannel,
+                            MysqlSerializer mysqlSerializer, MysqlAuthPacket mysqlAuthPacket,
+                            MysqlHandshakePacket mysqlHandshakePacket) {
+                        context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+                        return false;
+                    }
+                };
+
+                channel.isSend();
+                minTimes = 0;
+                result = false;
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, context.getState().getErrorCode());
+
+        new Verifications() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                times = 2;
+            }
+        };
+    }
+
+    @Test
+    public void testNegotiateDoesNotResendAuthenticatorErrorWhenResponseAlreadySent() throws Exception {
+        mockChannel("user", true);
+        mockPassword(true);
+        mockAccess();
+
+        new Expectations() {
+            {
+                authenticatorManager.authenticate((ConnectContext) any, anyString, (MysqlChannel) any,
+                        (MysqlSerializer) any, (MysqlAuthPacket) any, (MysqlHandshakePacket) any);
+                minTimes = 0;
+                result = new Delegate() {
+                    boolean authenticate(ConnectContext context, String qualifiedUser, MysqlChannel mysqlChannel,
+                            MysqlSerializer mysqlSerializer, MysqlAuthPacket mysqlAuthPacket,
+                            MysqlHandshakePacket mysqlHandshakePacket) {
+                        context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR, "Authentication failed.");
+                        return false;
+                    }
+                };
+
+                channel.isSend();
+                minTimes = 0;
+                result = true;
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+
+        new Verifications() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                times = 1;
+            }
+        };
+    }
+
+    @Test
     public void testNegotiateLdap() throws Exception {
         mockChannel("user", true);
         mockPassword(true);

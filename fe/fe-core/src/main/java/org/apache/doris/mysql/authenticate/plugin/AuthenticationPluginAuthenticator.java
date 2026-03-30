@@ -43,6 +43,7 @@ import org.apache.doris.mysql.authenticate.password.PasswordResolver;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.plugin.PropertiesUtils;
 
+import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -119,7 +120,7 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
             if (result.getException() != null) {
                 LOG.info("Authentication plugin '{}' rejected user '{}': {}", integration.getType(),
                         request.getUserName(), result.getException().getMessage());
-                return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(result.getException(),
+                return AuthenticateResponse.failed(summarizeFailure(result.getException(),
                         "Authentication plugin '" + integration.getType() + "' rejected the credential"));
             }
             return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
@@ -214,5 +215,26 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
                     "No AuthenticationPluginFactory found for plugin: " + pluginType,
                     AuthenticationFailureType.MISCONFIGURED);
         }
+    }
+
+    private AuthenticationFailureSummary summarizeFailure(AuthenticationException exception, String fallbackMessage) {
+        return AuthenticationFailureSummary.forException(exception, fallbackMessage,
+                oidcClientVisibleFailureMessage(exception));
+    }
+
+    private String oidcClientVisibleFailureMessage(AuthenticationException exception) {
+        if (!"oidc".equalsIgnoreCase(integration.getType())
+                || exception.getFailureType() != AuthenticationFailureType.BAD_CREDENTIAL) {
+            return "";
+        }
+        String detailMessage = Strings.nullToEmpty(exception.getMessage());
+        if (detailMessage.startsWith("OIDC token signature validation failed")) {
+            return "OIDC token signature validation failed";
+        }
+        if (detailMessage.startsWith("OIDC token ")
+                || "Authentication request username does not match OIDC token username".equals(detailMessage)) {
+            return detailMessage;
+        }
+        return "";
     }
 }

@@ -27,6 +27,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectContextUtil;
+import org.apache.doris.qe.QueryState;
 
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
@@ -216,6 +217,9 @@ public class MysqlProto {
         //  authenticate
         if (!Env.getCurrentEnv().getAuthenticatorManager()
                 .authenticate(context, qualifiedUser, channel, serializer, authPacket, handshakePacket)) {
+            if (context.getState().getStateType() == QueryState.MysqlStateType.ERR && !channel.isSend()) {
+                sendResponsePacket(context);
+            }
             return false;
         }
         context.setConnectAttributes(authPacket.getConnectAttributes());
