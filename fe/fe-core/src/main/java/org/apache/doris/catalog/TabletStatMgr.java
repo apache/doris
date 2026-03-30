@@ -164,19 +164,21 @@ public class TabletStatMgr extends MasterDaemon {
                 }
                 try {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
-                    int tablePartitionNum = allPartitions.size();
-                    partitionCount += tablePartitionNum;
+                    // Use getPartitionNum() (excludes temp partitions) for limit check,
+                    // consistent with how partition limits are enforced elsewhere.
+                    int nonTempPartitionNum = olapTable.getPartitionNum();
+                    partitionCount += allPartitions.size();
                     // Check if this table's partition count is near the limit (>80%)
                     if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
                         int limit = Config.max_auto_partition_num;
-                        if (tablePartitionNum > limit * 8L / 10) {
+                        if (nonTempPartitionNum > limit * 8L / 10) {
                             autoPartitionNearLimitCount++;
                         }
                     }
                     if (olapTable.dynamicPartitionExists()
                             && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
                         int limit = Config.max_dynamic_partition_num;
-                        if (tablePartitionNum > limit * 8L / 10) {
+                        if (nonTempPartitionNum > limit * 8L / 10) {
                             dynamicPartitionNearLimitCount++;
                         }
                     }
