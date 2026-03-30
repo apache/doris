@@ -80,4 +80,5 @@ YARN_CONF_yarn_nodemanager_localizer_address=${IP_HOST}:${YARN_NM_LOCAL_PORT}
 YARN_CONF_yarn_nodemanager_webapp_address=${IP_HOST}:${YARN_NM_WEBAPP_PORT}
 YARN_CONF_yarn_nodemanager_aux___services=mapreduce_shuffle
 YARN_CONF_yarn_nodemanager_aux___services_mapreduce__shuffle_class=org.apache.hadoop.mapred.ShuffleHandler
+MAPRED_CONF_mapreduce_shuffle_port=${MAPREDUCE_SHUFFLE_PORT}
 enablePaimonHms=${enablePaimonHms}

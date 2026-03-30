@@ -608,7 +608,8 @@ assign_hive3_yarn_ports() {
         YARN_RM_ADMIN_PORT \
         YARN_RM_WEBAPP_PORT \
         YARN_NM_LOCAL_PORT \
-        YARN_NM_WEBAPP_PORT; do
+        YARN_NM_WEBAPP_PORT \
+        MAPREDUCE_SHUFFLE_PORT; do
         current_port="${!port_var:-}"
         if [[ -n "${current_port}" ]] && port_is_available "${current_port}" "${reserved_ports}"; then
             reserved_ports="${reserved_ports} ${current_port}"
