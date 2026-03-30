@@ -32,10 +32,8 @@ namespace doris {
 UngroupByAggContext::UngroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators,
                                          Sizes agg_state_offsets, size_t total_agg_state_size,
                                          size_t agg_state_alignment)
-        : _agg_evaluators(std::move(agg_evaluators)),
-          _agg_state_offsets(std::move(agg_state_offsets)),
-          _total_agg_state_size(total_agg_state_size),
-          _agg_state_alignment(agg_state_alignment) {}
+        : AggContext(std::move(agg_evaluators), std::move(agg_state_offsets),
+                     total_agg_state_size, agg_state_alignment) {}
 
 UngroupByAggContext::~UngroupByAggContext() = default;
 
@@ -91,12 +89,13 @@ void UngroupByAggContext::close() {
 
 // ==================== Aggregation execution (Sink side) ====================
 
-Status UngroupByAggContext::execute(Block* block) {
+Status UngroupByAggContext::update(Block* block) {
     // Create agg state on first call (lazy init to match original behavior, which creates
     // state in open() - here we ensure it's created before first use).
     if (!_agg_state_created) {
         RETURN_IF_ERROR(_create_agg_state());
     }
+    input_num_rows += block->rows();
 
     DCHECK(_agg_state_data != nullptr);
     SCOPED_TIMER(_build_timer);
@@ -114,6 +113,7 @@ Status UngroupByAggContext::merge(Block* block) {
     if (!_agg_state_created) {
         RETURN_IF_ERROR(_create_agg_state());
     }
+    input_num_rows += block->rows();
 
     SCOPED_TIMER(_merge_timer);
     DCHECK(_agg_state_data != nullptr);
@@ -138,7 +138,7 @@ Status UngroupByAggContext::merge(Block* block) {
 
 // ==================== Result output (Source side) ====================
 
-Status UngroupByAggContext::get_serialized_result(RuntimeState* state, Block* block, bool* eos) {
+Status UngroupByAggContext::serialize(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_get_results_timer);
 
     // Ensure agg state exists even if no data flowed through the sink.
@@ -183,17 +183,21 @@ Status UngroupByAggContext::get_serialized_result(RuntimeState* state, Block* bl
     return Status::OK();
 }
 
-Status UngroupByAggContext::get_finalized_result(RuntimeState* state, Block* block, bool* eos,
-                                                  const RowDescriptor& row_desc) {
+void UngroupByAggContext::set_finalize_output(const RowDescriptor& row_desc) {
+    _finalize_row_desc = &row_desc;
+}
+
+Status UngroupByAggContext::finalize(RuntimeState* state, Block* block, bool* eos) {
     // Ensure agg state exists even if no data flowed through the sink.
     // Without GROUP BY, aggregation always produces one row (e.g., COUNT(*) → 0).
     if (!_agg_state_created) {
         RETURN_IF_ERROR(_create_agg_state());
     }
     DCHECK(_agg_state_data != nullptr);
+    DCHECK(_finalize_row_desc != nullptr);
     block->clear();
 
-    *block = VectorizedUtils::create_empty_columnswithtypename(row_desc);
+    *block = VectorizedUtils::create_empty_columnswithtypename(*_finalize_row_desc);
     size_t agg_size = _agg_evaluators.size();
 
     MutableColumns columns(agg_size);
@@ -248,6 +252,10 @@ void UngroupByAggContext::update_memusage() {
     if (_memory_usage_arena) {
         COUNTER_SET(_memory_usage_arena, arena_memory_usage);
     }
+}
+
+size_t UngroupByAggContext::memory_usage() const {
+    return _agg_arena.size();
 }
 
 int UngroupByAggContext::_get_slot_column_id(const AggFnEvaluator* evaluator) {

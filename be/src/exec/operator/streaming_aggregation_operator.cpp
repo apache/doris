@@ -391,7 +391,7 @@ Status StreamingAggOperatorX::pull(RuntimeState* state, Block* block, bool* eos)
     if (!local_state._pre_aggregated_block->empty()) {
         local_state._pre_aggregated_block->swap(*block);
     } else {
-        RETURN_IF_ERROR(local_state._groupby_agg_ctx->get_serialized_results(state, block, eos));
+        RETURN_IF_ERROR(local_state._groupby_agg_ctx->serialize(state, block, eos));
         local_state.make_nullable_output_key(block);
         // dispose the having clause, should not be execute in prestreaming agg
         RETURN_IF_ERROR(local_state.filter_block(local_state._conjuncts, block));

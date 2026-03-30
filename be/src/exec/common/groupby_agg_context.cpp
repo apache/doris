@@ -26,10 +26,12 @@
 #include "exec/common/hash_table/hash_map_context.h"
 #include "exec/common/hash_table/hash_map_util.h"
 #include "exec/common/template_helpers.hpp"
+#include "exec/common/util.hpp"
 #include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
 namespace doris {
@@ -38,12 +40,10 @@ GroupByAggContext::GroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators
                                      VExprContextSPtrs groupby_expr_ctxs, Sizes agg_state_offsets,
                                      size_t total_agg_state_size, size_t agg_state_alignment,
                                      bool is_first_phase)
-        : _hash_table_data(std::make_unique<AggregatedDataVariants>()),
-          _agg_evaluators(std::move(agg_evaluators)),
+        : AggContext(std::move(agg_evaluators), std::move(agg_state_offsets),
+                     total_agg_state_size, agg_state_alignment),
+          _hash_table_data(std::make_unique<AggregatedDataVariants>()),
           _groupby_expr_ctxs(std::move(groupby_expr_ctxs)),
-          _agg_state_offsets(std::move(agg_state_offsets)),
-          _total_agg_state_size(total_agg_state_size),
-          _agg_state_alignment(agg_state_alignment),
           _is_first_phase(is_first_phase) {}
 
 GroupByAggContext::~GroupByAggContext() = default;
@@ -87,6 +87,10 @@ void GroupByAggContext::init_source_profile(RuntimeProfile* profile) {
             ADD_COUNTER_WITH_LEVEL(profile, "MemoryUsageHashTable", TUnit::BYTES, 1);
     _source_memory_usage_container = ADD_COUNTER(profile, "MemoryUsageContainer", TUnit::BYTES);
     _source_memory_usage_arena = ADD_COUNTER(profile, "MemoryUsageArena", TUnit::BYTES);
+}
+
+void GroupByAggContext::set_finalize_output(const RowDescriptor& row_desc) {
+    _finalize_schema = VectorizedUtils::create_columns_with_type_and_name(row_desc);
 }
 
 // ==================== Hash table management ====================
@@ -176,6 +180,34 @@ size_t GroupByAggContext::get_reserve_mem_size(RuntimeState* state) const {
 
     size_to_reserve += memory_usage_last_executing;
     return size_to_reserve;
+}
+
+size_t GroupByAggContext::estimated_memory_for_merging(size_t rows) const {
+    size_t size = std::visit(
+            Overload {[&](std::monostate& arg) -> size_t { return 0; },
+                      [&](auto& agg_method) { return agg_method.hash_table->estimate_memory(rows); }},
+            _hash_table_data->method_variant);
+    size += _agg_data_container->estimate_memory(rows);
+    return size;
+}
+
+bool GroupByAggContext::apply_limit_filter(Block* block) {
+    if (!reach_limit) {
+        return false;
+    }
+    if (do_sort_limit) {
+        const size_t key_size = _groupby_expr_ctxs.size();
+        ColumnRawPtrs key_columns(key_size);
+        for (size_t i = 0; i < key_size; ++i) {
+            key_columns[i] = block->get_by_position(i).column.get();
+        }
+        if (do_limit_filter(block->rows(), key_columns)) {
+            Block::filter_block_internal(block, _need_computes);
+        }
+        return false; // sort-limit handles its own filtering; caller just counts rows
+    }
+    // Non-sort limit: caller should apply reached_limit() truncation.
+    return true;
 }
 
 Status GroupByAggContext::reset_hash_table() {
@@ -401,7 +433,7 @@ Status GroupByAggContext::evaluate_groupby_keys(Block* block, ColumnRawPtrs& key
     return Status::OK();
 }
 
-Status GroupByAggContext::execute_with_serialized_key(Block* block) {
+Status GroupByAggContext::update(Block* block) {
     memory_usage_last_executing = 0;
     SCOPED_PEAK_MEM(&memory_usage_last_executing);
 
@@ -447,7 +479,7 @@ Status GroupByAggContext::emplace_and_forward(AggregateDataPtr* places, ColumnRa
     return _execute_batch_add_evaluators(block, places, expand_hash_table);
 }
 
-Status GroupByAggContext::merge_with_serialized_key(Block* block) {
+Status GroupByAggContext::merge(Block* block) {
     memory_usage_last_executing = 0;
     SCOPED_PEAK_MEM(&memory_usage_last_executing);
 
@@ -458,7 +490,7 @@ Status GroupByAggContext::merge_with_serialized_key(Block* block) {
     }
 }
 
-Status GroupByAggContext::merge_with_serialized_key_for_spill(Block* block) {
+Status GroupByAggContext::merge_for_spill(Block* block) {
     return _merge_with_serialized_key_helper<false, true>(block);
 }
 
@@ -775,7 +807,7 @@ template Status GroupByAggContext::_merge_with_serialized_key_helper<false, true
 
 // ==================== Result output ====================
 
-Status GroupByAggContext::get_serialized_results(RuntimeState* state, Block* block, bool* eos) {
+Status GroupByAggContext::serialize(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     size_t key_size = _groupby_expr_ctxs.size();
     size_t agg_size = _agg_evaluators.size();
@@ -847,8 +879,8 @@ Status GroupByAggContext::get_serialized_results(RuntimeState* state, Block* blo
     return Status::OK();
 }
 
-Status GroupByAggContext::get_finalized_results(RuntimeState* state, Block* block, bool* eos,
-                                                const ColumnsWithTypeAndName& columns_with_schema) {
+Status GroupByAggContext::finalize(RuntimeState* state, Block* block, bool* eos) {
+    const auto& columns_with_schema = _finalize_schema;
     bool mem_reuse = make_nullable_keys.empty() && block->mem_reuse();
 
     size_t key_size = _groupby_expr_ctxs.size();

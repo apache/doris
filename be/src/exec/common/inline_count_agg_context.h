@@ -47,7 +47,7 @@ public:
     // ==================== Aggregation execution (override) ====================
 
     /// Execute path: emplace keys (count already incremented), skip evaluator execution.
-    Status execute_with_serialized_key(Block* block) override;
+    Status update(Block* block) override;
 
     /// Emplace only (count++ done internally), skip execute_batch_add.
     Status emplace_and_forward(AggregateDataPtr* places, ColumnRawPtrs& key_columns,
@@ -56,16 +56,15 @@ public:
 
     /// Merge path: read count from ColumnFixedLengthObject (AggregateFunctionCountData)
     /// and add to mapped UInt64.
-    Status merge_with_serialized_key(Block* block) override;
+    Status merge(Block* block) override;
 
     // ==================== Result output (override) ====================
 
     /// Serialize output: iterate hash table directly, output ColumnFixedLengthObject with UInt64.
-    Status get_serialized_results(RuntimeState* state, Block* block, bool* eos) override;
+    Status serialize(RuntimeState* state, Block* block, bool* eos) override;
 
     /// Finalize output: iterate hash table directly, output ColumnInt64.
-    Status get_finalized_results(RuntimeState* state, Block* block, bool* eos,
-                                 const ColumnsWithTypeAndName& columns_with_schema) override;
+    Status finalize(RuntimeState* state, Block* block, bool* eos) override;
 
     // ==================== Agg state management (override) ====================
 

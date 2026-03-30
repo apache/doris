@@ -19,6 +19,8 @@
 
 #include <gtest/gtest.h>
 
+#include "exec/common/groupby_agg_context.h"
+
 #include <memory>
 
 #include "common/config.h"
@@ -224,12 +226,12 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpill) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             local_state->_runtime_state->get_sink_local_state());
-    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
@@ -283,12 +285,12 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillAndEmptyEOS) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             local_state->_runtime_state->get_sink_local_state());
-    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     block.clear_column_data();
     st = sink_operator->sink(_helper.runtime_state.get(), &block, true);
@@ -342,7 +344,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             local_state->_runtime_state->get_sink_local_state());
-    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
@@ -351,7 +353,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpillLargeData) {
     ASSERT_TRUE(spill_write_rows_counter != nullptr);
     ASSERT_EQ(spill_write_rows_counter->value(), 4);
 
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     const size_t count = 1048576;
     std::vector<int32_t> data(count);
@@ -412,7 +414,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithSpilError) {
 
     auto* inner_sink_local_state = reinterpret_cast<AggSinkLocalState*>(
             local_state->_runtime_state->get_sink_local_state());
-    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     SpillableDebugPointHelper dp_helper("fault_inject::spill_file::spill_block");
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
@@ -465,20 +467,20 @@ TEST_F(PartitionedAggregationSinkOperatorTest, SinkWithMultipleRevokes) {
     block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 5}));
     st = sink_operator->sink(_helper.runtime_state.get(), &block, false);
     ASSERT_TRUE(st.ok()) << "sink round 1 failed: " << st.to_string();
-    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke round 1 failed: " << st.to_string();
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     // Round 2: sink more → revoke again
     auto block2 = ColumnHelper::create_block<DataTypeInt32>({6, 7, 8, 9, 10});
     block2.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({6, 7, 8, 9, 10}));
     st = sink_operator->sink(_helper.runtime_state.get(), &block2, false);
     ASSERT_TRUE(st.ok()) << "sink round 2 failed: " << st.to_string();
-    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke round 2 failed: " << st.to_string();
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     ASSERT_TRUE(shared_state->_is_spilled);
 
@@ -570,7 +572,7 @@ TEST_F(PartitionedAggregationSinkOperatorTest, GetHashTableSizeViaAggSinkOperato
             local_state->_runtime_state->get_sink_local_state());
 
     // Hash table should be empty before any data is sinked
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     auto block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5});
     block.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({1, 2, 3, 4, 5}));
@@ -578,13 +580,13 @@ TEST_F(PartitionedAggregationSinkOperatorTest, GetHashTableSizeViaAggSinkOperato
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
     // Hash table should have entries after sinked data
-    ASSERT_GT(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_GT(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
     // Hash table should be cleared after revoke
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
 
     st = sink_operator->close(_helper.runtime_state.get(), st);
     ASSERT_TRUE(st.ok()) << "close failed: " << st.to_string();
@@ -668,12 +670,12 @@ TEST_F(PartitionedAggregationNullableKeySinkTest, SinkEOSFlushNullKeyOnly) {
     block1.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({42}));
     st = sink_operator->sink(_helper.runtime_state.get(), &block1, false);
     ASSERT_TRUE(st.ok()) << "first sink failed: " << st.to_string();
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 1);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 1);
 
     // Spill to disk and mark as spilled.
     st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
     ASSERT_TRUE(shared_state->_is_spilled);
 
     auto* spill_write_rows_counter = local_state->custom_profile()->get_counter("SpillWriteRows");
@@ -689,7 +691,7 @@ TEST_F(PartitionedAggregationNullableKeySinkTest, SinkEOSFlushNullKeyOnly) {
     block2.insert(ColumnHelper::create_column_with_name<DataTypeInt32>({10}));
     st = sink_operator->sink(_helper.runtime_state.get(), &block2, false);
     ASSERT_TRUE(st.ok()) << "second sink failed: " << st.to_string();
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 1);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 1);
 
     // EOS: send an empty block with eos=true.
     // Old code: aggregate_data_container->total_count() = 0 → SKIP flush → NULL key row LOST!
@@ -699,7 +701,7 @@ TEST_F(PartitionedAggregationNullableKeySinkTest, SinkEOSFlushNullKeyOnly) {
     ASSERT_TRUE(st.ok()) << "EOS sink failed: " << st.to_string();
 
     // Hash table must be empty after EOS flush.
-    ASSERT_EQ(inner_sink_local_state->_shared_state->groupby_agg_ctx->hash_table_size(), 0);
+    ASSERT_EQ(static_cast<GroupByAggContext*>(inner_sink_local_state->_shared_state->agg_ctx.get())->hash_table_size(), 0);
     ASSERT_FALSE(dep->is_blocked_by());
 
     // Two NULL key aggregated rows were spilled (one per revoke/flush cycle).

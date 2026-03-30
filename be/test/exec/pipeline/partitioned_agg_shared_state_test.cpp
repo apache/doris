@@ -194,33 +194,35 @@ TEST_F(PartitionedAggSharedStateTest, AggregateDataContainerMemoryGrowsAfterAppe
 // with monostate variant and null container → 0 bytes from both sources.
 TEST_F(PartitionedAggSharedStateTest, PartitionedAggStateLinkedToAggStateWithDefaultData) {
     AggSharedState agg_state;
-    agg_state.groupby_agg_ctx = std::make_unique<GroupByAggContext>(
+    agg_state.agg_ctx = std::make_unique<GroupByAggContext>(
             std::vector<AggFnEvaluator*>{}, VExprContextSPtrs{}, Sizes{}, 0, 1, true);
     PartitionedAggSharedState state;
     state._in_mem_shared_state = &agg_state;
     state._is_spilled = true;
 
+    auto* groupby_ctx = static_cast<GroupByAggContext*>(state._in_mem_shared_state->agg_ctx.get());
     EXPECT_NE(state._in_mem_shared_state, nullptr);
-    EXPECT_NE(state._in_mem_shared_state->groupby_agg_ctx->hash_table_data(), nullptr);
+    EXPECT_NE(groupby_ctx->hash_table_data(), nullptr);
     // monostate → hash table contributes 0 bytes
-    EXPECT_EQ(state._in_mem_shared_state->groupby_agg_ctx->hash_table_data()->method_variant.index(), 0);
+    EXPECT_EQ(groupby_ctx->hash_table_data()->method_variant.index(), 0);
     // null container → container contributes 0 bytes
-    EXPECT_EQ(state._in_mem_shared_state->groupby_agg_ctx->agg_data_container(), nullptr);
+    EXPECT_EQ(groupby_ctx->agg_data_container(), nullptr);
 }
 
 // Container contribution through AggSharedState: memory_usage reflects arena allocation.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateContainerMemoryUsage) {
     AggSharedState agg_state;
-    agg_state.groupby_agg_ctx = std::make_unique<GroupByAggContext>(
+    agg_state.agg_ctx = std::make_unique<GroupByAggContext>(
             std::vector<AggFnEvaluator*>{}, VExprContextSPtrs{}, Sizes{}, 0, 1, true);
-    agg_state.groupby_agg_ctx->_agg_data_container =
+    auto* groupby_ctx = static_cast<GroupByAggContext*>(agg_state.agg_ctx.get());
+    groupby_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);
-    ASSERT_NE(agg_state.groupby_agg_ctx->agg_data_container(), nullptr);
-    EXPECT_EQ(agg_state.groupby_agg_ctx->agg_data_container()->memory_usage(), 0);
+    ASSERT_NE(groupby_ctx->agg_data_container(), nullptr);
+    EXPECT_EQ(groupby_ctx->agg_data_container()->memory_usage(), 0);
 
     uint32_t key = 99;
-    agg_state.groupby_agg_ctx->agg_data_container()->append_data<uint32_t>(key);
-    EXPECT_GT(agg_state.groupby_agg_ctx->agg_data_container()->memory_usage(), 0);
+    groupby_ctx->agg_data_container()->append_data<uint32_t>(key);
+    EXPECT_GT(groupby_ctx->agg_data_container()->memory_usage(), 0);
 }
 
 } // namespace doris

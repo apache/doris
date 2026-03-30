@@ -22,7 +22,9 @@
 
 #include "common/cast_set.h"
 #include "common/status.h"
+#include "exec/common/groupby_agg_context.h"
 #include "exec/common/inline_count_agg_context.h"
+#include "exec/common/ungroupby_agg_context.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exec/operator/operator.h"
 #include "exprs/vectorized_agg_fn.h"
@@ -79,12 +81,7 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         for (auto& evaluator : ctx->agg_evaluators()) {
             evaluator->set_timer(ctx->merge_timer(), nullptr);
         }
-        Base::_shared_state->ungroupby_agg_ctx = std::move(ctx);
-        if (p._is_merge) {
-            _executor = std::make_unique<Executor<true, true>>();
-        } else {
-            _executor = std::make_unique<Executor<true, false>>();
-        }
+        Base::_shared_state->agg_ctx = std::move(ctx);
     } else {
         // ── With GROUP BY → create GroupByAggContext or InlineCountAggContext ──
         VExprContextSPtrs probe_expr_ctxs(p._probe_expr_ctxs.size());
@@ -136,63 +133,18 @@ Status AggSinkLocalState::open(RuntimeState* state) {
             evaluator->set_timer(ctx->merge_timer(), ctx->expr_timer());
         }
 
-        Base::_shared_state->groupby_agg_ctx = std::move(ctx);
-        if (p._is_merge) {
-            _executor = std::make_unique<Executor<false, true>>();
-        } else {
-            _executor = std::make_unique<Executor<false, false>>();
-        }
+        Base::_shared_state->agg_ctx = std::move(ctx);
     }
     return Status::OK();
 }
 
-template <bool WithoutKey, bool NeedToMerge>
-Status AggSinkLocalState::Executor<WithoutKey, NeedToMerge>::execute(
-        AggSinkLocalState* local_state, Block* block) {
-    if constexpr (WithoutKey) {
-        auto* ctx = local_state->Base::_shared_state->ungroupby_agg_ctx.get();
-        ctx->input_num_rows += block->rows();
-        if constexpr (NeedToMerge) {
-            return ctx->merge(block);
-        } else {
-            return ctx->execute(block);
-        }
-    } else {
-        auto* ctx = local_state->Base::_shared_state->groupby_agg_ctx.get();
-        if constexpr (NeedToMerge) {
-            return ctx->merge_with_serialized_key(block);
-        } else {
-            return ctx->execute_with_serialized_key(block);
-        }
-    }
-}
-
-template <bool WithoutKey, bool NeedToMerge>
-void AggSinkLocalState::Executor<WithoutKey, NeedToMerge>::update_memusage(
-        AggSinkLocalState* local_state) {
-    if constexpr (WithoutKey) {
-        local_state->Base::_shared_state->ungroupby_agg_ctx->update_memusage();
-    } else {
-        local_state->Base::_shared_state->groupby_agg_ctx->update_memusage();
-    }
-}
-
-// Explicit template instantiations
-template struct AggSinkLocalState::Executor<true, true>;
-template struct AggSinkLocalState::Executor<true, false>;
-template struct AggSinkLocalState::Executor<false, true>;
-template struct AggSinkLocalState::Executor<false, false>;
-
 bool AggSinkLocalState::is_blockable() const {
-    if (auto* ctx = Base::_shared_state->groupby_agg_ctx.get()) {
-        return std::any_of(ctx->agg_evaluators().begin(), ctx->agg_evaluators().end(),
-                           [](const AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
+    auto* ctx = Base::_shared_state->agg_ctx.get();
+    if (!ctx) {
+        return false;
     }
-    if (auto* ctx = Base::_shared_state->ungroupby_agg_ctx.get()) {
-        return std::any_of(ctx->agg_evaluators().begin(), ctx->agg_evaluators().end(),
-                           [](const AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
-    }
-    return false;
+    return std::any_of(ctx->agg_evaluators().begin(), ctx->agg_evaluators().end(),
+                       [](const AggFnEvaluator* evaluator) { return evaluator->is_blockable(); });
 }
 
 // TODO: Tricky processing if `multi_distinct_` exists which will be re-planed by optimizer.
@@ -360,8 +312,13 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool 
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)in_block->rows());
     if (in_block->rows() > 0) {
-        RETURN_IF_ERROR(local_state._executor->execute(&local_state, in_block));
-        local_state._executor->update_memusage(&local_state);
+        auto* ctx = local_state.Base::_shared_state->agg_ctx.get();
+        if (_is_merge) {
+            RETURN_IF_ERROR(ctx->merge(in_block));
+        } else {
+            RETURN_IF_ERROR(ctx->update(in_block));
+        }
+        ctx->update_memusage();
     }
     if (eos) {
         local_state._dependency->set_ready_to_read();
@@ -369,28 +326,34 @@ Status AggSinkOperatorX::sink(doris::RuntimeState* state, Block* in_block, bool 
     return Status::OK();
 }
 
+AggregatedDataVariants* AggSinkOperatorX::get_agg_data(RuntimeState* state) {
+    auto& local_state = get_local_state(state);
+    auto* ctx = static_cast<GroupByAggContext*>(local_state.Base::_shared_state->agg_ctx.get());
+    return ctx->hash_table_data();
+}
+
 size_t AggSinkOperatorX::get_revocable_mem_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    auto* ctx = local_state.Base::_shared_state->groupby_agg_ctx.get();
+    auto* ctx = local_state.Base::_shared_state->agg_ctx.get();
     return ctx ? ctx->memory_usage() : 0;
 }
 
 Status AggSinkOperatorX::reset_hash_table(RuntimeState* state) {
     auto& local_state = get_local_state(state);
-    auto* ctx = local_state.Base::_shared_state->groupby_agg_ctx.get();
+    auto* ctx = local_state.Base::_shared_state->agg_ctx.get();
     DCHECK(ctx);
     return ctx->reset_hash_table();
 }
 
 size_t AggSinkOperatorX::get_reserve_mem_size(RuntimeState* state, bool eos) {
     auto& local_state = get_local_state(state);
-    auto* ctx = local_state.Base::_shared_state->groupby_agg_ctx.get();
+    auto* ctx = local_state.Base::_shared_state->agg_ctx.get();
     return ctx ? ctx->get_reserve_mem_size(state) : 0;
 }
 
 size_t AggSinkOperatorX::get_hash_table_size(RuntimeState* state) const {
     auto& local_state = get_local_state(state);
-    auto* ctx = local_state.Base::_shared_state->groupby_agg_ctx.get();
+    auto* ctx = local_state.Base::_shared_state->agg_ctx.get();
     return ctx ? ctx->hash_table_size() : 0;
 }
 

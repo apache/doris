@@ -20,8 +20,8 @@
 #include <queue>
 
 #include "common/status.h"
-#include "core/arena.h"
 #include "core/block/block.h"
+#include "exec/common/agg_context.h"
 #include "exec/common/agg_utils.h"
 #include "runtime/runtime_profile.h"
 
@@ -40,7 +40,7 @@ using VExprContextSPtrs = std::vector<VExprContextSPtr>;
 /// InlineCountAggContext (subclass) overrides virtual methods to implement the
 /// inline-count optimization (storing UInt64 count directly in the hash table mapped slot
 /// instead of a full aggregate state).
-class GroupByAggContext {
+class GroupByAggContext : public AggContext {
 public:
     GroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators,
                      VExprContextSPtrs groupby_expr_ctxs, Sizes agg_state_offsets,
@@ -52,7 +52,7 @@ public:
     // ==================== Aggregation execution (Sink side) ====================
 
     /// Update mode: evaluate groupby exprs → emplace → execute_batch_add
-    virtual Status execute_with_serialized_key(Block* block);
+    Status update(Block* block) override;
 
     /// Emplace + execute_batch_add with pre-evaluated key columns.
     /// InlineCountAggContext overrides to only emplace (count++ is done internally).
@@ -61,40 +61,43 @@ public:
                                        uint32_t num_rows, Block* block, bool expand_hash_table);
 
     /// Merge mode: evaluate groupby exprs → emplace → deserialize_and_merge
-    virtual Status merge_with_serialized_key(Block* block);
+    Status merge(Block* block) override;
 
     /// Merge for spill restore (keys already materialized as first N columns of block)
-    Status merge_with_serialized_key_for_spill(Block* block);
+    /// (declared via AggContext::merge_for_spill override above)
 
     // ==================== Result output (Source side) ====================
 
     /// Serialize mode output (for non-finalize path and StreamingAgg)
-    virtual Status get_serialized_results(RuntimeState* state, Block* block, bool* eos);
+    Status serialize(RuntimeState* state, Block* block, bool* eos) override;
 
-    /// Finalize mode output (for AggSource finalize path)
-    virtual Status get_finalized_results(RuntimeState* state, Block* block, bool* eos,
-                                         const ColumnsWithTypeAndName& columns_with_schema);
+    /// Finalize mode output (for AggSource finalize path).
+    /// Caller must call set_finalize_output() before the first call.
+    Status finalize(RuntimeState* state, Block* block, bool* eos) override;
+
+    /// Store output schema for finalize(). Converts RowDescriptor to ColumnsWithTypeAndName.
+    void set_finalize_output(const RowDescriptor& row_desc) override;
 
     // ==================== Agg state management ====================
 
     virtual Status create_agg_state(AggregateDataPtr data);
-    virtual void close();
+    void close() override;
 
     // ==================== Utilities ====================
 
-    size_t hash_table_size() const;
-    size_t memory_usage() const;
-    void update_memusage();
+    size_t hash_table_size() const override;
+    size_t memory_usage() const override;
+    void update_memusage() override;
     void init_hash_method();
     /// Initialize the AggregateDataContainer after hash method is set up.
     /// Must be called after init_hash_method().
     virtual void init_agg_data_container();
-    virtual Status reset_hash_table();
+    Status reset_hash_table() override;
 
     /// Sink operator calls this to register sink-side profile counters.
     void init_sink_profile(RuntimeProfile* profile);
     /// Source operator calls this to register source-side profile counters.
-    void init_source_profile(RuntimeProfile* profile);
+    void init_source_profile(RuntimeProfile* profile) override;
 
     /// Evaluate groupby expressions on block, filling key_columns and optionally key_locs.
     /// Handles convert_to_full_column_if_const and replace_float_special_values.
@@ -145,13 +148,8 @@ public:
     // ==================== Data accessors ====================
 
     AggregatedDataVariants* hash_table_data() { return _hash_table_data.get(); }
-    Arena& agg_arena() { return _agg_arena; }
     AggregateDataContainer* agg_data_container() { return _agg_data_container.get(); }
-    std::vector<AggFnEvaluator*>& agg_evaluators() { return _agg_evaluators; }
     const VExprContextSPtrs& groupby_expr_ctxs() const { return _groupby_expr_ctxs; }
-    const Sizes& agg_state_offsets() const { return _agg_state_offsets; }
-    size_t total_agg_state_size() const { return _total_agg_state_size; }
-    size_t agg_state_alignment() const { return _agg_state_alignment; }
     PaddedPODArray<uint8_t>& need_computes() { return _need_computes; }
 
     // Sort limit public state
@@ -170,20 +168,13 @@ public:
     // column type mismatch after make_nullable_output_key transforms the block.
     std::vector<size_t> make_nullable_keys;
 
-    // Memory tracking for reserve estimation
-    int64_t memory_usage_last_executing = 0;
-
     // Sink-side profile counters (public for operator-level SCOPED_TIMER access)
-    RuntimeProfile::Counter* build_timer() const { return _build_timer; }
-    RuntimeProfile::Counter* merge_timer() const { return _merge_timer; }
     RuntimeProfile::Counter* expr_timer() const { return _expr_timer; }
-    RuntimeProfile::Counter* deserialize_data_timer() const { return _deserialize_data_timer; }
     RuntimeProfile::Counter* hash_table_compute_timer() const { return _hash_table_compute_timer; }
     RuntimeProfile::Counter* hash_table_emplace_timer() const { return _hash_table_emplace_timer; }
     RuntimeProfile::Counter* hash_table_input_counter() const { return _hash_table_input_counter; }
 
     // Source-side profile counters
-    RuntimeProfile::Counter* get_results_timer() const { return _get_results_timer; }
     RuntimeProfile::Counter* hash_table_iterate_timer() const { return _hash_table_iterate_timer; }
     RuntimeProfile::Counter* insert_keys_to_column_timer() const {
         return _insert_keys_to_column_timer;
@@ -196,7 +187,17 @@ public:
     }
 
     // For spill: estimate memory needed
-    size_t get_reserve_mem_size(RuntimeState* state) const;
+    size_t get_reserve_mem_size(RuntimeState* state) const override;
+
+    /// Estimate memory needed to merge `rows` rows into the hash table.
+    size_t estimated_memory_for_merging(size_t rows) const override;
+
+    /// Apply limit/sort-limit filtering on the output block.
+    /// Returns true if the caller should apply reached_limit() truncation.
+    bool apply_limit_filter(Block* block) override;
+
+    /// Merge for spill restore (keys already materialized as first N columns of block).
+    Status merge_for_spill(Block* block) override;
 
 protected:
     // ==================== Internal hash table operations ====================
@@ -225,15 +226,10 @@ protected:
 
     // Core hash table data
     AggregatedDataVariantsUPtr _hash_table_data;
-    Arena _agg_arena;
     std::unique_ptr<AggregateDataContainer> _agg_data_container;
 
-    // Aggregation metadata
-    std::vector<AggFnEvaluator*> _agg_evaluators;
+    // GroupBy-specific metadata
     VExprContextSPtrs _groupby_expr_ctxs;
-    Sizes _agg_state_offsets;
-    size_t _total_agg_state_size;
-    size_t _agg_state_alignment;
     bool _is_first_phase;
 
     // Working buffers
@@ -243,6 +239,9 @@ protected:
 
     // Streaming preagg state
     bool _should_expand_hash_table = true;
+
+    // Finalize output schema (set by set_finalize_output, used by finalize)
+    ColumnsWithTypeAndName _finalize_schema;
 
     // Sort limit state
     MutableColumns _limit_columns;
@@ -319,7 +318,7 @@ protected:
     template <bool for_spill>
     Status _merge_evaluators(Block* block, size_t rows, RuntimeProfile::Counter* deser_timer);
 
-    /// Serialize agg values into value_columns (for get_serialized_results).
+    /// Serialize agg values into value_columns (for serialize()).
     void _serialize_agg_values(MutableColumns& value_columns, DataTypes& value_data_types,
                                Block* block, bool mem_reuse, size_t key_size, uint32_t num_rows);
 
@@ -339,19 +338,13 @@ protected:
     RuntimeProfile::Counter* _hash_table_emplace_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_input_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_limit_compute_timer = nullptr;
-    RuntimeProfile::Counter* _build_timer = nullptr;
-    RuntimeProfile::Counter* _merge_timer = nullptr;
     RuntimeProfile::Counter* _expr_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_size_counter = nullptr;
     RuntimeProfile::Counter* _hash_table_memory_usage = nullptr;
     RuntimeProfile::Counter* _serialize_key_arena_memory_usage = nullptr;
     RuntimeProfile::Counter* _memory_usage_container = nullptr;
-    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
-    RuntimeProfile::Counter* _memory_used_counter = nullptr;
 
     // ---- Source-side profile counters (created by init_source_profile) ----
-    RuntimeProfile::Counter* _get_results_timer = nullptr;
     RuntimeProfile::Counter* _hash_table_iterate_timer = nullptr;
     RuntimeProfile::Counter* _insert_keys_to_column_timer = nullptr;
     RuntimeProfile::Counter* _insert_values_to_column_timer = nullptr;

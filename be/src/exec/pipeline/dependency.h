@@ -38,9 +38,8 @@
 #include "core/block/block.h"
 #include "core/types.h"
 #include "exec/common/agg_utils.h"
-#include "exec/common/groupby_agg_context.h"
+#include "exec/common/agg_context.h"
 #include "exec/common/join_utils.h"
-#include "exec/common/ungroupby_agg_context.h"
 #include "exec/common/set_utils.h"
 #include "exec/operator/data_queue.h"
 #include "exec/operator/join/process_hash_table_probe.h"
@@ -288,26 +287,18 @@ struct AggSharedState : public BasicSharedState {
 public:
     AggSharedState() = default;
     ~AggSharedState() override {
-        // Explicitly close contexts before destruction. close() is virtual and must be
+        // Explicitly close context before destruction. close() is virtual and must be
         // called while the derived object (e.g. InlineCountAggContext) is still alive,
         // not from the base class destructor where vtable has already reverted.
         // close() is idempotent: GroupByAggContext::close sets mapped=nullptr after destroy;
         // UngroupByAggContext::close has _agg_state_created guard.
-        if (groupby_agg_ctx) {
-            groupby_agg_ctx->close();
-            groupby_agg_ctx.reset();
-        }
-        if (ungroupby_agg_ctx) {
-            ungroupby_agg_ctx->close();
-            ungroupby_agg_ctx.reset();
+        if (agg_ctx) {
+            agg_ctx->close();
+            agg_ctx.reset();
         }
     }
 
-    // Exactly one of these is non-null at runtime:
-    //   groupby_agg_ctx  — created when the query has GROUP BY
-    //   ungroupby_agg_ctx — created when the query has no GROUP BY
-    std::unique_ptr<GroupByAggContext> groupby_agg_ctx;
-    std::unique_ptr<UngroupByAggContext> ungroupby_agg_ctx;
+    std::unique_ptr<AggContext> agg_ctx;
 
     // Kept in AggSharedState (used by Source operators for output key conversion).
     std::vector<size_t> make_nullable_keys;

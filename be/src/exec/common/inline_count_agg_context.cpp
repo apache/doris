@@ -66,7 +66,7 @@ void InlineCountAggContext::emplace_into_hash_table(AggregateDataPtr* /*places*/
 
 // ==================== Aggregation execution ====================
 
-Status InlineCountAggContext::execute_with_serialized_key(Block* block) {
+Status InlineCountAggContext::update(Block* block) {
     memory_usage_last_executing = 0;
     SCOPED_PEAK_MEM(&memory_usage_last_executing);
     SCOPED_TIMER(_build_timer);
@@ -93,7 +93,7 @@ Status InlineCountAggContext::emplace_and_forward(AggregateDataPtr* places,
     return Status::OK();
 }
 
-Status InlineCountAggContext::merge_with_serialized_key(Block* block) {
+Status InlineCountAggContext::merge(Block* block) {
     SCOPED_TIMER(_merge_timer);
     DCHECK(!block->empty());
 
@@ -150,7 +150,7 @@ void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
 
 // ==================== Result output ====================
 
-Status InlineCountAggContext::get_serialized_results(RuntimeState* state, Block* block,
+Status InlineCountAggContext::serialize(RuntimeState* state, Block* block,
                                                      bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     size_t key_size = _groupby_expr_ctxs.size();
@@ -234,19 +234,18 @@ Status InlineCountAggContext::get_serialized_results(RuntimeState* state, Block*
     return Status::OK();
 }
 
-Status InlineCountAggContext::get_finalized_results(
-        RuntimeState* state, Block* block, bool* eos,
-        const ColumnsWithTypeAndName& columns_with_schema) {
+Status InlineCountAggContext::finalize(
+        RuntimeState* state, Block* block, bool* eos) {
     bool mem_reuse = make_nullable_keys.empty() && block->mem_reuse();
 
     size_t key_size = _groupby_expr_ctxs.size();
 
     auto key_columns = agg_context_utils::take_or_create_columns(
             block, mem_reuse, 0, key_size,
-            [&](size_t i) { return columns_with_schema[i].type->create_column(); });
+            [&](size_t i) { return _finalize_schema[i].type->create_column(); });
     MutableColumnPtr value_column;
     if (!mem_reuse) {
-        value_column = columns_with_schema[key_size].type->create_column();
+        value_column = _finalize_schema[key_size].type->create_column();
     } else {
         value_column = std::move(*block->get_by_position(key_size).column).mutate();
     }
@@ -302,7 +301,7 @@ Status InlineCountAggContext::get_finalized_results(
     if (!mem_reuse) {
         MutableColumns value_columns;
         value_columns.emplace_back(std::move(value_column));
-        agg_context_utils::assemble_finalized_output(block, columns_with_schema, key_columns,
+        agg_context_utils::assemble_finalized_output(block, _finalize_schema, key_columns,
                                                     value_columns, key_size);
     }
 

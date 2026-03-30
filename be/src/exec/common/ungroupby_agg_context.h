@@ -20,6 +20,7 @@
 #include "common/status.h"
 #include "core/arena.h"
 #include "core/block/block.h"
+#include "exec/common/agg_context.h"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
@@ -34,8 +35,8 @@ using Sizes = std::vector<size_t>;
 /// There is no hash table — only a single AggregateDataPtr pointing to one agg state row.
 ///
 /// This context is used by AggSinkLocalState (sink side: execute/merge) and
-/// AggLocalState (source side: get_serialized_result/get_finalized_result).
-class UngroupByAggContext {
+/// AggLocalState (source side: serialize/finalize).
+class UngroupByAggContext : public AggContext {
 public:
     UngroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators, Sizes agg_state_offsets,
                         size_t total_agg_state_size, size_t agg_state_alignment);
@@ -45,46 +46,41 @@ public:
     // ==================== Aggregation execution (Sink side) ====================
 
     /// Update mode: execute_single_add for each evaluator.
-    Status execute(Block* block);
+    Status update(Block* block) override;
 
     /// Merge mode: deserialize_and_merge or execute_single_add depending on evaluator.
-    Status merge(Block* block);
+    Status merge(Block* block) override;
 
     // ==================== Result output (Source side) ====================
 
     /// Serialize mode: serialize agg state to output block (for non-finalize path).
-    Status get_serialized_result(RuntimeState* state, Block* block, bool* eos);
+    Status serialize(RuntimeState* state, Block* block, bool* eos) override;
 
     /// Finalize mode: insert final result info to output block.
-    Status get_finalized_result(RuntimeState* state, Block* block, bool* eos,
-                                const RowDescriptor& row_desc);
+    /// Caller must call set_finalize_output() before the first call.
+    Status finalize(RuntimeState* state, Block* block, bool* eos) override;
+
+    /// Store the RowDescriptor reference for finalize().
+    void set_finalize_output(const RowDescriptor& row_desc) override;
 
     // ==================== Utilities ====================
 
     /// Update memory usage counters.
-    void update_memusage();
+    void update_memusage() override;
+
+    /// Return total memory usage (arena only for ungroupby).
+    size_t memory_usage() const override;
 
     /// Create profile counters under the given profile.
     void init_profile(RuntimeProfile* profile);
 
     /// Destroy agg state if created. Safe to call multiple times.
-    void close();
+    void close() override;
 
     AggregateDataPtr agg_state_data() const { return _agg_state_data; }
-    Arena& agg_arena() { return _agg_arena; }
-    std::vector<AggFnEvaluator*>& agg_evaluators() { return _agg_evaluators; }
 
     /// Track total input rows (used by source to detect empty input).
     size_t input_num_rows = 0;
-
-    /// Memory tracking for reserve estimation (Sink side).
-    int64_t memory_usage_last_executing = 0;
-
-    // Profile timer accessors (for SCOPED_TIMER in operator code)
-    RuntimeProfile::Counter* build_timer() const { return _build_timer; }
-    RuntimeProfile::Counter* merge_timer() const { return _merge_timer; }
-    RuntimeProfile::Counter* deserialize_data_timer() const { return _deserialize_data_timer; }
-    RuntimeProfile::Counter* get_results_timer() const { return _get_results_timer; }
 
 private:
     /// Allocate and initialize aggregate states for all evaluators.
@@ -97,22 +93,10 @@ private:
     static int _get_slot_column_id(const AggFnEvaluator* evaluator);
 
     AggregateDataPtr _agg_state_data = nullptr;
-    Arena _agg_arena;
     Arena _alloc_arena; // used to allocate the agg state memory block
-
-    std::vector<AggFnEvaluator*> _agg_evaluators;
-    Sizes _agg_state_offsets;
-    size_t _total_agg_state_size;
-    size_t _agg_state_alignment;
     bool _agg_state_created = false;
 
-    // ---- Profile counters (created by init_profile) ----
-    RuntimeProfile::Counter* _build_timer = nullptr;
-    RuntimeProfile::Counter* _merge_timer = nullptr;
-    RuntimeProfile::Counter* _deserialize_data_timer = nullptr;
-    RuntimeProfile::Counter* _get_results_timer = nullptr;
-    RuntimeProfile::Counter* _memory_used_counter = nullptr;
-    RuntimeProfile::Counter* _memory_usage_arena = nullptr;
+    const RowDescriptor* _finalize_row_desc = nullptr;
 };
 
 } // namespace doris

@@ -42,19 +42,7 @@ public:
 protected:
     friend class AggSinkOperatorX;
 
-    struct ExecutorBase {
-        virtual Status execute(AggSinkLocalState* local_state, Block* block) = 0;
-        virtual void update_memusage(AggSinkLocalState* local_state) = 0;
-        virtual ~ExecutorBase() = default;
-    };
-    template <bool WithoutKey, bool NeedToMerge>
-    struct Executor final : public ExecutorBase {
-        Status execute(AggSinkLocalState* local_state, Block* block) override;
-        void update_memusage(AggSinkLocalState* local_state) override;
-    };
-
     Block _preagg_block;
-    std::unique_ptr<ExecutorBase> _executor = nullptr;
 };
 
 class AggSinkOperatorX MOCK_REMOVE(final) : public DataSinkOperatorX<AggSinkLocalState> {
@@ -98,10 +86,7 @@ public:
     }
     size_t get_revocable_mem_size(RuntimeState* state) const;
 
-    AggregatedDataVariants* get_agg_data(RuntimeState* state) {
-        auto& local_state = get_local_state(state);
-        return local_state.Base::_shared_state->groupby_agg_ctx->hash_table_data();
-    }
+    AggregatedDataVariants* get_agg_data(RuntimeState* state);
 
     Status reset_hash_table(RuntimeState* state);
 

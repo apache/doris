@@ -36,6 +36,7 @@ public:
     ~AggLocalState() override = default;
 
     Status init(RuntimeState* state, LocalStateInfo& info) override;
+    Status open(RuntimeState* state) override;
     Status close(RuntimeState* state) override;
 
     void make_nullable_output_key(Block* block);
@@ -44,15 +45,6 @@ public:
 
 protected:
     friend class AggSourceOperatorX;
-
-    using vectorized_get_result =
-            std::function<Status(RuntimeState* state, Block* block, bool* eos)>;
-
-    struct executor {
-        vectorized_get_result get_result;
-    };
-
-    executor _executor;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {
