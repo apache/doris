@@ -101,9 +101,7 @@ public:
             scan_range.start_offset = 0;
             scan_range.size = 1000;
         }
-        auto q_options = TQueryOptions();
-        q_options.__set_enable_adjust_conjunct_order_by_cost(true);
-        RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
+        RuntimeState runtime_state = RuntimeState();
         auto p_reader =
                 std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                 nullptr, &runtime_state, &cache, enable_lazy);
@@ -195,9 +193,7 @@ public:
         TFileRangeDesc scan_range;
         scan_range.start_offset = 0;
         scan_range.size = 1000;
-        auto q_options = TQueryOptions();
-        q_options.__set_enable_adjust_conjunct_order_by_cost(true);
-        RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
+        RuntimeState runtime_state = RuntimeState();
         auto p_reader =
                 std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                 nullptr, &runtime_state, &cache, enable_lazy);
@@ -961,9 +957,7 @@ TEST_F(ParquetReaderTest, only_partition_column) {
     TFileRangeDesc scan_range;
     scan_range.start_offset = 0;
     scan_range.size = 1000;
-    auto q_options = TQueryOptions();
-    q_options.__set_enable_adjust_conjunct_order_by_cost(true);
-    RuntimeState runtime_state = RuntimeState(q_options, TQueryGlobals());
+    RuntimeState runtime_state = RuntimeState();
     auto p_reader = std::make_unique<ParquetReader>(nullptr, scan_params, scan_range, 992, &ctz,
                                                     nullptr, &runtime_state, &cache);
     p_reader->set_file_reader(reader);
