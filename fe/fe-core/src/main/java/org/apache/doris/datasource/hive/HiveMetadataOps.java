@@ -380,6 +380,9 @@ public class HiveMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean tableExist(String dbName, String tblName) {
+        if (ConnectContext.get() != null && ConnectContext.get().isViewBased()) {
+            return client.getTableFromView(dbName, tblName) !=  null;
+        }
         return client.tableExists(dbName, tblName);
     }
 

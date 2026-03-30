@@ -23,6 +23,7 @@ import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
@@ -141,6 +142,9 @@ public class RelationUtil {
                             "Table [" + tableName + "] does not exist in database [" + dbName + "]."
                                     + (origin.map(loc -> "(" + loc + ")").orElse("")))
             );
+            if (tbl instanceof HMSExternalTable && ConnectContext.get() != null) {
+                ((HMSExternalTable) tbl).setIsViewBased(ConnectContext.get().isViewBased());
+            }
             Optional<TableValuedFunction> sysTable = tbl.getSysTableFunction(catalogName, dbName, tableName);
             if (!Strings.isNullOrEmpty(tableNameWithSysTableName.second) && !sysTable.isPresent()) {
                 throw new AnalysisException("Unknown sys table '" + tableName + "'");

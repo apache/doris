@@ -86,7 +86,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
     protected final InitDatabaseLog.Type dbLogType;
     protected ExternalCatalog extCatalog;
 
-    private MetaCache<T> metaCache;
+    protected MetaCache<T> metaCache;
 
     private volatile boolean isInitializing = false;
 

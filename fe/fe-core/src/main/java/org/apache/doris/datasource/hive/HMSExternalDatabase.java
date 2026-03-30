@@ -18,14 +18,22 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.qe.ConnectContext;
+
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 /**
  * Hive metastore external database.
  */
 public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
+    private static final Logger LOG = LogManager.getLogger(HMSExternalDatabase.class);
+
     /**
      * Create HMS external database.
      *
@@ -54,5 +62,38 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
             table.setUpdateTime(tableIf.getUpdateTime());
         }
         return true;
+    }
+
+    @Override
+    public HMSExternalTable getTableNullable(String tableName) {
+        makeSureInitialized();
+        // must use full qualified name to generate id.
+        // otherwise, if 2 databases have the same table name, the id will be the same.
+        return metaCache.getMetaObj(tableName,
+            Util.genIdByName(extCatalog.getName(), name, tableName)).orElse(null);
+    }
+
+    @Override
+    public HMSExternalTable buildTableForInit(String remoteTableName, String localTableName, long tblId,
+                               ExternalCatalog catalog, ExternalDatabase db, boolean checkExists) {
+
+        if (localTableName == null && remoteTableName != null) {
+            localTableName = extCatalog.fromRemoteTableName(remoteName, remoteTableName);
+        }
+
+        if (remoteTableName == null) {
+            remoteTableName = localTableName;
+        }
+
+        if (checkExists && !FeConstants.runningUnitTest) {
+            if (!extCatalog.tableExist(ConnectContext.get().getSessionContext(), remoteName, remoteTableName)) {
+                // If connection fails, treat the table as non-existent
+                LOG.warn("Failed to check existence of table {} in the remote system. Ignoring this table.",
+                        localTableName);
+                return null;
+            }
+        }
+
+        return buildTableInternal(remoteTableName, localTableName, tblId, catalog, db);
     }
 }

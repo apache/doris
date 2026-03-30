@@ -416,6 +416,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
                     return new LogicalSubQueryAlias<>(qualifiedTableName, logicalView);
                 case HMS_EXTERNAL_TABLE:
                     HMSExternalTable hmsTable = (HMSExternalTable) table;
+                    hmsTable.setIsViewBased(cascadesContext.getConnectContext().isViewBased());
                     if (cascadesContext.getConnectContext().isViewBased()) {
                         hmsTable.setIsViewBased(true);
                     }
