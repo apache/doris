@@ -42,7 +42,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySortBy;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ArraySplit;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ElementAt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Lambda;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsEntry;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsKey;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MapContainsValue;
@@ -128,40 +127,7 @@ public class AccessPathExpressionCollector extends DefaultExpressionVisitor<Void
             int slotId = slotReference.getExprId().asInt();
             slotToAccessPaths.put(slotId, new CollectAccessPathResult(path, context.bottomFilter, context.type));
         }
-        if (dataType.isStringLikeType()) {
-            int slotId = slotReference.getExprId().asInt();
-            if (!context.accessPathBuilder.isEmpty()) {
-                // Accessed via an offset-only function (e.g. length()).
-                // Builder already has "offset" at the tail; add the column name as prefix.
-                context.accessPathBuilder.addPrefix(slotReference.getName());
-                ImmutableList<String> path = ImmutableList.copyOf(context.accessPathBuilder.accessPath);
-                slotToAccessPaths.put(slotId,
-                        new CollectAccessPathResult(path, context.bottomFilter, TAccessPathType.DATA));
-            } else {
-                // Direct access to the string column → record a DATA path so that any
-                // concurrent offset-only path for the same slot is suppressed.
-                List<String> path = ImmutableList.of(slotReference.getName());
-                slotToAccessPaths.put(slotId,
-                        new CollectAccessPathResult(path, context.bottomFilter, TAccessPathType.DATA));
-            }
-        }
         return null;
-    }
-
-    @Override
-    public Void visitLength(Length length, CollectorContext context) {
-        Expression arg = length.child(0);
-        // length() only needs the offset array, not the chars data.
-        // Add ACCESS_STRING_OFFSET as a suffix so the path builder accumulates
-        // e.g. ["str_col", "offset"] or ["c_struct", "f3", "offset"].
-        if (arg.getDataType().isStringLikeType() && context.accessPathBuilder.isEmpty()) {
-            CollectorContext offsetContext =
-                    new CollectorContext(context.statementContext, context.bottomFilter);
-            offsetContext.accessPathBuilder.addSuffix(AccessPathInfo.ACCESS_STRING_OFFSET);
-            return arg.accept(this, offsetContext);
-        }
-        // fall through to default (recurse into children with fresh contexts)
-        return visit(length, context);
     }
 
     @Override

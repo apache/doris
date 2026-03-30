@@ -69,9 +69,7 @@ public class AccessPathPlanCollector extends DefaultPlanVisitor<Void, StatementC
     }
 
     private boolean shouldCollectAccessPath(Slot slot) {
-        return slot.getDataType() instanceof NestedColumnPrunable
-                || slot.getDataType().isVariantType()
-                || slot.getDataType().isStringLikeType();
+        return slot.getDataType() instanceof NestedColumnPrunable || slot.getDataType().isVariantType();
     }
 
     @Override

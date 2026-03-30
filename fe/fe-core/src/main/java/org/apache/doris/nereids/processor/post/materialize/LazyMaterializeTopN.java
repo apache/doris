@@ -24,7 +24,6 @@ import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.processor.post.PlanPostProcessor;
 import org.apache.doris.nereids.processor.post.Validator;
-import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanRewriter;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.StatementScopeIdGenerator;
@@ -57,15 +56,24 @@ import java.util.Set;
  * post rule to do lazy materialize
  */
 public class LazyMaterializeTopN extends PlanPostProcessor {
+    /* BE do not support pattern:
+       union
+          -->materialize
+                   -->topn
+                        -->scan1
+          -->materialize
+                   -->topn
+                        -->scan2
+       when we create materializeNode for the first union child, set hasMaterialized=true
+       to avoid generating materializeNode for other union's children
+    */
     private static final Logger LOG = LogManager.getLogger(LazyMaterializeTopN.class);
+    private boolean hasMaterialized = false;
 
     @Override
     public Plan visitPhysicalTopN(PhysicalTopN topN, CascadesContext ctx) {
-        // Visit children first (bottom-up) so that TopN nodes under union are processed independently
-        Plan topNWithNewChildren = DefaultPlanRewriter.visitChildren(this, topN, ctx);
-        PhysicalTopN topNToProcess = (PhysicalTopN) topNWithNewChildren;
         try {
-            Plan result = computeTopN(topNToProcess, ctx);
+            Plan result = computeTopN(topN, ctx);
             if (SessionVariable.isFeDebug()) {
                 Validator validator = new Validator();
                 validator.processRoot(result, ctx);
@@ -73,11 +81,14 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             return result;
         } catch (Exception e) {
             LOG.warn("lazy materialize topn failed", e);
-            return topNToProcess;
+            return topN;
         }
     }
 
     private Plan computeTopN(PhysicalTopN topN, CascadesContext ctx) {
+        if (hasMaterialized) {
+            return topN;
+        }
         if (SessionVariable.getTopNLazyMaterializationThreshold() < topN.getLimit()) {
             return topN;
         }
@@ -172,6 +183,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             result = new PhysicalLazyMaterialize(result, result.getOutput(),
                     materializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
+            hasMaterialized = true;
         } else {
             /*
             topn
@@ -194,6 +206,7 @@ public class LazyMaterializeTopN extends PlanPostProcessor {
             result = new PhysicalLazyMaterialize(result, materializeInput,
                     reOrderedMaterializedSlots, relationToLazySlotMap, relationToRowId, materializeMap,
                     null, ((AbstractPlan) result).getStats());
+            hasMaterialized = true;
         }
         result = new PhysicalProject(originOutput, null, result);
         return result;

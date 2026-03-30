@@ -424,7 +424,6 @@ public class SessionVariable implements Serializable, Writable {
             "enable_runtime_filter_partition_prune";
 
     public static final String ENABLE_PRUNE_NESTED_COLUMN = "enable_prune_nested_column";
-    public static final String ENABLE_SUB_COLUMN_META_ACCESS = "enable_sub_column_meta_access";
 
     static final String SESSION_CONTEXT = "session_context";
 
@@ -1703,17 +1702,6 @@ public class SessionVariable implements Serializable, Writable {
             description = {"是否裁剪 map/struct 类型", "Whether to prune the type of map/struct"}
     )
     public boolean enablePruneNestedColumns = true;
-
-    @VariableMgr.VarAttr(name = ENABLE_SUB_COLUMN_META_ACCESS, needForward = true,
-            fuzzy = false,
-            varType = VariableAnnotation.EXPERIMENTAL,
-            description = {
-                "是否开启子列 meta 访问优化（如 length(str) 只读 offset、IS NULL 只读 null flag）",
-                "Whether to enable sub-column meta access optimization "
-                    + "(e.g. length(str) reads only offsets, IS NULL reads only null flags)"
-            }
-    )
-    public boolean enableSubColumnMetaAccess = true;
 
     public boolean enableTopnLazyMaterialization() {
         return ConnectContext.get() != null

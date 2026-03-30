@@ -25,7 +25,6 @@ import org.apache.doris.nereids.rules.rewrite.AccessPathExpressionCollector.Coll
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.visitor.CustomRewriter;
 import org.apache.doris.nereids.types.ArrayType;
@@ -81,9 +80,7 @@ public class NestedColumnPruning implements CustomRewriter {
             StatementContext statementContext = jobContext.getCascadesContext().getStatementContext();
             SessionVariable sessionVariable = statementContext.getConnectContext().getSessionVariable();
             if (!sessionVariable.enablePruneNestedColumns
-                    || (!statementContext.hasNestedColumns()
-                        && !containsVariant(plan)
-                        && !(sessionVariable.enableSubColumnMetaAccess && containsStringLength(plan)))) {
+                    || (!statementContext.hasNestedColumns() && !containsVariant(plan))) {
                 return plan;
             }
 
@@ -105,38 +102,6 @@ public class NestedColumnPruning implements CustomRewriter {
             LOG.warn("NestedColumnPruning failed.", t);
             return plan;
         }
-    }
-
-    /** Returns true when the plan tree contains length() applied to a string-type expression.
-     *  Used in the early-exit guard so that string offset optimizations are not skipped even
-     *  when no nested (struct/array/map) or variant columns are present. */
-    private static boolean containsStringLength(Plan plan) {
-        AtomicBoolean found = new AtomicBoolean(false);
-        plan.foreachUp(node -> {
-            if (found.get()) {
-                return;
-            }
-            Plan current = (Plan) node;
-            for (Expression expression : current.getExpressions()) {
-                if (expressionContainsStringLength(expression)) {
-                    found.set(true);
-                    return;
-                }
-            }
-        });
-        return found.get();
-    }
-
-    private static boolean expressionContainsStringLength(Expression expr) {
-        if (expr instanceof Length && expr.child(0).getDataType().isStringLikeType()) {
-            return true;
-        }
-        for (Expression child : expr.children()) {
-            if (expressionContainsStringLength(child)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private static boolean containsVariant(Plan plan) {
@@ -218,18 +183,6 @@ public class NestedColumnPruning implements CustomRewriter {
             DataTypeAccessTree accessTree = kv.getValue();
             DataType prunedDataType = accessTree.pruneDataType().orElse(slot.getDataType());
 
-            if (slot.getDataType().isStringLikeType()) {
-                if (accessTree.hasStringOffsetOnlyAccess()) {
-                    // Offset-only access (e.g. length(str_col)): type stays varchar,
-                    // but we must still send the access path to BE so it skips the char data.
-                    List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
-                    result.put(slot.getExprId().asInt(),
-                            new AccessPathInfo(slot.getDataType(), allPaths, new ArrayList<>()));
-                }
-                // direct access (accessAll=true) or other: skip — no type change, no access paths needed.
-                continue;
-            }
-
             List<TColumnAccessPath> allPaths = buildColumnAccessPaths(slot, allAccessPaths);
             result.put(slot.getExprId().asInt(),
                     new AccessPathInfo(prunedDataType, allPaths, new ArrayList<>()));
@@ -249,9 +202,7 @@ public class NestedColumnPruning implements CustomRewriter {
             List<TColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
-            if (accessPathInfo != null) {
-                accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
-            }
+            accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
         }
 
         for (Entry<Slot, DataType> kv : variantSlots.entrySet()) {
@@ -259,9 +210,7 @@ public class NestedColumnPruning implements CustomRewriter {
             List<TColumnAccessPath> predicatePaths =
                     buildColumnAccessPaths(slot, predicateAccessPaths);
             AccessPathInfo accessPathInfo = result.get(slot.getExprId().asInt());
-            if (accessPathInfo != null) {
-                accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
-            }
+            accessPathInfo.getPredicateAccessPaths().addAll(predicatePaths);
         }
 
         return result;
@@ -322,11 +271,6 @@ public class NestedColumnPruning implements CustomRewriter {
         // if access 's.a.b' the node 's' and 'a' has accessPartialChild, and node 'b' has accessAll
         private boolean accessPartialChild;
         private boolean accessAll;
-        // True when this string-typed node is accessed ONLY via the offset array
-        // (e.g. length(str_col) or length(element_at(c_struct,'f3'))).
-        // When this flag is set and accessAll is NOT set, pruneDataType() returns BigIntType
-        // to signal that the BE only needs to read the offset array, not the chars data.
-        private boolean isStringOffsetOnly;
         // for the future, only access the meta of the column,
         // e.g. `is not null` can only access the column's offset, not need to read the data
         private TAccessPathType pathType;
@@ -366,16 +310,6 @@ public class NestedColumnPruning implements CustomRewriter {
 
         public Map<String, DataTypeAccessTree> getChildren() {
             return children;
-        }
-
-        /** True when the string column is accessed ONLY via the offset array (e.g. length(str_col)),
-         *  meaning the type must not change but an access path still needs to be sent to BE. */
-        public boolean hasStringOffsetOnlyAccess() {
-            if (isRoot) {
-                DataTypeAccessTree child = children.values().iterator().next();
-                return child.type.isStringLikeType() && child.isStringOffsetOnly && !child.accessAll;
-            }
-            return type.isStringLikeType() && isStringOffsetOnly && !accessAll;
         }
 
         /** pruneCastType */
@@ -513,16 +447,6 @@ public class NestedColumnPruning implements CustomRewriter {
                     valuesChild.setAccessByPath(path, accessIndex + 1, pathType);
                     return;
                 }
-            } else if (type.isStringLikeType()) {
-                // String leaf accessed via the offset array (e.g. path ends in "offset").
-                // Mark offset-only so pruneDataType() can return BigIntType instead of full data.
-                if (path.get(accessIndex).equals(AccessPathInfo.ACCESS_STRING_OFFSET)) {
-                    isStringOffsetOnly = true;
-                    return; // do NOT set accessAll — offset-only is distinguishable from full access
-                }
-                // Any other sub-path on a string column means full data is needed.
-                accessAll = true;
-                return;
             } else if (isRoot) {
                 children.get(path.get(accessIndex).toLowerCase()).setAccessByPath(path, accessIndex + 1, pathType);
                 return;
@@ -560,10 +484,6 @@ public class NestedColumnPruning implements CustomRewriter {
                 return children.values().iterator().next().pruneDataType();
             } else if (accessAll) {
                 return Optional.of(type);
-            } else if (isStringOffsetOnly) {
-                // Only the offset array is accessed (e.g. length(str_col)).
-                // The slot type stays unchanged (varchar); the access path tells BE to skip char data.
-                return Optional.empty();
             } else if (!accessPartialChild) {
                 return Optional.empty();
             }
