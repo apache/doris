@@ -107,11 +107,12 @@ void AggLocalState::_ensure_agg_source_ready() {
     if (_agg_source_ready) {
         return;
     }
-    _agg_source_ready = true;
     auto* ctx = _shared_state->agg_ctx.get();
     if (!ctx) {
+        // agg_ctx not yet created by sink — will retry on next call.
         return;
     }
+    _agg_source_ready = true;
     ctx->init_source_profile(custom_profile());
     auto& p = _parent->template cast<AggSourceOperatorX>();
     if (p._needs_finalize) {

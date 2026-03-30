@@ -75,6 +75,8 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     DCHECK(!probe_expr_ctxs.empty());
 
     // Determine whether to use simple count aggregation.
+    // Note: Unlike AggSink, we do not check !enable_spill here because
+    // StreamingAgg never calls merge_for_spill() — it only runs update+serialize.
     bool use_simple_count = evaluators.size() == 1 &&
                             evaluators[0]->function()->is_simple_count() && p._sort_limit == -1;
 #ifndef NDEBUG
@@ -103,6 +105,9 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
 
     _groupby_agg_ctx->init_hash_method();
     _groupby_agg_ctx->init_agg_data_container();
+    // StreamingAgg combines sink and source in a single operator, so both profile inits
+    // use the same profile object. ADD_TIMER returns the same counter for duplicate names,
+    // which is the intended behavior here.
     _groupby_agg_ctx->init_sink_profile(custom_profile());
     _groupby_agg_ctx->init_source_profile(custom_profile());
 

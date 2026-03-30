@@ -100,8 +100,9 @@ Status InlineCountAggContext::merge(Block* block) {
 
     const auto rows = block->rows();
 
-    // Get the serialized count column (ColumnFixedLengthObject containing AggregateFunctionCountData)
-    DCHECK_EQ(_agg_evaluators.size(), 1);
+    // The serialized format of count(*) is ColumnFixedLengthObject containing
+    // AggregateFunctionCountData. This is guaranteed by the FE planner.
+    DORIS_CHECK(_agg_evaluators.size() == 1);
     auto col_id = get_slot_column_id(_agg_evaluators[0]);
     auto column = block->get_by_position(col_id).column;
 
@@ -119,6 +120,8 @@ void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
         AggState state(key_columns);
         agg_method.init_serialized_keys(key_columns, num_rows);
 
+        // The serialized format of count(*) is ColumnFixedLengthObject containing
+        // AggregateFunctionCountData. This is guaranteed by the FE planner.
         const auto& col = assert_cast<const ColumnFixedLengthObject&>(*merge_column);
         const auto* col_data =
                 reinterpret_cast<const AggregateFunctionCountData*>(col.get_data().data());
@@ -146,7 +149,7 @@ void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
 Status InlineCountAggContext::serialize(RuntimeState* state, Block* block, bool* eos) {
     SCOPED_TIMER(_get_results_timer);
     size_t key_size = _groupby_expr_ctxs.size();
-    DCHECK_EQ(_agg_evaluators.size(), 1);
+    DORIS_CHECK(_agg_evaluators.size() == 1);
 
     bool mem_reuse = make_nullable_keys.empty() && block->mem_reuse();
 
@@ -188,7 +191,9 @@ Status InlineCountAggContext::serialize(RuntimeState* state, Block* block, bool*
             agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
         }
 
-        // Handle null key if present
+        // Null key is handled after all group keys. If the batch is full, defer null
+        // key handling to the next call. init_iterator() ensures the hash table iterator
+        // state is preserved across calls.
         if (agg_method.begin == agg_method.end) {
             if (agg_method.hash_table->has_null_key_data()) {
                 DCHECK(key_columns.size() == 1);
@@ -242,7 +247,7 @@ Status InlineCountAggContext::finalize(RuntimeState* state, Block* block, bool* 
         using KeyType = std::decay_t<decltype(agg_method)>::Key;
         std::vector<KeyType> keys(size);
 
-        DCHECK_EQ(_agg_evaluators.size(), 1);
+        DORIS_CHECK(_agg_evaluators.size() == 1);
         auto& count_column = assert_cast<ColumnInt64&>(*value_column);
         uint32_t num_rows = 0;
         {
@@ -262,6 +267,9 @@ Status InlineCountAggContext::finalize(RuntimeState* state, Block* block, bool* 
         }
 
         // Handle null key if present
+        // Null key is handled after all group keys. If the batch is full, defer null
+        // key handling to the next call. init_iterator() ensures the hash table iterator
+        // state is preserved across calls.
         if (agg_method.begin == agg_method.end) {
             if (agg_method.hash_table->has_null_key_data()) {
                 DCHECK(key_columns.size() == 1);

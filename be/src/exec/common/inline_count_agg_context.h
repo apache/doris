@@ -31,6 +31,11 @@ namespace doris {
 ///   - Agg state create/destroy overhead
 ///
 /// Usage condition: exactly one evaluator, count(*), first-phase (not merge), is_simple_count.
+///
+/// Invariant: should_limit_output is always false when this class is selected
+/// (enforced by aggregation_sink_operator.cpp: `!should_limit_output` is part of the
+/// use_simple_count condition), so emplace_into_hash_table_limit() and
+/// emplace_and_forward_limit() inherited from GroupByAggContext are unreachable.
 class InlineCountAggContext final : public GroupByAggContext {
 public:
     using GroupByAggContext::GroupByAggContext;

@@ -264,6 +264,9 @@ protected:
                   _order_directions(other._order_directions),
                   _null_directions(other._null_directions) {}
 
+        // Only copy _row_id. The three reference members (_limit_columns, _order_directions,
+        // _null_directions) are not rebindable and all HeapLimitCursor instances reference the
+        // same GroupByAggContext members, so skipping them is correct.
         HeapLimitCursor& operator=(const HeapLimitCursor& other) noexcept {
             _row_id = other._row_id;
             return *this;

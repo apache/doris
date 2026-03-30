@@ -147,6 +147,7 @@ Status UngroupByAggContext::serialize(RuntimeState* state, Block* block, bool* e
 
     // If no data was ever fed, return empty result.
     if (UNLIKELY(input_num_rows == 0)) {
+        block->clear();
         *eos = true;
         return Status::OK();
     }
