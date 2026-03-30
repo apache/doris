@@ -177,6 +177,11 @@ Status OlapScanner::prepare() {
                 return false;
             }
 
+            // If `delete_predicates` is not empty, will merge the columns in delete predicate into current tablet schema
+            if (!_tablet_reader_params.delete_predicates.empty()) {
+                return false;
+            }
+
             const bool has_pruned_column =
                     std::ranges::any_of(_output_tuple_desc->slots(), [](const auto& slot) {
                         if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
