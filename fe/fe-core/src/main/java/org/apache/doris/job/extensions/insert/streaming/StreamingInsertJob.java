@@ -306,7 +306,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             this.offsetProvider.initOnCreate();
             // validate offset props, only for s3 cause s3 tvf no offset prop
             if (jobProperties.getOffsetProperty() != null
-                    && S3TableValuedFunction.NAME.equals(tvfType)) {
+                    && S3TableValuedFunction.NAME.equalsIgnoreCase(tvfType)) {
                 Offset offset = validateOffset(jobProperties.getOffsetProperty());
                 this.offsetProvider.updateOffset(offset);
             }
@@ -772,7 +772,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
     private void modifyPropertiesInternal(Map<String, String> inputProperties) throws AnalysisException, JobException {
         StreamingJobProperties inputStreamProps = new StreamingJobProperties(inputProperties);
         if (StringUtils.isNotEmpty(inputStreamProps.getOffsetProperty())
-                && S3TableValuedFunction.NAME.equals(this.tvfType)) {
+                && S3TableValuedFunction.NAME.equalsIgnoreCase(this.tvfType)) {
             Offset offset = validateOffset(inputStreamProps.getOffsetProperty());
             this.offsetProvider.updateOffset(offset);
             if (Config.isCloudMode()) {

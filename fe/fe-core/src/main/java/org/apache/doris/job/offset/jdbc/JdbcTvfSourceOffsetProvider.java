@@ -96,18 +96,22 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      */
     @Override
     public void ensureInitialized(Long jobId, Map<String, String> originTvfProps) throws JobException {
+        // Always refresh fields that may be updated via ALTER JOB (e.g. credentials, parallelism).
+        this.sourceProperties = originTvfProps;
+        this.snapshotParallelism = Integer.parseInt(
+                originTvfProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
+                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
+
         if (this.jobId != null) {
             return;
         }
+        // One-time initialization below — safe to skip on FE restart because the provider
+        // is reconstructed fresh (getPersistInfo returns null), so jobId is null then too.
         this.jobId = jobId;
-        this.sourceProperties = originTvfProps;
         this.chunkHighWatermarkMap = new HashMap<>();
         String type = originTvfProps.get(DataSourceConfigKeys.TYPE);
         Preconditions.checkArgument(type != null, "type is required");
         this.sourceType = DataSourceType.valueOf(type.toUpperCase());
-        this.snapshotParallelism = Integer.parseInt(
-                originTvfProps.getOrDefault(DataSourceConfigKeys.SNAPSHOT_PARALLELISM,
-                        DataSourceConfigKeys.SNAPSHOT_PARALLELISM_DEFAULT));
         String table = originTvfProps.get(DataSourceConfigKeys.TABLE);
         Preconditions.checkArgument(table != null, "table is required for cdc_stream TVF");
     }
