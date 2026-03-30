@@ -38,7 +38,6 @@ import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.TablePartitionValues;
 import org.apache.doris.datasource.hudi.HudiSchemaCacheKey;
-import org.apache.doris.datasource.hudi.HudiSchemaCacheValue;
 import org.apache.doris.datasource.hudi.HudiUtils;
 import org.apache.doris.datasource.iceberg.IcebergMvccSnapshot;
 import org.apache.doris.datasource.iceberg.IcebergSchemaCacheKey;
@@ -94,9 +93,6 @@ import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
-import org.apache.hudi.internal.schema.InternalSchema;
-import org.apache.hudi.internal.schema.Types;
-import org.apache.hudi.internal.schema.convert.AvroInternalSchemaConverter;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -679,13 +675,15 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
         makeSureInitialized();
+        List<Column> columns;
+        List<Column> partitionColumns = initPartitionColumns();
         if (dlaType.equals(DLAType.ICEBERG)) {
             return initIcebergSchema(key);
-        } else if (dlaType.equals(DLAType.HUDI)) {
-            return initHudiSchema(key);
         } else {
-            return initHiveSchema();
+            columns = initHiveSchema();
+            columns.addAll(partitionColumns);
         }
+        return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
     }
 
     private Optional<SchemaCacheValue> initIcebergSchema(SchemaCacheKey key) {
@@ -693,68 +691,20 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
                 this, ((IcebergSchemaCacheKey) key).getSchemaId(), isView());
     }
 
-    private Optional<SchemaCacheValue> initHudiSchema(SchemaCacheKey key) {
-        boolean[] enableSchemaEvolution = {false};
-        HudiSchemaCacheKey hudiSchemaCacheKey = (HudiSchemaCacheKey) key;
-        InternalSchema hudiInternalSchema = HiveMetaStoreClientHelper.getHudiTableSchema(this, enableSchemaEvolution,
-                Long.toString(hudiSchemaCacheKey.getTimestamp()));
-        org.apache.avro.Schema hudiSchema = AvroInternalSchemaConverter.convert(hudiInternalSchema, name);
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(hudiSchema.getFields().size());
-        List<String> colTypes = Lists.newArrayList();
-        for (int i = 0; i < hudiSchema.getFields().size(); i++) {
-            Types.Field hudiInternalfield = hudiInternalSchema.getRecord().fields().get(i);
-            org.apache.avro.Schema.Field hudiAvroField =  hudiSchema.getFields().get(i);
-            String columnName = hudiAvroField.name().toLowerCase(Locale.ROOT);
-            Column column = new Column(columnName, HudiUtils.fromAvroHudiTypeToDorisType(hudiAvroField.schema()),
-                    true, null, true, null, "", true, null,
-                    -1, null);
-            HudiUtils.updateHudiColumnUniqueId(column, hudiInternalfield);
-            tmpSchema.add(column);
-
-            colTypes.add(HudiUtils.convertAvroToHiveType(hudiAvroField.schema()));
-        }
-        List<Column> partitionColumns = initPartitionColumns(tmpSchema);
-        HudiSchemaCacheValue hudiSchemaCacheValue =
-                new HudiSchemaCacheValue(tmpSchema, partitionColumns, enableSchemaEvolution[0]);
-        hudiSchemaCacheValue.setColTypes(colTypes);
-        return Optional.of(hudiSchemaCacheValue);
-    }
-
-    private Optional<SchemaCacheValue> initHiveSchema() {
-        boolean getFromTable = catalog.getCatalogProperty()
-                .getOrDefault(HMSExternalCatalog.GET_SCHEMA_FROM_TABLE, "false")
-                .equalsIgnoreCase("true");
-        List<FieldSchema> schema = null;
-        Map<String, String> colDefaultValues = Maps.newHashMap();
-        if (getFromTable) {
-            schema = getSchemaFromRemoteTable();
-        } else {
-            HMSCachedClient client = ((HMSExternalCatalog) catalog).getClient();
-            schema = client.getSchema(getRemoteDbName(), remoteName);
-            colDefaultValues = client.getDefaultColumnValues(getRemoteDbName(), remoteName);
-        }
+    private List<Column> initHiveSchema() {
+        List<FieldSchema> schema = remoteTable.getSd().getCols();
         List<Column> columns = Lists.newArrayListWithCapacity(schema.size());
         for (FieldSchema field : schema) {
+            if ("void".equalsIgnoreCase(field.getType())) {
+                continue;
+            }
             String fieldName = field.getName().toLowerCase(Locale.ROOT);
-            String defaultValue = colDefaultValues.getOrDefault(fieldName, null);
             columns.add(new Column(fieldName,
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(), catalog.getEnableMappingVarbinary(),
-                            catalog.getEnableMappingTimestampTz()),
-                    true, null,
-                    true, defaultValue, field.getComment(), true, -1));
+                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
+                    catalog.getEnableMappingVarbinary(), catalog.getEnableMappingTimestampTz()), true, null,
+                    true, null, field.getComment(), true, -1));
         }
-        List<Column> partitionColumns = initPartitionColumns(columns);
-        return Optional.of(new HMSSchemaCacheValue(columns, partitionColumns));
-    }
-
-    private List<FieldSchema> getSchemaFromRemoteTable() {
-        // Here we should get a new remote table instead of using this.remoteTable
-        // Because we need to get the latest schema from HMS.
-        Table newTable = loadHiveTable();
-        List<FieldSchema> schema = Lists.newArrayList();
-        schema.addAll(newTable.getSd().getCols());
-        schema.addAll(newTable.getPartitionKeys());
-        return schema;
+        return columns;
     }
 
     @Override
@@ -770,29 +720,19 @@ public class HMSExternalTable extends ExternalTable implements MTMVRelatedTableI
         return rowCount;
     }
 
-    private List<Column> initPartitionColumns(List<Column> schema) {
-        // get table from remote, do not use `remoteTable` directly,
-        // because here we need to get schema from latest table info.
-        Table newTable = isViewBased ? ((HMSExternalCatalog) catalog).getClient().getTableFromView(dbName, name)
-                : ((HMSExternalCatalog) catalog).getClient().getTable(dbName, name);
-        List<String> partitionKeys = newTable.getPartitionKeys().stream().map(FieldSchema::getName)
-                .collect(Collectors.toList());
+    private List<Column> initPartitionColumns() {
+        List<FieldSchema> partitionKeys = remoteTable.getPartitionKeys();
         List<Column> partitionColumns = Lists.newArrayListWithCapacity(partitionKeys.size());
-        for (String partitionKey : partitionKeys) {
+        for (FieldSchema field : partitionKeys) {
             // Do not use "getColumn()", which will cause dead loop
-            for (Column column : schema) {
-                if (partitionKey.equalsIgnoreCase(column.getName())) {
-                    // For partition column, if it is string type, change it to varchar(65535)
-                    // to be same as doris managed table.
-                    // This is to avoid some unexpected behavior such as different partition pruning result
-                    // between doris managed table and external table.
-                    if (column.getType().getPrimitiveType() == PrimitiveType.STRING) {
-                        column.setType(ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH));
-                    }
-                    partitionColumns.add(column);
-                    break;
-                }
+            String fieldName = field.getName().toLowerCase(Locale.ROOT);
+            Type type = HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType(),
+                    catalog.getEnableMappingVarbinary(), catalog.getEnableMappingTimestampTz());
+            if (type.getPrimitiveType() == PrimitiveType.STRING) {
+                type = ScalarType.createVarcharType(ScalarType.MAX_VARCHAR_LENGTH);
             }
+            partitionColumns.add(new Column(fieldName, type, true, null,
+                    true, null, field.getComment(), true, -1));
         }
         if (LOG.isDebugEnabled()) {
             LOG.debug("get {} partition columns for table: {}", partitionColumns.size(), name);
