@@ -1,3 +1,2 @@
 data/multi_catalog/logs1_parquet/run.sh
-data/multi_catalog/test_complex_types/run.sh
 data/multi_catalog/test_wide_table/run.sh
