@@ -15,27 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include <curl/curl.h>
+
 #include <algorithm>
 #include <cctype>
 #include <charconv>
-#include <curl/curl.h>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
 
+#include "common/cast_set.h"
 #include "common/status.h"
-#include "core/binary_cast.hpp"
 #include "core/assert_cast.h"
+#include "core/binary_cast.hpp"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_file.h"
 #include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_struct.h"
-#include "core/column/column_vector.h"
 #include "core/data_type/data_type_file.h"
 #include "core/data_type/file_schema_descriptor.h"
 #include "core/data_type/primitive_type.h"
@@ -45,15 +46,23 @@
 #include "exprs/function/simple_function_factory.h"
 #include "service/http/http_client.h"
 #include "service/http/http_headers.h"
+#include "util/jsonb_writer.h"
+#include "util/jsonb_utils.h"
 
 namespace doris {
 
 namespace {
 
+void write_jsonb_string(JsonbWriter& writer, const char* data, uint32_t size) {
+    CHECK(writer.writeStartString());
+    CHECK(writer.writeString(data, size));
+    CHECK(writer.writeEndString());
+}
+
 struct FileViewdata {
     int64_t size;
     std::optional<std::string> etag;
-    uint64_t last_modified_at;
+    std::string last_modified_at;
 };
 
 std::string strip_url_suffix(std::string_view uri) {
@@ -98,6 +107,22 @@ std::string extract_url_scheme(std::string_view uri) {
     return scheme;
 }
 
+std::string normalize_etag(std::string_view etag) {
+    if (etag.size() >= 2 && etag.front() == '"' && etag.back() == '"') {
+        return std::string(etag.substr(1, etag.size() - 2));
+    }
+    if (etag.size() >= 4 && etag.substr(0, 2) == "W/" && etag[2] == '"' && etag.back() == '"') {
+        return std::string(etag.substr(0, 2)) + std::string(etag.substr(3, etag.size() - 4));
+    }
+    return std::string(etag);
+}
+
+std::string format_datetime_v2(const DateV2Value<DateTimeV2ValueType>& dt) {
+    char buf[64];
+    char* pos = dt.to_string(buf);
+    return std::string(buf, pos - buf - 1);
+}
+
 Result<FileViewdata> fetch_file_metadata(std::string_view url) {
     const std::string scheme = extract_url_scheme(url);
     if (scheme != "http" && scheme != "https") {
@@ -106,8 +131,9 @@ Result<FileViewdata> fetch_file_metadata(std::string_view url) {
                 url));
     }
 
-    auto read_common_headers = [&](HttpClient& client,
-                                   std::optional<uint64_t> fallback_length) -> Result<FileViewdata> {
+    auto read_common_headers =
+            [&](HttpClient& client,
+                std::optional<uint64_t> fallback_length) -> Result<FileViewdata> {
         uint64_t content_length = fallback_length.value_or(0);
         if (!fallback_length.has_value()) {
             RETURN_IF_ERROR_RESULT(client.get_content_length(&content_length));
@@ -115,13 +141,15 @@ Result<FileViewdata> fetch_file_metadata(std::string_view url) {
 
         std::string etag;
         RETURN_IF_ERROR_RESULT(client.get_header(HttpHeaders::ETAG, &etag));
+        if (!etag.empty()) {
+            etag = normalize_etag(etag);
+        }
 
         std::string last_modified;
         RETURN_IF_ERROR_RESULT(client.get_header(HttpHeaders::LAST_MODIFIED, &last_modified));
         if (last_modified.empty()) {
             return ResultError(Status::InvalidArgument(
-                    "to_file(url) requires Last-Modified header from object storage, url={}",
-                    url));
+                    "to_file(url) requires Last-Modified header from object storage, url={}", url));
         }
 
         time_t ts = curl_getdate(last_modified.c_str(), nullptr);
@@ -135,12 +163,12 @@ Result<FileViewdata> fetch_file_metadata(std::string_view url) {
         return FileViewdata {
                 .size = static_cast<int64_t>(content_length),
                 .etag = etag.empty() ? std::nullopt : std::optional<std::string>(std::move(etag)),
-                .last_modified_at = binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(dt),
+                .last_modified_at = format_datetime_v2(dt),
         };
     };
 
-    auto parse_total_size_from_content_range = [&](std::string_view content_range)
-            -> Result<uint64_t> {
+    auto parse_total_size_from_content_range =
+            [&](std::string_view content_range) -> Result<uint64_t> {
         const size_t slash_pos = content_range.rfind('/');
         if (slash_pos == std::string_view::npos || slash_pos + 1 >= content_range.size()) {
             return ResultError(Status::InvalidArgument(
@@ -148,9 +176,8 @@ Result<FileViewdata> fetch_file_metadata(std::string_view url) {
         }
         std::string_view total_size_str = content_range.substr(slash_pos + 1);
         uint64_t total_size = 0;
-        const auto [ptr, ec] = std::from_chars(total_size_str.data(),
-                                               total_size_str.data() + total_size_str.size(),
-                                               total_size);
+        const auto [ptr, ec] = std::from_chars(
+                total_size_str.data(), total_size_str.data() + total_size_str.size(), total_size);
         if (ec != std::errc() || ptr != total_size_str.data() + total_size_str.size()) {
             return ResultError(Status::InvalidArgument(
                     "invalid Content-Range total size '{}' for url={}", total_size_str, url));
@@ -233,15 +260,9 @@ public:
 
         const auto& schema = FileSchemaDescriptor::instance();
         auto result_col = ColumnFile::create(schema);
-        auto& struct_col = result_col->get_struct_column();
-        struct_col.reserve(input_rows_count);
-
-        auto& object_uri_col = assert_cast<ColumnString&>(struct_col.get_column(0));
-        auto& file_name_col = assert_cast<ColumnString&>(struct_col.get_column(1));
-        auto& file_ext_col = assert_cast<ColumnString&>(struct_col.get_column(2));
-        auto& size_col = assert_cast<ColumnInt64&>(struct_col.get_column(3));
-        auto& etag_col = assert_cast<ColumnNullable&>(struct_col.get_column(4));
-        auto& mtime_col = assert_cast<ColumnDateTimeV2&>(struct_col.get_column(5));
+        auto& jsonb_col = assert_cast<ColumnString&>(result_col->get_jsonb_column());
+        jsonb_col.reserve(input_rows_count);
+        JsonbWriter writer;
 
         for (size_t row = 0; row < input_rows_count; ++row) {
             StringRef uri_ref = uri_col->get_data_at(row);
@@ -250,16 +271,37 @@ public:
             std::string file_ext = extract_file_extension(file_name);
             FileViewdata metadata = DORIS_TRY(fetch_file_metadata(uri));
 
-            object_uri_col.insert_data(uri.data(), uri.size());
-            file_name_col.insert_data(file_name.data(), file_name.size());
-            file_ext_col.insert_data(file_ext.data(), file_ext.size());
-            size_col.insert_value(metadata.size);
+            writer.reset();
+            writer.writeStartObject();
+            writer.writeKey(schema.field(0).name,
+                            static_cast<uint8_t>(strlen(schema.field(0).name)));
+            write_jsonb_string(writer, uri.data(), cast_set<uint32_t>(uri.size()));
+            writer.writeKey(schema.field(1).name,
+                            static_cast<uint8_t>(strlen(schema.field(1).name)));
+            write_jsonb_string(writer, file_name.data(), cast_set<uint32_t>(file_name.size()));
+            writer.writeKey(schema.field(2).name,
+                            static_cast<uint8_t>(strlen(schema.field(2).name)));
+            write_jsonb_string(writer, file_ext.data(), cast_set<uint32_t>(file_ext.size()));
+            writer.writeKey(schema.field(3).name,
+                            static_cast<uint8_t>(strlen(schema.field(3).name)));
+            writer.writeInt64(metadata.size);
+            writer.writeKey(schema.field(4).name,
+                            static_cast<uint8_t>(strlen(schema.field(4).name)));
             if (metadata.etag.has_value()) {
-                etag_col.insert_data(metadata.etag->data(), metadata.etag->size());
+                write_jsonb_string(writer, metadata.etag->data(),
+                                   cast_set<uint32_t>(metadata.etag->size()));
             } else {
-                etag_col.insert_default();
+                writer.writeNull();
             }
-            mtime_col.insert_value(metadata.last_modified_at);
+            writer.writeKey(schema.field(5).name,
+                            static_cast<uint8_t>(strlen(schema.field(5).name)));
+            write_jsonb_string(writer, metadata.last_modified_at.data(),
+                               cast_set<uint32_t>(metadata.last_modified_at.size()));
+            writer.writeEndObject();
+            jsonb_col.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
+            LOG(INFO) << "to_file serialized row=" << row << ", json="
+                       << JsonbToJson::jsonb_to_json_string(writer.getOutput()->getBuffer(),
+                                                            writer.getOutput()->getSize());
         }
 
         block.replace_by_position(result, std::move(result_col));

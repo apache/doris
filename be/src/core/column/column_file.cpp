@@ -19,19 +19,20 @@
 
 #include "common/exception.h"
 #include "core/assert_cast.h"
+#include "core/data_type/data_type_jsonb.h"
 
 namespace doris {
 
 ColumnFile::ColumnFile(MutableColumnPtr data) : _data(std::move(data)) {
-    CHECK(check_and_get_column<ColumnStruct>(_data.get()) != nullptr)
-            << "ColumnFile must wrap ColumnStruct";
+    CHECK(_data->is_column_string() || _data->is_column_string64()) << "ColumnFile must wrap JSONB";
 }
 
 ColumnFile::MutablePtr ColumnFile::create(const FileSchemaDescriptor& schema) {
-    return ColumnFile::create_from_struct(schema.physical_type().create_column());
+    static_cast<void>(schema);
+    return ColumnFile::create_from_jsonb(DataTypeJsonb().create_column());
 }
 
-ColumnFile::MutablePtr ColumnFile::create_from_struct(MutableColumnPtr data) {
+ColumnFile::MutablePtr ColumnFile::create_from_jsonb(MutableColumnPtr data) {
     return Base::create(std::move(data));
 }
 
@@ -45,26 +46,26 @@ void ColumnFile::insert(const Field& x) {
 }
 
 void ColumnFile::insert_from(const IColumn& src, size_t n) {
-    _data->insert_from(assert_cast<const ColumnFile&>(src).get_struct_column(), n);
+    _data->insert_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), n);
 }
 
 void ColumnFile::insert_range_from(const IColumn& src, size_t start, size_t length) {
-    _data->insert_range_from(assert_cast<const ColumnFile&>(src).get_struct_column(), start, length);
+    _data->insert_range_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), start, length);
 }
 
 void ColumnFile::insert_range_from_ignore_overflow(const IColumn& src, size_t start, size_t length) {
-    _data->insert_range_from_ignore_overflow(assert_cast<const ColumnFile&>(src).get_struct_column(),
+    _data->insert_range_from_ignore_overflow(assert_cast<const ColumnFile&>(src).get_jsonb_column(),
                                              start, length);
 }
 
 void ColumnFile::insert_indices_from(const IColumn& src, const uint32_t* indices_begin,
                                      const uint32_t* indices_end) {
-    _data->insert_indices_from(assert_cast<const ColumnFile&>(src).get_struct_column(), indices_begin,
+    _data->insert_indices_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), indices_begin,
                                indices_end);
 }
 
 void ColumnFile::insert_many_from(const IColumn& src, size_t position, size_t length) {
-    _data->insert_many_from(assert_cast<const ColumnFile&>(src).get_struct_column(), position, length);
+    _data->insert_many_from(assert_cast<const ColumnFile&>(src).get_jsonb_column(), position, length);
 }
 
 void ColumnFile::insert_default() {
@@ -76,7 +77,7 @@ void ColumnFile::pop_back(size_t n) {
 }
 
 MutableColumnPtr ColumnFile::clone_resized(size_t size) const {
-    return ColumnFile::create_from_struct(_data->clone_resized(size));
+    return ColumnFile::create_from_jsonb(_data->clone_resized(size));
 }
 
 StringRef ColumnFile::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
@@ -100,7 +101,7 @@ size_t ColumnFile::serialize_impl(char* pos, size_t row) const {
 }
 
 int ColumnFile::compare_at(size_t n, size_t m, const IColumn& rhs, int nan_direction_hint) const {
-    return _data->compare_at(n, m, assert_cast<const ColumnFile&>(rhs).get_struct_column(),
+    return _data->compare_at(n, m, assert_cast<const ColumnFile&>(rhs).get_jsonb_column(),
                              nan_direction_hint);
 }
 
@@ -139,7 +140,7 @@ void ColumnFile::update_crc32c_single(size_t start, size_t end, uint32_t& hash,
 }
 
 ColumnPtr ColumnFile::filter(const Filter& filt, ssize_t result_size_hint) const {
-    return ColumnFile::create_from_struct(IColumn::mutate(_data->filter(filt, result_size_hint)));
+    return ColumnFile::create_from_jsonb(IColumn::mutate(_data->filter(filt, result_size_hint)));
 }
 
 size_t ColumnFile::filter(const Filter& filter) {
@@ -147,20 +148,20 @@ size_t ColumnFile::filter(const Filter& filter) {
 }
 
 MutableColumnPtr ColumnFile::permute(const Permutation& perm, size_t limit) const {
-    return ColumnFile::create_from_struct(_data->permute(perm, limit));
+    return ColumnFile::create_from_jsonb(_data->permute(perm, limit));
 }
 
 bool ColumnFile::has_enough_capacity(const IColumn& src) const {
-    return _data->has_enough_capacity(assert_cast<const ColumnFile&>(src).get_struct_column());
+    return _data->has_enough_capacity(assert_cast<const ColumnFile&>(src).get_jsonb_column());
 }
 
 bool ColumnFile::structure_equals(const IColumn& rhs) const {
     const auto* rhs_file = check_and_get_column<ColumnFile>(&rhs);
-    return rhs_file != nullptr && _data->structure_equals(rhs_file->get_struct_column());
+    return rhs_file != nullptr && _data->structure_equals(rhs_file->get_jsonb_column());
 }
 
 void ColumnFile::replace_column_data(const IColumn& rhs, size_t row, size_t self_row) {
-    _data->replace_column_data(assert_cast<const ColumnFile&>(rhs).get_struct_column(), row, self_row);
+    _data->replace_column_data(assert_cast<const ColumnFile&>(rhs).get_jsonb_column(), row, self_row);
 }
 
 void ColumnFile::get_permutation(bool reverse, size_t limit, int nan_direction_hint,
@@ -189,16 +190,9 @@ void ColumnFile::replace_float_special_values() {
     _data->replace_float_special_values();
 }
 
-const ColumnStruct& ColumnFile::get_struct_column() const {
-    return assert_cast<const ColumnStruct&>(*_data);
-}
-
-ColumnStruct& ColumnFile::get_struct_column() {
-    return assert_cast<ColumnStruct&>(*_data);
-}
-
 Status ColumnFile::check_schema(const FileSchemaDescriptor& schema) const {
-    return schema.physical_type().check_column(get_struct_column());
+    static_cast<void>(schema);
+    return DataTypeJsonb().check_column(*_data);
 }
 
 } // namespace doris

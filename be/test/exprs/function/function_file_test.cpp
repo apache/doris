@@ -21,19 +21,15 @@
 #include <string>
 #include <vector>
 
-#include "core/binary_cast.hpp"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
 #include "core/block/column_with_type_and_name.h"
 #include "core/column/column_file.h"
-#include "core/column/column_nullable.h"
 #include "core/column/column_string.h"
-#include "core/column/column_vector.h"
 #include "core/data_type/data_type_file.h"
 #include "core/data_type/primitive_type.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/file_schema_descriptor.h"
-#include "core/value/vdatetime_value.h"
 #include "exprs/function/simple_function_factory.h"
 #include "service/http/ev_http_server.h"
 #include "service/http/http_channel.h"
@@ -41,6 +37,7 @@
 #include "service/http/http_headers.h"
 #include "service/http/http_request.h"
 #include "testutil/column_helper.h"
+#include "util/jsonb_utils.h"
 
 namespace doris {
 
@@ -65,7 +62,7 @@ public:
 
 } // namespace
 
-TEST(FunctionFileTest, toFileBuildsExpectedPhysicalFields) {
+TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
     EvHttpServer server(0);
     ToFileMetadataHandler handler;
     server.register_handler(HEAD, "/bucket/path/image.JPG", &handler);
@@ -92,28 +89,23 @@ TEST(FunctionFileTest, toFileBuildsExpectedPhysicalFields) {
     ASSERT_TRUE(status.ok()) << status;
 
     const auto& result_column = assert_cast<const ColumnFile&>(*block.get_by_position(1).column);
-    const auto& object_uri_column = assert_cast<const ColumnString&>(result_column.get_subcolumn(0));
-    const auto& file_name_column = assert_cast<const ColumnString&>(result_column.get_subcolumn(1));
-    const auto& file_extension_column = assert_cast<const ColumnString&>(result_column.get_subcolumn(2));
-    const auto& size_column = assert_cast<const ColumnInt64&>(result_column.get_subcolumn(3));
-    const auto& etag_column = assert_cast<const ColumnNullable&>(result_column.get_subcolumn(4));
-    const auto& etag_nested_column =
-            assert_cast<const ColumnString&>(etag_column.get_nested_column());
-    const auto& mtime_column = assert_cast<const ColumnDateTimeV2&>(result_column.get_subcolumn(5));
-
-    DateV2Value<DateTimeV2ValueType> expected_time;
-    expected_time.from_unixtime(1709287200, cctz::utc_time_zone());
-
+    const auto& jsonb_column = assert_cast<const ColumnString&>(result_column.get_jsonb_column());
     ASSERT_EQ(result_column.size(), 1);
-    EXPECT_EQ(object_uri_column.get_data_at(0).to_string(), object_url);
-    EXPECT_EQ(file_name_column.get_data_at(0).to_string(), "image.JPG");
-    EXPECT_EQ(file_extension_column.get_data_at(0).to_string(), ".jpg");
-    EXPECT_EQ(size_column.get_data()[0], 123);
-    EXPECT_EQ(etag_column.get_null_map_data()[0], 0);
-    EXPECT_EQ(etag_nested_column.get_data_at(0).to_string(), "\"etag-123\"");
-    EXPECT_EQ(mtime_column.get_data()[0],
-              binary_cast<DateV2Value<DateTimeV2ValueType>, UInt64>(expected_time));
+    EXPECT_EQ(JsonbToJson::jsonb_to_json_string(jsonb_column.get_data_at(0).data,
+                                                jsonb_column.get_data_at(0).size),
+              "{\"object_uri\":\"" + object_url +
+                      "\",\"file_name\":\"image.JPG\",\"file_extension\":\".jpg\","
+                      "\"size\":123,\"etag\":\"etag-123\","
+                      "\"last_modified_at\":\"2024-03-01 10:00:00\"}");
     EXPECT_TRUE(result_column.check_schema(FileSchemaDescriptor::instance()).ok());
+
+    const auto& file_type = assert_cast<const DataTypeFile&>(*result_type);
+    EXPECT_EQ(file_type.schema().field(0).type->get_name(), "String");
+    EXPECT_EQ(file_type.schema().field(1).type->get_name(), "String");
+    EXPECT_EQ(file_type.schema().field(2).type->get_name(), "String");
+    EXPECT_EQ(file_type.schema().field(3).type->get_name(), "BIGINT");
+    EXPECT_EQ(file_type.schema().field(4).type->get_name(), "Nullable(String)");
+    EXPECT_EQ(file_type.schema().field(5).type->get_name(), "DateTimeV2(3)");
 }
 
 } // namespace doris

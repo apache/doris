@@ -87,8 +87,8 @@ public:
     DataTypeSerDeSPtrs get_nested_serdes() const override;
 
 private:
-    const IColumn& get_struct_column(const IColumn& column) const;
-    IColumn& get_struct_column(IColumn& column) const;
+    const IColumn& get_physical_column(const IColumn& column) const;
+    IColumn& get_physical_column(IColumn& column) const;
 
     DataTypeSerDeSPtr _physical_serde;
 };

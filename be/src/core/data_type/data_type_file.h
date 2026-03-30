@@ -22,6 +22,7 @@
 
 #include "core/column/column_file.h"
 #include "core/data_type/data_type.h"
+#include "core/data_type/data_type_jsonb.h"
 #include "core/data_type/file_schema_descriptor.h"
 #include "core/data_type_serde/data_type_file_serde.h"
 
@@ -41,7 +42,7 @@ public:
 
     MutableColumnPtr create_column() const override { return ColumnFile::create(_schema); }
     Status check_column(const IColumn& column) const override;
-    Field get_default() const override { return _schema.physical_type().get_default(); }
+    Field get_default() const override { return _physical_type.get_default(); }
     Field get_field(const TExprNode& node) const override;
     bool equals(const IDataType& rhs) const override;
 
@@ -52,7 +53,7 @@ public:
                             int be_exec_version) const override;
 
     DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
-        return std::make_shared<DataTypeFileSerDe>(_schema.physical_type().get_serde(nesting_level),
+        return std::make_shared<DataTypeFileSerDe>(_physical_type.get_serde(nesting_level),
                                                    nesting_level);
     }
     void to_pb_column_meta(PColumnMeta* col_meta) const override;
@@ -63,6 +64,7 @@ public:
 
 private:
     const FileSchemaDescriptor& _schema = FileSchemaDescriptor::instance();
+    DataTypeJsonb _physical_type;
 };
 
 } // namespace doris

@@ -39,13 +39,13 @@ bool DataTypeFile::equals(const IDataType& rhs) const {
 
 int64_t DataTypeFile::get_uncompressed_serialized_bytes(const IColumn& column,
                                                         int be_exec_version) const {
-    return _schema.physical_type().get_uncompressed_serialized_bytes(
-            assert_cast<const ColumnFile&>(column).get_struct_column(), be_exec_version);
+    return _physical_type.get_uncompressed_serialized_bytes(
+            assert_cast<const ColumnFile&>(column).get_jsonb_column(), be_exec_version);
 }
 
 char* DataTypeFile::serialize(const IColumn& column, char* buf, int be_exec_version) const {
-    return _schema.physical_type().serialize(assert_cast<const ColumnFile&>(column).get_struct_column(),
-                                             buf, be_exec_version);
+    return _physical_type.serialize(assert_cast<const ColumnFile&>(column).get_jsonb_column(), buf,
+                                    be_exec_version);
 }
 
 const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
@@ -54,15 +54,15 @@ const char* DataTypeFile::deserialize(const char* buf, MutableColumnPtr* column,
         *column = create_column();
     }
     auto& file_column = assert_cast<ColumnFile&>(*column->get());
-    auto struct_column = file_column.get_mutable_struct_column_ptr();
-    auto* struct_column_ptr = &struct_column;
-    const char* next = _schema.physical_type().deserialize(buf, struct_column_ptr, be_exec_version);
-    file_column.set_struct_column_ptr(std::move(struct_column));
+    auto jsonb_column = file_column.get_mutable_jsonb_column_ptr();
+    auto* jsonb_column_ptr = &jsonb_column;
+    const char* next = _physical_type.deserialize(buf, jsonb_column_ptr, be_exec_version);
+    file_column.set_jsonb_column_ptr(std::move(jsonb_column));
     return next;
 }
 
 void DataTypeFile::to_pb_column_meta(PColumnMeta* col_meta) const {
-    _schema.physical_type().to_pb_column_meta(col_meta);
+    _physical_type.to_pb_column_meta(col_meta);
 }
 
 std::optional<size_t> DataTypeFile::try_get_subfield(std::string_view name) const {

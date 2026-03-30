@@ -41,30 +41,19 @@ const FileSchemaDescriptor& FileSchemaDescriptor::instance() {
 }
 
 FileSchemaDescriptor::FileSchemaDescriptor() {
-    auto add_field = [this](const char* name, DataTypePtr type, bool nullable) {
+    auto add_field = [this](const char* name, DataTypePtr type) {
         _fields.emplace_back(FileFieldDesc {
                 .name = name,
                 .type = std::move(type),
-                .nullable = nullable,
         });
     };
 
-    add_field(OBJECT_URI, std::make_shared<DataTypeString>(4096, TYPE_VARCHAR), false);
-    add_field(FILE_NAME, std::make_shared<DataTypeString>(512, TYPE_VARCHAR), false);
-    add_field(FILE_EXTENSION, std::make_shared<DataTypeString>(64, TYPE_VARCHAR), false);
-    add_field(SIZE, std::make_shared<DataTypeInt64>(), false);
-    add_field(ETAG, make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)), true);
-    add_field(LAST_MODIFIED_AT, std::make_shared<DataTypeDateTimeV2>(3), false);
-
-    DataTypes types;
-    Strings names;
-    types.reserve(_fields.size());
-    names.reserve(_fields.size());
-    for (const auto& field : _fields) {
-        types.push_back(field.type);
-        names.emplace_back(field.name);
-    }
-    _physical_type = std::make_shared<DataTypeStruct>(types, names);
+    add_field(OBJECT_URI, std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
+    add_field(FILE_NAME, std::make_shared<DataTypeString>(512, TYPE_VARCHAR));
+    add_field(FILE_EXTENSION, std::make_shared<DataTypeString>(64, TYPE_VARCHAR));
+    add_field(SIZE, std::make_shared<DataTypeInt64>());
+    add_field(ETAG, make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field(LAST_MODIFIED_AT, std::make_shared<DataTypeDateTimeV2>(3));
 }
 
 std::optional<size_t> FileSchemaDescriptor::try_get_position(std::string_view name) const {
@@ -75,5 +64,4 @@ std::optional<size_t> FileSchemaDescriptor::try_get_position(std::string_view na
     }
     return std::nullopt;
 }
-
 } // namespace doris

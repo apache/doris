@@ -21,14 +21,12 @@
 #include <string_view>
 
 #include "core/data_type/data_type.h"
-#include "core/data_type/data_type_struct.h"
 
 namespace doris {
 
 struct FileFieldDesc {
     const char* name;
     DataTypePtr type;
-    bool nullable;
 };
 
 class FileSchemaDescriptor final {
@@ -36,12 +34,10 @@ public:
     static const FileSchemaDescriptor& instance();
     const FileFieldDesc& field(size_t idx) const { return _fields[idx]; }
     std::optional<size_t> try_get_position(std::string_view name) const;
-    const DataTypeStruct& physical_type() const { return *_physical_type; }
 
 private:
     FileSchemaDescriptor();
     std::vector<FileFieldDesc> _fields;
-    std::shared_ptr<DataTypeStruct> _physical_type;
 };
 
 } // namespace doris

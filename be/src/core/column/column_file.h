@@ -18,7 +18,6 @@
 #pragma once
 
 #include "core/column/column.h"
-#include "core/column/column_struct.h"
 #include "core/cow.h"
 #include "core/data_type/file_schema_descriptor.h"
 
@@ -33,7 +32,7 @@ private:
 public:
     using Base = COWHelper<IColumn, ColumnFile>;
     static MutablePtr create(const FileSchemaDescriptor& schema);
-    static MutablePtr create_from_struct(MutableColumnPtr data);
+    static MutablePtr create_from_jsonb(MutableColumnPtr data);
 
     std::string get_name() const override { return "File"; }
     void sanity_check() const override { _data->sanity_check(); }
@@ -104,12 +103,10 @@ public:
     void replace_float_special_values() override;
     void shrink_padding_chars() override { _data->shrink_padding_chars(); }
 
-    const ColumnStruct& get_struct_column() const;
-    ColumnStruct& get_struct_column();
-    MutableColumnPtr get_mutable_struct_column_ptr() { return get_struct_column().get_ptr(); }
-    void set_struct_column_ptr(MutableColumnPtr data) { _data = WrappedPtr(std::move(data)); }
-    const IColumn& get_subcolumn(size_t idx) const { return get_struct_column().get_column(idx); }
-    IColumn& get_subcolumn(size_t idx) { return get_struct_column().get_column(idx); }
+    const IColumn& get_jsonb_column() const { return *_data; }
+    IColumn& get_jsonb_column() { return *_data; }
+    MutableColumnPtr get_mutable_jsonb_column_ptr() { return _data->get_ptr(); }
+    void set_jsonb_column_ptr(MutableColumnPtr data) { _data = WrappedPtr(std::move(data)); }
     Status check_schema(const FileSchemaDescriptor& schema) const;
 };
 
