@@ -4,102 +4,100 @@ create database if not exists test_paimon_schema_change;
 
 use test_paimon_schema_change;
 
-CREATE TABLE sc_orc_pk (
-    id INT,
-    name STRING,
-    age INT
-) USING paimon
-TBLPROPERTIES ('primary-key' = 'id', "file.format" = "orc",'deletion-vectors.enabled' = 'true');
+-- paimon 1.3 : org.apache.spark.sql.execution.QueryExecutionException: java.lang.UnsupportedOperationException: Cannot update primary key
+-- https://github.com/apache/incubator-paimon/pull/6264
 
-INSERT INTO sc_orc_pk (id, name, age) VALUES (1, 'Alice', 30), (2, 'Bob', 25);
-INSERT INTO sc_orc_pk (id, name, age) VALUES (3, 'Charlie', 28);
-ALTER TABLE sc_orc_pk ADD COLUMNS (city STRING);
-INSERT INTO sc_orc_pk (id, name, age, city) VALUES (4, 'Charlie', 28, 'New York');
-INSERT INTO sc_orc_pk (id, name, age, city) VALUES (5, 'David', 32, 'Los Angeles');
-ALTER TABLE sc_orc_pk RENAME COLUMN name TO full_name;
-INSERT INTO sc_orc_pk (id, full_name, age, city) VALUES (6, 'David', 35, 'Los Angeles');
-INSERT INTO sc_orc_pk (id, full_name, age, city) VALUES (7, 'Eve', 27, 'San Francisco');
-ALTER TABLE sc_orc_pk DROP COLUMN age;
-INSERT INTO sc_orc_pk (id, full_name, city) VALUES (8, 'Eve', 'San Francisco');
-INSERT INTO sc_orc_pk (id, full_name, city) VALUES (9, 'Frank', 'Chicago');
-ALTER TABLE sc_orc_pk CHANGE COLUMN id id BIGINT;
-INSERT INTO sc_orc_pk (id, full_name, city) VALUES (10000000000, 'Frank', 'Chicago');
-INSERT INTO sc_orc_pk (id, full_name, city) VALUES (10, 'Grace', 'Seattle');
+-- CREATE TABLE sc_orc_pk (
+--     id INT,
+--     name STRING,
+--     age INT
+-- ) USING paimon
+-- TBLPROPERTIES ('primary-key' = 'id', "file.format" = "orc",'deletion-vectors.enabled' = 'true');
 
-ALTER TABLE sc_orc_pk ADD COLUMN salary DECIMAL(10,2) FIRST;
-INSERT INTO sc_orc_pk (id, full_name, city, salary) VALUES (11, 'Grace', 'Seattle', 5000.00);
-INSERT INTO sc_orc_pk (id, full_name, city, salary) VALUES (12, 'Heidi', 'Boston', 6000.00);
+-- INSERT INTO sc_orc_pk (id, name, age) VALUES (1, 'Alice', 30), (2, 'Bob', 25);
+-- INSERT INTO sc_orc_pk (id, name, age) VALUES (3, 'Charlie', 28);
+-- ALTER TABLE sc_orc_pk ADD COLUMNS (city STRING);
+-- INSERT INTO sc_orc_pk (id, name, age, city) VALUES (4, 'Charlie', 28, 'New York');
+-- INSERT INTO sc_orc_pk (id, name, age, city) VALUES (5, 'David', 32, 'Los Angeles');
+-- ALTER TABLE sc_orc_pk RENAME COLUMN name TO full_name;
+-- INSERT INTO sc_orc_pk (id, full_name, age, city) VALUES (6, 'David', 35, 'Los Angeles');
+-- INSERT INTO sc_orc_pk (id, full_name, age, city) VALUES (7, 'Eve', 27, 'San Francisco');
+-- ALTER TABLE sc_orc_pk DROP COLUMN age;
+-- INSERT INTO sc_orc_pk (id, full_name, city) VALUES (8, 'Eve', 'San Francisco');
+-- INSERT INTO sc_orc_pk (id, full_name, city) VALUES (9, 'Frank', 'Chicago');
+-- ALTER TABLE sc_orc_pk CHANGE COLUMN id id BIGINT;
+-- INSERT INTO sc_orc_pk (id, full_name, city) VALUES (10000000000, 'Frank', 'Chicago');
+-- INSERT INTO sc_orc_pk (id, full_name, city) VALUES (10, 'Grace', 'Seattle');
 
-ALTER TABLE sc_orc_pk RENAME COLUMN city TO location;
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (13, 'Heidi', 'Boston', 6000.00);
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (14, 'Ivan', 'Miami', 7000.00);
+-- ALTER TABLE sc_orc_pk ADD COLUMN salary DECIMAL(10,2) FIRST;
+-- INSERT INTO sc_orc_pk (id, full_name, city, salary) VALUES (11, 'Grace', 'Seattle', 5000.00);
+-- INSERT INTO sc_orc_pk (id, full_name, city, salary) VALUES (12, 'Heidi', 'Boston', 6000.00);
 
-ALTER TABLE sc_orc_pk CHANGE COLUMN salary salary DECIMAL(12,2);
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (15, 'Ivan', 'Miami', 7000.00);
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (16, 'Judy', 'Denver', 8000.00);
+-- ALTER TABLE sc_orc_pk RENAME COLUMN city TO location;
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (13, 'Heidi', 'Boston', 6000.00);
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (14, 'Ivan', 'Miami', 7000.00);
 
-ALTER TABLE sc_orc_pk ALTER COLUMN salary AFTER location;
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (17, 'Stm', 'ttttt', 8000.00);
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (18, 'Ken', 'Austin', 9000.00);
+-- ALTER TABLE sc_orc_pk CHANGE COLUMN salary salary DECIMAL(12,2);
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (15, 'Ivan', 'Miami', 7000.00);
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (16, 'Judy', 'Denver', 8000.00);
 
-ALTER TABLE sc_orc_pk ALTER COLUMN full_name FIRST;
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (19, 'AAAA', 'BBBB', 9000.00);
-INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (20, 'Laura', 'Portland', 10000.00);
+-- ALTER TABLE sc_orc_pk ALTER COLUMN salary AFTER location;
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (17, 'Stm', 'ttttt', 8000.00);
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (18, 'Ken', 'Austin', 9000.00);
 
-
-
-
-
-CREATE TABLE sc_parquet_pk (
-    id INT,
-    name STRING,
-    age INT
-) USING paimon
-TBLPROPERTIES ('primary-key' = 'id',"file.format" = "parquet",'deletion-vectors.enabled' = 'true');
-
-INSERT INTO sc_parquet_pk (id, name, age) VALUES (1, 'Alice', 30), (2, 'Bob', 25);
-INSERT INTO sc_parquet_pk (id, name, age) VALUES (3, 'Charlie', 28);
-
-ALTER TABLE sc_parquet_pk ADD COLUMNS (city STRING);
-INSERT INTO sc_parquet_pk (id, name, age, city) VALUES (3, 'Charlie', 28, 'New York');
-INSERT INTO sc_parquet_pk (id, name, age, city) VALUES (4, 'David', 32, 'Los Angeles');
-
-ALTER TABLE sc_parquet_pk RENAME COLUMN name TO full_name;
-INSERT INTO sc_parquet_pk (id, full_name, age, city) VALUES (4, 'David', 35, 'Los Angeles');
-INSERT INTO sc_parquet_pk (id, full_name, age, city) VALUES (5, 'Eve', 27, 'San Francisco');
-
-ALTER TABLE sc_parquet_pk DROP COLUMN age;
-INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (5, 'Eve', 'San Francisco');
-INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (6, 'Frank', 'Chicago');
-
-ALTER TABLE sc_parquet_pk CHANGE COLUMN id id BIGINT;
-INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (10000000000, 'Frank', 'Chicago');
-INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (7, 'Grace', 'Seattle');
-
-ALTER TABLE sc_parquet_pk ADD COLUMN salary DECIMAL(10,2) FIRST;
-INSERT INTO sc_parquet_pk (id, full_name, city, salary) VALUES (6, 'Grace', 'Seattle', 5000.00);
-INSERT INTO sc_parquet_pk (id, full_name, city, salary) VALUES (8, 'Heidi', 'Boston', 6000.00);
-
-ALTER TABLE sc_parquet_pk RENAME COLUMN city TO location;
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (7, 'Heidi', 'Boston', 6000.00);
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (9, 'Ivan', 'Miami', 7000.00);
-
-ALTER TABLE sc_parquet_pk CHANGE COLUMN salary salary DECIMAL(12,2);
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (8, 'Ivan', 'Miami', 7000.00);
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (10, 'Judy', 'Denver', 8000.00);
-
-ALTER TABLE sc_parquet_pk ALTER COLUMN salary AFTER location;
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (9, 'Stm', 'ttttt', 8000.00);
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (11, 'Ken', 'Austin', 9000.00);
-
-ALTER TABLE sc_parquet_pk ALTER COLUMN full_name FIRST;
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (10, 'AAAA', 'BBBB', 9000.00);
-INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (12, 'Laura', 'Portland', 10000.00);
+-- ALTER TABLE sc_orc_pk ALTER COLUMN full_name FIRST;
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (19, 'AAAA', 'BBBB', 9000.00);
+-- INSERT INTO sc_orc_pk (id, full_name, location, salary) VALUES (20, 'Laura', 'Portland', 10000.00);
 
 
 
 
 
+-- CREATE TABLE sc_parquet_pk (
+--     id INT,
+--     name STRING,
+--     age INT
+-- ) USING paimon
+-- TBLPROPERTIES ('primary-key' = 'id', "file.format" = "parquet",'deletion-vectors.enabled' = 'true');
+
+-- INSERT INTO sc_parquet_pk (id, name, age) VALUES (1, 'Alice', 30), (2, 'Bob', 25);
+-- INSERT INTO sc_parquet_pk (id, name, age) VALUES (3, 'Charlie', 28);
+
+-- ALTER TABLE sc_parquet_pk ADD COLUMNS (city STRING);
+-- INSERT INTO sc_parquet_pk (id, name, age, city) VALUES (3, 'Charlie', 28, 'New York');
+-- INSERT INTO sc_parquet_pk (id, name, age, city) VALUES (4, 'David', 32, 'Los Angeles');
+
+-- ALTER TABLE sc_parquet_pk RENAME COLUMN name TO full_name;
+-- INSERT INTO sc_parquet_pk (id, full_name, age, city) VALUES (4, 'David', 35, 'Los Angeles');
+-- INSERT INTO sc_parquet_pk (id, full_name, age, city) VALUES (5, 'Eve', 27, 'San Francisco');
+
+-- ALTER TABLE sc_parquet_pk DROP COLUMN age;
+-- INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (5, 'Eve', 'San Francisco');
+-- INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (6, 'Frank', 'Chicago');
+
+-- ALTER TABLE sc_parquet_pk CHANGE COLUMN id id BIGINT;
+-- INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (10000000000, 'Frank', 'Chicago');
+-- INSERT INTO sc_parquet_pk (id, full_name, city) VALUES (7, 'Grace', 'Seattle');
+
+-- ALTER TABLE sc_parquet_pk ADD COLUMN salary DECIMAL(10,2) FIRST;
+-- INSERT INTO sc_parquet_pk (id, full_name, city, salary) VALUES (6, 'Grace', 'Seattle', 5000.00);
+-- INSERT INTO sc_parquet_pk (id, full_name, city, salary) VALUES (8, 'Heidi', 'Boston', 6000.00);
+
+-- ALTER TABLE sc_parquet_pk RENAME COLUMN city TO location;
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (7, 'Heidi', 'Boston', 6000.00);
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (9, 'Ivan', 'Miami', 7000.00);
+
+-- ALTER TABLE sc_parquet_pk CHANGE COLUMN salary salary DECIMAL(12,2);
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (8, 'Ivan', 'Miami', 7000.00);
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (10, 'Judy', 'Denver', 8000.00);
+
+-- ALTER TABLE sc_parquet_pk ALTER COLUMN salary AFTER location;
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (9, 'Stm', 'ttttt', 8000.00);
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (11, 'Ken', 'Austin', 9000.00);
+
+-- ALTER TABLE sc_parquet_pk ALTER COLUMN full_name FIRST;
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (10, 'AAAA', 'BBBB', 9000.00);
+-- INSERT INTO sc_parquet_pk (id, full_name, location, salary) VALUES (12, 'Laura', 'Portland', 10000.00);
 
 
 

@@ -26,16 +26,31 @@ package org.apache.doris.authentication;
  * problems, dependency outages).
  */
 public class AuthenticationException extends Exception {
+    private final AuthenticationFailureType failureType;
 
     public AuthenticationException(String message) {
-        super(message);
+        this(message, AuthenticationFailureType.INTERNAL_ERROR);
     }
 
     public AuthenticationException(Throwable cause) {
-        super(cause);
+        this(cause == null ? null : cause.getMessage(), cause, AuthenticationFailureType.INTERNAL_ERROR);
     }
 
     public AuthenticationException(String message, Throwable cause) {
+        this(message, cause, AuthenticationFailureType.INTERNAL_ERROR);
+    }
+
+    public AuthenticationException(String message, AuthenticationFailureType failureType) {
+        super(message);
+        this.failureType = failureType == null ? AuthenticationFailureType.INTERNAL_ERROR : failureType;
+    }
+
+    public AuthenticationException(String message, Throwable cause, AuthenticationFailureType failureType) {
         super(message, cause);
+        this.failureType = failureType == null ? AuthenticationFailureType.INTERNAL_ERROR : failureType;
+    }
+
+    public AuthenticationFailureType getFailureType() {
+        return failureType;
     }
 }

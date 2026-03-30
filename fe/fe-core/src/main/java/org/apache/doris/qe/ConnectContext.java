@@ -274,6 +274,11 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+    // internal flag to expose Iceberg rowid metadata during analysis/planning.
+    // When set to a valid table ID (>= 0), only that specific table's getFullSchema()
+    // will include __DORIS_ICEBERG_ROWID_COL__. This prevents ambiguity in MERGE INTO
+    // when the source table is also an Iceberg table.
+    private long icebergRowIdTargetTableId = -1;
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
@@ -1022,6 +1027,28 @@ public class ConnectContext {
     public void setStatementContext(StatementContext statementContext) {
         this.statementContext = statementContext;
     }
+
+    /** Backward-compatible: returns true if any Iceberg table is targeted for row_id injection. */
+    public boolean needIcebergRowId() {
+        return icebergRowIdTargetTableId >= 0;
+    }
+
+    /** Check if a specific table should include the hidden row_id column. */
+    public boolean needIcebergRowIdForTable(long tableId) {
+        return icebergRowIdTargetTableId >= 0 && icebergRowIdTargetTableId == tableId;
+    }
+
+    /** Set the target table ID for row_id injection. Use -1 to clear. */
+    public void setIcebergRowIdTargetTableId(long tableId) {
+        this.icebergRowIdTargetTableId = tableId;
+    }
+
+    /** Get the previously saved target table ID (for save/restore pattern). */
+    public long getIcebergRowIdTargetTableId() {
+        return icebergRowIdTargetTableId;
+    }
+
+
 
     public void setResultSinkType(TResultSinkType resultSinkType) {
         this.resultSinkType = resultSinkType;

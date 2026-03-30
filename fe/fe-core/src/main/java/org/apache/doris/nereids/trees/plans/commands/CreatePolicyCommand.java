@@ -29,14 +29,11 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.mysql.privilege.PrivPredicate;
-import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.glue.translator.ExpressionTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
-import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.plans.PlanType;
-import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.Policy;
@@ -48,7 +45,6 @@ import org.apache.doris.qe.StmtExecutor;
 
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.ArrayList;
 import java.util.Map;
 import java.util.Optional;
 
@@ -184,20 +180,6 @@ public class CreatePolicyCommand extends Command implements ForwardWithSync {
             default:
                 throw new AnalysisException("Unknown policy type: " + policyType);
         }
-    }
-
-    /**
-     * translate to legacy expr, which do not need complex expression and table columns
-     */
-    private Expr translateToLegacyExpr(Expression expression, ConnectContext ctx) {
-        LogicalEmptyRelation plan = new LogicalEmptyRelation(
-                ConnectContext.get().getStatementContext().getNextRelationId(),
-                new ArrayList<>());
-        CascadesContext cascadesContext = CascadesContext.initContext(ctx.getStatementContext(), plan,
-                PhysicalProperties.ANY);
-        PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
-        ExpressionToExpr translator = new ExpressionToExpr();
-        return expression.accept(translator, planTranslatorContext);
     }
 
     private static class ExpressionToExpr extends ExpressionTranslator {

@@ -108,8 +108,62 @@ jobs:
           BASE_SHA: ${{ steps.pr.outputs.base_sha }}
 
       - name: Run automated code review
+        id: review
+        timeout-minutes: 55
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           PROMPT=$(cat /tmp/review_prompt.txt)
-          opencode run "$PROMPT" -m "github-copilot/claude-opus-4.6"
+
+          set +e
+          opencode run "$PROMPT" -m "github-copilot/claude-opus-4.6" 2>&1 | tee /tmp/opencode-review.log
+          status=${PIPESTATUS[0]}
+          set -e
+
+          last_log_line=$(awk 'NF { line = $0 } END { print line }' /tmp/opencode-review.log)
+
+          failure_reason=""
+          if printf '%s\n' "$last_log_line" | rg -q -i '^Error:|SSE read timed out'; then
+            failure_reason="$last_log_line"
+          elif [ "$status" -ne 0 ]; then
+            failure_reason="OpenCode exited with status $status"
+          fi
+
+          if [ -n "$failure_reason" ]; then
+            {
+              echo "failure_reason<<EOF"
+              printf '%s\n' "$failure_reason"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            exit 1
+          fi
+
+      - name: Comment PR on review failure
+        if: ${{ always() && steps.review.outcome != 'success' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          error_msg="${FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          gh pr comment "${{ github.event.issue.number }}" --body "$(cat <<EOF
+          OpenCode automated review failed and did not complete.
+
+          Error: ${error_msg}
+          Workflow run: ${RUN_URL}
+
+          Please inspect the workflow logs and rerun the review after the underlying issue is resolved.
+          EOF
+          )"
+
+      - name: Fail workflow if review failed
+        if: ${{ always() && steps.review.outcome != 'success' }}
+        env:
+          FAILURE_REASON: ${{ steps.review.outputs.failure_reason }}
+          REVIEW_OUTCOME: ${{ steps.review.outcome }}
+        run: |
+          error_msg="${FAILURE_REASON:-Review step was $REVIEW_OUTCOME (possibly timeout or cancelled)}"
+          echo "OpenCode automated review failed: ${error_msg}"
+          exit 1

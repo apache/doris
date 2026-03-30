@@ -19,6 +19,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -130,6 +131,11 @@ public class AdminSetReplicaVersionCommand extends Command implements ForwardWit
             throw new AnalysisException("Should add following properties: TABLET_ID, BACKEND_ID, "
                 + "VERSION, LAST_SUCCESS_VERSION, LAST_FAILED_VERSION");
         }
+    }
+
+    @Override
+    protected void checkSupportedInCloudMode(ConnectContext ctx) throws DdlException {
+        throw new DdlException("Unsupported operation");
     }
 
     @Override

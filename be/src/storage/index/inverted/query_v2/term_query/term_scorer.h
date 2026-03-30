@@ -45,6 +45,11 @@ public:
     uint32_t freq() const override { return _segment_postings->freq(); }
     uint32_t norm() const override { return _segment_postings->norm(); }
 
+    void seek_block(uint32_t target) { _segment_postings->seek_block(target); }
+    uint32_t last_doc_in_block() const { return _segment_postings->last_doc_in_block(); }
+    float block_max_score() const { return _segment_postings->block_max_score(); }
+    float max_score() const { return _segment_postings->max_score(); }
+
     float score() override { return _similarity->score(freq(), norm()); }
 
     bool has_null_bitmap(const NullBitmapResolver* resolver = nullptr) override {

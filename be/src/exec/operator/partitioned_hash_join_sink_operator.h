@@ -26,9 +26,10 @@
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/join_build_sink_operator.h"
 #include "exec/operator/operator.h"
-#include "exec/operator/spill_utils.h"
 #include "exec/partitioner/partitioner.h"
 #include "exec/pipeline/dependency.h"
+#include "exec/spill/spill_file.h"
+#include "exec/spill/spill_file_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -45,7 +46,7 @@ public:
     Status init(RuntimeState* state, LocalSinkStateInfo& info) override;
     Status open(RuntimeState* state) override;
     Status close(RuntimeState* state, Status exec_status) override;
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    Status revoke_memory(RuntimeState* state);
     size_t revocable_mem_size(RuntimeState* state) const;
     Status terminate(RuntimeState* state) override;
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
@@ -60,21 +61,26 @@ protected:
     PartitionedHashJoinSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
             : PipelineXSpillSinkLocalState<PartitionedHashJoinSharedState>(parent, state) {}
 
-    Status _spill_to_disk(uint32_t partition_index, const SpillStreamSPtr& spilling_stream);
+    Status _spill_to_disk(uint32_t partition_index);
 
     Status _partition_block(RuntimeState* state, Block* in_block, size_t begin, size_t end);
 
-    Status _revoke_unpartitioned_block(RuntimeState* state,
-                                       const std::shared_ptr<SpillContext>& spill_context);
+    Status _revoke_unpartitioned_block(RuntimeState* state);
 
-    Status _execute_spill_unpartitioned_block(RuntimeState* state, Block&& build_block);
+    Status _finish_spilling(RuntimeState* state);
+    // Flush any remaining partitioned in-memory blocks and close spill streams.
+    // Called after revoke operations to guarantee memory is cleared.
+    Status _force_flush_partitions(RuntimeState* state);
 
-    Status _finish_spilling();
-
-    Status _finish_spilling_callback(RuntimeState* state, TUniqueId query_id,
-                                     const std::shared_ptr<SpillContext>& spill_context);
-
-    Status _execute_spill_partitioned_blocks(RuntimeState* state, TUniqueId query_id);
+    /**
+     * @brief Spill partitioned build blocks to disk if needed.
+     *
+     * @param state Runtime state for the operator.
+     * @param force_spill If true, spill all non-empty partition blocks regardless of size;
+     *                    if false, only spill blocks whose size exceeds the spill buffer threshold.
+     *                    Use force_spill at call sites for clarity.
+     */
+    Status _execute_spill_partitioned_blocks(RuntimeState* state, bool force_spill);
 
     Status _setup_internal_operator(RuntimeState* state);
 
@@ -87,19 +93,19 @@ protected:
     std::unique_ptr<RuntimeProfile> _internal_runtime_profile;
     std::shared_ptr<Dependency> _finish_dependency;
 
-    RuntimeProfile::Counter* _partition_timer = nullptr;
     RuntimeProfile::Counter* _partition_shuffle_timer = nullptr;
     RuntimeProfile::Counter* _spill_build_timer = nullptr;
     RuntimeProfile::Counter* _in_mem_rows_counter = nullptr;
     RuntimeProfile::Counter* _memory_usage_reserved = nullptr;
+
+    std::vector<SpillFileWriterSPtr> _build_writers;
 };
 
 class PartitionedHashJoinSinkOperatorX
         : public JoinBuildSinkOperatorX<PartitionedHashJoinSinkLocalState> {
 public:
     PartitionedHashJoinSinkOperatorX(ObjectPool* pool, int operator_id, int dest_id,
-                                     const TPlanNode& tnode, const DescriptorTbl& descs,
-                                     uint32_t partition_count);
+                                     const TPlanNode& tnode, const DescriptorTbl& descs);
 
     Status init(const TDataSink& tsink) override {
         return Status::InternalError("{} should not init with TDataSink",
@@ -116,8 +122,7 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     size_t get_reserve_mem_size(RuntimeState* state, bool eos) override;
 
@@ -172,7 +177,8 @@ private:
     const std::vector<TExpr> _distribution_partition_exprs;
     const TPlanNode _tnode;
     const DescriptorTbl _descriptor_tbl;
-    const uint32_t _partition_count;
+
+    uint32_t _partition_count;
     std::unique_ptr<PartitionerBase> _partitioner;
 };
 

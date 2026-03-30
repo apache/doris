@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
@@ -159,42 +160,48 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
     @Override
     public PhysicalRepeat<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
+                groupingId, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
+                groupingId, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupExpression,
-                logicalProperties.get(), physicalProperties, statistics, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
+                groupingId, groupExpression,
+                logicalProperties.get(), physicalProperties, statistics, children.get(0)));
     }
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statistics) {
-        return new PhysicalRepeat<>(groupingSets, outputExpressions, groupingId, groupExpression,
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressions,
+                groupingId, groupExpression,
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> withAggOutput(List<NamedExpression> newOutput) {
-        return new PhysicalRepeat<>(groupingSets, newOutput, groupingId, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, newOutput, groupingId,
+                Optional.empty(),
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override
     public PhysicalRepeat<CHILD_TYPE> withGroupSetsAndOutput(List<List<Expression>> groupingSets,
             List<NamedExpression> outputExpressionList) {
-        return new PhysicalRepeat<>(groupingSets, outputExpressionList, groupingId, Optional.empty(),
-                getLogicalProperties(), physicalProperties, statistics, child());
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalRepeat<>(groupingSets, outputExpressionList,
+                groupingId, Optional.empty(),
+                getLogicalProperties(), physicalProperties, statistics, child()));
     }
 
     @Override

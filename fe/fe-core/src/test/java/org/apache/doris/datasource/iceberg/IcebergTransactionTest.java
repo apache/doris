@@ -21,6 +21,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.iceberg.helper.IcebergWriterHelper;
 import org.apache.doris.foundation.util.SerializationUtils;
 import org.apache.doris.nereids.trees.plans.commands.insert.IcebergInsertCommandContext;
 import org.apache.doris.thrift.TFileContent;
@@ -28,8 +29,12 @@ import org.apache.doris.thrift.TIcebergCommitData;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.DeleteFile;
+import org.apache.iceberg.FileFormat;
+import org.apache.iceberg.FileMetadata;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.PartitionSpec;
+import org.apache.iceberg.RowDelta;
 import org.apache.iceberg.Schema;
 import org.apache.iceberg.Table;
 import org.apache.iceberg.catalog.Namespace;
@@ -56,6 +61,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -453,5 +460,155 @@ public class IcebergTransactionTest {
         }
 
         checkSnapshotTotalProperties(table.currentSnapshot().summary(), "0", "0", "0");
+    }
+
+    @Test
+    public void testFinishDeleteDoesNotRewritePreviousDeleteFilesForV2() throws UserException {
+        verifyFinishDeleteRewriteBehavior(2, false);
+    }
+
+    @Test
+    public void testFinishDeleteRewritesAllSharedPuffinDeleteFilesForV3() throws UserException {
+        String referencedDataFile = "s3a://warehouse/wh/db3/tbWithoutPartition/data/data-file.parquet";
+
+        Table icebergTable = Mockito.mock(Table.class);
+        org.apache.iceberg.Transaction icebergTxn = Mockito.mock(org.apache.iceberg.Transaction.class);
+        RowDelta rowDelta = Mockito.mock(RowDelta.class, Mockito.RETURNS_SELF);
+        DeleteFile newDeleteFile = Mockito.mock(DeleteFile.class);
+        DeleteFile oldDeleteFile1 = buildDeletionVectorDeleteFile(
+                "s3a://warehouse/wh/db3/tbWithoutPartition/data/delete-shared.puffin",
+                referencedDataFile, 4L, 21L);
+        DeleteFile oldDeleteFile2 = buildDeletionVectorDeleteFile(
+                "s3a://warehouse/wh/db3/tbWithoutPartition/data/delete-shared.puffin",
+                referencedDataFile, 25L, 19L);
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        Mockito.when(icebergTable.newTransaction()).thenReturn(icebergTxn);
+        Mockito.when(icebergTable.currentSnapshot()).thenReturn(null);
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(icebergTable.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+        Mockito.when(icebergTable.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(icebergTable.name()).thenReturn(tbWithoutPartition);
+        Mockito.when(icebergTxn.table()).thenReturn(icebergTable);
+        Mockito.when(icebergTxn.newRowDelta()).thenReturn(rowDelta);
+        Mockito.when(newDeleteFile.path()).thenReturn("s3a://warehouse/wh/db3/tbWithoutPartition/data/delete-new.puffin");
+
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("delete-dv-shared.puffin");
+        commitData.setFileContent(TFileContent.POSITION_DELETES);
+        commitData.setRowCount(3);
+        commitData.setFileSize(44);
+        commitData.setContentOffset(4);
+        commitData.setContentSizeInBytes(21);
+        commitData.setReferencedDataFilePath(referencedDataFile);
+
+        IcebergTransaction txn = getTxn();
+        txn.updateIcebergCommitData(Collections.singletonList(commitData));
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class);
+                MockedStatic<IcebergWriterHelper> mockedWriterHelper =
+                        Mockito.mockStatic(IcebergWriterHelper.class)) {
+            mockedUtils.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(icebergTable);
+            mockedUtils.when(() -> IcebergUtils.getFileFormat(icebergTable)).thenReturn(FileFormat.PARQUET);
+            mockedUtils.when(() -> IcebergUtils.getFormatVersion(icebergTable)).thenReturn(3);
+            mockedWriterHelper.when(() -> IcebergWriterHelper.convertToDeleteFiles(
+                            ArgumentMatchers.any(FileFormat.class),
+                            ArgumentMatchers.eq(spec),
+                            ArgumentMatchers.anyList()))
+                    .thenReturn(Collections.singletonList(newDeleteFile));
+
+            txn.beginDelete(icebergExternalTable);
+            txn.setRewrittenDeleteFilesByReferencedDataFile(
+                    Collections.singletonMap(referencedDataFile, Arrays.asList(oldDeleteFile1, oldDeleteFile2)));
+            txn.finishDelete(NameMapping.createForTest(dbName, tbWithoutPartition));
+        }
+
+        Mockito.verify(rowDelta).addDeletes(newDeleteFile);
+        Mockito.verify(rowDelta).removeDeletes(oldDeleteFile1);
+        Mockito.verify(rowDelta).removeDeletes(oldDeleteFile2);
+        Mockito.verify(rowDelta).commit();
+    }
+
+    private void verifyFinishDeleteRewriteBehavior(int formatVersion, boolean expectRewrite)
+            throws UserException {
+        String referencedDataFile = "s3a://warehouse/wh/db3/tbWithoutPartition/data/data-file.parquet";
+
+        Table icebergTable = Mockito.mock(Table.class);
+        org.apache.iceberg.Transaction icebergTxn = Mockito.mock(org.apache.iceberg.Transaction.class);
+        RowDelta rowDelta = Mockito.mock(RowDelta.class, Mockito.RETURNS_SELF);
+        DeleteFile newDeleteFile = Mockito.mock(DeleteFile.class);
+        DeleteFile oldDeleteFile = Mockito.mock(DeleteFile.class);
+        IcebergExternalTable icebergExternalTable = Mockito.mock(IcebergExternalTable.class);
+
+        PartitionSpec spec = PartitionSpec.unpartitioned();
+        Mockito.when(icebergTable.newTransaction()).thenReturn(icebergTxn);
+        Mockito.when(icebergTable.currentSnapshot()).thenReturn(null);
+        Mockito.when(icebergTable.spec()).thenReturn(spec);
+        Mockito.when(icebergTable.specs()).thenReturn(Collections.singletonMap(spec.specId(), spec));
+        Mockito.when(icebergTable.properties()).thenReturn(Collections.emptyMap());
+        Mockito.when(icebergTable.name()).thenReturn(tbWithoutPartition);
+        Mockito.when(icebergTxn.table()).thenReturn(icebergTable);
+        Mockito.when(icebergTxn.newRowDelta()).thenReturn(rowDelta);
+        Mockito.when(newDeleteFile.path()).thenReturn("s3a://warehouse/wh/db3/tbWithoutPartition/data/delete-new.puffin");
+        Mockito.when(oldDeleteFile.path()).thenReturn("s3a://warehouse/wh/db3/tbWithoutPartition/data/delete-old.parquet");
+
+        Mockito.when(icebergExternalTable.getCatalog()).thenReturn(spyExternalCatalog);
+        Mockito.when(icebergExternalTable.getName()).thenReturn(tbWithoutPartition);
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("delete-dv.puffin");
+        commitData.setFileContent(TFileContent.POSITION_DELETES);
+        commitData.setRowCount(3);
+        commitData.setFileSize(33);
+        commitData.setReferencedDataFilePath(referencedDataFile);
+
+        IcebergTransaction txn = getTxn();
+        txn.updateIcebergCommitData(Collections.singletonList(commitData));
+
+        try (MockedStatic<IcebergUtils> mockedUtils = Mockito.mockStatic(IcebergUtils.class);
+                MockedStatic<IcebergWriterHelper> mockedWriterHelper =
+                        Mockito.mockStatic(IcebergWriterHelper.class)) {
+            mockedUtils.when(() -> IcebergUtils.getIcebergTable(ArgumentMatchers.any(ExternalTable.class)))
+                    .thenReturn(icebergTable);
+            mockedUtils.when(() -> IcebergUtils.getFileFormat(icebergTable)).thenReturn(FileFormat.PARQUET);
+            mockedUtils.when(() -> IcebergUtils.getFormatVersion(icebergTable)).thenReturn(formatVersion);
+            mockedWriterHelper.when(() -> IcebergWriterHelper.convertToDeleteFiles(
+                            ArgumentMatchers.any(FileFormat.class),
+                            ArgumentMatchers.eq(spec),
+                            ArgumentMatchers.anyList()))
+                    .thenReturn(Collections.singletonList(newDeleteFile));
+
+            txn.beginDelete(icebergExternalTable);
+            txn.setRewrittenDeleteFilesByReferencedDataFile(
+                    Collections.singletonMap(referencedDataFile, Collections.singletonList(oldDeleteFile)));
+            txn.finishDelete(NameMapping.createForTest(dbName, tbWithoutPartition));
+        }
+
+        Mockito.verify(rowDelta).addDeletes(newDeleteFile);
+        if (expectRewrite) {
+            Mockito.verify(rowDelta).removeDeletes(oldDeleteFile);
+        } else {
+            Mockito.verify(rowDelta, Mockito.never()).removeDeletes(ArgumentMatchers.any(DeleteFile.class));
+        }
+        Mockito.verify(rowDelta).commit();
+    }
+
+    private DeleteFile buildDeletionVectorDeleteFile(String puffinPath, String referencedDataFile,
+            long contentOffset, long contentLength) {
+        return FileMetadata.deleteFileBuilder(PartitionSpec.unpartitioned())
+                .ofPositionDeletes()
+                .withPath(puffinPath)
+                .withFormat(FileFormat.PUFFIN)
+                .withFileSizeInBytes(128)
+                .withRecordCount(2)
+                .withContentOffset(contentOffset)
+                .withContentSizeInBytes(contentLength)
+                .withReferencedDataFile(referencedDataFile)
+                .build();
     }
 }

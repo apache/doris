@@ -19,8 +19,6 @@
 
 #include <gen_cpp/Types_types.h>
 
-#include <algorithm>
-#include <cctype>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -29,6 +27,7 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
 #include "common/status.h"
 #include "io/file_factory.h"
 #include "io/fs/file_reader.h"
@@ -40,6 +39,7 @@
 #include "paimon/fs/file_system_factory.h"
 #include "paimon/result.h"
 #include "paimon/status.h"
+#include "util/string_util.h"
 
 namespace paimon {
 
@@ -47,12 +47,6 @@ struct ParsedUri {
     std::string scheme;
     std::string authority;
 };
-
-std::string to_lower(std::string value) {
-    std::ranges::transform(value, value.begin(),
-                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-    return value;
-}
 
 ParsedUri parse_uri(const std::string& path) {
     ParsedUri parsed;
@@ -65,7 +59,7 @@ ParsedUri parse_uri(const std::string& path) {
     if (scheme_pos == std::string::npos || scheme_pos == 0) {
         return parsed;
     }
-    parsed.scheme = to_lower(path.substr(0, scheme_pos));
+    parsed.scheme = doris::to_lower(path.substr(0, scheme_pos));
     size_t authority_start = scheme_pos + delim_len;
     if (authority_start >= path.size() || path[authority_start] == '/') {
         return parsed;
@@ -79,38 +73,58 @@ ParsedUri parse_uri(const std::string& path) {
     return parsed;
 }
 
-bool is_s3_scheme(const std::string& scheme) {
-    return scheme == "s3" || scheme == "s3a" || scheme == "s3n" || scheme == "oss" ||
-           scheme == "obs" || scheme == "cos" || scheme == "cosn" || scheme == "gs" ||
-           scheme == "abfs" || scheme == "abfss" || scheme == "wasb" || scheme == "wasbs";
+bool parse_scheme_mapping_target(std::string_view raw_target, doris::TFileType::type* type) {
+    std::string target = doris::to_lower(std::string(doris::trim(raw_target)));
+    if (target == "local") {
+        *type = doris::TFileType::FILE_LOCAL;
+        return true;
+    }
+    if (target == "hdfs") {
+        *type = doris::TFileType::FILE_HDFS;
+        return true;
+    }
+    if (target == "s3") {
+        *type = doris::TFileType::FILE_S3;
+        return true;
+    }
+    if (target == "http") {
+        *type = doris::TFileType::FILE_HTTP;
+        return true;
+    }
+    if (target == "broker") {
+        *type = doris::TFileType::FILE_BROKER;
+        return true;
+    }
+    return false;
 }
 
-bool is_hdfs_scheme(const std::string& scheme) {
-    return scheme == "hdfs" || scheme == "viewfs" || scheme == "local";
-}
-
-bool is_http_scheme(const std::string& scheme) {
-    return scheme == "http" || scheme == "https";
+bool parse_scheme_mapping_entry(std::string_view raw_entry, std::string* scheme,
+                                doris::TFileType::type* type) {
+    size_t separator = raw_entry.find('=');
+    if (separator == std::string_view::npos) {
+        return false;
+    }
+    *scheme = doris::to_lower(std::string(doris::trim(raw_entry.substr(0, separator))));
+    if (scheme->empty()) {
+        return false;
+    }
+    return parse_scheme_mapping_target(raw_entry.substr(separator + 1), type);
 }
 
 doris::TFileType::type map_scheme_to_file_type(const std::string& scheme) {
     if (scheme.empty()) {
         return doris::TFileType::FILE_HDFS;
     }
-    if (scheme == "file") {
-        return doris::TFileType::FILE_LOCAL;
-    }
-    if (is_hdfs_scheme(scheme)) {
-        return doris::TFileType::FILE_HDFS;
-    }
-    if (is_s3_scheme(scheme)) {
-        return doris::TFileType::FILE_S3;
-    }
-    if (is_http_scheme(scheme)) {
-        return doris::TFileType::FILE_HTTP;
-    }
-    if (scheme == "ofs" || scheme == "gfs" || scheme == "jfs") {
-        return doris::TFileType::FILE_BROKER;
+    std::string normalized_scheme = doris::to_lower(scheme);
+    for (const auto& mapping_entry : doris::config::paimon_file_system_scheme_mappings) {
+        std::string configured_scheme;
+        doris::TFileType::type configured_type;
+        if (!parse_scheme_mapping_entry(mapping_entry, &configured_scheme, &configured_type)) {
+            continue;
+        }
+        if (configured_scheme == normalized_scheme) {
+            return configured_type;
+        }
     }
     return doris::TFileType::FILE_HDFS;
 }
@@ -149,7 +163,7 @@ std::string normalize_path_for_type(const std::string& path, const std::string& 
     if (type == doris::TFileType::FILE_LOCAL) {
         return normalize_local_path(path);
     }
-    if (type == doris::TFileType::FILE_S3 && scheme != "s3" && !is_http_scheme(scheme)) {
+    if (type == doris::TFileType::FILE_S3 && scheme != "s3") {
         return replace_scheme(path, "s3");
     }
     return path;

@@ -173,7 +173,9 @@ TEST_F(ArrowResultBlockBufferTest, TestArrowResultBlockBuffer) {
         EXPECT_FALSE(fail);
     }
     {
-        EXPECT_TRUE(buffer.close(ins_id, Status::OK(), 0).ok());
+        bool is_fully_closed = false;
+        EXPECT_TRUE(buffer.close(ins_id, Status::OK(), 0, is_fully_closed).ok());
+        EXPECT_TRUE(is_fully_closed);
         EXPECT_EQ(buffer._instance_rows[ins_id], 0);
         EXPECT_TRUE(buffer._instance_rows_in_queue.empty());
         EXPECT_EQ(buffer._waiting_rpc.size(), 0);
@@ -305,8 +307,10 @@ TEST_F(ArrowResultBlockBufferTest, TestErrorClose) {
         EXPECT_FALSE(fail);
     }
     {
-        EXPECT_EQ(buffer.close(ins_id, Status::InternalError(""), 0).code(),
+        bool is_fully_closed = false;
+        EXPECT_EQ(buffer.close(ins_id, Status::InternalError(""), 0, is_fully_closed).code(),
                   ErrorCode::INTERNAL_ERROR);
+        EXPECT_TRUE(is_fully_closed);
         EXPECT_EQ(buffer._instance_rows[ins_id], 0);
         EXPECT_TRUE(buffer._instance_rows_in_queue.empty());
         EXPECT_EQ(buffer._waiting_rpc.size(), 0);
@@ -324,8 +328,10 @@ TEST_F(ArrowResultBlockBufferTest, TestErrorClose) {
         new_ins_id.lo = 1;
         auto new_dep = Dependency::create_shared(0, 0, "Test", true);
         buffer.set_dependency(new_ins_id, new_dep);
-        EXPECT_EQ(buffer.close(ins_id, Status::InternalError(""), 0).code(),
+        bool is_fully_closed = true; // will be set to false since new_dep remains
+        EXPECT_EQ(buffer.close(ins_id, Status::InternalError(""), 0, is_fully_closed).code(),
                   ErrorCode::INTERNAL_ERROR);
+        EXPECT_FALSE(is_fully_closed);
         EXPECT_FALSE(data);
         EXPECT_FALSE(close);
         EXPECT_FALSE(fail);

@@ -293,14 +293,6 @@ public class ColumnDef {
         return name;
     }
 
-    public AggregateType getAggregateType() {
-        return aggregateType;
-    }
-
-    public void setAggregateType(AggregateType aggregateType) {
-        this.aggregateType = aggregateType;
-    }
-
     public boolean isKey() {
         return isKey;
     }

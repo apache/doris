@@ -62,6 +62,15 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
+/**
+ * @deprecated This class and its subclasses are deprecated.
+ * JDBC read operations should use {@link JdbcJniScanner} (extends JniScanner).
+ * JDBC write operations should use {@link JdbcJniWriter} (extends JniWriter).
+ * This class is retained temporarily because JdbcJniScanner does not yet implement
+ * all database-specific type conversions that exist in the executor subclasses.
+ * Once those are ported, this class hierarchy can be removed.
+ */
+@Deprecated
 public abstract class BaseJdbcExecutor implements JdbcExecutor {
     private static final Logger LOG = Logger.getLogger(BaseJdbcExecutor.class);
     private static final TBinaryProtocol.Factory PROTOCOL_FACTORY = new TBinaryProtocol.Factory();

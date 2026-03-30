@@ -58,24 +58,23 @@ public:
         return Status::OK();
     }
 
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
-
     Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
                                     BufferWritable& bw, FormatOptions& options) const override {
         SERIALIZE_COLUMN_TO_JSON();
     }
     Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
                                           const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_one_cell_from_text with type " +
-                                    column.get_name());
+        auto& data_column = assert_cast<ColumnQuantileState&>(column);
+        QuantileState quantile_state(slice);
+        data_column.insert_value(std::move(quantile_state));
+        return Status::OK();
     }
 
     Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
                                                uint64_t* num_deserialized,
                                                const FormatOptions& options) const override {
-        return Status::NotSupported("deserialize_column_from_text_vector with type " +
-                                    column.get_name());
+        DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
+        return Status::OK();
     }
 
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
@@ -189,6 +188,10 @@ public:
         data.serialize((uint8_t*)result.data());
         bw.write(result.data(), result.size());
     }
+
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 };
 #include "common/compile_check_end.h"
 } // namespace doris

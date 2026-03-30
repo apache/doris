@@ -69,7 +69,6 @@ import java.io.IOException;
 import java.sql.SQLException;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -135,7 +134,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         this.serializer.init(config);
 
         // Initialize thread pool for parallel polling
@@ -163,7 +162,7 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         StartupMode startupMode = sourceConfig.getStartupOptions().startupMode;
         List<MySqlSnapshotSplit> remainingSnapshotSplits = new ArrayList<>();
         MySqlBinlogSplit remainingBinlogSplit = null;
-        if (startupMode.equals(StartupMode.INITIAL)) {
+        if (startupMode.equals(StartupMode.INITIAL) || startupMode.equals(StartupMode.SNAPSHOT)) {
             remainingSnapshotSplits =
                     startSplitChunks(sourceConfig, ftsReq.getSnapshotTable(), ftsReq.getConfig());
         } else {
@@ -779,18 +778,18 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         // unnecessary processing overhead until DDL support is added.
         configFactory.includeSchemaChanges(false);
 
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        String[] includingTbls =
-                Arrays.stream(includingTables.split(","))
-                        .map(t -> databaseName + "." + t.trim())
-                        .toArray(String[]::new);
-        configFactory.tableList(includingTbls);
+        // Set table list
+        String[] tableList = ConfigUtil.getTableList(databaseName, cdcConfig);
+        com.google.common.base.Preconditions.checkArgument(
+                tableList.length >= 1, "include_tables or table is required");
+        configFactory.tableList(tableList);
 
         // setting startMode
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
-            // do not need set offset when initial
-            // configFactory.startupOptions(StartupOptions.initial());
+            configFactory.startupOptions(StartupOptions.initial());
+        } else if (DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startupMode)) {
+            configFactory.startupOptions(StartupOptions.snapshot());
         } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
             BinlogOffset binlogOffset =
@@ -810,7 +809,14 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
             }
             if (offsetMap.containsKey(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY)
                     && offsetMap.containsKey(BinlogOffset.BINLOG_POSITION_OFFSET_KEY)) {
-                BinlogOffset binlogOffset = new BinlogOffset(offsetMap);
+                BinlogOffset binlogOffset =
+                        BinlogOffset.builder()
+                                .setBinlogFilePosition(
+                                        offsetMap.get(BinlogOffset.BINLOG_FILENAME_OFFSET_KEY),
+                                        Long.parseLong(
+                                                offsetMap.get(
+                                                        BinlogOffset.BINLOG_POSITION_OFFSET_KEY)))
+                                .build();
                 configFactory.startupOptions(StartupOptions.specificOffset(binlogOffset));
             } else {
                 throw new RuntimeException("Incorrect offset " + startupMode);

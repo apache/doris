@@ -38,6 +38,15 @@ export TP_LIB_DIR="${DORIS_THIRDPARTY}/installed/lib"
 HADOOP_DEPS_NAME="hadoop-deps"
 . "${DORIS_HOME}/env.sh"
 
+# ===== Build Profile =====
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    _BP_STATE="${DORIS_HOME}/.build_profile_state.$$"
+    "${DORIS_HOME}/build_profile.sh" collect "${_BP_STATE}" "$*"
+    trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 130; exit 130' INT TERM
+    trap '"${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" $?; exit $?' ERR
+fi
+# ===== End Build Profile =====
+
 # Check args
 usage() {
     echo "
@@ -71,6 +80,7 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
+    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=ON, it will skip packaging juicefs-hadoop jar into FE/BE output.
 
   Eg.
     $0                                      build all
@@ -132,6 +142,45 @@ function copy_common_files() {
     cp -r -p "${DORIS_HOME}/NOTICE.txt" "$1/"
     cp -r -p "${DORIS_HOME}/dist/LICENSE-dist.txt" "$1/"
     cp -r -p "${DORIS_HOME}/dist/licenses" "$1/"
+}
+
+. "${DORIS_HOME}/docker/thirdparties/juicefs-helpers.sh"
+
+find_juicefs_hadoop_jar() {
+    juicefs_find_hadoop_jar_by_globs \
+        "${DORIS_THIRDPARTY}/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_THIRDPARTY}/src/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_HOME}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar" \
+        "${DORIS_HOME}/thirdparty/src/juicefs-hadoop-[0-9]*.jar"
+}
+
+detect_juicefs_version() {
+    local juicefs_jar
+    juicefs_jar=$(find_juicefs_hadoop_jar || true)
+    juicefs_detect_hadoop_version "${juicefs_jar}" "${JUICEFS_DEFAULT_VERSION}"
+}
+
+download_juicefs_hadoop_jar() {
+    local juicefs_version="$1"
+    local cache_dir="${DORIS_HOME}/thirdparty/installed/juicefs_libs"
+    juicefs_download_hadoop_jar_to_cache "${juicefs_version}" "${cache_dir}"
+}
+
+copy_juicefs_hadoop_jar() {
+    local target_dir="$1"
+    local source_jar=""
+    source_jar=$(find_juicefs_hadoop_jar || true)
+    if [[ -z "${source_jar}" ]]; then
+        local juicefs_version
+        juicefs_version=$(detect_juicefs_version)
+        source_jar=$(download_juicefs_hadoop_jar "${juicefs_version}" || true)
+    fi
+    if [[ -z "${source_jar}" ]]; then
+        echo "WARN: skip copying juicefs-hadoop jar, not found in thirdparty and download failed"
+        return 0
+    fi
+    cp -r -p "${source_jar}" "${target_dir}/"
+    echo "Copy JuiceFS Hadoop jar to ${target_dir}: $(basename "${source_jar}")"
 }
 
 if ! OPTS="$(getopt \
@@ -497,6 +546,12 @@ else
     BUILD_JINDOFS='ON'
 fi
 
+if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
+    BUILD_JUICEFS='OFF'
+else
+    BUILD_JUICEFS='ON'
+fi
+
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
 fi
@@ -545,6 +600,7 @@ echo "Get params:
     BUILD_BE_JAVA_EXTENSIONS            -- ${BUILD_BE_JAVA_EXTENSIONS}
     BUILD_BE_CDC_CLIENT                 -- ${BUILD_BE_CDC_CLIENT}
     BUILD_HIVE_UDF                      -- ${BUILD_HIVE_UDF}
+    BUILD_JUICEFS                       -- ${BUILD_JUICEFS}
     PARALLEL                            -- ${PARALLEL}
     CLEAN                               -- ${CLEAN}
     GLIBC_COMPATIBILITY                 -- ${GLIBC_COMPATIBILITY}
@@ -767,6 +823,57 @@ function build_ui() {
     cp -r "${ui_dist}"/* "${DORIS_HOME}/fe/fe-core/src/main/resources/static"/
 }
 
+function build_fe_modules() {
+    local thread_count="${FE_MAVEN_THREADS:-1C}"
+    local retry_thread_count="${FE_MAVEN_RETRY_THREADS:-1}"
+    local log_file
+    local -a dependency_mvn_opts=()
+    local -a extra_mvn_opts=()
+    local -a user_settings_opts=()
+    local -a mvn_cmd=(
+        "${MVN_CMD}"
+        package
+        -pl
+        "${FE_MODULES}"
+        -am
+        -Dskip.doc=true
+        -DskipTests
+    )
+
+    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
+        mvn_cmd+=("-Dcheckstyle.skip=true")
+    fi
+    if [[ -n "${MVN_OPT}" ]]; then
+        # shellcheck disable=SC2206
+        extra_mvn_opts=(${MVN_OPT})
+    fi
+    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
+        dependency_mvn_opts+=("-Dobs.dependency.scope=provided")
+    fi
+    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
+        dependency_mvn_opts+=("-Dcos.dependency.scope=provided")
+    fi
+    if [[ -n "${USER_SETTINGS_MVN_REPO}" && -f "${USER_SETTINGS_MVN_REPO}" ]]; then
+        user_settings_opts=(-gs "${USER_SETTINGS_MVN_REPO}")
+    fi
+
+    mvn_cmd+=("${extra_mvn_opts[@]}" "${dependency_mvn_opts[@]}" "${user_settings_opts[@]}" -T "${thread_count}")
+    log_file="$(mktemp)"
+    if "${mvn_cmd[@]}" 2>&1 | tee "${log_file}"; then
+        rm -f "${log_file}"
+        return 0
+    fi
+    if [[ "${thread_count}" != "${retry_thread_count}" ]] && grep -Fq "Could not acquire lock(s)" "${log_file}"; then
+        echo "FE Maven build hit Maven resolver lock contention. Retrying with -T ${retry_thread_count}."
+        mvn_cmd=("${mvn_cmd[@]:0:${#mvn_cmd[@]}-2}" -T "${retry_thread_count}")
+        "${mvn_cmd[@]}"
+        rm -f "${log_file}"
+        return 0
+    fi
+    rm -f "${log_file}"
+    return 1
+}
+
 # FE UI must be built before building FE
 if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_UI}" -eq 1 ]]; then
@@ -781,28 +888,7 @@ if [[ "${FE_MODULES}" != '' ]]; then
     if [[ "${CLEAN}" -eq 1 ]]; then
         clean_fe
     fi
-    DEPENDENCIES_MVN_OPTS=" "
-    if [[ "${BUILD_OBS_DEPENDENCIES}" -eq 0 ]]; then
-        DEPENDENCIES_MVN_OPTS+=" -Dobs.dependency.scope=provided "
-    fi
-    if [[ "${BUILD_COS_DEPENDENCIES}" -eq 0 ]]; then
-        DEPENDENCIES_MVN_OPTS+=" -Dcos.dependency.scope=provided "
-    fi
-    
-    if [[ "${DISABLE_JAVA_CHECK_STYLE}" = "ON" ]]; then
-        # Allowed user customer set env param USER_SETTINGS_MVN_REPO means settings.xml file path
-        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
-        else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests -Dcheckstyle.skip=true ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
-        fi
-    else
-        if [[ -n ${USER_SETTINGS_MVN_REPO} && -f ${USER_SETTINGS_MVN_REPO} ]]; then
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -gs "${USER_SETTINGS_MVN_REPO}" -T 1C
-        else
-            "${MVN_CMD}" package -pl ${FE_MODULES:+${FE_MODULES}} -am -Dskip.doc=true -DskipTests ${MVN_OPT:+${MVN_OPT}} ${DEPENDENCIES_MVN_OPTS}  -T 1C
-        fi
-    fi
+    build_fe_modules
     cd "${DORIS_HOME}"
 fi
 
@@ -824,6 +910,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
         install -d "${DORIS_OUTPUT}/fe/lib/jindofs"
     fi
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        install -d "${DORIS_OUTPUT}/fe/lib/juicefs"
+    fi
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/doris-fe.jar" "${DORIS_OUTPUT}/fe/lib"/
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
@@ -842,6 +931,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
         fi
+    fi
+
+    # copy juicefs hadoop client jar
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/fe/lib/juicefs"
     fi
 
     cp -r -p "${DORIS_HOME}/minidump" "${DORIS_OUTPUT}/fe"/
@@ -1029,6 +1123,12 @@ EOF
             cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
         fi
     fi
+    if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
+        install -d "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
+
+        # copy juicefs hadoop client jar
+        copy_juicefs_hadoop_jar "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"
+    fi
 
     cp -r -p "${DORIS_THIRDPARTY}/installed/webroot"/* "${DORIS_OUTPUT}/be/www"/
     copy_common_files "${DORIS_OUTPUT}/be/"
@@ -1087,6 +1187,10 @@ echo "***************************************"
 
 if [[ -n "${DORIS_POST_BUILD_HOOK}" ]]; then
     eval "${DORIS_POST_BUILD_HOOK}"
+fi
+
+if [[ "${DORIS_BUILD_PROFILE}" == "1" ]]; then
+    "${DORIS_HOME}/build_profile.sh" record "${_BP_STATE}" 0
 fi
 
 exit 0

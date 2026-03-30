@@ -19,9 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -70,17 +68,17 @@ public class Column implements GsonPostProcessable {
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
+    public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+    // table stream columns
+    public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
+    public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
-    private static final String COLUMN_STRUCT_CHILDREN = "field";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
-
-    public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, -1,
-            null, "invalid", true, null, -1, null);
 
     @SerializedName(value = "name")
     private String name;
@@ -277,8 +275,8 @@ public class Column implements GsonPostProcessable {
         }
         this.sessionVariables = sessionVariables;
 
-        if (type.isAggStateType()) {
-            AggStateType aggState = (AggStateType) type;
+        if (this.type.isAggStateType()) {
+            AggStateType aggState = (AggStateType) (this.type);
             for (int i = 0; i < aggState.getSubTypes().size(); i++) {
                 Column c = new Column(COLUMN_AGG_ARGUMENT_CHILDREN, aggState.getSubTypes().get(i));
                 c.setIsAllowNull(aggState.getSubTypeNullables().get(i));
@@ -381,10 +379,6 @@ public class Column implements GsonPostProcessable {
         this.children.add(column);
     }
 
-    public void setDefineName(String defineName) {
-        this.defineName = defineName;
-    }
-
     public String getDefineName() {
         if (defineName != null) {
             return defineName;
@@ -411,23 +405,7 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getDisplayName() {
-        if (defineExpr == null) {
-            return name;
-        } else {
-            return MaterializedIndexMeta.normalizeName(
-                    defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE));
-        }
-    }
-
-    public String getNameWithoutPrefix(String prefix) {
-        if (isNameWithPrefix(prefix)) {
-            return name.substring(prefix.length());
-        }
         return name;
-    }
-
-    public boolean isNameWithPrefix(String prefix) {
-        return this.name.startsWith(prefix);
     }
 
     public void setIsKey(boolean isKey) {
@@ -1077,8 +1055,7 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExpr()
-                    .accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(")");
+            sb.append(" AS (").append(generatedColumnInfo.getExprSql()).append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");

@@ -1307,7 +1307,7 @@ suite("test_routine_load_p2","p2,nonConcurrent") {
                     sql "sync"
                 }catch (Exception e) {
                     log.info("create routine load failed: ${e.getMessage()}")
-                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = Format type is invalid. format=`test`")
+                    assertEquals(e.getMessage(), "errCode = 2, detailMessage = format:test is not supported.")
                 }
                 i++
             }
@@ -1416,8 +1416,6 @@ suite("test_routine_load_p2","p2,nonConcurrent") {
         }
 
         try {
-            set_be_param.call("enable_simdjson_reader", "false")
-
             for (String tableName in tables) {
                 sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
                 sql new File("""${context.file.parent}/ddl/${tableName}_create.sql""").text
@@ -1489,7 +1487,6 @@ suite("test_routine_load_p2","p2,nonConcurrent") {
                 i++
             }
         } finally {
-            set_be_param.call("enable_simdjson_reader", "true")
             for (String tableName in tables) {
                 sql new File("""${context.file.parent}/ddl/${tableName}_drop.sql""").text
             }

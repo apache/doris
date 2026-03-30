@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
@@ -113,16 +114,18 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalDeferMaterializeOlapScan(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, Optional.of(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeOlapScan(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
+                groupExpression, Optional.of(getLogicalProperties())));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.isEmpty(), "LogicalDeferMaterializeOlapScan should have no child");
-        return new LogicalDeferMaterializeOlapScan(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, logicalProperties);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeOlapScan(logicalOlapScan, deferMaterializeSlotIds, columnIdSlot,
+                groupExpression, logicalProperties));
     }
 
     @Override
@@ -140,8 +143,9 @@ public class LogicalDeferMaterializeOlapScan extends LogicalCatalogRelation impl
     public LogicalDeferMaterializeOlapScan withTableAlias(String tableAlias) {
         // Update the wrapped LogicalOlapScan with the new alias
         LogicalOlapScan newOlapScan = logicalOlapScan.withTableAlias(tableAlias);
-        return new LogicalDeferMaterializeOlapScan(newOlapScan, deferMaterializeSlotIds, columnIdSlot,
-                Optional.empty(), Optional.of(getLogicalProperties()));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeOlapScan(newOlapScan, deferMaterializeSlotIds, columnIdSlot,
+                Optional.empty(), Optional.of(getLogicalProperties())));
     }
 
     @Override

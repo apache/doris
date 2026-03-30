@@ -42,6 +42,8 @@
 #include "exec/operator/hashjoin_build_sink.h"
 #include "exec/operator/hashjoin_probe_operator.h"
 #include "exec/operator/hive_table_sink_operator.h"
+#include "exec/operator/iceberg_delete_sink_operator.h"
+#include "exec/operator/iceberg_merge_sink_operator.h"
 #include "exec/operator/iceberg_table_sink_operator.h"
 #include "exec/operator/jdbc_scan_operator.h"
 #include "exec/operator/jdbc_table_sink_operator.h"
@@ -92,6 +94,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "util/debug_util.h"
 #include "util/string_util.h"
 
@@ -114,22 +117,18 @@ Status OperatorBase::close(RuntimeState* state) {
 template <typename SharedStateArg>
 std::string PipelineXLocalState<SharedStateArg>::name_suffix() const {
     if (_parent->nereids_id() == -1) {
-        return fmt::format(operator_name_suffix, std::to_string(_parent->node_id()));
+        return fmt::format("(id={})", _parent->node_id());
     } else {
-        return fmt::format("(nereids_id={})" + operator_name_suffix,
-                           std::to_string(_parent->nereids_id()),
-                           std::to_string(_parent->node_id()));
+        return fmt::format("(nereids_id={}, id={})", _parent->nereids_id(), _parent->node_id());
     }
 }
 
 template <typename SharedStateArg>
 std::string PipelineXSinkLocalState<SharedStateArg>::name_suffix() {
     if (_parent->nereids_id() == -1) {
-        return fmt::format(operator_name_suffix, std::to_string(_parent->node_id()));
+        return fmt::format("(id={})", _parent->node_id());
     } else {
-        return fmt::format("(nereids_id={})" + operator_name_suffix,
-                           std::to_string(_parent->nereids_id()),
-                           std::to_string(_parent->node_id()));
+        return fmt::format("(nereids_id={}, id={})", _parent->nereids_id(), _parent->node_id());
     }
 }
 
@@ -533,8 +532,8 @@ PipelineXLocalStateBase::PipelineXLocalStateBase(RuntimeState* state, OperatorXB
 template <typename SharedStateArg>
 Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalStateInfo& info) {
     _operator_profile.reset(new RuntimeProfile(_parent->get_name() + name_suffix()));
-    _common_profile.reset(new RuntimeProfile("CommonCounters"));
-    _custom_profile.reset(new RuntimeProfile("CustomCounters"));
+    _common_profile.reset(new RuntimeProfile(profile::COMMON_COUNTERS));
+    _custom_profile.reset(new RuntimeProfile(profile::CUSTOM_COUNTERS));
     _operator_profile->set_metadata(_parent->node_id());
     // indent is false so that source operator will have same
     // indentation_level with its parent operator.
@@ -574,16 +573,16 @@ Status PipelineXLocalState<SharedStateArg>::init(RuntimeState* state, LocalState
     }
 
     _rows_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_common_profile, "RowsProduced", TUnit::UNIT, 1);
+            ADD_COUNTER_WITH_LEVEL(_common_profile, profile::ROWS_PRODUCED, TUnit::UNIT, 1);
     _blocks_returned_counter =
-            ADD_COUNTER_WITH_LEVEL(_common_profile, "BlocksProduced", TUnit::UNIT, 1);
-    _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ProjectionTime", 2);
-    _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "InitTime", 2);
-    _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "OpenTime", 2);
-    _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "CloseTime", 2);
-    _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
+            ADD_COUNTER_WITH_LEVEL(_common_profile, profile::BLOCKS_PRODUCED, TUnit::UNIT, 1);
+    _projection_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::PROJECTION_TIME, 2);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::INIT_TIME, 2);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::OPEN_TIME, 2);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::CLOSE_TIME, 2);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::EXEC_TIME, 1);
     _memory_used_counter =
-            _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+            _common_profile->AddHighWaterMarkCounter(profile::MEMORY_USAGE, TUnit::BYTES, "", 1);
     _common_profile->add_info_string("IsColocate",
                                      std::to_string(_parent->is_colocated_operator()));
     _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
@@ -639,8 +638,8 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     // create profile
     _operator_profile =
             state->obj_pool()->add(new RuntimeProfile(_parent->get_name() + name_suffix()));
-    _common_profile = state->obj_pool()->add(new RuntimeProfile("CommonCounters"));
-    _custom_profile = state->obj_pool()->add(new RuntimeProfile("CustomCounters"));
+    _common_profile = state->obj_pool()->add(new RuntimeProfile(profile::COMMON_COUNTERS));
+    _custom_profile = state->obj_pool()->add(new RuntimeProfile(profile::CUSTOM_COUNTERS));
 
     // indentation is true
     // The parent profile of sink operator is usually a RuntimeProfile called PipelineTask.
@@ -650,7 +649,8 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
     _operator_profile->add_child(_custom_profile, true);
 
     _operator_profile->set_metadata(_parent->node_id());
-    _wait_for_finish_dependency_timer = ADD_TIMER(_common_profile, "PendingFinishDependency");
+    _wait_for_finish_dependency_timer =
+            ADD_TIMER(_common_profile, profile::PENDING_FINISH_DEPENDENCY);
     constexpr auto is_fake_shared = std::is_same_v<SharedState, FakeSharedState>;
     if constexpr (!is_fake_shared) {
         if (info.shared_state_map.find(_parent->dests_id().front()) !=
@@ -680,13 +680,14 @@ Status PipelineXSinkLocalState<SharedState>::init(RuntimeState* state, LocalSink
         return Status::InternalError("must set shared state, in {}", _parent->get_name());
     }
 
-    _rows_input_counter = ADD_COUNTER_WITH_LEVEL(_common_profile, "InputRows", TUnit::UNIT, 1);
-    _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "InitTime", 2);
-    _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "OpenTime", 2);
-    _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "CloseTime", 2);
-    _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, "ExecTime", 1);
+    _rows_input_counter =
+            ADD_COUNTER_WITH_LEVEL(_common_profile, profile::INPUT_ROWS, TUnit::UNIT, 1);
+    _init_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::INIT_TIME, 2);
+    _open_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::OPEN_TIME, 2);
+    _close_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::CLOSE_TIME, 2);
+    _exec_timer = ADD_TIMER_WITH_LEVEL(_common_profile, profile::EXEC_TIME, 1);
     _memory_used_counter =
-            _common_profile->AddHighWaterMarkCounter("MemoryUsage", TUnit::BYTES, "", 1);
+            _common_profile->AddHighWaterMarkCounter(profile::MEMORY_USAGE, TUnit::BYTES, "", 1);
     _common_profile->add_info_string("IsColocate",
                                      std::to_string(_parent->is_colocated_operator()));
     _common_profile->add_info_string("IsShuffled", std::to_string(_parent->is_shuffled_operator()));
@@ -814,6 +815,8 @@ DECLARE_OPERATOR(HiveTableSinkLocalState)
 DECLARE_OPERATOR(TVFTableSinkLocalState)
 DECLARE_OPERATOR(IcebergTableSinkLocalState)
 DECLARE_OPERATOR(SpillIcebergTableSinkLocalState)
+DECLARE_OPERATOR(IcebergDeleteSinkLocalState)
+DECLARE_OPERATOR(IcebergMergeSinkLocalState)
 DECLARE_OPERATOR(MCTableSinkLocalState)
 DECLARE_OPERATOR(AnalyticSinkLocalState)
 DECLARE_OPERATOR(BlackholeSinkLocalState)
@@ -934,6 +937,8 @@ template class AsyncWriterSink<doris::VTabletWriterV2, OlapTableSinkV2OperatorX>
 template class AsyncWriterSink<doris::VHiveTableWriter, HiveTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, IcebergTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VIcebergTableWriter, SpillIcebergTableSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergDeleteSink, IcebergDeleteSinkOperatorX>;
+template class AsyncWriterSink<doris::VIcebergMergeSink, IcebergMergeSinkOperatorX>;
 template class AsyncWriterSink<doris::VMCTableWriter, MCTableSinkOperatorX>;
 template class AsyncWriterSink<doris::VTVFTableWriter, TVFTableSinkOperatorX>;
 

@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Intersect;
@@ -88,28 +89,30 @@ public class PhysicalIntersect extends PhysicalSetOperation implements Intersect
 
     @Override
     public PhysicalIntersect withChildren(List<Plan> children) {
-        return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs, getLogicalProperties(), children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIntersect(qualifier, outputs,
+                regularChildrenOutputs, getLogicalProperties(), children));
     }
 
     @Override
     public PhysicalIntersect withGroupExpression(
             Optional<GroupExpression> groupExpression) {
-        return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, getLogicalProperties(), children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIntersect(qualifier, outputs,
+                regularChildrenOutputs, groupExpression, getLogicalProperties(), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                groupExpression, logicalProperties.get(), children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIntersect(qualifier, outputs,
+                regularChildrenOutputs, groupExpression, logicalProperties.get(), children));
     }
 
     @Override
     public PhysicalIntersect withPhysicalPropertiesAndStats(
             PhysicalProperties physicalProperties, Statistics statistics) {
-        return new PhysicalIntersect(qualifier, outputs, regularChildrenOutputs,
-                Optional.empty(), getLogicalProperties(), physicalProperties, statistics, children);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalIntersect(qualifier, outputs,
+                regularChildrenOutputs, Optional.empty(), getLogicalProperties(), physicalProperties,
+                statistics, children));
     }
 
     @Override

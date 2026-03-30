@@ -413,6 +413,20 @@ bool LocalFileSystem::contain_path(const Path& parent_, const Path& sub_) {
     return true;
 }
 
+bool LocalFileSystem::equal_or_sub_path(const Path& parent, const Path& child) {
+    auto parent_path = parent.lexically_normal();
+    auto child_path = child.lexically_normal();
+    auto parent_it = parent_path.begin();
+    auto child_it = child_path.begin();
+    for (; parent_it != parent_path.end() && child_it != child_path.end();
+         ++parent_it, ++child_it) {
+        if (*parent_it != *child_it) {
+            return false;
+        }
+    }
+    return parent_it == parent_path.end();
+}
+
 const std::shared_ptr<LocalFileSystem>& global_local_filesystem() {
     static std::shared_ptr<LocalFileSystem> local_fs(new LocalFileSystem());
     return local_fs;

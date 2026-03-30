@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Union;
@@ -157,8 +158,9 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
 
     @Override
     public LogicalUnion withChildren(List<Plan> children) {
-        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs,
-                constantExprsList, hasPushedFilter, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, outputs, regularChildrenOutputs,
+                constantExprsList, hasPushedFilter, children));
     }
 
     @Override
@@ -167,49 +169,57 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children));
     }
 
     @Override
     public LogicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
-                groupExpression, Optional.of(getLogicalProperties()), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
+                groupExpression, Optional.of(getLogicalProperties()), children));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
-                groupExpression, logicalProperties, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
+                groupExpression, logicalProperties, children));
     }
 
     @Override
     public LogicalUnion withNewOutputs(List<NamedExpression> newOutputs) {
-        return new LogicalUnion(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
-                hasPushedFilter, Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children));
     }
 
     public LogicalUnion withNewOutputsAndConstExprsList(List<NamedExpression> newOutputs,
             List<List<NamedExpression>> constantExprsList) {
-        return new LogicalUnion(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
-                hasPushedFilter, Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, newOutputs, regularChildrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children));
     }
 
     public LogicalUnion withChildrenAndConstExprsList(List<Plan> children,
             List<List<SlotReference>> childrenOutputs, List<List<NamedExpression>> constantExprsList) {
-        return new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, outputs, childrenOutputs, constantExprsList, hasPushedFilter, children));
     }
 
     public LogicalUnion withNewOutputsChildrenAndConstExprsList(List<NamedExpression> newOutputs, List<Plan> children,
                                                                 List<List<SlotReference>> childrenOutputs,
                                                                 List<List<NamedExpression>> constantExprsList) {
-        return new LogicalUnion(qualifier, newOutputs, childrenOutputs, constantExprsList,
-                hasPushedFilter, Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, newOutputs, childrenOutputs, constantExprsList,
+                hasPushedFilter, Optional.empty(), Optional.empty(), children));
     }
 
     public LogicalUnion withAllQualifier() {
-        return new LogicalUnion(Qualifier.ALL, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
-                Optional.empty(), Optional.empty(), children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(Qualifier.ALL, outputs, regularChildrenOutputs, constantExprsList, hasPushedFilter,
+                Optional.empty(), Optional.empty(), children));
     }
 
     @Override
@@ -430,6 +440,7 @@ public class LogicalUnion extends LogicalSetOperation implements Union, OutputPr
         Preconditions.checkArgument(children.size() == childrenOutputs.size(),
                 "children size %s is not equals with children outputs size %s",
                 children.size(), childrenOutputs.size());
-        return new LogicalUnion(qualifier, newOuptuts, childrenOutputs, constantExprsList, hasPushedFilter, children);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUnion(qualifier, newOuptuts, childrenOutputs, constantExprsList, hasPushedFilter, children));
     }
 }

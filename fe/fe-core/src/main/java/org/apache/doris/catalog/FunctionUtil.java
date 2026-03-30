@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdaf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdf;
 import org.apache.doris.nereids.trees.expressions.functions.udf.PythonUdtf;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -195,22 +194,22 @@ public class FunctionUtil {
             AliasUdf.translateToNereidsFunction(dbName, ((AliasFunction) function));
         } else if (function instanceof ScalarFunction) {
             if (function.isUDTFunction()) {
-                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                if (function.getBinaryType() == Function.BinaryType.JAVA_UDF) {
                     JavaUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                } else if (function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
                     PythonUdtf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
                 }
             } else {
-                if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+                if (function.getBinaryType() == Function.BinaryType.JAVA_UDF) {
                     JavaUdf.translateToNereidsFunction(dbName, ((ScalarFunction) function));
-                } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+                } else if (function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
                     PythonUdf.translateToNereidsFunction(dbName, (ScalarFunction) function);
                 }
             }
         } else if (function instanceof AggregateFunction) {
-            if (function.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+            if (function.getBinaryType() == Function.BinaryType.JAVA_UDF) {
                 JavaUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
-            } else if (function.getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
+            } else if (function.getBinaryType() == Function.BinaryType.PYTHON_UDF) {
                 PythonUdaf.translateToNereidsFunction(dbName, ((AggregateFunction) function));
             }
         }

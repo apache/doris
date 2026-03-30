@@ -181,7 +181,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
     private WriteRecordRequest buildRequestParams() throws JobException {
         JdbcOffset offset = (JdbcOffset) runningOffset;
         WriteRecordRequest request = new WriteRecordRequest();
-        request.setJobId(getJobId());
+        request.setJobId(String.valueOf(getJobId()));
         request.setConfig(sourceProperties);
 
         request.setDataSource(dataSourceType.name());
@@ -357,7 +357,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
                 log.warn("Failed to get task timeout reason, response: {}", response);
             }
         } catch (ExecutionException | InterruptedException ex) {
-            log.error("Send get task fail reason request failed: ", ex);
+            log.warn("Send get task fail reason request failed: ", ex);
         }
         return "";
     }
