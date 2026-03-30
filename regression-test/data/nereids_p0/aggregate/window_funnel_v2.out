@@ -77,3 +77,12 @@
 -- !v2_explicit_name --
 100123	4
 
+-- !v2_increase_event0_overwrite --
+3
+
+-- !v2_increase_new_chain_better --
+3
+
+-- !v2_increase_old_chain_better --
+2
+

@@ -272,9 +272,9 @@ struct WindowFunnelStateV2 {
 
         switch (window_funnel_mode) {
         case WindowFunnelMode::DEFAULT:
-            return _get_default(false);
+            return _get_default();
         case WindowFunnelMode::INCREASE:
-            return _get_default(true);
+            return _get_increase();
         case WindowFunnelMode::DEDUPLICATION:
             return _get_deduplication();
         case WindowFunnelMode::FIXED:
@@ -285,13 +285,17 @@ struct WindowFunnelStateV2 {
     }
 
 private:
-    /// DEFAULT and INCREASE mode: O(N) single-pass algorithm.
+    /// DEFAULT mode: O(N) single-pass algorithm.
     /// Uses events_timestamp array to track the (first, last) timestamps for each level.
     /// For each event in sorted order:
     ///   - If it's event 0, start a new potential chain
     ///   - If its predecessor level has been matched, within time window, AND from a
     ///     different row (checked via continuation flag), extend the chain
-    int _get_default(bool increase_mode) const {
+    ///
+    /// In DEFAULT mode, unconditionally overwriting events_timestamp[0] when a new event-0
+    /// appears is safe: timestamps are monotonically non-decreasing, higher levels retain
+    /// the old chain's first_ts, and the <= window check still succeeds.
+    int _get_default() const {
         std::vector<TimestampPair> events_timestamp(event_count);
 
         for (size_t i = 0; i < events_list.size(); ++i) {
@@ -303,12 +307,7 @@ private:
             } else if (events_timestamp[event_idx - 1].has_value() &&
                        !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
                 // Must be from a DIFFERENT row than the predecessor level
-                bool matched =
-                        _within_window(events_timestamp[event_idx - 1].first_ts, evt.timestamp);
-                if (increase_mode) {
-                    matched = matched && events_timestamp[event_idx - 1].last_ts < evt.timestamp;
-                }
-                if (matched) {
+                if (_within_window(events_timestamp[event_idx - 1].first_ts, evt.timestamp)) {
                     events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
                                                    evt.timestamp, i};
                     if (event_idx + 1 == event_count) {
@@ -324,6 +323,66 @@ private:
             }
         }
         return 0;
+    }
+
+    /// INCREASE mode: multi-pass algorithm matching V1 semantics.
+    ///
+    /// A single-pass approach cannot correctly handle INCREASE mode because when a new
+    /// event-0 appears, the old chain and the new chain have different trade-offs:
+    /// - The old chain has an earlier last_ts (better for the strict-increase check)
+    /// - The new chain has a later first_ts (better for the time-window check)
+    /// Neither dominates the other, so both must be tried independently.
+    ///
+    /// This method iterates over each event-0 occurrence as a potential chain start,
+    /// then scans forward to build the longest matching chain from that start.
+    /// The maximum chain length across all starts is returned.
+    int _get_increase() const {
+        int max_level = 0;
+
+        for (size_t start = 0; start < events_list.size(); ++start) {
+            int start_event = get_event_idx(events_list[start].event_idx) - 1;
+            if (start_event != 0) {
+                continue;
+            }
+
+            // Try building a chain from this event-0
+            std::vector<TimestampPair> events_timestamp(event_count);
+            events_timestamp[0] = {events_list[start].timestamp, events_list[start].timestamp,
+                                   start};
+            int curr_level = 0;
+
+            for (size_t i = start + 1; i < events_list.size(); ++i) {
+                const auto& evt = events_list[i];
+                int event_idx = get_event_idx(evt.event_idx) - 1;
+
+                if (event_idx == 0) {
+                    // Another event-0: this chain's event-0 phase is done; skip
+                    continue;
+                }
+
+                if (events_timestamp[event_idx - 1].has_value() &&
+                    !_is_same_row(events_timestamp[event_idx - 1].last_list_idx, i)) {
+                    bool matched =
+                            _within_window(events_timestamp[event_idx - 1].first_ts, evt.timestamp);
+                    matched = matched && events_timestamp[event_idx - 1].last_ts < evt.timestamp;
+                    if (matched) {
+                        events_timestamp[event_idx] = {events_timestamp[event_idx - 1].first_ts,
+                                                       evt.timestamp, i};
+                        if (event_idx > curr_level) {
+                            curr_level = event_idx;
+                        }
+                        if (event_idx + 1 == event_count) {
+                            return event_count;
+                        }
+                    }
+                }
+            }
+
+            if (curr_level + 1 > max_level) {
+                max_level = curr_level + 1;
+            }
+        }
+        return max_level;
     }
 
     /// DEDUPLICATION mode: if a previously matched event level appears again,

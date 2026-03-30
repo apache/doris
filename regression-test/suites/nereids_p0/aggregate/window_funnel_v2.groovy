@@ -416,5 +416,77 @@ suite("window_funnel_v2") {
         order BY user_id
     """
 
+    // ==================== INCREASE mode: event-0 re-occurrence bug fix ====================
+    // Regression test for the bug where a later event-0 overwrites events_timestamp[0]
+    // and breaks the INCREASE mode strict-increase check for an already-valid chain.
+    sql """ DROP TABLE IF EXISTS windowfunnel_v2_test """
+    sql """
+        CREATE TABLE IF NOT EXISTS windowfunnel_v2_test (
+            xwho varchar(50) NULL COMMENT 'xwho',
+            xwhen datetimev2(3) COMMENT 'xwhen',
+            xwhat int NULL COMMENT 'xwhat'
+        )
+        DUPLICATE KEY(xwho)
+        DISTRIBUTED BY HASH(xwho) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+    // Case 1: Old chain (from t=0) is valid and completes all 3 levels.
+    // The duplicate event-0 at t=50 should not destroy it.
+    sql "INSERT into windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:00.000', 1)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:50.000', 1)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:50.000', 2)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:01:00.000', 3)"
+    order_qt_v2_increase_event0_overwrite """
+        select
+            window_funnel(
+                100,
+                'increase',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2,
+                t.xwhat = 3
+            ) AS level
+        from windowfunnel_v2_test t;
+    """
+
+    // Case 2: Old chain can't complete (window too small), new chain is better.
+    sql """ truncate table windowfunnel_v2_test; """
+    sql "INSERT into windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:00.000', 1)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:50.000', 1)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:51.000', 2)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:52.000', 3)"
+    order_qt_v2_increase_new_chain_better """
+        select
+            window_funnel(
+                5,
+                'increase',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2,
+                t.xwhat = 3
+            ) AS level
+        from windowfunnel_v2_test t;
+    """
+
+    // Case 3: Old chain is better (reached level 2), new chain only reaches level 1.
+    sql """ truncate table windowfunnel_v2_test; """
+    sql "INSERT into windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:00.000', 1)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:10.000', 2)"
+    sql "INSERT INTO windowfunnel_v2_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:00:50.000', 1)"
+    order_qt_v2_increase_old_chain_better """
+        select
+            window_funnel(
+                100,
+                'increase',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2,
+                t.xwhat = 3
+            ) AS level
+        from windowfunnel_v2_test t;
+    """
+
     sql """ DROP TABLE IF EXISTS windowfunnel_v2_test """
 }

@@ -870,4 +870,293 @@ TEST_F(VWindowFunnelV2Test, testSameRowAllConditionsMatch) {
     agg_function->destroy(place);
 }
 
+// Test INCREASE mode: event-0 re-occurrence should not break an already-valid chain.
+// Counterexample from code review:
+//   3 conditions, window=100s, INCREASE mode
+//   Row A (t=0s): event1 only
+//   Row B (t=50s): event1 only  (new event-0 overwrites old)
+//   Row C (t=50s): event2 only
+//   Row D (t=60s): event3 only
+// Correct result: 3 (chain starting from t=0: e1@0 -> e2@50 -> e3@60)
+// Bug (before fix): returned 1 because overwriting events_timestamp[0] with t=50
+// caused the INCREASE check (50 < 50) to fail for e2.
+TEST_F(VWindowFunnelV2Test, testIncreaseModeEvent0Overwrite) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int NUM_ROWS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("increase"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    // Row 0: t=0s, Row 1: t=50s, Row 2: t=50s, Row 3: t=60s
+    VecDateTimeValue tv0, tv1, tv2, tv3;
+    tv0.unchecked_set_time(2022, 2, 28, 0, 0, 0);
+    tv1.unchecked_set_time(2022, 2, 28, 0, 0, 50);
+    tv2.unchecked_set_time(2022, 2, 28, 0, 0, 50);
+    tv3.unchecked_set_time(2022, 2, 28, 0, 1, 0);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    auto dtv2_3 = tv3.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+    column_timestamp->insert_data((char*)&dtv2_3, 0);
+
+    // Row 0: event1=T, event2=F, event3=F
+    // Row 1: event1=T, event2=F, event3=F  (duplicate event-0)
+    // Row 2: event1=F, event2=T, event3=F
+    // Row 3: event1=F, event2=F, event3=T
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(100));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Chain from t=0: e1@0 -> e2@50 (50>0 ✓) -> e3@60 (60>50 ✓) = 3
+    EXPECT_EQ(column_result.get_data()[0], 3);
+    agg_func_3->destroy(place);
+}
+
+// Test INCREASE mode: later event-0 starts a better chain when early chain cannot complete.
+// 3 conditions, window=5s, INCREASE mode
+//   Row 0 (t=0s): event1
+//   Row 1 (t=50s): event1  (new start — old chain can't reach e2 within 5s)
+//   Row 2 (t=51s): event2
+//   Row 3 (t=52s): event3
+// Correct result: 3 (chain starting from t=50: e1@50 -> e2@51 -> e3@52)
+TEST_F(VWindowFunnelV2Test, testIncreaseModeNewChainBetter) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int NUM_ROWS = 4;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("increase"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1, tv2, tv3;
+    tv0.unchecked_set_time(2022, 2, 28, 0, 0, 0);
+    tv1.unchecked_set_time(2022, 2, 28, 0, 0, 50);
+    tv2.unchecked_set_time(2022, 2, 28, 0, 0, 51);
+    tv3.unchecked_set_time(2022, 2, 28, 0, 0, 52);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    auto dtv2_3 = tv3.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+    column_timestamp->insert_data((char*)&dtv2_3, 0);
+
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(5));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Old chain from t=0 reaches only level 1 (e2@51 is 51s away, outside 5s window)
+    // New chain from t=50: e1@50 -> e2@51 (51>50 ✓, within 5s) -> e3@52 (52>51 ✓) = 3
+    EXPECT_EQ(column_result.get_data()[0], 3);
+    agg_func_3->destroy(place);
+}
+
+// Test INCREASE mode: old chain is better than new chain (max_level preserved).
+// 3 conditions, window=100s, INCREASE mode
+//   Row 0 (t=0s): event1
+//   Row 1 (t=10s): event2
+//   Row 2 (t=50s): event1  (restarts chain, old chain had level=2)
+//   No more events after the restart — new chain can only reach level 1.
+// Correct result: 2 (old chain: e1@0 -> e2@10)
+TEST_F(VWindowFunnelV2Test, testIncreaseModeOldChainBetter) {
+    AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
+    DataTypes data_types_3 = {
+            std::make_shared<DataTypeInt64>(),      std::make_shared<DataTypeString>(),
+            std::make_shared<DataTypeDateTimeV2>(), std::make_shared<DataTypeUInt8>(),
+            std::make_shared<DataTypeUInt8>(),      std::make_shared<DataTypeUInt8>()};
+    auto agg_func_3 = factory.get("window_funnel_v2", data_types_3, nullptr, false,
+                                  BeExecVersionManager::get_newest_version());
+    ASSERT_NE(agg_func_3, nullptr);
+
+    const int NUM_ROWS = 3;
+    auto column_mode = ColumnString::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_mode->insert(Field::create_field<TYPE_STRING>("increase"));
+    }
+    auto column_timestamp = ColumnDateTimeV2::create();
+    VecDateTimeValue tv0, tv1, tv2;
+    tv0.unchecked_set_time(2022, 2, 28, 0, 0, 0);
+    tv1.unchecked_set_time(2022, 2, 28, 0, 0, 10);
+    tv2.unchecked_set_time(2022, 2, 28, 0, 0, 50);
+    auto dtv2_0 = tv0.to_datetime_v2();
+    auto dtv2_1 = tv1.to_datetime_v2();
+    auto dtv2_2 = tv2.to_datetime_v2();
+    column_timestamp->insert_data((char*)&dtv2_0, 0);
+    column_timestamp->insert_data((char*)&dtv2_1, 0);
+    column_timestamp->insert_data((char*)&dtv2_2, 0);
+
+    // Row 0: e1=T, Row 1: e2=T, Row 2: e1=T (restart)
+    auto column_event1 = ColumnUInt8::create();
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+    auto column_event2 = ColumnUInt8::create();
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+    column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_event3 = ColumnUInt8::create();
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+    column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+    auto column_window = ColumnInt64::create();
+    for (int i = 0; i < NUM_ROWS; i++) {
+        column_window->insert(Field::create_field<TYPE_BIGINT>(100));
+    }
+
+    std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+    AggregateDataPtr place = memory.get();
+    agg_func_3->create(place);
+    const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                                column_event1.get(), column_event2.get(), column_event3.get()};
+    for (int i = 0; i < NUM_ROWS; i++) {
+        agg_func_3->add(place, column, i, arena);
+    }
+
+    ColumnInt32 column_result;
+    agg_func_3->insert_result_into(place, column_result);
+    // Old chain: e1@0 -> e2@10 = level 2
+    // New chain from t=50: only e1@50, no further events = level 1
+    // max(2, 1) = 2
+    EXPECT_EQ(column_result.get_data()[0], 2);
+    agg_func_3->destroy(place);
+}
+auto column_timestamp = ColumnDateTimeV2::create();
+VecDateTimeValue tv0, tv1, tv2, tv3;
+tv0.unchecked_set_time(2022, 2, 28, 0, 0, 0);
+tv1.unchecked_set_time(2022, 2, 28, 0, 0, 10);
+tv2.unchecked_set_time(2022, 2, 28, 0, 0, 50);
+tv3.unchecked_set_time(2022, 2, 28, 0, 0, 50);
+auto dtv2_0 = tv0.to_datetime_v2();
+auto dtv2_1 = tv1.to_datetime_v2();
+auto dtv2_2 = tv2.to_datetime_v2();
+auto dtv2_3 = tv3.to_datetime_v2();
+column_timestamp->insert_data((char*)&dtv2_0, 0);
+column_timestamp->insert_data((char*)&dtv2_1, 0);
+column_timestamp->insert_data((char*)&dtv2_2, 0);
+column_timestamp->insert_data((char*)&dtv2_3, 0);
+
+auto column_event1 = ColumnUInt8::create();
+column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+column_event1->insert(Field::create_field<TYPE_BOOLEAN>(1));
+column_event1->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+auto column_event2 = ColumnUInt8::create();
+column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+column_event2->insert(Field::create_field<TYPE_BOOLEAN>(1));
+column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+column_event2->insert(Field::create_field<TYPE_BOOLEAN>(0));
+
+auto column_event3 = ColumnUInt8::create();
+column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+column_event3->insert(Field::create_field<TYPE_BOOLEAN>(0));
+column_event3->insert(Field::create_field<TYPE_BOOLEAN>(1));
+
+auto column_window = ColumnInt64::create();
+for (int i = 0; i < NUM_ROWS; i++) {
+    column_window->insert(Field::create_field<TYPE_BIGINT>(100));
+}
+
+std::unique_ptr<char[]> memory(new char[agg_func_3->size_of_data()]);
+AggregateDataPtr place = memory.get();
+agg_func_3->create(place);
+const IColumn* column[6] = {column_window.get(), column_mode.get(),   column_timestamp.get(),
+                            column_event1.get(), column_event2.get(), column_event3.get()};
+for (int i = 0; i < NUM_ROWS; i++) {
+    agg_func_3->add(place, column, i, arena);
+}
+
+ColumnInt32 column_result;
+agg_func_3->insert_result_into(place, column_result);
+// Old chain: e1@0 -> e2@10 = level 2
+// New chain from t=50: only e1@50, e3@50 can't advance (no e2 matched)
+// max(2, 1) = 2
+EXPECT_EQ(column_result.get_data()[0], 2);
+agg_func_3->destroy(place);
+}
+
 } // namespace doris
