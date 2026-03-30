@@ -19,6 +19,7 @@ package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.URI;
@@ -63,6 +64,7 @@ import java.nio.file.FileVisitOption;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.PrivilegedAction;
+import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
@@ -92,13 +94,35 @@ public class DFSFileSystem extends RemoteFileSystem {
         try {
             Path locatedPath = new Path(remotePath);
             org.apache.hadoop.fs.FileSystem fileSystem = nativeFileSystem(locatedPath);
-            RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
-            while (locatedFiles.hasNext()) {
-                LocatedFileStatus fileStatus = locatedFiles.next();
-                RemoteFile location = new RemoteFile(
-                        fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
-                        fileStatus.getBlockSize(), fileStatus.getModificationTime(), fileStatus.getBlockLocations());
-                result.add(location);
+            if (Config.enable_list_hdfs_files_without_block_locations) {
+                ArrayDeque<Path> pathQueue = new ArrayDeque<>();
+                pathQueue.add(locatedPath);
+                while (!pathQueue.isEmpty()) {
+                    Path currentPath = pathQueue.poll();
+                    FileStatus[] fileStatusList = fileSystem.listStatus(currentPath);
+                    for (FileStatus fileStatus : fileStatusList) {
+                        if (fileStatus.isDirectory()) {
+                            if (recursive) {
+                                pathQueue.add(fileStatus.getPath());
+                            }
+                        } else {
+                            RemoteFile location = new RemoteFile(
+                                    fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                                    fileStatus.getBlockSize(), fileStatus.getModificationTime(), null);
+                            result.add(location);
+                        }
+                    }
+                }
+            } else {
+                RemoteIterator<LocatedFileStatus> locatedFiles = getLocatedFiles(recursive, fileSystem, locatedPath);
+                while (locatedFiles.hasNext()) {
+                    LocatedFileStatus fileStatus = locatedFiles.next();
+                    RemoteFile location = new RemoteFile(
+                            fileStatus.getPath(), fileStatus.isDirectory(), fileStatus.getLen(),
+                            fileStatus.getBlockSize(), fileStatus.getModificationTime(),
+                            fileStatus.getBlockLocations());
+                    result.add(location);
+                }
             }
         } catch (FileNotFoundException e) {
             return new Status(Status.ErrCode.NOT_FOUND, e.getMessage());
@@ -107,7 +131,6 @@ public class DFSFileSystem extends RemoteFileSystem {
         }
         return Status.OK;
     }
-
 
     @Override
     public Status listDirectories(String remotePath, Set<String> result) {
