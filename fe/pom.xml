@@ -371,7 +371,7 @@ under the License.
         <maxcompute.version>0.53.2-public</maxcompute.version>
         <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
          https://github.com/apache/doris/pull/51217-->
-        <arrow.version>17.0.0</arrow.version>
+        <arrow.version>18.3.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
@@ -399,7 +399,7 @@ under the License.
         <antlr4.version>4.13.1</antlr4.version>
         <joda.version>2.8.1</joda.version>
         <project.scm.id>github</project.scm.id>
-        <spring.version>3.5.7</spring.version>
+        <spring.version>3.5.13</spring.version>
         <spring-framework.version>6.2.12</spring-framework.version>
         <orc.version>1.8.4</orc.version>
         <zookeeper.version>3.9.3</zookeeper.version>
@@ -409,7 +409,7 @@ under the License.
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
-        <jetty.version>12.0.29</jetty.version>
+        <jetty.version>12.0.33</jetty.version>
         <jetty-http.version>11.0.26</jetty-http.version>
         <immutables.version>2.9.3</immutables.version> 
         <ivy.version>2.5.2</ivy.version>
@@ -417,7 +417,7 @@ under the License.
         <ini4j.version>0.5.4</ini4j.version>
         <!--todo waiting release-->
         <quartz.version>2.3.2</quartz.version>
-        <aircompressor.version>0.27</aircompressor.version>
+        <aircompressor.version>2.0.3</aircompressor.version>
         <!-- paimon -->
         <paimon.version>1.3.1</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
