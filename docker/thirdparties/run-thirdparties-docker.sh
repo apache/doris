@@ -168,6 +168,7 @@ RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
+HIVE3_SETTINGS_INITIALIZED=0
 
 RESERVED_PORTS="65535"
 
@@ -598,7 +599,7 @@ pick_free_port() {
 }
 
 assign_hive3_yarn_ports() {
-    local reserved_ports=""
+    local reserved_ports="${RESERVED_PORTS//,/ }"
     local port_var current_port
 
     for port_var in \
@@ -622,12 +623,47 @@ assign_hive3_yarn_ports() {
     done
 }
 
-start_hive3() {
-    # hive3
-    # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
+initialize_hive3_settings() {
+    if [[ "${HIVE3_SETTINGS_INITIALIZED}" -eq 1 ]]; then
+        return
+    fi
+
     export CONTAINER_UID=${CONTAINER_UID}
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     assign_hive3_yarn_ports
+    HIVE3_SETTINGS_INITIALIZED=1
+}
+
+append_hive3_yarn_ports_to_reserved_ports() {
+    local port_var current_port
+
+    for port_var in \
+        YARN_RM_SCHEDULER_PORT \
+        YARN_RM_TRACKER_PORT \
+        YARN_RM_PORT \
+        YARN_RM_ADMIN_PORT \
+        YARN_RM_WEBAPP_PORT \
+        YARN_NM_LOCAL_PORT \
+        YARN_NM_WEBAPP_PORT \
+        MAPREDUCE_SHUFFLE_PORT; do
+        current_port="${!port_var:-}"
+        if [[ -z "${current_port}" ]]; then
+            echo "ERROR: Hive3 port ${port_var} is not set" >&2
+            exit 1
+        fi
+        RESERVED_PORTS="${RESERVED_PORTS},${current_port}"
+    done
+}
+
+prepare_hive3_reserved_ports() {
+    initialize_hive3_settings
+    append_hive3_yarn_ports_to_reserved_ports
+}
+
+start_hive3() {
+    # hive3
+    # If the doris cluster you need to test is single-node, you can use the default values; If the doris cluster you need to test is composed of multiple nodes, then you need to set the IP_HOST according to the actual situation of your machine
+    initialize_hive3_settings
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env.tpl >> "${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
@@ -827,6 +863,10 @@ start_iceberg_rest() {
 }
 
 echo "starting dockers in parallel"
+
+if [[ "${RUN_HIVE3}" -eq 1 ]] && [[ "${STOP}" -ne 1 ]]; then
+    prepare_hive3_reserved_ports
+fi
 
 reserve_ports
 

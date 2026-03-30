@@ -22,7 +22,6 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 HIVE_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 THIRDPARTY_ROOT="$(cd "${HIVE_ROOT}/../.." && pwd)"
 RUN_THIRDPARTIES_PATH="${THIRDPARTY_ROOT}/run-thirdparties-docker.sh"
-ENV_PATH="${HIVE_ROOT}/hadoop-hive-3x.env.tpl"
 
 extract_function() {
     local function_name="$1"
@@ -35,12 +34,16 @@ extract_function() {
 
 main() {
     local port_is_available pick_free_port assign_hive3_yarn_ports
+    local initialize_hive3_settings append_hive3_yarn_ports_to_reserved_ports prepare_hive3_reserved_ports
     port_is_available="$(extract_function port_is_available)"
     pick_free_port="$(extract_function pick_free_port)"
     assign_hive3_yarn_ports="$(extract_function assign_hive3_yarn_ports)"
+    initialize_hive3_settings="$(extract_function initialize_hive3_settings)"
+    append_hive3_yarn_ports_to_reserved_ports="$(extract_function append_hive3_yarn_ports_to_reserved_ports)"
+    prepare_hive3_reserved_ports="$(extract_function prepare_hive3_reserved_ports)"
 
-    if [[ -z "${port_is_available}" || -z "${pick_free_port}" || -z "${assign_hive3_yarn_ports}" ]]; then
-        echo "ERROR: failed to extract Hive3 port helpers from ${RUN_THIRDPARTIES_PATH}" >&2
+    if [[ -z "${port_is_available}" || -z "${pick_free_port}" || -z "${assign_hive3_yarn_ports}" || -z "${initialize_hive3_settings}" || -z "${append_hive3_yarn_ports_to_reserved_ports}" || -z "${prepare_hive3_reserved_ports}" ]]; then
+        echo "ERROR: failed to extract Hive3 reserved-port helpers from ${RUN_THIRDPARTIES_PATH}" >&2
         exit 1
     fi
 
@@ -53,40 +56,44 @@ main() {
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT="$(cd "${THIRDPARTY_ROOT}" && pwd)"
+CONTAINER_UID=test--
+RESERVED_PORTS="65535,50070,50075"
+HIVE3_SETTINGS_INITIALIZED=0
+
 ${port_is_available}
 
 ${pick_free_port}
 
 ${assign_hive3_yarn_ports}
 
+${initialize_hive3_settings}
+
+${append_hive3_yarn_ports_to_reserved_ports}
+
+${prepare_hive3_reserved_ports}
+
 ss() { return 0; }
 
-RESERVED_PORTS="65535"
-export YARN_RM_SCHEDULER_PORT=20001
-export YARN_RM_TRACKER_PORT=20002
-export YARN_RM_PORT=20003
-export YARN_RM_ADMIN_PORT=20004
-export YARN_RM_WEBAPP_PORT=20005
-export YARN_NM_LOCAL_PORT=20006
-export YARN_NM_WEBAPP_PORT=20007
-unset MAPREDUCE_SHUFFLE_PORT
+prepare_hive3_reserved_ports
 
-assign_hive3_yarn_ports
-
-[[ -n "\${MAPREDUCE_SHUFFLE_PORT:-}" ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" =~ ^[0-9]+\$ ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" != "\${YARN_RM_SCHEDULER_PORT}" ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" != "\${YARN_RM_TRACKER_PORT}" ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" != "\${YARN_RM_PORT}" ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" != "\${YARN_RM_ADMIN_PORT}" ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" != "\${YARN_RM_WEBAPP_PORT}" ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" != "\${YARN_NM_LOCAL_PORT}" ]]
-[[ "\${MAPREDUCE_SHUFFLE_PORT}" != "\${YARN_NM_WEBAPP_PORT}" ]]
+for port_var in \
+    YARN_RM_SCHEDULER_PORT \
+    YARN_RM_TRACKER_PORT \
+    YARN_RM_PORT \
+    YARN_RM_ADMIN_PORT \
+    YARN_RM_WEBAPP_PORT \
+    YARN_NM_LOCAL_PORT \
+    YARN_NM_WEBAPP_PORT \
+    MAPREDUCE_SHUFFLE_PORT; do
+    current_port="\${!port_var:-}"
+    [[ -n "\${current_port}" ]]
+    [[ ",\${RESERVED_PORTS}," == *",\${current_port},"* ]]
+done
 EOF
     chmod +x "${test_script}"
 
     bash "${test_script}"
-    grep -Fx 'MAPRED_CONF_mapreduce_shuffle_port=${MAPREDUCE_SHUFFLE_PORT}' "${ENV_PATH}"
 }
 
 main "$@"
