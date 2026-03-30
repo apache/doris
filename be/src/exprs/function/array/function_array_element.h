@@ -64,8 +64,7 @@ namespace doris {
 
 class FunctionArrayElement : public IFunction {
 public:
-    /// The count of items in the map may exceed 128(Int8).
-    using MapIndiceDataType = DataTypeInt16;
+    using MapIndiceDataType = DataTypeInt64;
 
     static constexpr auto name = "element_at";
     static FunctionPtr create() { return std::make_shared<FunctionArrayElement>(); }
