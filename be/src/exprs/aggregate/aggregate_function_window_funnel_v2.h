@@ -336,10 +336,24 @@ private:
     /// This method iterates over each event-0 occurrence as a potential chain start,
     /// then scans forward to build the longest matching chain from that start.
     /// The maximum chain length across all starts is returned.
+    ///
+    /// Complexity: O(M_event0 × N_matched) worst-case, where M_event0 is the count of
+    /// event-0 occurrences and N_matched is the total matched-event count. In practice
+    /// N_matched is much smaller than total rows (V2 only stores matched events), and
+    /// the remaining-events pruning eliminates start points that cannot improve max_level,
+    /// so the typical case is significantly better than worst-case.
     int _get_increase() const {
         int max_level = 0;
+        const size_t list_size = events_list.size();
 
-        for (size_t start = 0; start < events_list.size(); ++start) {
+        for (size_t start = 0; start < list_size; ++start) {
+            // Remaining-events pruning: from this start point, at most
+            // (list_size - start) events remain. If that can't beat max_level, stop.
+            // This also prunes all subsequent start points since they have even fewer.
+            if (static_cast<int>(list_size - start) <= max_level) {
+                break;
+            }
+
             int start_event = get_event_idx(events_list[start].event_idx) - 1;
             if (start_event != 0) {
                 continue;
@@ -351,7 +365,7 @@ private:
                                    start};
             int curr_level = 0;
 
-            for (size_t i = start + 1; i < events_list.size(); ++i) {
+            for (size_t i = start + 1; i < list_size; ++i) {
                 const auto& evt = events_list[i];
                 int event_idx = get_event_idx(evt.event_idx) - 1;
 
