@@ -20,6 +20,7 @@ package org.apache.doris.tso;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.io.CountingDataOutputStream;
 import org.apache.doris.journal.Journal;
 import org.apache.doris.metric.LongCounterMetric;
 import org.apache.doris.metric.MetricRepo;
@@ -33,6 +34,10 @@ import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.DataInputStream;
+import java.io.IOException;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -179,7 +184,7 @@ public class TSOServiceTest {
                 tsoService.getTSO();
                 Assert.fail();
             } catch (RuntimeException e) {
-                Assert.assertTrue(e.getMessage().contains("not calibrated"));
+                Assert.assertTrue(e.getMessage().contains("feature is disabled"));
             }
         } finally {
             Config.enable_tso_feature = originalEnableTsoFeature;
@@ -244,6 +249,48 @@ public class TSOServiceTest {
         long windowEnd = 12345L;
         tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
         Assert.assertEquals(windowEnd, tsoService.getWindowEndTSO());
+    }
+
+    @Test
+    public void testSaveTSOPersistsWindowEndWhenFeatureDisabled() throws IOException {
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
+        boolean originalEnableTsoCheckpointModule = Config.enable_tso_checkpoint_module;
+        try {
+            Config.enable_tso_feature = false;
+            Config.enable_tso_checkpoint_module = true;
+            long windowEnd = 12345L;
+            tsoService.replayWindowEndTSO(new TSOTimestamp(windowEnd, 0L));
+
+            byte[] bytes = saveTSOBytes(tsoService);
+            Assert.assertTrue(bytes.length > 0);
+
+            TSOService recoveredService = new TSOService();
+            long checksum = recoveredService.loadTSO(new DataInputStream(new ByteArrayInputStream(bytes)), 0L);
+            Assert.assertEquals(windowEnd, checksum);
+            Assert.assertEquals(windowEnd, recoveredService.getWindowEndTSO());
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
+            Config.enable_tso_checkpoint_module = originalEnableTsoCheckpointModule;
+        }
+    }
+
+    @Test
+    public void testSaveTSOSkipsWhenWindowEndIsZero() throws IOException {
+        boolean originalEnableTsoCheckpointModule = Config.enable_tso_checkpoint_module;
+        try {
+            Config.enable_tso_checkpoint_module = true;
+
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            long checksum;
+            try (CountingDataOutputStream dos = new CountingDataOutputStream(out, 0)) {
+                checksum = tsoService.saveTSO(dos, 7L);
+                dos.flush();
+            }
+            Assert.assertEquals(7L, checksum);
+            Assert.assertEquals(0, out.size());
+        } finally {
+            Config.enable_tso_checkpoint_module = originalEnableTsoCheckpointModule;
+        }
     }
 
     @Test
@@ -481,6 +528,16 @@ public class TSOServiceTest {
         Journal journal = Mockito.mock(Journal.class);
         Mockito.when(env.getEditLog()).thenReturn(editLog);
         Mockito.when(editLog.getJournal()).thenReturn(journal);
+    }
+
+    private static byte[] saveTSOBytes(TSOService service) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (CountingDataOutputStream dos = new CountingDataOutputStream(out, 0)) {
+            long checksum = service.saveTSO(dos, 0L);
+            dos.flush();
+            Assert.assertEquals(service.getWindowEndTSO(), checksum);
+        }
+        return out.toByteArray();
     }
 
     private static final class EnvMockUp extends MockUp<Env> {

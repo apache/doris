@@ -74,6 +74,10 @@ public class TSOAction extends RestBaseController {
                 LOG.warn("TSO HTTP API: FE is not ready");
                 return ResponseEntityBuilder.badRequest("FE is not ready");
             }
+            if (!env.isMaster()) {
+                LOG.warn("TSO HTTP API: current FE is not master");
+                return ResponseEntityBuilder.badRequest("Current FE is not master");
+            }
             // Get current TSO information without increasing it
             long windowEndPhysicalTime = env.getTSOService().getWindowEndTSO();
             long currentTSO = env.getTSOService().getCurrentTSO();

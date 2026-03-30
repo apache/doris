@@ -161,7 +161,7 @@ public class TSOService extends MasterDaemon {
      */
     public long getTSO() {
         if (!Config.enable_tso_feature) {
-            throw new RuntimeException("TSO timestamp is not calibrated, please check");
+            throw new RuntimeException("TSO feature is disabled, please check enable_tso_feature");
         }
         if (!isInitialized.get()) {
             throw new RuntimeException("TSO timestamp is not calibrated, please check");
@@ -501,10 +501,14 @@ public class TSOService extends MasterDaemon {
     }
 
     public long saveTSO(CountingDataOutputStream dos, long checksum) throws IOException {
-        if (!Config.enable_tso_feature || !Config.enable_tso_checkpoint_module) {
+        if (!Config.enable_tso_checkpoint_module) {
             return checksum;
         }
-        TSOTimestamp tsoTimestamp = new TSOTimestamp(windowEndTSO.get(), 0);
+        long currentWindowEnd = windowEndTSO.get();
+        if (currentWindowEnd <= 0) {
+            return checksum;
+        }
+        TSOTimestamp tsoTimestamp = new TSOTimestamp(currentWindowEnd, 0);
         tsoTimestamp.write(dos);
         checksum ^= tsoTimestamp.getPhysicalTimestamp();
         LOG.info("Save TSO windowEndTSO {} to image", tsoTimestamp);

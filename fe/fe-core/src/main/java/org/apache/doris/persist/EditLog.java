@@ -1469,7 +1469,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_TSO_TIMESTAMP_WINDOW_END: {
-                    env.getCurrentTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
+                    env.getTSOService().replayWindowEndTSO((TSOTimestamp) journal.getData());
                     break;
                 }
                 default: {
