@@ -19,14 +19,14 @@
 
 #include <string>
 
-#include "http/http_handler_with_auth.h"
+#include "service/http/http_handler.h"
 
 namespace doris {
 
 class ExecEnv;
 class HttpRequest;
 
-class StreamLoad2PCAction : public HttpHandlerWithAuth {
+class StreamLoad2PCAction : public HttpHandler {
 public:
     StreamLoad2PCAction(ExecEnv* exec_env);
 
@@ -36,7 +36,7 @@ public:
     std::string get_success_info(const std::string msg, const std::string txn_operation);
 
 private:
-    // Note: _exec_env is inherited from HttpHandlerWithAuth
+    ExecEnv* _exec_env;
 };
 
 } // namespace doris

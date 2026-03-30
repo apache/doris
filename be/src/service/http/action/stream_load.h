@@ -20,8 +20,8 @@
 #include <memory>
 #include <string>
 
-#include "http/http_handler_with_auth.h"
-#include "util/metrics.h"
+#include "common/metrics/metrics.h"
+#include "service/http/http_handler.h"
 
 namespace doris {
 
@@ -30,7 +30,7 @@ class Status;
 class StreamLoadContext;
 class HttpRequest;
 
-class StreamLoadAction : public HttpHandlerWithAuth {
+class StreamLoadAction : public HttpHandler {
 public:
     StreamLoadAction(ExecEnv* exec_env);
     ~StreamLoadAction() override;
@@ -56,7 +56,7 @@ private:
     Status _handle_group_commit(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx);
 
 private:
-    // Note: _exec_env is inherited from HttpHandlerWithAuth
+    ExecEnv* _exec_env;
 
     std::shared_ptr<MetricEntity> _stream_load_entity;
     IntCounter* streaming_load_requests_total;
