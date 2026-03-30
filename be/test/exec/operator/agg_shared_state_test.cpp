@@ -27,9 +27,9 @@ namespace doris {
 class TestableGroupByAggContext : public GroupByAggContext {
 public:
     TestableGroupByAggContext()
-            : GroupByAggContext(/*agg_evaluators=*/{}, /*groupby_expr_ctxs=*/{},
-                               /*agg_state_offsets=*/{}, /*total_agg_state_size=*/0,
-                               /*agg_state_alignment=*/1, /*is_first_phase=*/true) {}
+            : GroupByAggContext(/*agg_evaluators=*/ {}, /*groupby_expr_ctxs=*/ {},
+                                /*agg_state_offsets=*/ {}, /*total_agg_state_size=*/0,
+                                /*agg_state_alignment=*/1, /*is_first_phase=*/true) {}
 
     MutableColumns& limit_columns() { return _limit_columns; }
     int& limit_columns_min_ref() { return _limit_columns_min; }
