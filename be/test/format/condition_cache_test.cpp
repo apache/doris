@@ -379,9 +379,6 @@ class TestableIcebergReader : public IcebergTableReader {
 public:
     using IcebergTableReader::IcebergTableReader;
     void set_delete_rows() override {}
-    Status _read_position_delete_file(const TFileRangeDesc*, DeleteFile*) override {
-        return Status::OK();
-    }
     Status _process_equality_delete(
             const std::vector<TIcebergDeleteFileDesc>& delete_files) override {
         return Status::OK();

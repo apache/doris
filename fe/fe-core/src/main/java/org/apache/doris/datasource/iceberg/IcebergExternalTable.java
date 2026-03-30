@@ -279,14 +279,13 @@ public class IcebergExternalTable extends ExternalTable implements MTMVRelatedTa
     @Override
     public List<Column> getFullSchema() {
         List<Column> schema = IcebergUtils.getIcebergSchema(this);
+        schema = new ArrayList<>(schema);
 
-        // 添加隐藏列: __DORIS_ICEBERG_ROWID_COL__
-        // 只有在 Util.showHiddenColumns() 或内部需要时返回
         if (Util.showHiddenColumns() || needInternalHiddenColumns()) {
-            schema = new ArrayList<>(schema);
             schema.add(createIcebergRowIdColumn());
         }
 
+        schema = IcebergUtils.appendRowLineageColumnsForV3(schema, getIcebergTable());
         return schema;
     }
 

@@ -64,6 +64,7 @@ class FileMetaData;
 class PageIndex;
 class ShardedKVCache;
 class VExprContext;
+struct RowLineageColumns;
 } // namespace doris
 
 namespace doris {
@@ -173,6 +174,10 @@ public:
 
     void set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
                                   const std::string& partition_data_json, int row_id_column_pos);
+
+    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
+        _row_lineage_columns = std::move(row_lineage_columns);
+    }
 
     bool count_read_rows() override { return true; }
 
@@ -365,6 +370,9 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
+
+protected:
     bool _filter_groups = true;
     RowGroupReader::IcebergRowIdParams _iceberg_rowid_params;
 

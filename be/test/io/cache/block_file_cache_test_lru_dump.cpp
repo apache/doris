@@ -528,6 +528,7 @@ TEST_F(BlockFileCacheTest, cached_remote_file_reader_direct_read_order_check) {
     io::FileReaderOptions opts;
     opts.cache_type = io::cache_type_from_string("file_block_cache");
     opts.is_doris_table = true;
+    opts.tablet_id = 10086;
     auto reader = std::make_shared<CachedRemoteFileReader>(local_reader, opts);
 
     std::string buffer;
