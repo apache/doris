@@ -249,9 +249,9 @@ public final class MetricRepo {
     public static GaugeMetricImpl<Long> GAUGE_AVG_PARTITION_SIZE_BYTES;
     public static GaugeMetricImpl<Long> GAUGE_AVG_TABLET_SIZE_BYTES;
 
-    // Partition near-limit warnings
-    public static LongCounterMetric COUNTER_AUTO_PARTITION_NEAR_LIMIT;
-    public static LongCounterMetric COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT;
+    // Partition near-limit warnings (gauges: current number of tables near the partition limit)
+    public static GaugeMetricImpl<Long> GAUGE_AUTO_PARTITION_NEAR_LIMIT;
+    public static GaugeMetricImpl<Long> GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT;
 
     // Agent task
     public static LongCounterMetric COUNTER_AGENT_TASK_REQUEST_TOTAL;
@@ -1006,15 +1006,16 @@ public final class MetricRepo {
         GAUGE_AVG_TABLET_SIZE_BYTES = new GaugeMetricImpl<>("avg_tablet_size_bytes", MetricUnit.BYTES, "", 0L);
         DORIS_METRIC_REGISTER.addMetrics(GAUGE_AVG_TABLET_SIZE_BYTES);
 
-        // Partition near-limit warning counters
-        COUNTER_AUTO_PARTITION_NEAR_LIMIT = new LongCounterMetric("auto_partition_near_limit_count",
+        // Partition near-limit warning gauges (updated by TabletStatMgr periodic scan)
+        GAUGE_AUTO_PARTITION_NEAR_LIMIT = new GaugeMetricImpl<>("auto_partition_near_limit_count",
                 MetricUnit.NOUNIT,
-                "number of times auto partition count exceeded 80% of max_auto_partition_num");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_AUTO_PARTITION_NEAR_LIMIT);
-        COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT = new LongCounterMetric("dynamic_partition_near_limit_count",
+                "number of auto partition tables where partition count exceeded 80% of max_auto_partition_num", 0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_AUTO_PARTITION_NEAR_LIMIT);
+        GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT = new GaugeMetricImpl<>("dynamic_partition_near_limit_count",
                 MetricUnit.NOUNIT,
-                "number of times dynamic partition count exceeded 80% of max_dynamic_partition_num");
-        DORIS_METRIC_REGISTER.addMetrics(COUNTER_DYNAMIC_PARTITION_NEAR_LIMIT);
+                "number of dynamic partition tables where partition count exceeded 80% of max_dynamic_partition_num",
+                0L);
+        DORIS_METRIC_REGISTER.addMetrics(GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT);
 
         COUNTER_AGENT_TASK_REQUEST_TOTAL = new LongCounterMetric("agent_task_request_total", MetricUnit.NOUNIT,
                 "total agent batch task request send to BE");
