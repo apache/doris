@@ -42,10 +42,11 @@ enum class DataTimeCastEnumType {
     TIMESTAMP_TZ,
 };
 
-template <bool IsStrict>
+template <DatelikeParseMode ParseMode>
 [[nodiscard]] inline static bool init_microsecond(int64_t frac_input, uint32_t frac_length,
                                                   DateV2Value<DateTimeV2ValueType>& val,
                                                   uint32_t target_scale, CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     if (frac_length > 0) {
         // align to `target_scale` digits
         auto in_scale_part =
@@ -82,20 +83,24 @@ template <bool IsStrict>
  * return value: whether the cast is successful or not.
  * `params.status`: set error code ONLY IN STRICT MODE.
  */
+struct CastToTimestampTz;
+
 struct CastToDatetimeV2 {
+    friend struct CastToTimestampTz;
+
     // may be slow
     template <typename T>
     static inline bool from_integer(T int_val, DateV2Value<DateTimeV2ValueType>& val,
                                     CastParameters& params) {
         if (params.is_strict) {
-            return from_integer<true>(int_val, val, params);
+            return from_integer<DatelikeParseMode::STRICT>(int_val, val, params);
         } else {
-            return from_integer<false>(int_val, val, params);
+            return from_integer<DatelikeParseMode::NON_STRICT>(int_val, val, params);
         }
     }
 
     // same behaviour in both strict and non-strict mode
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
     static inline bool from_integer(T int_val, DateV2Value<DateTimeV2ValueType>& val,
                                     CastParameters& params);
 
@@ -105,29 +110,31 @@ struct CastToDatetimeV2 {
     static inline bool from_float(T float_value, DateV2Value<DateTimeV2ValueType>& val,
                                   uint32_t to_scale, CastParameters& params) {
         if (params.is_strict) {
-            return from_float<true>(float_value, val, to_scale, params);
+            return from_float<DatelikeParseMode::STRICT>(float_value, val, to_scale, params);
         } else {
-            return from_float<false>(float_value, val, to_scale, params);
+            return from_float<DatelikeParseMode::NON_STRICT>(float_value, val, to_scale, params);
         }
     }
 
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
         requires std::is_floating_point_v<T>
     static inline bool from_float(T float_value, DateV2Value<DateTimeV2ValueType>& val,
                                   uint32_t to_scale, CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
         SET_PARAMS_RET_FALSE_IFN(float_value > 0 && !std::isnan(float_value) &&
                                          !std::isinf(float_value) &&
                                          float_value < (double)std::numeric_limits<int64_t>::max(),
                                  "invalid float value for datetimev2: {}", float_value);
 
         auto int_part = static_cast<int64_t>(float_value);
-        if (!from_integer<IsStrict>(int_part, val, params)) {
+        if (!from_integer<ParseMode>(int_part, val, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
 
         int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-        if (!init_microsecond<IsStrict>(ms_part_7, 7, val, to_scale, params)) {
+        if (!init_microsecond<ParseMode>(ms_part_7, 7, val, to_scale, params)) {
             return false; // status set in init_microsecond
         }
         return true;
@@ -140,28 +147,32 @@ struct CastToDatetimeV2 {
                                     DateV2Value<DateTimeV2ValueType>& res, uint32_t to_scale,
                                     CastParameters& params) {
         if (params.is_strict) {
-            return from_decimal<true>(int_part, frac_part, decimal_scale, res, to_scale, params);
+            return from_decimal<DatelikeParseMode::STRICT>(int_part, frac_part, decimal_scale, res,
+                                                           to_scale, params);
         } else {
-            return from_decimal<false>(int_part, frac_part, decimal_scale, res, to_scale, params);
+            return from_decimal<DatelikeParseMode::NON_STRICT>(int_part, frac_part, decimal_scale,
+                                                               res, to_scale, params);
         }
     }
 
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
     static inline bool from_decimal(const T& int_part, const T& frac_part,
                                     const int64_t& decimal_scale,
                                     DateV2Value<DateTimeV2ValueType>& res, uint32_t to_scale,
                                     CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
         SET_PARAMS_RET_FALSE_IFN(int_part <= std::numeric_limits<int64_t>::max() && int_part >= 1,
                                  "invalid decimal value for datetimev2: {}.{}", int_part,
                                  frac_part);
 
-        if (!from_integer<IsStrict>(int_part, res, params)) {
+        if (!from_integer<ParseMode>(int_part, res, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
 
-        if (!init_microsecond<IsStrict>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
-                                        params)) {
+        if (!init_microsecond<ParseMode>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
+                                         params)) {
             return false; // status set in init_microsecond
         }
         return true;
@@ -172,7 +183,8 @@ struct CastToDatetimeV2 {
                                    const cctz::time_zone* local_time_zone, uint32_t to_scale,
                                    CastParameters& params) {
         if (params.is_strict) {
-            return from_string_strict_mode<true>(str, res, local_time_zone, to_scale, params);
+            return from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, local_time_zone,
+                                                                      to_scale, params);
         } else {
             return from_string_non_strict_mode(str, res, local_time_zone, to_scale, params);
         }
@@ -180,32 +192,46 @@ struct CastToDatetimeV2 {
 
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
-    template <bool IsStrict, DataTimeCastEnumType type = DataTimeCastEnumType::DATE_TIME>
+    template <DatelikeParseMode ParseMode>
     static inline bool from_string_strict_mode(const StringRef& str,
                                                DateV2Value<DateTimeV2ValueType>& res,
                                                const cctz::time_zone* local_time_zone,
-                                               uint32_t to_scale, CastParameters& params);
+                                               uint32_t to_scale, CastParameters& params) {
+        return from_string_strict_mode_internal<ParseMode, DataTimeCastEnumType::DATE_TIME>(
+                str, res, local_time_zone, to_scale, params);
+    }
 
     static inline bool from_string_non_strict_mode(const StringRef& str,
                                                    DateV2Value<DateTimeV2ValueType>& res,
                                                    const cctz::time_zone* local_time_zone,
                                                    uint32_t to_scale, CastParameters& params) {
-        return CastToDatetimeV2::from_string_strict_mode<false>(str, res, local_time_zone, to_scale,
-                                                                params) ||
-               CastToDatetimeV2::from_string_non_strict_mode_impl(str, res, local_time_zone,
-                                                                  to_scale, params);
+        return CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::NON_STRICT>(
+                       str, res, local_time_zone, to_scale, params) ||
+               CastToDatetimeV2::from_string_non_strict_mode_internal<
+                       DataTimeCastEnumType::DATE_TIME>(str, res, local_time_zone, to_scale,
+                                                        params);
     }
 
-    template <DataTimeCastEnumType type = DataTimeCastEnumType::DATE_TIME>
-    static inline bool from_string_non_strict_mode_impl(const StringRef& str,
+private:
+    template <DatelikeParseMode ParseMode, DataTimeCastEnumType type>
+    static inline bool from_string_strict_mode_internal(const StringRef& str,
                                                         DateV2Value<DateTimeV2ValueType>& res,
                                                         const cctz::time_zone* local_time_zone,
                                                         uint32_t to_scale, CastParameters& params);
+
+    template <DataTimeCastEnumType type>
+    static inline bool from_string_non_strict_mode_internal(const StringRef& str,
+                                                            DateV2Value<DateTimeV2ValueType>& res,
+                                                            const cctz::time_zone* local_time_zone,
+                                                            uint32_t to_scale,
+                                                            CastParameters& params);
 };
 
-template <bool IsStrict, typename T>
+template <DatelikeParseMode ParseMode, typename T>
 inline bool CastToDatetimeV2::from_integer(T input, DateV2Value<DateTimeV2ValueType>& val,
                                            CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    DCHECK(IsStrict == params.is_strict);
     // T maybe int128 then bigger than int64_t. so we must check before cast
     SET_PARAMS_RET_FALSE_IFN(input <= std::numeric_limits<int64_t>::max() && input > 0,
                              "invalid int value for datetimev2: {}", input);
@@ -323,11 +349,11 @@ inline bool CastToDatetimeV2::from_integer(T input, DateV2Value<DateTimeV2ValueT
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 <whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
 */
-template <bool IsStrict, DataTimeCastEnumType type>
-inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
-                                                      DateV2Value<DateTimeV2ValueType>& res,
-                                                      const cctz::time_zone* local_time_zone,
-                                                      uint32_t to_scale, CastParameters& params) {
+template <DatelikeParseMode ParseMode, DataTimeCastEnumType type>
+inline bool CastToDatetimeV2::from_string_strict_mode_internal(
+        const StringRef& str, DateV2Value<DateTimeV2ValueType>& res,
+        const cctz::time_zone* local_time_zone, uint32_t to_scale, CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     const char* ptr = str.data;
     const char* end = ptr + str.size;
     AsanPoisonGuard defer(end, 1);
@@ -374,7 +400,7 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
         has_second = true;
         if (ptr == end) {
             // no fraction or timezone part, just return.
-            goto NO_TIMEZHONE_PART;
+            goto POST_PROCESS;
         }
         goto FRAC;
     }
@@ -481,7 +507,7 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
         res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
         res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
         res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
-        goto NO_TIMEZHONE_PART;
+        goto POST_PROCESS;
     }
 
     SET_PARAMS_RET_FALSE_IFN(consume_one_delimiter(ptr, end),
@@ -497,7 +523,7 @@ inline bool CastToDatetimeV2::from_string_strict_mode(const StringRef& str,
                              part[0]);
     if (ptr == end) {
         // no minute part, just return.
-        goto NO_TIMEZHONE_PART;
+        goto POST_PROCESS;
     }
     if (*ptr == ':') {
         // with hour:minute:second
@@ -670,7 +696,7 @@ FRAC:
         return true;
     }
 
-NO_TIMEZHONE_PART:
+POST_PROCESS:
     if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
         // use local time zone to convert to UTC
         SET_PARAMS_RET_FALSE_IFN(local_time_zone != nullptr,
@@ -736,7 +762,7 @@ NO_TIMEZHONE_PART:
 */
 
 template <DataTimeCastEnumType type>
-inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
+inline bool CastToDatetimeV2::from_string_non_strict_mode_internal(
         const StringRef& str, DateV2Value<DateTimeV2ValueType>& res,
         const cctz::time_zone* local_time_zone, uint32_t to_scale, CastParameters& params) {
     constexpr bool IsStrict = false;
@@ -791,7 +817,7 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
         res.unchecked_set_time_unit<TimeUnit::MINUTE>(0);
         res.unchecked_set_time_unit<TimeUnit::SECOND>(0);
         res.unchecked_set_time_unit<TimeUnit::MICROSECOND>(0);
-        goto NO_TIMEZHONE_PART;
+        goto POST_PROCESS;
     }
 
     PROPAGATE_FALSE(consume_one_delimiter(ptr, end));
@@ -957,7 +983,7 @@ inline bool CastToDatetimeV2::from_string_non_strict_mode_impl(
                              "invalid datetime string '{}', extra characters after parsing",
                              std::string {ptr, end});
 
-NO_TIMEZHONE_PART:
+POST_PROCESS:
     if constexpr (type == DataTimeCastEnumType::TIMESTAMP_TZ) {
         // use local time zone to convert to UTC
         SET_PARAMS_RET_FALSE_IFN(local_time_zone != nullptr,

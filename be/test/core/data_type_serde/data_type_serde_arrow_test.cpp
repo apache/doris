@@ -71,6 +71,7 @@
 #include "core/value/hll.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/arrow_column_to_doris_column.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "format/arrow/arrow_block_convertor.h"
 #include "format/arrow/arrow_row_batch.h"
 #include "runtime/descriptors.cpp"
@@ -282,7 +283,11 @@ void serialize_and_deserialize_arrow_test(std::vector<PrimitiveType> cols, int r
             std::string date_literal = "2022-01-01 11:11:11.111";
             cctz::time_zone ctz;
             TimezoneUtils::find_cctz_time_zone("UTC", ctz);
-            EXPECT_TRUE(value.from_date_str(date_literal.c_str(), date_literal.size(), ctz, 3));
+            {
+                CastParameters p;
+                EXPECT_TRUE(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                        {date_literal.c_str(), date_literal.size()}, value, &ctz, 3, p));
+            }
             char to[64] = {};
             std::cout << "value: " << value.to_string(to) << std::endl;
             for (int i = 0; i < row_num; ++i) {

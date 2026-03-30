@@ -20,6 +20,7 @@
 #include "core/data_type/define_primitive_type.h"
 #include "exec/runtime_filter/runtime_filter_definitions.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -327,7 +328,10 @@ Status RuntimeFilterWrapper::_assign(const PInFilter& in_filter, bool contain_nu
         batch_assign(in_filter, [](std::shared_ptr<HybridSetBase>& set, PColumnValue& column) {
             const auto& string_val_ref = column.stringval();
             VecDateTimeValue datetime_val;
-            datetime_val.from_date_str(string_val_ref.c_str(), string_val_ref.length());
+            CastParameters params;
+            CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                    {string_val_ref.c_str(), string_val_ref.length()}, datetime_val, nullptr,
+                    params);
             set->insert(&datetime_val);
         });
         break;
@@ -489,8 +493,11 @@ Status RuntimeFilterWrapper::_assign(const PMinMaxFilter& minmax_filter, bool co
         const auto& max_val_ref = minmax_filter.max_val().stringval();
         VecDateTimeValue min_val;
         VecDateTimeValue max_val;
-        min_val.from_date_str(min_val_ref.c_str(), min_val_ref.length());
-        max_val.from_date_str(max_val_ref.c_str(), max_val_ref.length());
+        CastParameters params;
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {min_val_ref.c_str(), min_val_ref.length()}, min_val, nullptr, params);
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {max_val_ref.c_str(), max_val_ref.length()}, max_val, nullptr, params);
         return _minmax_func->assign(&min_val, &max_val);
     }
     case TYPE_DECIMALV2: {
