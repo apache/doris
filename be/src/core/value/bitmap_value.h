@@ -1332,8 +1332,9 @@ public:
                 _bitmap->add(_sv);
                 break;
             case BITMAP:
-                bitmaps.emplace_back(_bitmap.get());
-                *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
+                for (const auto* bitmap : bitmaps) {
+                    *_bitmap |= *bitmap;
+                }
                 break;
             case SET: {
                 *_bitmap = detail::Roaring64Map::fastunion(bitmaps.size(), bitmaps.data());
