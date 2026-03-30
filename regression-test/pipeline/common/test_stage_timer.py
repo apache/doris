@@ -17,6 +17,7 @@
 # under the License.
 
 import os
+import stat
 import subprocess
 import tempfile
 import unittest
@@ -24,15 +25,15 @@ import unittest
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 HELPER = os.path.join(ROOT, "regression-test", "pipeline", "common", "stage-timer.sh")
+GITHUB_HELPER = os.path.join(ROOT, "regression-test", "pipeline", "common", "github-utils.sh")
 
 
 class StageTimerTest(unittest.TestCase):
-    def _run(self, body):
+    def _run_raw(self, body):
         with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as script:
             script.write("#!/usr/bin/env bash\n")
             script.write("set -euo pipefail\n")
             script.write("export LC_ALL=C.UTF-8\n")
-            script.write("source \"{}\"\n".format(HELPER))
             script.write(body)
             script_path = script.name
         try:
@@ -45,6 +46,9 @@ class StageTimerTest(unittest.TestCase):
             )
         finally:
             os.unlink(script_path)
+
+    def _run(self, body):
+        return self._run_raw('source "{}"\n{}'.format(HELPER, body))
 
     def test_prints_stage_summary_on_success(self):
         result = self._run(
@@ -79,6 +83,66 @@ false
         self.assertIn("external regression 阶段耗时汇总", result.stdout)
         self.assertIn("前置准备", result.stdout)
         self.assertIn("退出码", result.stdout)
+
+    def test_external_pipeline_auto_hooks_print_summary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            for name in ("deploy_cluster.sh", "run-thirdparties-docker.sh", "run-regression-test.sh"):
+                script_path = os.path.join(tmpdir, name)
+                with open(script_path, "w") as script:
+                    script.write("#!/usr/bin/env bash\n")
+                    script.write("exit 0\n")
+                os.chmod(script_path, stat.S_IRWXU)
+
+            result = self._run_raw(
+                """
+export teamcity_build_checkoutDir="{root}"
+
+main() {{
+    source "{github_helper}"
+    echo "PREPARE"
+    cd "{tmpdir}" && bash deploy_cluster.sh test_cluster
+    echo "START EXTERNAL DOCKER"
+    cd "{tmpdir}" && bash run-thirdparties-docker.sh --start
+    echo "RUN EXTERNAL CASE"
+    cd "{tmpdir}" && ./run-regression-test.sh --teamcity --clean --run
+    echo "COLLECT DOCKER LOGS"
+}}
+
+main
+""".format(
+                    root=ROOT,
+                    github_helper=GITHUB_HELPER,
+                    tmpdir=tmpdir,
+                )
+            )
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("external regression 阶段耗时汇总", result.stdout)
+        self.assertIn("前置准备", result.stdout)
+        self.assertIn("启动 Doris", result.stdout)
+        self.assertIn("启动依赖", result.stdout)
+        self.assertIn("执行 Case", result.stdout)
+        self.assertIn("收尾归档", result.stdout)
+
+    def test_non_external_pipeline_does_not_enable_auto_hooks(self):
+        result = self._run_raw(
+            """
+export teamcity_build_checkoutDir="{root}"
+
+main() {{
+    source "{github_helper}"
+    echo "regular pipeline"
+}}
+
+main
+""".format(
+                root=ROOT,
+                github_helper=GITHUB_HELPER,
+            )
+        )
+
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertNotIn("external regression 阶段耗时汇总", result.stdout)
 
 
 if __name__ == "__main__":

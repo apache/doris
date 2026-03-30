@@ -24,31 +24,67 @@ fi
 # shellcheck source=/dev/null
 source "${teamcity_build_checkoutDir}"/regression-test/pipeline/common/stage-timer.sh
 
-# Current TeamCity external regression still uses an inline command-line script.
-# Add the calls below into that script at the same anchor points:
-#
-# 1. After env check / variable initialization:
-#    source "${teamcity_build_checkoutDir}"/regression-test/pipeline/external/external-stage-timer.sh
-#    external_regression_stage_timer_init
-#
-# 2. Right before:
-#    cd $work_path && bash deploy_cluster.sh $cluster_name
-#    external_regression_stage_timer_enter_start_doris
-#
-# 3. Right before:
-#    echo "START EXTERNAL DOCKER"
-#    external_regression_stage_timer_enter_start_dependencies
-#
-# 4. Right before:
-#    echo "RUN EXTERNAL CASE"
-#    external_regression_stage_timer_enter_run_cases
-#
-# 5. Right before:
-#    echo "COLLECT DOCKER LOGS"
-#    external_regression_stage_timer_enter_cleanup
-#
-# stage-timer.sh installs an EXIT trap, so the summary is printed automatically
-# when the whole TeamCity shell finishes, even on failure.
+external_regression_stage_timer__extract_debug_trap() {
+    local trap_desc
+    trap_desc="$(trap -p DEBUG)"
+    if [[ "${trap_desc}" =~ ^trap\ --\ \'(.*)\'\ DEBUG$ ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+    fi
+}
+
+external_regression_stage_timer__enter_if_needed() {
+    local stage_name="${1:-}"
+    if [[ -z "${stage_name}" ]]; then
+        return 1
+    fi
+    if [[ "${STAGE_TIMER_CURRENT_STAGE:-}" == "${stage_name}" ]]; then
+        return 0
+    fi
+    stage_timer_enter "${stage_name}"
+}
+
+external_regression_stage_timer__handle_command() {
+    local current_command="${1:-}"
+    if [[ -z "${current_command}" ]]; then
+        return 0
+    fi
+
+    case "${current_command}" in
+        *"bash deploy_cluster.sh "*)
+            external_regression_stage_timer__enter_if_needed "启动 Doris"
+            ;;
+        *"START EXTERNAL DOCKER"* | *"run-thirdparties-docker.sh "*)
+            if [[ "${current_command}" != *"--stop"* ]]; then
+                external_regression_stage_timer__enter_if_needed "启动依赖"
+            fi
+            ;;
+        *"./run-regression-test.sh --teamcity --clean --run"*)
+            external_regression_stage_timer__enter_if_needed "执行 Case"
+            ;;
+        *"COLLECT DOCKER LOGS"* | *"collect_docker_logs "*)
+            external_regression_stage_timer__enter_if_needed "收尾归档"
+            ;;
+    esac
+}
+
+external_regression_stage_timer__run_previous_debug_trap() {
+    if [[ -n "${EXTERNAL_REGRESSION_STAGE_TIMER_PREVIOUS_DEBUG_TRAP:-}" ]] &&
+        [[ "${EXTERNAL_REGRESSION_STAGE_TIMER_PREVIOUS_DEBUG_TRAP}" != *"external_regression_stage_timer__debug_hook"* ]]; then
+        eval "${EXTERNAL_REGRESSION_STAGE_TIMER_PREVIOUS_DEBUG_TRAP}"
+    fi
+}
+
+external_regression_stage_timer__debug_hook() {
+    local current_command="${1:-$BASH_COMMAND}"
+    if [[ "${EXTERNAL_REGRESSION_STAGE_TIMER_IN_DEBUG_HOOK:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    EXTERNAL_REGRESSION_STAGE_TIMER_IN_DEBUG_HOOK=true
+    external_regression_stage_timer__handle_command "${current_command}"
+    external_regression_stage_timer__run_previous_debug_trap
+    EXTERNAL_REGRESSION_STAGE_TIMER_IN_DEBUG_HOOK=false
+}
 
 external_regression_stage_timer_init() {
     stage_timer_init "external regression"
@@ -69,4 +105,15 @@ external_regression_stage_timer_enter_run_cases() {
 
 external_regression_stage_timer_enter_cleanup() {
     stage_timer_enter "收尾归档"
+}
+
+external_regression_stage_timer_enable_auto_hooks() {
+    if [[ "${EXTERNAL_REGRESSION_STAGE_TIMER_AUTO_HOOK_ENABLED:-false}" == "true" ]]; then
+        return 0
+    fi
+
+    external_regression_stage_timer_init
+    EXTERNAL_REGRESSION_STAGE_TIMER_PREVIOUS_DEBUG_TRAP="$(external_regression_stage_timer__extract_debug_trap)"
+    EXTERNAL_REGRESSION_STAGE_TIMER_AUTO_HOOK_ENABLED=true
+    trap 'external_regression_stage_timer__debug_hook "$BASH_COMMAND"' DEBUG
 }
