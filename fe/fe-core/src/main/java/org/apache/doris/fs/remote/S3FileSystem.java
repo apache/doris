@@ -17,12 +17,12 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.obj.S3ObjStorage;
 
@@ -40,13 +40,13 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class S3FileSystem extends ObjFileSystem {
+public class S3FileSystem extends ObjFileSystem implements MultipartUploadCapable {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
     private final AbstractS3CompatibleProperties s3Properties;
 
     public S3FileSystem(AbstractS3CompatibleProperties s3Properties) {
-        super(StorageBackend.StorageType.S3.name(), StorageBackend.StorageType.S3,
+        super(FsStorageType.S3.name(), FsStorageType.S3,
                 new S3ObjStorage(s3Properties));
         this.s3Properties = s3Properties;
         initFsProperties();

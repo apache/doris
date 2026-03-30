@@ -17,10 +17,10 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.obj.AzureObjStorage;
 
 import org.apache.logging.log4j.LogManager;
@@ -31,12 +31,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class AzureFileSystem extends ObjFileSystem {
+public class AzureFileSystem extends ObjFileSystem implements MultipartUploadCapable {
     private static final Logger LOG = LogManager.getLogger(AzureFileSystem.class);
     private final AzureProperties azureProperties;
 
     public AzureFileSystem(AzureProperties azureProperties) {
-        super(StorageType.AZURE.name(), StorageType.AZURE, new AzureObjStorage(azureProperties));
+        super(FsStorageType.AZURE.name(), FsStorageType.AZURE, new AzureObjStorage(azureProperties));
         this.azureProperties = azureProperties;
         this.properties.putAll(azureProperties.getOrigProps());
     }

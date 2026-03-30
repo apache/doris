@@ -17,7 +17,6 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
@@ -28,6 +27,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.operations.BrokerFileOperations;
 import org.apache.doris.fs.operations.OpParams;
 import org.apache.doris.service.FrontendOptions;
@@ -79,7 +79,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
 
     //todo The method parameter should use the interface type StorageProperties instead of a specific implementation.
     public BrokerFileSystem(BrokerProperties brokerProperties) {
-        super(brokerProperties.getBrokerName(), StorageBackend.StorageType.BROKER);
+        super(brokerProperties.getBrokerName(), FsStorageType.BROKER);
         this.brokerProperties = brokerProperties;
         this.operations = new BrokerFileOperations(name, brokerProperties.getBrokerParams());
     }

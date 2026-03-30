@@ -17,9 +17,9 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
+import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.PersistentFileSystem;
 
 import org.apache.hadoop.fs.FileStatus;
@@ -35,7 +35,7 @@ public abstract class RemoteFileSystem extends PersistentFileSystem implements C
 
     protected AtomicBoolean closed = new AtomicBoolean(false);
 
-    public RemoteFileSystem(String name, StorageBackend.StorageType type) {
+    public RemoteFileSystem(String name, FsStorageType type) {
         super(name, type);
     }
 

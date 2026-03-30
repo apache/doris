@@ -25,6 +25,7 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 
 /**
@@ -36,6 +37,8 @@ public interface ObjStorage<C> extends AutoCloseable {
 
     // CHUNK_SIZE for multi part upload
     int CHUNK_SIZE = 5 * 1024 * 1024;
+
+    // ==================== Legacy Status-based API (keep for backward compat) ====================
 
     C getClient() throws UserException;
 
@@ -54,6 +57,51 @@ public interface ObjStorage<C> extends AutoCloseable {
     Status copyObject(String origFilePath, String destFilePath);
 
     RemoteObjects listObjects(String remotePath, String continuationToken) throws DdlException;
+
+    // ==================== IOException-based API (bridge to legacy methods above) ====================
+
+    /** Checks that the remote object exists; throws {@link java.io.FileNotFoundException} if not. */
+    default void checkObjectExists(String remotePath) throws IOException {
+        ObjStorageStatusAdapter.throwIfFailed(headObject(remotePath), "headObject", remotePath);
+    }
+
+    /** Downloads a remote object to a local file; throws {@link IOException} on failure. */
+    default void getObjectChecked(String remoteFilePath, File localFile) throws IOException {
+        ObjStorageStatusAdapter.throwIfFailed(getObject(remoteFilePath, localFile), "getObject", remoteFilePath);
+    }
+
+    /** Uploads content to a remote path; throws {@link IOException} on failure. */
+    default void putObjectChecked(String remotePath, @Nullable InputStream content,
+            long contentLength) throws IOException {
+        ObjStorageStatusAdapter.throwIfFailed(putObject(remotePath, content, contentLength), "putObject", remotePath);
+    }
+
+    /** Deletes a remote object; throws {@link IOException} on failure. */
+    default void deleteObjectChecked(String remotePath) throws IOException {
+        ObjStorageStatusAdapter.throwIfFailed(deleteObject(remotePath), "deleteObject", remotePath);
+    }
+
+    /** Deletes remote objects by prefix; throws {@link IOException} on failure. */
+    default void deleteObjectsChecked(String remotePath) throws IOException {
+        ObjStorageStatusAdapter.throwIfFailed(deleteObjects(remotePath), "deleteObjects", remotePath);
+    }
+
+    /** Copies a remote object; throws {@link IOException} on failure. */
+    default void copyObjectChecked(String origFilePath, String destFilePath) throws IOException {
+        ObjStorageStatusAdapter.throwIfFailed(
+                copyObject(origFilePath, destFilePath), "copyObject", origFilePath + " -> " + destFilePath);
+    }
+
+    /** Lists objects at a remote path; throws {@link IOException} instead of {@link DdlException}. */
+    default RemoteObjects listObjectsChecked(String remotePath, String continuationToken) throws IOException {
+        try {
+            return listObjects(remotePath, continuationToken);
+        } catch (DdlException e) {
+            throw new IOException("listObjects failed for path: " + remotePath, e);
+        }
+    }
+
+    // ==================== Utility default methods ====================
 
     default String normalizePrefix(String prefix) {
         return prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : String.format("%s/", prefix));

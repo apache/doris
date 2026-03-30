@@ -822,7 +822,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                 UploadTask task = new UploadTask(null, beId, signature, jobId, dbId, srcToDest,
                         brokers.get(0),
                         repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-                        repo.getRemoteFileSystem().getStorageType(), repo.getLocation());
+                        repo.getRemoteFileSystem().getThriftStorageType(), repo.getLocation());
                 batchTask.addTask(task);
                 unfinishedTaskIds.put(signature, beId);
             }

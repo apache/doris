@@ -17,9 +17,9 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 
 import org.apache.hadoop.fs.FileSystem;
 import org.junit.jupiter.api.Assertions;
@@ -36,7 +36,7 @@ public class RemoteFileSystemTest {
 
     private static class DummyRemoteFileSystem extends RemoteFileSystem {
         public DummyRemoteFileSystem() {
-            super("dummy", StorageBackend.StorageType.HDFS);
+            super("dummy", FsStorageType.HDFS);
         }
 
         @Override

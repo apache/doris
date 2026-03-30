@@ -17,8 +17,8 @@
 
 package org.apache.doris.fs.remote;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.obj.ObjStorage;
 
 import org.apache.logging.log4j.LogManager;
@@ -42,7 +42,7 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
 
     protected final ObjStorage<?> objStorage;
 
-    public ObjFileSystem(String name, StorageBackend.StorageType type, ObjStorage<?> objStorage) {
+    public ObjFileSystem(String name, FsStorageType type, ObjStorage<?> objStorage) {
         super(name, type);
         this.objStorage = objStorage;
     }
@@ -165,23 +165,4 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
         return objStorage.deleteObjects(absolutePath);
     }
 
-
-    /**
-     * Completes a multipart upload operation.
-     *
-     * <p>In object storage systems, large files are often uploaded in multiple parts.
-     * Once all parts have been successfully uploaded, this method is called to merge
-     * them into a single finalized object.
-     *
-     * <p>The main purpose of this method is to notify the underlying storage service
-     * to perform the final merge and make the object available for normal access.
-     *
-     * @param bucket   The name of the target bucket.
-     * @param key      The full object key (path) within the bucket.
-     * @param uploadId The unique identifier of the multipart upload session.
-     * @param parts    A mapping of part numbers to their corresponding ETag values,
-     *                 used to assemble the parts in the correct order.
-     */
-    public abstract void completeMultipartUpload(String bucket, String key,
-                                                 String uploadId, Map<Integer, String> parts);
 }

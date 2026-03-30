@@ -17,7 +17,6 @@
 
 package org.apache.doris.fs.remote.dfs;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
@@ -25,6 +24,7 @@ import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.io.DorisInputFile;
 import org.apache.doris.fs.io.DorisOutputFile;
 import org.apache.doris.fs.io.ParsedPath;
@@ -74,7 +74,7 @@ public class DFSFileSystem extends RemoteFileSystem {
     protected volatile org.apache.hadoop.fs.FileSystem dfsFileSystem = null;
 
     public DFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
-        super(StorageBackend.StorageType.HDFS.name(), StorageBackend.StorageType.HDFS);
+        super(FsStorageType.HDFS.name(), FsStorageType.HDFS);
         this.properties.putAll(hdfsProperties.getOrigProps());
         this.hdfsProperties = hdfsProperties;
     }
@@ -123,7 +123,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         return Status.OK;
     }
 
-    public DFSFileSystem(HdfsCompatibleProperties hdfsProperties, StorageBackend.StorageType storageType) {
+    public DFSFileSystem(HdfsCompatibleProperties hdfsProperties, FsStorageType storageType) {
         super(storageType.name(), storageType);
         this.properties.putAll(hdfsProperties.getOrigProps());
         this.hdfsProperties = hdfsProperties;

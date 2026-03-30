@@ -17,11 +17,11 @@
 
 package org.apache.doris.fs.remote.dfs;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 
 public class OFSFileSystem extends DFSFileSystem {
     public OFSFileSystem(HdfsCompatibleProperties properties) {
-        super(properties, StorageBackend.StorageType.OFS);
+        super(properties, FsStorageType.OFS);
     }
 }

@@ -15,13 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote.dfs;
+package org.apache.doris.foundation.fs;
 
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
-import org.apache.doris.foundation.fs.FsStorageType;
+/**
+ * Storage type enum for persistent file system identification.
+ * Intentionally in fe-foundation (zero-dependency module) so that
+ * fe-filesystem-spi can reference it without depending on fe-thrift.
+ */
+public enum FsStorageType {
+    S3,
+    HDFS,
+    BROKER,
+    AZURE,
+    OFS,
+    JFS,
+    OSS_HDFS,
+    LOCAL;
 
-public class JFSFileSystem extends DFSFileSystem {
-    public JFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
-        super(hdfsProperties, FsStorageType.JFS);
+    public String typeName() {
+        return name();
     }
 }

@@ -15,13 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote.dfs;
+package org.apache.doris.fs;
 
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
-import org.apache.doris.foundation.fs.FsStorageType;
-
-public class JFSFileSystem extends DFSFileSystem {
-    public JFSFileSystem(HdfsCompatibleProperties hdfsProperties) {
-        super(hdfsProperties, FsStorageType.JFS);
-    }
+/**
+ * Abstraction for looking up FileSystem instances from a cache,
+ * used by SwitchingFileSystem to avoid direct dependency on ExternalMetaCacheMgr.
+ */
+public interface FileSystemLookup {
+    /**
+     * Looks up and returns a cached FileSystem for the given key.
+     * Creates a new instance if not cached.
+     */
+    FileSystem lookup(FileSystemCache.FileSystemCacheKey key);
 }

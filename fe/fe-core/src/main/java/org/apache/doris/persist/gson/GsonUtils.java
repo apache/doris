@@ -179,13 +179,6 @@ import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalDatabase
 import org.apache.doris.datasource.trinoconnector.TrinoConnectorExternalTable;
 import org.apache.doris.dictionary.Dictionary;
 import org.apache.doris.fs.PersistentFileSystem;
-import org.apache.doris.fs.remote.AzureFileSystem;
-import org.apache.doris.fs.remote.BrokerFileSystem;
-import org.apache.doris.fs.remote.ObjFileSystem;
-import org.apache.doris.fs.remote.S3FileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
-import org.apache.doris.fs.remote.dfs.JFSFileSystem;
-import org.apache.doris.fs.remote.dfs.OFSFileSystem;
 import org.apache.doris.job.extensions.insert.InsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingInsertJob;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
@@ -223,6 +216,8 @@ import org.apache.doris.system.HeartbeatResponse;
 import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
@@ -289,6 +284,8 @@ import java.util.zip.GZIPOutputStream;
  * See the following "GuavaTableAdapter" and "GuavaMultimapAdapter" for example.
  */
 public class GsonUtils {
+    private static final Logger LOG = LogManager.getLogger(GsonUtils.class);
+
     // runtime adapter for class "Type"
     private static RuntimeTypeAdapterFactory<org.apache.doris.catalog.Type> columnTypeAdapterFactory
             = RuntimeTypeAdapterFactory
@@ -578,14 +575,38 @@ public class GsonUtils {
             .registerSubtype(KafkaRoutineLoadJob.class, KafkaRoutineLoadJob.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<PersistentFileSystem> remoteFileSystemTypeAdapterFactory
-            = RuntimeTypeAdapterFactory.of(PersistentFileSystem.class, "clazz")
-            .registerSubtype(BrokerFileSystem.class, BrokerFileSystem.class.getSimpleName())
-            .registerSubtype(DFSFileSystem.class, DFSFileSystem.class.getSimpleName())
-            .registerSubtype(JFSFileSystem.class, JFSFileSystem.class.getSimpleName())
-            .registerSubtype(OFSFileSystem.class, OFSFileSystem.class.getSimpleName())
-            .registerSubtype(ObjFileSystem.class, ObjFileSystem.class.getSimpleName())
-            .registerSubtype(S3FileSystem.class, S3FileSystem.class.getSimpleName())
-            .registerSubtype(AzureFileSystem.class, AzureFileSystem.class.getSimpleName());
+            = buildLegacyFileSystemAdapterFactory();
+
+    private static RuntimeTypeAdapterFactory<PersistentFileSystem> buildLegacyFileSystemAdapterFactory() {
+        RuntimeTypeAdapterFactory<PersistentFileSystem> factory =
+                RuntimeTypeAdapterFactory.of(PersistentFileSystem.class, "clazz");
+        // Register via reflection to avoid compile-time dependency on concrete classes.
+        // These registrations exist only for backward-compatible deserialization of old metadata.
+        // New metadata uses FileSystemDescriptor, which does not require these registrations.
+        String[][] subtypes = {
+            {"BrokerFileSystem",  "org.apache.doris.fs.remote.BrokerFileSystem"},
+            {"DFSFileSystem",     "org.apache.doris.fs.remote.dfs.DFSFileSystem"},
+            {"JFSFileSystem",     "org.apache.doris.fs.remote.dfs.JFSFileSystem"},
+            {"OFSFileSystem",     "org.apache.doris.fs.remote.dfs.OFSFileSystem"},
+            {"ObjFileSystem",     "org.apache.doris.fs.remote.ObjFileSystem"},
+            {"S3FileSystem",      "org.apache.doris.fs.remote.S3FileSystem"},
+            {"AzureFileSystem",   "org.apache.doris.fs.remote.AzureFileSystem"},
+        };
+        for (String[] entry : subtypes) {
+            String simpleName = entry[0];
+            String fqcn = entry[1];
+            try {
+                Class<?> clazz = Class.forName(fqcn);
+                if (PersistentFileSystem.class.isAssignableFrom(clazz)) {
+                    factory.registerSubtype(
+                            clazz.asSubclass(PersistentFileSystem.class), simpleName);
+                }
+            } catch (ClassNotFoundException e) {
+                LOG.warn("Legacy FileSystem class '{}' not found, skipping GSON registration.", fqcn);
+            }
+        }
+        return factory;
+    }
 
     private static RuntimeTypeAdapterFactory<org.apache.doris.backup.AbstractJob>
             jobBackupTypeAdapterFactory

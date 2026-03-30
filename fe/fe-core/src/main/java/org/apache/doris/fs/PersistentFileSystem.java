@@ -19,6 +19,7 @@ package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -34,11 +35,11 @@ public abstract class PersistentFileSystem implements FileSystem {
     public Map<String, String> properties = Maps.newHashMap();
     @SerializedName("n")
     public String name;
-    public StorageBackend.StorageType type;
+    public FsStorageType type;
 
     public abstract StorageProperties getStorageProperties();
 
-    public PersistentFileSystem(String name, StorageBackend.StorageType type) {
+    public PersistentFileSystem(String name, FsStorageType type) {
         this.name = name;
         this.type = type;
     }
@@ -51,7 +52,12 @@ public abstract class PersistentFileSystem implements FileSystem {
         return properties;
     }
 
-    public StorageBackend.StorageType getStorageType() {
+    public FsStorageType getStorageType() {
         return type;
+    }
+
+    @Deprecated
+    public StorageBackend.StorageType getThriftStorageType() {
+        return FsStorageTypeAdapter.toThrift(type);
     }
 }

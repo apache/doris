@@ -293,7 +293,7 @@ public class CloudRestoreJob extends RestoreJob {
         Preconditions.checkState(storageVaultId != null, "Storage vault ID cannot be null");
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
             brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), storageVaultId);
+            repo.getRemoteFileSystem().getThriftStorageType(), repo.getLocation(), storageVaultId);
     }
 
     public void downloadLocalSnapshots() {

@@ -2004,7 +2004,7 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                                               Map<String, String> srcToDest, FsBroker brokerAddr) {
         return new DownloadTask(null, beId, signature, jobId, dbId, srcToDest,
             brokerAddr, repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties(),
-            repo.getRemoteFileSystem().getStorageType(), repo.getLocation(), "");
+            repo.getRemoteFileSystem().getThriftStorageType(), repo.getLocation(), "");
     }
 
     // Get the id mapping for snapshot, user should hold the lock of table.

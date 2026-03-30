@@ -17,11 +17,11 @@
 
 package org.apache.doris.fs.remote.dfs;
 
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.datasource.property.storage.OSSHdfsProperties;
+import org.apache.doris.foundation.fs.FsStorageType;
 
 public class OSSHdfsFileSystem extends DFSFileSystem {
     public OSSHdfsFileSystem(OSSHdfsProperties properties) {
-        super(properties, StorageBackend.StorageType.HDFS);
+        super(properties, FsStorageType.HDFS);
     }
 }

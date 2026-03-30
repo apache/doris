@@ -31,7 +31,7 @@ import org.apache.doris.foundation.util.PathUtils;
 import org.apache.doris.fs.FileSystem;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemUtil;
-import org.apache.doris.fs.remote.ObjFileSystem;
+import org.apache.doris.fs.remote.MultipartUploadCapable;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
@@ -1850,7 +1850,7 @@ public class HMSTransaction implements Transaction {
         if (isMockedPartitionUpdate) {
             return;
         }
-        ObjFileSystem fileSystem = (ObjFileSystem) ((SwitchingFileSystem) fs).fileSystem(path);
+        MultipartUploadCapable fileSystem = (MultipartUploadCapable) ((SwitchingFileSystem) fs).fileSystem(path);
         for (TS3MPUPendingUpload s3MPUPendingUpload : s3MpuPendingUploads) {
             asyncFileSystemTaskFutures.add(CompletableFuture.runAsync(() -> {
                 if (fileSystemTaskCancelled.get()) {
