@@ -15,8 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("topNLazyMaterializationUsingIndex.groovy") {
+suite("topNLazyMaterializationUsingIndex") {
     sql """
+        set runtime_filter_mode = 'OFF';
         drop table if exists t1;
         CREATE TABLE t1
         (
