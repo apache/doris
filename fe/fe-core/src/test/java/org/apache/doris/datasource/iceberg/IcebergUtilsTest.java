@@ -19,6 +19,8 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.analysis.TableScanParams;
 import org.apache.doris.analysis.TableSnapshot;
+import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 
@@ -28,6 +30,7 @@ import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.ManifestContent;
 import org.apache.iceberg.ManifestFile;
 import org.apache.iceberg.ManifestFile.PartitionFieldSummary;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.PartitionData;
 import org.apache.iceberg.PartitionSpec;
 import org.apache.iceberg.Schema;
@@ -101,6 +104,59 @@ public class IcebergUtilsTest {
         Field declaredField = hiveCatalog.getClass().getDeclaredField("listAllTables");
         declaredField.setAccessible(true);
         return declaredField.getBoolean(hiveCatalog);
+    }
+
+    @Test
+    public void testIsIcebergRowLineageColumn() {
+        Column rowIdColumn = new Column(IcebergUtils.ICEBERG_ROW_ID_COL, Type.BIGINT, true);
+        Column sequenceColumn = new Column(IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, Type.BIGINT, true);
+        Column normalColumn = new Column("id", Type.INT, true);
+
+        Assert.assertTrue(IcebergUtils.isIcebergRowLineageColumn(rowIdColumn));
+        Assert.assertTrue(IcebergUtils.isIcebergRowLineageColumn(sequenceColumn));
+        Assert.assertTrue(IcebergUtils.isIcebergRowLineageColumn("_ROW_ID"));
+        Assert.assertFalse(IcebergUtils.isIcebergRowLineageColumn(normalColumn));
+        Assert.assertFalse(IcebergUtils.isIcebergRowLineageColumn("id"));
+    }
+
+    @Test
+    public void testAppendRowLineageColumnsForV3AddsInvisibleColumns() {
+        List<Column> schema = new ArrayList<>();
+        schema.add(new Column("id", Type.INT, true));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of("format-version", "3"));
+
+        List<Column> schemaWithRowLineage = IcebergUtils.appendRowLineageColumnsForV3(schema, table);
+
+        Assert.assertEquals(3, schemaWithRowLineage.size());
+        Assert.assertEquals(IcebergUtils.ICEBERG_ROW_ID_COL, schemaWithRowLineage.get(1).getName());
+        Assert.assertEquals(IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL,
+                schemaWithRowLineage.get(2).getName());
+        Assert.assertFalse(schemaWithRowLineage.get(1).isVisible());
+        Assert.assertFalse(schemaWithRowLineage.get(2).isVisible());
+    }
+
+    @Test
+    public void testAppendRowLineageColumnsForV2ReturnsOriginalSchema() {
+        List<Column> schema = new ArrayList<>();
+        schema.add(new Column("id", Type.INT, true));
+        Table table = Mockito.mock(Table.class);
+        Mockito.when(table.properties()).thenReturn(ImmutableMap.of("format-version", "2"));
+
+        List<Column> schemaWithRowLineage = IcebergUtils.appendRowLineageColumnsForV3(schema, table);
+
+        Assert.assertSame(schema, schemaWithRowLineage);
+        Assert.assertEquals(1, schemaWithRowLineage.size());
+    }
+
+    @Test
+    public void testAppendRowLineageFieldsForV3AddsMetadataFields() {
+        Schema schema = new Schema(Types.NestedField.required(1, "id", Types.IntegerType.get()));
+
+        Schema schemaWithRowLineage = IcebergUtils.appendRowLineageFieldsForV3(schema);
+
+        Assert.assertNotNull(schemaWithRowLineage.findField(MetadataColumns.ROW_ID.fieldId()));
+        Assert.assertNotNull(schemaWithRowLineage.findField(MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER.fieldId()));
     }
 
     @Test

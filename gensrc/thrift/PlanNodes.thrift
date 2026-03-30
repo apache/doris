@@ -294,8 +294,9 @@ struct TIcebergDeleteFileDesc {
     5: optional i32 content;
     // 6 & 7 : iceberg v3 deletion vector.
     // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
-    6: optional i32 content_offset;
-    7: optional i32 content_size_in_bytes;
+    6: optional i64 content_offset;
+    7: optional i64 content_size_in_bytes;
+    8: optional TFileFormatType file_format;
 }
 
 struct TIcebergFileDesc {
@@ -314,6 +315,10 @@ struct TIcebergFileDesc {
     7: optional i64 row_count;
     8: optional i32 partition_spec_id;
     9: optional string partition_data_json;
+    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files. 
+    10: optional i64 first_row_id;
+    // Only for format_version >= 3, the sequence number which last updated this file.
+    11: optional i64 last_updated_sequence_number;
 }
 
 struct TPaimonDeletionFileDesc {

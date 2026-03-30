@@ -59,6 +59,7 @@
 #include "exprs/vslot_ref.h"
 #include "format/parquet/schema_desc.h"
 #include "format/parquet/vparquet_column_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
@@ -217,6 +218,18 @@ Status RowGroupReader::init(
         for (size_t i = 0; i < predicate_col_names.size(); ++i) {
             const std::string& predicate_col_name = predicate_col_names[i];
             int slot_id = predicate_col_slot_ids[i];
+            if (predicate_col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID ||
+                predicate_col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                // row lineage column can not dict filter.
+                if (_slot_id_to_filter_conjuncts->find(slot_id) !=
+                    _slot_id_to_filter_conjuncts->end()) {
+                    for (auto& ctx : _slot_id_to_filter_conjuncts->at(slot_id)) {
+                        _filter_conjuncts.push_back(ctx);
+                    }
+                }
+                continue;
+            }
+
             auto predicate_file_col_name =
                     _table_info_node_ptr->children_file_column_name(predicate_col_name);
             auto field = schema.get_column(predicate_file_col_name);
@@ -1004,7 +1017,8 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
         _position_delete_ctx.current_row_id = end_row_id;
         *batch_eof = _position_delete_ctx.current_row_id == _position_delete_ctx.last_row_id;
 
-        if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled) {
+        if (_row_id_column_iterator_pair.first != nullptr || _iceberg_rowid_params.enabled ||
+            (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids())) {
             *modify_row_ids = true;
             _current_batch_row_ids.clear();
             _current_batch_row_ids.resize(*read_rows);
@@ -1067,14 +1081,52 @@ Status RowGroupReader::_get_current_batch_row_id(size_t read_rows) {
 
 Status RowGroupReader::_fill_row_id_columns(Block* block, size_t read_rows,
                                             bool is_current_row_ids) {
+    const bool need_row_ids =
+            _row_id_column_iterator_pair.first != nullptr ||
+            (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids());
+    if (need_row_ids && !is_current_row_ids) {
+        RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
+    }
     if (_row_id_column_iterator_pair.first != nullptr) {
-        if (!is_current_row_ids) {
-            RETURN_IF_ERROR(_get_current_batch_row_id(read_rows));
-        }
         auto col = block->get_by_position(_row_id_column_iterator_pair.second)
                            .column->assume_mutable();
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->read_by_rowids(
                 _current_batch_row_ids.data(), _current_batch_row_ids.size(), col));
+    }
+
+    if (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids() &&
+        _row_lineage_columns->first_row_id >= 0) {
+        auto col = block->get_by_position(_row_lineage_columns->row_id_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < read_rows; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->first_row_id +
+                          static_cast<int64_t>(_current_batch_row_ids[i]);
+            }
+        }
+    }
+
+    if (_row_lineage_columns != nullptr &&
+        _row_lineage_columns->has_last_updated_sequence_number_column() &&
+        _row_lineage_columns->last_updated_sequence_number >= 0) {
+        auto col = block->get_by_position(
+                                _row_lineage_columns->last_updated_sequence_number_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < read_rows; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->last_updated_sequence_number;
+            }
+        }
     }
 
     return Status::OK();

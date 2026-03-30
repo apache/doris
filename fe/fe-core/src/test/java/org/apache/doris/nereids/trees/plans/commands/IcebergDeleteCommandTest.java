@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.StructType;
 import org.apache.doris.datasource.iceberg.IcebergRowId;
+import org.apache.doris.qe.ConnectContext;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -58,5 +59,33 @@ public class IcebergDeleteCommandTest {
         // Verify that hidden row-id STRUCT has the correct 4 fields
         StructType structType = (StructType) IcebergRowId.getRowIdType();
         Assertions.assertEquals(4, structType.getFields().size());
+    }
+
+    @Test
+    public void testExecuteWithExternalTableBatchModeDisabledRestoresValueOnSuccess() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().enableExternalTableBatchMode = true;
+
+        IcebergDeleteCommand.executeWithExternalTableBatchModeDisabled(ctx, () -> {
+            Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+            return null;
+        });
+
+        Assertions.assertTrue(ctx.getSessionVariable().enableExternalTableBatchMode);
+    }
+
+    @Test
+    public void testExecuteWithExternalTableBatchModeDisabledRestoresValueOnException() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().enableExternalTableBatchMode = false;
+
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> IcebergDeleteCommand.executeWithExternalTableBatchModeDisabled(ctx, () -> {
+                    Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+                    throw new RuntimeException("expected");
+                }));
+
+        Assertions.assertEquals("expected", exception.getMessage());
+        Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
     }
 }

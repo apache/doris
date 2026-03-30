@@ -34,12 +34,13 @@ namespace doris {
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 
-template <bool IsStrict>
+template <DatelikeParseMode ParseMode>
 [[nodiscard]] [[maybe_unused]] static bool init_microsecond(int64_t frac_input,
                                                             uint32_t frac_length,
                                                             TimeValue::TimeType& val,
                                                             uint32_t target_scale,
                                                             CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     if (frac_length > 0) {
         int sign = 1;
         // time type accept negative input.
@@ -88,14 +89,14 @@ struct CastToTimeV2 {
     template <typename T>
     static inline bool from_integer(T int_val, TimeValue::TimeType& val, CastParameters& params) {
         if (params.is_strict) {
-            return from_integer<true>(int_val, val, params);
+            return from_integer<DatelikeParseMode::STRICT>(int_val, val, params);
         } else {
-            return from_integer<false>(int_val, val, params);
+            return from_integer<DatelikeParseMode::NON_STRICT>(int_val, val, params);
         }
     }
 
     // same behaviour in both strict and non-strict mode
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
     static inline bool from_integer(T int_val, TimeValue::TimeType& val, CastParameters& params);
 
     // may be slow
@@ -104,29 +105,30 @@ struct CastToTimeV2 {
     static inline bool from_float(T float_value, TimeValue::TimeType& val, uint32_t to_scale,
                                   CastParameters& params) {
         if (params.is_strict) {
-            return from_float<true>(float_value, val, to_scale, params);
+            return from_float<DatelikeParseMode::STRICT>(float_value, val, to_scale, params);
         } else {
-            return from_float<false>(float_value, val, to_scale, params);
+            return from_float<DatelikeParseMode::NON_STRICT>(float_value, val, to_scale, params);
         }
     }
 
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
         requires std::is_floating_point_v<T>
     static inline bool from_float(T float_value, TimeValue::TimeType& val, uint32_t to_scale,
                                   CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
         SET_PARAMS_RET_FALSE_IFN(float_value > (double)std::numeric_limits<int64_t>::min() &&
                                          !std::isnan(float_value) && !std::isinf(float_value) &&
                                          float_value < (double)std::numeric_limits<int64_t>::max(),
                                  "invalid float value for time: {}", float_value);
 
         auto int_part = static_cast<int64_t>(float_value);
-        if (!from_integer<IsStrict>(int_part, val, params)) {
+        if (!from_integer<ParseMode>(int_part, val, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
 
         int ms_part_7 = (float_value - (double)int_part) * common::exp10_i32(7);
-        if (!init_microsecond<IsStrict>(ms_part_7, 7, val, to_scale, params)) {
+        if (!init_microsecond<ParseMode>(ms_part_7, 7, val, to_scale, params)) {
             return false; // status set in init_microsecond
         }
         return true;
@@ -138,27 +140,30 @@ struct CastToTimeV2 {
                                     const int64_t& decimal_scale, TimeValue::TimeType& res,
                                     uint32_t to_scale, CastParameters& params) {
         if (params.is_strict) {
-            return from_decimal<true>(int_part, frac_part, decimal_scale, res, to_scale, params);
+            return from_decimal<DatelikeParseMode::STRICT>(int_part, frac_part, decimal_scale, res,
+                                                           to_scale, params);
         } else {
-            return from_decimal<false>(int_part, frac_part, decimal_scale, res, to_scale, params);
+            return from_decimal<DatelikeParseMode::NON_STRICT>(int_part, frac_part, decimal_scale,
+                                                               res, to_scale, params);
         }
     }
 
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
     static inline bool from_decimal(const T& int_part, const T& frac_part,
                                     const int64_t& decimal_scale, TimeValue::TimeType& res,
                                     uint32_t to_scale, CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
         SET_PARAMS_RET_FALSE_IFN(int_part <= std::numeric_limits<int64_t>::max() &&
                                          int_part >= std::numeric_limits<int64_t>::min(),
                                  "invalid decimal value for time: {}.{}", int_part, frac_part);
 
-        if (!from_integer<IsStrict>(int_part, res, params)) {
+        if (!from_integer<ParseMode>(int_part, res, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
 
-        if (!init_microsecond<IsStrict>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
-                                        params)) {
+        if (!init_microsecond<ParseMode>((int64_t)frac_part, (uint32_t)decimal_scale, res, to_scale,
+                                         params)) {
             return false; // status set in init_microsecond
         }
         return true;
@@ -169,7 +174,8 @@ struct CastToTimeV2 {
                                    const cctz::time_zone* local_time_zone, uint32_t to_scale,
                                    CastParameters& params) {
         if (params.is_strict) {
-            return from_string_strict_mode<true>(str, res, local_time_zone, to_scale, params);
+            return from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, local_time_zone,
+                                                                      to_scale, params);
         } else {
             return from_string_non_strict_mode(str, res, local_time_zone, to_scale, params);
         }
@@ -177,7 +183,7 @@ struct CastToTimeV2 {
 
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
-    template <bool IsStrict>
+    template <DatelikeParseMode ParseMode>
     static inline bool from_string_strict_mode(const StringRef& str, TimeValue::TimeType& res,
                                                const cctz::time_zone* local_time_zone,
                                                uint32_t to_scale, CastParameters& params);
@@ -185,8 +191,8 @@ struct CastToTimeV2 {
     static inline bool from_string_non_strict_mode(const StringRef& str, TimeValue::TimeType& res,
                                                    const cctz::time_zone* local_time_zone,
                                                    uint32_t to_scale, CastParameters& params) {
-        return CastToTimeV2::from_string_strict_mode<false>(str, res, local_time_zone, to_scale,
-                                                            params) ||
+        return CastToTimeV2::from_string_strict_mode<DatelikeParseMode::NON_STRICT>(
+                       str, res, local_time_zone, to_scale, params) ||
                CastToTimeV2::from_string_non_strict_mode_impl(str, res, local_time_zone, to_scale,
                                                               params);
     }
@@ -197,8 +203,10 @@ struct CastToTimeV2 {
                                                         uint32_t to_scale, CastParameters& params);
 };
 
-template <bool IsStrict, typename T>
+template <DatelikeParseMode ParseMode, typename T>
 inline bool CastToTimeV2::from_integer(T input, TimeValue::TimeType& val, CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    DCHECK(IsStrict == params.is_strict);
     // T maybe int128 then bigger than int64_t. so we must check before cast
     SET_PARAMS_RET_FALSE_IFN(input <= std::numeric_limits<int64_t>::max() &&
                                      input >= std::numeric_limits<int64_t>::min(),
@@ -235,10 +243,11 @@ inline bool CastToTimeV2::from_integer(T input, TimeValue::TimeType& val, CastPa
 
 <digit> ::= "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
 */
-template <bool IsStrict>
+template <DatelikeParseMode ParseMode>
 inline bool CastToTimeV2::from_string_strict_mode(const StringRef& str, TimeValue::TimeType& res,
                                                   const cctz::time_zone* local_time_zone,
                                                   uint32_t to_scale, CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     const char* ptr = str.data;
     const char* end = ptr + str.size;
 

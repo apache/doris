@@ -22,6 +22,7 @@ import org.apache.doris.datasource.FileSplit;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
 import lombok.Data;
+import org.apache.iceberg.DeleteFile;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -37,6 +38,7 @@ public class IcebergSplit extends FileSplit {
     // but the original datafile path must be used.
     private final String originalPath;
     private Integer formatVersion;
+    private List<DeleteFile> deleteFiles = new ArrayList<>();
     private List<IcebergDeleteFileFilter> deleteFileFilters = new ArrayList<>();
     private Map<StorageProperties.Type, StorageProperties> config;
     // tableLevelRowCount will be set only table-level count push down opt is available.
@@ -45,6 +47,8 @@ public class IcebergSplit extends FileSplit {
     private Map<String, String> icebergPartitionValues = null;
     private Integer partitionSpecId = null;
     private String partitionDataJson = null;
+    private Long firstRowId = null;
+    private Long lastUpdatedSequenceNumber = null;
 
     // File path will be changed if the file is modified, so there's no need to get modification time.
     public IcebergSplit(LocationPath file, long start, long length, long fileLength, String[] hosts,
@@ -57,7 +61,8 @@ public class IcebergSplit extends FileSplit {
         this.selfSplitWeight = length;
     }
 
-    public void setDeleteFileFilters(List<IcebergDeleteFileFilter> deleteFileFilters) {
+    public void setDeleteFileFilters(List<DeleteFile> deleteFiles, List<IcebergDeleteFileFilter> deleteFileFilters) {
+        this.deleteFiles = deleteFiles;
         this.deleteFileFilters = deleteFileFilters;
         this.selfSplitWeight += deleteFileFilters.stream().mapToLong(IcebergDeleteFileFilter::getFilesize).sum();
     }

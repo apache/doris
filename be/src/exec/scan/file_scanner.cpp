@@ -1239,6 +1239,17 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         if (_need_iceberg_rowid_column) {
             iceberg_reader->set_need_row_id_column(true);
         }
+        if (_row_lineage_columns.row_id_column_idx != -1 ||
+            _row_lineage_columns.last_updated_sequence_number_column_idx != -1) {
+            std::shared_ptr<RowLineageColumns> row_lineage_columns;
+            row_lineage_columns = std::make_shared<RowLineageColumns>();
+            row_lineage_columns->row_id_column_idx = _row_lineage_columns.row_id_column_idx;
+            row_lineage_columns->last_updated_sequence_number_column_idx =
+                    _row_lineage_columns.last_updated_sequence_number_column_idx;
+            iceberg_reader->set_row_lineage_columns(std::move(row_lineage_columns));
+        }
+        iceberg_reader->set_push_down_agg_type(_get_push_down_agg_type());
+
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
                 slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
@@ -1353,9 +1364,17 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
         std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
                 std::move(orc_reader), _profile, _state, *_params, range, _kv_cache, _io_ctx.get(),
                 file_meta_cache_ptr);
-
         if (_need_iceberg_rowid_column) {
             iceberg_reader->set_need_row_id_column(true);
+        }
+        if (_row_lineage_columns.row_id_column_idx != -1 ||
+            _row_lineage_columns.last_updated_sequence_number_column_idx != -1) {
+            std::shared_ptr<RowLineageColumns> row_lineage_columns;
+            row_lineage_columns = std::make_shared<RowLineageColumns>();
+            row_lineage_columns->row_id_column_idx = _row_lineage_columns.row_id_column_idx;
+            row_lineage_columns->last_updated_sequence_number_column_idx =
+                    _row_lineage_columns.last_updated_sequence_number_column_idx;
+            iceberg_reader->set_row_lineage_columns(std::move(row_lineage_columns));
         }
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
@@ -1695,6 +1714,15 @@ Status FileScanner::_init_expr_ctxes() {
         if (it->second->col_name() == BeConsts::ICEBERG_ROWID_COL) {
             _need_iceberg_rowid_column = true;
             continue;
+        }
+
+        if (it->second->col_name() == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
+            _row_lineage_columns.row_id_column_idx = _default_val_row_desc->get_column_id(slot_id);
+        }
+
+        if (it->second->col_name() == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+            _row_lineage_columns.last_updated_sequence_number_column_idx =
+                    _default_val_row_desc->get_column_id(slot_id);
         }
 
         if (slot_info.is_file_slot) {

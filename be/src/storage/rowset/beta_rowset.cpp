@@ -633,6 +633,7 @@ Status BetaRowset::check_current_rowset_segment() {
                 .is_doris_table = true,
                 .cache_base_path {},
                 .file_size = _rowset_meta->segment_file_size(seg_id),
+                .tablet_id = _rowset_meta->tablet_id(),
         };
 
         auto s = segment_v2::Segment::open(fs, seg_path, _rowset_meta->tablet_id(), seg_id,
@@ -843,7 +844,8 @@ Status BetaRowset::show_nested_index_file(rapidjson::Value* rowset_value,
         auto seg_path = DORIS_TRY(segment_path(seg_id));
         auto index_file_path_prefix = InvertedIndexDescriptor::get_index_file_path_prefix(seg_path);
         auto index_file_reader = std::make_unique<IndexFileReader>(
-                fs, std::string(index_file_path_prefix), storage_format);
+                fs, std::string(index_file_path_prefix), storage_format, InvertedIndexFileInfo(),
+                _rowset_meta->tablet_id());
         RETURN_IF_ERROR(index_file_reader->init());
         auto dirs = index_file_reader->get_all_directories();
 
