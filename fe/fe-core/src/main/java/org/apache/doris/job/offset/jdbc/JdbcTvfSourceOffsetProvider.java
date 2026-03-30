@@ -128,7 +128,8 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
      * the end offset back via taskOffsetCache.
      */
     @Override
-    public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset runningOffset, long taskId) {
+    public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand,
+            Offset runningOffset, long taskId) {
         JdbcOffset offset = (JdbcOffset) runningOffset;
         Map<String, String> props = new HashMap<>();
         Plan rewritePlan = originCommand.getParsedPlan().get().rewriteUp(plan -> {
@@ -213,7 +214,6 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             } catch (Exception ex) {
                 log.warn("Get task offset error for task {} from BE {}, raw response: {}",
                         taskId, backend.getHost(), rawResponse, ex);
-                throw new RuntimeException(ex);
             }
         }
         return Collections.emptyList();

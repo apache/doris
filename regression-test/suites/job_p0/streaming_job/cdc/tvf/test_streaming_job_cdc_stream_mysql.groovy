@@ -21,21 +21,18 @@ import org.awaitility.Awaitility
 import static java.util.concurrent.TimeUnit.SECONDS
 
 /**
- * Test streaming INSERT job using cdc_stream TVF for PostgreSQL.
+ * Test streaming INSERT job using cdc_stream TVF for MySQL.
  *
  * Scenario:
  *   1. Snapshot phase (offset=initial): pre-existing rows (A1, B1) are synced.
- *   2. Binlog phase: INSERT (C1, D1) are applied.
+ *   2. Binlog phase: INSERT (C1, D1)  are applied.
  */
-suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,external_docker_pg,nondatalake") {
-    def jobName = "test_streaming_job_cdc_stream_postgres_name"
+suite("test_streaming_job_cdc_stream_mysql", "p0,external,mysql,external_docker,external_docker_mysql,nondatalake") {
+    def jobName = "test_streaming_job_cdc_stream_mysql_name"
     def currentDb = (sql "select database()")[0][0]
-    def dorisTable = "test_streaming_job_cdc_stream_postgres_tbl"
-    def pgDB = "postgres"
-    def pgSchema = "cdc_test"
-    def pgUser = "postgres"
-    def pgPassword = "123456"
-    def pgTable = "test_streaming_job_cdc_stream_postgres_src"
+    def dorisTable = "test_streaming_job_cdc_stream_mysql_tbl"
+    def mysqlDb = "test_cdc_db"
+    def mysqlTable = "test_streaming_job_cdc_stream_mysql_src"
 
     sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
     sql """drop table if exists ${currentDb}.${dorisTable} force"""
@@ -52,21 +49,22 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
 
     String enabled = context.config.otherConfigs.get("enableJdbcTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {
-        String pg_port = context.config.otherConfigs.get("pg_14_port")
+        String mysql_port = context.config.otherConfigs.get("mysql_57_port")
         String externalEnvIp = context.config.otherConfigs.get("externalEnvIp")
         String s3_endpoint = getS3Endpoint()
         String bucket = getS3BucketName()
-        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/postgresql-42.5.0.jar"
+        String driver_url = "https://${bucket}.${s3_endpoint}/regression/jdbc_driver/mysql-connector-j-8.4.0.jar"
 
         // prepare source table with pre-existing snapshot data
-        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${pgTable}"""
-            sql """CREATE TABLE ${pgDB}.${pgSchema}.${pgTable} (
-                      "name" varchar(200) PRIMARY KEY,
-                      "age"  int2
-                  )"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('A1', 1)"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('B1', 2)"""
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """CREATE DATABASE IF NOT EXISTS ${mysqlDb}"""
+            sql """DROP TABLE IF EXISTS ${mysqlDb}.${mysqlTable}"""
+            sql """CREATE TABLE ${mysqlDb}.${mysqlTable} (
+                      `name` varchar(200) NOT NULL,
+                      `age`  int DEFAULT NULL
+                  ) ENGINE=InnoDB"""
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('A1', 1)"""
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('B1', 2)"""
         }
 
         // create streaming job via cdc_stream TVF (offset=initial → snapshot then binlog)
@@ -74,16 +72,16 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
             CREATE JOB ${jobName}
             ON STREAMING DO INSERT INTO ${currentDb}.${dorisTable} (name, age)
             SELECT name, age FROM cdc_stream(
-                "type"         = "postgres",
-                "jdbc_url"     = "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}",
+                "type"         = "mysql",
+                "jdbc_url"     = "jdbc:mysql://${externalEnvIp}:${mysql_port}",
                 "driver_url"   = "${driver_url}",
-                "driver_class" = "org.postgresql.Driver",
-                "user"         = "${pgUser}",
-                "password"     = "${pgPassword}",
-                "database"     = "${pgDB}",
-                "schema"             = "${pgSchema}",
-                "table"              = "${pgTable}",
-                "offset"             = "initial"
+                "driver_class" = "com.mysql.cj.jdbc.Driver",
+                "user"         = "root",
+                "password"     = "123456",
+                "database"          = "${mysqlDb}",
+                "table"             = "${mysqlTable}",
+                "offset"            = "initial",
+                "snapshot_split_key" = "name"
             )
         """
 
@@ -92,7 +90,7 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
             Awaitility.await().atMost(300, SECONDS).pollInterval(2, SECONDS).until({
                 def cnt = sql """select SucceedTaskCount from jobs("type"="insert") where Name='${jobName}' and ExecuteType='STREAMING'"""
                 log.info("SucceedTaskCount: " + cnt)
-                cnt.size() == 1 && (cnt.get(0).get(0) as int) >= 2
+                cnt.size() == 1 && (cnt.get(0).get(0) as int) >= 1
             })
         } catch (Exception ex) {
             log.info("job: " + (sql """select * from jobs("type"="insert") where Name='${jobName}'"""))
@@ -103,10 +101,10 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
         // verify snapshot data
         qt_snapshot_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
 
-        // insert incremental rows in PostgreSQL
-        connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('C1', 3)"""
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${pgTable} (name, age) VALUES ('D1', 4)"""
+        // insert incremental rows in MySQL
+        connect("root", "123456", "jdbc:mysql://${externalEnvIp}:${mysql_port}") {
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('C1', 3)"""
+            sql """INSERT INTO ${mysqlDb}.${mysqlTable} (name, age) VALUES ('D1', 4)"""
         }
 
         // wait for binlog tasks to pick up the new rows

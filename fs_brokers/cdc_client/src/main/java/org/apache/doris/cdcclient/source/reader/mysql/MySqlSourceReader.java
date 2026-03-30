@@ -852,10 +852,15 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         // todo: Currently, only one split key is supported; future will require multiple split
         // keys.
         if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY)) {
-            ObjectPath objectPath =
-                    new ObjectPath(
-                            cdcConfig.get(DataSourceConfigKeys.DATABASE),
-                            cdcConfig.get(DataSourceConfigKeys.TABLE));
+            String database = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+            String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+            Preconditions.checkArgument(
+                    database != null && !database.isEmpty() && table != null && !table.isEmpty(),
+                    "When '%s' is set, both '%s' and '%s' must be configured (include_tables is not supported).",
+                    DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY,
+                    DataSourceConfigKeys.DATABASE,
+                    DataSourceConfigKeys.TABLE);
+            ObjectPath objectPath = new ObjectPath(database, table);
             configFactory.chunkKeyColumn(
                     objectPath, cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
