@@ -17,8 +17,6 @@
 
 package org.apache.doris.foundation.util;
 
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.Gson;
 import com.google.gson.reflect.TypeToken;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
@@ -402,10 +400,10 @@ class ConcurrentLong2ObjectHashMapTest {
         map.put(100L, "hundred");
         map.put(200L, "two-hundred");
 
-        String json = GsonUtils.GSON.toJson(map);
+        String json = new Gson().toJson(map);
 
         Type type = new TypeToken<ConcurrentLong2ObjectHashMap<String>>() {}.getType();
-        ConcurrentLong2ObjectHashMap<String> deserialized = GsonUtils.GSON.fromJson(json, type);
+        ConcurrentLong2ObjectHashMap<String> deserialized = new Gson().fromJson(json, type);
 
         Assertions.assertEquals(2, deserialized.size());
         Assertions.assertEquals("hundred", deserialized.get(100L));
@@ -423,7 +421,7 @@ class ConcurrentLong2ObjectHashMapTest {
         ConcurrentLong2ObjectHashMap<String> fastMap = new ConcurrentLong2ObjectHashMap<>();
         fastMap.put(1L, "one");
         fastMap.put(2L, "two");
-        String fastJson = GsonUtils.GSON.toJson(fastMap);
+        String fastJson = new Gson().toJson(fastMap);
 
         // Both should be parseable as the same JSON object
         Gson gson = new Gson();

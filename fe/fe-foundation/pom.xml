@@ -36,6 +36,11 @@ under the License.
             <groupId>it.unimi.dsi</groupId>
             <artifactId>fastutil-core</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

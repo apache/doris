@@ -17,8 +17,6 @@
 
 package org.apache.doris.foundation.util;
 
-import org.apache.doris.persist.gson.GsonUtils;
-
 import com.google.gson.Gson;
 import it.unimi.dsi.fastutil.longs.Long2LongMap;
 import it.unimi.dsi.fastutil.longs.LongSet;
@@ -411,9 +409,9 @@ class ConcurrentLong2LongHashMapTest {
         map.put(100L, 1000L);
         map.put(200L, 2000L);
 
-        String json = GsonUtils.GSON.toJson(map);
+        String json = new Gson().toJson(map);
 
-        ConcurrentLong2LongHashMap deserialized = GsonUtils.GSON.fromJson(json, ConcurrentLong2LongHashMap.class);
+        ConcurrentLong2LongHashMap deserialized = new Gson().fromJson(json, ConcurrentLong2LongHashMap.class);
 
         Assertions.assertEquals(2, deserialized.size());
         Assertions.assertEquals(1000L, deserialized.get(100L));
@@ -430,7 +428,7 @@ class ConcurrentLong2LongHashMapTest {
         ConcurrentLong2LongHashMap fastMap = new ConcurrentLong2LongHashMap();
         fastMap.put(1L, 100L);
         fastMap.put(2L, 200L);
-        String fastJson = GsonUtils.GSON.toJson(fastMap);
+        String fastJson = new Gson().toJson(fastMap);
 
         Gson gson = new Gson();
         Map<?, ?> chmParsed = gson.fromJson(chmJson, Map.class);
