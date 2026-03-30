@@ -183,7 +183,7 @@ Status UngroupByAggContext::serialize(RuntimeState* state, Block* block, bool* e
 }
 
 void UngroupByAggContext::set_finalize_output(const RowDescriptor& row_desc) {
-    _finalize_row_desc = &row_desc;
+    _finalize_schema = VectorizedUtils::create_columns_with_type_and_name(row_desc);
 }
 
 Status UngroupByAggContext::finalize(RuntimeState* state, Block* block, bool* eos) {
@@ -193,10 +193,10 @@ Status UngroupByAggContext::finalize(RuntimeState* state, Block* block, bool* eo
         RETURN_IF_ERROR(_create_agg_state());
     }
     DCHECK(_agg_state_data != nullptr);
-    DCHECK(_finalize_row_desc != nullptr);
+    DCHECK(!_finalize_schema.empty());
     block->clear();
 
-    *block = VectorizedUtils::create_empty_columnswithtypename(*_finalize_row_desc);
+    *block = Block(_finalize_schema);
     size_t agg_size = _agg_evaluators.size();
 
     MutableColumns columns(agg_size);

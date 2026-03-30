@@ -96,7 +96,7 @@ private:
     Arena _alloc_arena; // used to allocate the agg state memory block
     bool _agg_state_created = false;
 
-    const RowDescriptor* _finalize_row_desc = nullptr;
+    ColumnsWithTypeAndName _finalize_schema;
 };
 
 } // namespace doris
