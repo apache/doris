@@ -728,7 +728,7 @@ Status ColumnReader::new_iterator(ColumnIteratorUPtr* iterator, const TabletColu
         return Status::OK();
     }
     if (is_scalar_type(_meta_type)) {
-        if (is_olap_string_type(_meta_type)) {
+        if (is_string_type(_meta_type)) {
             *iterator = std::make_unique<StringFileColumnIterator>(shared_from_this());
         } else {
             *iterator = std::make_unique<FileColumnIterator>(shared_from_this());
@@ -2100,9 +2100,8 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
         DORIS_CHECK(dst->is_nullable());
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
         nullable_col.get_nested_column().insert_many_defaults(*n);
-        size_t read_rows = *n;
         auto& null_map_data = nullable_col.get_null_map_data();
-        RETURN_IF_ERROR(read_null_map(&read_rows, null_map_data));
+        null_map_data.resize(null_map_data.size() + *n);
         *has_null = true;
         return Status::OK();
     }
