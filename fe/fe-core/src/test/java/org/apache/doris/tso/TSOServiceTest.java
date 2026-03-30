@@ -123,13 +123,19 @@ public class TSOServiceTest {
 
     @Test
     public void testGetTSOThrowsWhenNotCalibrated() throws Exception {
-        Mockito.when(env.isReady()).thenReturn(true);
-        Mockito.when(env.isMaster()).thenReturn(true);
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
         try {
-            tsoService.getTSO();
-            Assert.fail();
-        } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("not calibrated"));
+            Config.enable_tso_feature = true;
+            Mockito.when(env.isReady()).thenReturn(true);
+            Mockito.when(env.isMaster()).thenReturn(true);
+            try {
+                tsoService.getTSO();
+                Assert.fail();
+            } catch (RuntimeException e) {
+                Assert.assertTrue(e.getMessage().contains("not calibrated"));
+            }
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
         }
     }
 
@@ -337,25 +343,31 @@ public class TSOServiceTest {
 
     @Test
     public void testCalibrateTimestampThrowsWhenPersistWriteFailsAndKeepNotInitialized() throws Exception {
-        Config.enable_tso_persist_journal = true;
-        Mockito.when(env.isReady()).thenReturn(true);
-        Mockito.when(env.isMaster()).thenReturn(true);
-        Mockito.when(env.getEditLog()).thenReturn(null);
-
+        boolean originalEnableTsoFeature = Config.enable_tso_feature;
         try {
-            invokeCalibrateTimestamp(tsoService);
-            Assert.fail();
-        } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("EditLog is null"));
-        }
+            Config.enable_tso_feature = true;
+            Config.enable_tso_persist_journal = true;
+            Mockito.when(env.isReady()).thenReturn(true);
+            Mockito.when(env.isMaster()).thenReturn(true);
+            Mockito.when(env.getEditLog()).thenReturn(null);
 
-        Assert.assertEquals(0L, tsoService.getWindowEndTSO());
+            try {
+                invokeCalibrateTimestamp(tsoService);
+                Assert.fail();
+            } catch (RuntimeException e) {
+                Assert.assertTrue(e.getMessage().contains("EditLog is null"));
+            }
 
-        try {
-            tsoService.getTSO();
-            Assert.fail();
-        } catch (RuntimeException e) {
-            Assert.assertTrue(e.getMessage().contains("not calibrated"));
+            Assert.assertEquals(0L, tsoService.getWindowEndTSO());
+
+            try {
+                tsoService.getTSO();
+                Assert.fail();
+            } catch (RuntimeException e) {
+                Assert.assertTrue(e.getMessage().contains("not calibrated"));
+            }
+        } finally {
+            Config.enable_tso_feature = originalEnableTsoFeature;
         }
     }
 
