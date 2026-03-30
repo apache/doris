@@ -22,12 +22,6 @@
 
 namespace doris {
 
-struct DateV2ValueType;
-struct DateTimeV2ValueType;
-
-template <typename T>
-class DateV2Value;
-
 class VecDateTimeValue;
 
 class TimestampTzValue;

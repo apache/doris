@@ -21,6 +21,7 @@
 #include <re2/re2.h>
 
 #include <algorithm>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -270,7 +271,17 @@ struct DateTimeV2ValueType {
 };
 
 template <typename T>
-class DateV2Value;
+class DateV2ValueBase;
+
+// Concept: matches any type derived from DateV2ValueBase<T> (i.e., DateV2, DateTimeV2, or DateV2ValueBase<T> itself).
+// Used to accept both the base template specializations and the thin wrapper classes
+// in free functions and template member functions, solving the template deduction issue
+// that arises when wrapper classes publicly inherit from DateV2ValueBase<T>.
+template <typename V>
+concept DateV2Like = requires {
+    typename V::underlying_value;
+    { V::is_datetime } -> std::convertible_to<bool>;
+} && std::is_base_of_v<DateV2ValueBase<std::conditional_t<V::is_datetime, DateTimeV2ValueType, DateV2ValueType>>, V>;
 
 class VecDateTimeValue { // Now this type is a temp solution with little changes, maybe large refactoring follow-up.
 public:
@@ -310,11 +321,11 @@ public:
         return datetime;
     }
 
-    template <typename T>
-    void create_from_date_v2(DateV2Value<T>& value, TimeType type);
+    template <DateV2Like V>
+    void create_from_date_v2(V& value, TimeType type);
 
-    template <typename T>
-    void create_from_date_v2(DateV2Value<T>&& value, TimeType type);
+    template <DateV2Like V>
+    void create_from_date_v2(V&& value, TimeType type);
 
     // Converted from Olap Date or Datetime
     bool from_olap_datetime(uint64_t datetime) {
@@ -640,25 +651,25 @@ public:
         return v1 > v2;
     }
 
-    template <typename T>
-    bool operator==(const DateV2Value<T>& other) const;
+    template <DateV2Like V>
+    bool operator==(const V& other) const;
 
-    template <typename T>
-    bool operator!=(const DateV2Value<T>& other) const {
+    template <DateV2Like V>
+    bool operator!=(const V& other) const {
         return !(*this == other);
     }
 
-    template <typename T>
-    bool operator<=(const DateV2Value<T>& other) const;
+    template <DateV2Like V>
+    bool operator<=(const V& other) const;
 
-    template <typename T>
-    bool operator>=(const DateV2Value<T>& other) const;
+    template <DateV2Like V>
+    bool operator>=(const V& other) const;
 
-    template <typename T>
-    bool operator<(const DateV2Value<T>& other) const;
+    template <DateV2Like V>
+    bool operator<(const V& other) const;
 
-    template <typename T>
-    bool operator>(const DateV2Value<T>& other) const;
+    template <DateV2Like V>
+    bool operator>(const V& other) const;
 
     const char* month_name() const;
     const char* month_name_with_locale(const char* const* month_names) const;
@@ -834,36 +845,37 @@ inline const VecDateTimeValue VecDateTimeValue::DEFAULT_VALUE(false, TYPE_DATETI
                                                               1, 1);
 
 template <typename T>
-class DateV2Value {
+class DateV2ValueBase {
     friend class DatetimeValueUtil;
 
 public:
     static constexpr bool is_datetime = std::is_same_v<T, DateTimeV2ValueType>;
     using underlying_value = std::conditional_t<is_datetime, uint64_t, uint32_t>;
+    using tag_type = T;
 
     // Constructor
-    DateV2Value() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
+    DateV2ValueBase() : date_v2_value_(0, 0, 0, 0, 0, 0, 0) {}
 
-    DateV2Value(underlying_value int_val) : int_val_(int_val) {}
+    DateV2ValueBase(underlying_value int_val) : int_val_(int_val) {}
     template <typename U>
         requires std::is_integral_v<U>
-    DateV2Value(U other) = delete;
+    DateV2ValueBase(U other) = delete;
 
-    DateV2Value(DateV2Value<T>& other) = default;
+    DateV2ValueBase(DateV2ValueBase<T>& other) = default;
 
-    DateV2Value(const DateV2Value<T>& other) = default;
+    DateV2ValueBase(const DateV2ValueBase<T>& other) = default;
 
-    const static DateV2Value<T> FIRST_DAY;
-    const static DateV2Value<T> DEFAULT_VALUE;
+    const static DateV2ValueBase<T> FIRST_DAY;
+    const static DateV2ValueBase<T> DEFAULT_VALUE;
 
-    static DateV2Value create_from_olap_date(uint64_t value) {
-        DateV2Value<T> date;
+    static DateV2ValueBase create_from_olap_date(uint64_t value) {
+        DateV2ValueBase<T> date;
         date.from_olap_date(value);
         return date;
     }
 
-    static DateV2Value create_from_olap_datetime(uint64_t value) {
-        DateV2Value<T> datetime;
+    static DateV2ValueBase create_from_olap_datetime(uint64_t value) {
+        DateV2ValueBase<T> datetime;
         datetime.from_olap_datetime(value);
         return datetime;
     }
@@ -921,12 +933,12 @@ public:
         return from_date_format_str(format, format_len, value, value_len, nullptr);
     }
 
-    template <typename U>
-    void assign_from(DateV2Value<U> src) {
+    template <DateV2Like V>
+    void assign_from(const V& src) {
         date_v2_value_.year_ = src.year();
         date_v2_value_.month_ = src.month();
         date_v2_value_.day_ = src.day();
-        if constexpr (is_datetime && std::is_same_v<U, DateTimeV2ValueType>) {
+        if constexpr (is_datetime && V::is_datetime) {
             date_v2_value_.hour_ = src.hour();
             date_v2_value_.minute_ = src.minute();
             date_v2_value_.second_ = src.second();
@@ -1099,8 +1111,8 @@ public:
     uint32_t year_week(uint8_t mode) const;
 
     // Add interval
-    template <TimeUnit unit, typename TO>
-    bool date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value);
+    template <TimeUnit unit, DateV2Like TO>
+    bool date_add_interval(const TimeInterval& interval, TO& to_value);
 
     template <TimeUnit unit, bool need_check = true>
     bool date_add_interval(const TimeInterval& interval);
@@ -1129,7 +1141,7 @@ public:
     bool from_unixtime(int64_t, int32_t, const std::string& timezone, int scale);
     void from_unixtime(int64_t, int32_t, const cctz::time_zone& ctz, int scale);
 
-    bool operator==(const DateV2Value<T>& other) const {
+    bool operator==(const DateV2ValueBase<T>& other) const {
         // NOTE: This is not same with MySQL.
         // MySQL convert both to int with left value type and then compare
         // We think all fields equals.
@@ -1144,13 +1156,13 @@ public:
         return ts1 == ts2;
     }
 
-    bool operator!=(const DateV2Value<T>& other) const {
+    bool operator!=(const DateV2ValueBase<T>& other) const {
         return this->to_date_int_val() != other.to_date_int_val();
     }
 
     bool operator!=(const VecDateTimeValue& other) const { return !(*this == other); }
 
-    bool operator<=(const DateV2Value<T>& other) const { return !(*this > other); }
+    bool operator<=(const DateV2ValueBase<T>& other) const { return !(*this > other); }
 
     bool operator<=(const VecDateTimeValue& other) const {
         int64_t ts1 = 0;
@@ -1160,7 +1172,7 @@ public:
         return ts1 <= ts2;
     }
 
-    bool operator>=(const DateV2Value<T>& other) const { return !(*this < other); }
+    bool operator>=(const DateV2ValueBase<T>& other) const { return !(*this < other); }
 
     bool operator>=(const VecDateTimeValue& other) const {
         int64_t ts1 = 0;
@@ -1170,7 +1182,7 @@ public:
         return ts1 >= ts2;
     }
 
-    bool operator<(const DateV2Value<T>& other) const {
+    bool operator<(const DateV2ValueBase<T>& other) const {
         return this->to_date_int_val() < other.to_date_int_val();
     }
 
@@ -1182,7 +1194,7 @@ public:
         return ts1 < ts2;
     }
 
-    bool operator>(const DateV2Value<T>& other) const {
+    bool operator>(const DateV2ValueBase<T>& other) const {
         return this->to_date_int_val() > other.to_date_int_val();
     }
 
@@ -1194,7 +1206,7 @@ public:
         return ts1 > ts2;
     }
 
-    DateV2Value<T>& operator=(const DateV2Value<T>& other) = default;
+    DateV2ValueBase<T>& operator=(const DateV2ValueBase<T>& other) = default;
 
     const char* month_name() const;
     const char* month_name_with_locale(const char* const* month_names) const;
@@ -1202,7 +1214,7 @@ public:
     const char* day_name() const;
     const char* day_name_with_locale(const char* const* day_names) const;
 
-    DateV2Value<T>& operator+=(int64_t count) {
+    DateV2ValueBase<T>& operator+=(int64_t count) {
         bool is_neg = false;
         if (count < 0) {
             is_neg = true;
@@ -1218,11 +1230,11 @@ public:
         return *this;
     }
 
-    DateV2Value<T>& operator-=(int64_t count) { return *this += -count; }
+    DateV2ValueBase<T>& operator-=(int64_t count) { return *this += -count; }
 
-    DateV2Value<T>& operator++() { return *this += 1; }
+    DateV2ValueBase<T>& operator++() { return *this += 1; }
 
-    DateV2Value<T>& operator--() { return *this += -1; }
+    DateV2ValueBase<T>& operator--() { return *this += -1; }
 
     uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
 
@@ -1485,46 +1497,115 @@ private:
         underlying_value int_val_;
     };
 
-    constexpr DateV2Value(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
+    constexpr DateV2ValueBase(uint16_t year, uint8_t month, uint8_t day, uint8_t hour, uint8_t minute,
                           uint8_t second, uint32_t microsecond)
             : date_v2_value_(year, month, day, hour, minute, second, microsecond) {}
 };
 
-static_assert(std::is_trivially_destructible_v<DateV2Value<DateV2ValueType>>,
-              "DateV2Value<DateV2ValueType> must be trivial destructible");
-static_assert(std::is_trivially_destructible_v<DateV2Value<DateTimeV2ValueType>>,
-              "DateV2Value<DateTimeV2ValueType> must be trivial destructible");
-static_assert(std::is_trivially_copyable_v<DateV2Value<DateV2ValueType>>,
-              "DateV2Value<DateV2ValueType> must be trivial copyable");
-static_assert(std::is_trivially_copyable_v<DateV2Value<DateTimeV2ValueType>>,
-              "DateV2Value<DateTimeV2ValueType> must be trivial copyable");
+static_assert(std::is_trivially_destructible_v<DateV2ValueBase<DateV2ValueType>>,
+              "DateV2ValueBase<DateV2ValueType> must be trivial destructible");
+static_assert(std::is_trivially_destructible_v<DateV2ValueBase<DateTimeV2ValueType>>,
+              "DateV2ValueBase<DateTimeV2ValueType> must be trivial destructible");
+static_assert(std::is_trivially_copyable_v<DateV2ValueBase<DateV2ValueType>>,
+              "DateV2ValueBase<DateV2ValueType> must be trivial copyable");
+static_assert(std::is_trivially_copyable_v<DateV2ValueBase<DateTimeV2ValueType>>,
+              "DateV2ValueBase<DateTimeV2ValueType> must be trivial copyable");
 
 template <typename T>
-inline const DateV2Value<T> DateV2Value<T>::FIRST_DAY = DateV2Value<T>(0001, 1, 1, 0, 0, 0, 0);
+inline const DateV2ValueBase<T> DateV2ValueBase<T>::FIRST_DAY = DateV2ValueBase<T>(0001, 1, 1, 0, 0, 0, 0);
 template <typename T>
-inline const DateV2Value<T> DateV2Value<T>::DEFAULT_VALUE = DateV2Value<T>(1970, 1, 1, 0, 0, 0, 0);
+inline const DateV2ValueBase<T> DateV2ValueBase<T>::DEFAULT_VALUE = DateV2ValueBase<T>(1970, 1, 1, 0, 0, 0, 0);
+
+// ============================================================================
+// DateV2 — thin public-inheritance wrapper over DateV2ValueBase<DateV2ValueType>.
+// Provides the same interface but avoids exposing T in the public API.
+// ============================================================================
+class DateV2 : public DateV2ValueBase<DateV2ValueType> {
+    using Base = DateV2ValueBase<DateV2ValueType>;
+
+public:
+    using Base::Base; // Inherit all constructors
+    DateV2() = default;
+    DateV2(const Base& b) : Base(b) {} // NOLINT: implicit conversion from base
+
+    // Override self-returning operators to return DateV2&
+    DateV2& operator+=(int64_t count) {
+        Base::operator+=(count);
+        return *this;
+    }
+    DateV2& operator-=(int64_t count) { return *this += -count; }
+    DateV2& operator++() { return *this += 1; }
+    DateV2& operator--() { return *this += -1; }
+};
+
+// ============================================================================
+// DateTimeV2 — thin public-inheritance wrapper over DateV2ValueBase<DateTimeV2ValueType>.
+// ============================================================================
+class DateTimeV2 : public DateV2ValueBase<DateTimeV2ValueType> {
+    using Base = DateV2ValueBase<DateTimeV2ValueType>;
+
+public:
+    using Base::Base;
+    DateTimeV2() = default;
+    DateTimeV2(const Base& b) : Base(b) {} // NOLINT
+
+    DateTimeV2& operator+=(int64_t count) {
+        Base::operator+=(count);
+        return *this;
+    }
+    DateTimeV2& operator-=(int64_t count) { return *this += -count; }
+    DateTimeV2& operator++() { return *this += 1; }
+    DateTimeV2& operator--() { return *this += -1; }
+};
+
+// Backward-compatible alias template: DateV2Value<DateV2ValueType> = DateV2, etc.
+template <typename T>
+struct DateV2ValueMapping;
+
+template <>
+struct DateV2ValueMapping<DateV2ValueType> {
+    using type = DateV2;
+};
+
+template <>
+struct DateV2ValueMapping<DateTimeV2ValueType> {
+    using type = DateTimeV2;
+};
+
+template <typename T>
+using DateV2Value = typename DateV2ValueMapping<T>::type;
+
+// Verify that the wrapper classes are still trivially copyable/destructible
+static_assert(std::is_trivially_destructible_v<DateV2>, "DateV2 must be trivial destructible");
+static_assert(std::is_trivially_destructible_v<DateTimeV2>, "DateTimeV2 must be trivial destructible");
+static_assert(std::is_trivially_copyable_v<DateV2>, "DateV2 must be trivial copyable");
+static_assert(std::is_trivially_copyable_v<DateTimeV2>, "DateTimeV2 must be trivial copyable");
+static_assert(sizeof(DateV2) == sizeof(DateV2ValueBase<DateV2ValueType>),
+              "DateV2 must have same size as DateV2ValueBase<DateV2ValueType>");
+static_assert(sizeof(DateTimeV2) == sizeof(DateV2ValueBase<DateTimeV2ValueType>),
+              "DateTimeV2 must have same size as DateV2ValueBase<DateTimeV2ValueType>");
 
 // only support DATE - DATE (no support DATETIME - DATETIME)
 std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2);
 
-template <typename T>
-std::size_t operator-(const VecDateTimeValue& v1, const DateV2Value<T>& v2);
+template <DateV2Like V>
+std::size_t operator-(const VecDateTimeValue& v1, const V& v2);
 
-template <typename T>
-std::size_t operator-(const DateV2Value<T>& v1, const VecDateTimeValue& v2);
+template <DateV2Like V>
+std::size_t operator-(const V& v1, const VecDateTimeValue& v2);
 
 std::ostream& operator<<(std::ostream& os, const VecDateTimeValue& value);
 
 std::size_t hash_value(VecDateTimeValue const& value);
 
-template <typename T0, typename T1>
-std::size_t operator-(const DateV2Value<T0>& v1, const DateV2Value<T1>& v2);
+template <DateV2Like V0, DateV2Like V1>
+std::size_t operator-(const V0& v1, const V1& v2);
 
-template <typename T>
-std::ostream& operator<<(std::ostream& os, const DateV2Value<T>& value);
+template <DateV2Like V>
+std::ostream& operator<<(std::ostream& os, const V& value);
 
-template <typename T>
-std::size_t hash_value(DateV2Value<T> const& value);
+template <DateV2Like V>
+std::size_t hash_value(V const& value);
 
 template <TimeUnit unit>
 int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue& ts_value2) {
@@ -1584,16 +1665,16 @@ int64_t datetime_diff(const VecDateTimeValue& ts_value1, const VecDateTimeValue&
 // ROUND the result TO ZERO( not FLOOR). for datetime_diff<year>, everything less than year is the remainder.
 // "ROUND TO ZERO" means `years_diff('2020-05-05', '2015-06-06')` gets 4 and
 //  `years_diff('2015-06-06', '2020-05-05')` gets -4.
-template <TimeUnit UNIT, typename T0, typename T1>
-int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& ts_value2) {
+template <TimeUnit UNIT, DateV2Like V0, DateV2Like V1>
+int64_t datetime_diff(const V0& ts_value1, const V1& ts_value2) {
     constexpr uint64_t uint64_minus_one = -1;
     // for YEAR and MONTH: calculate the diff of year or month, and use bitmask to get the remainder of all other
     // parts. then round to zero by the remainder.
     if constexpr (UNIT == YEAR) {
         int year = (ts_value2.year() - ts_value1.year());
-        if constexpr (std::is_same_v<T0, T1>) {
+        if constexpr (std::is_same_v<V0, V1>) {
             int year_width =
-                    DateV2Value<T0>::is_datetime ? DATETIMEV2_YEAR_WIDTH : DATEV2_YEAR_WIDTH;
+                    V0::is_datetime ? DATETIMEV2_YEAR_WIDTH : DATEV2_YEAR_WIDTH;
             decltype(ts_value2.to_date_int_val()) minus_one = -1;
             if (year > 0) {
                 year -= ((ts_value2.to_date_int_val() & (minus_one >> year_width)) <
@@ -1602,7 +1683,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
                 year += ((ts_value2.to_date_int_val() & (minus_one >> year_width)) >
                          (ts_value1.to_date_int_val() & (minus_one >> year_width)));
             }
-        } else if constexpr (std::is_same_v<T0, DateV2ValueType>) {
+        } else if constexpr (!V0::is_datetime) {
             auto ts1_int_value = ((uint64_t)ts_value1.to_date_int_val()) << TIME_PART_LENGTH;
             if (year > 0) {
                 year -= ((ts_value2.to_date_int_val() &
@@ -1630,8 +1711,8 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
     } else if constexpr (UNIT == QUARTER || UNIT == MONTH) {
         int month = (ts_value2.year() - ts_value1.year()) * 12 +
                     (ts_value2.month() - ts_value1.month());
-        if constexpr (std::is_same_v<T0, T1>) {
-            int shift_bits = DateV2Value<T0>::is_datetime
+        if constexpr (std::is_same_v<V0, V1>) {
+            int shift_bits = V0::is_datetime
                                      ? DATETIMEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH
                                      : DATEV2_YEAR_WIDTH + DATETIMEV2_MONTH_WIDTH;
             decltype(ts_value2.to_date_int_val()) minus_one = -1;
@@ -1642,7 +1723,7 @@ int64_t datetime_diff(const DateV2Value<T0>& ts_value1, const DateV2Value<T1>& t
                 month += ((ts_value2.to_date_int_val() & (minus_one >> shift_bits)) >
                           (ts_value1.to_date_int_val() & (minus_one >> shift_bits)));
             }
-        } else if constexpr (std::is_same_v<T0, DateV2ValueType>) {
+        } else if constexpr (!V0::is_datetime) {
             auto ts1_int_value = ((uint64_t)ts_value1.to_date_int_val()) << TIME_PART_LENGTH;
             if (month > 0) {
                 month -= ((ts_value2.to_date_int_val() &
@@ -1794,7 +1875,7 @@ private:
     static uint8_t calc_week(const uint32_t& day_nr, const uint16_t& year, const uint8_t& month,
                              const uint8_t& day, uint8_t mode, uint16_t* to_year,
                              bool disable_lut = false) {
-        return DateV2Value<DateTimeV2ValueType>::calc_week(day_nr, year, month, day, mode, to_year,
+        return DateV2ValueBase<DateTimeV2ValueType>::calc_week(day_nr, year, month, day, mode, to_year,
                                                            disable_lut);
     }
 };

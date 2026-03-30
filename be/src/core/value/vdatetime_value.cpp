@@ -17,6 +17,8 @@
 
 #include "core/value/vdatetime_value.h"
 
+#include "core/value/timestamptz_value.h"
+
 #include <cctz/civil_time.h>
 #include <cctz/time_zone.h>
 #include <glog/logging.h>
@@ -867,8 +869,8 @@ uint32_t VecDateTimeValue::year_week(uint8_t mode) const {
     return year * 100 + week;
 }
 
-template <typename T>
-bool VecDateTimeValue::operator>=(const DateV2Value<T>& other) const {
+template <DateV2Like V>
+bool VecDateTimeValue::operator>=(const V& other) const {
     int64_t ts1;
     int64_t ts2;
     this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
@@ -876,8 +878,8 @@ bool VecDateTimeValue::operator>=(const DateV2Value<T>& other) const {
     return ts1 >= ts2;
 }
 
-template <typename T>
-bool VecDateTimeValue::operator<=(const DateV2Value<T>& other) const {
+template <DateV2Like V>
+bool VecDateTimeValue::operator<=(const V& other) const {
     int64_t ts1;
     int64_t ts2;
     this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
@@ -885,8 +887,8 @@ bool VecDateTimeValue::operator<=(const DateV2Value<T>& other) const {
     return ts1 <= ts2;
 }
 
-template <typename T>
-bool VecDateTimeValue::operator>(const DateV2Value<T>& other) const {
+template <DateV2Like V>
+bool VecDateTimeValue::operator>(const V& other) const {
     int64_t ts1;
     int64_t ts2;
     this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
@@ -894,8 +896,8 @@ bool VecDateTimeValue::operator>(const DateV2Value<T>& other) const {
     return ts1 > ts2;
 }
 
-template <typename T>
-bool VecDateTimeValue::operator<(const DateV2Value<T>& other) const {
+template <DateV2Like V>
+bool VecDateTimeValue::operator<(const V& other) const {
     int64_t ts1;
     int64_t ts2;
     this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
@@ -903,8 +905,8 @@ bool VecDateTimeValue::operator<(const DateV2Value<T>& other) const {
     return ts1 < ts2;
 }
 
-template <typename T>
-bool VecDateTimeValue::operator==(const DateV2Value<T>& other) const {
+template <DateV2Like V>
+bool VecDateTimeValue::operator==(const V& other) const {
     int64_t ts1;
     int64_t ts2;
     this->unix_timestamp(&ts1, TimezoneUtils::default_time_zone);
@@ -1728,9 +1730,9 @@ bool VecDateTimeValue::datetime_trunc() {
     return true;
 }
 
-template <typename T>
-void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type) {
-    if constexpr (std::is_same_v<T, DateV2ValueType>) {
+template <DateV2Like V>
+void VecDateTimeValue::create_from_date_v2(V& value, TimeType type) {
+    if constexpr (!V::is_datetime) {
         this->unchecked_set_time(value.year(), value.month(), value.day(), 0, 0, 0);
     } else {
         this->unchecked_set_time(value.year(), value.month(), value.day(), value.hour(),
@@ -1740,9 +1742,9 @@ void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type)
     this->_neg = 0;
 }
 
-template <typename T>
-void VecDateTimeValue::create_from_date_v2(DateV2Value<T>&& value, TimeType type) {
-    DateV2Value<T> v = value;
+template <DateV2Like V>
+void VecDateTimeValue::create_from_date_v2(V&& value, TimeType type) {
+    V v = value;
     create_from_date_v2(v, type);
 }
 
@@ -1758,13 +1760,13 @@ std::size_t operator-(const VecDateTimeValue& v1, const VecDateTimeValue& v2) {
     return v1.daynr() - v2.daynr();
 }
 
-template <typename T>
-std::size_t operator-(const DateV2Value<T>& v1, const VecDateTimeValue& v2) {
+template <DateV2Like V>
+std::size_t operator-(const V& v1, const VecDateTimeValue& v2) {
     return v1.daynr() - v2.daynr();
 }
 
-template <typename T>
-std::size_t operator-(const VecDateTimeValue& v1, const DateV2Value<T>& v2) {
+template <DateV2Like V>
+std::size_t operator-(const VecDateTimeValue& v1, const V& v2) {
     return v1.daynr() - v2.daynr();
 }
 
@@ -1773,7 +1775,7 @@ std::size_t hash_value(VecDateTimeValue const& value) {
 }
 
 template <typename T>
-void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const {
+void DateV2ValueBase<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const {
     // ms
     DCHECK(date_val[6] < 1000000L);
     // hour, minute, second
@@ -1804,40 +1806,42 @@ void DateV2Value<T>::format_datetime(uint32_t* date_val, bool* carry_bits) const
 }
 
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, size_t len, int scale /* = -1*/,
+bool DateV2ValueBase<T>::from_date_str(const char* date_str, size_t len, int scale /* = -1*/,
                                    bool convert_zero) {
     CastParameters params;
+    auto& self = static_cast<DateV2Value<T>&>(*this);
     if constexpr (is_datetime) {
-        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this, nullptr, scale,
+        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, self, nullptr, scale,
                                                              params);
     } else {
-        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this, nullptr, params);
+        return CastToDateV2::from_string_non_strict_mode({date_str, len}, self, nullptr, params);
     }
 }
 
 template <typename T>
-bool DateV2Value<T>::from_date_str(const char* date_str, size_t len,
+bool DateV2ValueBase<T>::from_date_str(const char* date_str, size_t len,
                                    const cctz::time_zone& local_time_zone, int scale /* = -1*/,
                                    bool convert_zero) {
     CastParameters params;
+    auto& self = static_cast<DateV2Value<T>&>(*this);
     if constexpr (is_datetime) {
-        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, *this,
+        return CastToDatetimeV2::from_string_non_strict_mode({date_str, len}, self,
                                                              &local_time_zone, scale, params);
     } else {
-        return CastToDateV2::from_string_non_strict_mode({date_str, len}, *this, &local_time_zone,
+        return CastToDateV2::from_string_non_strict_mode({date_str, len}, self, &local_time_zone,
                                                          params);
     }
 }
 
 template <typename T>
-void DateV2Value<T>::set_zero() {
+void DateV2ValueBase<T>::set_zero() {
     int_val_ = 0;
 }
 
 // this method is exactly same as fromDateFormatStr() in DateLiteral.java in FE
 // change this method should also change that.
 template <typename T>
-bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, const char* value,
+bool DateV2ValueBase<T>::from_date_format_str(const char* format, int format_len, const char* value,
                                           int64_t value_len, const char** sub_val_end) {
     if (value_len <= 0) [[unlikely]] {
         return false;
@@ -2108,7 +2112,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
                 break;
             case 'r': {
                 if constexpr (is_datetime) {
-                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    DateV2ValueBase<DateTimeV2ValueType> tmp_val;
                     if (!tmp_val.from_date_format_str("%I:%i:%S %p", 11, val, val_end - val,
                                                       &tmp)) {
                         return false;
@@ -2126,7 +2130,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
             }
             case 'T': {
                 if constexpr (is_datetime) {
-                    DateV2Value<DateTimeV2ValueType> tmp_val;
+                    DateV2ValueBase<DateTimeV2ValueType> tmp_val;
                     if (!tmp_val.from_date_format_str("%H:%i:%S", 8, val, val_end - val, &tmp)) {
                         return false;
                     }
@@ -2306,7 +2310,7 @@ bool DateV2Value<T>::from_date_format_str(const char* format, int format_len, co
 }
 
 template <typename T>
-int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
+int32_t DateV2ValueBase<T>::to_buffer(char* buffer, int scale) const {
     // if this is an invalid date, write nothing(instead of 0000-00-00) to output string, or else
     // it will cause problem for null DataTypeDateV2 value in cast function,
     // e.g. cast(cast(null_date as char) as date)
@@ -2372,7 +2376,7 @@ int32_t DateV2Value<T>::to_buffer(char* buffer, int scale) const {
 }
 
 template <typename T>
-char* DateV2Value<T>::to_string(char* to, int scale) const {
+char* DateV2ValueBase<T>::to_string(char* to, int scale) const {
     int len = to_buffer(to, scale);
     *(to + len) = '\0';
     return to + len + 1;
@@ -2390,7 +2394,7 @@ bool date_day_offset_dict::DATE_DAY_OFFSET_ITEMS_INIT = false;
 date_day_offset_dict date_day_offset_dict::instance = date_day_offset_dict();
 
 date_day_offset_dict::date_day_offset_dict() {
-    DateV2Value<DateV2ValueType> d;
+    DateV2ValueBase<DateV2ValueType> d;
     // Init days before epoch.
     d.unchecked_set_time(1969, 12, 31, 0, 0, 0, 0);
     for (int i = 0; i < DAY_BEFORE_EPOCH; ++i) {
@@ -2418,13 +2422,13 @@ date_day_offset_dict::date_day_offset_dict() {
 }
 
 template <typename T>
-uint8_t DateV2Value<T>::week(uint8_t mode) const {
+uint8_t DateV2ValueBase<T>::week(uint8_t mode) const {
     uint16_t year = 0;
     return calc_week(this->daynr(), this->year(), this->month(), this->day(), mode, &year);
 }
 
 template <typename T>
-uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
+uint32_t DateV2ValueBase<T>::year_week(uint8_t mode) const {
     if (config::enable_time_lut && mode == 4 && this->year() >= 1950 && this->year() < 2030) {
         return doris::TimeLUT::GetImplement()
                 ->year_week_table[this->year() - 1950][this->month() - 1][this->day() - 1];
@@ -2449,7 +2453,7 @@ uint32_t DateV2Value<T>::year_week(uint8_t mode) const {
 }
 
 template <typename T>
-bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
+bool DateV2ValueBase<T>::get_date_from_daynr(uint64_t daynr) {
     if (daynr <= 0 || daynr > DATE_MAX_DAYNR) {
         return false;
     }
@@ -2496,8 +2500,8 @@ bool DateV2Value<T>::get_date_from_daynr(uint64_t daynr) {
 }
 
 template <typename T>
-template <TimeUnit unit, typename TO>
-bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value<TO>& to_value) {
+template <TimeUnit unit, DateV2Like TO>
+bool DateV2ValueBase<T>::date_add_interval(const TimeInterval& interval, TO& to_value) {
     if (!is_valid_date()) [[unlikely]] {
         return false;
     }
@@ -2569,7 +2573,7 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval, DateV2Value
 
 template <typename T>
 template <TimeUnit unit, bool need_check>
-bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
+bool DateV2ValueBase<T>::date_add_interval(const TimeInterval& interval) {
     if constexpr (need_check) {
         if (!is_valid_date()) [[unlikely]] {
             return false;
@@ -2651,7 +2655,7 @@ bool DateV2Value<T>::date_add_interval(const TimeInterval& interval) {
 
 template <typename T>
 template <TimeUnit unit>
-bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
+bool DateV2ValueBase<T>::date_set_interval(const TimeInterval& interval) {
     static_assert(
             (unit == YEAR) || (unit == QUARTER) || (unit == MONTH) || (unit == DAY) ||
                     (unit == HOUR) || (unit == MINUTE) || (unit == SECOND),
@@ -2691,7 +2695,7 @@ bool DateV2Value<T>::date_set_interval(const TimeInterval& interval) {
 
 template <typename T>
 template <TimeUnit unit>
-bool DateV2Value<T>::datetime_trunc() {
+bool DateV2ValueBase<T>::datetime_trunc() {
     if constexpr (is_datetime) {
         if (!is_valid_date()) [[unlikely]] {
             return false;
@@ -2777,7 +2781,7 @@ bool DateV2Value<T>::datetime_trunc() {
 }
 
 template <typename T>
-bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const std::string& timezone) const {
+bool DateV2ValueBase<T>::unix_timestamp(int64_t* timestamp, const std::string& timezone) const {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
@@ -2787,7 +2791,7 @@ bool DateV2Value<T>::unix_timestamp(int64_t* timestamp, const std::string& timez
 }
 
 template <typename T>
-void DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
+void DateV2ValueBase<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& ctz) const {
     if constexpr (is_datetime) {
         const auto tp =
                 cctz::convert(cctz::civil_second(date_v2_value_.year_, date_v2_value_.month_,
@@ -2805,7 +2809,7 @@ void DateV2Value<T>::unix_timestamp(int64_t* timestamp, const cctz::time_zone& c
 }
 
 template <typename T>
-bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
+bool DateV2ValueBase<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
                                     const std::string& timezone) const {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
@@ -2816,7 +2820,7 @@ bool DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
 }
 
 template <typename T>
-void DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
+void DateV2ValueBase<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
                                     const cctz::time_zone& ctz) const {
     DCHECK(is_datetime) << "Function unix_timestamp with double_t timestamp only support "
                            "datetimev2 value type.";
@@ -2832,7 +2836,7 @@ void DateV2Value<T>::unix_timestamp(std::pair<int64_t, int64_t>* timestamp,
 }
 
 template <typename T>
-bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezone) {
+bool DateV2ValueBase<T>::from_unixtime(int64_t timestamp, const std::string& timezone) {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
         return false;
@@ -2842,7 +2846,7 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, const std::string& timezon
 }
 
 template <typename T>
-void DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
+void DateV2ValueBase<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
                     std::chrono::system_clock::from_time_t(0));
@@ -2855,7 +2859,7 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, const cctz::time_zone& ctz
 }
 
 template <typename T>
-bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
+bool DateV2ValueBase<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
                                    const std::string& timezone) {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
@@ -2866,7 +2870,7 @@ bool DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
 }
 
 template <typename T>
-void DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
+void DateV2ValueBase<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
                                    const cctz::time_zone& ctz) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
@@ -2880,7 +2884,7 @@ void DateV2Value<T>::from_unixtime(std::pair<int64_t, int64_t> timestamp,
 }
 
 template <typename T>
-bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
+bool DateV2ValueBase<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
                                    const std::string& timezone, const int scale) {
     cctz::time_zone ctz;
     if (!TimezoneUtils::find_cctz_time_zone(timezone, ctz)) {
@@ -2891,7 +2895,7 @@ bool DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
 }
 
 template <typename T>
-void DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
+void DateV2ValueBase<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
                                    const cctz::time_zone& ctz, int scale) {
     static const cctz::time_point<cctz::sys_seconds> epoch =
             std::chrono::time_point_cast<cctz::sys_seconds>(
@@ -2909,7 +2913,7 @@ void DateV2Value<T>::from_unixtime(int64_t timestamp, int32_t nano_seconds,
 }
 
 template <typename T>
-const char* DateV2Value<T>::month_name() const {
+const char* DateV2ValueBase<T>::month_name() const {
     if (date_v2_value_.month_ < 1 || date_v2_value_.month_ > 12) {
         return nullptr;
     }
@@ -2917,7 +2921,7 @@ const char* DateV2Value<T>::month_name() const {
 }
 
 template <typename T>
-const char* DateV2Value<T>::day_name() const {
+const char* DateV2ValueBase<T>::day_name() const {
     int day = weekday();
     if (day < 0 || day >= 7) {
         return nullptr;
@@ -2926,7 +2930,7 @@ const char* DateV2Value<T>::day_name() const {
 }
 
 template <typename T>
-const char* DateV2Value<T>::month_name_with_locale(const char* const* month_names) const {
+const char* DateV2ValueBase<T>::month_name_with_locale(const char* const* month_names) const {
     if (date_v2_value_.month_ < 1 || date_v2_value_.month_ > 12) {
         return nullptr;
     }
@@ -2934,7 +2938,7 @@ const char* DateV2Value<T>::month_name_with_locale(const char* const* month_name
 }
 
 template <typename T>
-const char* DateV2Value<T>::day_name_with_locale(const char* const* day_names) const {
+const char* DateV2ValueBase<T>::day_name_with_locale(const char* const* day_names) const {
     int day = weekday();
     if (day < 0 || day >= 7) {
         return nullptr;
@@ -2943,7 +2947,7 @@ const char* DateV2Value<T>::day_name_with_locale(const char* const* day_names) c
 }
 
 template <typename T>
-void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
+void DateV2ValueBase<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t day, uint8_t hour,
                                         uint8_t minute, uint16_t second, uint32_t microsecond) {
     date_v2_value_.year_ = year;
     date_v2_value_.month_ = month;
@@ -2957,7 +2961,7 @@ void DateV2Value<T>::unchecked_set_time(uint16_t year, uint8_t month, uint8_t da
 }
 
 template <typename T>
-void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second,
+void DateV2ValueBase<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t second,
                                         uint32_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.hour_ = hour;
@@ -2970,7 +2974,7 @@ void DateV2Value<T>::unchecked_set_time(uint8_t hour, uint8_t minute, uint16_t s
 }
 
 template <typename T>
-void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
+void DateV2ValueBase<T>::set_microsecond(uint64_t microsecond) {
     if constexpr (is_datetime) {
         date_v2_value_.microsecond_ = microsecond;
     } else {
@@ -2979,7 +2983,7 @@ void DateV2Value<T>::set_microsecond(uint64_t microsecond) {
 }
 
 template <typename T>
-bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t len, char* to,
+bool DateV2ValueBase<T>::to_format_string_conservative(const char* format, size_t len, char* to,
                                                    size_t max_valid_length) const {
     if (is_invalid(year(), month(), day(), hour(), minute(), second(), microsecond())) {
         return false;
@@ -2991,7 +2995,7 @@ bool DateV2Value<T>::to_format_string_conservative(const char* format, size_t le
 }
 
 template <typename T>
-int64_t DateV2Value<T>::standardize_timevalue(int64_t value) {
+int64_t DateV2ValueBase<T>::standardize_timevalue(int64_t value) {
     if (value <= 0) {
         return 0;
     }
@@ -3049,7 +3053,7 @@ int64_t DateV2Value<T>::standardize_timevalue(int64_t value) {
 }
 
 template <typename T>
-bool DateV2Value<T>::from_date_int64(int64_t value) {
+bool DateV2ValueBase<T>::from_date_int64(int64_t value) {
     value = standardize_timevalue(value);
     if (value <= 0) {
         return false;
@@ -3076,7 +3080,7 @@ bool DateV2Value<T>::from_date_int64(int64_t value) {
 
 // An ISO week-numbering year (also called ISO year informally) has 52 or 53 full weeks. That is 364 or 371 days instead of the usual 365 or 366 days. These 53-week years occur on all years that have Thursday as 1 January and on leap years that start on Wednesday. The extra week is sometimes referred to as a leap week, although ISO 8601 does not use this term. https://en.wikipedia.org/wiki/ISO_week_date
 template <typename T>
-uint16_t DateV2Value<T>::year_of_week() const {
+uint16_t DateV2ValueBase<T>::year_of_week() const {
     constexpr uint8_t THURSDAY = 3;
 
     if (date_v2_value_.month_ == 1) {
@@ -3101,7 +3105,7 @@ uint16_t DateV2Value<T>::year_of_week() const {
 }
 
 template <typename T>
-uint8_t DateV2Value<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
+uint8_t DateV2ValueBase<T>::calc_week(const uint32_t& day_nr, const uint16_t& year,
                                   const uint8_t& month, const uint8_t& day, uint8_t mode,
                                   uint16_t* to_year, bool disable_lut) {
     if (year == 0) [[unlikely]] {
@@ -3459,8 +3463,8 @@ uint8_t DatetimeValueUtil::week(int16_t year, int8_t month, int8_t day, uint8_t 
     return calc_week(calc_daynr(year, month, day), year, month, day, mode, &year_to_write);
 }
 
-template <typename T>
-std::ostream& operator<<(std::ostream& os, const DateV2Value<T>& value) {
+template <DateV2Like V>
+std::ostream& operator<<(std::ostream& os, const V& value) {
     char buf[30];
     value.to_string(buf);
     return os << buf;
@@ -3468,87 +3472,90 @@ std::ostream& operator<<(std::ostream& os, const DateV2Value<T>& value) {
 
 // NOTE:
 //  only support DATE - DATE (no support DATETIME - DATETIME)
-template <typename T0, typename T1>
-std::size_t operator-(const DateV2Value<T0>& v1, const DateV2Value<T1>& v2) {
+template <DateV2Like V0, DateV2Like V1>
+std::size_t operator-(const V0& v1, const V1& v2) {
     return v1.daynr() - v2.daynr();
 }
 
-template <typename T>
-std::size_t hash_value(DateV2Value<T> const& value) {
-    return HashUtil::hash(&value, sizeof(DateV2Value<T>), 0);
+template <DateV2Like V>
+std::size_t hash_value(V const& value) {
+    return HashUtil::hash(&value, sizeof(V), 0);
 }
 
-template class DateV2Value<DateV2ValueType>;
-template class DateV2Value<DateTimeV2ValueType>;
+template class DateV2ValueBase<DateV2ValueType>;
+template class DateV2ValueBase<DateTimeV2ValueType>;
 
-template std::size_t hash_value<DateV2ValueType>(DateV2Value<DateV2ValueType> const& value);
-template std::size_t hash_value<DateTimeV2ValueType>(DateV2Value<DateTimeV2ValueType> const& value);
+// Explicit instantiations for concept-based free functions using wrapper types
+template std::size_t hash_value<DateV2>(DateV2 const& value);
+template std::size_t hash_value<DateTimeV2>(DateTimeV2 const& value);
+template std::size_t hash_value<TimestampTzValue>(TimestampTzValue const& value);
 
-template std::ostream& operator<<(std::ostream& os, const DateV2Value<DateV2ValueType>& value);
-template std::ostream& operator<<(std::ostream& os, const DateV2Value<DateTimeV2ValueType>& value);
+template std::ostream& operator<<(std::ostream& os, const DateV2& value);
+template std::ostream& operator<<(std::ostream& os, const DateTimeV2& value);
+template std::ostream& operator<<(std::ostream& os, const TimestampTzValue& value);
 
-template std::size_t operator-(const VecDateTimeValue& v1, const DateV2Value<DateV2ValueType>& v2);
-template std::size_t operator-(const VecDateTimeValue& v1,
-                               const DateV2Value<DateTimeV2ValueType>& v2);
+template std::size_t operator-(const VecDateTimeValue& v1, const DateV2& v2);
+template std::size_t operator-(const VecDateTimeValue& v1, const DateTimeV2& v2);
 
-template std::size_t operator-(const DateV2Value<DateV2ValueType>& v1, const VecDateTimeValue& v2);
-template std::size_t operator-(const DateV2Value<DateTimeV2ValueType>& v1,
-                               const VecDateTimeValue& v2);
+template std::size_t operator-(const DateV2& v1, const VecDateTimeValue& v2);
+template std::size_t operator-(const DateTimeV2& v1, const VecDateTimeValue& v2);
 
-template std::size_t operator-(const DateV2Value<DateV2ValueType>& v1,
-                               const DateV2Value<DateV2ValueType>& v2);
-template std::size_t operator-(const DateV2Value<DateV2ValueType>& v1,
-                               const DateV2Value<DateTimeV2ValueType>& v2);
-template std::size_t operator-(const DateV2Value<DateTimeV2ValueType>& v1,
-                               const DateV2Value<DateV2ValueType>& v2);
-template std::size_t operator-(const DateV2Value<DateTimeV2ValueType>& v1,
-                               const DateV2Value<DateTimeV2ValueType>& v2);
+template std::size_t operator-(const DateV2& v1, const DateV2& v2);
+template std::size_t operator-(const DateV2& v1, const DateTimeV2& v2);
+template std::size_t operator-(const DateTimeV2& v1, const DateV2& v2);
+template std::size_t operator-(const DateTimeV2& v1, const DateTimeV2& v2);
 
-template void VecDateTimeValue::create_from_date_v2<DateV2ValueType>(
-        DateV2Value<DateV2ValueType>& value, TimeType type);
-template void VecDateTimeValue::create_from_date_v2<DateV2ValueType>(
-        DateV2Value<DateV2ValueType>&& value, TimeType type);
-template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
-        DateV2Value<DateTimeV2ValueType>& value, TimeType type);
-template void VecDateTimeValue::create_from_date_v2<DateTimeV2ValueType>(
-        DateV2Value<DateTimeV2ValueType>&& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateV2>(DateV2& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateV2>(DateV2&& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateTimeV2>(DateTimeV2& value, TimeType type);
+template void VecDateTimeValue::create_from_date_v2<DateTimeV2>(DateTimeV2&& value, TimeType type);
 
-template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateV2Value<DateV2ValueType>>(
-        const DateV2Value<DateV2ValueType>& rhs) const;
-template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateV2Value<DateTimeV2ValueType>>(
-        const DateV2Value<DateTimeV2ValueType>& rhs) const;
+template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateV2>(const DateV2& rhs) const;
+template int64_t VecDateTimeValue::datetime_diff_in_seconds<DateTimeV2>(const DateTimeV2& rhs) const;
 
-#define DELARE_DATE_ADD_INTERVAL(DateValueType1, DateValueType2)                                   \
+// Explicit instantiations for VecDateTimeValue comparison operators
+template bool VecDateTimeValue::operator==<DateV2>(const DateV2&) const;
+template bool VecDateTimeValue::operator==<DateTimeV2>(const DateTimeV2&) const;
+template bool VecDateTimeValue::operator<=<DateV2>(const DateV2&) const;
+template bool VecDateTimeValue::operator<=<DateTimeV2>(const DateTimeV2&) const;
+template bool VecDateTimeValue::operator>=<DateV2>(const DateV2&) const;
+template bool VecDateTimeValue::operator>=<DateTimeV2>(const DateTimeV2&) const;
+template bool VecDateTimeValue::operator< <DateV2>(const DateV2&) const;
+template bool VecDateTimeValue::operator< <DateTimeV2>(const DateTimeV2&) const;
+template bool VecDateTimeValue::operator><DateV2>(const DateV2&) const;
+template bool VecDateTimeValue::operator><DateTimeV2>(const DateTimeV2&) const;
+
+#define DELARE_DATE_ADD_INTERVAL(DateValueType1, TargetType)                                       \
     template bool                                                                                  \
-    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MICROSECOND, DateValueType2>(         \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::MICROSECOND, TargetType>(         \
+            TimeInterval const&, TargetType&);                                                     \
     template bool                                                                                  \
-    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MILLISECOND, DateValueType2>(         \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::MILLISECOND, TargetType>(         \
+            TimeInterval const&, TargetType&);                                                     \
     template bool                                                                                  \
-    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::SECOND, DateValueType2>(              \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::SECOND, TargetType>(              \
+            TimeInterval const&, TargetType&);                                                     \
     template bool                                                                                  \
-    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MINUTE, DateValueType2>(              \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
-    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::HOUR, DateValueType2>(  \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
-    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::DAY, DateValueType2>(   \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
-    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::MONTH, DateValueType2>( \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
-    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::YEAR, DateValueType2>(  \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
+    DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::MINUTE, TargetType>(              \
+            TimeInterval const&, TargetType&);                                                     \
+    template bool DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::HOUR, TargetType>(  \
+            TimeInterval const&, TargetType&);                                                     \
+    template bool DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::DAY, TargetType>(   \
+            TimeInterval const&, TargetType&);                                                     \
+    template bool DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::MONTH, TargetType>( \
+            TimeInterval const&, TargetType&);                                                     \
+    template bool DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::YEAR, TargetType>(  \
+            TimeInterval const&, TargetType&);                                                     \
     template bool                                                                                  \
-    DateV2Value<DateValueType1>::date_add_interval<TimeUnit::QUARTER, DateValueType2>(             \
-            TimeInterval const&, DateV2Value<DateValueType2>&);                                    \
-    template bool DateV2Value<DateValueType1>::date_add_interval<TimeUnit::WEEK, DateValueType2>(  \
-            TimeInterval const&, DateV2Value<DateValueType2>&);
+    DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::QUARTER, TargetType>(             \
+            TimeInterval const&, TargetType&);                                                     \
+    template bool DateV2ValueBase<DateValueType1>::date_add_interval<TimeUnit::WEEK, TargetType>(  \
+            TimeInterval const&, TargetType&);
 
-DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateV2ValueType)
-DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateTimeV2ValueType)
-DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateV2ValueType)
-DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateTimeV2ValueType)
+DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateV2)
+DELARE_DATE_ADD_INTERVAL(DateV2ValueType, DateTimeV2)
+DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateV2)
+DELARE_DATE_ADD_INTERVAL(DateTimeV2ValueType, DateTimeV2)
 
 template bool VecDateTimeValue::date_add_interval<TimeUnit::SECOND>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_add_interval<TimeUnit::MINUTE>(const TimeInterval& interval);
@@ -3576,106 +3583,106 @@ template bool VecDateTimeValue::date_add_interval<TimeUnit::QUARTER, false>(
 template bool VecDateTimeValue::date_add_interval<TimeUnit::WEEK, false>(
         const TimeInterval& interval);
 
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MICROSECOND>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::MICROSECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MILLISECOND>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::MILLISECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::SECOND>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::SECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MINUTE>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::MINUTE>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::HOUR>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::HOUR>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::DAY>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::DAY>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MONTH>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::MONTH>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::YEAR>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::WEEK>(
-        const TimeInterval& interval);
-
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MICROSECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MILLISECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MONTH>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND_MICROSECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE_MICROSECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE_SECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR_MICROSECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR_SECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR_MINUTE>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_MICROSECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_SECOND>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_MINUTE>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_HOUR>(
-        const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR_MONTH>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::WEEK>(
         const TimeInterval& interval);
 
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MICROSECOND, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MICROSECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::SECOND, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MILLISECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MINUTE, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::HOUR, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::DAY, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::MONTH, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::YEAR, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MONTH>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::QUARTER, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_add_interval<TimeUnit::WEEK, false>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND_MICROSECOND>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE_MICROSECOND>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE_SECOND>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR_MICROSECOND>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR_SECOND>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR_MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_MICROSECOND>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_SECOND>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_MINUTE>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY_HOUR>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR_MONTH>(
         const TimeInterval& interval);
 
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MICROSECOND, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::MICROSECOND, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::SECOND, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::MINUTE, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::HOUR, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::DAY, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::MONTH, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::MONTH, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::YEAR, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::QUARTER, false>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK, false>(
+template bool DateV2ValueBase<DateV2ValueType>::date_add_interval<TimeUnit::WEEK, false>(
+        const TimeInterval& interval);
+
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MICROSECOND, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::SECOND, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MINUTE, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::HOUR, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::DAY, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::MONTH, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::YEAR, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::QUARTER, false>(
+        const TimeInterval& interval);
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_add_interval<TimeUnit::WEEK, false>(
         const TimeInterval& interval);
 
 template bool VecDateTimeValue::date_set_interval<TimeUnit::SECOND>(const TimeInterval& interval);
@@ -3686,34 +3693,34 @@ template bool VecDateTimeValue::date_set_interval<TimeUnit::MONTH>(const TimeInt
 template bool VecDateTimeValue::date_set_interval<TimeUnit::QUARTER>(const TimeInterval& interval);
 template bool VecDateTimeValue::date_set_interval<TimeUnit::YEAR>(const TimeInterval& interval);
 
-template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::SECOND>(
+template bool DateV2ValueBase<DateV2ValueType>::date_set_interval<TimeUnit::SECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
+template bool DateV2ValueBase<DateV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::HOUR>(
+template bool DateV2ValueBase<DateV2ValueType>::date_set_interval<TimeUnit::HOUR>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::DAY>(
+template bool DateV2ValueBase<DateV2ValueType>::date_set_interval<TimeUnit::DAY>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+template bool DateV2ValueBase<DateV2ValueType>::date_set_interval<TimeUnit::MONTH>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::QUARTER>(
+template bool DateV2ValueBase<DateV2ValueType>::date_set_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
-template bool DateV2Value<DateV2ValueType>::date_set_interval<TimeUnit::YEAR>(
+template bool DateV2ValueBase<DateV2ValueType>::date_set_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
 
-template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::SECOND>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_set_interval<TimeUnit::SECOND>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_set_interval<TimeUnit::MINUTE>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::HOUR>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_set_interval<TimeUnit::HOUR>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::DAY>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_set_interval<TimeUnit::DAY>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::MONTH>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_set_interval<TimeUnit::MONTH>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::QUARTER>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_set_interval<TimeUnit::QUARTER>(
         const TimeInterval& interval);
-template bool DateV2Value<DateTimeV2ValueType>::date_set_interval<TimeUnit::YEAR>(
+template bool DateV2ValueBase<DateTimeV2ValueType>::date_set_interval<TimeUnit::YEAR>(
         const TimeInterval& interval);
 
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::SECOND>();
@@ -3725,24 +3732,24 @@ template bool VecDateTimeValue::datetime_trunc<TimeUnit::YEAR>();
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::QUARTER>();
 template bool VecDateTimeValue::datetime_trunc<TimeUnit::WEEK>();
 
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::DAY>();
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::MONTH>();
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
-template bool DateV2Value<DateV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::DAY>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::MONTH>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
+template bool DateV2ValueBase<DateV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MICROSECOND>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::DAY>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MONTH>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
-template bool DateV2Value<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MICROSECOND>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::SECOND>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MINUTE>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::HOUR>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::DAY>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::MONTH>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::YEAR>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::QUARTER>();
+template bool DateV2ValueBase<DateTimeV2ValueType>::datetime_trunc<TimeUnit::WEEK>();
 
 template bool DatetimeValueUtil::to_format_string_without_check<false>(const char*, size_t, char*,
                                                                        size_t, int16_t, int8_t,
