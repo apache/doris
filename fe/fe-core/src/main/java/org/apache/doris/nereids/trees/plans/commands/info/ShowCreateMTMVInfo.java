@@ -36,7 +36,9 @@ import org.apache.doris.qe.ShowResultSetMetaData;
 import com.google.common.collect.Lists;
 
 import java.io.IOException;
+import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -90,7 +92,9 @@ public class ShowCreateMTMVInfo {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(mvName.getDb());
         MTMV mtmv = (MTMV) db.getTableOrDdlException(mvName.getTbl());
         String mtmvDdl = Env.getMTMVDdl(mtmv);
-        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl, mtmv.getSessionVariables().toString()));
+        Map<String, String> sessionVars = mtmv.getSessionVariables();
+        rows.add(Lists.newArrayList(mtmv.getName(), mtmvDdl,
+                sessionVars == null ? Collections.emptyMap().toString() : sessionVars.toString()));
         return new ShowResultSet(META_DATA, rows);
 
     }
