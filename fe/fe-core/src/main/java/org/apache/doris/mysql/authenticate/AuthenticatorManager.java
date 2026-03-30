@@ -166,6 +166,10 @@ public class AuthenticatorManager {
 
         AuthenticateRequest request = primaryRequest.get();
         remoteIp = request.getRemoteIp();
+        if (isOidcAuthenticationWithoutSsl(authPacket, request)) {
+            setInsecureOidcTransportError(context);
+            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword());
+        }
         AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, request);
         if (primaryResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);
@@ -256,12 +260,53 @@ public class AuthenticatorManager {
             chainRequest = fallbackRequest.get();
         }
 
+        if (isOidcAuthenticationWithoutSsl(authPacket, chainRequest)) {
+            setInsecureOidcTransportError(context);
+            return AuthenticateResponse.failedResponse;
+        }
         LOG.info("Try authentication_chain fallback for user '{}'", userName);
         return authenticateWith(chainAuthenticator, chainRequest);
     }
 
     private boolean hasAuthenticationChain() {
         return !AuthenticationIntegrationAuthenticator.parseAuthenticationChain(Config.authentication_chain).isEmpty();
+    }
+
+    private boolean isOidcAuthenticationWithoutSsl(MysqlAuthPacket authPacket, AuthenticateRequest request) {
+        return isOidcAuthenticateRequest(request) && !authPacket.getCapability().isClientUseSsl();
+    }
+
+    private boolean isOidcAuthenticateRequest(AuthenticateRequest request) {
+        if (CredentialType.OIDC_ID_TOKEN.equals(request.getCredentialType())) {
+            return true;
+        }
+        if (!(request.getPassword() instanceof ClearPassword)) {
+            return false;
+        }
+        String clearPassword = ((ClearPassword) request.getPassword()).getPassword();
+        if (Strings.isNullOrEmpty(clearPassword)) {
+            return false;
+        }
+        return looksLikeJwt(clearPassword);
+    }
+
+    private boolean looksLikeJwt(String token) {
+        if (!token.startsWith("eyJ")) {
+            return false;
+        }
+
+        int segmentSeparatorCount = 0;
+        for (int i = 0; i < token.length(); i++) {
+            if (token.charAt(i) == '.') {
+                segmentSeparatorCount++;
+            }
+        }
+        return segmentSeparatorCount == 2;
+    }
+
+    private void setInsecureOidcTransportError(ConnectContext context) {
+        context.getState().setError(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED,
+                "OIDC authentication requires TLS/SSL; reconnect with sslMode=REQUIRED");
     }
 
     private AuthenticateRequest normalizeAuthenticationChainRequest(String userName, MysqlChannel channel,

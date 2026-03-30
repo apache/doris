@@ -56,6 +56,7 @@ import java.util.concurrent.atomic.AtomicReference;
 class AuthenticatorManagerTest {
     private static final String USER_NAME = "alice";
     private static final String REMOTE_IP = "127.0.0.1";
+    private static final String OIDC_ID_TOKEN = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJhbGljZSJ9.signature";
 
     private Env env;
     private Auth auth;
@@ -319,6 +320,7 @@ class AuthenticatorManagerTest {
 
         MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
         Mockito.when(authPacket.getPluginName()).thenReturn("authentication_openid_connect_client");
+        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.SSL_CAPABILITY);
 
         boolean result = manager.authenticate(context, USER_NAME, channel,
                 MysqlSerializer.newInstance(), authPacket, Mockito.mock(MysqlHandshakePacket.class));
@@ -329,6 +331,96 @@ class AuthenticatorManagerTest {
         Assertions.assertEquals(CredentialType.OIDC_ID_TOKEN, requestCaptor.getValue().getCredentialType());
         Assertions.assertArrayEquals("oidc-token".getBytes(StandardCharsets.UTF_8),
                 requestCaptor.getValue().getCredential());
+    }
+
+    @Test
+    void testAuthenticateRejectsOidcJwtWithoutSslBeforeAuthentication() throws Exception {
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(AuthenticateRequest.builder()
+                        .userName(USER_NAME)
+                        .password(new ClearPassword(OIDC_ID_TOKEN))
+                        .remoteHost(REMOTE_IP)
+                        .clientType("mysql")
+                        .credentialType(CredentialType.OIDC_ID_TOKEN)
+                        .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
+                        .build()));
+
+        AuthenticatorManager manager = new AuthenticatorManager(AuthenticateType.DEFAULT.name());
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        Mockito.when(authPacket.getPluginName()).thenReturn(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
+        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.DEFAULT_CAPABILITY);
+        Mockito.when(authPacket.getAuthResponse()).thenReturn(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8));
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), authPacket, Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertFalse(result);
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED, state.getErrorCode());
+        Assertions.assertEquals("OIDC authentication requires TLS/SSL; reconnect with sslMode=REQUIRED",
+                state.getErrorMessage());
+        Mockito.verify(primaryAuthenticator, Mockito.never()).authenticate(Mockito.any());
+    }
+
+    @Test
+    void testAuthenticateRejectsOidcJwtWithoutSslBeforeChainAuthentication() throws Exception {
+        Config.authentication_chain = "corp_oidc";
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failedResponse);
+
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver chainResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(chainAuthenticator.getPasswordResolver()).thenReturn(chainResolver);
+        Mockito.when(chainResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(Optional.of(AuthenticateRequest.builder()
+                        .userName(USER_NAME)
+                        .password(new ClearPassword(OIDC_ID_TOKEN))
+                        .remoteHost(REMOTE_IP)
+                        .clientType("mysql")
+                        .credentialType(CredentialType.OIDC_ID_TOKEN)
+                        .credential(OIDC_ID_TOKEN.getBytes(StandardCharsets.UTF_8))
+                        .build()));
+
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+        MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
+        Mockito.when(authPacket.getPluginName()).thenReturn(MysqlHandshakePacket.AUTH_PLUGIN_NAME);
+        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.DEFAULT_CAPABILITY);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                MysqlSerializer.newInstance(), authPacket, Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertFalse(result);
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_SECURE_TRANSPORT_REQUIRED, state.getErrorCode());
+        Assertions.assertEquals("OIDC authentication requires TLS/SSL; reconnect with sslMode=REQUIRED",
+                state.getErrorMessage());
+        Mockito.verify(chainAuthenticator, Mockito.never()).authenticate(Mockito.any());
     }
 
     @Test
@@ -412,7 +504,7 @@ class AuthenticatorManagerTest {
         MysqlAuthPacket authPacket = Mockito.mock(MysqlAuthPacket.class);
         AtomicReference<byte[]> authResponseRef = new AtomicReference<>(originalOidcToken.clone());
         Mockito.when(authPacket.getPluginName()).thenReturn("authentication_openid_connect_client");
-        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.DEFAULT_CAPABILITY);
+        Mockito.when(authPacket.getCapability()).thenReturn(org.apache.doris.mysql.MysqlCapability.SSL_CAPABILITY);
         Mockito.when(authPacket.getAuthResponse()).thenAnswer(invocation -> authResponseRef.get());
         Mockito.doAnswer(invocation -> {
             byte[] authResponse = invocation.getArgument(0);
@@ -602,7 +694,7 @@ class AuthenticatorManagerTest {
     private ConnectContext mockContext(QueryState state) {
         ConnectContext context = Mockito.mock(ConnectContext.class);
         MysqlChannel channel = Mockito.mock(MysqlChannel.class);
-        MysqlSerializer serializer = Mockito.mock(MysqlSerializer.class);
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
         Mockito.when(context.getMysqlChannel()).thenReturn(channel);
         Mockito.when(context.getState()).thenReturn(state);
         Mockito.when(channel.getRemoteIp()).thenReturn(REMOTE_IP);

@@ -344,6 +344,29 @@ public class MysqlProtoTest {
     }
 
     @Test
+    public void testNegotiateRejectsSslRequestWhenServerSslDisabled() throws Exception {
+        MysqlSerializer serializer = MysqlSerializer.newInstance();
+        serializer.writeInt4(MysqlCapability.SSL_CAPABILITY.getFlags());
+
+        new Expectations() {
+            {
+                channel.sendAndFlush((ByteBuffer) any);
+                minTimes = 0;
+
+                channel.fetchOnePacket();
+                minTimes = 0;
+                result = serializer.toByteBuffer();
+            }
+        };
+
+        ConnectContext context = new ConnectContext(streamConnection);
+        Assert.assertFalse(MysqlProto.negotiate(context));
+        Assert.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, context.getState().getErrorCode());
+        Assert.assertEquals("Client requested TLS/SSL, but Doris FE MySQL SSL is disabled",
+                context.getState().getErrorMessage());
+    }
+
+    @Test
     public void testNegotiateLdap() throws Exception {
         mockChannel("user", true);
         mockPassword(true);

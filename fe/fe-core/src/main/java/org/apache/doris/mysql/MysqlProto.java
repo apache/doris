@@ -167,7 +167,10 @@ public class MysqlProto {
                 }
                 handshakeResponse = channel.fetchOnePacket();
             } else {
-                handshakeResponse = clientRequestPacket;
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                        "Client requested TLS/SSL, but Doris FE MySQL SSL is disabled");
+                sendResponsePacket(context);
+                return false;
             }
         } else {
             handshakeResponse = clientRequestPacket;
