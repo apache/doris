@@ -24,6 +24,7 @@
 
 #include "common/exception.h"
 #include "core/types.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
@@ -882,7 +883,11 @@ TEST(VDateTimeValueTest, datetime_diff_test) {
 
 TEST(VDateTimeValueTest, date_add_interval_positive_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-01-15 10:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-01-15 10:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit
     {
@@ -991,7 +996,11 @@ TEST(VDateTimeValueTest, date_add_interval_positive_test) {
 
 TEST(VDateTimeValueTest, date_add_interval_negative_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-06-15 15:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-06-15 15:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit (negative)
     {
@@ -1074,7 +1083,11 @@ TEST(VDateTimeValueTest, date_add_interval_negative_test) {
 
 TEST(VDateTimeValueTest, date_set_interval_positive_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-06-12 15:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-06-12 15:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit
     {
@@ -1192,7 +1205,11 @@ TEST(VDateTimeValueTest, date_set_interval_positive_test) {
 
 TEST(VDateTimeValueTest, date_set_interval_negative_test) {
     DateV2Value<DateTimeV2ValueType> dt;
-    dt.from_date_str("2022-06-15 15:30:45", 19);
+    {
+        CastParameters p;
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {"2022-06-15 15:30:45", 19}, dt, nullptr, -1, p);
+    }
 
     // Test SECOND unit with negative interval (should throw)
     {
@@ -1266,7 +1283,11 @@ TEST(VDateTimeValueTest, date_set_interval_negative_test) {
 
     {
         VecDateTimeValue data;
-        dt.from_date_str("2022-06-15 15:30:45", 19);
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2022-06-15 15:30:45", 19}, dt, nullptr, -1, p);
+        }
         VecDateTimeValue result = data;
         TimeInterval interval;
         interval.year = 1;
@@ -1280,7 +1301,11 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
     // Test leap year handling
     {
         DateV2Value<DateTimeV2ValueType> dt;
-        dt.from_date_str("2020-02-29 12:00:00", 19); // Leap year
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2020-02-29 12:00:00", 19}, dt, nullptr, -1, p);
+        } // Leap year
         TimeInterval interval(TimeUnit::YEAR, 1, false);
         EXPECT_TRUE(dt.date_add_interval<TimeUnit::YEAR>(interval));
         EXPECT_EQ(dt.year(), 2021);
@@ -1291,7 +1316,11 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
     // Test month overflow
     {
         DateV2Value<DateTimeV2ValueType> dt;
-        dt.from_date_str("2022-01-31 12:00:00", 19);
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2022-01-31 12:00:00", 19}, dt, nullptr, -1, p);
+        }
         TimeInterval interval(TimeUnit::MONTH, 1, false);
         EXPECT_TRUE(dt.date_add_interval<TimeUnit::MONTH>(interval));
         EXPECT_EQ(dt.year(), 2022);
@@ -1302,7 +1331,11 @@ TEST(VDateTimeValueTest, date_add_interval_edge_cases_test) {
     // Test day overflow causing month change
     {
         DateV2Value<DateTimeV2ValueType> dt;
-        dt.from_date_str("2022-01-25 20:00:00", 19);
+        {
+            CastParameters p;
+            CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2022-01-25 20:00:00", 19}, dt, nullptr, -1, p);
+        }
         TimeInterval interval(TimeUnit::HOUR, 100, false); // 100 hours = 4+ days
         EXPECT_TRUE(dt.date_add_interval<TimeUnit::HOUR>(interval));
         EXPECT_EQ(dt.year(), 2022);

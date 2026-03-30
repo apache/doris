@@ -40,7 +40,7 @@ suite("any_value_roll_up") {
       O_COMMENT        VARCHAR(79) NOT NULL
     )
     DUPLICATE KEY(o_orderkey, o_custkey)
-    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 3
+    DISTRIBUTED BY HASH(o_orderkey) BUCKETS 2
     PROPERTIES (
       "replication_num" = "1"
     );
@@ -70,7 +70,7 @@ suite("any_value_roll_up") {
       l_comment      VARCHAR(44) NOT NULL
     )
     DUPLICATE KEY(l_orderkey, l_partkey, l_suppkey, l_linenumber)
-    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 3
+    DISTRIBUTED BY HASH(l_orderkey) BUCKETS 2
     PROPERTIES (
       "replication_num" = "1"
     )
@@ -89,7 +89,7 @@ suite("any_value_roll_up") {
       ps_comment     VARCHAR(199) NOT NULL 
     )
     DUPLICATE KEY(ps_partkey, ps_suppkey)
-    DISTRIBUTED BY HASH(ps_partkey) BUCKETS 3
+    DISTRIBUTED BY HASH(ps_partkey) BUCKETS 2
     PROPERTIES (
       "replication_num" = "1"
     )
@@ -134,6 +134,48 @@ suite("any_value_roll_up") {
     sql """analyze table partsupp_2 with sync"""
     sql """analyze table lineitem_2 with sync"""
     sql """analyze table orders_2 with sync"""
+
+    [
+            "any_mv1_0", "any_mv2_0", "any_mv3_0", "any_mv4_0",
+            "any_mv5_0", "any_mv5_1", "any_mv6_0", "any_mv6_1"
+    ].each { mvName ->
+        sql """DROP MATERIALIZED VIEW IF EXISTS ${mvName}"""
+    }
+
+    def create_async_mv_without_drop = { dbName, mvSql, mvName, expectedPreRewriteStrategys = [], needAnalyze = true ->
+        if (!mvShouldContinueCheck(expectedPreRewriteStrategys)) {
+            return false
+        }
+        sql"""
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH COMPLETE ON MANUAL
+        DISTRIBUTED BY RANDOM BUCKETS 2
+        PROPERTIES ('replication_num' = '1')
+        AS ${mvSql}
+        """
+        def jobName = getJobName(dbName, mvName)
+        if (needAnalyze) {
+            waitingMTMVTaskFinished(jobName)
+        } else {
+            waitingMTMVTaskFinishedWithoutAnalyze(jobName)
+        }
+        return true
+    }
+
+    // The suite drops each MV after validation, so we only need one upfront cleanup.
+    def async_mv_rewrite_success = { dbName, mvSql, querySql, mvName, expectedPreRewriteStrategys = [] ->
+        if (!create_async_mv_without_drop(dbName, mvSql, mvName, expectedPreRewriteStrategys)) {
+            return
+        }
+        mv_rewrite_success(querySql, mvName, true, expectedPreRewriteStrategys)
+    }
+
+    def async_mv_rewrite_fail = { dbName, mvSql, querySql, mvName, expectedPreRewriteStrategys = [] ->
+        if (!create_async_mv_without_drop(dbName, mvSql, mvName, expectedPreRewriteStrategys, false)) {
+            return
+        }
+        mv_rewrite_fail(querySql, mvName, expectedPreRewriteStrategys)
+    }
 
 
     // mv has any value, query also has any value

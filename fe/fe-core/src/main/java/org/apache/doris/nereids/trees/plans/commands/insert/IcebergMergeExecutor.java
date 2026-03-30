@@ -21,9 +21,13 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.datasource.iceberg.IcebergTransaction;
+import org.apache.doris.datasource.iceberg.helper.IcebergRewritableDeletePlan;
+import org.apache.doris.datasource.iceberg.helper.IcebergRewritableDeletePlanner;
 import org.apache.doris.nereids.NereidsPlanner;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSink;
 import org.apache.doris.planner.DataSink;
+import org.apache.doris.planner.IcebergMergeSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.transaction.TransactionType;
@@ -36,16 +40,30 @@ import java.util.Optional;
  * Executor for Iceberg UPDATE merge operations (single scan + merge sink).
  */
 public class IcebergMergeExecutor extends BaseExternalTableInsertExecutor {
+    private final NereidsPlanner nereidsPlanner;
     private Optional<Expression> conflictDetectionFilter = Optional.empty();
+    private IcebergRewritableDeletePlan rewritableDeletePlan = IcebergRewritableDeletePlan.empty();
 
     public IcebergMergeExecutor(ConnectContext ctx, IcebergExternalTable table,
             String labelName, NereidsPlanner planner,
             boolean emptyInsert, long jobId) {
         super(ctx, table, labelName, planner, Optional.empty(), emptyInsert, jobId);
+        this.nereidsPlanner = planner;
     }
 
+    /** Finalize merge sink and attach rewritable delete-file metadata for BE. */
     public void finalizeSinkForMerge(PlanFragment fragment, DataSink sink, PhysicalSink<?> physicalSink) {
         super.finalizeSink(fragment, sink, physicalSink);
+        if (!(sink instanceof IcebergMergeSink)) {
+            return;
+        }
+        try {
+            rewritableDeletePlan = IcebergRewritableDeletePlanner.collectForMerge(
+                    (IcebergExternalTable) table, nereidsPlanner);
+        } catch (UserException e) {
+            throw new AnalysisException(e.getMessage(), e);
+        }
+        ((IcebergMergeSink) sink).setRewritableDeleteFileSets(rewritableDeletePlan.getThriftDeleteFileSets());
     }
 
     public void setConflictDetectionFilter(Optional<Expression> filter) {
@@ -56,6 +74,8 @@ public class IcebergMergeExecutor extends BaseExternalTableInsertExecutor {
     protected void beforeExec() throws UserException {
         IcebergTransaction transaction = (IcebergTransaction) transactionManager.getTransaction(txnId);
         transaction.beginMerge((IcebergExternalTable) table);
+        transaction.setRewrittenDeleteFilesByReferencedDataFile(
+                rewritableDeletePlan.getDeleteFilesByReferencedDataFile());
         if (conflictDetectionFilter.isPresent()) {
             transaction.setConflictDetectionFilter(conflictDetectionFilter.get());
         } else {

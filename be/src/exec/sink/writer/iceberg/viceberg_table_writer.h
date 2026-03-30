@@ -59,6 +59,10 @@ public:
 
     Status close(Status) override;
 
+    bool is_rewrite_compaction() const { return _write_type == TIcebergWriteType::REWRITE; }
+
+    TIcebergWriteType::type write_type() const { return _write_type; }
+
     // Getter for the current partition writer.
     // Used by SpillIcebergTableSinkLocalState to access the current writer for
     // memory management operations (get_reserve_mem_size, revocable_mem_size, etc.).
@@ -126,6 +130,7 @@ private:
                          doris::Block* output_block);
 
     Status _write_prepared_block(Block& output_block);
+    Status _process_row_lineage_columns(Block& block);
 
     // Currently it is a copy, maybe it is better to use move semantics to eliminate it.
     TDataSink _t_sink;
@@ -133,6 +138,9 @@ private:
 
     // Target file size in bytes for controlling when to split files
     int64_t _target_file_size_bytes = 0;
+    TIcebergWriteType::type _write_type = TIcebergWriteType::INSERT;
+    int _row_id_column_idx = -1;
+    int _last_updated_seq_num_column_idx = -1;
 
     std::shared_ptr<doris::iceberg::Schema> _schema;
     std::unique_ptr<doris::iceberg::PartitionSpec> _partition_spec;

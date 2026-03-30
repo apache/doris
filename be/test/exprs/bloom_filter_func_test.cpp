@@ -30,6 +30,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/value/vdatetime_value.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "gtest/gtest.h"
 #include "testutil/column_helper.h"
 #include "util/url_coding.h"
@@ -91,7 +92,11 @@ TEST_F(BloomFilterFuncTest, FixedLenToUInt32) {
     fixed_len_to_uint32_v2 fixed_lenv2;
     {
         DateV2Value<DateV2ValueType> date;
-        date.from_date_str("2021-01-01", strlen("2021-01-01"));
+        {
+            CastParameters p;
+            CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {"2021-01-01", strlen("2021-01-01")}, date, nullptr, p);
+        }
         auto min = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(MIN_DATE_V2);
         auto max = binary_cast<uint32_t, DateV2Value<DateV2ValueType>>(MAX_DATE_V2);
 

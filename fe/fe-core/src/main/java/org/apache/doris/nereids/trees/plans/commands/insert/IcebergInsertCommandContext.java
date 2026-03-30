@@ -30,6 +30,7 @@ public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandC
     // Static partition key-value pairs for INSERT OVERWRITE ... PARTITION
     // (col='val', ...)
     private Map<String, String> staticPartitionValues = Maps.newHashMap();
+    private boolean rewriting = false;
 
     public Optional<String> getBranchName() {
         return branchName;
@@ -54,5 +55,13 @@ public class IcebergInsertCommandContext extends BaseExternalTableInsertCommandC
      */
     public boolean isStaticPartitionOverwrite() {
         return isOverwrite() && !staticPartitionValues.isEmpty();
+    }
+
+    public boolean isRewriting() {
+        return rewriting;
+    }
+
+    public void setRewriting(boolean rewriting) {
+        this.rewriting = rewriting;
     }
 }

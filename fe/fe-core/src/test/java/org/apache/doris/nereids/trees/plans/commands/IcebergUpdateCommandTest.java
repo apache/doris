@@ -134,4 +134,33 @@ public class IcebergUpdateCommandTest {
                         slot.getNameParts().get(slot.getNameParts().size() - 1)));
         Assertions.assertTrue(hasC2Slot);
     }
+
+    @Test
+    public void testExecuteWithExternalTableBatchModeDisabledRestoresValueOnSuccess() throws Exception {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().enableExternalTableBatchMode = true;
+
+        Boolean result = IcebergUpdateCommand.executeWithExternalTableBatchModeDisabled(ctx, () -> {
+            Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+            return Boolean.TRUE;
+        });
+
+        Assertions.assertTrue(result);
+        Assertions.assertTrue(ctx.getSessionVariable().enableExternalTableBatchMode);
+    }
+
+    @Test
+    public void testExecuteWithExternalTableBatchModeDisabledRestoresValueOnException() {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getSessionVariable().enableExternalTableBatchMode = false;
+
+        RuntimeException exception = Assertions.assertThrows(RuntimeException.class,
+                () -> IcebergUpdateCommand.executeWithExternalTableBatchModeDisabled(ctx, () -> {
+                    Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+                    throw new RuntimeException("expected");
+                }));
+
+        Assertions.assertEquals("expected", exception.getMessage());
+        Assertions.assertFalse(ctx.getSessionVariable().enableExternalTableBatchMode);
+    }
 }

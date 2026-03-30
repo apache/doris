@@ -109,6 +109,10 @@ suite("st06_warmup_ttl_type_assert") {
                         }
                     }
                 }
+              
+                if (sourceMatched == sourceIds.size() && targetMatched == targetIds.size()) {
+                    return
+                }
                 sleep(intervalMs)
             }
             assertTrue(false, "Timeout waiting for ${expectedType}, sourceTablets=${sourceIds}, targetTablets=${targetIds}")
