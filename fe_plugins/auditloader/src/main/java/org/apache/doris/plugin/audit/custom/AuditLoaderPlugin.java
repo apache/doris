@@ -183,7 +183,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(event.workloadGroup).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
-        String stmt = (event.stmt).replace("\n", " ")
+        String stmt = truncateByBytes(event.stmt).replace("\n", " ")
             .replace("\t", " ")
             .replace("\r", " ");
         if (LOG.isDebugEnabled()) {
