@@ -26,6 +26,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
 . "${ROOT}/custom_settings.env"
 . "${ROOT}/juicefs-helpers.sh"
+. "${ROOT}/docker-health.sh"
 . "${ROOT}/docker-compose/hive/scripts/bootstrap/bootstrap-groups.sh"
 
 usage() {
@@ -556,6 +557,10 @@ start_hive2() {
     export CONTAINER_UID=${CONTAINER_UID}
     export HIVE_BOOTSTRAP_GROUPS="${HIVE2_BOOTSTRAP_GROUPS:-}"
     echo "Hive2 bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
+    if [[ "${HIVE_FORCE_RESTART:-0}" -eq 0 ]] && docker_hive_stack_reusable "${CONTAINER_UID}" "hive2" "${HIVE_BOOTSTRAP_GROUPS:-all}"; then
+        echo "Hive2 stack is already healthy with matching bootstrap groups, skip restart"
+        return
+    fi
     . "${ROOT}"/docker-compose/hive/hive-2x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-2x.yaml
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-2x.env
@@ -572,6 +577,10 @@ start_hive3() {
     export CONTAINER_UID=${CONTAINER_UID}
     export HIVE_BOOTSTRAP_GROUPS="${HIVE3_BOOTSTRAP_GROUPS:-}"
     echo "Hive3 bootstrap groups: ${HIVE_BOOTSTRAP_GROUPS:-all}"
+    if [[ "${HIVE_FORCE_RESTART:-0}" -eq 0 ]] && docker_hive_stack_reusable "${CONTAINER_UID}" "hive3" "${HIVE_BOOTSTRAP_GROUPS:-all}"; then
+        echo "Hive3 stack is already healthy with matching bootstrap groups, skip restart"
+        return
+    fi
     . "${ROOT}"/docker-compose/hive/hive-3x_settings.env
     envsubst <"${ROOT}"/docker-compose/hive/hive-3x.yaml.tpl >"${ROOT}"/docker-compose/hive/hive-3x.yaml
     envsubst <"${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl >"${ROOT}"/docker-compose/hive/hadoop-hive-3x.env
