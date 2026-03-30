@@ -579,11 +579,13 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                 .is_warmup = true},
-                        .download_done = [=, version = rs_meta.version()](Status st) {
-                            handle_segment_download_done(st, tablet_id, rowset_id, segment_id,
-                                                         tablet, wait, version, segment_size,
-                                                         request_ts, handle_ts);
-                        }};
+                        .download_done =
+                                [=, version = rs_meta.version()](Status st) {
+                                    handle_segment_download_done(
+                                            st, tablet_id, rowset_id, segment_id, tablet, wait,
+                                            version, segment_size, request_ts, handle_ts);
+                                },
+                        .tablet_id = tablet_id};
 
                 g_file_cache_event_driven_warm_up_submitted_segment_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_segment_size << segment_size;
@@ -604,11 +606,13 @@ void CloudInternalServiceImpl::warm_up_rowset(google::protobuf::RpcController* c
                                 .expiration_time = expiration_time,
                                 .is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
                                 .is_warmup = true},
-                        .download_done = [=, version = rs_meta.version()](Status st) {
-                            handle_inverted_index_download_done(
-                                    st, tablet_id, rowset_id, segment_id, index_path, tablet, wait,
-                                    version, idx_size, request_ts, handle_ts);
-                        }};
+                        .download_done =
+                                [=, version = rs_meta.version()](Status st) {
+                                    handle_inverted_index_download_done(
+                                            st, tablet_id, rowset_id, segment_id, index_path,
+                                            tablet, wait, version, idx_size, request_ts, handle_ts);
+                                },
+                        .tablet_id = tablet_id};
                 g_file_cache_event_driven_warm_up_submitted_index_num << 1;
                 g_file_cache_event_driven_warm_up_submitted_index_size << idx_size;
                 tablet->update_rowset_warmup_state_inverted_idx_num(

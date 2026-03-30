@@ -26,9 +26,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "core/column/column_dictionary.h"
-#include "core/data_type/define_primitive_type.h"
-#include "core/data_type/primitive_type.h"
 #include "exprs/vslot_ref.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
@@ -61,12 +58,23 @@ class GenericReader;
 class ShardedKVCache;
 class VExprContext;
 
+struct RowLineageColumns {
+    int row_id_column_idx = -1;
+    int last_updated_sequence_number_column_idx = -1;
+    int64_t first_row_id = -1;
+    int64_t last_updated_sequence_number = -1;
+
+    bool need_row_ids() const { return row_id_column_idx >= 0; }
+    bool has_last_updated_sequence_number_column() const {
+        return last_updated_sequence_number_column_idx >= 0;
+    }
+};
+
 class IcebergTableReader : public TableFormatReader, public TableSchemaChangeHelper {
 public:
-    struct PositionDeleteRange {
-        std::vector<std::string> data_file_path;
-        std::vector<std::pair<int, int>> range;
-    };
+    static constexpr const char* ROW_LINEAGE_ROW_ID = "_row_id";
+    static constexpr const char* ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER =
+            "_last_updated_sequence_number";
 
     IcebergTableReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                        RuntimeState* state, const TFileScanRangeParams& params,
@@ -94,6 +102,10 @@ public:
     Status read_deletion_vector(const std::string& data_file_path,
                                 const TIcebergDeleteFileDesc& delete_file_desc);
 
+    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
+        _row_lineage_columns = std::move(row_lineage_columns);
+    }
+
 protected:
     struct IcebergProfile {
         RuntimeProfile::Counter* num_delete_files;
@@ -119,10 +131,6 @@ protected:
      */
     static void _sort_delete_rows(const std::vector<std::vector<int64_t>*>& delete_rows_array,
                                   int64_t num_delete_rows, std::vector<int64_t>& result);
-
-    PositionDeleteRange _get_range(const ColumnDictI32& file_path_column);
-
-    PositionDeleteRange _get_range(const ColumnString& file_path_column);
 
     static std::string _delet_file_cache_key(const std::string& path) { return "delete_" + path; }
 
@@ -151,20 +159,10 @@ protected:
     Fileformat _file_format = Fileformat::NONE;
 
     const int64_t MIN_SUPPORT_DELETE_FILES_VERSION = 2;
-    const std::string ICEBERG_FILE_PATH = "file_path";
-    const std::string ICEBERG_ROW_POS = "pos";
-    const std::vector<std::string> delete_file_col_names {ICEBERG_FILE_PATH, ICEBERG_ROW_POS};
-    const std::unordered_map<std::string, uint32_t> DELETE_COL_NAME_TO_BLOCK_IDX = {
-            {ICEBERG_FILE_PATH, 0}, {ICEBERG_ROW_POS, 1}};
-    const int ICEBERG_FILE_PATH_INDEX = 0;
-    const int ICEBERG_FILE_POS_INDEX = 1;
     const int READ_DELETE_FILE_BATCH_SIZE = 102400;
 
-    //Read position_delete_file  TFileRangeDesc, generate DeleteFile
-    virtual Status _read_position_delete_file(const TFileRangeDesc*, DeleteFile*) = 0;
-
-    void _gen_position_delete_file_range(Block& block, DeleteFile* const position_delete,
-                                         size_t read_rows, bool file_path_column_dictionary_coded);
+    // Read a position delete file from the full Iceberg delete descriptor.
+    Status _read_position_delete_file(const TIcebergDeleteFileDesc&, DeleteFile*);
 
     // read table colummn + extra equality delete columns
     std::vector<std::string> _all_required_col_names;
@@ -184,6 +182,8 @@ protected:
 
     // id -> block column name.
     std::unordered_map<int, std::string> _id_to_block_column_name;
+
+    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
 };
 
 class IcebergParquetReader final : public IcebergTableReader {
@@ -215,9 +215,6 @@ public:
 private:
     static ColumnIdResult _create_column_ids(const FieldDescriptor* field_desc,
                                              const TupleDescriptor* tuple_descriptor);
-
-    Status _read_position_delete_file(const TFileRangeDesc* delete_range,
-                                      DeleteFile* position_delete) final;
     Status _process_equality_delete(const std::vector<TIcebergDeleteFileDesc>& delete_files) final;
 
     const FieldDescriptor* _data_file_field_desc = nullptr;
@@ -225,9 +222,6 @@ private:
 class IcebergOrcReader final : public IcebergTableReader {
 public:
     ENABLE_FACTORY_CREATOR(IcebergOrcReader);
-
-    Status _read_position_delete_file(const TFileRangeDesc* delete_range,
-                                      DeleteFile* position_delete) final;
 
     IcebergOrcReader(std::unique_ptr<GenericReader> file_format_reader, RuntimeProfile* profile,
                      RuntimeState* state, const TFileScanRangeParams& params,

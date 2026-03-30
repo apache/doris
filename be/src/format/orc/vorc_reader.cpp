@@ -82,6 +82,7 @@
 #include "exprs/vin_predicate.h"
 #include "exprs/vruntimefilter_wrapper.h"
 #include "format/orc/orc_file_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "format/table/transactional_hive_common.h"
 #include "io/fs/buffered_reader.h"
 #include "io/fs/file_reader.h"
@@ -1231,6 +1232,17 @@ Status OrcReader::set_fill_columns(
                 TransactionalHive::READ_ROW_COLUMN_NAMES.end());
     }
 
+    auto check_iceberg_row_lineage_column_idx = [&](const auto& col_name) -> int {
+        if (_row_lineage_columns != nullptr) {
+            if (col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
+                return _row_lineage_columns->row_id_column_idx;
+            } else if (col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                return _row_lineage_columns->last_updated_sequence_number_column_idx;
+            }
+        }
+        return -1;
+    };
+
     for (auto& read_table_col : _read_table_cols) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
         if (!predicate_table_columns.empty()) {
@@ -1249,6 +1261,10 @@ Status OrcReader::set_fill_columns(
 
                 _lazy_read_ctx.predicate_orc_columns.emplace_back(
                         _table_info_node_ptr->children_file_column_name(iter->first));
+                if (check_iceberg_row_lineage_column_idx(read_table_col) != -1) {
+                    // Todo : enable lazy mat where filter iceberg row lineage column.
+                    _enable_lazy_mat = false;
+                }
             }
         }
     }
@@ -1278,6 +1294,9 @@ Status OrcReader::set_fill_columns(
 
             // predicate_missing_columns is VLiteral.To fill in default values for missing columns.
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
+            if (check_iceberg_row_lineage_column_idx(kv.first) != -1) {
+                _enable_lazy_mat = false;
+            }
         }
     }
 
@@ -1530,13 +1549,46 @@ Status OrcReader::_fill_missing_columns(
 }
 
 Status OrcReader::_fill_row_id_columns(Block* block, int64_t start_row) {
+    size_t fill_size = _batch->numElements;
     if (_row_id_column_iterator_pair.first != nullptr) {
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->seek_to_ordinal(start_row));
-        size_t fill_size = _batch->numElements;
-
         auto col = block->get_by_position(_row_id_column_iterator_pair.second)
                            .column->assume_mutable();
         RETURN_IF_ERROR(_row_id_column_iterator_pair.first->next_batch(&fill_size, col));
+    }
+
+    if (_row_lineage_columns != nullptr && _row_lineage_columns->need_row_ids() &&
+        _row_lineage_columns->first_row_id >= 0) {
+        auto col = block->get_by_position(_row_lineage_columns->row_id_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < fill_size; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->first_row_id + start_row + static_cast<int64_t>(i);
+            }
+        }
+    }
+
+    if (_row_lineage_columns != nullptr &&
+        _row_lineage_columns->has_last_updated_sequence_number_column() &&
+        _row_lineage_columns->last_updated_sequence_number >= 0) {
+        auto col = block->get_by_position(
+                                _row_lineage_columns->last_updated_sequence_number_column_idx)
+                           .column->assume_mutable();
+        auto* nullable_column = assert_cast<ColumnNullable*>(col.get());
+        auto& null_map = nullable_column->get_null_map_data();
+        auto& data =
+                assert_cast<ColumnInt64&>(*nullable_column->get_nested_column_ptr()).get_data();
+        for (size_t i = 0; i < fill_size; ++i) {
+            if (null_map[i] != 0) {
+                null_map[i] = 0;
+                data[i] = _row_lineage_columns->last_updated_sequence_number;
+            }
+        }
     }
 
     return Status::OK();

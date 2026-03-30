@@ -630,10 +630,6 @@ Status RowIdStorageReader::read_by_rowids(const PMultiGetRequestV2& request,
                              external_get_block_avg_ms, external_scan_range_cnt);
     }
 
-    if (request.has_gc_id_map() && request.gc_id_map()) {
-        ExecEnv::GetInstance()->get_id_manager()->remove_id_file_map(request.query_id());
-    }
-
     return Status::OK();
 }
 

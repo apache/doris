@@ -5779,6 +5779,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableStrictConsistencyDml() {
+        // In cloud mode (store-compute separation), there is only a single copy of data,
+        // so multi-replica consistency is not a concern. Default to false.
+        if (Config.isCloudMode()) {
+            return false;
+        }
         return this.enableStrictConsistencyDml;
     }
 

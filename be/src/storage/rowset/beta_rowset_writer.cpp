@@ -442,6 +442,7 @@ Status BetaRowsetWriter::_load_noncompacted_segment(segment_v2::SegmentSharedPtr
                             : io::FileCachePolicy::NO_CACHE,
             .is_doris_table = true,
             .cache_base_path {},
+            .tablet_id = _rowset_meta->tablet_id(),
     };
     auto s = segment_v2::Segment::open(fs, path, _rowset_meta->tablet_id(), segment_id, rowset_id(),
                                        _context.tablet_schema, reader_options, &segment);
@@ -1107,7 +1108,7 @@ Status BetaRowsetWriter::create_segment_writer_for_segcompaction(
         index_file_writer = std::make_unique<IndexFileWriter>(
                 _context.fs(), prefix, _context.rowset_id.to_string(), _num_segcompacted,
                 _context.tablet_schema->get_inverted_index_storage_format(),
-                std::move(idx_file_writer));
+                std::move(idx_file_writer), true /* can_use_ram_dir */, _context.tablet_id);
     }
 
     segment_v2::SegmentWriterOptions writer_options;

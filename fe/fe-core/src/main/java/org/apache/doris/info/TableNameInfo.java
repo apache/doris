@@ -250,7 +250,7 @@ public class TableNameInfo {
     @Override
     public String toString() {
         StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+        if (ctl != null) {
             stringBuilder.append(ctl).append(".");
         }
         if (db != null) {
@@ -279,21 +279,6 @@ public class TableNameInfo {
      * toSql
      */
     public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            stringBuilder.append("`").append(ctl).append("`.");
-        }
-        if (db != null) {
-            stringBuilder.append("`").append(db).append("`.");
-        }
-        stringBuilder.append("`").append(tbl).append("`");
-        return stringBuilder.toString();
-    }
-
-    /**
-     * toFullyQualified
-     */
-    public String toFullyQualified() {
         StringBuilder stringBuilder = new StringBuilder();
         if (ctl != null) {
             stringBuilder.append("`").append(ctl).append("`.");

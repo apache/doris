@@ -536,6 +536,17 @@ Status ParquetReader::set_fill_columns(
 
     const FieldDescriptor& schema = _file_metadata->schema();
 
+    auto check_iceberg_row_lineage_column_idx = [&](const auto& col_name) -> int {
+        if (_row_lineage_columns != nullptr) {
+            if (col_name == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
+                return _row_lineage_columns->row_id_column_idx;
+            } else if (col_name == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+                return _row_lineage_columns->last_updated_sequence_number_column_idx;
+            }
+        }
+        return -1;
+    };
+
     for (auto& read_table_col : _read_table_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_table_col);
 
@@ -548,7 +559,21 @@ Status ParquetReader::set_fill_columns(
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_table_col);
             if (iter == predicate_columns.end()) {
-                _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
+                if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(read_table_col);
+                    row_lineage_idx != -1) {
+                    _lazy_read_ctx.predicate_columns.first.emplace_back(read_table_col);
+                    // row lineage column can not dict filter.
+                    int slot_id = 0;
+                    for (auto slot : _tuple_descriptor->slots()) {
+                        if (slot->col_name_lower_case() == read_table_col) {
+                            slot_id = slot->id();
+                        }
+                    }
+                    _lazy_read_ctx.predicate_columns.second.emplace_back(slot_id);
+                    _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
+                } else {
+                    _lazy_read_ctx.lazy_read_columns.emplace_back(read_table_col);
+                }
             } else {
                 _lazy_read_ctx.predicate_columns.first.emplace_back(iter->first);
                 _lazy_read_ctx.predicate_columns.second.emplace_back(iter->second.second);
@@ -572,9 +597,7 @@ Status ParquetReader::set_fill_columns(
 
     for (auto& kv : _lazy_read_ctx.fill_missing_columns) {
         auto iter = predicate_columns.find(kv.first);
-        if (iter == predicate_columns.end()) {
-            _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
-        } else {
+        if (iter != predicate_columns.end()) {
             //For check missing column :   missing column == xx, missing column is null,missing column is not null.
             if (_slot_id_to_filter_conjuncts->find(iter->second.second) !=
                 _slot_id_to_filter_conjuncts->end()) {
@@ -585,6 +608,12 @@ Status ParquetReader::set_fill_columns(
 
             _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
             _lazy_read_ctx.all_predicate_col_ids.emplace_back(iter->second.first);
+        } else if (auto row_lineage_idx = check_iceberg_row_lineage_column_idx(kv.first);
+                   row_lineage_idx != -1) {
+            _lazy_read_ctx.predicate_missing_columns.emplace(kv.first, kv.second);
+            _lazy_read_ctx.all_predicate_col_ids.emplace_back(row_lineage_idx);
+        } else {
+            _lazy_read_ctx.missing_columns.emplace(kv.first, kv.second);
         }
     }
 
@@ -849,6 +878,7 @@ Status ParquetReader::_next_row_group_reader() {
 
     _current_group_reader->set_current_row_group_idx(_current_row_group_index);
     _current_group_reader->set_row_id_column_iterator(_row_id_column_iterator_pair);
+    _current_group_reader->set_row_lineage_columns(_row_lineage_columns);
     _current_group_reader->set_col_name_to_block_idx(_col_name_to_block_idx);
     if (_condition_cache_ctx) {
         _current_group_reader->set_condition_cache_context(_condition_cache_ctx);
