@@ -183,7 +183,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         logBuffer.append(event.workloadGroup).append("\t");
         // trim the query to avoid too long
         // use `getBytes().length` to get real byte length
-        String stmt = truncateByBytes(event.stmt).replace("\n", " ")
+        String stmt = (event.stmt).replace("\n", " ")
             .replace("\t", " ")
             .replace("\r", " ");
         if (LOG.isDebugEnabled()) {
@@ -199,7 +199,7 @@ public class AuditLoaderPlugin extends Plugin implements AuditPlugin {
         }
         Charset utf8Charset = Charset.forName("UTF-8");
         CharsetDecoder decoder = utf8Charset.newDecoder();
-        byte[] sb = str.getBytes();
+        byte[] sb = str.getBytes(utf8Charset);
         ByteBuffer buffer = ByteBuffer.wrap(sb, 0, maxLen);
         CharBuffer charBuffer = CharBuffer.allocate(maxLen);
         decoder.onMalformedInput(CodingErrorAction.IGNORE);
