@@ -69,13 +69,13 @@
 -1.0
 
 -- !cosine_sim_distance_relation --
-1.0
+0.9999999534439087
 
 -- !cosine_sim_empty --
 0.0
 
 -- !cosine_sim_large --
-0.98387
+0.9838699
 
 -- !cosine_sim_small --
 0.9838699
@@ -83,7 +83,7 @@
 -- !cosine_sim_table --
 1	1.0
 2	0.0
-3	0.9746318
+3	0.9746319
 4	-1.0
 5	0.96
 

@@ -137,4 +137,32 @@ suite("test_group_concat", "query,p0,arrow_flight_sql") {
     """
 
     sql """drop view if exists test_view"""
+
+    sql """create view if not exists test_view as SELECT b1, group_concat(cast(abs(b3) as varchar) order by abs(b2) desc, b3 desc) FROM table_group_concat  group by b1 order by b1;"""
+    order_qt_select_group_concat_order_by_desc4 """
+                select * from test_view;
+    """
+    sql """drop view if exists test_view"""
+
+    // Constant Folding Correctness Test
+    sql """ DROP TABLE IF EXISTS test_group_concat_fold_const_t1 """
+    sql """ DROP TABLE IF EXISTS test_group_concat_fold_const_t2 """
+    sql """ CREATE TABLE test_group_concat_fold_const_t1 (
+                pk INT NOT NULL
+            ) DISTRIBUTED BY HASH(pk) BUCKETS 1
+            PROPERTIES ("replication_num" = "1");
+    """
+    sql """ CREATE TABLE test_group_concat_fold_const_t2 (
+                pk INT NOT NULL,
+                val VARCHAR(100) NOT NULL,
+                filter_col DATETIME NOT NULL
+            ) DISTRIBUTED BY HASH(pk) BUCKETS 1
+            PROPERTIES ("replication_num" = "1");
+    """
+    sql """ INSERT INTO test_group_concat_fold_const_t1 VALUES (1), (2), (3); """
+    sql """ INSERT INTO test_group_concat_fold_const_t2 VALUES
+        (1, 'aaa', '2020-01-01 00:00:00'),
+        (2, 'bbb', '2020-01-01 00:00:00');
+    """
+    testFoldConst("SELECT group_concat(t2.val ORDER BY t1.pk) AS result FROM test_group_concat_fold_const_t1 AS t1 LEFT JOIN test_group_concat_fold_const_t2 AS t2 ON t1.pk = t2.pk WHERE t2.filter_col = '2077-01-01 00:00:00';")
 }
