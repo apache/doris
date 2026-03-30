@@ -17,6 +17,7 @@
 
 #include "storage/segment/lazy_init_segment_iterator.h"
 
+#include "storage/rowset/beta_rowset.h"
 #include "storage/segment/segment_loader.h"
 
 namespace doris::segment_v2 {
