@@ -433,7 +433,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
                 return;
             }
             runningStreamTask.cancel(needWaitCancelComplete);
-            canceledTaskCount.incrementAndGet();
+            failedTaskCount.incrementAndGet();
         } finally {
             lock.writeLock().unlock();
         }
