@@ -15,19 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/predicate/predicate_creator.h"
-
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type/data_type_string.h"
 #include "storage/predicate/in_list_predicate.h"
+#include "storage/predicate/predicate_creator.h"
 
 namespace doris {
 
 template <PrimitiveType TYPE, PredicateType PT>
 static std::shared_ptr<ColumnPredicate> create_in_list_predicate_impl(
-        const uint32_t cid, const std::string col_name,
-        const std::shared_ptr<HybridSetBase>& set, bool is_opposite, size_t char_length = 0) {
+        const uint32_t cid, const std::string col_name, const std::shared_ptr<HybridSetBase>& set,
+        bool is_opposite, size_t char_length = 0) {
     auto set_size = set->size();
     if (set_size == 1) {
         return InListPredicateBase<TYPE, PT, 1>::create_shared(cid, col_name, set, is_opposite,
@@ -77,20 +76,20 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate<PredicateType::IN_LIST
                                                                                is_opposite);
     }
     case TYPE_BIGINT: {
-        return create_in_list_predicate_impl<TYPE_BIGINT, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_BIGINT, PredicateType::IN_LIST>(cid, col_name,
+                                                                                  set, is_opposite);
     }
     case TYPE_LARGEINT: {
         return create_in_list_predicate_impl<TYPE_LARGEINT, PredicateType::IN_LIST>(
                 cid, col_name, set, is_opposite);
     }
     case TYPE_FLOAT: {
-        return create_in_list_predicate_impl<TYPE_FLOAT, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_FLOAT, PredicateType::IN_LIST>(cid, col_name, set,
+                                                                                 is_opposite);
     }
     case TYPE_DOUBLE: {
-        return create_in_list_predicate_impl<TYPE_DOUBLE, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_DOUBLE, PredicateType::IN_LIST>(cid, col_name,
+                                                                                  set, is_opposite);
     }
     case TYPE_DECIMALV2: {
         return create_in_list_predicate_impl<TYPE_DECIMALV2, PredicateType::IN_LIST>(
@@ -122,16 +121,16 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate<PredicateType::IN_LIST
                 cid, col_name, set, is_opposite);
     }
     case TYPE_STRING: {
-        return create_in_list_predicate_impl<TYPE_STRING, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_STRING, PredicateType::IN_LIST>(cid, col_name,
+                                                                                  set, is_opposite);
     }
     case TYPE_DATE: {
-        return create_in_list_predicate_impl<TYPE_DATE, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_DATE, PredicateType::IN_LIST>(cid, col_name, set,
+                                                                                is_opposite);
     }
     case TYPE_DATEV2: {
-        return create_in_list_predicate_impl<TYPE_DATEV2, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_DATEV2, PredicateType::IN_LIST>(cid, col_name,
+                                                                                  set, is_opposite);
     }
     case TYPE_DATETIME: {
         return create_in_list_predicate_impl<TYPE_DATETIME, PredicateType::IN_LIST>(
@@ -150,12 +149,12 @@ std::shared_ptr<ColumnPredicate> create_in_list_predicate<PredicateType::IN_LIST
                 cid, col_name, set, is_opposite);
     }
     case TYPE_IPV4: {
-        return create_in_list_predicate_impl<TYPE_IPV4, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_IPV4, PredicateType::IN_LIST>(cid, col_name, set,
+                                                                                is_opposite);
     }
     case TYPE_IPV6: {
-        return create_in_list_predicate_impl<TYPE_IPV6, PredicateType::IN_LIST>(
-                cid, col_name, set, is_opposite);
+        return create_in_list_predicate_impl<TYPE_IPV6, PredicateType::IN_LIST>(cid, col_name, set,
+                                                                                is_opposite);
     }
     default:
         throw Exception(Status::InternalError("Unsupported type {} for in_predicate",

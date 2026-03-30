@@ -15,19 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/predicate/predicate_creator.h"
-
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type/data_type_string.h"
 #include "storage/predicate/in_list_predicate.h"
+#include "storage/predicate/predicate_creator.h"
 
 namespace doris {
 
 template <PrimitiveType TYPE, PredicateType PT>
 static std::shared_ptr<ColumnPredicate> create_in_list_predicate_impl(
-        const uint32_t cid, const std::string col_name,
-        const std::shared_ptr<HybridSetBase>& set, bool is_opposite, size_t char_length = 0) {
+        const uint32_t cid, const std::string col_name, const std::shared_ptr<HybridSetBase>& set,
+        bool is_opposite, size_t char_length = 0) {
     auto set_size = set->size();
     if (set_size == 1) {
         return InListPredicateBase<TYPE, PT, 1>::create_shared(cid, col_name, set, is_opposite,

@@ -15,12 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "storage/predicate/predicate_creator.h"
-
 #include "common/exception.h"
 #include "common/status.h"
 #include "core/data_type/data_type_string.h"
 #include "storage/predicate/comparison_predicate.h"
+#include "storage/predicate/predicate_creator.h"
 
 namespace doris {
 
