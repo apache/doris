@@ -27,6 +27,7 @@
 #include "exec/operator/aggregation_source_operator.h"
 #include "exec/operator/mock_operator.h"
 #include "exec/operator/operator_helper.h"
+#include "exec/common/groupby_agg_context.h"
 #include "exec/operator/streaming_aggregation_operator.h"
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_agg_fn_evaluator.h"
@@ -42,21 +43,6 @@ struct MockStreamingAggOperatorX : public StreamingAggOperatorX {
     Status _init_probe_expr_ctx(RuntimeState* state) override { return Status::OK(); }
 
     Status _init_aggregate_evaluators(RuntimeState* state) override { return Status::OK(); }
-};
-
-struct MockStreamingAggLocalState : public StreamingAggLocalState {
-    MockStreamingAggLocalState(RuntimeState* state, OperatorXBase* parent)
-            : StreamingAggLocalState(state, parent) {}
-
-    bool _should_not_do_pre_agg(size_t rows) override {
-        static_cast<void>(_should_expand_preagg_hash_tables()); // mock the function
-        static_cast<void>(_memory_usage());                     // mock the function
-        static_cast<void>(
-                StreamingAggLocalState::_should_not_do_pre_agg(rows)); // mock the function
-        return should_not_do_pre_agg;
-    }
-
-    bool should_not_do_pre_agg = false;
 };
 
 class MockStreamingAggOperatorChildOperator : public OperatorXBase {
@@ -91,7 +77,7 @@ struct StreamingAggOperatorTest : public testing::Test {
 
     RuntimeProfile profile {""};
 
-    MockStreamingAggLocalState* local_state = nullptr;
+    StreamingAggLocalState* local_state = nullptr;
 
     ObjectPool pool;
 };
@@ -109,7 +95,7 @@ TEST_F(StreamingAggOperatorTest, test1) {
     op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
     {
-        auto local_state = std::make_unique<MockStreamingAggLocalState>(state.get(), op.get());
+        auto local_state = std::make_unique<StreamingAggLocalState>(state.get(), op.get());
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = nullptr,
@@ -123,7 +109,7 @@ TEST_F(StreamingAggOperatorTest, test1) {
 
     {
         local_state =
-                static_cast<MockStreamingAggLocalState*>(state->get_local_state(op->operator_id()));
+                static_cast<StreamingAggLocalState*>(state->get_local_state(op->operator_id()));
         EXPECT_TRUE(local_state->open(state.get()).ok());
     }
 
@@ -165,7 +151,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
     op->_probe_expr_ctxs = MockSlotRef::create_mock_contexts(0, std::make_shared<DataTypeInt64>());
 
     {
-        auto local_state = std::make_unique<MockStreamingAggLocalState>(state.get(), op.get());
+        auto local_state = std::make_unique<StreamingAggLocalState>(state.get(), op.get());
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = nullptr,
@@ -179,7 +165,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
 
     {
         local_state =
-                static_cast<MockStreamingAggLocalState*>(state->get_local_state(op->operator_id()));
+                static_cast<StreamingAggLocalState*>(state->get_local_state(op->operator_id()));
         EXPECT_TRUE(local_state->open(state.get()).ok());
     }
 
@@ -195,7 +181,8 @@ TEST_F(StreamingAggOperatorTest, test2) {
     }
 
     {
-        local_state->should_not_do_pre_agg = true;
+        // Force passthrough by setting a very low spill mem limit
+        op->_spill_streaming_agg_mem_limit = 1;
         Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({2, 2, 2, 2, 4, 4}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
@@ -242,7 +229,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
             0, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()));
 
     {
-        auto local_state = std::make_unique<MockStreamingAggLocalState>(state.get(), op.get());
+        auto local_state = std::make_unique<StreamingAggLocalState>(state.get(), op.get());
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = nullptr,
@@ -256,7 +243,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
 
     {
         local_state =
-                static_cast<MockStreamingAggLocalState*>(state->get_local_state(op->operator_id()));
+                static_cast<StreamingAggLocalState*>(state->get_local_state(op->operator_id()));
         EXPECT_TRUE(local_state->open(state.get()).ok());
     }
 
@@ -273,7 +260,8 @@ TEST_F(StreamingAggOperatorTest, test3) {
     }
 
     {
-        local_state->should_not_do_pre_agg = true;
+        // Force passthrough by setting a very low spill mem limit
+        op->_spill_streaming_agg_mem_limit = 1;
         Block block {
                 ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
                         {2, 2, 2, 2, 4, 4}, {false, false, false, false, false, false}),
@@ -321,7 +309,7 @@ TEST_F(StreamingAggOperatorTest, test4) {
             1, std::make_shared<DataTypeNullable>(std::make_shared<DataTypeInt64>()));
 
     {
-        auto local_state = std::make_unique<MockStreamingAggLocalState>(state.get(), op.get());
+        auto local_state = std::make_unique<StreamingAggLocalState>(state.get(), op.get());
         LocalStateInfo info {.parent_profile = &profile,
                              .scan_ranges = {},
                              .shared_state = nullptr,
@@ -335,7 +323,7 @@ TEST_F(StreamingAggOperatorTest, test4) {
 
     {
         local_state =
-                static_cast<MockStreamingAggLocalState*>(state->get_local_state(op->operator_id()));
+                static_cast<StreamingAggLocalState*>(state->get_local_state(op->operator_id()));
         EXPECT_TRUE(local_state->open(state.get()).ok());
     }
 
@@ -346,8 +334,6 @@ TEST_F(StreamingAggOperatorTest, test4) {
         Block block {ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps),
                      ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
                              {1, 1, 2, 2, 2, 3}, {false, false, false, false, false, true})};
-        local_state->should_not_do_pre_agg = false;
-        local_state->_should_expand_hash_table = true;
         std::cout << block.dump_data() << std::endl;
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -357,8 +343,6 @@ TEST_F(StreamingAggOperatorTest, test4) {
     }
 
     {
-        local_state->should_not_do_pre_agg = false;
-        local_state->_should_expand_hash_table = false;
         std::vector<BitmapValue> bitmaps2 = {BitmapValue(6), BitmapValue(7),  BitmapValue(8),
                                              BitmapValue(9), BitmapValue(10), BitmapValue(11)};
         Block block {ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps2),

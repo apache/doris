@@ -52,21 +52,14 @@ private:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
 
-    size_t _memory_usage() const;
-
     Status _pre_agg_with_serialized_key(doris::Block* in_block, doris::Block* out_block);
-    bool _should_expand_preagg_hash_tables();
-
-    MOCK_FUNCTION bool _should_not_do_pre_agg(size_t rows);
 
     RuntimeProfile::Counter* _streaming_agg_timer = nullptr;
 
-    bool _should_expand_hash_table = true;
     int64_t _cur_num_rows_returned = 0;
     size_t _input_num_rows = 0;
 
     std::unique_ptr<GroupByAggContext> _groupby_agg_ctx;
-    PODArray<AggregateDataPtr> _places;
 
     // Sort limit: tracks whether sort limit filtering has been activated.
     // -1 = not yet determined, 0 = no, 1 = yes

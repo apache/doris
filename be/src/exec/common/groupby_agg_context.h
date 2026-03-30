@@ -116,6 +116,32 @@ public:
                                        const std::vector<int>* key_locs,
                                        ColumnRawPtrs& key_columns, uint32_t num_rows);
 
+    // ==================== Streaming preagg support ====================
+
+    /// Check if preagg hash table should expand based on reduction statistics.
+    /// Updates internal _should_expand_hash_table flag.
+    bool should_expand_preagg_hash_table(int64_t input_rows, int64_t returned_rows,
+                                         bool is_single_backend);
+
+    /// Check if preagg should be skipped (passthrough mode).
+    /// mem_limit: spill mem limit, 0 means no limit. Returns true if should skip.
+    bool should_skip_preagg(size_t rows, size_t mem_limit, int64_t input_rows,
+                            int64_t returned_rows, bool is_single_backend);
+
+    /// Passthrough serialize for streaming agg: serialize agg values directly without aggregating.
+    Status streaming_serialize_passthrough(Block* in_block, Block* out_block,
+                                           ColumnRawPtrs& key_columns, uint32_t rows,
+                                           bool mem_reuse);
+
+    /// Preagg emplace + forward using internal _places buffer and _should_expand_hash_table.
+    Status preagg_emplace_and_forward(ColumnRawPtrs& key_columns, uint32_t num_rows, Block* block);
+
+    /// Emplace with sort-limit + execute_batch_add using internal _places buffer.
+    Status emplace_and_forward_limit(Block* block, ColumnRawPtrs& key_columns, uint32_t num_rows);
+
+    /// Query whether hash table should be expanded (for streaming preagg).
+    bool should_expand_hash_table() const { return _should_expand_hash_table; }
+
     // ==================== Data accessors ====================
 
     AggregatedDataVariants* hash_table_data() { return _hash_table_data.get(); }
@@ -215,6 +241,9 @@ protected:
     std::vector<char> _deserialize_buffer;
     std::vector<AggregateDataPtr> _values;
 
+    // Streaming preagg state
+    bool _should_expand_hash_table = true;
+
     // Sort limit state
     MutableColumns _limit_columns;
     int _limit_columns_min = -1;
@@ -272,6 +301,33 @@ protected:
 
     template <bool limit, bool for_spill = false>
     Status _merge_with_serialized_key_helper(Block* block);
+
+    // ---- Evaluator loop helpers ----
+
+    /// execute_batch_add for all evaluators.
+    Status _execute_batch_add_evaluators(Block* block, AggregateDataPtr* places,
+                                         bool expand_hash_table = false);
+
+    /// execute_batch_add_selected for all evaluators (limit && !sort_limit path).
+    Status _execute_batch_add_selected_evaluators(Block* block, AggregateDataPtr* places);
+
+    /// Merge-mode evaluator loop using deserialize_and_merge_vec_selected (limit && !sort_limit).
+    Status _merge_evaluators_selected(Block* block, size_t rows,
+                                      RuntimeProfile::Counter* deser_timer);
+
+    /// Merge-mode evaluator loop using deserialize_and_merge_vec.
+    template <bool for_spill>
+    Status _merge_evaluators(Block* block, size_t rows, RuntimeProfile::Counter* deser_timer);
+
+    /// Serialize agg values into value_columns (for get_serialized_results).
+    void _serialize_agg_values(MutableColumns& value_columns, DataTypes& value_data_types,
+                               Block* block, bool mem_reuse, size_t key_size, uint32_t num_rows);
+
+    /// Insert finalized agg results into value_columns for all evaluators.
+    void _insert_finalized_values(MutableColumns& value_columns, uint32_t num_rows);
+
+    /// Insert single-row finalized result (for null key).
+    void _insert_finalized_single(AggregateDataPtr mapped, MutableColumns& value_columns);
 
     /// Check and update reach_limit after emplace (execute path)
     void _check_limit_after_emplace();

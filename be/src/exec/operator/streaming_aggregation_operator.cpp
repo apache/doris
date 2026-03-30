@@ -24,11 +24,9 @@
 
 #include "common/cast_set.h"
 #include "common/compiler_util.h" // IWYU pragma: keep
-#include "exec/common/agg_context_utils.h"
 #include "exec/common/groupby_agg_context.h"
 #include "exec/common/inline_count_agg_context.h"
 #include "exec/operator/operator.h"
-#include "exec/operator/streaming_agg_min_reduction.h"
 #include "exprs/aggregate/aggregate_function_count.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/vectorized_agg_fn.h"
@@ -117,10 +115,6 @@ Status StreamingAggLocalState::open(RuntimeState* state) {
     return Status::OK();
 }
 
-size_t StreamingAggLocalState::_memory_usage() const {
-    return _groupby_agg_ctx ? _groupby_agg_ctx->memory_usage() : 0;
-}
-
 Status StreamingAggLocalState::do_pre_agg(RuntimeState* state, Block* input_block,
                                           Block* output_block) {
     if (low_memory_mode()) {
@@ -136,107 +130,6 @@ Status StreamingAggLocalState::do_pre_agg(RuntimeState* state, Block* input_bloc
     return Status::OK();
 }
 
-bool StreamingAggLocalState::_should_expand_preagg_hash_tables() {
-    if (!_should_expand_hash_table) {
-        return false;
-    }
-
-    return std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> bool {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                        return false;
-                    },
-                    [&](auto& agg_method) -> bool {
-                        auto& hash_tbl = *agg_method.hash_table;
-                        auto [ht_mem, ht_rows] =
-                                std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
-
-                        // Need some rows in tables to have valid statistics.
-                        if (ht_rows == 0) {
-                            return true;
-                        }
-
-                        const auto* reduction = _is_single_backend
-                                                        ? SINGLE_BE_STREAMING_HT_MIN_REDUCTION
-                                                        : STREAMING_HT_MIN_REDUCTION;
-
-                        // Find the appropriate reduction factor in our table for the current hash table sizes.
-                        int cache_level = 0;
-                        while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                               ht_mem >= reduction[cache_level + 1].min_ht_mem) {
-                            ++cache_level;
-                        }
-
-                        // Compare the number of rows in the hash table with the number of input rows that
-                        // were aggregated into it. Exclude passed through rows from this calculation since
-                        // they were not in hash tables.
-                        const int64_t input_rows = _input_num_rows;
-                        const int64_t aggregated_input_rows = input_rows - _cur_num_rows_returned;
-                        // TODO chenhao
-                        //  const int64_t expected_input_rows = estimated_input_cardinality_ - num_rows_returned_;
-                        double current_reduction = static_cast<double>(aggregated_input_rows) /
-                                                   static_cast<double>(ht_rows);
-
-                        // TODO: workaround for IMPALA-2490: subplan node rows_returned counter may be
-                        // inaccurate, which could lead to a divide by zero below.
-                        if (aggregated_input_rows <= 0) {
-                            return true;
-                        }
-
-                        // Extrapolate the current reduction factor (r) using the formula
-                        // R = 1 + (N / n) * (r - 1), where R is the reduction factor over the full input data
-                        // set, N is the number of input rows, excluding passed-through rows, and n is the
-                        // number of rows inserted or merged into the hash tables. This is a very rough
-                        // approximation but is good enough to be useful.
-                        // TODO: consider collecting more statistics to better estimate reduction.
-                        //  double estimated_reduction = aggregated_input_rows >= expected_input_rows
-                        //      ? current_reduction
-                        //      : 1 + (expected_input_rows / aggregated_input_rows) * (current_reduction - 1);
-                        double min_reduction = reduction[cache_level].streaming_ht_min_reduction;
-
-                        //  COUNTER_SET(preagg_estimated_reduction_, estimated_reduction);
-                        //    COUNTER_SET(preagg_streaming_ht_min_reduction_, min_reduction);
-                        //  return estimated_reduction > min_reduction;
-                        _should_expand_hash_table = current_reduction > min_reduction;
-                        return _should_expand_hash_table;
-                    }},
-            _groupby_agg_ctx->hash_table_data()->method_variant);
-}
-
-bool StreamingAggLocalState::_should_not_do_pre_agg(size_t rows) {
-    // Stop expanding hash tables if we're not reducing the input sufficiently. As our
-    // hash tables expand out of each level of cache hierarchy, every hash table lookup
-    // will take longer. We also may not be able to expand hash tables because of memory
-    // pressure. In either case we should always use the remaining space in the hash table
-    // to avoid wasting memory.
-    // But for fixed hash map, it never need to expand
-    auto& p = Base::_parent->template cast<StreamingAggOperatorX>();
-    bool ret_flag = false;
-    const auto spill_streaming_agg_mem_limit = p._spill_streaming_agg_mem_limit;
-    const bool used_too_much_memory =
-            spill_streaming_agg_mem_limit > 0 && _memory_usage() > spill_streaming_agg_mem_limit;
-    std::visit(
-            Overload {
-                    [&](std::monostate& arg) {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) {
-                        auto& hash_tbl = *agg_method.hash_table;
-                        /// If too much memory is used during the pre-aggregation stage,
-                        /// it is better to output the data directly without performing further aggregation.
-                        // do not try to do agg, just init and serialize directly return the out_block
-                        if (used_too_much_memory || (hash_tbl.add_elem_size_overflow(rows) &&
-                                                     !_should_expand_preagg_hash_tables())) {
-                            SCOPED_TIMER(_streaming_agg_timer);
-                            ret_flag = true;
-                        }
-                    }},
-            _groupby_agg_ctx->hash_table_data()->method_variant);
-
-    return ret_flag;
-}
-
 Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_block,
                                                             doris::Block* out_block) {
     SCOPED_TIMER(_groupby_agg_ctx->build_timer());
@@ -249,9 +142,11 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
     RETURN_IF_ERROR(_groupby_agg_ctx->evaluate_groupby_keys(in_block, key_columns));
 
     uint32_t rows = (uint32_t)in_block->rows();
-    _places.resize(rows);
 
-    if (_should_not_do_pre_agg(rows)) {
+    if (_groupby_agg_ctx->should_skip_preagg(rows, p._spill_streaming_agg_mem_limit,
+                                              _input_num_rows, _cur_num_rows_returned,
+                                              _is_single_backend)) {
+        // Sort limit handling for passthrough path
         if (_groupby_agg_ctx->limit > 0) {
             DCHECK(_groupby_agg_ctx->do_sort_limit);
             if (_need_do_sort_limit == -1) {
@@ -277,51 +172,19 @@ Status StreamingAggLocalState::_pre_agg_with_serialized_key(doris::Block* in_blo
                 }
             }
         }
+
+        // Passthrough serialize: delegate to context
         bool mem_reuse = p._make_nullable_keys.empty() && out_block->mem_reuse();
-
-        size_t agg_size = _groupby_agg_ctx->agg_evaluators().size();
-        DataTypes data_types(agg_size);
-        for (size_t i = 0; i < agg_size; ++i) {
-            data_types[i] = _groupby_agg_ctx->agg_evaluators()[i]->function()->get_serialized_type();
-        }
-        auto value_columns = agg_context_utils::take_or_create_columns(
-                out_block, mem_reuse, key_size, agg_size, [&](size_t i) {
-                    return _groupby_agg_ctx->agg_evaluators()[i]
-                            ->function()
-                            ->create_serialize_column();
-                });
-
-        for (int i = 0; i != _groupby_agg_ctx->agg_evaluators().size(); ++i) {
-            SCOPED_TIMER(_groupby_agg_ctx->insert_values_to_column_timer());
-            RETURN_IF_ERROR(_groupby_agg_ctx->agg_evaluators()[i]->streaming_agg_serialize_to_column(
-                    in_block, value_columns[i], rows, _groupby_agg_ctx->agg_arena()));
-        }
-
-        if (!mem_reuse) {
-            agg_context_utils::build_serialized_output_block(
-                    out_block, key_columns, rows,
-                    _groupby_agg_ctx->groupby_expr_ctxs(), value_columns, data_types);
-        } else {
-            for (int i = 0; i < key_size; ++i) {
-                std::move(*out_block->get_by_position(i).column)
-                        .mutate()
-                        ->insert_range_from(*key_columns[i], 0, rows);
-            }
-        }
+        RETURN_IF_ERROR(_groupby_agg_ctx->streaming_serialize_passthrough(
+                in_block, out_block, key_columns, rows, mem_reuse));
     } else {
+        // Aggregation path: delegate to context
         if (_need_do_sort_limit != 1) {
-            RETURN_IF_ERROR(_groupby_agg_ctx->emplace_and_forward(
-                    _places.data(), key_columns, rows, in_block, _should_expand_hash_table));
+            RETURN_IF_ERROR(
+                    _groupby_agg_ctx->preagg_emplace_and_forward(key_columns, rows, in_block));
         } else {
-            bool need_agg = _groupby_agg_ctx->emplace_into_hash_table_limit(
-                    _places.data(), in_block, nullptr, key_columns, rows);
-            if (need_agg) {
-                for (int i = 0; i < _groupby_agg_ctx->agg_evaluators().size(); ++i) {
-                    RETURN_IF_ERROR(_groupby_agg_ctx->agg_evaluators()[i]->execute_batch_add(
-                            in_block, _groupby_agg_ctx->agg_state_offsets()[i], _places.data(),
-                            _groupby_agg_ctx->agg_arena(), _should_expand_hash_table));
-                }
-            }
+            RETURN_IF_ERROR(
+                    _groupby_agg_ctx->emplace_and_forward_limit(in_block, key_columns, rows));
         }
         if (_groupby_agg_ctx->limit > 0 && _need_do_sort_limit == -1 &&
             _groupby_agg_ctx->hash_table_size() >= _groupby_agg_ctx->limit) {
@@ -514,8 +377,6 @@ Status StreamingAggLocalState::close(RuntimeState* state) {
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_close_timer);
     _pre_aggregated_block->clear();
-    PODArray<AggregateDataPtr> tmp_places;
-    _places.swap(tmp_places);
 
     if (_groupby_agg_ctx) {
         _groupby_agg_ctx->close();

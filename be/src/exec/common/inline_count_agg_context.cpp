@@ -39,34 +39,29 @@ void InlineCountAggContext::emplace_into_hash_table(AggregateDataPtr* /*places*/
                                                     RuntimeProfile::Counter* hash_table_compute_timer,
                                                     RuntimeProfile::Counter* hash_table_emplace_timer,
                                                     RuntimeProfile::Counter* hash_table_input_counter) {
-    std::visit(Overload {[&](std::monostate& arg) -> void {
-                             throw doris::Exception(ErrorCode::INTERNAL_ERROR,
-                                                    "uninited hash table");
-                         },
-                         [&](auto& agg_method) -> void {
-                             SCOPED_TIMER(hash_table_compute_timer);
-                             using HashMethodType = std::decay_t<decltype(agg_method)>;
-                             using AggState = typename HashMethodType::State;
-                             AggState state(key_columns);
-                             agg_method.init_serialized_keys(key_columns, num_rows);
+    agg_context_utils::visit_agg_method(*_hash_table_data, [&](auto& agg_method) {
+        SCOPED_TIMER(hash_table_compute_timer);
+        using HashMethodType = std::decay_t<decltype(agg_method)>;
+        using AggState = typename HashMethodType::State;
+        AggState state(key_columns);
+        agg_method.init_serialized_keys(key_columns, num_rows);
 
-                             auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                                 HashMethodType::try_presis_key_and_origin(key, origin, _agg_arena);
-                                 AggregateDataPtr mapped = nullptr;
-                                 ctor(key, mapped);
-                             };
+        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+            HashMethodType::try_presis_key_and_origin(key, origin, _agg_arena);
+            AggregateDataPtr mapped = nullptr;
+            ctor(key, mapped);
+        };
 
-                             auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+        auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
-                             SCOPED_TIMER(hash_table_emplace_timer);
-                             lazy_emplace_batch(agg_method, state, num_rows, creator,
-                                                creator_for_null_key, [&](uint32_t, auto& mapped) {
-                                                    ++reinterpret_cast<UInt64&>(mapped);
-                                                });
+        SCOPED_TIMER(hash_table_emplace_timer);
+        lazy_emplace_batch(agg_method, state, num_rows, creator,
+                           creator_for_null_key, [&](uint32_t, auto& mapped) {
+                               ++reinterpret_cast<UInt64&>(mapped);
+                           });
 
-                             COUNTER_UPDATE(hash_table_input_counter, num_rows);
-                         }},
-               _hash_table_data->method_variant);
+        COUNTER_UPDATE(hash_table_input_counter, num_rows);
+    });
 }
 
 // ==================== Aggregation execution ====================
@@ -121,41 +116,36 @@ Status InlineCountAggContext::merge_with_serialized_key(Block* block) {
 void InlineCountAggContext::_merge_inline_count(ColumnRawPtrs& key_columns,
                                                 const IColumn* merge_column,
                                                 uint32_t num_rows) {
-    std::visit(
-            Overload {[&](std::monostate& arg) -> void {
-                          throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                      },
-                      [&](auto& agg_method) -> void {
-                          SCOPED_TIMER(_hash_table_compute_timer);
-                          using HashMethodType = std::decay_t<decltype(agg_method)>;
-                          using AggState = typename HashMethodType::State;
-                          AggState state(key_columns);
-                          agg_method.init_serialized_keys(key_columns, num_rows);
+    agg_context_utils::visit_agg_method(*_hash_table_data, [&](auto& agg_method) {
+        SCOPED_TIMER(_hash_table_compute_timer);
+        using HashMethodType = std::decay_t<decltype(agg_method)>;
+        using AggState = typename HashMethodType::State;
+        AggState state(key_columns);
+        agg_method.init_serialized_keys(key_columns, num_rows);
 
-                          const auto& col =
-                                  assert_cast<const ColumnFixedLengthObject&>(*merge_column);
-                          const auto* col_data =
-                                  reinterpret_cast<const AggregateFunctionCountData*>(
-                                          col.get_data().data());
+        const auto& col =
+                assert_cast<const ColumnFixedLengthObject&>(*merge_column);
+        const auto* col_data =
+                reinterpret_cast<const AggregateFunctionCountData*>(
+                        col.get_data().data());
 
-                          auto creator = [&](const auto& ctor, auto& key, auto& origin) {
-                              HashMethodType::try_presis_key_and_origin(key, origin, _agg_arena);
-                              AggregateDataPtr mapped = nullptr;
-                              ctor(key, mapped);
-                          };
+        auto creator = [&](const auto& ctor, auto& key, auto& origin) {
+            HashMethodType::try_presis_key_and_origin(key, origin, _agg_arena);
+            AggregateDataPtr mapped = nullptr;
+            ctor(key, mapped);
+        };
 
-                          auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
+        auto creator_for_null_key = [&](auto& mapped) { mapped = nullptr; };
 
-                          SCOPED_TIMER(_hash_table_emplace_timer);
-                          lazy_emplace_batch(agg_method, state, num_rows, creator,
-                                             creator_for_null_key, [&](uint32_t i, auto& mapped) {
-                                                 reinterpret_cast<UInt64&>(mapped) +=
-                                                         col_data[i].count;
-                                             });
+        SCOPED_TIMER(_hash_table_emplace_timer);
+        lazy_emplace_batch(agg_method, state, num_rows, creator,
+                           creator_for_null_key, [&](uint32_t i, auto& mapped) {
+                               reinterpret_cast<UInt64&>(mapped) +=
+                                       col_data[i].count;
+                           });
 
-                          COUNTER_UPDATE(_hash_table_input_counter, num_rows);
-                      }},
-            _hash_table_data->method_variant);
+        COUNTER_UPDATE(_hash_table_input_counter, num_rows);
+    });
 }
 
 // ==================== Result output ====================
@@ -180,64 +170,58 @@ Status InlineCountAggContext::get_serialized_results(RuntimeState* state, Block*
         value_column = _agg_evaluators[0]->function()->create_serialize_column();
     }
 
-    std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        agg_method.init_iterator();
-                        auto& data = *agg_method.hash_table;
-                        const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
-                        std::vector<KeyType> keys(size);
+    agg_context_utils::visit_agg_method(*_hash_table_data, [&](auto& agg_method) {
+        agg_method.init_iterator();
+        auto& data = *agg_method.hash_table;
+        const auto size = std::min(data.size(), size_t(state->batch_size()));
+        using KeyType = std::decay_t<decltype(agg_method)>::Key;
+        std::vector<KeyType> keys(size);
 
-                        auto& count_col =
-                                assert_cast<ColumnFixedLengthObject&>(*value_column);
-                        uint32_t num_rows = 0;
-                        {
-                            SCOPED_TIMER(_hash_table_iterate_timer);
-                            auto& it = agg_method.begin;
-                            while (it != agg_method.end && num_rows < state->batch_size()) {
-                                keys[num_rows] = it.get_first();
-                                auto inline_count =
-                                        std::bit_cast<UInt64>(it.get_second());
-                                count_col.insert_data(
-                                        reinterpret_cast<const char*>(&inline_count),
-                                        sizeof(UInt64));
-                                ++it;
-                                ++num_rows;
-                            }
-                        }
+        auto& count_col =
+                assert_cast<ColumnFixedLengthObject&>(*value_column);
+        uint32_t num_rows = 0;
+        {
+            SCOPED_TIMER(_hash_table_iterate_timer);
+            auto& it = agg_method.begin;
+            while (it != agg_method.end && num_rows < state->batch_size()) {
+                keys[num_rows] = it.get_first();
+                auto inline_count =
+                        std::bit_cast<UInt64>(it.get_second());
+                count_col.insert_data(
+                        reinterpret_cast<const char*>(&inline_count),
+                        sizeof(UInt64));
+                ++it;
+                ++num_rows;
+            }
+        }
 
-                        {
-                            SCOPED_TIMER(_insert_keys_to_column_timer);
-                            agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                        }
+        {
+            SCOPED_TIMER(_insert_keys_to_column_timer);
+            agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+        }
 
-                        // Handle null key if present
-                        if (agg_method.begin == agg_method.end) {
-                            if (agg_method.hash_table->has_null_key_data()) {
-                                DCHECK(key_columns.size() == 1);
-                                DCHECK(key_columns[0]->is_nullable());
-                                if (num_rows < state->batch_size()) {
-                                    key_columns[0]->insert_data(nullptr, 0);
-                                    auto mapped =
-                                            agg_method.hash_table->template get_null_key_data<
-                                                    AggregateDataPtr>();
-                                    auto inline_count =
-                                            std::bit_cast<UInt64>(mapped);
-                                    count_col.insert_data(
-                                            reinterpret_cast<const char*>(&inline_count),
-                                            sizeof(UInt64));
-                                    *eos = true;
-                                }
-                            } else {
-                                *eos = true;
-                            }
-                        }
-                    }},
-            _hash_table_data->method_variant);
+        // Handle null key if present
+        if (agg_method.begin == agg_method.end) {
+            if (agg_method.hash_table->has_null_key_data()) {
+                DCHECK(key_columns.size() == 1);
+                DCHECK(key_columns[0]->is_nullable());
+                if (num_rows < state->batch_size()) {
+                    key_columns[0]->insert_data(nullptr, 0);
+                    auto mapped =
+                            agg_method.hash_table->template get_null_key_data<
+                                    AggregateDataPtr>();
+                    auto inline_count =
+                            std::bit_cast<UInt64>(mapped);
+                    count_col.insert_data(
+                            reinterpret_cast<const char*>(&inline_count),
+                            sizeof(UInt64));
+                    *eos = true;
+                }
+            } else {
+                *eos = true;
+            }
+        }
+    });
 
     if (!mem_reuse) {
         MutableColumns value_columns;
@@ -268,58 +252,52 @@ Status InlineCountAggContext::get_finalized_results(
     }
 
     SCOPED_TIMER(_get_results_timer);
-    std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> void {
-                        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "uninited hash table");
-                    },
-                    [&](auto& agg_method) -> void {
-                        auto& data = *agg_method.hash_table;
-                        agg_method.init_iterator();
-                        const auto size = std::min(data.size(), size_t(state->batch_size()));
-                        using KeyType = std::decay_t<decltype(agg_method)>::Key;
-                        std::vector<KeyType> keys(size);
+    agg_context_utils::visit_agg_method(*_hash_table_data, [&](auto& agg_method) {
+        auto& data = *agg_method.hash_table;
+        agg_method.init_iterator();
+        const auto size = std::min(data.size(), size_t(state->batch_size()));
+        using KeyType = std::decay_t<decltype(agg_method)>::Key;
+        std::vector<KeyType> keys(size);
 
-                        DCHECK_EQ(_agg_evaluators.size(), 1);
-                        auto& count_column = assert_cast<ColumnInt64&>(*value_column);
-                        uint32_t num_rows = 0;
-                        {
-                            SCOPED_TIMER(_hash_table_iterate_timer);
-                            auto& it = agg_method.begin;
-                            while (it != agg_method.end && num_rows < state->batch_size()) {
-                                keys[num_rows] = it.get_first();
-                                auto& mapped = it.get_second();
-                                count_column.insert_value(static_cast<Int64>(
-                                        std::bit_cast<UInt64>(mapped)));
-                                ++it;
-                                ++num_rows;
-                            }
-                        }
-                        {
-                            SCOPED_TIMER(_insert_keys_to_column_timer);
-                            agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
-                        }
+        DCHECK_EQ(_agg_evaluators.size(), 1);
+        auto& count_column = assert_cast<ColumnInt64&>(*value_column);
+        uint32_t num_rows = 0;
+        {
+            SCOPED_TIMER(_hash_table_iterate_timer);
+            auto& it = agg_method.begin;
+            while (it != agg_method.end && num_rows < state->batch_size()) {
+                keys[num_rows] = it.get_first();
+                auto& mapped = it.get_second();
+                count_column.insert_value(static_cast<Int64>(
+                        std::bit_cast<UInt64>(mapped)));
+                ++it;
+                ++num_rows;
+            }
+        }
+        {
+            SCOPED_TIMER(_insert_keys_to_column_timer);
+            agg_method.insert_keys_into_columns(keys, key_columns, num_rows);
+        }
 
-                        // Handle null key if present
-                        if (agg_method.begin == agg_method.end) {
-                            if (agg_method.hash_table->has_null_key_data()) {
-                                DCHECK(key_columns.size() == 1);
-                                DCHECK(key_columns[0]->is_nullable());
-                                if (key_columns[0]->size() < state->batch_size()) {
-                                    key_columns[0]->insert_data(nullptr, 0);
-                                    auto mapped =
-                                            agg_method.hash_table->template get_null_key_data<
-                                                    AggregateDataPtr>();
-                                    count_column.insert_value(
-                                            static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
-                                    *eos = true;
-                                }
-                            } else {
-                                *eos = true;
-                            }
-                        }
-                    }},
-            _hash_table_data->method_variant);
+        // Handle null key if present
+        if (agg_method.begin == agg_method.end) {
+            if (agg_method.hash_table->has_null_key_data()) {
+                DCHECK(key_columns.size() == 1);
+                DCHECK(key_columns[0]->is_nullable());
+                if (key_columns[0]->size() < state->batch_size()) {
+                    key_columns[0]->insert_data(nullptr, 0);
+                    auto mapped =
+                            agg_method.hash_table->template get_null_key_data<
+                                    AggregateDataPtr>();
+                    count_column.insert_value(
+                            static_cast<Int64>(std::bit_cast<UInt64>(mapped)));
+                    *eos = true;
+                }
+            } else {
+                *eos = true;
+            }
+        }
+    });
 
     if (!mem_reuse) {
         MutableColumns value_columns;
@@ -349,24 +327,19 @@ void InlineCountAggContext::close() {
 }
 
 Status InlineCountAggContext::reset_hash_table() {
-    return std::visit(
-            Overload {
-                    [&](std::monostate& arg) -> Status {
-                        return Status::InternalError("Uninited hash table");
-                    },
-                    [&](auto& agg_method) -> Status {
-                        auto& hash_table = *agg_method.hash_table;
-                        using HashTableType = std::decay_t<decltype(hash_table)>;
+    return agg_context_utils::visit_agg_method<Status>(
+            *_hash_table_data, [&](auto& agg_method) -> Status {
+                auto& hash_table = *agg_method.hash_table;
+                using HashTableType = std::decay_t<decltype(hash_table)>;
 
-                        agg_method.arena.clear();
-                        agg_method.inited_iterator = false;
+                agg_method.arena.clear();
+                agg_method.inited_iterator = false;
 
-                        // No agg state to destroy — mapped slots hold UInt64 counts.
-                        // No AggregateDataContainer to reset either.
-                        agg_method.hash_table.reset(new HashTableType());
-                        return Status::OK();
-                    }},
-            _hash_table_data->method_variant);
+                // No agg state to destroy — mapped slots hold UInt64 counts.
+                // No AggregateDataContainer to reset either.
+                agg_method.hash_table.reset(new HashTableType());
+                return Status::OK();
+            });
 }
 
 } // namespace doris

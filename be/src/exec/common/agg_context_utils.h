@@ -17,7 +17,10 @@
 
 #pragma once
 
+#include "common/exception.h"
 #include "core/block/block.h"
+#include "exec/common/agg_utils.h"
+#include "exec/common/template_helpers.hpp"
 #include "exprs/vectorized_agg_fn.h"
 #include "exprs/vexpr_context.h"
 #include "exprs/vslot_ref.h"
@@ -26,6 +29,36 @@
 /// Eliminates duplicate column-preparation and block-assembly patterns
 /// across GroupByAggContext, InlineCountAggContext, and UngroupByAggContext.
 namespace doris::agg_context_utils {
+
+/// Visit the hash table method variant, throwing on uninitialized (monostate).
+/// For void-returning functors: visit_agg_method(data, [&](auto& m) { ... });
+/// For non-void: visit_agg_method<RetType>(data, [&](auto& m) -> RetType { ... });
+template <typename ReturnType = void, typename Func>
+ReturnType visit_agg_method(AggregatedDataVariants& data, Func&& func) {
+    return std::visit(Overload {[](std::monostate&) -> ReturnType {
+                                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                           "uninited hash table");
+                                },
+                                std::forward<Func>(func)},
+                      data.method_variant);
+}
+
+template <typename ReturnType = void, typename Func>
+ReturnType visit_agg_method(const AggregatedDataVariants& data, Func&& func) {
+    return std::visit(Overload {[](const std::monostate&) -> ReturnType {
+                                    throw doris::Exception(ErrorCode::INTERNAL_ERROR,
+                                                           "uninited hash table");
+                                },
+                                std::forward<Func>(func)},
+                      data.method_variant);
+}
+
+/// Null-safe COUNTER_SET: only calls set() when counter is non-null.
+inline void set_counter_if(RuntimeProfile::Counter* counter, int64_t val) {
+    if (counter) {
+        COUNTER_SET(counter, val);
+    }
+}
 
 /// Take existing columns from block [start, start+count) if mem_reuse,
 /// otherwise create new columns via create_fn(index).
@@ -58,7 +91,8 @@ MutableColumns take_or_create_columns(Block* block, bool mem_reuse, size_t start
 /// @param key_columns          key columns to place at [0, key_size)
 /// @param value_columns        value columns to place at [key_size, ...)
 /// @param key_size             number of key columns
-inline void assemble_finalized_output(Block* block, const ColumnsWithTypeAndName& columns_with_schema,
+inline void assemble_finalized_output(Block* block,
+                                      const ColumnsWithTypeAndName& columns_with_schema,
                                       MutableColumns& key_columns, MutableColumns& value_columns,
                                       size_t key_size) {
     *block = columns_with_schema;
@@ -111,8 +145,8 @@ inline void build_serialized_output_block(Block* block, ColumnRawPtrs& key_colum
     ColumnsWithTypeAndName schema;
     schema.reserve(key_columns.size() + value_columns.size());
     for (size_t i = 0; i < key_columns.size(); ++i) {
-        schema.emplace_back(key_columns[i]->clone_resized(rows),
-                            key_exprs[i]->root()->data_type(), key_exprs[i]->root()->expr_name());
+        schema.emplace_back(key_columns[i]->clone_resized(rows), key_exprs[i]->root()->data_type(),
+                            key_exprs[i]->root()->expr_name());
     }
     for (size_t i = 0; i < value_columns.size(); ++i) {
         schema.emplace_back(std::move(value_columns[i]), value_types[i], "");
