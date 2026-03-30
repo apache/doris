@@ -31,6 +31,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
 import org.apache.doris.mysql.authenticate.Authenticator;
 import org.apache.doris.mysql.authenticate.password.AuthPacketAwarePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
@@ -92,7 +93,9 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
         AuthenticationRequest pluginRequest = toPluginRequest(request);
         if (!plugin.supports(pluginRequest)) {
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.ACCESS_DENIED,
+                    "Authentication plugin '" + integration.getType() + "' does not support the supplied credential"));
         }
 
         AuthenticationResult result;
@@ -101,20 +104,27 @@ public class AuthenticationPluginAuthenticator implements Authenticator {
         } catch (AuthenticationException e) {
             LOG.warn("Authentication plugin '{}' failed for user '{}': {}", integration.getType(),
                     request.getUserName(), e.getMessage(), e);
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(e,
+                    "Authentication plugin '" + integration.getType() + "' failed"));
         }
 
         if (result.isContinue()) {
             LOG.warn("Authentication plugin '{}' returned CONTINUE for user '{}', which is not supported",
                     integration.getType(), request.getUserName());
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication plugin '" + integration.getType() + "' returned unsupported CONTINUE result"));
         }
         if (!result.isSuccess()) {
             if (result.getException() != null) {
                 LOG.info("Authentication plugin '{}' rejected user '{}': {}", integration.getType(),
                         request.getUserName(), result.getException().getMessage());
+                return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(result.getException(),
+                        "Authentication plugin '" + integration.getType() + "' rejected the credential"));
             }
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication plugin '" + integration.getType() + "' returned a failure without reason"));
         }
 
         return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp(), result);

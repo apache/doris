@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.authenticate;
 
+import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -40,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
@@ -58,6 +60,9 @@ import java.util.ServiceLoader;
 public class AuthenticatorManager {
     private static final Logger LOG = LogManager.getLogger(AuthenticatorManager.class);
     private static final String OIDC_CLIENT_PLUGIN_NAME = "authentication_openid_connect_client";
+    static final String OPERATIONAL_AUTHENTICATION_FAILURE_MESSAGE =
+            "Authentication failed because no configured authentication method succeeded due to service "
+                    + "or configuration issues; check FE logs for details";
 
     private static volatile Authenticator defaultAuthenticator = null;
     private static volatile Authenticator authTypeAuthenticator = null;
@@ -168,20 +173,24 @@ public class AuthenticatorManager {
         remoteIp = request.getRemoteIp();
         if (isOidcAuthenticationWithoutSsl(authPacket, request)) {
             setInsecureOidcTransportError(context);
-            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword());
+            return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(),
+                    new ArrayList<>());
         }
         AuthenticateResponse primaryResponse = authenticateWith(primaryAuthenticator, request);
         if (primaryResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, primaryResponse, false);
         }
+        List<AuthenticationFailureSummary> failureSummaries = new ArrayList<>();
+        addFailureSummary(failureSummaries, primaryResponse);
 
         AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
                 channel, serializer, authPacket, handshakePacket, request);
         if (chainResponse != null && chainResponse.isSuccess()) {
             return finishSuccessfulAuthentication(context, remoteIp, chainResponse, true);
         }
+        addFailureSummary(failureSummaries, chainResponse);
 
-        return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword());
+        return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(), failureSummaries);
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
@@ -243,7 +252,9 @@ public class AuthenticatorManager {
             chainAuthenticator = getAuthenticationChainAuthenticator();
         } catch (RuntimeException e) {
             LOG.warn("Failed to initialize authentication_chain fallback authenticator: {}", e.getMessage(), e);
-            return null;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.MISCONFIGURED,
+                    "Failed to initialize authentication_chain fallback authenticator: " + e.getMessage()));
         }
         if (!chainAuthenticator.canDeal(userName)) {
             return null;
@@ -341,8 +352,9 @@ public class AuthenticatorManager {
     }
 
     private boolean reportAuthenticationFailure(ConnectContext context, String userName, String remoteIp,
-            Password password) throws IOException {
-        ensureAuthenticationErrorReported(context, userName, remoteIp, password);
+            Password password, List<AuthenticationFailureSummary> failureSummaries) throws IOException {
+        logAuthenticationFailureSummary(userName, remoteIp, failureSummaries);
+        ensureAuthenticationErrorReported(context, userName, remoteIp, password, failureSummaries);
         if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
             MysqlProto.sendResponsePacket(context);
         }
@@ -350,13 +362,45 @@ public class AuthenticatorManager {
     }
 
     private void ensureAuthenticationErrorReported(ConnectContext context, String userName, String remoteIp,
-            Password password) {
+            Password password, List<AuthenticationFailureSummary> failureSummaries) {
         if (context.getState().getStateType() == QueryState.MysqlStateType.ERR) {
+            return;
+        }
+        if (containsOnlyOperationalFailures(failureSummaries)) {
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, OPERATIONAL_AUTHENTICATION_FAILURE_MESSAGE);
             return;
         }
         context.getState().setError(ErrorCode.ERR_ACCESS_DENIED_ERROR,
                 ErrorCode.ERR_ACCESS_DENIED_ERROR.formatErrorMsg(userName, remoteIp,
                         hasPassword(password) ? "YES" : "NO"));
+    }
+
+    private void addFailureSummary(List<AuthenticationFailureSummary> failureSummaries, AuthenticateResponse response) {
+        if (response == null || response.getFailureSummary() == null) {
+            return;
+        }
+        failureSummaries.add(response.getFailureSummary());
+    }
+
+    private boolean containsOnlyOperationalFailures(List<AuthenticationFailureSummary> failureSummaries) {
+        if (failureSummaries.isEmpty()) {
+            return false;
+        }
+        for (AuthenticationFailureSummary failureSummary : failureSummaries) {
+            if (failureSummary.isSensitiveToClient() || !failureSummary.isOperationalFailure()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void logAuthenticationFailureSummary(String userName, String remoteIp,
+            List<AuthenticationFailureSummary> failureSummaries) {
+        if (failureSummaries.isEmpty()) {
+            return;
+        }
+        LOG.warn("Authentication failed for user '{}' from '{}'. Failure summary: {}",
+                userName, remoteIp, failureSummaries);
     }
 
     private boolean hasPassword(Password password) {

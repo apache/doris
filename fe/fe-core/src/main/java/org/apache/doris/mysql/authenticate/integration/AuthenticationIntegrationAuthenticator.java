@@ -28,6 +28,7 @@ import org.apache.doris.authentication.handler.AuthenticationOutcome;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.mysql.authenticate.AuthenticateResponse;
+import org.apache.doris.mysql.authenticate.AuthenticationFailureSummary;
 import org.apache.doris.mysql.authenticate.Authenticator;
 import org.apache.doris.mysql.authenticate.password.AuthPacketAwarePasswordResolver;
 import org.apache.doris.mysql.authenticate.password.ClearPassword;
@@ -69,7 +70,9 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
     public AuthenticateResponse authenticate(AuthenticateRequest request) throws IOException {
         AuthenticationRequest integrationRequest = toIntegrationRequest(request);
         if (integrationRequest == null) {
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication integration chain could not translate the supplied credential"));
         }
 
         AuthenticationOutcome outcome;
@@ -79,13 +82,17 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
         } catch (AuthenticationException e) {
             LOG.warn("Authentication integration chain failed for user '{}': {}", request.getUserName(),
                     e.getMessage());
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(e,
+                    "Authentication integration chain failed"));
         }
 
         if (outcome.isContinue()) {
             LOG.warn("Authentication integration '{}' returned CONTINUE for user '{}', which is not supported",
                     outcome.getIntegration().getName(), request.getUserName());
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication integration '" + outcome.getIntegration().getName()
+                            + "' returned unsupported CONTINUE result"));
         }
         if (!outcome.isSuccess()) {
             if (outcome.getAuthResult().getException() != null) {
@@ -93,8 +100,15 @@ public class AuthenticationIntegrationAuthenticator implements Authenticator {
                         outcome.getIntegration().getName(),
                         request.getUserName(),
                         outcome.getAuthResult().getException().getMessage());
+                return AuthenticateResponse.failed(AuthenticationFailureSummary.forException(
+                        outcome.getAuthResult().getException(),
+                        "Authentication integration '" + outcome.getIntegration().getName()
+                                + "' rejected the credential"));
             }
-            return AuthenticateResponse.failedResponse;
+            return AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.INTERNAL_ERROR,
+                    "Authentication integration '" + outcome.getIntegration().getName()
+                            + "' returned a failure without reason"));
         }
 
         return mapSuccessfulAuthentication(request.getUserName(), request.getRemoteIp(), outcome);

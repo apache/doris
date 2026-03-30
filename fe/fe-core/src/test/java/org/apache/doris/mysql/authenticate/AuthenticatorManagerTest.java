@@ -18,9 +18,11 @@
 package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.authentication.BasicPrincipal;
+import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.ErrorCode;
 import org.apache.doris.mysql.MysqlAuthPacket;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlHandshakePacket;
@@ -167,6 +169,92 @@ class AuthenticatorManagerTest {
         Mockito.verify(primaryAuthenticator).authenticate(Mockito.any());
         Mockito.verify(chainAuthenticator).authenticate(Mockito.any());
         Mockito.verify(context).setIsTempUser(true);
+    }
+
+    @Test
+    void testAuthenticateReportsOperationalFailureSummaryWhenAllAttemptsFail() throws Exception {
+        Config.authentication_chain = "corp_oidc";
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                        AuthenticationFailureType.SOURCE_UNAVAILABLE,
+                        "primary authentication backend timed out")));
+
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                        AuthenticationFailureType.MISCONFIGURED,
+                        "OIDC integration local_oidc is misconfigured")));
+
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertFalse(result);
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_UNKNOWN_ERROR, state.getErrorCode());
+        Assertions.assertEquals(
+                "Authentication failed because no configured authentication method succeeded due to service "
+                        + "or configuration issues; check FE logs for details",
+                state.getErrorMessage());
+    }
+
+    @Test
+    void testAuthenticateKeepsAccessDeniedWhenAnyAttemptHasSensitiveFailure() throws Exception {
+        Config.authentication_chain = "corp_oidc";
+
+        Authenticator primaryAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver primaryResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(primaryAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(primaryAuthenticator.getPasswordResolver()).thenReturn(primaryResolver);
+        Mockito.when(primaryResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+        Mockito.when(primaryAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                        AuthenticationFailureType.BAD_CREDENTIAL,
+                        "password mismatch")));
+
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(chainAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(chainAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failed(AuthenticationFailureSummary.forFailureType(
+                        AuthenticationFailureType.MISCONFIGURED,
+                        "OIDC integration local_oidc is misconfigured")));
+
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", primaryAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertFalse(result);
+        Assertions.assertEquals(QueryState.MysqlStateType.ERR, state.getStateType());
+        Assertions.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR, state.getErrorCode());
+        Assertions.assertEquals(ErrorCode.ERR_ACCESS_DENIED_ERROR.formatErrorMsg(USER_NAME, REMOTE_IP, "YES"),
+                state.getErrorMessage());
     }
 
     @Test

@@ -25,16 +25,17 @@ import java.util.LinkedHashSet;
 import java.util.Set;
 
 public class AuthenticateResponse {
-    public static AuthenticateResponse failedResponse = new AuthenticateResponse(false);
+    public static final AuthenticateResponse failedResponse = new AuthenticateResponse(false);
 
     private boolean success;
     private UserIdentity userIdentity;
     private boolean isTemp = false;
     private Principal principal;
     private Set<String> authenticatedRoles = Collections.emptySet();
+    private AuthenticationFailureSummary failureSummary;
 
     public AuthenticateResponse(boolean success) {
-        this(success, null, false, null, Collections.emptySet());
+        this(success, null, false, null, Collections.emptySet(), null);
     }
 
     public AuthenticateResponse(boolean success, UserIdentity userIdentity) {
@@ -42,16 +43,26 @@ public class AuthenticateResponse {
     }
 
     public AuthenticateResponse(boolean success, UserIdentity userIdentity, boolean isTemp) {
-        this(success, userIdentity, isTemp, null, Collections.emptySet());
+        this(success, userIdentity, isTemp, null, Collections.emptySet(), null);
     }
 
     public AuthenticateResponse(boolean success, UserIdentity userIdentity, boolean isTemp,
             Principal principal, Set<String> authenticatedRoles) {
+        this(success, userIdentity, isTemp, principal, authenticatedRoles, null);
+    }
+
+    public AuthenticateResponse(boolean success, UserIdentity userIdentity, boolean isTemp,
+            Principal principal, Set<String> authenticatedRoles, AuthenticationFailureSummary failureSummary) {
         this.success = success;
         this.userIdentity = userIdentity;
         this.isTemp = isTemp;
         this.principal = principal;
         this.authenticatedRoles = immutableAuthenticatedRoles(authenticatedRoles);
+        this.failureSummary = failureSummary;
+    }
+
+    public static AuthenticateResponse failed(AuthenticationFailureSummary failureSummary) {
+        return new AuthenticateResponse(false, null, false, null, Collections.emptySet(), failureSummary);
     }
 
     public boolean isSuccess() {
@@ -94,6 +105,14 @@ public class AuthenticateResponse {
         this.authenticatedRoles = immutableAuthenticatedRoles(authenticatedRoles);
     }
 
+    public AuthenticationFailureSummary getFailureSummary() {
+        return failureSummary;
+    }
+
+    public void setFailureSummary(AuthenticationFailureSummary failureSummary) {
+        this.failureSummary = failureSummary;
+    }
+
     private static Set<String> immutableAuthenticatedRoles(Set<String> authenticatedRoles) {
         if (authenticatedRoles.isEmpty()) {
             return Collections.emptySet();
@@ -109,6 +128,7 @@ public class AuthenticateResponse {
                 + ", isTemp=" + isTemp
                 + ", principal=" + principal
                 + ", authenticatedRoles=" + authenticatedRoles
+                + ", failureSummary=" + failureSummary
                 + '}';
     }
 }
