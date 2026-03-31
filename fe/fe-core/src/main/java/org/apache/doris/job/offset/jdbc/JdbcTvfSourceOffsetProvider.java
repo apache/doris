@@ -299,16 +299,32 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
     @Override
     public void replayIfNeed(StreamingInsertJob job) throws JobException {
         if (currentOffset == null) {
-            log.info("Replaying TVF offset provider for job {}: no committed txn, skip", getJobId());
+            // No committed txn yet. If snapshot splits exist in the meta table (written by
+            // initOnCreate), restore remainingSplits so getNextOffset() returns snapshot splits
+            // instead of a BinlogSplit (which would incorrectly skip the snapshot phase).
+            Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
+            if (MapUtils.isNotEmpty(snapshotSplits)) {
+                recalculateRemainingSplits(new HashMap<>(), snapshotSplits);
+                log.info("Replaying TVF offset provider for job {}: no committed txn,"
+                        + " restored {} remaining splits from meta", job.getJobId(), remainingSplits.size());
+            } else {
+                log.info("Replaying TVF offset provider for job {}: no committed txn,"
+                        + " no snapshot splits in meta", job.getJobId());
+            }
             return;
         }
         if (currentOffset.snapshotSplit()) {
             log.info("Replaying TVF offset provider for job {}: restoring snapshot state from txn replay",
-                    getJobId());
+                    job.getJobId());
             Map<String, List<SnapshotSplit>> snapshotSplits = StreamingJobUtils.restoreSplitsToJob(job.getJobId());
             if (MapUtils.isNotEmpty(snapshotSplits)) {
+                // During replay, buildTableKey() may have stored entries under "null.null"
+                // because sourceProperties was not yet initialized. Remap all committed splits
+                // under the actual table key so recalculateRemainingSplits can match them.
+                Map<String, Map<String, Map<String, String>>> effectiveMap =
+                        remapChunkHighWatermarkMap(snapshotSplits);
                 List<SnapshotSplit> lastSnapshotSplits =
-                        recalculateRemainingSplits(chunkHighWatermarkMap, snapshotSplits);
+                        recalculateRemainingSplits(effectiveMap, snapshotSplits);
                 if (remainingSplits.isEmpty()) {
                     if (!lastSnapshotSplits.isEmpty()) {
                         currentOffset = new JdbcOffset(lastSnapshotSplits);
@@ -321,7 +337,7 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
             }
         } else {
             log.info("Replaying TVF offset provider for job {}: binlog offset already set, nothing to do",
-                    getJobId());
+                    job.getJobId());
         }
     }
 
@@ -335,6 +351,44 @@ public class JdbcTvfSourceOffsetProvider extends JdbcSourceOffsetProvider {
         String qualifier = (schema != null && !schema.isEmpty())
                 ? schema : sourceProperties.get(DataSourceConfigKeys.DATABASE);
         return qualifier + "." + sourceProperties.get(DataSourceConfigKeys.TABLE);
+    }
+
+    /**
+     * Remaps chunkHighWatermarkMap to use the actual table key from snapshotSplits.
+     *
+     * <p>During FE-restart replay, buildTableKey() produces "null.null" because sourceProperties
+     * is not yet initialized (ensureInitialized has not been called). This causes
+     * recalculateRemainingSplits to miss all committed splits (key mismatch) and re-process
+     * them, leading to data duplication.
+     *
+     * <p>The fix: flatten all inner splitId-&gt;highWatermark entries across every outer key and
+     * re-key them under the actual table name read from the meta table (snapshotSplits key).
+     * TVF always has exactly one table, so snapshotSplits has exactly one entry.
+     *
+     * <tableName -> splitId -> chunk of highWatermark>
+     */
+    private Map<String, Map<String, Map<String, String>>> remapChunkHighWatermarkMap(
+            Map<String, List<SnapshotSplit>> snapshotSplits) {
+        if (MapUtils.isEmpty(chunkHighWatermarkMap)) {
+            return chunkHighWatermarkMap;
+        }
+        // Flatten all committed splitId -> highWatermark entries, ignoring the (possibly wrong) outer key
+        Map<String, Map<String, String>> flatCommitted = new HashMap<>();
+        for (Map<String, Map<String, String>> inner : chunkHighWatermarkMap.values()) {
+            if (inner != null) {
+                flatCommitted.putAll(inner);
+            }
+        }
+        if (flatCommitted.isEmpty()) {
+            return chunkHighWatermarkMap;
+        }
+        // Re-key under the actual table name from snapshotSplits (TVF has exactly one table).
+        // getTableName() in recalculateRemainingSplits splits by "." and takes the last segment,
+        // so using the plain table name as key (no dots) ensures a direct match.
+        String actualTableKey = snapshotSplits.keySet().iterator().next();
+        Map<String, Map<String, Map<String, String>>> remapped = new HashMap<>();
+        remapped.put(actualTableKey, flatCommitted);
+        return remapped;
     }
 
     /**

@@ -83,7 +83,8 @@ suite("test_streaming_job_cdc_stream_postgres", "p0,external,pg,external_docker,
                 "database"     = "${pgDB}",
                 "schema"             = "${pgSchema}",
                 "table"              = "${pgTable}",
-                "offset"             = "initial"
+                "offset"             = "initial",
+                "snapshot_split_size"             = "1"
             )
         """
 

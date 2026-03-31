@@ -70,7 +70,7 @@ import java.util.stream.Collectors;
 public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public static final String SPLIT_ID = "splitId";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    protected int snapshotParallelism;
+    protected int snapshotParallelism = 1;
     protected Long jobId;
     protected DataSourceType sourceType;
     protected Map<String, String> sourceProperties = new HashMap<>();
