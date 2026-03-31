@@ -90,6 +90,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
+import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.ForEachCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.MergeCombinator;
 import org.apache.doris.nereids.trees.expressions.functions.combinator.UnionCombinator;
@@ -386,6 +387,10 @@ public interface AggregateFunctionVisitor<R, C> {
 
     default R visitWindowFunnel(WindowFunnel windowFunnel, C context) {
         return visitNullableAggregateFunction(windowFunnel, context);
+    }
+
+    default R visitWindowFunnelV2(WindowFunnelV2 windowFunnelV2, C context) {
+        return visitNullableAggregateFunction(windowFunnelV2, context);
     }
 
     default R visitMergeCombinator(MergeCombinator combinator, C context) {

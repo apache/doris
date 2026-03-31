@@ -60,6 +60,7 @@ public class AggStateType extends DataType {
             .put("var_samp", "variance_samp")
             .put("hist", "histogram")
             .put("map_agg", "map_agg_v2")
+            .put("window_funnel", "window_funnel_v2")
             .build();
 
     private final List<DataType> subTypes;

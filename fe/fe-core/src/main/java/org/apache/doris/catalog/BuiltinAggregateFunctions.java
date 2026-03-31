@@ -92,6 +92,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.TopNWeighted;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Variance;
 import org.apache.doris.nereids.trees.expressions.functions.agg.VarianceSamp;
 import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnel;
+import org.apache.doris.nereids.trees.expressions.functions.agg.WindowFunnelV2;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -187,7 +188,8 @@ public class BuiltinAggregateFunctions implements FunctionHelper {
                 agg(TopNWeighted.class, "topn_weighted"),
                 agg(Variance.class, "var_pop", "variance_pop", "variance"),
                 agg(VarianceSamp.class, "var_samp", "variance_samp"),
-                agg(WindowFunnel.class, "window_funnel")
+                agg(WindowFunnel.class, "window_funnel_v1"),
+                agg(WindowFunnelV2.class, "window_funnel_v2", "window_funnel")
         );
 
         ImmutableMap.Builder<String, Boolean> aggFuncNameNullableMapBuilder
