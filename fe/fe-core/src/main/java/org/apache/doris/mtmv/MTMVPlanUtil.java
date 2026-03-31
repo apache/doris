@@ -48,6 +48,7 @@ import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.MTMVPartitionInfo.MTMVPartitionType;
 import org.apache.doris.mtmv.MTMVRefreshEnum.RefreshMethod;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundResultSink;
@@ -95,6 +96,7 @@ import org.apache.commons.collections4.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -353,22 +355,36 @@ public class MTMVPlanUtil {
         if (slots.isEmpty()) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException("table should contain at least one column");
         }
-        Slot ivmRowIdSlot = isIvmRowIdSlot(slots.get(0)) ? slots.get(0) : null;
-        int userSlotOffset = ivmRowIdSlot == null ? 0 : 1;
-        int userSlotSize = slots.size() - userSlotOffset;
+        // Separate IVM hidden columns from user-visible columns.
+        // Schema layout must match normalized plan output: [row_id, user visible, trailing hidden agg cols]
+        Slot rowIdSlot = null;
+        List<Slot> trailingHiddenSlots = new ArrayList<>();
+        List<Slot> userSlots = new ArrayList<>();
+        for (Slot slot : slots) {
+            if (Column.IVM_ROW_ID_COL.equals(slot.getName())) {
+                rowIdSlot = slot;
+            } else if (IvmUtil.isIvmHiddenColumn(slot.getName())) {
+                trailingHiddenSlots.add(slot);
+            } else {
+                userSlots.add(slot);
+            }
+        }
+        int userSlotSize = userSlots.size();
         if (!CollectionUtils.isEmpty(simpleColumnDefinitions) && simpleColumnDefinitions.size() != userSlotSize) {
             throw new org.apache.doris.nereids.exceptions.AnalysisException(
                     "simpleColumnDefinitions size is not equal to the query's");
         }
-        if (ivmRowIdSlot != null) {
-            columns.add(ColumnDefinition.newIvmRowIdColumnDefinition(
-                    ivmRowIdSlot.getDataType().conversion(), ivmRowIdSlot.nullable()));
+        // 1. Row-id column first (if present)
+        if (rowIdSlot != null) {
+            columns.add(IvmUtil.newIvmRowIdColumnDefinition(
+                    rowIdSlot.getDataType().conversion(), rowIdSlot.nullable()));
         }
+        // 2. User-visible column definitions
         Set<String> colNames = Sets.newHashSet();
-        for (int i = userSlotOffset; i < slots.size(); i++) {
-            int userColumnIndex = i - userSlotOffset;
-            String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? slots.get(i).getName()
-                    : simpleColumnDefinitions.get(userColumnIndex).getName();
+        for (int i = 0; i < userSlots.size(); i++) {
+            Slot userSlot = userSlots.get(i);
+            String colName = CollectionUtils.isEmpty(simpleColumnDefinitions) ? userSlot.getName()
+                    : simpleColumnDefinitions.get(i).getName();
             try {
                 FeNameFormat.checkColumnName(colName);
             } catch (org.apache.doris.common.AnalysisException e) {
@@ -379,17 +395,22 @@ public class MTMVPlanUtil {
             } else {
                 colNames.add(colName);
             }
-            DataType dataType = getDataType(slots.get(i), userColumnIndex, ctx, partitionCol, distributionColumnNames);
+            DataType dataType = getDataType(userSlot, i, ctx, partitionCol, distributionColumnNames);
             // If datatype is AggStateType, AggregateType should be generic, or column definition check will fail
             columns.add(new ColumnDefinition(
                     colName,
                     dataType,
                     false,
-                    slots.get(i).getDataType() instanceof AggStateType ? AggregateType.GENERIC : null,
-                    slots.get(i).nullable(),
+                    userSlot.getDataType() instanceof AggStateType ? AggregateType.GENERIC : null,
+                    userSlot.nullable(),
                     Optional.empty(),
                     CollectionUtils.isEmpty(simpleColumnDefinitions) ? null
-                            : simpleColumnDefinitions.get(userColumnIndex).getComment()));
+                            : simpleColumnDefinitions.get(i).getComment()));
+        }
+        // 3. Trailing hidden agg state columns (after user-visible)
+        for (Slot hiddenSlot : trailingHiddenSlots) {
+            columns.add(IvmUtil.newIvmAggHiddenColumnDefinition(
+                    hiddenSlot.getName(), hiddenSlot.getDataType().conversion(), hiddenSlot.nullable()));
         }
         // add a hidden column as row store
         if (properties != null) {
@@ -404,10 +425,6 @@ public class MTMVPlanUtil {
             }
         }
         return columns;
-    }
-
-    private static boolean isIvmRowIdSlot(Slot slot) {
-        return Column.IVM_ROW_ID_COL.equals(slot.getName());
     }
 
     /**
@@ -557,7 +574,7 @@ public class MTMVPlanUtil {
             validateColumns(columns, keysSet, finalEnableMergeOnWrite);
             MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
             if (enableIvmNormalize) {
-                planner.getCascadesContext().getIvmContext().ifPresent(
+                planner.getCascadesContext().getIvmNormalizeResult().ifPresent(
                         ivm -> queryInfo.setIvmNormalizedPlan(ivm.getNormalizedPlan()));
             }
             return queryInfo;
