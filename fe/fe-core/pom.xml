@@ -112,6 +112,13 @@ under the License.
             <version>${project.version}</version>
             <scope>runtime</scope>
         </dependency>
+        <!-- fe-filesystem-local: test-scope only, used for unit testing FileSystemTransferUtil etc. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-local</artifactId>
+            <version>${project.version}</version>
+            <scope>test</scope>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-thrift</artifactId>
