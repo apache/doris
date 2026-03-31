@@ -20,7 +20,6 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletMeta;
-import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.thrift.TStorageMedium;
 
 import org.junit.jupiter.api.AfterEach;
