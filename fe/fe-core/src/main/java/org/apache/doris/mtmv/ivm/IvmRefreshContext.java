@@ -26,12 +26,12 @@ import java.util.Objects;
 /**
  * Shared immutable context for one FE-side incremental refresh attempt.
  */
-public class IVMRefreshContext {
+public class IvmRefreshContext {
     private final MTMV mtmv;
     private final ConnectContext connectContext;
     private final MTMVRefreshContext mtmvRefreshContext;
 
-    public IVMRefreshContext(MTMV mtmv, ConnectContext connectContext, MTMVRefreshContext mtmvRefreshContext) {
+    public IvmRefreshContext(MTMV mtmv, ConnectContext connectContext, MTMVRefreshContext mtmvRefreshContext) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
         this.mtmvRefreshContext = Objects.requireNonNull(mtmvRefreshContext, "mtmvRefreshContext can not be null");
@@ -57,7 +57,7 @@ public class IVMRefreshContext {
         if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        IVMRefreshContext that = (IVMRefreshContext) o;
+        IvmRefreshContext that = (IvmRefreshContext) o;
         return Objects.equals(mtmv, that.mtmv)
                 && Objects.equals(connectContext, that.connectContext)
                 && Objects.equals(mtmvRefreshContext, that.mtmvRefreshContext);
@@ -70,7 +70,7 @@ public class IVMRefreshContext {
 
     @Override
     public String toString() {
-        return "IVMRefreshContext{"
+        return "IvmRefreshContext{"
                 + "mtmv=" + mtmv.getName()
                 + ", mtmvRefreshContext=" + mtmvRefreshContext
                 + '}';

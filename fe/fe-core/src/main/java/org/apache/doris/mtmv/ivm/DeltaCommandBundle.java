@@ -24,7 +24,7 @@ import java.util.Objects;
 
 /**
  * One delta write command for a single changed base table.
- * Produced by a per-pattern IVM Nereids rule and consumed by IVMDeltaExecutor.
+ * Produced by a per-pattern IVM Nereids rule and consumed by IvmDeltaExecutor.
  */
 public class DeltaCommandBundle {
     // the base table whose changes this bundle handles
