@@ -100,10 +100,6 @@ public class FunctionParams {
         return exprs;
     }
 
-    public void setIsDistinct(boolean v) {
-        isDistinct = v;
-    }
-
     @Override
     public int hashCode() {
         int result = 31 * Boolean.hashCode(isStar) + Boolean.hashCode(isDistinct);

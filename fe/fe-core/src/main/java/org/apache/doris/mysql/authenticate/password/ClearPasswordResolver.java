@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql.authenticate.password;
 
+import org.apache.doris.authentication.CredentialType;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.MysqlAuthPacket;
@@ -26,10 +27,12 @@ import org.apache.doris.mysql.MysqlClearTextPacket;
 import org.apache.doris.mysql.MysqlHandshakePacket;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.authenticate.AuthenticateRequest;
 import org.apache.doris.qe.ConnectContext;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 
 public class ClearPasswordResolver implements PasswordResolver {
@@ -56,5 +59,24 @@ public class ClearPasswordResolver implements PasswordResolver {
             return Optional.empty();
         }
         return Optional.of(new ClearPassword(clearTextPacket.getPassword()));
+    }
+
+    @Override
+    public Optional<AuthenticateRequest> resolveAuthenticateRequest(String userName, ConnectContext context,
+            MysqlChannel channel, MysqlSerializer serializer, MysqlAuthPacket authPacket,
+            MysqlHandshakePacket handshakePacket) throws IOException {
+        Optional<Password> password = resolvePassword(context, channel, serializer, authPacket, handshakePacket);
+        if (!password.isPresent()) {
+            return Optional.empty();
+        }
+        ClearPassword clearPassword = (ClearPassword) password.get();
+        return Optional.of(AuthenticateRequest.builder()
+                .userName(userName)
+                .password(clearPassword)
+                .remoteHost(channel.getRemoteIp())
+                .clientType("mysql")
+                .credentialType(CredentialType.CLEAR_TEXT_PASSWORD)
+                .credential(clearPassword.getPassword().getBytes(StandardCharsets.UTF_8))
+                .build());
     }
 }

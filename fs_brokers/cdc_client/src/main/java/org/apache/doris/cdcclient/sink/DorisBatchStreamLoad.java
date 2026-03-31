@@ -93,13 +93,13 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
     @Setter @Getter private String currentTaskId;
     private String targetDb;
-    private long jobId;
+    private String jobId;
     @Setter private String token;
     // stream load headers
     @Setter private Map<String, String> loadProps = new HashMap<>();
     @Getter private LoadStatistic loadStatistic;
 
-    public DorisBatchStreamLoad(long jobId, String targetDb) {
+    public DorisBatchStreamLoad(String jobId, String targetDb) {
         this.hostPort = Env.getCurrentEnv().getBackendHostPort();
         this.loadStatistic = new LoadStatistic();
         this.flushQueue = new LinkedBlockingDeque<>(1);
@@ -329,9 +329,9 @@ public class DorisBatchStreamLoad implements Serializable {
     class LoadAsyncExecutor implements Runnable {
 
         private int flushQueueSize;
-        private long jobId;
+        private String jobId;
 
-        public LoadAsyncExecutor(int flushQueueSize, long jobId) {
+        public LoadAsyncExecutor(int flushQueueSize, String jobId) {
             this.flushQueueSize = flushQueueSize;
             this.jobId = jobId;
         }
@@ -511,7 +511,7 @@ public class DorisBatchStreamLoad implements Serializable {
             CommitOffsetRequest commitRequest =
                     CommitOffsetRequest.builder()
                             .offset(OBJECT_MAPPER.writeValueAsString(meta))
-                            .jobId(jobId)
+                            .jobId(Long.parseLong(jobId))
                             .taskId(Long.parseLong(taskId))
                             .scannedRows(scannedRows)
                             .filteredRows(loadStatistic.getFilteredRows())

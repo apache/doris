@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.DistributeType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -76,21 +77,24 @@ public class LogicalUsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE ext
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalUsingJoin<>(joinType, child(0), child(1),
-                usingSlots, matchCondition, groupExpression, Optional.of(getLogicalProperties()), hint);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUsingJoin<>(joinType, child(0), child(1),
+                usingSlots, matchCondition, groupExpression, Optional.of(getLogicalProperties()), hint));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
-                usingSlots, matchCondition, groupExpression, logicalProperties, hint);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
+                usingSlots, matchCondition, groupExpression, logicalProperties, hint));
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
-        return new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
-                usingSlots, matchCondition, groupExpression, Optional.of(getLogicalProperties()), hint);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalUsingJoin<>(joinType, children.get(0), children.get(1),
+                usingSlots, matchCondition, groupExpression, Optional.of(getLogicalProperties()), hint));
     }
 
     @Override

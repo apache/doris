@@ -95,6 +95,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableLikeCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
@@ -132,6 +133,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStatsCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStoragePolicyCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropViewCommand;
@@ -198,6 +200,7 @@ import org.apache.doris.nereids.trees.plans.commands.ShowCreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateStorageVaultCommand;
+import org.apache.doris.nereids.trees.plans.commands.ShowCreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.ShowCreateViewCommand;
@@ -809,6 +812,10 @@ public interface CommandVisitor<R, C> {
         return visitCommand(showCreateViewCommand, context);
     }
 
+    default R visitShowCreateStreamCommand(ShowCreateStreamCommand showCreateStreamCommand, C context) {
+        return visitCommand(showCreateStreamCommand, context);
+    }
+
     default R visitAlterRoleCommand(AlterRoleCommand alterRoleCommand, C context) {
         return visitCommand(alterRoleCommand, context);
     }
@@ -959,6 +966,10 @@ public interface CommandVisitor<R, C> {
     }
 
     default R visitDropViewCommand(DropViewCommand command, C context) {
+        return visitCommand(command, context);
+    }
+
+    default R visitDropStreamCommand(DropStreamCommand command, C context) {
         return visitCommand(command, context);
     }
 
@@ -1519,6 +1530,10 @@ public interface CommandVisitor<R, C> {
 
     default R visitAdminRotateTdeRootKeyCommand(AdminRotateTdeRootKeyCommand rotateTdeRootKeyCommand, C context) {
         return visitCommand(rotateTdeRootKeyCommand, context);
+    }
+
+    default R visitCreateStreamCommand(CreateStreamCommand createStreamCommand, C context) {
+        return visitCommand(createStreamCommand, context);
     }
 
     default R visitEmptyCommand(EmptyCommand emptyCommand, C context) {

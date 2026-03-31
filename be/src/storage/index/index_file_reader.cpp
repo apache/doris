@@ -63,8 +63,9 @@ Status IndexFileReader::_init_from(int32_t read_buffer_size, const io::IOContext
         DCHECK(_fs != nullptr) << "file system is nullptr, index_file_full_path: "
                                << index_file_full_path;
         // 2. open file
-        auto ok = DorisFSDirectory::FSIndexInput::open(
-                _fs, index_file_full_path.c_str(), index_input, err, read_buffer_size, file_size);
+        auto ok =
+                DorisFSDirectory::FSIndexInput::open(_fs, index_file_full_path.c_str(), index_input,
+                                                     err, read_buffer_size, file_size, _tablet_id);
         if (!ok) {
             if (err.number() == CL_ERR_FileNotFound) {
                 return Status::Error<ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND>(
@@ -182,8 +183,9 @@ Result<std::unique_ptr<DorisCompoundReader, DirectoryDeleter>> IndexFileReader::
             DCHECK(_fs != nullptr)
                     << "file system is nullptr, index_file_path: " << index_file_path;
             // 2. open file
-            auto ok = DorisFSDirectory::FSIndexInput::open(
-                    _fs, index_file_path.c_str(), index_input, err, _read_buffer_size, file_size);
+            auto ok = DorisFSDirectory::FSIndexInput::open(_fs, index_file_path.c_str(),
+                                                           index_input, err, _read_buffer_size,
+                                                           file_size, _tablet_id);
             if (!ok) {
                 // now index_input = nullptr
                 if (err.number() == CL_ERR_FileNotFound) {

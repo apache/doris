@@ -130,6 +130,9 @@ protected:
     RuntimeFilterConsumerHelper _helper;
     // magic number as seed to generate hash value for condition cache
     uint64_t _condition_cache_digest = 0;
+    // condition cache filter stats
+    RuntimeProfile::Counter* _condition_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _condition_cache_filtered_rows_counter = nullptr;
 
     // Moved from ScanLocalState<Derived> to avoid re-instantiation for each Derived type.
     std::atomic<bool> _eos = false;
@@ -420,6 +423,10 @@ protected:
 
     // If sort info is set, push limit to each scanner;
     int64_t _limit_per_scanner = -1;
+
+    // Shared remaining limit across all parallel instances and their scanners.
+    // Initialized to _limit (SQL LIMIT); -1 means no limit.
+    std::atomic<int64_t> _shared_scan_limit {-1};
 
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
 

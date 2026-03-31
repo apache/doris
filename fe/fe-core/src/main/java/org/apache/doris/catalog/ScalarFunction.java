@@ -19,7 +19,6 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.util.URI;
 import org.apache.doris.thrift.TDictFunction;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -53,16 +52,16 @@ public class ScalarFunction extends Function {
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
             boolean userVisible) {
-        this(fnName, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, userVisible, true);
+        this(fnName, argTypes, retType, hasVarArgs, BinaryType.BUILTIN, userVisible, true);
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
             boolean userVisible, boolean isVec) {
-        this(fnName, argTypes, retType, hasVarArgs, TFunctionBinaryType.BUILTIN, userVisible, isVec);
+        this(fnName, argTypes, retType, hasVarArgs, BinaryType.BUILTIN, userVisible, isVec);
     }
 
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs,
-            TFunctionBinaryType binaryType, boolean userVisible, boolean isVec) {
+            BinaryType binaryType, boolean userVisible, boolean isVec) {
         super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec,
                 NullableMode.DEPEND_ON_ARGUMENT);
     }
@@ -71,7 +70,7 @@ public class ScalarFunction extends Function {
      * nerieds custom scalar function
      */
     public ScalarFunction(FunctionName fnName, List<Type> argTypes, Type retType, boolean hasVarArgs, String symbolName,
-            TFunctionBinaryType binaryType, boolean userVisible, boolean isVec, NullableMode nullableMode) {
+            BinaryType binaryType, boolean userVisible, boolean isVec, NullableMode nullableMode) {
         super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, isVec, nullableMode);
         this.symbolName = symbolName;
     }
@@ -150,7 +149,7 @@ public class ScalarFunction extends Function {
     }
 
     public static ScalarFunction createUdf(
-            TFunctionBinaryType binaryType,
+            BinaryType binaryType,
             FunctionName name, Type[] args,
             Type returnType, boolean isVariadic,
             URI location, String symbol, String prepareFnSymbol, String closeFnSymbol) {

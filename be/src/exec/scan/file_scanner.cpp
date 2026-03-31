@@ -35,6 +35,7 @@
 
 #include "common/compiler_util.h" // IWYU pragma: keep
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "core/block/column_with_type_and_name.h"
@@ -47,7 +48,6 @@
 #include "core/data_type/data_type_string.h"
 #include "core/string_ref.h"
 #include "exec/common/stringop_substring.h"
-#include "exec/operator/file_scan_operator.h"
 #include "exec/rowid_fetcher.h"
 #include "exec/scan/scan_node.h"
 #include "exprs/aggregate/aggregate_function.h"
@@ -58,7 +58,6 @@
 #include "exprs/vexpr_fwd.h"
 #include "exprs/vslot_ref.h"
 #include "format/arrow/arrow_stream_reader.h"
-#include "format/avro/avro_jni_reader.h"
 #include "format/csv/csv_reader.h"
 #include "format/json/new_json_reader.h"
 #include "format/native/native_reader.h"
@@ -68,7 +67,8 @@
 #include "format/table/hudi_jni_reader.h"
 #include "format/table/hudi_reader.h"
 #include "format/table/iceberg_reader.h"
-#include "format/table/lakesoul_jni_reader.h"
+#include "format/table/iceberg_sys_table_jni_reader.h"
+#include "format/table/jdbc_jni_reader.h"
 #include "format/table/max_compute_jni_reader.h"
 #include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
@@ -83,7 +83,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
-#include "storage/segment/column_reader.h"
 
 namespace cctz {
 class time_zone;
@@ -378,6 +377,9 @@ void FileScanner::_get_slot_ids(VExpr* expr, std::vector<int>* slot_ids) {
 Status FileScanner::_open_impl(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(Scanner::_open_impl(state));
+    if (_local_state) {
+        _condition_cache_digest = _local_state->get_condition_cache_digest();
+    }
     RETURN_IF_ERROR(_split_source->get_next(&_first_scan_range, &_current_range));
     if (_first_scan_range) {
         RETURN_IF_ERROR(_init_expr_ctxes());
@@ -427,6 +429,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
     do {
         RETURN_IF_CANCELLED(state);
         if (_cur_reader == nullptr || _cur_reader_eof) {
+            _finalize_reader_condition_cache();
             // The file may not exist because the file list is got from meta cache,
             // And the file may already be removed from storage.
             // Just ignore not found files.
@@ -442,6 +445,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
             } else if (!st) {
                 return st;
             }
+            _init_reader_condition_cache();
         }
 
         if (_scanner_eof) {
@@ -453,6 +457,12 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
         // For query job, simply set _src_block_ptr to block.
         size_t read_rows = 0;
         RETURN_IF_ERROR(_init_src_block(block));
+        if (_need_iceberg_rowid_column && _current_range.__isset.table_format_params &&
+            _current_range.table_format_params.table_format_type == "iceberg") {
+            if (auto* iceberg_reader = dynamic_cast<IcebergTableReader*>(_cur_reader.get())) {
+                iceberg_reader->set_row_id_column_position(_iceberg_rowid_column_pos);
+            }
+        }
         {
             SCOPED_TIMER(_get_block_timer);
 
@@ -481,6 +491,7 @@ Status FileScanner::_get_block_wrapped(RuntimeState* state, Block* block, bool* 
                 }
                 // Apply _pre_conjunct_ctxs to filter src block.
                 RETURN_IF_ERROR(_pre_filter_src_block());
+
                 // Convert src block to output block (dest block), string to dest data type and apply filters.
                 RETURN_IF_ERROR(_convert_to_output_block(block));
                 // Truncate char columns or varchar columns if size is smaller than file columns
@@ -526,8 +537,22 @@ Status FileScanner::_init_src_block(Block* block) {
     if (!_is_load) {
         _src_block_ptr = block;
 
+        bool update_name_to_idx = _src_block_name_to_idx.empty();
+        _iceberg_rowid_column_pos = -1;
+        if (_need_iceberg_rowid_column && _current_range.__isset.table_format_params &&
+            _current_range.table_format_params.table_format_type == "iceberg") {
+            int row_id_idx = block->get_position_by_name(BeConsts::ICEBERG_ROWID_COL);
+            if (row_id_idx >= 0) {
+                _iceberg_rowid_column_pos = row_id_idx;
+                if (!update_name_to_idx &&
+                    !_src_block_name_to_idx.contains(BeConsts::ICEBERG_ROWID_COL)) {
+                    update_name_to_idx = true;
+                }
+            }
+        }
+
         // Build name to index map only once on first call
-        if (_src_block_name_to_idx.empty()) {
+        if (update_name_to_idx) {
             _src_block_name_to_idx = block->get_name_to_pos_map();
         }
         return Status::OK();
@@ -1010,17 +1035,26 @@ Status FileScanner::_get_next_reader() {
                                                            range.table_format_params.hudi_params,
                                                            _file_slot_descs, _state, _profile);
                 init_status = ((HudiJniReader*)_cur_reader.get())->init_reader();
-            } else if (range.__isset.table_format_params &&
-                       range.table_format_params.table_format_type == "lakesoul") {
-                _cur_reader =
-                        LakeSoulJniReader::create_unique(range.table_format_params.lakesoul_params,
-                                                         _file_slot_descs, _state, _profile);
-                init_status = ((LakeSoulJniReader*)_cur_reader.get())->init_reader();
+
             } else if (range.__isset.table_format_params &&
                        range.table_format_params.table_format_type == "trino_connector") {
                 _cur_reader = TrinoConnectorJniReader::create_unique(_file_slot_descs, _state,
                                                                      _profile, range);
                 init_status = ((TrinoConnectorJniReader*)(_cur_reader.get()))->init_reader();
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "jdbc") {
+                // Extract jdbc params from table_format_params
+                std::map<std::string, std::string> jdbc_params(
+                        range.table_format_params.jdbc_params.begin(),
+                        range.table_format_params.jdbc_params.end());
+                _cur_reader = JdbcJniReader::create_unique(_file_slot_descs, _state, _profile,
+                                                           jdbc_params);
+                init_status = ((JdbcJniReader*)(_cur_reader.get()))->init_reader();
+            } else if (range.__isset.table_format_params &&
+                       range.table_format_params.table_format_type == "iceberg") {
+                _cur_reader = IcebergSysTableJniReader::create_unique(_file_slot_descs, _state,
+                                                                      _profile, range, _params);
+                init_status = ((IcebergSysTableJniReader*)(_cur_reader.get()))->init_reader();
             }
             // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
             if (_cur_reader) {
@@ -1108,17 +1142,7 @@ Status FileScanner::_get_next_reader() {
                                   ->init_reader(_col_default_value_ctx, _is_load);
             break;
         }
-        case TFileFormatType::FORMAT_AVRO: {
-            _cur_reader = AvroJNIReader::create_unique(_state, _profile, *_params, _file_slot_descs,
-                                                       range);
-            init_status = ((AvroJNIReader*)(_cur_reader.get()))->init_reader();
-            // Set col_name_to_block_idx for JNI readers to avoid repeated map creation
-            if (_cur_reader) {
-                static_cast<JniReader*>(_cur_reader.get())
-                        ->set_col_name_to_block_idx(&_src_block_name_to_idx);
-            }
-            break;
-        }
+
         case TFileFormatType::FORMAT_WAL: {
             _cur_reader = WalReader::create_unique(_state);
             init_status = ((WalReader*)(_cur_reader.get()))->init_reader(_output_tuple_desc);
@@ -1218,6 +1242,20 @@ Status FileScanner::_init_parquet_reader(std::unique_ptr<ParquetReader>&& parque
         std::unique_ptr<IcebergParquetReader> iceberg_reader = IcebergParquetReader::create_unique(
                 std::move(parquet_reader), _profile, _state, *_params, range, _kv_cache,
                 _io_ctx.get(), file_meta_cache_ptr);
+        if (_need_iceberg_rowid_column) {
+            iceberg_reader->set_need_row_id_column(true);
+        }
+        if (_row_lineage_columns.row_id_column_idx != -1 ||
+            _row_lineage_columns.last_updated_sequence_number_column_idx != -1) {
+            std::shared_ptr<RowLineageColumns> row_lineage_columns;
+            row_lineage_columns = std::make_shared<RowLineageColumns>();
+            row_lineage_columns->row_id_column_idx = _row_lineage_columns.row_id_column_idx;
+            row_lineage_columns->last_updated_sequence_number_column_idx =
+                    _row_lineage_columns.last_updated_sequence_number_column_idx;
+            iceberg_reader->set_row_lineage_columns(std::move(row_lineage_columns));
+        }
+        iceberg_reader->set_push_down_agg_type(_get_push_down_agg_type());
+
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts,
                 slot_id_to_predicates, _real_tuple_desc, _default_val_row_desc.get(),
@@ -1332,7 +1370,18 @@ Status FileScanner::_init_orc_reader(std::unique_ptr<OrcReader>&& orc_reader,
         std::unique_ptr<IcebergOrcReader> iceberg_reader = IcebergOrcReader::create_unique(
                 std::move(orc_reader), _profile, _state, *_params, range, _kv_cache, _io_ctx.get(),
                 file_meta_cache_ptr);
-
+        if (_need_iceberg_rowid_column) {
+            iceberg_reader->set_need_row_id_column(true);
+        }
+        if (_row_lineage_columns.row_id_column_idx != -1 ||
+            _row_lineage_columns.last_updated_sequence_number_column_idx != -1) {
+            std::shared_ptr<RowLineageColumns> row_lineage_columns;
+            row_lineage_columns = std::make_shared<RowLineageColumns>();
+            row_lineage_columns->row_id_column_idx = _row_lineage_columns.row_id_column_idx;
+            row_lineage_columns->last_updated_sequence_number_column_idx =
+                    _row_lineage_columns.last_updated_sequence_number_column_idx;
+            iceberg_reader->set_row_lineage_columns(std::move(row_lineage_columns));
+        }
         init_status = iceberg_reader->init_reader(
                 _file_col_names, &_src_block_name_to_idx, _push_down_conjuncts, _real_tuple_desc,
                 _default_val_row_desc.get(), _col_name_to_slot_id,
@@ -1420,6 +1469,11 @@ Status FileScanner::_set_fill_or_truncate_columns(bool need_to_get_parsed_schema
     _slot_lower_name_to_col_type.clear();
     std::unordered_map<std::string, DataTypePtr> name_to_col_type;
     RETURN_IF_ERROR(_cur_reader->get_columns(&name_to_col_type, &_missing_cols));
+    if (_need_iceberg_rowid_column && _current_range.__isset.table_format_params &&
+        _current_range.table_format_params.table_format_type == "iceberg") {
+        _missing_cols.erase(BeConsts::ICEBERG_ROWID_COL);
+        _missing_cols.erase(to_lower(BeConsts::ICEBERG_ROWID_COL));
+    }
     for (const auto& [col_name, col_type] : name_to_col_type) {
         auto col_name_lower = to_lower(col_name);
         if (_partition_col_descs.contains(col_name_lower)) {
@@ -1663,6 +1717,19 @@ Status FileScanner::_init_expr_ctxes() {
             _row_id_column_iterator_pair.second = _default_val_row_desc->get_column_id(slot_id);
             continue;
         }
+        if (it->second->col_name() == BeConsts::ICEBERG_ROWID_COL) {
+            _need_iceberg_rowid_column = true;
+            continue;
+        }
+
+        if (it->second->col_name() == IcebergTableReader::ROW_LINEAGE_ROW_ID) {
+            _row_lineage_columns.row_id_column_idx = _default_val_row_desc->get_column_id(slot_id);
+        }
+
+        if (it->second->col_name() == IcebergTableReader::ROW_LINEAGE_LAST_UPDATED_SEQ_NUMBER) {
+            _row_lineage_columns.last_updated_sequence_number_column_idx =
+                    _default_val_row_desc->get_column_id(slot_id);
+        }
 
         if (slot_info.is_file_slot) {
             _is_file_slot.emplace(slot_id);
@@ -1748,10 +1815,92 @@ Status FileScanner::_init_expr_ctxes() {
     return Status::OK();
 }
 
+bool FileScanner::_should_enable_condition_cache() {
+    return _condition_cache_digest != 0 && !_is_load &&
+           (!_conjuncts.empty() || !_push_down_conjuncts.empty());
+}
+
+void FileScanner::_init_reader_condition_cache() {
+    _condition_cache = nullptr;
+    _condition_cache_ctx = nullptr;
+
+    if (!_should_enable_condition_cache() || !_cur_reader) {
+        return;
+    }
+
+    // Disable condition cache when delete operations exist (e.g. Iceberg position/equality
+    // deletes, Hive ACID deletes). Cached granule results may become stale if delete files
+    // change between queries while the data file's cache key remains the same.
+    if (_cur_reader->has_delete_operations()) {
+        return;
+    }
+
+    auto* cache = segment_v2::ConditionCache::instance();
+    _condition_cache_key = segment_v2::ConditionCache::ExternalCacheKey(
+            _current_range.path,
+            _current_range.__isset.modification_time ? _current_range.modification_time : 0,
+            _current_range.__isset.file_size ? _current_range.file_size : -1,
+            _condition_cache_digest,
+            _current_range.__isset.start_offset ? _current_range.start_offset : 0,
+            _current_range.__isset.size ? _current_range.size : -1);
+
+    segment_v2::ConditionCacheHandle handle;
+    auto condition_cache_hit = cache->lookup(_condition_cache_key, &handle);
+    if (condition_cache_hit) {
+        _condition_cache = handle.get_filter_result();
+        _condition_cache_hit_count++;
+    } else {
+        // Allocate cache pre-sized to total number of granules.
+        // We add +1 as a safety margin: when a file is split across multiple scanners
+        // and the first row of this scanner's range is not aligned to a granule boundary,
+        // the data may span one more granule than ceil(total_rows / GRANULE_SIZE).
+        // The extra element costs only 1 bit and never affects correctness (an extra
+        // false-granule beyond the actual data range won't overlap any real row range).
+        int64_t total_rows = _cur_reader->get_total_rows();
+        if (total_rows > 0) {
+            size_t num_granules = (total_rows + ConditionCacheContext::GRANULE_SIZE - 1) /
+                                  ConditionCacheContext::GRANULE_SIZE;
+            _condition_cache = std::make_shared<std::vector<bool>>(num_granules + 1, false);
+        }
+    }
+
+    if (_condition_cache) {
+        // Create context to pass to readers (native readers use it; non-native readers ignore it)
+        _condition_cache_ctx = std::make_shared<ConditionCacheContext>();
+        _condition_cache_ctx->is_hit = condition_cache_hit;
+        _condition_cache_ctx->filter_result = _condition_cache;
+        _cur_reader->set_condition_cache_context(_condition_cache_ctx);
+    }
+}
+
+void FileScanner::_finalize_reader_condition_cache() {
+    if (!_should_enable_condition_cache() || !_condition_cache_ctx ||
+        _condition_cache_ctx->is_hit) {
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+    // Only store the cache if the reader was fully consumed. If the scan was
+    // truncated early (e.g. by LIMIT), the cache is incomplete — unread granules
+    // would remain false and cause surviving rows to be incorrectly skipped on HIT.
+    if (!_cur_reader_eof) {
+        _condition_cache = nullptr;
+        _condition_cache_ctx = nullptr;
+        return;
+    }
+
+    auto* cache = segment_v2::ConditionCache::instance();
+    cache->insert(_condition_cache_key, std::move(_condition_cache));
+    _condition_cache = nullptr;
+    _condition_cache_ctx = nullptr;
+}
+
 Status FileScanner::close(RuntimeState* state) {
     if (!_try_close()) {
         return Status::OK();
     }
+
+    _finalize_reader_condition_cache();
 
     if (_cur_reader) {
         RETURN_IF_ERROR(_cur_reader->close());
@@ -1837,6 +1986,11 @@ void FileScanner::_collect_profile_before_close() {
     COUNTER_UPDATE(_file_read_bytes_counter, _file_reader_stats->read_bytes);
     COUNTER_UPDATE(_file_read_calls_counter, _file_reader_stats->read_calls);
     COUNTER_UPDATE(_file_read_time_counter, _file_reader_stats->read_time_ns);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, _condition_cache_hit_count);
+    if (_io_ctx) {
+        COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
+                       _io_ctx->condition_cache_filtered_rows);
+    }
 
     DorisMetrics::instance()->query_scan_bytes->increment(_file_reader_stats->read_bytes);
     DorisMetrics::instance()->query_scan_rows->increment(_file_reader_stats->read_rows);

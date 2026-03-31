@@ -32,7 +32,6 @@ public class GeneratedColumnDesc {
     private final GeneratedColumnType type;
     private final String exprSql;
     private Expr expr;
-    private Expr expandExprForLoad;
     private final Expression expression;
 
     /** constructor */
@@ -50,15 +49,11 @@ public class GeneratedColumnDesc {
         this.expr = expr;
     }
 
-    public void setExpandExprForLoad(Expr expandExprForLoad) {
-        this.expandExprForLoad = expandExprForLoad;
-    }
-
     public Expression getExpression() {
         return expression;
     }
 
     public GeneratedColumnInfo translateToInfo() {
-        return new GeneratedColumnInfo(exprSql, expr, expandExprForLoad);
+        return new GeneratedColumnInfo(exprSql, expr);
     }
 }

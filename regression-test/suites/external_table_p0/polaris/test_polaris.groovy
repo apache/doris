@@ -158,10 +158,7 @@ suite("test_polaris", "p0,external") {
 
         // =======  TIME TRAVEL TEST  =======
         def iceberg_meta_result = sql """
-        SELECT snapshot_id FROM iceberg_meta(
-                'table' = '${catalog_name}.${db_name}.${table_name}',
-                'query_type' = 'snapshots'
-        ) order by committed_at desc;
+        SELECT snapshot_id FROM ${catalog_name}.${db_name}.${table_name}\$snapshots order by committed_at desc;
         """
         def first_snapshot_id = iceberg_meta_result.get(0).get(0);
         def time_travel = sql """

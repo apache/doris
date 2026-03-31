@@ -194,17 +194,17 @@ Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, in
                 memtable->resource_ctx()->memory_context()->mem_tracker()->write_tracker());
         SCOPED_CONSUME_MEM_TRACKER(memtable->mem_tracker());
 
-        DEFER_RELEASE_RESERVED();
+        // DEFER_RELEASE_RESERVED();
 
-        auto reserve_size = memtable->get_flush_reserve_memory_size();
-        if (memtable->resource_ctx()->task_controller()->is_enable_reserve_memory() &&
-            reserve_size > 0) {
-            RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
-        }
+        // auto reserve_size = memtable->get_flush_reserve_memory_size();
+        // if (memtable->resource_ctx()->task_controller()->is_enable_reserve_memory() &&
+        //     reserve_size > 0) {
+        //     RETURN_IF_ERROR(_try_reserve_memory(memtable->resource_ctx(), reserve_size));
+        // }
 
-        Defer defer {[&]() {
-            ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
-        }};
+        // Defer defer {[&]() {
+        //     ExecEnv::GetInstance()->storage_engine().memtable_flush_executor()->dec_flushing_task();
+        // }};
         std::unique_ptr<Block> block;
         RETURN_IF_ERROR(memtable->to_block(&block));
         RETURN_IF_ERROR(_rowset_writer->flush_memtable(block.get(), segment_id, flush_size));
@@ -222,6 +222,9 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
                                  int64_t submit_task_time) {
     signal::set_signal_task_id(_rowset_writer->load_id());
     signal::tablet_id = memtable_ptr->tablet_id();
+    // Count the task as running before registering the deferred cleanup so
+    // cancel/shutdown paths keep flush_running_count symmetric on every exit.
+    _stats.flush_running_count++;
     Defer defer {[&]() {
         std::lock_guard<std::mutex> lock(_mutex);
         _stats.flush_submit_count--;
@@ -240,7 +243,6 @@ void FlushToken::_flush_memtable(std::shared_ptr<MemTable> memtable_ptr, int32_t
     }
     DBUG_EXECUTE_IF("FlushToken.flush_memtable.wait_after_first_shutdown",
                     { std::this_thread::sleep_for(std::chrono::milliseconds(10 * 1000)); });
-    _stats.flush_running_count++;
     // double check if shutdown to avoid wait running task finish count not accurate
     if (_is_shutdown()) {
         return;

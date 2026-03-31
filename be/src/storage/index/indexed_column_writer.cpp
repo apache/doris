@@ -49,9 +49,7 @@ IndexedColumnWriter::IndexedColumnWriter(const IndexedColumnWriterOptions& optio
           _num_data_pages(0),
           _disk_size(0),
           _value_key_coder(nullptr),
-          _compress_codec(nullptr) {
-    _first_value.resize(_type_info->size());
-}
+          _compress_codec(nullptr) {}
 
 IndexedColumnWriter::~IndexedColumnWriter() = default;
 
@@ -86,8 +84,9 @@ Status IndexedColumnWriter::init() {
 
 Status IndexedColumnWriter::add(const void* value) {
     if (_options.write_value_index && _data_page_builder->count() == 0) {
-        // remember page's first value because it's used to build value index
-        _type_info->deep_copy(_first_value.data(), value, _arena);
+        // remember page's first value encoded key because it's used to build value index
+        _first_value_string.clear();
+        _value_key_coder->full_encode_ascending(value, &_first_value_string);
     }
     size_t num_to_write = 1;
     RETURN_IF_ERROR(
@@ -144,10 +143,8 @@ Status IndexedColumnWriter::_finish_current_data_page(size_t& num_val) {
     }
 
     if (_options.write_value_index) {
-        std::string key;
-        _value_key_coder->full_encode_ascending(_first_value.data(), &key);
         // TODO short separate key optimize
-        _value_index_builder->add(key, _last_data_page);
+        _value_index_builder->add(_first_value_string, _last_data_page);
         // TODO record last key in short separate key optimize
     }
     return Status::OK();

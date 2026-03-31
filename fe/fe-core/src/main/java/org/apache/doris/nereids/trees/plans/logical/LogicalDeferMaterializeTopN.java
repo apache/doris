@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.BlockFuncDepsPropagation;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -122,8 +123,9 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalDeferMaterializeTopN<>(logicalTopN, deferMaterializeSlotIds, columnIdSlot,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeTopN<>(logicalTopN, deferMaterializeSlotIds, columnIdSlot,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
@@ -131,16 +133,18 @@ public class LogicalDeferMaterializeTopN<CHILD_TYPE extends Plan> extends Logica
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalDeferMaterializeTopN should have 1 child, but input is %s", children.size());
-        return new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
-                deferMaterializeSlotIds, columnIdSlot, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
+                deferMaterializeSlotIds, columnIdSlot, groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override
     public Plan withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalDeferMaterializeTopN should have 1 child, but input is %s", children.size());
-        return new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
-                deferMaterializeSlotIds, columnIdSlot, Optional.empty(), Optional.empty(), children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeTopN<>(logicalTopN.withChildren(ImmutableList.of(children.get(0))),
+                deferMaterializeSlotIds, columnIdSlot, Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     @Override

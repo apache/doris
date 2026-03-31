@@ -57,6 +57,8 @@ public:
     DataTypePtr nested_type = nullptr;
     // wrap the nested column as variant column
     bool output_as_variant = false;
+    // propagate enable_doc_mode when wrapping as variant
+    bool variant_enable_doc_mode = false;
 
     ColumnArrayMutableData to_mutable_data() const {
         ColumnArrayMutableData dst;

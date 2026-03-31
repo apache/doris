@@ -88,6 +88,8 @@ public:
 
     bool stopped() const { return stopped_.load(std::memory_order_acquire); }
 
+    RecyclerThreadPoolGroup& thread_pool_group() { return _thread_pool_group; }
+
 private:
     void recycle_callback();
 
@@ -417,7 +419,8 @@ public:
     }
 
     // Recycle snapshot meta and data, return 0 for success otherwise error.
-    int recycle_snapshot_meta_and_data(const std::string& resource_id,
+    int recycle_snapshot_meta_and_data(const std::string& instance_id,
+                                       const std::string& resource_id,
                                        Versionstamp snapshot_version,
                                        const SnapshotPB& snapshot_pb);
 

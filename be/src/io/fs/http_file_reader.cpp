@@ -22,7 +22,11 @@
 
 #include <algorithm>
 
+#include "common/config.h"
 #include "common/logging.h"
+#include "gen_cpp/internal_service.pb.h"
+#include "runtime/cdc_client_mgr.h"
+#include "runtime/exec_env.h"
 
 namespace doris::io {
 
@@ -84,6 +88,17 @@ HttpFileReader::HttpFileReader(const OpenFileInfo& fileInfo, std::string url, in
         }
     }
 
+    // Parse chunk response configuration; chunk response implies no Range support
+    auto chunk_iter = _extend_kv.find("http.enable.chunk.response");
+    if (chunk_iter != _extend_kv.end()) {
+        std::string value = chunk_iter->second;
+        std::transform(value.begin(), value.end(), value.begin(), ::tolower);
+        _enable_chunk_response = (value == "true" || value == "1");
+        if (_enable_chunk_response) {
+            _range_supported = false;
+        }
+    }
+
     _read_buffer = std::make_unique<char[]>(READ_BUFFER_SIZE);
 }
 
@@ -91,37 +106,82 @@ HttpFileReader::~HttpFileReader() {
     static_cast<void>(close());
 }
 
+Status HttpFileReader::setup_cdc_client() {
+    auto enable_cdc_iter = _extend_kv.find("enable_cdc_client");
+    if (enable_cdc_iter == _extend_kv.end() || enable_cdc_iter->second != "true") {
+        return Status::OK();
+    }
+
+    LOG(INFO) << "CDC client is enabled, starting CDC client for " << _url;
+    ExecEnv* env = ExecEnv::GetInstance();
+    if (env == nullptr || env->cdc_client_mgr() == nullptr) {
+        return Status::InternalError("ExecEnv or CdcClientMgr is not initialized");
+    }
+
+    PRequestCdcClientResult result;
+    Status start_st = env->cdc_client_mgr()->start_cdc_client(&result);
+    if (!start_st.ok()) {
+        LOG(ERROR) << "Failed to start CDC client, status=" << start_st.to_string();
+        return start_st;
+    }
+
+    // Replace CDC_CLIENT_PORT placeholder with actual CDC client port
+    const std::string placeholder = "CDC_CLIENT_PORT";
+    size_t pos = _url.find(placeholder);
+    if (pos != std::string::npos) {
+        _url.replace(pos, placeholder.size(), std::to_string(doris::config::cdc_client_port));
+    }
+    LOG(INFO) << "CDC client started successfully for " << _url;
+    return Status::OK();
+}
+
 Status HttpFileReader::open(const FileReaderOptions& opts) {
+    // CDC client setup must run before the _initialized guard.
+    // See setup_cdc_client() for lifecycle details.
+    RETURN_IF_ERROR(setup_cdc_client());
+
+    // Skip metadata detection when file size was pre-supplied by the caller.
     if (_initialized) {
         return Status::OK();
     }
 
-    // Step 1: HEAD request to get file metadata
-    RETURN_IF_ERROR(prepare_client(/*set_fail_on_error=*/true));
-    _client->set_method(HttpMethod::HEAD);
-    RETURN_IF_ERROR(_client->execute());
+    // Step 1: HEAD request to get file metadata (skip for chunk response)
+    if (_enable_chunk_response) {
+        // Chunk streaming response: size is unknown until the stream completes.
+        // _range_supported is already false (set in constructor).
+        _size_known = false;
+        // Reset _file_size from the SIZE_MAX default to 0 so that any caller of
+        // size() (e.g. NewJsonReader::_read_one_message) does not attempt to
+        // allocate SIZE_MAX bytes before the download completes.
+        _file_size = 0;
+        LOG(INFO) << "Chunk response mode enabled, skipping HEAD request for " << _url;
+    } else {
+        // Normal mode: execute HEAD request to get file metadata
+        RETURN_IF_ERROR(prepare_client(/*set_fail_on_error=*/true));
+        _client->set_method(HttpMethod::HEAD);
+        RETURN_IF_ERROR(_client->execute());
 
-    uint64_t content_length = 0;
-    RETURN_IF_ERROR(_client->get_content_length(&content_length));
+        uint64_t content_length = 0;
+        RETURN_IF_ERROR(_client->get_content_length(&content_length));
 
-    _file_size = content_length;
-    _size_known = true;
+        _file_size = content_length;
+        _size_known = true;
+    }
 
-    // Step 2: Check if Range request is disabled by configuration
-    if (!_enable_range_request) {
-        // User explicitly disabled Range requests, use non-Range mode directly
+    // Step 2: Check if Range request is disabled by configuration.
+    // Chunk response mode always has _range_supported=false (set in constructor), so only
+    // the non-chunk non-Range path needs the file size guard.
+    if (_enable_chunk_response) {
+        // Nothing to do: _range_supported already false, size check not applicable
+    } else if (!_enable_range_request) {
         _range_supported = false;
-        LOG(INFO) << "Range requests disabled by configuration for " << _url
-                  << ", using non-Range mode. File size: " << _file_size << " bytes";
-
-        // Check if file size exceeds limit for non-Range mode
+        LOG(INFO) << "Range requests disabled by configuration for " << _url;
         if (_file_size > _max_request_size_bytes) {
             return Status::InternalError(
-                    "Non-Range mode: file size ({} bytes) exceeds maximum allowed size ({} bytes, "
-                    "configured by http.max.request.size.bytes). URL: {}",
+                    "Non-Range mode: file size ({} bytes) exceeds maximum allowed size ({} "
+                    "bytes, configured by http.max.request.size.bytes). URL: {}",
                     _file_size, _max_request_size_bytes, _url);
         }
-
         LOG(INFO) << "Non-Range mode validated for " << _url << ", file size: " << _file_size
                   << " bytes, max allowed: " << _max_request_size_bytes << " bytes";
     } else {
@@ -224,9 +284,29 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     VLOG(2) << "Issuing HTTP GET request: offset=" << offset << " req_len=" << req_len
             << " with_range=" << _range_supported;
 
-    // Prepare and initialize the HTTP client for GET request
+    // Prepare and initialize the HTTP client for request
     RETURN_IF_ERROR(prepare_client(/*set_fail_on_error=*/false));
-    _client->set_method(HttpMethod::GET);
+
+    // Determine HTTP method from configuration (default: GET)
+    HttpMethod method = HttpMethod::GET;
+    auto method_iter = _extend_kv.find("http.method");
+    if (method_iter != _extend_kv.end()) {
+        method = to_http_method(method_iter->second.c_str());
+        if (method == HttpMethod::UNKNOWN) {
+            LOG(WARNING) << "Invalid http.method value: " << method_iter->second
+                         << ", falling back to GET";
+            method = HttpMethod::GET;
+        }
+    }
+    _client->set_method(method);
+
+    // Set payload if configured (supports POST, PUT, DELETE, etc.)
+    auto payload_iter = _extend_kv.find("http.payload");
+    if (payload_iter != _extend_kv.end() && !payload_iter->second.empty()) {
+        _client->set_payload(payload_iter->second);
+        _client->set_content_type("application/json");
+        VLOG(2) << "HTTP request with payload, size=" << payload_iter->second.size();
+    }
 
     _client->set_header("Expect", "");
     _client->set_header("Connection", "close");
@@ -270,6 +350,21 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
     long http_status = _client->get_http_status();
     VLOG(2) << "HTTP response: status=" << http_status << " received_bytes=" << buf.size();
 
+    // Check for HTTP error status codes (4xx, 5xx)
+    if (http_status >= 400) {
+        std::string error_body;
+        if (buf.empty()) {
+            error_body = "(empty response body)";
+        } else {
+            // Limit error message to 1024 bytes to avoid excessive logging
+            size_t max_len = std::min(buf.size(), static_cast<size_t>(1024));
+            error_body = buf.substr(0, max_len);
+        }
+
+        return Status::InternalError("HTTP request failed with status {}: {}.", http_status,
+                                     error_body);
+    }
+
     if (buf.empty()) {
         *bytes_read = buffer_offset;
         return Status::OK();
@@ -295,6 +390,11 @@ Status HttpFileReader::read_at_impl(size_t offset, Slice result, size_t* bytes_r
         // Cache the complete file content for subsequent reads
         _full_file_cache = std::move(buf);
         _full_file_cached = true;
+        // Now that the full content is in hand, update _file_size to the actual
+        // byte count. This replaces the 0 placeholder set in open() for chunk
+        // response mode, so subsequent calls to size() return a correct value.
+        _file_size = _full_file_cache.size();
+        _size_known = true;
 
         VLOG(2) << "Cached full file: " << _full_file_cache.size() << " bytes";
 

@@ -27,9 +27,9 @@
 #include "core/data_type/data_type_array.h"
 #include "core/data_type/data_type_factory.hpp"
 #include "core/types.h"
-#include "exec/connector/jni_connector.h"
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
+#include "format/jni/jni_data_bridge.h"
 #include "runtime/user_function_cache.h"
 
 namespace doris {
@@ -98,8 +98,8 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     RETURN_IF_ERROR(Jni::Env::Get(&env));
     std::unique_ptr<long[]> input_table;
     RETURN_IF_ERROR(
-            JniConnector::to_java_table(block, block->rows(), child_column_idxs, input_table));
-    auto input_table_schema = JniConnector::parse_table_schema(block, child_column_idxs, true);
+            JniDataBridge::to_java_table(block, block->rows(), child_column_idxs, input_table));
+    auto input_table_schema = JniDataBridge::parse_table_schema(block, child_column_idxs, true);
     std::map<String, String> input_params = {
             {"meta_address", std::to_string((long)input_table.get())},
             {"required_fields", input_table_schema.first},
@@ -110,7 +110,7 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
     _array_result_column = _return_type->create_column();
     _result_column_idx = block->columns();
     block->insert({_array_result_column, _return_type, "res"});
-    auto output_table_schema = JniConnector::parse_table_schema(block, {_result_column_idx}, true);
+    auto output_table_schema = JniDataBridge::parse_table_schema(block, {_result_column_idx}, true);
     std::string output_nullable = _return_type->is_nullable() ? "true" : "false";
     std::map<String, String> output_params = {{"is_nullable", output_nullable},
                                               {"required_fields", output_table_schema.first},
@@ -123,7 +123,7 @@ Status UDFTableFunction::process_init(Block* block, RuntimeState* state) {
                             .with_arg(input_map)
                             .with_arg(output_map)
                             .call(&output_address));
-    RETURN_IF_ERROR(JniConnector::fill_block(block, {_result_column_idx}, output_address));
+    RETURN_IF_ERROR(JniDataBridge::fill_block(block, {_result_column_idx}, output_address));
     block->erase(_result_column_idx);
     if (!extract_column_array_info(*_array_result_column, _array_column_detail)) {
         return Status::NotSupported("column type {} not supported now",

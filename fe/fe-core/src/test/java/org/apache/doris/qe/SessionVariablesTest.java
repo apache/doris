@@ -17,10 +17,13 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.utframe.TestWithFeService;
 
+import mockit.Mock;
+import mockit.MockUp;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -80,5 +83,93 @@ public class SessionVariablesTest extends TestWithFeService {
         String sql = "insert into test_t1 select /*+ set_var(enable_nereids_dml_with_pipeline=false)*/ * from test_t1 where enable_nereids_dml_with_pipeline=true";
         new NereidsParser().parseSQL(sql);
         Assertions.assertEquals(false, connectContext.getSessionVariable().enableNereidsDmlWithPipeline);
+    }
+
+    @Test
+    public void testMorValuePredicatePushdownEnabled() {
+        SessionVariable sv = new SessionVariable();
+
+        // default empty string — disabled for all tables
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+
+        // wildcard enables all tables
+        sv.enableMorValuePredicatePushdownTables = "*";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled(null, "tbl1"));
+
+        // single table name without db — matches any database
+        sv.enableMorValuePredicatePushdownTables = "tbl1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db1", "tbl2"));
+
+        // table name with db prefix — must match both
+        sv.enableMorValuePredicatePushdownTables = "db1.tbl1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+
+        // multiple tables comma-separated
+        sv.enableMorValuePredicatePushdownTables = "db1.tbl1,tbl2";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db2", "tbl2"));
+
+        // case-insensitive matching
+        sv.enableMorValuePredicatePushdownTables = "DB1.TBL1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+
+        // whitespace handling
+        sv.enableMorValuePredicatePushdownTables = " tbl1 , db2.tbl2 ";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db2", "tbl2"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db1", "tbl2"));
+
+        // null dbName — matches table-only entries, not db-qualified entries
+        sv.enableMorValuePredicatePushdownTables = "tbl1,db2.tbl2";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled(null, "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled(null, "tbl2"));
+
+        // consecutive commas / empty entries
+        sv.enableMorValuePredicatePushdownTables = "tbl1,,tbl2";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl2"));
+
+        // ctl.db.table format — matches on db and table components
+        sv.enableMorValuePredicatePushdownTables = "ctl1.db1.tbl1";
+        Assertions.assertTrue(sv.isMorValuePredicatePushdownEnabled("db1", "tbl1"));
+        Assertions.assertFalse(sv.isMorValuePredicatePushdownEnabled("db2", "tbl1"));
+    }
+
+    @Test
+    public void testEnableStrictConsistencyDmlDefaultsToFalseInCloudMode() {
+        new MockUp<Config>() {
+            @Mock
+            public boolean isCloudMode() {
+                return true;
+            }
+        };
+        SessionVariable sv = new SessionVariable();
+        // In cloud mode, enable_strict_consistency_dml should always return false
+        // because store-compute separation has no multi-replica consistency concern.
+        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+        // Even if the field is set to true, cloud mode overrides it.
+        sv.enableStrictConsistencyDml = true;
+        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
+    }
+
+    @Test
+    public void testEnableStrictConsistencyDmlDefaultsTrueInNonCloudMode() {
+        new MockUp<Config>() {
+            @Mock
+            public boolean isCloudMode() {
+                return false;
+            }
+        };
+        SessionVariable sv = new SessionVariable();
+        // In non-cloud mode, default is true (multi-replica consistency is needed).
+        Assertions.assertTrue(sv.isEnableStrictConsistencyDml());
+        // Users can disable it.
+        sv.enableStrictConsistencyDml = false;
+        Assertions.assertFalse(sv.isEnableStrictConsistencyDml());
     }
 }

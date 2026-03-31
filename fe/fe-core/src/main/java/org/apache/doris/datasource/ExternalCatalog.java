@@ -38,7 +38,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.connectivity.CatalogConnectivityTestCoordinator;
 import org.apache.doris.datasource.doris.RemoteDorisExternalDatabase;
 import org.apache.doris.datasource.es.EsExternalDatabase;
@@ -396,7 +395,7 @@ public abstract class ExternalCatalog
             if (LOG.isDebugEnabled()) {
                 LOG.debug("buildMetaCache for catalog: {}:{}", this.name, this.id, new Exception());
             }
-            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().legacyMetaCacheFactory().build(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),
@@ -577,14 +576,16 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public synchronized void resetToUninitialized(boolean invalidCache) {
-        this.objectCreated = false;
-        this.initialized = false;
-        synchronized (this.confLock) {
-            this.cachedConf = null;
+    public void resetToUninitialized(boolean invalidCache) {
+        synchronized (this) {
+            this.objectCreated = false;
+            this.initialized = false;
+            synchronized (this.confLock) {
+                this.cachedConf = null;
+            }
+            this.lowerCaseToDatabaseName.clear();
+            onClose();
         }
-        this.lowerCaseToDatabaseName.clear();
-        onClose();
         onRefreshCache(invalidCache);
     }
 
@@ -597,7 +598,7 @@ public abstract class ExternalCatalog
         setLastUpdateTime(System.currentTimeMillis());
         refreshMetaCacheOnly();
         if (invalidCache) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalogCache(id);
+            Env.getCurrentEnv().getExtMetaCacheMgr().invalidateCatalog(id);
         }
     }
 
@@ -1068,8 +1069,8 @@ public abstract class ExternalCatalog
     }
 
     @Override
-    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean ifExists,
-            boolean mustTemporary, boolean force) throws DdlException {
+    public void dropTable(String dbName, String tableName, boolean isView, boolean isMtmv, boolean isStream,
+                          boolean ifExists, boolean mustTemporary, boolean force) throws DdlException {
         makeSureInitialized();
         if (metadataOps == null) {
             throw new DdlException("Drop table is not supported for catalog: " + getName());
@@ -1115,7 +1116,7 @@ public abstract class ExternalCatalog
         if (isInitialized()) {
             metaCache.invalidate(dbName, Util.genIdByName(name, dbName));
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getId(), dbName);
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(getId(), dbName);
     }
 
     public void registerDatabase(long dbId, String dbName) {
@@ -1335,7 +1336,8 @@ public abstract class ExternalCatalog
         CatalogIf.super.notifyPropertiesUpdated(updatedProps);
         String schemaCacheTtl = updatedProps.getOrDefault(SCHEMA_CACHE_TTL_SECOND, null);
         if (java.util.Objects.nonNull(schemaCacheTtl)) {
-            Env.getCurrentEnv().getExtMetaCacheMgr().invalidSchemaCache(id);
+            ExternalMetaCacheMgr extMetaCacheMgr = Env.getCurrentEnv().getExtMetaCacheMgr();
+            extMetaCacheMgr.removeCatalog(id);
         }
     }
 

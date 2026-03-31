@@ -19,13 +19,16 @@ package org.apache.doris.mysql.authenticate.ldap;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LdapConfig;
+import org.apache.doris.common.util.NetUtils;
 
 import mockit.Expectations;
 import mockit.Tested;
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.ldap.support.LdapEncoder;
 
 import java.util.Arrays;
 import java.util.List;
@@ -43,6 +46,7 @@ public class LdapClientTest {
         LdapConfig.ldap_user_basedn = "dc=baidu,dc=com";
         LdapConfig.ldap_group_basedn = "ou=group,dc=baidu,dc=com";
         LdapConfig.ldap_user_filter = "(&(uid={login}))";
+        LdapConfig.ldap_use_ssl = false;
     }
 
     @Test
@@ -94,5 +98,58 @@ public class LdapClientTest {
             }
         };
         Assert.assertEquals(1, ldapClient.getGroups("zhangsan").size());
+    }
+
+    @Test
+    public void testSecuredProtocolIsUsed() {
+        //testing default case with not specified property ldap_use_ssl or it is specified as false
+        String insecureUrl = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+
+        Assert.assertNotNull("connection URL should not be null", insecureUrl);
+        Assert.assertTrue("with ldap_use_ssl = false or not specified URL should start with ldap, but received: " + insecureUrl,
+                          insecureUrl.startsWith("ldap://"));
+
+        //testing new case with specified property ldap_use_ssl as true
+        LdapConfig.ldap_use_ssl = true;
+        String secureUrl = LdapConfig.getConnectionURL(
+                NetUtils.getHostPortInAccessibleFormat(LdapConfig.ldap_host, LdapConfig.ldap_port));
+        Assert.assertNotNull("connection URL should not be null", secureUrl);
+        Assert.assertTrue("with ldap_use_ssl = true URL should start with ldaps, but received: " + secureUrl,
+                          secureUrl.startsWith("ldaps://"));
+    }
+
+    @Test
+    public void testLdapFilterEncoding() {
+        // Combined special characters
+        String input = "test*()\\\u0000";
+        String expected = "test\\2a\\28\\29\\5c\\00";
+        Assert.assertEquals(expected, LdapEncoder.filterEncode(input));
+
+        // Null input
+        Assert.assertNull(LdapEncoder.filterEncode(null));
+
+        // Normal username should not be altered
+        Assert.assertEquals("zhangsan", LdapEncoder.filterEncode("zhangsan"));
+        Assert.assertEquals("user.name@example.com", LdapEncoder.filterEncode("user.name@example.com"));
+
+        // Empty string
+        Assert.assertEquals("", LdapEncoder.filterEncode(""));
+
+        // Each special character individually
+        Assert.assertEquals("\\2a", LdapEncoder.filterEncode("*"));
+        Assert.assertEquals("\\28", LdapEncoder.filterEncode("("));
+        Assert.assertEquals("\\29", LdapEncoder.filterEncode(")"));
+        Assert.assertEquals("\\5c", LdapEncoder.filterEncode("\\"));
+        Assert.assertEquals("\\00", LdapEncoder.filterEncode("\u0000"));
+
+        // Injection payload: dorisuser6)(mail=testp*
+        Assert.assertEquals("dorisuser6\\29\\28mail=testp\\2a",
+                LdapEncoder.filterEncode("dorisuser6)(mail=testp*"));
+    }
+
+    @After
+    public void tearDown() {
+        LdapConfig.ldap_use_ssl = false; // restoring default value for other tests
     }
 }

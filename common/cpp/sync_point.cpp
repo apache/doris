@@ -70,8 +70,8 @@ private:
 };
 
 SyncPoint* SyncPoint::get_instance() {
-  static SyncPoint sync_point;
-  return &sync_point;
+  static auto* sync_point = new SyncPoint();
+  return sync_point;
 }
 SyncPoint::SyncPoint() : 
   impl_(new Data) {

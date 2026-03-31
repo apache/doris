@@ -178,6 +178,11 @@ Status OlapScanner::prepare() {
                 return false;
             }
 
+            // If `delete_predicates` is not empty, will merge the columns in delete predicate into current tablet schema
+            if (!_tablet_reader_params.delete_predicates.empty()) {
+                return false;
+            }
+
             const bool has_pruned_column =
                     std::ranges::any_of(_output_tuple_desc->slots(), [](const auto& slot) {
                         if ((slot->type()->get_primitive_type() == PrimitiveType::TYPE_STRUCT ||
@@ -333,7 +338,10 @@ Status OlapScanner::_init_tablet_reader_params(
     // if the table with rowset [0-x] or [0-1] [2-y], and [0-1] is empty
     const bool single_version = _tablet_reader_params.has_single_version();
 
-    if (_state->skip_storage_engine_merge()) {
+    auto* olap_local_state = static_cast<OlapScanLocalState*>(_local_state);
+    bool read_mor_as_dup = olap_local_state->olap_scan_node().__isset.read_mor_as_dup &&
+                           olap_local_state->olap_scan_node().read_mor_as_dup;
+    if (_state->skip_storage_engine_merge() || read_mor_as_dup) {
         _tablet_reader_params.direct_mode = true;
         _tablet_reader_params.aggregation = true;
     } else {
@@ -395,10 +403,11 @@ Status OlapScanner::_init_tablet_reader_params(
         tablet_schema->merge_dropped_columns(*del_pred->tablet_schema());
     }
 
-    // Range
+    // Push key ranges to the tablet reader.
+    // Skip the "full scan" placeholder (has_lower_bound == false) — when no key
+    // predicates exist, start_key/end_key remain empty and the reader does a full scan.
     for (auto* key_range : key_ranges) {
-        if (key_range->begin_scan_range.size() == 1 &&
-            key_range->begin_scan_range.get_value(0) == NEGATIVE_INFINITY) {
+        if (!key_range->has_lower_bound) {
             continue;
         }
 
@@ -475,6 +484,13 @@ Status OlapScanner::_init_tablet_reader_params(
     if (!_state->skip_storage_engine_merge()) {
         auto* olap_scan_local_state = (OlapScanLocalState*)_local_state;
         TOlapScanNode& olap_scan_node = olap_scan_local_state->olap_scan_node();
+
+        // Set MOR value predicate pushdown flag
+        if (olap_scan_node.__isset.enable_mor_value_predicate_pushdown &&
+            olap_scan_node.enable_mor_value_predicate_pushdown) {
+            _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
+        }
+
         // order by table keys optimization for topn
         // will only read head/tail of data file since it's already sorted by keys
         if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
@@ -538,11 +554,12 @@ Status OlapScanner::_init_variant_columns() {
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
+            const auto& dt_variant =
+                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id(),
-                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()))
-                            .variant_max_subcolumns_count());
+                    dt_variant.variant_max_subcolumns_count(), dt_variant.enable_doc_mode());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }
@@ -845,8 +862,7 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.output_index_result_column_timer);
     COUNTER_UPDATE(local_state->_filtered_segment_counter, stats.filtered_segment_number);
     COUNTER_UPDATE(local_state->_total_segment_counter, stats.total_segment_number);
-    COUNTER_UPDATE(local_state->_condition_cache_hit_segment_counter,
-                   stats.condition_cache_hit_seg_nums);
+    COUNTER_UPDATE(local_state->_condition_cache_hit_counter, stats.condition_cache_hit_seg_nums);
     COUNTER_UPDATE(local_state->_condition_cache_filtered_rows_counter,
                    stats.condition_cache_filtered_rows);
 
@@ -936,6 +952,8 @@ void OlapScanner::_collect_profile_before_close() {
     // Doris-side result convert costs (show separately as another child counter); use pure process time
     COUNTER_UPDATE(local_state->_ann_topn_result_convert_costs,
                    stats.ann_index_topn_result_process_ns);
+
+    COUNTER_UPDATE(local_state->_ann_fallback_brute_force_cnt, stats.ann_fall_back_brute_force_cnt);
 
     // Overhead counter removed; precise instrumentation is reported via engine_prepare above.
 }

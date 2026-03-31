@@ -72,6 +72,9 @@ public class ClientPool {
     public static GenericPool<FrontendService.Client> frontendPool =
             new GenericPool("FrontendService", backendConfig, Config.backend_rpc_timeout_ms,
                     Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
+    public static GenericPool<FrontendService.Client> frontendStatsPool =
+            new GenericPool<>("FrontendService", heartbeatConfig, heartbeatTimeoutMs,
+                    Config.thrift_server_type.equalsIgnoreCase(ThriftServer.THREADED_SELECTOR));
     public static GenericPool<BackendService.Client> backendPool =
             new GenericPool("BackendService", backendConfig, Config.backend_rpc_timeout_ms);
     public static GenericPool<TPaloBrokerService.Client> brokerPool =

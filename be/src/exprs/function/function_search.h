@@ -174,7 +174,8 @@ public:
             std::unordered_map<std::string, IndexIterator*> iterators, uint32_t num_rows,
             InvertedIndexResultBitmap& bitmap_result, bool enable_cache,
             const IndexExecContext* index_exec_ctx,
-            const std::unordered_map<std::string, int>& field_name_to_column_id) const;
+            const std::unordered_map<std::string, int>& field_name_to_column_id,
+            const std::shared_ptr<IndexQueryContext>& index_query_context = nullptr) const;
 
     Status evaluate_nested_query(
             const TSearchParam& search_param, const TSearchClause& nested_clause,

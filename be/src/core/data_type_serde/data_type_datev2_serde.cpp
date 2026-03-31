@@ -228,6 +228,14 @@ Status DataTypeDateV2SerDe::from_string_batch(const ColumnString& col_str, Colum
     return Status::OK();
 }
 
+// Deserializes a DateV2 value from its OLAP string representation (e.g. from ZoneMap protobuf).
+// This is the inverse of to_olap_string().
+//
+// Uses strptime("%Y-%m-%d") to parse, then bit-packs into DateV2 internal format:
+//   uint32_t value = (year << 9) | (month << 5) | day
+//
+// Expected input format: "YYYY-MM-DD", e.g. "2023-10-15"
+// On parse failure, falls back to MIN_DATE_V2.
 Status DataTypeDateV2SerDe::from_olap_string(const std::string& str, Field& field,
                                              const FormatOptions& options) const {
     CastParameters params {.status = Status::OK(), .is_strict = false};
@@ -261,7 +269,8 @@ Status DataTypeDateV2SerDe::from_string_strict_mode_batch(
         }
         auto str = col_str.get_data_at(i);
         DateV2Value<DateV2ValueType> res;
-        CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
+        CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, options.timezone,
+                                                                         params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(fmt::format("parse {} to date failed: ", str.to_string_view()));
@@ -299,7 +308,8 @@ Status DataTypeDateV2SerDe::from_string_strict_mode(StringRef& str, IColumn& col
     CastParameters params {.status = Status::OK(), .is_strict = true};
 
     DateV2Value<DateV2ValueType> res;
-    CastToDateV2::from_string_strict_mode<true>(str, res, options.timezone, params);
+    CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, options.timezone,
+                                                                     params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
     if (!params.status.ok()) [[unlikely]] {
         params.status.prepend(fmt::format("parse {} to date failed: ", str.to_string_view()));
@@ -321,7 +331,8 @@ Status DataTypeDateV2SerDe::from_int_batch(const typename IntDataType::ColumnTyp
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
-        if (CastToDateV2::from_integer<false>(int_col.get_element(i), val, params)) [[likely]] {
+        if (CastToDateV2::from_integer<DatelikeParseMode::NON_STRICT>(int_col.get_element(i), val,
+                                                                      params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -341,7 +352,7 @@ Status DataTypeDateV2SerDe::from_int_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
-        CastToDateV2::from_integer<true>(int_col.get_element(i), val, params);
+        CastToDateV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(fmt::format("parse {} to date failed: ", int_col.get_element(i)));
             return params.status;
@@ -363,7 +374,8 @@ Status DataTypeDateV2SerDe::from_float_batch(const typename FloatDataType::Colum
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
-        if (CastToDateV2::from_float<false>(float_col.get_data()[i], val, params)) [[likely]] {
+        if (CastToDateV2::from_float<DatelikeParseMode::NON_STRICT>(float_col.get_data()[i], val,
+                                                                    params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -383,7 +395,7 @@ Status DataTypeDateV2SerDe::from_float_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
-        CastToDateV2::from_float<true>(float_col.get_data()[i], val, params);
+        CastToDateV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to date failed: ", float_col.get_data()[i]));
@@ -406,8 +418,9 @@ Status DataTypeDateV2SerDe::from_decimal_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
-        if (CastToDateV2::from_decimal<true>(decimal_col.get_intergral_part(i),
-                                             decimal_col.get_scale(), val, params)) [[likely]] {
+        if (CastToDateV2::from_decimal<DatelikeParseMode::NON_STRICT>(
+                    decimal_col.get_intergral_part(i), decimal_col.get_scale(), val, params))
+                [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -427,8 +440,8 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         DateV2Value<DateV2ValueType> val;
-        CastToDateV2::from_decimal<true>(decimal_col.get_intergral_part(i), decimal_col.get_scale(),
-                                         val, params);
+        CastToDateV2::from_decimal<DatelikeParseMode::STRICT>(decimal_col.get_intergral_part(i),
+                                                              decimal_col.get_scale(), val, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {}.{} to date failed: ", decimal_col.get_intergral_part(i),
@@ -441,6 +454,11 @@ Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch(
     return Status::OK();
 }
 
+// Serializes a DateV2 value to its OLAP string representation for ZoneMap storage.
+// This is the inverse of from_olap_string().
+//
+// Delegates to CastToString::from_datev2() which calls DateV2Value::to_string(buf).
+// Output format: "YYYY-MM-DD", e.g. "2023-10-15"
 std::string DataTypeDateV2SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_datev2(field.get<TYPE_DATEV2>());
 }

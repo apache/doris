@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.DistributionSpec;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -89,21 +90,22 @@ public class PhysicalEsScan extends PhysicalCatalogRelation {
 
     @Override
     public PhysicalEsScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), null, null, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalEsScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), null, null, tableAlias));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get(), null, null, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalEsScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, logicalProperties.get(), null, null, tableAlias));
     }
 
     @Override
     public PhysicalEsScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             Statistics statsDeriveResult) {
-        return new PhysicalEsScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult, tableAlias);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalEsScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), physicalProperties, statsDeriveResult,
+                tableAlias));
     }
 }

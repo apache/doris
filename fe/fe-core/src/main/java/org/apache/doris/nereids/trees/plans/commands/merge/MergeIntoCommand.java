@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
@@ -52,6 +53,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ForwardWithSync;
+import org.apache.doris.nereids.trees.plans.commands.IcebergMergeCommand;
 import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.info.DMLCommandType;
 import org.apache.doris.nereids.trees.plans.commands.insert.InsertIntoTableCommand;
@@ -121,6 +123,12 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
+        TableIf table = getTargetTableIf(ctx);
+        if (table instanceof IcebergExternalTable) {
+            new IcebergMergeCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses).run(ctx, executor);
+            return;
+        }
         new InsertIntoTableCommand(completeQueryPlan(ctx), Optional.empty(), Optional.empty(),
                 Optional.empty(), true, Optional.empty()).run(ctx, executor);
     }
@@ -132,12 +140,21 @@ public class MergeIntoCommand extends Command implements ForwardWithSync, Explai
 
     @Override
     public Plan getExplainPlan(ConnectContext ctx) {
+        TableIf table = getTargetTableIf(ctx);
+        if (table instanceof IcebergExternalTable) {
+            return new IcebergMergeCommand(targetNameParts, targetAlias, cte,
+                    source, onClause, matchedClauses, notMatchedClauses).getExplainPlan(ctx);
+        }
         return completeQueryPlan(ctx);
     }
 
-    private OlapTable getTargetTable(ConnectContext ctx) {
+    private TableIf getTargetTableIf(ConnectContext ctx) {
         List<String> qualifiedTableName = RelationUtil.getQualifierName(ctx, targetNameParts);
-        TableIf table = RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+        return RelationUtil.getTable(qualifiedTableName, ctx.getEnv(), Optional.empty());
+    }
+
+    private OlapTable getTargetTable(ConnectContext ctx) {
+        TableIf table = getTargetTableIf(ctx);
         if (!(table instanceof OlapTable) || !((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
             throw new AnalysisException("merge into command only support MOW unique key olapTable");
         }

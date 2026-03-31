@@ -35,7 +35,14 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
+
+// Default spill partitioner for initial partitioning (level-0). Repartition
+// paths may use different channel-id policies (e.g. raw-hash mode).
 using SpillPartitionerType = Crc32HashPartitioner<SpillPartitionChannelIds>;
+
+// Repartition partitioner: keeps raw hash (no final modulo) so SpillRepartitioner
+// can apply level-aware hash mixing and channel mapping.
+using SpillRePartitionerType = Crc32HashPartitioner<SpillRePartitionChannelIds>;
 
 struct SpillContext {
     std::atomic_int running_tasks_count;
@@ -64,154 +71,20 @@ struct SpillContext {
     }
 };
 
-class SpillRunnable {
-protected:
-    SpillRunnable(RuntimeState* state, std::shared_ptr<SpillContext> spill_context,
-                  RuntimeProfile* operator_profile, bool is_write,
-                  std::function<Status()> spill_exec_func,
-                  std::function<Status()> spill_fin_cb = {})
-            : _state(state),
-              _custom_profile(operator_profile->get_child("CustomCounters")),
-              _spill_context(std::move(spill_context)),
-              _is_write_task(is_write),
-              _spill_exec_func(std::move(spill_exec_func)),
-              _spill_fin_cb(std::move(spill_fin_cb)) {
-        RuntimeProfile* common_profile = operator_profile->get_child("CommonCounters");
-        DCHECK(common_profile != nullptr);
-        DCHECK(_custom_profile != nullptr);
-        _spill_total_timer = _custom_profile->get_counter("SpillTotalTime");
-
-        if (is_write) {
-            _write_wait_in_queue_task_count =
-                    _custom_profile->get_counter("SpillWriteTaskWaitInQueueCount");
-            _writing_task_count = _custom_profile->get_counter("SpillWriteTaskCount");
-            COUNTER_UPDATE(_write_wait_in_queue_task_count, 1);
-        }
+// helper to execute a spill function synchronously.  The old code used
+// SpillRunnable/SpillSinkRunnable/SpillRecoverRunnable wrappers to track
+// counters and optionally notify a SpillContext.  Since spill operations are
+// now performed synchronously and external code already maintains any
+// necessary counters, those wrappers are no longer necessary.  We keep a
+// small utility to run the provided callbacks and forward cancellation.
+inline Status run_spill_task(RuntimeState* state, std::function<Status()> exec_func,
+                             std::function<Status()> fin_cb = {}) {
+    RETURN_IF_ERROR(exec_func());
+    if (fin_cb) {
+        RETURN_IF_ERROR(fin_cb());
     }
-
-public:
-    virtual ~SpillRunnable() = default;
-
-    [[nodiscard]] Status run() {
-        SCOPED_TIMER(_spill_total_timer);
-
-        auto* spill_timer = _get_spill_timer();
-        DCHECK(spill_timer != nullptr);
-        SCOPED_TIMER(spill_timer);
-
-        _on_task_started();
-
-        Defer defer([&] {
-            {
-                std::function<Status()> tmp;
-                std::swap(tmp, _spill_exec_func);
-            }
-            {
-                std::function<Status()> tmp;
-                std::swap(tmp, _spill_fin_cb);
-            }
-        });
-
-        if (_state->is_cancelled()) {
-            return _state->cancel_reason();
-        }
-
-        RETURN_IF_ERROR(_spill_exec_func());
-        _on_task_finished();
-        if (_spill_fin_cb) {
-            return _spill_fin_cb();
-        }
-
-        return Status::OK();
-    }
-
-protected:
-    virtual void _on_task_finished() {
-        if (_spill_context) {
-            _spill_context->on_task_finished();
-        }
-    }
-
-    virtual RuntimeProfile::Counter* _get_spill_timer() {
-        return _custom_profile->get_counter("SpillWriteTime");
-    }
-
-    virtual void _on_task_started() {
-        VLOG_DEBUG << "Query: " << print_id(_state->query_id())
-                   << " spill task started, pipeline task id: " << _state->task_id();
-        if (_is_write_task) {
-            COUNTER_UPDATE(_write_wait_in_queue_task_count, -1);
-            COUNTER_UPDATE(_writing_task_count, 1);
-        }
-    }
-
-    RuntimeState* _state;
-    RuntimeProfile* _custom_profile;
-    std::shared_ptr<SpillContext> _spill_context;
-    bool _is_write_task;
-
-private:
-    RuntimeProfile::Counter* _spill_total_timer;
-
-    RuntimeProfile::Counter* _write_wait_in_queue_task_count = nullptr;
-    RuntimeProfile::Counter* _writing_task_count = nullptr;
-
-    std::function<Status()> _spill_exec_func;
-    std::function<Status()> _spill_fin_cb;
-};
-
-class SpillSinkRunnable : public SpillRunnable {
-public:
-    SpillSinkRunnable(RuntimeState* state, std::shared_ptr<SpillContext> spill_context,
-                      RuntimeProfile* operator_profile, std::function<Status()> spill_exec_func,
-                      std::function<Status()> spill_fin_cb = {})
-            : SpillRunnable(state, spill_context, operator_profile, true, spill_exec_func,
-                            spill_fin_cb) {}
-};
-
-class SpillNonSinkRunnable : public SpillRunnable {
-public:
-    SpillNonSinkRunnable(RuntimeState* state, RuntimeProfile* operator_profile,
-                         std::function<Status()> spill_exec_func,
-                         std::function<Status()> spill_fin_cb = {})
-            : SpillRunnable(state, nullptr, operator_profile, true, spill_exec_func, spill_fin_cb) {
-    }
-};
-
-class SpillRecoverRunnable : public SpillRunnable {
-public:
-    SpillRecoverRunnable(RuntimeState* state, RuntimeProfile* operator_profile,
-                         std::function<Status()> spill_exec_func,
-                         std::function<Status()> spill_fin_cb = {})
-            : SpillRunnable(state, nullptr, operator_profile, false, spill_exec_func,
-                            spill_fin_cb) {
-        RuntimeProfile* custom_profile = operator_profile->get_child("CustomCounters");
-        DCHECK(custom_profile != nullptr);
-        _spill_revover_timer = custom_profile->get_counter("SpillRecoverTime");
-        _read_wait_in_queue_task_count =
-                custom_profile->get_counter("SpillReadTaskWaitInQueueCount");
-        _reading_task_count = custom_profile->get_counter("SpillReadTaskCount");
-
-        COUNTER_UPDATE(_read_wait_in_queue_task_count, 1);
-    }
-
-protected:
-    RuntimeProfile::Counter* _get_spill_timer() override {
-        return _custom_profile->get_counter("SpillRecoverTime");
-    }
-
-    void _on_task_started() override {
-        VLOG_DEBUG << "SpillRecoverRunnable, Query: " << print_id(_state->query_id())
-                   << " spill task started, pipeline task id: " << _state->task_id();
-        COUNTER_UPDATE(_read_wait_in_queue_task_count, -1);
-        COUNTER_UPDATE(_reading_task_count, 1);
-    }
-
-private:
-    RuntimeProfile::Counter* _spill_revover_timer;
-    RuntimeProfile::Counter* _read_wait_in_queue_task_count = nullptr;
-    RuntimeProfile::Counter* _reading_task_count = nullptr;
-};
+    return Status::OK();
+}
 
 template <bool accumulating>
 inline void update_profile_from_inner_profile(const std::string& name,
@@ -240,4 +113,5 @@ inline void update_profile_from_inner_profile(const std::string& name,
 }
 
 #include "common/compile_check_end.h"
+
 } // namespace doris

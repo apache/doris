@@ -132,7 +132,8 @@ public:
     static TabletColumn create_materialized_variant_column(const std::string& root,
                                                            const std::vector<std::string>& paths,
                                                            int32_t parent_unique_id,
-                                                           int32_t max_subcolumns_count);
+                                                           int32_t max_subcolumns_count,
+                                                           bool enable_doc_mode = false);
     bool has_default_value() const { return _has_default_value; }
     std::string default_value() const { return _default_value; }
     int32_t length() const { return _length; }
@@ -478,10 +479,14 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
-    void set_enable_variant_flatten_nested(bool flatten_nested) {
-        _enable_variant_flatten_nested = flatten_nested;
+    // Deprecated legacy switch for flatten-nested variant behavior.
+    // It is distinct from variant_enable_nested_group.
+    void set_deprecated_variant_flatten_nested(bool flatten_nested) {
+        _deprecated_enable_variant_flatten_nested = flatten_nested;
     }
-    bool variant_flatten_nested() const { return _enable_variant_flatten_nested; }
+    bool deprecated_variant_flatten_nested() const {
+        return _deprecated_enable_variant_flatten_nested;
+    }
     void set_enable_single_replica_compaction(bool enable_single_replica_compaction) {
         _enable_single_replica_compaction = enable_single_replica_compaction;
     }
@@ -821,7 +826,7 @@ private:
     // Contains column ids of which columns should be encoded into row store.
     // ATTN: For compability reason empty cids means all columns of tablet schema are encoded to row column
     std::vector<int32_t> _row_store_column_unique_ids;
-    bool _enable_variant_flatten_nested = false;
+    bool _deprecated_enable_variant_flatten_nested = false;
 
     std::map<size_t, int32_t> _vir_col_idx_to_unique_id;
     std::map<int32_t, DataTypePtr> _pruned_columns_data_type;

@@ -64,7 +64,6 @@ public class NereidsRoutineLoadTaskInfo implements NereidsLoadTaskInfo {
     protected Separator lineDelimiter;
     protected byte enclose;
     protected byte escape;
-    protected boolean emptyFieldAsNull;
     protected int sendBatchParallelism;
     protected boolean loadToSingleTablet;
     protected TUniqueKeyUpdateMode uniquekeyUpdateMode = TUniqueKeyUpdateMode.UPSERT;

@@ -35,10 +35,13 @@
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
+#include "storage/olap_common.h"
 #include "storage/olap_scan_common.h"
+#include "storage/segment/condition_cache.h"
 
 namespace doris {
 class RuntimeState;
@@ -229,10 +232,20 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    bool _need_iceberg_rowid_column = false;
+    int _iceberg_rowid_column_pos = -1;
+    // for iceberg row lineage
+    RowLineageColumns _row_lineage_columns;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 
-private:
+    // Condition cache for external tables
+    uint64_t _condition_cache_digest = 0;
+    segment_v2::ConditionCache::ExternalCacheKey _condition_cache_key;
+    std::shared_ptr<std::vector<bool>> _condition_cache;
+    std::shared_ptr<ConditionCacheContext> _condition_cache_ctx;
+    int64_t _condition_cache_hit_count = 0;
+
     Status _init_expr_ctxes();
     Status _init_src_block(Block* block);
     Status _check_output_block_types();
@@ -276,6 +289,10 @@ private:
         _counter.num_rows_unselected = 0;
         _counter.num_rows_filtered = 0;
     }
+
+    bool _should_enable_condition_cache();
+    void _init_reader_condition_cache();
+    void _finalize_reader_condition_cache();
 
     TPushAggOp::type _get_push_down_agg_type() {
         return _local_state == nullptr ? TPushAggOp::type::NONE

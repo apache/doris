@@ -26,7 +26,6 @@ import org.apache.doris.analysis.Separator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.info.PartitionNamesInfo;
@@ -104,7 +103,7 @@ public class NereidsDataDescription {
             "md5sum",
             "replace_value",
             "now",
-            FunctionSet.HLL_HASH,
+            "hll_hash",
             "substitute");
 
     private static final String DEFAULT_READ_JSON_BY_LINE = "true";
@@ -497,7 +496,7 @@ public class NereidsDataDescription {
             validateMd5sum(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("replace_value")) {
             validateReplaceValue(args, mappingColumn);
-        } else if (functionName.equalsIgnoreCase(FunctionSet.HLL_HASH)) {
+        } else if (functionName.equalsIgnoreCase("hll_hash")) {
             validateHllHash(args, columnNameMap);
         } else if (functionName.equalsIgnoreCase("now")) {
             validateNowFunction(mappingColumn);

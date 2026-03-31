@@ -689,7 +689,8 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
 TabletColumn TabletColumn::create_materialized_variant_column(const std::string& root,
                                                               const std::vector<std::string>& paths,
                                                               int32_t parent_unique_id,
-                                                              int32_t max_subcolumns_count) {
+                                                              int32_t max_subcolumns_count,
+                                                              bool enable_doc_mode) {
     TabletColumn subcol;
     subcol.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
     subcol.set_is_nullable(true);
@@ -699,6 +700,7 @@ TabletColumn TabletColumn::create_materialized_variant_column(const std::string&
     subcol.set_path_info(path);
     subcol.set_name(path.get_path());
     subcol.set_variant_max_subcolumns_count(max_subcolumns_count);
+    subcol.set_variant_enable_doc_mode(enable_doc_mode);
     return subcol;
 }
 
@@ -1289,7 +1291,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema, bool ignore_extrac
 
     _row_store_column_unique_ids.assign(schema.row_store_column_unique_ids().begin(),
                                         schema.row_store_column_unique_ids().end());
-    _enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
+    _deprecated_enable_variant_flatten_nested = schema.enable_variant_flatten_nested();
     if (schema.has_is_external_segment_column_meta_used()) {
         _is_external_segment_column_meta_used = schema.is_external_segment_column_meta_used();
     } else {
@@ -1370,7 +1372,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _row_store_page_size = ori_tablet_schema.row_store_page_size();
     _storage_page_size = ori_tablet_schema.storage_page_size();
     _storage_dict_page_size = ori_tablet_schema.storage_dict_page_size();
-    _enable_variant_flatten_nested = ori_tablet_schema.variant_flatten_nested();
+    _deprecated_enable_variant_flatten_nested =
+            ori_tablet_schema.deprecated_variant_flatten_nested();
 
     // copy from table_schema_param
     _schema_version = version;
@@ -1570,7 +1573,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_inverted_index_storage_format(_inverted_index_storage_format);
     tablet_schema_pb->mutable_row_store_column_unique_ids()->Assign(
             _row_store_column_unique_ids.begin(), _row_store_column_unique_ids.end());
-    tablet_schema_pb->set_enable_variant_flatten_nested(_enable_variant_flatten_nested);
+    tablet_schema_pb->set_enable_variant_flatten_nested(_deprecated_enable_variant_flatten_nested);
     tablet_schema_pb->set_is_external_segment_column_meta_used(
             _is_external_segment_column_meta_used);
     tablet_schema_pb->set_integer_type_default_use_plain_encoding(
@@ -1964,7 +1967,10 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._storage_page_size != b._storage_page_size) return false;
     if (a._storage_dict_page_size != b._storage_dict_page_size) return false;
     if (a._skip_write_index_on_load != b._skip_write_index_on_load) return false;
-    if (a._enable_variant_flatten_nested != b._enable_variant_flatten_nested) return false;
+    if (a._deprecated_enable_variant_flatten_nested !=
+        b._deprecated_enable_variant_flatten_nested) {
+        return false;
+    }
     if (a._is_external_segment_column_meta_used != b._is_external_segment_column_meta_used)
         return false;
     if (a._integer_type_default_use_plain_encoding != b._integer_type_default_use_plain_encoding)

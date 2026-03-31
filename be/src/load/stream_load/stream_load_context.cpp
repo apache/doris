@@ -58,6 +58,10 @@ std::string StreamLoadContext::to_json() const {
     } else {
         writer.Key("GroupCommit");
         writer.Bool(true);
+        writer.Key("GroupCommitMode");
+        writer.String(group_commit_mode.c_str());
+        writer.Key("LoadId");
+        writer.String(id.to_string().c_str());
     }
 
     // status

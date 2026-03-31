@@ -55,7 +55,8 @@ private:
     Status _set_doc_value_into_variant(MutableColumnPtr& dst, MutableColumnPtr&& doc_value_column,
                                        size_t count) const {
         auto& variant = assert_cast<ColumnVariant&>(*dst);
-        MutableColumnPtr container = ColumnVariant::create(variant.max_subcolumns_count(), count);
+        MutableColumnPtr container = ColumnVariant::create(variant.max_subcolumns_count(),
+                                                           variant.enable_doc_mode(), count);
         auto& container_variant = assert_cast<ColumnVariant&>(*container);
         container_variant.set_doc_value_column(std::move(doc_value_column));
         variant.insert_range_from(container_variant, 0, count);

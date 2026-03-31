@@ -135,5 +135,203 @@ TEST_F(RowRangesTest, TestRangesToRoaring) {
     EXPECT_EQ(row_ranges_union.count(), row_bitmap.cardinality());
 }
 
+TEST_F(RowRangesTest, TestRangesException) {
+    // Case 1: Right subtracts a hole from the middle of left
+    // [100, 300) \ [150, 200) = [100, 150), [200, 300)
+    {
+        RowRanges left = RowRanges::create_single(100, 300);
+        RowRanges right = RowRanges::create_single(150, 200);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(150, result.count()); // 50 + 100
+        EXPECT_EQ(2, result.range_size());
+        EXPECT_EQ(100, result.get_range_from(0));
+        EXPECT_EQ(150, result.get_range_to(0));
+        EXPECT_EQ(200, result.get_range_from(1));
+        EXPECT_EQ(300, result.get_range_to(1));
+    }
+
+    // Case 2: Right trims the left side
+    // [100, 300) \ [0, 150) = [150, 300)
+    {
+        RowRanges left = RowRanges::create_single(100, 300);
+        RowRanges right = RowRanges::create_single(0, 150);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(150, result.count());
+        EXPECT_EQ(1, result.range_size());
+        EXPECT_EQ(150, result.get_range_from(0));
+        EXPECT_EQ(300, result.get_range_to(0));
+    }
+
+    // Case 3: Right trims the right side
+    // [100, 300) \ [250, 400) = [100, 250)
+    {
+        RowRanges left = RowRanges::create_single(100, 300);
+        RowRanges right = RowRanges::create_single(250, 400);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(150, result.count());
+        EXPECT_EQ(1, result.range_size());
+        EXPECT_EQ(100, result.get_range_from(0));
+        EXPECT_EQ(250, result.get_range_to(0));
+    }
+
+    // Case 4: No overlap (right is after left) — left unchanged
+    // [100, 200) \ [200, 300) = [100, 200)
+    {
+        RowRanges left = RowRanges::create_single(100, 200);
+        RowRanges right = RowRanges::create_single(200, 300);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(100, result.count());
+        EXPECT_EQ(1, result.range_size());
+        EXPECT_EQ(100, result.get_range_from(0));
+        EXPECT_EQ(200, result.get_range_to(0));
+    }
+
+    // Case 5: Right fully covers left — result is empty
+    // [100, 300) \ [0, 400) = <EMPTY>
+    {
+        RowRanges left = RowRanges::create_single(100, 300);
+        RowRanges right = RowRanges::create_single(0, 400);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(0, result.count());
+        EXPECT_TRUE(result.is_empty());
+    }
+
+    // Case 6: Multiple left ranges, single right range cutting through both
+    // [100, 200), [300, 400) \ [150, 350) = [100, 150), [350, 400)
+    {
+        RowRanges left;
+        left.add(RowRange(100, 200));
+        left.add(RowRange(300, 400));
+        RowRanges right = RowRanges::create_single(150, 350);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(100, result.count()); // 50 + 50
+        EXPECT_EQ(2, result.range_size());
+        EXPECT_EQ(100, result.get_range_from(0));
+        EXPECT_EQ(150, result.get_range_to(0));
+        EXPECT_EQ(350, result.get_range_from(1));
+        EXPECT_EQ(400, result.get_range_to(1));
+    }
+
+    // Case 7: No overlap (right is before left) — left unchanged
+    // [100, 200) \ [0, 50) = [100, 200)
+    {
+        RowRanges left = RowRanges::create_single(100, 200);
+        RowRanges right = RowRanges::create_single(0, 50);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(100, result.count());
+        EXPECT_EQ(1, result.range_size());
+        EXPECT_EQ(100, result.get_range_from(0));
+        EXPECT_EQ(200, result.get_range_to(0));
+    }
+
+    // Case 8: Empty right — left unchanged
+    // [100, 200) \ <EMPTY> = [100, 200)
+    {
+        RowRanges left = RowRanges::create_single(100, 200);
+        RowRanges right;
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(100, result.count());
+        EXPECT_EQ(1, result.range_size());
+        EXPECT_EQ(100, result.get_range_from(0));
+        EXPECT_EQ(200, result.get_range_to(0));
+    }
+
+    // Case 9: Empty left — result is empty
+    // <EMPTY> \ [100, 200) = <EMPTY>
+    {
+        RowRanges left;
+        RowRanges right = RowRanges::create_single(100, 200);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(0, result.count());
+        EXPECT_TRUE(result.is_empty());
+    }
+
+    // Case 10: Left equals right — result is empty
+    // [100, 200) \ [100, 200) = <EMPTY>
+    {
+        RowRanges left = RowRanges::create_single(100, 200);
+        RowRanges right = RowRanges::create_single(100, 200);
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(0, result.count());
+        EXPECT_TRUE(result.is_empty());
+    }
+
+    // Case 11: Multiple right ranges punching multiple holes
+    // [0, 100) \ [10, 20), [30, 40), [60, 70) = [0, 10), [20, 30), [40, 60), [70, 100)
+    {
+        RowRanges left = RowRanges::create_single(0, 100);
+        RowRanges right;
+        right.add(RowRange(10, 20));
+        right.add(RowRange(30, 40));
+        right.add(RowRange(60, 70));
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(70, result.count()); // 10 + 10 + 20 + 30
+        EXPECT_EQ(4, result.range_size());
+        EXPECT_EQ(0, result.get_range_from(0));
+        EXPECT_EQ(10, result.get_range_to(0));
+        EXPECT_EQ(20, result.get_range_from(1));
+        EXPECT_EQ(30, result.get_range_to(1));
+        EXPECT_EQ(40, result.get_range_from(2));
+        EXPECT_EQ(60, result.get_range_to(2));
+        EXPECT_EQ(70, result.get_range_from(3));
+        EXPECT_EQ(100, result.get_range_to(3));
+    }
+
+    // Case 12: Multiple left ranges, multiple right ranges
+    // [0, 50), [100, 150), [200, 250) \ [25, 125), [225, 300)
+    // = [0, 25), [125, 150), [200, 225)
+    {
+        RowRanges left;
+        left.add(RowRange(0, 50));
+        left.add(RowRange(100, 150));
+        left.add(RowRange(200, 250));
+        RowRanges right;
+        right.add(RowRange(25, 125));
+        right.add(RowRange(225, 300));
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+        EXPECT_EQ(75, result.count()); // 25 + 25 + 25
+        EXPECT_EQ(3, result.range_size());
+        EXPECT_EQ(0, result.get_range_from(0));
+        EXPECT_EQ(25, result.get_range_to(0));
+        EXPECT_EQ(125, result.get_range_from(1));
+        EXPECT_EQ(150, result.get_range_to(1));
+        EXPECT_EQ(200, result.get_range_from(2));
+        EXPECT_EQ(225, result.get_range_to(2));
+    }
+
+    // Case 13: Verify consistency with roaring bitmap approach
+    {
+        RowRanges left;
+        left.add(RowRange(10, 50));
+        left.add(RowRange(80, 120));
+        RowRanges right;
+        right.add(RowRange(30, 90));
+
+        RowRanges result;
+        RowRanges::ranges_exception(left, right, &result);
+
+        // Verify using roaring bitmaps
+        roaring::Roaring left_bitmap = RowRanges::ranges_to_roaring(left);
+        roaring::Roaring right_bitmap = RowRanges::ranges_to_roaring(right);
+        roaring::Roaring expected = left_bitmap - right_bitmap;
+
+        roaring::Roaring result_bitmap = RowRanges::ranges_to_roaring(result);
+        EXPECT_EQ(expected.cardinality(), result_bitmap.cardinality());
+        EXPECT_TRUE(expected == result_bitmap);
+    }
+}
+
 } // namespace segment_v2
 } // namespace doris
