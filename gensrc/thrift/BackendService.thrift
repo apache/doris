@@ -86,7 +86,6 @@ struct TRoutineLoadTask {
     18: optional string qualified_user
     19: optional string cloud_cluster
     20: optional TKinesisLoadInfo kinesis_load_info
-    21: optional list<PaloInternalService.TPipelineWorkloadGroup> workload_groups
 }
 
 struct TKafkaMetaProxyRequest {
