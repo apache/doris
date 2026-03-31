@@ -44,16 +44,14 @@ import java.util.Set;
  */
 public class IVMRefreshManager {
     private static final Logger LOG = LogManager.getLogger(IVMRefreshManager.class);
-    private final IVMCapabilityChecker capabilityChecker;
     private final IVMDeltaExecutor deltaExecutor;
 
     public IVMRefreshManager() {
-        this(new IVMCapabilityChecker(), new IVMDeltaExecutor());
+        this(new IVMDeltaExecutor());
     }
 
     @VisibleForTesting
-    IVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMDeltaExecutor deltaExecutor) {
-        this.capabilityChecker = Objects.requireNonNull(capabilityChecker, "capabilityChecker can not be null");
+    IVMRefreshManager(IVMDeltaExecutor deltaExecutor) {
         this.deltaExecutor = Objects.requireNonNull(deltaExecutor, "deltaExecutor can not be null");
     }
 
@@ -126,15 +124,6 @@ public class IVMRefreshManager {
             IVMRefreshResult result = IVMRefreshResult.fallback(
                     FallbackReason.PLAN_PATTERN_UNSUPPORTED, "No IVM delta rule matched the MV define plan");
             LOG.warn("IVM no delta command bundles for mv={}, result={}", context.getMtmv().getName(), result);
-            return result;
-        }
-
-        IVMCapabilityResult capabilityResult = capabilityChecker.check(context, bundles);
-        Objects.requireNonNull(capabilityResult, "capabilityResult can not be null");
-        if (!capabilityResult.isIncremental()) {
-            IVMRefreshResult result = IVMRefreshResult.fallback(
-                    capabilityResult.getFallbackReason(), capabilityResult.getDetailMessage());
-            LOG.warn("IVM capability check failed for mv={}, result={}", context.getMtmv().getName(), result);
             return result;
         }
 
