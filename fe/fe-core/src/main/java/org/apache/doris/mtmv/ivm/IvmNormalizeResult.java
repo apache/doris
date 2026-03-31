@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.ivm;
+package org.apache.doris.mtmv.ivm;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -34,10 +34,11 @@ import java.util.Map;
  * normalizedPlan: the plan tree after IvmNormalizeMtmv has injected row-id columns.
  *   Stored here so that IVMRefreshManager can retrieve it for external delta rewriting.
  */
-public class IvmContext {
+public class IvmNormalizeResult {
     // insertion-ordered so row-ids appear in scan order
     private final Map<Slot, Boolean> rowIdDeterminism = new LinkedHashMap<>();
     private Plan normalizedPlan;
+    private IvmAggMeta aggMeta;
 
     public void addRowId(Slot rowIdSlot, boolean deterministic) {
         rowIdDeterminism.put(rowIdSlot, deterministic);
@@ -53,5 +54,19 @@ public class IvmContext {
 
     public void setNormalizedPlan(Plan normalizedPlan) {
         this.normalizedPlan = normalizedPlan;
+    }
+
+    /** Returns the aggregate IVM metadata, or null if the MV is not an agg MV. */
+    public IvmAggMeta getAggMeta() {
+        return aggMeta;
+    }
+
+    public void setAggMeta(IvmAggMeta aggMeta) {
+        this.aggMeta = aggMeta;
+    }
+
+    /** Returns true if this MV uses aggregate IVM. */
+    public boolean isAggMv() {
+        return aggMeta != null;
     }
 }

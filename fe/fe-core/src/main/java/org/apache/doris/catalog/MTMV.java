@@ -45,6 +45,7 @@ import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVStatus;
 import org.apache.doris.mtmv.ivm.IVMInfo;
+import org.apache.doris.mtmv.ivm.IvmUtil;
 import org.apache.doris.nereids.rules.analysis.SessionVarGuardRewriter;
 import org.apache.doris.qe.ConnectContext;
 
@@ -451,7 +452,7 @@ public class MTMV extends OlapTable {
         List<Column> columns = getBaseSchema(true);
         List<String> columnNames = Lists.newArrayListWithExpectedSize(columns.size());
         for (Column column : columns) {
-            if (column.isVisible() || Column.isIvmHiddenColumn(column.getName())) {
+            if (column.isVisible() || IvmUtil.isIvmHiddenColumn(column.getName())) {
                 columnNames.add(column.getName());
             }
         }
