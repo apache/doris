@@ -770,7 +770,9 @@ Status FileScanner::_process_src_block_after_read(Block* block) {
 }
 
 Status FileScanner::_process_src_block_after_read_for_query(Block* block) {
-    static_cast<void>(block);
+    // Truncate CHAR/VARCHAR columns when target size is smaller than file schema.
+    // This is needed for external table queries with truncate_char_or_varchar_columns=true.
+    RETURN_IF_ERROR(_truncate_char_or_varchar_columns(block));
     return Status::OK();
 }
 
@@ -885,7 +887,7 @@ Status FileScanner::_get_next_reader() {
         const TFileRangeDesc& range = _current_range;
         _current_range_path = range.path;
 
-        if (!_partition_slot_descs.empty()) {
+        if (!_partition_slot_index_map.empty()) {
             // we need get partition columns first for runtime filter partition pruning
             RETURN_IF_ERROR(_generate_partition_columns());
 
@@ -1131,9 +1133,13 @@ Status FileScanner::_get_next_reader() {
                     _column_descs, column_names, table_info_node, column_ids, filter_column_ids,
                     *_params, _current_range, _real_tuple_desc, _default_val_row_desc.get(), _state,
                     &_src_block_name_to_idx));
+            // Only set push_down_agg_type for simple readers (CSV, JSON, etc.)
+            // that don't set it during their own init.
+            // Complex readers (Parquet/ORC/Iceberg) already set it during
+            // _init_parquet_reader/_init_orc_reader, and Iceberg's _init_row_filters
+            // may have cleared it to NONE when delete files are present.
+            _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
         }
-
-        _cur_reader->set_push_down_agg_type(_get_push_down_agg_type());
 
         // For table-level COUNT pushdown, offsets are undefined so we must skip
         // _set_fill_or_truncate_columns (it uses [start_offset, end_offset] to
@@ -1588,19 +1594,6 @@ Status FileScanner::_generate_partition_columns() {
     _partition_col_descs.clear();
     _partition_value_is_null.clear();
     const TFileRangeDesc& range = _current_range;
-    LOG(INFO) << "[DEBUG _generate_partition_columns] _partition_slot_descs.size="
-              << _partition_slot_descs.size()
-              << " columns_from_path_keys.__isset=" << range.__isset.columns_from_path_keys
-              << " columns_from_path.__isset=" << range.__isset.columns_from_path;
-    if (range.__isset.columns_from_path_keys) {
-        for (const auto& key : range.columns_from_path_keys) {
-            LOG(INFO) << "[DEBUG _generate_partition_columns] columns_from_path_key: " << key;
-        }
-    }
-    for (auto* slot_desc : _partition_slot_descs) {
-        LOG(INFO) << "[DEBUG _generate_partition_columns] partition_slot_desc: "
-                  << slot_desc->col_name();
-    }
     if (!range.__isset.columns_from_path_keys) {
         return Status::OK();
     }
@@ -1611,23 +1604,25 @@ Status FileScanner::_generate_partition_columns() {
         partition_name_to_key_index.emplace(key, index++);
     }
 
-    for (auto* slot_desc : _partition_slot_descs) {
-        auto pit = partition_name_to_key_index.find(slot_desc->col_name());
+    // Iterate _column_descs to find PARTITION_KEY columns instead of _partition_slot_descs.
+    for (const auto& col_desc : _column_descs) {
+        if (col_desc.category != ColumnCategory::PARTITION_KEY) {
+            continue;
+        }
+        auto pit = partition_name_to_key_index.find(col_desc.name);
         if (pit != partition_name_to_key_index.end()) {
             int values_index = pit->second;
             if (range.__isset.columns_from_path && values_index < range.columns_from_path.size()) {
                 _partition_col_descs.emplace(
-                        slot_desc->col_name(),
-                        std::make_tuple(range.columns_from_path[values_index], slot_desc));
+                        col_desc.name,
+                        std::make_tuple(range.columns_from_path[values_index], col_desc.slot_desc));
                 if (range.__isset.columns_from_path_is_null) {
-                    _partition_value_is_null.emplace(slot_desc->col_name(),
+                    _partition_value_is_null.emplace(col_desc.name,
                                                      range.columns_from_path_is_null[values_index]);
                 }
             }
         }
     }
-    LOG(INFO) << "[DEBUG _generate_partition_columns] result: _partition_col_descs.size="
-              << _partition_col_descs.size();
     return Status::OK();
 }
 
@@ -1728,18 +1723,6 @@ Status FileScanner::_init_expr_ctxes() {
                   << " is_file_slot=" << is_file_slot << " is_partition="
                   << partition_name_to_key_index_map.contains(it->second->col_name());
         if (partition_name_to_key_index_map.contains(it->second->col_name())) {
-            // if (is_file_slot) {
-            //     // If there is slot which is both a partition column and a file column,
-            //     // we should not fill the partition column from path.
-            //     _fill_partition_from_path = false;
-            // } else if (!_fill_partition_from_path) {
-            //     // This should not happen
-            //     return Status::InternalError(
-            //             "Partition column {} is not a file column, but there is already a column "
-            //             "which is both a partition column and a file column.",
-            //             it->second->col_name());
-            // }
-            _partition_slot_descs.emplace_back(it->second);
             if (_is_load) {
                 auto iti = full_src_index_map.find(slot_id);
                 _partition_slot_index_map.emplace(slot_id, iti->second - _num_of_columns_from_file);

@@ -133,9 +133,7 @@ protected:
     // Unified column descriptors for init_reader (includes file, partition, missing, synthesized cols)
     std::vector<ColumnDescriptor> _column_descs;
 
-    // Partition source slot descriptors
-    std::vector<SlotDescriptor*> _partition_slot_descs;
-    // Partition slot id to index in _partition_slot_descs
+    // Partition slot id to partition key index (for matching columns_from_path)
     std::unordered_map<SlotId, int> _partition_slot_index_map;
     // created from param.expr_of_dest_slot
     // For query, it saves default value expr of all dest columns, or nullptr for NULL.
