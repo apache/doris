@@ -258,6 +258,6 @@ Status parse_and_materialize_variant_columns(Block& block, const TabletSchema& t
 // NOTE: Returned map keys are `std::string_view` pointing into the underlying doc snapshot paths
 // column, so the input `variant` must outlive the returned map.
 phmap::flat_hash_map<std::string_view, ColumnVariant::Subcolumn> materialize_docs_to_subcolumns_map(
-        const ColumnVariant& variant);
+        const ColumnVariant& variant, size_t expected_unique_paths = 0);
 
 } // namespace  doris::variant_util
