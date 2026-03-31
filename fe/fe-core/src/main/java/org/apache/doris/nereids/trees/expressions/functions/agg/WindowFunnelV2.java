@@ -42,6 +42,8 @@ import java.util.List;
 public class WindowFunnelV2 extends NullableAggregateFunction
         implements ExplicitlyCastableSignature {
 
+    public static final int MAX_EVENT_CONDITIONS = 127;
+
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(IntegerType.INSTANCE)
                     .varArgs(BigIntType.INSTANCE, StringType.INSTANCE, DateTimeV2Type.WILDCARD,
@@ -79,6 +81,11 @@ public class WindowFunnelV2 extends NullableAggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
+        int eventCount = arity() - 3;
+        if (eventCount > MAX_EVENT_CONDITIONS) {
+            throw new AnalysisException("The " + functionName + " function supports at most "
+                    + MAX_EVENT_CONDITIONS + " event conditions, but got " + eventCount);
+        }
         if (!getArgumentType(0).isIntegerLikeType()) {
             throw new AnalysisException("The window params of " + functionName + " function must be integer");
         }

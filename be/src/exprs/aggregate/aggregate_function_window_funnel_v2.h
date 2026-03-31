@@ -99,6 +99,17 @@ struct WindowFunnelStateV2 {
 
     static constexpr UInt8 CONTINUATION_FLAG = 0x80;
     static constexpr UInt8 EVENT_IDX_MASK = 0x7F;
+    static constexpr int MAX_EVENT_CONDITIONS = EVENT_IDX_MASK;
+
+    static void validate_event_count(int count) {
+        if (count < 0 || count > MAX_EVENT_CONDITIONS) {
+            throw Exception(
+                    ErrorCode::INVALID_ARGUMENT,
+                    "window_funnel_v2 supports at most {} conditions because event indexes are "
+                    "encoded in 7 bits, but got {}",
+                    MAX_EVENT_CONDITIONS, count);
+        }
+    }
 
     /// Extract the actual 1-based event index (stripping continuation flag).
     static int get_event_idx(UInt8 raw) { return (raw & EVENT_IDX_MASK); }
@@ -547,7 +558,10 @@ class AggregateFunctionWindowFunnelV2
 public:
     AggregateFunctionWindowFunnelV2(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<WindowFunnelStateV2, AggregateFunctionWindowFunnelV2>(
-                      argument_types_) {}
+                      argument_types_) {
+        WindowFunnelStateV2::validate_event_count(
+                cast_set<int>(IAggregateFunction::get_argument_types().size() - 3));
+    }
 
     void create(AggregateDataPtr __restrict place) const override {
         new (place) WindowFunnelStateV2(
