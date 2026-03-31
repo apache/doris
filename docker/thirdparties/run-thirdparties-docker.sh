@@ -267,18 +267,19 @@ download_juicefs_hadoop_jar() {
 install_juicefs_cli() {
     local juicefs_version="$1"
     local cache_dir="${JUICEFS_RUNTIME_ROOT}/bin"
-    local archive_name="juicefs-${juicefs_version}-linux-amd64.tar.gz"
-    local download_url="https://github.com/juicedata/juicefs/releases/download/v${juicefs_version}/${archive_name}"
+    local archive_name
+    local -a download_urls=()
     local tmp_dir
     local extracted_bin
 
+    archive_name=$(juicefs_cli_archive_name "${juicefs_version}")
     mkdir -p "${cache_dir}"
     tmp_dir=$(mktemp -d "${cache_dir}/tmp.XXXXXX")
+    mapfile -t download_urls < <(juicefs_cli_archive_download_urls "${juicefs_version}")
 
-    echo "Downloading JuiceFS CLI ${juicefs_version} from ${download_url}" >&2
-    if ! curl -fL --retry 3 --retry-delay 2 -o "${tmp_dir}/${archive_name}" "${download_url}"; then
+    if ! juicefs_download_file "${tmp_dir}/${archive_name}" "JuiceFS CLI ${juicefs_version}" "${download_urls[@]}"; then
         rm -rf "${tmp_dir}"
-        echo "ERROR: failed to download JuiceFS CLI from ${download_url}" >&2
+        echo "ERROR: failed to download JuiceFS CLI ${juicefs_version}" >&2
         return 1
     fi
 
