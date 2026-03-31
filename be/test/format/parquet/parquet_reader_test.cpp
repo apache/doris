@@ -670,7 +670,7 @@ TEST_F(ParquetReaderTest, varbinary_string2) {
 
 static VExprContextSPtrs create_predicates(DescriptorTbl* desc_tbl, RuntimeState* runtime_state) {
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    doris::RowDescriptor row_desc(tuple_desc);
+    doris::RowDescriptor row_desc(tuple_desc, false);
     VExprSPtr root;
     {
         TFunction fn;
@@ -766,7 +766,7 @@ template <bool filter_all>
 static VExprContextSPtrs create_partition_predicates(DescriptorTbl* desc_tbl,
                                                      RuntimeState* runtime_state) {
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    doris::RowDescriptor row_desc(tuple_desc);
+    doris::RowDescriptor row_desc(tuple_desc, false);
     VExprContextSPtrs res;
 
     VExprSPtr value_eq_root;
@@ -863,7 +863,7 @@ static VExprContextSPtrs create_partition_predicates(DescriptorTbl* desc_tbl,
 static VExprContextSPtrs create_only_partition_predicates(DescriptorTbl* desc_tbl,
                                                           RuntimeState* runtime_state) {
     auto tuple_desc = const_cast<doris::TupleDescriptor*>(desc_tbl->get_tuple_descriptor(0));
-    doris::RowDescriptor row_desc(tuple_desc);
+    doris::RowDescriptor row_desc(tuple_desc, false);
     VExprContextSPtrs res;
 
     VExprSPtr partition_eq_root;
