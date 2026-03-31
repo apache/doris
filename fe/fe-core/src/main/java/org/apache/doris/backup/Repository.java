@@ -146,6 +146,10 @@ public class Repository implements Writable, GsonPostProcessable {
         return fileSystem;
     }
 
+    public FileSystemDescriptor getFileSystemDescriptor() {
+        return fileSystemDescriptor;
+    }
+
     private Repository() {
         // for persist
     }
