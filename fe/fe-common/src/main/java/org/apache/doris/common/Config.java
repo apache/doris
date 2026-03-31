@@ -3394,17 +3394,17 @@ public class Config extends ConfigBase {
     public static int tso_service_update_interval_ms = 50;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "TSO service max retry count. Default is 3, which means the TSO service will retry 3 times"
+            "TSO service max retry count. Default is 3, which means the TSO service will retry 3 times "
                     + "to update the global timestamp."})
     public static int tso_max_update_retry_count = 3;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "TSO get max retry count. Default is 10, which means the TSO service will retry 10 times"
+            "TSO get max retry count. Default is 10, which means the TSO service will retry 10 times "
                     + "to generate TSO."})
     public static int tso_max_get_retry_count = 10;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "TSO service time window in milliseconds. Default is 5000, which means the TSO service"
+            "TSO service time window in milliseconds. Default is 5000, which means the TSO service "
                     + "will apply for a TSO time window of 5000ms from BDBJE once."})
     public static int tso_service_window_duration_ms = 5000;
 
@@ -3414,18 +3414,18 @@ public class Config extends ConfigBase {
     public static long tso_clock_backward_startup_threshold_ms = 30L * 60 * 1000;
 
     @ConfField(mutable = true, description = {
-            "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service"
+            "TSO service time offset in milliseconds. Only for test. Default is 0, which means the TSO service "
                     + "timestamp offset is 0 milliseconds."})
     public static int tso_time_offset_debug_mode = 0;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code,"
-                    + " which may break rollback to older versions."})
+            "Whether to enable persisting TSO window end into edit log. Enabling emits new op code, "
+                    + "which may break rollback to older versions."})
     public static boolean enable_tso_persist_journal = false;
 
     @ConfField(mutable = true, masterOnly = true, description = {
-            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore"
-                    + " unknown modules when reading new images."})
+            "Whether to include TSO info as an image module in checkpoint. Older versions may need to ignore "
+                    + "unknown modules when reading new images."})
     public static boolean enable_tso_checkpoint_module = false;
 
     @ConfField(mutable = true, masterOnly = true)
