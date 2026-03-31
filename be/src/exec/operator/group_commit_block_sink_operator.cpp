@@ -22,7 +22,7 @@
 #include "exec/sink/vtablet_block_convertor.h"
 #include "load/group_commit/group_commit_mgr.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 GroupCommitBlockSinkLocalState::~GroupCommitBlockSinkLocalState() {
     if (_load_block_queue) {
@@ -47,7 +47,7 @@ Status GroupCommitBlockSinkLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(_vpartition->init());
     _state = state;
 
-    _block_convertor = std::make_unique<vectorized::OlapTableBlockConvertor>(p._output_tuple_desc);
+    _block_convertor = std::make_unique<OlapTableBlockConvertor>(p._output_tuple_desc);
     _block_convertor->init_autoinc_info(p._schema->db_id(), p._schema->table_id(),
                                         _state->batch_size());
 
@@ -110,7 +110,7 @@ std::string GroupCommitBlockSinkLocalState::debug_string(int indentation_level) 
 }
 
 Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
-                                                  std::shared_ptr<vectorized::Block> block) {
+                                                  std::shared_ptr<Block> block) {
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -124,15 +124,15 @@ Status GroupCommitBlockSinkLocalState::_add_block(RuntimeState* state,
         block->get_by_position(i).type = make_nullable(block->get_by_position(i).type);
     }
     // add block to queue
-    auto cur_mutable_block = vectorized::MutableBlock::create_unique(block->clone_empty());
+    auto cur_mutable_block = MutableBlock::create_unique(block->clone_empty());
     {
-        vectorized::IColumn::Selector selector;
+        IColumn::Selector selector;
         for (auto i = 0; i < block->rows(); i++) {
             selector.emplace_back(i);
         }
         RETURN_IF_ERROR(block->append_to_block_by_selector(cur_mutable_block.get(), selector));
     }
-    std::shared_ptr<vectorized::Block> output_block = vectorized::Block::create_shared();
+    std::shared_ptr<Block> output_block = Block::create_shared();
     output_block->swap(cur_mutable_block->to_block());
     if (!_is_block_appended && state->num_rows_load_total() + state->num_rows_load_unselected() +
                                                state->num_rows_load_filtered() <=
@@ -265,7 +265,7 @@ Status GroupCommitBlockSinkOperatorX::init(const TDataSink& t_sink) {
     _load_id = table_sink.load_id;
     _max_filter_ratio = table_sink.max_filter_ratio;
     // From the thrift expressions create the real exprs.
-    RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
+    RETURN_IF_ERROR(VExpr::create_expr_trees(_t_output_expr, _output_vexpr_ctxs));
     return Status::OK();
 }
 
@@ -277,12 +277,11 @@ Status GroupCommitBlockSinkOperatorX::prepare(RuntimeState* state) {
         LOG(WARNING) << "unknown destination tuple descriptor, id=" << _tuple_desc_id;
         return Status::InternalError("unknown destination tuple descriptor");
     }
-    RETURN_IF_ERROR(vectorized::VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
-    return vectorized::VExpr::open(_output_vexpr_ctxs, state);
+    RETURN_IF_ERROR(VExpr::prepare(_output_vexpr_ctxs, state, _row_desc));
+    return VExpr::open(_output_vexpr_ctxs, state);
 }
 
-Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Block* input_block,
-                                           bool eos) {
+Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, Block* input_block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
@@ -329,7 +328,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
     state->update_num_rows_load_total(rows);
     state->update_num_bytes_load_total(bytes);
 
-    std::shared_ptr<vectorized::Block> block;
+    std::shared_ptr<Block> block;
     bool has_filtered_rows = false;
     {
         SCOPED_TIMER(local_state._valid_and_convert_block_timer);
@@ -374,7 +373,7 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
         if (local_state._block_convertor->num_filtered_rows() > 0 ||
             local_state._has_filtered_rows) {
             auto cloneBlock = block->clone_without_columns();
-            auto res_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+            auto res_block = MutableBlock::build_mutable_block(&cloneBlock);
             for (int i = 0; i < rows; ++i) {
                 if (local_state._block_convertor->filter_map()[i]) {
                     continue;
@@ -393,4 +392,4 @@ Status GroupCommitBlockSinkOperatorX::sink(RuntimeState* state, vectorized::Bloc
     return wind_up();
 }
 
-} // namespace doris::pipeline
+} // namespace doris

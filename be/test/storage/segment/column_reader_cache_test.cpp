@@ -267,7 +267,7 @@ TEST_F(ColumnReaderCacheTest, VariantColumnPathReading) {
     setup_segment_footer({variant_meta, subcol_meta});
 
     // Test path column reader
-    vectorized::PathInData path("field1");
+    PathInData path("field1");
     std::shared_ptr<ColumnReader> path_reader;
     Status status = _cache->get_path_column_reader(1, path, &path_reader, &_stats);
     EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
@@ -293,7 +293,7 @@ TEST_F(ColumnReaderCacheTest, NonExistentVariantPath) {
     variant_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({variant_meta});
 
-    vectorized::PathInData non_existent_path("non_existent_field");
+    PathInData non_existent_path("non_existent_field");
     std::shared_ptr<ColumnReader> reader;
     Status status = _cache->get_path_column_reader(1, non_existent_path, &reader, &_stats);
     EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
@@ -404,9 +404,9 @@ TEST_F(ColumnReaderCacheTest, NodeHintParameter) {
     // Create node hint
     SubcolumnColumnMetaInfo::Node node_hint(SubcolumnColumnMetaInfo::Node::SCALAR);
     node_hint.data.footer_ordinal = 1;
-    node_hint.path = vectorized::PathInData("hint_field");
+    node_hint.path = PathInData("hint_field");
 
-    vectorized::PathInData path("hint_field");
+    PathInData path("hint_field");
     std::shared_ptr<ColumnReader> reader;
     Status status = _cache->get_path_column_reader(1, path, &reader, &_stats, &node_hint);
     EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());
@@ -475,7 +475,7 @@ TEST_F(ColumnReaderCacheTest, EmptyPath) {
     col_meta.mutable_indexes()->Add()->set_type(ORDINAL_INDEX);
     setup_segment_footer({col_meta});
 
-    vectorized::PathInData empty_path("");
+    PathInData empty_path("");
     std::shared_ptr<ColumnReader> reader;
     Status status = _cache->get_path_column_reader(1, empty_path, &reader, &_stats);
     EXPECT_TRUE(status.is<ErrorCode::NOT_FOUND>());

@@ -25,7 +25,6 @@
 #include "exec/scan/task_executor/time_sharing/split_queue.h"
 
 namespace doris {
-namespace vectorized {
 
 class SimulationFIFOSplitQueue : public SplitQueue {
 public:
@@ -90,5 +89,4 @@ private:
     std::queue<std::shared_ptr<PrioritizedSplitRunner>> _queue;
 };
 
-} // namespace vectorized
 } // namespace doris

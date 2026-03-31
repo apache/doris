@@ -52,8 +52,16 @@ suite("test_pk_fk_drop_table") {
     );
     alter table customer_test add constraint c_pk primary key(c_customer_sk);
     alter table store_sales_test add constraint ss_c_fk foreign key(ss_customer_sk) references customer_test(c_customer_sk);
-    drop table customer_test;
     """
+
+    test {
+        sql """
+            drop table customer_test;
+        """
+
+        exception "primary key is referenced by foreign key"
+    }
+
     // expect: not throw
     sql "show constraints from store_sales_test;"
 }

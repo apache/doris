@@ -26,7 +26,7 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(FunctionMapTest, deduplicate_map) {
     const std::string func_name = "deduplicate_map";
@@ -81,4 +81,4 @@ TEST(FunctionMapTest, deduplicate_map) {
         ASSERT_EQ(map_size, 8) << "deduplicate map failed at row " << i;
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

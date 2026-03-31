@@ -22,7 +22,7 @@
 #include "common/config.h"
 #include "core/value/vdatetime_value.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 inline PURE uint32_t complete_4digit_year(uint32_t year) {
     if (year < 70) {
@@ -43,4 +43,4 @@ inline bool try_convert_set_zero_date(T& date_val, uint32_t year, uint32_t month
     }
     return false;
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -17,12 +17,7 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TInfoFunc;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -66,20 +61,8 @@ public class InformationFunction extends Expr {
     }
 
     @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.INFO_FUNC;
-        msg.info_func = new TInfoFunc(intValue, strValue);
-    }
-
-    @Override
-    public String toSqlImpl() {
-        return funcType + "()";
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return funcType + "()";
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitInformationFunction(this, context);
     }
 
     @Override

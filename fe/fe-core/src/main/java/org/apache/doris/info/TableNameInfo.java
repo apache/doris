@@ -150,6 +150,29 @@ public class TableNameInfo {
     }
 
     /**
+     * Create TableNameInfo from a TableIf, returning null if the table
+     * lacks a database or catalog (e.g., standalone tables in unit tests).
+     */
+    public static TableNameInfo createOrNull(TableIf tableIf) {
+        if (tableIf == null || StringUtils.isEmpty(tableIf.getName())) {
+            return null;
+        }
+        DatabaseIf db = tableIf.getDatabase();
+        if (db == null) {
+            return null;
+        }
+        CatalogIf catalog = db.getCatalog();
+        if (catalog == null) {
+            return null;
+        }
+        String tableName = tableIf.getName();
+        if (Env.isStoredTableNamesLowerCase()) {
+            tableName = tableName.toLowerCase();
+        }
+        return new TableNameInfo(catalog.getName(), db.getFullName(), tableName);
+    }
+
+    /**
      * analyze tableNameInfo
      * @param ctx ctx
      */
@@ -227,7 +250,7 @@ public class TableNameInfo {
     @Override
     public String toString() {
         StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
+        if (ctl != null) {
             stringBuilder.append(ctl).append(".");
         }
         if (db != null) {
@@ -237,48 +260,25 @@ public class TableNameInfo {
         return stringBuilder.toString();
     }
 
-    /**
-     * equals
-     */
     @Override
-    public boolean equals(Object other) {
-        if (this == other) {
-            return true;
-        }
-        if (other == null || getClass() != other.getClass()) {
+    public boolean equals(Object o) {
+        if (o == null || getClass() != o.getClass()) {
             return false;
         }
-        TableNameInfo that = (TableNameInfo) other;
-        return toString().equals(that.toString());
+        TableNameInfo that = (TableNameInfo) o;
+        return Objects.equals(ctl, that.ctl) && Objects.equals(tbl, that.tbl)
+                && Objects.equals(db, that.db);
     }
 
-    /**
-     * hashCode
-     */
     @Override
     public int hashCode() {
-        return Objects.hash(tbl, db, ctl);
+        return Objects.hash(ctl, tbl, db);
     }
 
     /**
      * toSql
      */
     public String toSql() {
-        StringBuilder stringBuilder = new StringBuilder();
-        if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {
-            stringBuilder.append("`").append(ctl).append("`.");
-        }
-        if (db != null) {
-            stringBuilder.append("`").append(db).append("`.");
-        }
-        stringBuilder.append("`").append(tbl).append("`");
-        return stringBuilder.toString();
-    }
-
-    /**
-     * toFullyQualified
-     */
-    public String toFullyQualified() {
         StringBuilder stringBuilder = new StringBuilder();
         if (ctl != null) {
             stringBuilder.append("`").append(ctl).append("`.");

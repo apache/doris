@@ -22,8 +22,11 @@ import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprSubstitutionMap;
+import org.apache.doris.analysis.ExprToExternalSqlVisitor;
+import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
@@ -31,6 +34,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.FileQueryScanNode;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.spi.Split;
@@ -76,8 +80,8 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private RemoteDorisSource source;
 
     public RemoteDorisScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv,
-                               SessionVariable sv) {
-        super(id, desc, "REMOTE_DORIS_SCAN_NODE", needCheckColumnPriv, sv);
+                               SessionVariable sv, ScanContext scanContext) {
+        super(id, desc, "REMOTE_DORIS_SCAN_NODE", scanContext, needCheckColumnPriv, sv);
     }
 
     @Override
@@ -128,7 +132,8 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
         output.append(prefix).append("QUERY: ").append(getQueryStr()).append("\n");
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
 
         return output.toString();
@@ -260,10 +265,11 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
     private String conjunctExprToString(Expr expr, TableIf tbl) {
         if (expr.contains(DateLiteral.class) && expr instanceof BinaryPredicate) {
             ArrayList<Expr> children = expr.getChildren();
-            String filter = children.get(0).toExternalSql(TableIf.TableType.DORIS_EXTERNAL_TABLE, tbl);
+            ToSqlParams params = new ToSqlParams(false, true, TableIf.TableType.DORIS_EXTERNAL_TABLE, tbl);
+            String filter = children.get(0).accept(ExprToExternalSqlVisitor.INSTANCE, params);
             filter += " " + ((BinaryPredicate) expr).getOp().toString() + " ";
 
-            filter += children.get(1).toExternalSql(TableIf.TableType.DORIS_EXTERNAL_TABLE, tbl);
+            filter += children.get(1).accept(ExprToExternalSqlVisitor.INSTANCE, params);
 
             return filter;
         }
@@ -274,7 +280,8 @@ public class RemoteDorisScanNode extends FileQueryScanNode {
             return "1 = 1";
         }
 
-        return expr.toExternalSql(TableIf.TableType.DORIS_EXTERNAL_TABLE, tbl);
+        return expr.accept(ExprToExternalSqlVisitor.INSTANCE,
+                new ToSqlParams(false, true, TableIf.TableType.DORIS_EXTERNAL_TABLE, tbl));
     }
 
     // TODO: Use AST parsing instead of string matching for EXPLAIN detection

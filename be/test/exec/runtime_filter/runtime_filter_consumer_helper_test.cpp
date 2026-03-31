@@ -36,43 +36,42 @@ namespace doris {
 class RuntimeFilterConsumerHelperTest : public RuntimeFilterTest {
     void SetUp() override {
         RuntimeFilterTest::SetUp();
-        _pipeline = std::make_shared<pipeline::Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
-        _op.reset(new pipeline::MockOperatorX());
+        _pipeline = std::make_shared<Pipeline>(0, INSTANCE_NUM, INSTANCE_NUM);
+        _op.reset(new MockOperatorX());
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->add_operator(_op, 2));
 
-        _sink.reset(new pipeline::HashJoinBuildSinkOperatorX(
+        _sink.reset(new HashJoinBuildSinkOperatorX(
                 &_pool, 0, _op->operator_id(),
                 TPlanNodeBuilder(0, TPlanNodeType::HASH_JOIN_NODE).build(), _tbl));
         FAIL_IF_ERROR_OR_CATCH_EXCEPTION(_pipeline->set_sink(_sink));
 
-        _task.reset(new pipeline::PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr,
-                                               &_profile, {}, 0));
+        _task.reset(new PipelineTask(_pipeline, 0, _runtime_states[0].get(), nullptr, &_profile, {},
+                                     0));
 
         ExecEnv::GetInstance()->_init_runtime_filter_timer_queue();
     }
 
-    pipeline::OperatorPtr _op;
-    pipeline::DataSinkOperatorPtr _sink;
-    pipeline::PipelinePtr _pipeline;
-    std::shared_ptr<pipeline::PipelineTask> _task;
+    OperatorPtr _op;
+    DataSinkOperatorPtr _sink;
+    PipelinePtr _pipeline;
+    std::shared_ptr<PipelineTask> _task;
     ObjectPool _pool;
 };
 
 TEST_F(RuntimeFilterConsumerHelperTest, basic) {
-    vectorized::VExprContextSPtr ctx;
-    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(vectorized::VExpr::create_expr_tree(
-            TRuntimeFilterDescBuilder::get_default_expr(), ctx));
+    VExprContextSPtr ctx;
+    FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
+            VExpr::create_expr_tree(TRuntimeFilterDescBuilder::get_default_expr(), ctx));
     ctx->_last_result_column_id = 0;
 
-    vectorized::VExprContextSPtrs build_expr_ctxs = {ctx};
+    VExprContextSPtrs build_expr_ctxs = {ctx};
     std::vector<TRuntimeFilterDesc> runtime_filter_descs = {
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build(),
             TRuntimeFilterDescBuilder().add_planId_to_target_expr(0).build()};
 
-    std::vector<std::shared_ptr<pipeline::Dependency>> runtime_filter_dependencies;
+    std::vector<std::shared_ptr<Dependency>> runtime_filter_dependencies;
     SlotDescriptor slot_desc;
-    slot_desc._type = vectorized::DataTypeFactory::instance().create_data_type(
-            PrimitiveType::TYPE_INT, false);
+    slot_desc._type = DataTypeFactory::instance().create_data_type(PrimitiveType::TYPE_INT, false);
     TupleDescriptor tuple_desc;
     tuple_desc.add_slot(&slot_desc);
     RowDescriptor row_desc;
@@ -83,7 +82,7 @@ TEST_F(RuntimeFilterConsumerHelperTest, basic) {
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.init(_runtime_states[0].get(), true, 0, 0, runtime_filter_dependencies, ""));
 
-    vectorized::VExprContextSPtrs conjuncts;
+    VExprContextSPtrs conjuncts;
     FAIL_IF_ERROR_OR_CATCH_EXCEPTION(
             helper.acquire_runtime_filter(_runtime_states[0].get(), conjuncts, row_desc));
     ASSERT_EQ(conjuncts.size(), 0);

@@ -23,7 +23,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.MysqlColType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.util.ByteBufferUtil;
+import org.apache.doris.foundation.util.ByteBufferUtil;
 import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.exceptions.CastException;

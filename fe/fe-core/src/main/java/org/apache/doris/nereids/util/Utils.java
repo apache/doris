@@ -31,7 +31,6 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.statistics.ResultRow;
 
-import com.google.common.base.CaseFormat;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
@@ -441,19 +440,6 @@ public class Utils {
     }
 
     /**
-     * Normalize the name to lower underscore style, return default name if the name is empty.
-     */
-    public static String normalizeName(String name, String defaultName) {
-        if (StringUtils.isEmpty(name)) {
-            return defaultName;
-        }
-        if (name.contains("$")) {
-            name = name.replace("$", "_");
-        }
-        return CaseFormat.UPPER_CAMEL.to(CaseFormat.LOWER_UNDERSCORE, name);
-    }
-
-    /**
      * Check the content if contains chinese or not, if true when contains chinese or false
      */
     public static boolean containChinese(String text) {
@@ -649,7 +635,7 @@ public class Utils {
         for (AliasInfo aliasInfo : selectList) {
             columnJoiner.add(aliasInfo.toString());
         }
-        String sql = "SELECT " + columnJoiner.toString() + " FROM " + tableName.toFullyQualified() + " " + whereClause;
+        String sql = "SELECT " + columnJoiner + " FROM " + tableName.toSql() + " " + whereClause;
         return new NereidsParser().parseSingle(sql);
     }
 

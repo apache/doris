@@ -621,6 +621,7 @@ extern BvarLatencyRecorderWithTag g_bvar_ms_abort_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_drop_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_list_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_clone_instance;
+extern BvarLatencyRecorderWithTag g_bvar_ms_compact_snapshot;
 extern BvarLatencyRecorderWithTag g_bvar_ms_update_packed_file_info;
 extern bvar::Adder<int64_t> g_bvar_update_delete_bitmap_fail_counter;
 extern bvar::Adder<int64_t> g_bvar_get_delete_bitmap_fail_counter;
@@ -922,6 +923,8 @@ extern mBvarInt64Adder g_bvar_rpc_kv_drop_snapshot_del_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_counter;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_get_counter;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_counter;
 
 extern mBvarInt64Adder g_bvar_rpc_kv_get_rowset_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_get_version_get_bytes;
@@ -1062,6 +1065,8 @@ extern mBvarInt64Adder g_bvar_rpc_kv_list_snapshot_del_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_get_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_put_bytes;
 extern mBvarInt64Adder g_bvar_rpc_kv_clone_instance_del_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_get_bytes;
+extern mBvarInt64Adder g_bvar_rpc_kv_compact_snapshot_put_bytes;
 
 // meta ranges
 extern mBvarStatus<int64_t> g_bvar_fdb_kv_ranges_count;

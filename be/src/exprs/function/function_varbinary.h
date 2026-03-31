@@ -29,7 +29,7 @@
 #include "exec/common/varbinaryop_subbinary.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class FunctionSubBinary : public IFunction {
@@ -50,4 +50,4 @@ public:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

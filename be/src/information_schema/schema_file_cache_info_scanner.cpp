@@ -47,7 +47,7 @@ Status SchemaFileCacheInfoScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaFileCacheInfoScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaFileCacheInfoScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -60,7 +60,7 @@ Status SchemaFileCacheInfoScanner::get_next_block_internal(vectorized::Block* bl
     return _fill_block_impl(block);
 }
 
-Status SchemaFileCacheInfoScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaFileCacheInfoScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
     auto* file_cache_factory = ExecEnv::GetInstance()->file_cache_factory();

@@ -60,15 +60,10 @@ under the License.
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
-        <dependency>
-            <groupId>org.hamcrest</groupId>
-            <artifactId>hamcrest</artifactId>
-            <scope>test</scope>
-        </dependency>
     </dependencies>
 
     <build>
-        <finalName>doris-fe-catalog</finalName>
+        <finalName>doris-fe-type</finalName>
         <directory>${project.basedir}/target/</directory>
         <plugins>
             <!-- Build source jar -->

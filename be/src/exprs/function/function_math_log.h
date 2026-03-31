@@ -23,7 +23,7 @@
 #include "core/types.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionMathLog : public IFunction {
@@ -88,4 +88,4 @@ struct ImplLn {
     static void execute(const double* src, double* dst) { *dst = std::log(*src); }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -46,19 +46,17 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 class BufferReadable;
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 enum class WindowFunnelMode : Int64 { INVALID, DEFAULT, DEDUPLICATION, FIXED, INCREASE };
 
-WindowFunnelMode string_to_window_funnel_mode(const String& string) {
+inline WindowFunnelMode string_to_window_funnel_mode(const String& string) {
     if (string == "default") {
         return WindowFunnelMode::DEFAULT;
     } else if (string == "deduplication") {
@@ -400,6 +398,6 @@ public:
 protected:
     using IAggregateFunction::version;
 };
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

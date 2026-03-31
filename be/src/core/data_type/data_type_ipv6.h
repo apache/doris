@@ -33,13 +33,11 @@
 #include "core/types.h"
 
 namespace doris {
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeIPv6 final : public DataTypeNumberBase<PrimitiveType::TYPE_IPV6> {
 public:
@@ -76,4 +74,4 @@ inline constexpr bool IsIPv6Type<DataTypeIPv6> = true;
 template <typename DataType>
 constexpr bool IsIPType = IsIPv4Type<DataType> || IsIPv6Type<DataType>;
 
-} // namespace doris::vectorized
+} // namespace doris

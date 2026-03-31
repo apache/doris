@@ -50,7 +50,7 @@ namespace doris {
 struct InvertedIndexAnalyzerCtx;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct FunctionAttr {
     bool new_version_unix_timestamp {false};
@@ -206,7 +206,7 @@ public:
 
     virtual Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const {
@@ -476,7 +476,7 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& args,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
@@ -629,4 +629,4 @@ using FunctionPtr = std::shared_ptr<IFunction>;
 ColumnPtr wrap_in_nullable(const ColumnPtr& src, const Block& block, const ColumnNumbers& args,
                            size_t input_rows_count);
 
-} // namespace doris::vectorized
+} // namespace doris

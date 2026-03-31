@@ -43,7 +43,7 @@
 #include "exprs/function_context.h"
 #include "util/string_search.hpp"
 
-namespace doris::vectorized {
+namespace doris {
 class Block;
 
 // FastPath types for LIKE pattern matching optimization
@@ -417,4 +417,4 @@ public:
     Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

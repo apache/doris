@@ -62,7 +62,7 @@ protected:
         EXPECT_CALL(*_tablet_column_float, type())
                 .WillOnce(testing::Return(FieldType::OLAP_FIELD_TYPE_FLOAT));
 
-        Field field(*_tablet_column_array);
+        StorageField field(*_tablet_column_array);
 
         EXPECT_CALL(*_index_file_writer, open(_index_meta.get()))
                 .WillOnce(testing::Return(_ram_dir));

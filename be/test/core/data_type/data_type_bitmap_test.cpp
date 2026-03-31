@@ -47,7 +47,7 @@
 // 4. serialize/serialize_as_stream/deserialize/deserialize_as_stream
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeBitMapTest : public ::testing::TestWithParam<int> {
 public:
@@ -148,12 +148,10 @@ TEST_P(DataTypeBitMapTest, SerializeDeserializeAsStreamTest) {
     auto* column_res = assert_cast<ColumnBitmap*>(c.get());
     column_res->resize(rows_value);
     for (size_t i = 0; i != rows_value; ++i) {
-        doris::vectorized::DataTypeBitMap::serialize_as_stream(column_data->get_element(i),
-                                                               buffer_writer);
+        doris::DataTypeBitMap::serialize_as_stream(column_data->get_element(i), buffer_writer);
         buffer_writer.commit();
         BufferReadable buffer_readable(ser_col->get_data_at(i));
-        doris::vectorized::DataTypeBitMap::deserialize_as_stream(column_res->get_element(i),
-                                                                 buffer_readable);
+        doris::DataTypeBitMap::deserialize_as_stream(column_res->get_element(i), buffer_readable);
         ASSERT_EQ(column_data->get_data()[i].to_string(), column_res->get_data()[i].to_string());
     }
     std::cout << "finish serialize deserialize as stream test" << std::endl;
@@ -162,4 +160,4 @@ TEST_P(DataTypeBitMapTest, SerializeDeserializeAsStreamTest) {
 // need rows_value to cover bitmap all type: empty/single/set/bitmap
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeBitMapTest, ::testing::Values(0, 1, 31, 1024));
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -51,7 +51,7 @@
 // 4. serialize/serialize_as_stream/deserialize/deserialize_as_stream
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeAggStateTest : public ::testing::TestWithParam<int> {
 public:
@@ -255,4 +255,4 @@ TEST_P(DataTypeAggStateTest, SerializeDeserializeTest2) {
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeAggStateTest, ::testing::Values(0, 1, 31));
 
-} // namespace doris::vectorized
+} // namespace doris

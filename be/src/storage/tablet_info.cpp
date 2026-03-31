@@ -51,6 +51,9 @@
 #include "util/string_util.h"
 // NOLINTNEXTLINE(unused-includes)
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_timestamptz.h"
 #include "exprs/vexpr_context.h" // IWYU pragma: keep
 #include "exprs/vliteral.h"
@@ -74,8 +77,8 @@ void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
 
 bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator& lhs,
                                              const BlockRowWithIndicator& rhs) const {
-    vectorized::Block* l_block = std::get<0>(lhs);
-    vectorized::Block* r_block = std::get<0>(rhs);
+    Block* l_block = std::get<0>(lhs);
+    Block* r_block = std::get<0>(rhs);
     int32_t l_row = std::get<1>(lhs);
     int32_t r_row = std::get<1>(rhs);
     bool l_use_new = std::get<2>(lhs);
@@ -105,8 +108,8 @@ bool VOlapTablePartKeyComparator::operator()(const BlockRowWithIndicator& lhs,
         const std::vector<uint16_t>* r_index = r_use_new ? &_param_locs : &_slot_locs;
 
         for (int i = 0; i < _slot_locs.size(); i++) {
-            vectorized::ColumnPtr l_col = l_block->get_by_position((*l_index)[i]).column;
-            vectorized::ColumnPtr r_col = r_block->get_by_position((*r_index)[i]).column;
+            ColumnPtr l_col = l_block->get_by_position((*l_index)[i]).column;
+            ColumnPtr r_col = r_block->get_by_position((*r_index)[i]).column;
 
             auto res = l_col->compare_at(l_row, r_row, *r_col, -1);
             if (res != 0) {
@@ -365,8 +368,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
             }
         }
         if (t_index.__isset.where_clause) {
-            RETURN_IF_ERROR(
-                    vectorized::VExpr::create_expr_tree(t_index.where_clause, index->where_clause));
+            RETURN_IF_ERROR(VExpr::create_expr_tree(t_index.where_clause, index->where_clause));
         }
         _indexes.emplace_back(index);
     }
@@ -430,8 +432,8 @@ VOlapTablePartitionParam::VOlapTablePartitionParam(std::shared_ptr<OlapTableSche
                 << "now support only 1 partition column for auto range partitions. "
                 << t_param.partition_type << " " << size;
         for (int i = 0; i < size; ++i) {
-            Status st = vectorized::VExpr::create_expr_tree(t_param.partition_function_exprs[i],
-                                                            _part_func_ctx[i]);
+            Status st =
+                    VExpr::create_expr_tree(t_param.partition_function_exprs[i], _part_func_ctx[i]);
             if (!st.ok()) {
                 throw Exception(Status::InternalError("Partition function expr is not valid"),
                                 "Partition function expr is not valid");
@@ -560,16 +562,16 @@ bool VOlapTablePartitionParam::_part_contains(VOlapTablePartition* part,
 // NOLINTBEGIN(readability-function-size)
 static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key, uint16_t pos) {
     auto column = std::move(*part_key->first->get_by_position(pos).column).mutate();
-    //TODO: use assert_cast before insert_data
     switch (t_expr.node_type) {
     case TExprNodeType::DATE_LITERAL: {
-        auto primitive_type = vectorized::DataTypeFactory::instance()
-                                      .create_data_type(t_expr.type)
-                                      ->get_primitive_type();
+        auto primitive_type =
+                DataTypeFactory::instance().create_data_type(t_expr.type)->get_primitive_type();
         if (primitive_type == TYPE_DATEV2) {
             DateV2Value<DateV2ValueType> dt;
-            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                                  t_expr.date_literal.value.size())) {
+            CastParameters params;
+            if (!CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                        {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, dt,
+                        nullptr, params)) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
@@ -579,8 +581,10 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             DateV2Value<DateTimeV2ValueType> dt;
             const int32_t scale =
                     t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
-            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                                  t_expr.date_literal.value.size(), scale)) {
+            CastParameters params;
+            if (!CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                        {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, dt,
+                        nullptr, scale, params)) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
@@ -588,31 +592,30 @@ static Status _create_partition_key(const TExprNode& t_expr, BlockRow* part_key,
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
         } else if (primitive_type == TYPE_TIMESTAMPTZ) {
             TimestampTzValue res;
-            vectorized::CastParameters params {.status = Status::OK(), .is_strict = true};
+            CastParameters params {.status = Status::OK(), .is_strict = true};
             const int32_t scale =
                     t_expr.type.types.empty() ? -1 : t_expr.type.types.front().scalar_type.scale;
-            if (!vectorized::CastToTimstampTz::from_string(
+            if (!CastToTimestampTz::from_string(
                         {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, res,
                         params, nullptr, scale)) [[unlikely]] {
                 std::stringstream ss;
                 ss << "invalid timestamptz literal in partition column, value="
                    << t_expr.date_literal;
                 return Status::InternalError(ss.str());
-            } else {
-                column->insert_data(reinterpret_cast<const char*>(&res), 0);
             }
+            column->insert_data(reinterpret_cast<const char*>(&res), 0);
         } else {
-            // TYPE_DATE (DATEV1) or TYPE_DATETIME (DATETIMEV1)
             VecDateTimeValue dt;
-            if (!dt.from_date_str(t_expr.date_literal.value.c_str(),
-                                  t_expr.date_literal.value.size())) {
+            CastParameters params;
+            if (!CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                               DatelikeTargetType::DATE_TIME>(
+                        {t_expr.date_literal.value.c_str(), t_expr.date_literal.value.size()}, dt,
+                        nullptr, params)) {
                 std::stringstream ss;
                 ss << "invalid date literal in partition column, date=" << t_expr.date_literal;
                 return Status::InternalError(ss.str());
             }
-            if (vectorized::DataTypeFactory::instance()
-                        .create_data_type(t_expr.type)
-                        ->get_primitive_type() == TYPE_DATE) {
+            if (primitive_type == TYPE_DATE) {
                 dt.cast_to_date();
             }
             column->insert_data(reinterpret_cast<const char*>(&dt), 0);
@@ -749,6 +752,14 @@ Status VOlapTablePartitionParam::generate_partition_from(const TOlapTablePartiti
     }
     if (t_part.__isset.load_required_replica_num) {
         part_result->load_required_replica_num = t_part.load_required_replica_num;
+    }
+    if (t_part.__isset.tablet_version_gap_backends) {
+        for (const auto& [tablet_id, backend_ids] : t_part.tablet_version_gap_backends) {
+            auto& gap_set = part_result->tablet_version_gap_backends[tablet_id];
+            for (auto backend_id : backend_ids) {
+                gap_set.insert(backend_id);
+            }
+        }
     }
     return Status::OK();
 }

@@ -25,7 +25,7 @@
 #include "storage/index/index_iterator.h"
 #include "storage/index/inverted/inverted_index_reader.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class MockInvertedIndexReader : public segment_v2::InvertedIndexReader {
 public:
@@ -122,4 +122,4 @@ TEST(FunctionComparisonTest, evaluate_inverted_index_with_null_param) {
             << "bitmap_result should not be set when param is NULL";
 }
 
-} // namespace doris::vectorized
+} // namespace doris

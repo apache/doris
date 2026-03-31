@@ -30,7 +30,6 @@
 namespace doris {
 class RuntimeState;
 
-namespace pipeline {
 #include "common/compile_check_begin.h"
 class NestedLoopJoinProbeOperatorX;
 
@@ -70,25 +69,24 @@ public:
 
     // Generate data based on the probe side; applicable to all join types
     template <bool set_build_side_flag, bool set_probe_side_flag>
-    void _generate_block_base_probe(RuntimeState* state, vectorized::Block* probe_block);
+    void _generate_block_base_probe(RuntimeState* state, Block* probe_block);
 
     // Currently only inner join calls this; both set_build_side_flag and
     // set_probe_side_flag are false, so visited flags will not be updated.
-    void _generate_block_base_build(RuntimeState* state, vectorized::Block* probe_block);
+    void _generate_block_base_build(RuntimeState* state, Block* probe_block);
 
 private:
     // Whether to generate data based on the build side
     bool use_generate_block_base_build() const;
 
     friend class NestedLoopJoinProbeOperatorX;
-    void _update_additional_flags(vectorized::Block* block);
+    void _update_additional_flags(Block* block);
     template <bool BuildSide, bool IsSemi>
-    void _finalize_current_phase(vectorized::Block& block, size_t batch_size);
+    void _finalize_current_phase(Block& block, size_t batch_size);
     void _reset_with_next_probe_row();
-    void _append_probe_data_with_null(vectorized::Block& block) const;
+    void _append_probe_data_with_null(Block& block) const;
     template <typename Filter, bool SetBuildSideFlag, bool SetProbeSideFlag>
-    void _do_filtering_and_update_visited_flags_impl(vectorized::Block* block,
-                                                     uint32_t column_to_keep,
+    void _do_filtering_and_update_visited_flags_impl(Block* block, uint32_t column_to_keep,
                                                      size_t build_block_idx,
                                                      size_t processed_blocks_num, bool materialize,
                                                      Filter& filter) {
@@ -97,7 +95,7 @@ private:
             if constexpr (SetBuildSideFlag) {
                 for (size_t i = 0; i < processed_blocks_num; i++) {
                     auto& build_side_flag =
-                            assert_cast<vectorized::ColumnUInt8*>(
+                            assert_cast<ColumnUInt8*>(
                                     _shared_state->build_side_visited_flags[build_block_idx].get())
                                     ->get_data();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
@@ -132,7 +130,7 @@ private:
 
         if (materialize) {
             SCOPED_TIMER(_filtered_by_join_conjuncts_timer);
-            vectorized::Block::filter_block_internal(block, filter, column_to_keep);
+            Block::filter_block_internal(block, filter, column_to_keep);
         } else {
             CLEAR_BLOCK
         }
@@ -140,7 +138,7 @@ private:
 
     // need exception safety
     template <bool SetBuildSideFlag, bool SetProbeSideFlag, bool IgnoreNull>
-    Status _do_filtering_and_update_visited_flags(vectorized::Block* block, bool materialize) {
+    Status _do_filtering_and_update_visited_flags(Block* block, bool materialize) {
         // The number of columns will not exceed the range of u32.
         uint32_t column_to_keep = cast_set<uint32_t>(block->columns());
         // If we need to set visited flags for build side,
@@ -151,11 +149,11 @@ private:
                                                          : _current_build_pos - 1;
         size_t processed_blocks_num = _build_offset_stack.size();
         if (LIKELY(!_join_conjuncts.empty() && block->rows() > 0)) {
-            vectorized::IColumn::Filter filter(block->rows(), 1);
+            IColumn::Filter filter(block->rows(), 1);
             bool can_filter_all = false;
             {
                 SCOPED_TIMER(_join_conjuncts_evaluation_timer);
-                RETURN_IF_ERROR(vectorized::VExprContext::execute_conjuncts(
+                RETURN_IF_ERROR(VExprContext::execute_conjuncts(
                         _join_conjuncts, nullptr, IgnoreNull, block, &filter, &can_filter_all));
             }
 
@@ -176,7 +174,7 @@ private:
             if constexpr (SetBuildSideFlag) {
                 for (size_t i = 0; i < processed_blocks_num; i++) {
                     auto& build_side_flag =
-                            assert_cast<vectorized::ColumnUInt8*>(
+                            assert_cast<ColumnUInt8*>(
                                     _shared_state->build_side_visited_flags[build_block_idx].get())
                                     ->get_data();
                     auto* __restrict build_side_flag_data = build_side_flag.data();
@@ -197,7 +195,7 @@ private:
                 CLEAR_BLOCK
             }
         }
-        vectorized::Block::erase_useless_column(block, column_to_keep);
+        Block::erase_useless_column(block, column_to_keep);
         return Status::OK();
     }
 
@@ -211,11 +209,11 @@ private:
     size_t _current_build_pos = 0;
     size_t _current_build_row_pos =
             0; // current row pos in build block, used by _generate_block_base_build
-    vectorized::MutableColumns _dst_columns;
+    MutableColumns _dst_columns;
     std::stack<uint16_t> _build_offset_stack;
     std::stack<uint16_t> _probe_offset_stack;
     uint64_t _output_null_idx_build_side = 0;
-    vectorized::VExprContextSPtrs _join_conjuncts;
+    VExprContextSPtrs _join_conjuncts;
 
     RuntimeProfile::Counter* _loop_join_timer = nullptr;
     RuntimeProfile::Counter* _output_temp_blocks_timer = nullptr;
@@ -232,9 +230,8 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos) const override;
-    Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                bool* eos) const override;
+    Status push(RuntimeState* state, Block* input_block, bool eos) const override;
+    Status pull(doris::RuntimeState* state, Block* output_block, bool* eos) const override;
     const RowDescriptor& intermediate_row_desc() const override {
         return _old_version_flag ? _row_descriptor : *_intermediate_row_desc;
     }
@@ -259,12 +256,11 @@ public:
 private:
     friend class NestedLoopJoinProbeLocalState;
     bool _is_output_probe_side_only;
-    vectorized::VExprContextSPtrs _join_conjuncts;
+    VExprContextSPtrs _join_conjuncts;
     size_t _num_probe_side_columns = 0;
     size_t _num_build_side_columns = 0;
     const bool _old_version_flag;
 };
 
-} // namespace pipeline
 } // namespace doris
 #include "common/compile_check_end.h"

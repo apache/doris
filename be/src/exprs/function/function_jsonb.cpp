@@ -64,7 +64,7 @@
 #include "util/jsonb_writer.h"
 #include "util/simd/bits.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 enum class NullalbeMode { NULLABLE = 0, FOLLOW_INPUT };
@@ -366,7 +366,7 @@ public:
         return make_nullable(std::make_shared<typename Impl::ReturnType>());
     }
     DataTypes get_variadic_argument_types_impl() const override {
-        if constexpr (vectorized::HasGetVariadicArgumentTypesImpl<Impl>) {
+        if constexpr (HasGetVariadicArgumentTypesImpl<Impl>) {
             return Impl::get_variadic_argument_types_impl();
         } else {
             return {};
@@ -542,9 +542,8 @@ public:
                             input_rows_count, *dst_arr, dst_nested_column, res_null_map,
                             *col_from_string, data_null_map, jsonb_path_col, path_null_map);
                 },
-                vectorized::make_bool_variant(json_data_const),
-                vectorized::make_bool_variant(jsonb_path_column),
-                vectorized::make_bool_variant(path_const));
+                make_bool_variant(json_data_const), make_bool_variant(jsonb_path_column),
+                make_bool_variant(path_const));
         if (!st.ok()) {
             return st;
         }
@@ -1330,13 +1329,13 @@ struct JsonbExtractJsonbNoQuotes : public JsonbExtractStringImpl<JsonbTypeJsonNo
     static constexpr auto alias = "json_extract_no_quotes";
 };
 
-struct JsonbType : public JsonbExtractStringImpl<JsonbTypeType> {
+struct JsonbTypeImpl : public JsonbExtractStringImpl<JsonbTypeType> {
     static constexpr auto name = "json_type";
     static constexpr auto alias = "jsonb_type";
 };
 
 using FunctionJsonbExists = FunctionJsonbExtractPath;
-using FunctionJsonbType = FunctionJsonbExtract<JsonbType>;
+using FunctionJsonbType = FunctionJsonbExtract<JsonbTypeImpl>;
 
 using FunctionJsonbExtractIsnull = FunctionJsonbExtract<JsonbExtractIsnull>;
 using FunctionJsonbExtractJsonb = FunctionJsonbExtract<JsonbExtractJsonb>;
@@ -3147,4 +3146,4 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionStripNullValue>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -34,12 +34,10 @@
 namespace doris {
 class QueryContext;
 class RuntimeState;
-namespace pipeline {
 class PipelineFragmentContext;
-} // namespace pipeline
 } // namespace doris
 
-namespace doris::pipeline {
+namespace doris {
 
 class MultiCoreTaskQueue;
 class PriorityTaskQueue;
@@ -73,9 +71,9 @@ public:
     }
 
     virtual PipelineTask& set_thread_id(int thread_id) {
-        _thread_id = thread_id;
         if (thread_id != _thread_id) {
             COUNTER_UPDATE(_core_change_times, 1);
+            _thread_id = thread_id;
         }
         return *this;
     }
@@ -132,8 +130,12 @@ public:
         _wake_by = wake_by;
     }
 
-    // Execution phase should be terminated. This is called if this task is canceled or waken up early.
-    void terminate();
+    // Unblock all dependencies so this task can never be blocked again.
+    // This is called when the task is woken up early or the fragment is canceled.
+    //
+    // NOTE: This does NOT call operator-level terminate() — operator terminate must run
+    // inside execute() on the worker thread because operator state is not thread-safe.
+    void unblock_all_dependencies();
 
     // 1 used for update priority queue
     // note(wb) an ugly implementation, need refactor later
@@ -201,6 +203,7 @@ private:
     // Operator `op` try to reserve memory before executing. Return false if reserve failed
     // otherwise return true.
     bool _try_to_reserve_memory(const size_t reserve_size, OperatorBase* op);
+    bool _should_trigger_revoking(const size_t reserve_size) const;
 
     const TUniqueId _query_id;
     const uint32_t _index;
@@ -209,7 +212,7 @@ private:
     RuntimeState* _state = nullptr;
     int _thread_id = -1;
     uint32_t _schedule_time = 0;
-    std::unique_ptr<vectorized::Block> _block;
+    std::unique_ptr<Block> _block;
 
     std::weak_ptr<PipelineFragmentContext> _fragment_context;
 
@@ -318,9 +321,9 @@ private:
     MonotonicStopWatch _state_change_watcher;
     std::atomic<bool> _spilling = false;
     const std::string _pipeline_name;
-    int _wake_by = -1;
+    std::atomic<int> _wake_by = -1;
 };
 
 using PipelineTaskSPtr = std::shared_ptr<PipelineTask>;
 
-} // namespace doris::pipeline
+} // namespace doris

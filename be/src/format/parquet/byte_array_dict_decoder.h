@@ -30,7 +30,7 @@
 #include "format/parquet/decoder.h"
 #include "format/parquet/parquet_common.h"
 
-namespace doris::vectorized {
+namespace doris {
 template <PrimitiveType T>
 class ColumnDecimal;
 template <typename T>
@@ -54,14 +54,15 @@ public:
 
     Status read_dict_values_to_column(MutableColumnPtr& doris_column) override;
 
-    MutableColumnPtr convert_dict_column_to_string_column(const ColumnInt32* dict_column) override;
+    Result<MutableColumnPtr> convert_dict_column_to_string_column(
+            const ColumnInt32* dict_column) override;
 
 protected:
     // For dictionary encoding
-    std::vector<StringRef> _dict_items;
-    std::vector<uint8_t> _dict_data;
+    DorisVector<StringRef> _dict_items;
+    DorisVector<uint8_t> _dict_data;
     size_t _max_value_length;
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

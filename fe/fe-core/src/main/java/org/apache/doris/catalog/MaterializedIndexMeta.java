@@ -108,9 +108,6 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
 
     public void setWhereClause(Expr whereClause) {
         this.whereClause = whereClause;
-        if (this.whereClause != null) {
-            this.whereClause.disableTableName();
-        }
     }
 
     public Expr getWhereClause() {
@@ -311,7 +308,6 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
                     List<Expr> columnDefineExprs = new ArrayList<>(mvColumnItemList.size());
                     for (MVColumnItem item : mvColumnItemList) {
                         Expr defineExpr = item.getDefineExpr();
-                        defineExpr.disableTableName();
                         columnDefineExprs.add(defineExpr);
                     }
                     setColumnsDefineExpr(columnDefineExprs);

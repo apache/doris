@@ -20,7 +20,7 @@
 #include "core/call_on_type_index.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType K>
@@ -58,4 +58,4 @@ void register_aggregate_function_map_agg(AggregateFunctionSimpleFactory& factory
     factory.register_alias("map_agg_v1", "map_agg");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

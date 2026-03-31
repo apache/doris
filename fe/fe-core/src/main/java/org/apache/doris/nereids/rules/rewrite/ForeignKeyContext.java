@@ -18,7 +18,11 @@
 package org.apache.doris.nereids.rules.rewrite;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.constraint.ForeignKeyConstraint;
+import org.apache.doris.catalog.constraint.PrimaryKeyConstraint;
+import org.apache.doris.info.TableNameInfo;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -98,18 +102,28 @@ public class ForeignKeyContext {
     }
 
     void putAllForeignKeys(TableIf table) {
-        table.getForeignKeyConstraints().forEach(c -> {
+        TableNameInfo tableNameInfo = TableNameInfo.createOrNull(table);
+        if (tableNameInfo == null) {
+            return;
+        }
+        for (ForeignKeyConstraint c : Env.getCurrentEnv().getConstraintManager()
+                .getForeignKeyConstraints(tableNameInfo)) {
             Map<Column, Column> constraint = c.getForeignToPrimary(table);
-            constraints.add(c.getForeignToPrimary(table));
+            constraints.add(constraint);
             foreignKeys.addAll(constraint.keySet());
-        });
+        }
     }
 
     void putAllPrimaryKeys(TableIf table) {
-        table.getPrimaryKeyConstraints().forEach(c -> {
+        TableNameInfo tableNameInfo = TableNameInfo.createOrNull(table);
+        if (tableNameInfo == null) {
+            return;
+        }
+        for (PrimaryKeyConstraint c : Env.getCurrentEnv().getConstraintManager()
+                .getPrimaryKeyConstraints(tableNameInfo)) {
             Set<Column> primaryKey = c.getPrimaryKeys(table);
             primaryKeys.addAll(primaryKey);
-        });
+        }
     }
 
     public boolean isForeignKey(Set<Slot> key) {

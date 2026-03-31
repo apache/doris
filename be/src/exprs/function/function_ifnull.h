@@ -46,7 +46,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionIfNull : public IFunction {
 public:
     static constexpr auto name = "ifnull";
@@ -127,4 +127,4 @@ public:
         return Status::OK();
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -30,7 +30,7 @@
 #include "core/data_type/primitive_type.h"
 #include "exec/sort/sort_block.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 MutableColumnPtr ColumnVarbinary::clone_resized(size_t size) const {
     auto res = create();
@@ -84,9 +84,9 @@ ColumnPtr ColumnVarbinary::filter(const IColumn::Filter& filt, ssize_t result_si
     column_match_filter_size(size, filt.size());
 
     if (_data.size() == 0) {
-        return doris::vectorized::ColumnVarbinary::create();
+        return doris::ColumnVarbinary::create();
     }
-    auto res = doris::vectorized::ColumnVarbinary::create();
+    auto res = doris::ColumnVarbinary::create();
     Container& res_data = res->get_data();
 
     if (result_size_hint) {
@@ -137,7 +137,7 @@ MutableColumnPtr ColumnVarbinary::permute(const IColumn::Permutation& perm, size
         __builtin_unreachable();
     }
 
-    auto res = doris::vectorized::ColumnVarbinary::create(limit);
+    auto res = doris::ColumnVarbinary::create(limit);
     typename Self::Container& res_data = res->get_data();
     for (size_t i = 0; i < limit; ++i) {
         auto val = _data[perm[i]];
@@ -231,4 +231,4 @@ void ColumnVarbinary::sort_column(const ColumnSorter* sorter, EqualFlags& flags,
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -291,9 +291,10 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
                 int prunedPartNum = candidate.getSelectedPartitionIds().size();
                 int bucketNum = candidate.getTable().getDefaultDistributionInfo().getBucketNum();
                 int totalBucketNum = prunedPartNum * bucketNum;
-                int backEndNum = Math.max(1, ConnectContext.get().getEnv().getClusterInfo()
-                        .getBackendsNumber(true));
-                int paraNum = Math.max(1, ConnectContext.get().getSessionVariable().getParallelExecInstanceNum());
+                ConnectContext connectContext = ConnectContext.get();
+                int backEndNum = Math.max(1, connectContext.getEnv().getClusterInfo().getBackendsNumber(true));
+                String clusterName = connectContext.getSessionVariable().resolveCloudClusterName(connectContext);
+                int paraNum = Math.max(1, connectContext.getSessionVariable().getParallelExecInstanceNum(clusterName));
                 return totalBucketNum < backEndNum * paraNum * 0.8;
             }
         }
@@ -323,6 +324,7 @@ public class ChildrenPropertiesRegulator extends PlanVisitor<List<List<PhysicalP
             DistributionSpecHash rightHashSpec) {
         boolean isJoinTypeInScope = (joinType == JoinType.RIGHT_ANTI_JOIN
                 || joinType == JoinType.RIGHT_OUTER_JOIN
+                || joinType == JoinType.ASOF_RIGHT_OUTER_JOIN
                 || joinType == JoinType.FULL_OUTER_JOIN);
         boolean isSpecInScope = (leftHashSpec.getShuffleType() == ShuffleType.NATURAL
                 || rightHashSpec.getShuffleType() == ShuffleType.NATURAL);

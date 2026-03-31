@@ -30,6 +30,7 @@ const std::string ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
 const std::string DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
 const std::string PARTIAL_UPDATE_AUTO_INC_COL = "__PARTIAL_UPDATE_AUTO_INC_COLUMN__";
 const std::string VIRTUAL_COLUMN_PREFIX = "__DORIS_VIRTUAL_COL__";
+const std::string ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
 
 /// The maximum precision representable by a 4-byte decimal (Decimal4Value)
 constexpr int MAX_DECIMAL32_PRECISION = 9;
@@ -49,4 +50,27 @@ static constexpr int MAX_DECIMALV3_SCALE = MAX_DECIMALV3_PRECISION;
 static constexpr int DEFAULT_VARIANT_MAX_SPARSE_COLUMN_STATS_SIZE = 10000;
 static constexpr int DEFAULT_VARIANT_SPARSE_HASH_SHARD_COUNT = 1;
 } // namespace BeConsts
+
+// In our system, we have more complicated situation.
+// First, our keys can be nullptr.
+// Second, when key columns are not complete we want to distinguish GT and GE. For example,
+// there are two key columns a and b, we have only one condition a > 1. We can only encode
+// a prefix key 1, which is less than 1|2. This will make our read more data than
+// we actually need. So we want to add more marker.
+// a > 1: will be encoded into 1|\xFF
+// a >= 1: will be encoded into 1|\x00
+// a = 1 and b > 1: will be encoded into 1|\x02|1
+// a = 1 and b is null: will be encoded into 1|\x01
+namespace KeyConsts {
+// Used to represent minimal value for that field
+constexpr uint8_t KEY_MINIMAL_MARKER = 0x00;
+// Used to represent a null field, which value is seemed as minimal than other values
+constexpr uint8_t KEY_NULL_FIRST_MARKER = 0x01;
+// Used to represent a normal field, which content is encoded after this marker
+constexpr uint8_t KEY_NORMAL_MARKER = 0x02;
+// Used to represent maximal value for that field
+constexpr uint8_t KEY_MAXIMAL_MARKER = 0xFF;
+// Used to represent a value greater than the normal marker by 1, using by MoW
+constexpr uint8_t KEY_NORMAL_NEXT_MARKER = 0x03;
+} // namespace KeyConsts
 } // namespace doris

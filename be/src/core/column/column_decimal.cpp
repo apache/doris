@@ -40,9 +40,9 @@
 #include "util/unaligned.h"
 
 template <typename T>
-bool decimal_less(T x, T y, doris::vectorized::UInt32 x_scale, doris::vectorized::UInt32 y_scale);
+bool decimal_less(T x, T y, doris::UInt32 x_scale, doris::UInt32 y_scale);
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T>
 int ColumnDecimal<T>::compare_at(size_t n, size_t m, const IColumn& rhs_, int) const {
@@ -558,4 +558,4 @@ template class ColumnDecimal<TYPE_DECIMAL64>;
 template class ColumnDecimal<TYPE_DECIMALV2>;
 template class ColumnDecimal<TYPE_DECIMAL128I>;
 template class ColumnDecimal<TYPE_DECIMAL256>;
-} // namespace doris::vectorized
+} // namespace doris

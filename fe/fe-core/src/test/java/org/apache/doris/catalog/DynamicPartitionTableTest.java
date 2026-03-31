@@ -46,6 +46,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 
+import java.lang.reflect.Method;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
@@ -794,6 +795,36 @@ public class DynamicPartitionTableTest {
         Assert.assertEquals(14, emptyDynamicTable.getAllPartitions().size());
         // never delete the old partitions
         Assert.assertEquals(Integer.parseInt(tableProperties.get("dynamic_partition.start")), Integer.MIN_VALUE);
+    }
+
+    @Test
+    public void testAutoPartitionRetentionCountTableRegisteredAfterSchedulerInit() throws Exception {
+        String createOlapTblStmt = "CREATE TABLE test.`auto_partition_retention_init` (\n"
+                + "  `k1` datetime(6) NOT NULL\n"
+                + ") ENGINE=OLAP\n"
+                + "DUPLICATE KEY(`k1`)\n"
+                + "AUTO PARTITION BY RANGE (date_trunc(k1, 'day')) ()\n"
+                + "DISTRIBUTED BY HASH(`k1`) BUCKETS 1\n"
+                + "PROPERTIES (\n"
+                + "\"replication_num\" = \"1\",\n"
+                + "\"partition.retention_count\" = \"3\"\n"
+                + ");";
+        createTable(createOlapTblStmt);
+
+        Database db = Env.getCurrentInternalCatalog().getDbOrAnalysisException("test");
+        OlapTable tbl = (OlapTable) db.getTableOrAnalysisException("auto_partition_retention_init");
+        DynamicPartitionScheduler scheduler = Env.getCurrentEnv().getDynamicPartitionScheduler();
+
+        Assert.assertTrue(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
+
+        scheduler.removeDynamicPartitionTable(db.getId(), tbl.getId());
+        Assert.assertFalse(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
+
+        Method initDynamicPartitionTable = DynamicPartitionScheduler.class
+                .getDeclaredMethod("initDynamicPartitionTable");
+        initDynamicPartitionTable.setAccessible(true);
+        initDynamicPartitionTable.invoke(scheduler);
+        Assert.assertTrue(scheduler.containsDynamicPartitionTable(db.getId(), tbl.getId()));
     }
 
     @Test

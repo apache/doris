@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.expressions.functions.udf;
 
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.AliasFunction;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSignature;
@@ -97,7 +99,8 @@ public class AliasUdf extends ScalarFunction implements ExplicitlyCastableSignat
      * translate catalog alias function to nereids alias function
      */
     public static void translateToNereidsFunction(String dbName, AliasFunction function) {
-        String functionSql = function.getOriginFunction().toSqlWithoutTbl();
+        String functionSql = function.getOriginFunction().accept(
+                ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
         Map<String, String> sessionVariables = function.getSessionVariables();
         Expression parsedFunction;
         try (AutoCloseSessionVariable autoClose = new AutoCloseSessionVariable(ConnectContext.get(),

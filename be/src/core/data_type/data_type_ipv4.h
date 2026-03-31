@@ -33,13 +33,11 @@
 #include "storage/olap_common.h"
 
 namespace doris {
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeIPv4 final : public DataTypeNumberBase<PrimitiveType::TYPE_IPV4> {
 public:
@@ -68,4 +66,4 @@ constexpr bool IsIPv4Type = false;
 template <>
 inline constexpr bool IsIPv4Type<DataTypeIPv4> = true;
 
-} // namespace doris::vectorized
+} // namespace doris

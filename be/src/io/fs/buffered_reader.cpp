@@ -449,6 +449,13 @@ void PrefetchBuffer::prefetch_buffer() {
         _prefetched.notify_all();
     }
 
+    // Lazy-allocate the backing buffer on first actual prefetch, avoiding the cost of
+    // pre-allocating memory for readers that are initialized but never read (e.g. when
+    // many file readers are created concurrently for a TVF scan over many small S3 files).
+    if (!_buf) {
+        _buf = std::make_unique<char[]>(_size);
+    }
+
     int read_range_index = search_read_range(_offset);
     size_t buf_size;
     if (read_range_index == -1) {

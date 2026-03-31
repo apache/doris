@@ -30,7 +30,7 @@
 // this test is gonna to make a template ColumnTest
 // for example column_ip should test these functions
 
-namespace doris::vectorized {
+namespace doris {
 class ColumnIPTest : public CommonColumnTest {
 protected:
     void SetUp() override {
@@ -61,8 +61,8 @@ protected:
             DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_IPV4, 0, 0);
     DataTypePtr dt_ipv6 =
             DataTypeFactory::instance().create_data_type(FieldType::OLAP_FIELD_TYPE_IPV6, 0, 0);
-    DataTypePtr dt_ipv4_nullable = std::make_shared<vectorized::DataTypeNullable>(dt_ipv4);
-    DataTypePtr dt_ipv6_nullable = std::make_shared<vectorized::DataTypeNullable>(dt_ipv6);
+    DataTypePtr dt_ipv4_nullable = std::make_shared<DataTypeNullable>(dt_ipv4);
+    DataTypePtr dt_ipv6_nullable = std::make_shared<DataTypeNullable>(dt_ipv6);
 
     ColumnIPv4::MutablePtr column_ipv4;
     ColumnIPv6::MutablePtr column_ipv6;
@@ -307,4 +307,4 @@ TEST_F(ColumnIPTest, IPv4Parse) {
     ASSERT_EQ(2130706433, result_value);
 };
 
-} // namespace doris::vectorized
+} // namespace doris

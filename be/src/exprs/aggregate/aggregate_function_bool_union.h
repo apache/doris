@@ -29,7 +29,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_bit.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct AggregateFunctionBoolXorData {
@@ -106,6 +106,6 @@ public:
         assert_cast<ColumnUInt8&>(to).insert_value(this->data(place).get());
     }
 };
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -235,7 +235,7 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
+    Status next_batch(size_t* n, MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;
@@ -259,7 +259,7 @@ public:
     }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                          vectorized::MutableColumnPtr& dst) override {
+                          MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (*n == 0 || _cur_index >= _num_elements) [[unlikely]] {
             *n = 0;

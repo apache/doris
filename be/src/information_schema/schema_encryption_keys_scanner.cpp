@@ -38,9 +38,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaEncryptionKeysScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -84,7 +82,7 @@ Status SchemaEncryptionKeysScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaEncryptionKeysScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaEncryptionKeysScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -100,7 +98,7 @@ Status SchemaEncryptionKeysScanner::get_next_block_internal(vectorized::Block* b
     return _fill_block_impl(block);
 }
 
-Status SchemaEncryptionKeysScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaEncryptionKeysScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
     const auto& encryption_keys = _master_keys;

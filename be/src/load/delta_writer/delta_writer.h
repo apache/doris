@@ -48,9 +48,7 @@ class SlotDescriptor;
 class OlapTableSchemaParam;
 class RowsetWriter;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class BaseRowsetBuilder;
 class RowsetBuilder;
@@ -63,7 +61,7 @@ public:
 
     virtual ~BaseDeltaWriter();
 
-    virtual Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) = 0;
+    virtual Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) = 0;
 
     // flush the last memtable to flush queue, must call it before build_rowset()
     virtual Status close() = 0;
@@ -129,7 +127,7 @@ public:
 
     ~DeltaWriter() override;
 
-    Status write(const vectorized::Block* block, const DorisVector<uint32_t>& row_idxs) override;
+    Status write(const Block* block, const DorisVector<uint32_t>& row_idxs) override;
 
     Status close() override;
 

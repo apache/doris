@@ -28,7 +28,7 @@
 
 namespace doris::segment_v2 {
 
-using namespace doris::vectorized;
+using namespace doris;
 
 class IndexFileWriterTest : public ::testing::Test {
 protected:

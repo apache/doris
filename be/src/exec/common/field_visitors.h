@@ -27,7 +27,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 /** StaticVisitor (and its descendants) - class with overloaded operator() for all types of fields.
   * You could call visitor for field using function 'apply_visitor'.
@@ -146,4 +146,4 @@ typename std::decay_t<Visitor>::ResultType apply_visitor(Visitor&& visitor, F&& 
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

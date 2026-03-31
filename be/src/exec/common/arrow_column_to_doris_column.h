@@ -35,7 +35,7 @@ class time_zone;
 
 // This files contains some utilities to convert Doris internal
 // data format from Apache Arrow format.
-namespace doris::vectorized {
+namespace doris {
 
 PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type);
 
@@ -48,4 +48,4 @@ Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arr
                                     ColumnPtr& doris_column, const DataTypePtr& type,
                                     size_t num_elements, const cctz::time_zone& ctz);
 
-} // namespace doris::vectorized
+} // namespace doris

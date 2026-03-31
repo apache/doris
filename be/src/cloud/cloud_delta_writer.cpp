@@ -64,8 +64,7 @@ Status CloudDeltaWriter::batch_init(std::vector<CloudDeltaWriter*> writers) {
     return cloud::bthread_fork_join(tasks, 10);
 }
 
-Status CloudDeltaWriter::write(const vectorized::Block* block,
-                               const DorisVector<uint32_t>& row_idxs) {
+Status CloudDeltaWriter::write(const Block* block, const DorisVector<uint32_t>& row_idxs) {
     if (row_idxs.empty()) [[unlikely]] {
         return Status::OK();
     }
@@ -142,8 +141,8 @@ Status CloudDeltaWriter::_commit_empty_rowset() {
     return _engine.meta_mgr().commit_rowset(*rowset_meta(), "");
 }
 
-Status CloudDeltaWriter::set_txn_related_delete_bitmap() {
-    return rowset_builder()->set_txn_related_delete_bitmap();
+Status CloudDeltaWriter::set_txn_related_info() {
+    return rowset_builder()->set_txn_related_info();
 }
 
 } // namespace doris

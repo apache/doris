@@ -30,7 +30,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionAggState : public IFunction {
 public:
@@ -96,4 +96,4 @@ private:
     AggregateFunctionPtr _agg_function;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -70,7 +70,7 @@ class RuntimeState;
 class TExprNode;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 const std::string AGG_STATE_SUFFIX = "_state";
@@ -201,7 +201,11 @@ void VectorizedFnCall::close(VExprContext* context, FunctionContext::FunctionSta
 }
 
 Status VectorizedFnCall::evaluate_inverted_index(VExprContext* context, uint32_t segment_num_rows) {
-    DCHECK_GE(get_num_children(), 1);
+    if (get_num_children() < 1) {
+        // score() and similar 0-children virtual column functions don't need
+        // inverted index evaluation; return OK to skip gracefully.
+        return Status::OK();
+    }
     return _evaluate_inverted_index(context, _function, segment_num_rows);
 }
 
@@ -606,13 +610,27 @@ Status VectorizedFnCall::evaluate_ann_range_search(
                 range_search_runtime.dim, index_dim);
     }
 
+    auto stats = std::make_unique<segment_v2::AnnIndexStats>();
+    // Track load index timing
+    {
+        SCOPED_TIMER(&(stats->load_index_costs_ns));
+        if (!ann_index_iterator->try_load_index()) {
+            VLOG_DEBUG << "ANN range search skipped: "
+                       << fmt::format("Failed to load ANN index for column cid {}", src_col_cid);
+            ann_index_stats.fall_back_brute_force_cnt += 1;
+            return Status::OK();
+        }
+        double load_costs_ms = static_cast<double>(stats->load_index_costs_ns.value()) / 1000000.0;
+        DorisMetrics::instance()->ann_index_load_costs_ms->increment(
+                static_cast<int64_t>(load_costs_ms));
+    }
+
     AnnRangeSearchParams params = range_search_runtime.to_range_search_params();
 
     params.roaring = &row_bitmap;
     DCHECK(params.roaring != nullptr);
     DCHECK(params.query_value != nullptr);
     segment_v2::AnnRangeSearchResult result;
-    auto stats = std::make_unique<segment_v2::AnnIndexStats>();
     RETURN_IF_ERROR(ann_index_iterator->range_search(params, range_search_runtime.user_params,
                                                      &result, stats.get()));
 
@@ -696,4 +714,4 @@ double VectorizedFnCall::execute_cost() const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

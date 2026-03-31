@@ -29,7 +29,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/string_view.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class ColumnVarbinary final : public COWHelper<IColumn, ColumnVarbinary> {
 private:
@@ -193,4 +193,4 @@ private:
     Arena _arena;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

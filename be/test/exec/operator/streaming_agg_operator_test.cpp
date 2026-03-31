@@ -34,9 +34,7 @@
 #include "testutil/mock/mock_slot_ref.h"
 #include "util/jsonb_document.h"
 
-namespace doris::pipeline {
-
-using namespace vectorized;
+namespace doris {
 
 struct MockStreamingAggOperatorX : public StreamingAggOperatorX {
     MockStreamingAggOperatorX() = default;
@@ -63,14 +61,11 @@ struct MockStreamingAggLocalState : public StreamingAggLocalState {
 
 class MockStreamingAggOperatorChildOperator : public OperatorXBase {
 public:
-    Status get_block_after_projects(RuntimeState* state, vectorized::Block* block,
-                                    bool* eos) override {
+    Status get_block_after_projects(RuntimeState* state, Block* block, bool* eos) override {
         return Status::OK();
     }
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
-        return Status::OK();
-    }
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override { return Status::OK(); }
     Status setup_local_state(RuntimeState* state, LocalStateInfo& info) override {
         return Status::OK();
     }
@@ -85,10 +80,8 @@ struct StreamingAggOperatorTest : public testing::Test {
         state = std::make_shared<MockRuntimeState>();
         op = std::make_shared<MockStreamingAggOperatorX>();
         child_op = std::make_shared<MockStreamingAggOperatorChildOperator>();
-        child_op->_mock_row_desc.reset(
-                new MockRowDescriptor {{std::make_shared<vectorized::DataTypeInt64>(),
-                                        std::make_shared<vectorized::DataTypeInt64>()},
-                                       &pool});
+        child_op->_mock_row_desc.reset(new MockRowDescriptor {
+                {std::make_shared<DataTypeInt64>(), std::make_shared<DataTypeInt64>()}, &pool});
     }
 
     std::shared_ptr<MockStreamingAggOperatorX> op;
@@ -104,7 +97,7 @@ struct StreamingAggOperatorTest : public testing::Test {
 };
 
 TEST_F(StreamingAggOperatorTest, test1) {
-    op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+    op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()), false,
             false));
     op->_pool = &pool;
@@ -135,7 +128,7 @@ TEST_F(StreamingAggOperatorTest, test1) {
     }
 
     {
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
         auto st = op->push(state.get(), &block, true);
@@ -146,7 +139,7 @@ TEST_F(StreamingAggOperatorTest, test1) {
     }
 
     {
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({2, 2, 2, 2, 4, 4}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
         auto st = op->push(state.get(), &block, true);
@@ -160,7 +153,7 @@ TEST_F(StreamingAggOperatorTest, test1) {
 }
 
 TEST_F(StreamingAggOperatorTest, test2) {
-    op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+    op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()), false,
             false));
     op->_pool = &pool;
@@ -191,7 +184,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
     }
 
     {
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 2, 2, 2, 3}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
         auto st = op->push(state.get(), &block, true);
@@ -203,7 +196,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
 
     {
         local_state->should_not_do_pre_agg = true;
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_column_with_name<DataTypeInt64>({2, 2, 2, 2, 4, 4}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
         auto st = op->push(state.get(), &block, true);
@@ -215,7 +208,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
 
     {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         auto st = op->pull(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_FALSE(eos);
@@ -225,7 +218,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
     {
         op->_make_nullable_keys = {0}; // make key nullable
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         auto st = op->pull(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(eos);
@@ -236,7 +229,7 @@ TEST_F(StreamingAggOperatorTest, test2) {
 }
 
 TEST_F(StreamingAggOperatorTest, test3) {
-    op->_aggregate_evaluators.push_back(vectorized::create_mock_agg_fn_evaluator(
+    op->_aggregate_evaluators.push_back(create_mock_agg_fn_evaluator(
             pool, MockSlotRef::create_mock_contexts(1, std::make_shared<DataTypeInt64>()), false,
             false));
     op->_pool = &pool;
@@ -268,7 +261,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
     }
 
     {
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
                         {1, 1, 2, 2, 2, 3}, {false, false, false, false, false, true}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
@@ -281,7 +274,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
 
     {
         local_state->should_not_do_pre_agg = true;
-        vectorized::Block block {
+        Block block {
                 ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
                         {2, 2, 2, 2, 4, 4}, {false, false, false, false, false, false}),
                 ColumnHelper::create_column_with_name<DataTypeInt64>({1, 1, 100, 100, 100, 1000})};
@@ -294,7 +287,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
 
     {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         auto st = op->pull(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_FALSE(eos);
@@ -304,7 +297,7 @@ TEST_F(StreamingAggOperatorTest, test3) {
     {
         op->_make_nullable_keys = {0}; // make key nullable
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         auto st = op->pull(state.get(), &block, &eos);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(eos);
@@ -315,9 +308,9 @@ TEST_F(StreamingAggOperatorTest, test3) {
 }
 
 TEST_F(StreamingAggOperatorTest, test4) {
-    op->_aggregate_evaluators.push_back(
-            vectorized::create_agg_fn(pool, "bitmap_union", {std::make_shared<DataTypeBitMap>()},
-                                      std::make_shared<DataTypeBitMap>(), false));
+    op->_aggregate_evaluators.push_back(create_agg_fn(pool, "bitmap_union",
+                                                      {std::make_shared<DataTypeBitMap>()},
+                                                      std::make_shared<DataTypeBitMap>(), false));
     op->_pool = &pool;
     op->_needs_finalize = false;
 
@@ -350,10 +343,9 @@ TEST_F(StreamingAggOperatorTest, test4) {
         std::vector<BitmapValue> bitmaps = {BitmapValue(1), BitmapValue(2), BitmapValue(3),
                                             BitmapValue(4), BitmapValue(5), BitmapValue(6)};
 
-        vectorized::Block block {
-                ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps),
-                ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
-                        {1, 1, 2, 2, 2, 3}, {false, false, false, false, false, true})};
+        Block block {ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps),
+                     ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
+                             {1, 1, 2, 2, 2, 3}, {false, false, false, false, false, true})};
         local_state->should_not_do_pre_agg = false;
         local_state->_should_expand_hash_table = true;
         std::cout << block.dump_data() << std::endl;
@@ -369,10 +361,9 @@ TEST_F(StreamingAggOperatorTest, test4) {
         local_state->_should_expand_hash_table = false;
         std::vector<BitmapValue> bitmaps2 = {BitmapValue(6), BitmapValue(7),  BitmapValue(8),
                                              BitmapValue(9), BitmapValue(10), BitmapValue(11)};
-        vectorized::Block block {
-                ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps2),
-                ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
-                        {2, 2, 2, 2, 4, 4}, {false, false, false, false, false, false})};
+        Block block {ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps2),
+                     ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
+                             {2, 2, 2, 2, 4, 4}, {false, false, false, false, false, false})};
         std::cout << block.dump_data() << std::endl;
         auto st = op->push(state.get(), &block, true);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -383,7 +374,7 @@ TEST_F(StreamingAggOperatorTest, test4) {
 
     {
         bool eos = false;
-        vectorized::Block block;
+        Block block;
         auto st = op->pull(state.get(), &block, &eos);
         std::cout << block.dump_data() << std::endl;
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -392,10 +383,9 @@ TEST_F(StreamingAggOperatorTest, test4) {
         std::vector<BitmapValue> bitmaps_res = {BitmapValue({1, 2}),
                                                 BitmapValue({3, 4, 5, 6, 7, 8, 9}),
                                                 BitmapValue({10, 11}), BitmapValue(6)};
-        vectorized::Block res_block {
-                ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
-                        {1, 2, 4, 5}, {false, false, false, true}),
-                ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps_res)};
+        Block res_block {ColumnHelper::create_nullable_column_with_name<DataTypeInt64>(
+                                 {1, 2, 4, 5}, {false, false, false, true}),
+                         ColumnHelper::create_column_with_name<DataTypeBitMap>(bitmaps_res)};
         // In the past, because of the to_string implementation problem of bitmap, the specific implementation of different interfaces of two to_strings was different, resulting in different results.
         // Annotate the case for the time being, and delete one of the bottoms in the futur
         // EXPECT_TRUE(ColumnHelper::block_equal_with_sort(block, res_block))
@@ -405,4 +395,4 @@ TEST_F(StreamingAggOperatorTest, test4) {
     { EXPECT_TRUE(local_state->close(state.get()).ok()); }
 }
 
-} // namespace doris::pipeline
+} // namespace doris

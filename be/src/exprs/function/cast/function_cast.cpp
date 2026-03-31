@@ -20,23 +20,17 @@
 #include "core/data_type/data_type_agg_state.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h" // IWYU pragma: keep
+#include "core/data_type/data_type_quantilestate.h"
 #include "core/data_type/primitive_type.h"
 #include "exprs/function/cast/cast_to_array.h"
-#include "exprs/function/cast/cast_to_boolean.h"
-#include "exprs/function/cast/cast_to_date.h"
-#include "exprs/function/cast/cast_to_decimal.h"
-#include "exprs/function/cast/cast_to_float.h"
-#include "exprs/function/cast/cast_to_int.h"
-#include "exprs/function/cast/cast_to_ip.h"
 #include "exprs/function/cast/cast_to_jsonb.h"
 #include "exprs/function/cast/cast_to_map.h"
-#include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/cast/cast_to_struct.h"
-#include "exprs/function/cast/cast_to_timestamptz.h"
 #include "exprs/function/cast/cast_to_variant.h"
+#include "exprs/function/cast/cast_wrapper_decls.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 namespace CastWrapper {
 
@@ -58,6 +52,18 @@ WrapperType create_bitmap_wrapper(FunctionContext* context, const DataTypePtr& f
     }
 
     return CastWrapper::create_unsupport_wrapper("Cast to BitMap only support from String type");
+}
+
+WrapperType create_quantile_state_wrapper(FunctionContext* context,
+                                          const DataTypePtr& from_type_untyped,
+                                          const DataTypeQuantileState& to_type) {
+    /// Conversion from String through parsing.
+    if (check_and_get_data_type<DataTypeString>(from_type_untyped.get())) {
+        return cast_from_string_to_generic;
+    }
+
+    return CastWrapper::create_unsupport_wrapper(
+            "Cast to QuantileState only support from String type");
 }
 
 WrapperType create_varbinary_wrapper(const DataTypePtr& from_type_untyped) {
@@ -244,45 +250,31 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_BOOLEAN:
         return create_boolean_wrapper(context, from_type);
     case PrimitiveType::TYPE_TINYINT:
-        return create_int_wrapper<DataTypeInt8>(context, from_type);
     case PrimitiveType::TYPE_SMALLINT:
-        return create_int_wrapper<DataTypeInt16>(context, from_type);
     case PrimitiveType::TYPE_INT:
-        return create_int_wrapper<DataTypeInt32>(context, from_type);
     case PrimitiveType::TYPE_BIGINT:
-        return create_int_wrapper<DataTypeInt64>(context, from_type);
     case PrimitiveType::TYPE_LARGEINT:
-        return create_int_wrapper<DataTypeInt128>(context, from_type);
+        return create_int_wrapper(context, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_FLOAT:
-        return create_float_wrapper<DataTypeFloat32>(context, from_type);
     case PrimitiveType::TYPE_DOUBLE:
-        return create_float_wrapper<DataTypeFloat64>(context, from_type);
+        return create_float_wrapper(context, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_DATE:
-        return create_datelike_wrapper<DataTypeDate>(context, from_type);
     case PrimitiveType::TYPE_DATETIME:
-        return create_datelike_wrapper<DataTypeDateTime>(context, from_type);
     case PrimitiveType::TYPE_DATEV2:
-        return create_datelike_wrapper<DataTypeDateV2>(context, from_type);
     case PrimitiveType::TYPE_DATETIMEV2:
-        return create_datelike_wrapper<DataTypeDateTimeV2>(context, from_type);
+    case PrimitiveType::TYPE_TIMEV2:
+        return create_datelike_wrapper(context, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_TIMESTAMPTZ:
         return create_timestamptz_wrapper(context, from_type);
-    case PrimitiveType::TYPE_TIMEV2:
-        return create_datelike_wrapper<DataTypeTimeV2>(context, from_type);
     case PrimitiveType::TYPE_IPV4:
-        return create_ip_wrapper<DataTypeIPv4>(context, from_type);
     case PrimitiveType::TYPE_IPV6:
-        return create_ip_wrapper<DataTypeIPv6>(context, from_type);
+        return create_ip_wrapper(context, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_DECIMALV2:
-        return create_decimal_wrapper<DataTypeDecimalV2>(context, from_type);
     case PrimitiveType::TYPE_DECIMAL32:
-        return create_decimal_wrapper<DataTypeDecimal32>(context, from_type);
     case PrimitiveType::TYPE_DECIMAL64:
-        return create_decimal_wrapper<DataTypeDecimal64>(context, from_type);
     case PrimitiveType::TYPE_DECIMAL128I:
-        return create_decimal_wrapper<DataTypeDecimal128>(context, from_type);
     case PrimitiveType::TYPE_DECIMAL256:
-        return create_decimal_wrapper<DataTypeDecimal256>(context, from_type);
+        return create_decimal_wrapper(context, from_type, to_type->get_primitive_type());
     case PrimitiveType::TYPE_CHAR:
     case PrimitiveType::TYPE_VARCHAR:
     case PrimitiveType::TYPE_STRING:
@@ -300,6 +292,9 @@ WrapperType prepare_impl(FunctionContext* context, const DataTypePtr& origin_fro
     case PrimitiveType::TYPE_BITMAP:
         return create_bitmap_wrapper(context, from_type,
                                      static_cast<const DataTypeBitMap&>(*to_type));
+    case PrimitiveType::TYPE_QUANTILE_STATE:
+        return create_quantile_state_wrapper(context, from_type,
+                                             static_cast<const DataTypeQuantileState&>(*to_type));
     case PrimitiveType::TYPE_JSONB:
         return create_cast_to_jsonb_wrapper(from_type, static_cast<const DataTypeJsonb&>(*to_type),
                                             context ? context->string_as_jsonb_string() : false);
@@ -401,4 +396,4 @@ protected:
 void register_function_cast(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionBuilderCast>();
 }
-} // namespace doris::vectorized
+} // namespace doris

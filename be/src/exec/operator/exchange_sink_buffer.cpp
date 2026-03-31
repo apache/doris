@@ -50,7 +50,6 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-namespace vectorized {
 BroadcastPBlockHolder::~BroadcastPBlockHolder() {
     // lock the parent queue, if the queue could lock success, then return the block
     // to the queue, to reuse the block
@@ -86,9 +85,6 @@ void BroadcastPBlockHolderMemLimiter::release(const BroadcastPBlockHolder& holde
     }
 }
 
-} // namespace vectorized
-
-namespace pipeline {
 ExchangeSinkBuffer::ExchangeSinkBuffer(PUniqueId query_id, PlanNodeId dest_node_id,
                                        PlanNodeId node_id, RuntimeState* state,
                                        const std::vector<InstanceLoId>& sender_ins_ids)
@@ -131,11 +127,9 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
     instance_data->mutex = std::make_unique<std::mutex>();
     instance_data->seq = 0;
     instance_data->package_queue =
-            std::unordered_map<vectorized::Channel*,
-                               std::queue<TransmitInfo, std::list<TransmitInfo>>>();
+            std::unordered_map<Channel*, std::queue<TransmitInfo, std::list<TransmitInfo>>>();
     instance_data->broadcast_package_queue = std::unordered_map<
-            vectorized::Channel*,
-            std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>();
+            Channel*, std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>();
     _queue_capacity = config::exchg_buffer_queue_capacity_factor * _rpc_instances.size();
 
     PUniqueId finst_id;
@@ -155,7 +149,7 @@ void ExchangeSinkBuffer::construct_request(TUniqueId fragment_instance_id) {
     _rpc_instances[low_id] = std::move(instance_data);
 }
 
-Status ExchangeSinkBuffer::add_block(vectorized::Channel* channel, TransmitInfo&& request) {
+Status ExchangeSinkBuffer::add_block(Channel* channel, TransmitInfo&& request) {
     if (_is_failed) {
         return Status::OK();
     }
@@ -196,8 +190,7 @@ Status ExchangeSinkBuffer::add_block(vectorized::Channel* channel, TransmitInfo&
     return Status::OK();
 }
 
-Status ExchangeSinkBuffer::add_block(vectorized::Channel* channel,
-                                     BroadcastTransmitInfo&& request) {
+Status ExchangeSinkBuffer::add_block(Channel* channel, BroadcastTransmitInfo&& request) {
     if (_is_failed) {
         return Status::OK();
     }
@@ -237,7 +230,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
     auto& q_map = instance_data.package_queue;
     auto& broadcast_q_map = instance_data.broadcast_package_queue;
 
-    auto find_max_size_queue = [](vectorized::Channel*& channel, auto& ptr, auto& map) {
+    auto find_max_size_queue = [](Channel*& channel, auto& ptr, auto& map) {
         for (auto& [chan, lists] : map) {
             if (!ptr) {
                 if (!lists.empty()) {
@@ -253,7 +246,7 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         }
     };
 
-    vectorized::Channel* channel = nullptr;
+    Channel* channel = nullptr;
 
     std::queue<TransmitInfo, std::list<TransmitInfo>>* q_ptr = nullptr;
     find_max_size_queue(channel, q_ptr, q_map);
@@ -361,10 +354,10 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         });
         {
-            auto send_remote_block_closure =
-                    AutoReleaseClosure<PTransmitDataParams,
-                                       pipeline::ExchangeSendCallback<PTransmitDataResult>>::
-                            create_unique(brpc_request, send_callback);
+            auto send_remote_block_closure = AutoReleaseClosure<
+                    PTransmitDataParams,
+                    ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
+                                                                              send_callback);
             if (enable_http_send_block(*brpc_request)) {
                 RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
                                                       std::move(send_remote_block_closure),
@@ -490,10 +483,10 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
             }
         });
         {
-            auto send_remote_block_closure =
-                    AutoReleaseClosure<PTransmitDataParams,
-                                       pipeline::ExchangeSendCallback<PTransmitDataResult>>::
-                            create_unique(brpc_request, send_callback);
+            auto send_remote_block_closure = AutoReleaseClosure<
+                    PTransmitDataParams,
+                    ExchangeSendCallback<PTransmitDataResult>>::create_unique(brpc_request,
+                                                                              send_callback);
             if (enable_http_send_block(*brpc_request)) {
                 RETURN_IF_ERROR(transmit_block_httpv2(_context->exec_env(),
                                                       std::move(send_remote_block_closure),
@@ -691,6 +684,5 @@ std::string ExchangeSinkBuffer::debug_each_instance_queue_size() {
     return fmt::to_string(debug_string_buffer);
 }
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

@@ -29,7 +29,7 @@
 #include "exprs/function/ai/embed.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 Status FunctionAIClassify::build_prompt(const Block& block, const ColumnNumbers& arguments,
                                         size_t row_num, std::string& prompt) const {
     // Get the text column
@@ -213,4 +213,4 @@ void register_function_ai(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionAITranslate>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

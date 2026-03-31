@@ -28,7 +28,7 @@
 #include "core/data_type/primitive_type.h"
 #include "core/field.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // Utility tools for convenient column execution
 
@@ -98,4 +98,4 @@ struct ColumnView {
 
     size_t size() const { return count; }
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -23,7 +23,7 @@
 #include <algorithm>
 #include <cstdint>
 
-namespace doris::vectorized::detail {
+namespace doris::detail {
 #include "common/compile_check_begin.h"
 inline int cmp(uint8_t a, uint8_t b) {
     if (a < b) return -1;
@@ -36,7 +36,7 @@ inline int cmp(size_t a, size_t b) {
     if (a > b) return 1;
     return 0;
 }
-} // namespace doris::vectorized::detail
+} // namespace doris::detail
 
 /// We can process uninitialized memory in the functions below.
 /// Results don't depend on the values inside uninitialized memory but Memory Sanitizer cannot see it.
@@ -58,18 +58,18 @@ inline int memcmp_small_allow_overflow15(const uint8_t* a, size_t a_size, const 
         uint16_t mask = static_cast<uint16_t>(_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)))));
-        mask = ~mask;
+        mask = static_cast<uint16_t>(~mask);
 
         if (mask) {
             offset += __builtin_ctz(mask);
 
             if (offset >= min_size) break;
 
-            return doris::vectorized::detail::cmp(a[offset], b[offset]);
+            return doris::detail::cmp(a[offset], b[offset]);
         }
     }
 
-    return doris::vectorized::detail::cmp(a_size, b_size);
+    return doris::detail::cmp(a_size, b_size);
 }
 
 /** Variant when memory regions have same size.
@@ -80,14 +80,14 @@ inline int memcmp_small_allow_overflow15(const uint8_t* a, const uint8_t* b, siz
         uint16_t mask = static_cast<uint16_t>(_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)))));
-        mask = ~mask;
+        mask = static_cast<uint16_t>(~mask);
 
         if (mask) {
             offset += __builtin_ctz(mask);
 
             if (offset >= size) return 0;
 
-            return doris::vectorized::detail::cmp(a[offset], b[offset]);
+            return doris::detail::cmp(a[offset], b[offset]);
         }
     }
 
@@ -104,7 +104,7 @@ inline bool memequal_small_allow_overflow15(const uint8_t* a, size_t a_size, con
         uint16_t mask = static_cast<uint16_t>(_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)))));
-        mask = ~mask;
+        mask = static_cast<uint16_t>(~mask);
 
         if (mask) {
             offset += __builtin_ctz(mask);
@@ -122,11 +122,11 @@ inline int memcmp_small_multiple_of16(const uint8_t* a, const uint8_t* b, size_t
         uint16_t mask = static_cast<uint16_t>(_mm_movemask_epi8(
                 _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a + offset)),
                                _mm_loadu_si128(reinterpret_cast<const __m128i*>(b + offset)))));
-        mask = ~mask;
+        mask = static_cast<uint16_t>(~mask);
 
         if (mask) {
             offset += __builtin_ctz(mask);
-            return doris::vectorized::detail::cmp(a[offset], b[offset]);
+            return doris::detail::cmp(a[offset], b[offset]);
         }
     }
 
@@ -139,11 +139,11 @@ inline int memcmp16(const uint8_t* a, const uint8_t* b) {
     uint16_t mask = static_cast<uint16_t>(_mm_movemask_epi8(
             _mm_cmpeq_epi8(_mm_loadu_si128(reinterpret_cast<const __m128i*>(a)),
                            _mm_loadu_si128(reinterpret_cast<const __m128i*>(b)))));
-    mask = ~mask;
+    mask = static_cast<uint16_t>(~mask);
 
     if (mask) {
         auto offset = __builtin_ctz(mask);
-        return doris::vectorized::detail::cmp(a[offset], b[offset]);
+        return doris::detail::cmp(a[offset], b[offset]);
     }
 
     return 0;
@@ -165,7 +165,7 @@ inline bool memory_is_zero_small_allow_overflow15(const void* data, size_t size)
         uint16_t mask = static_cast<uint16_t>(_mm_movemask_epi8(
                 _mm_cmpeq_epi8(zero16, _mm_loadu_si128(reinterpret_cast<const __m128i*>(
                                                reinterpret_cast<const char*>(data) + offset)))));
-        mask = ~mask;
+        mask = static_cast<uint16_t>(~mask);
 
         if (mask) {
             offset += __builtin_ctz(mask);
@@ -185,7 +185,7 @@ inline int memcmp_small_allow_overflow15(const uint8_t* a, size_t a_size, const 
     if (auto res = memcmp(a, b, std::min(a_size, b_size)))
         return res;
     else
-        return doris::vectorized::detail::cmp(a_size, b_size);
+        return doris::detail::cmp(a_size, b_size);
 }
 
 inline int memcmp_small_allow_overflow15(const uint8_t* a, const uint8_t* b, size_t size) {

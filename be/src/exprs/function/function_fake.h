@@ -30,12 +30,10 @@
 
 namespace doris {
 class FunctionContext;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct UDTFImpl {
     static DataTypePtr get_return_type_impl(const DataTypes& arguments) {
@@ -84,4 +82,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

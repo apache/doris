@@ -17,7 +17,6 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
@@ -58,6 +57,8 @@ import java.util.Set;
 public class Column implements GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Column.class);
     public static final String HIDDEN_COLUMN_PREFIX = "__DORIS_";
+    // all shadow indexes should have this prefix in name
+    public static final String SHADOW_NAME_PREFIX = "__doris_shadow_";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String WHERE_SIGN = "__DORIS_WHERE_SIGN__";
@@ -67,17 +68,17 @@ public class Column implements GsonPostProcessable {
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     public static final String SKIP_BITMAP_COL = "__DORIS_SKIP_BITMAP_COL__";
+    public static final String ICEBERG_ROWID_COL = "__DORIS_ICEBERG_ROWID_COL__";
+    // table stream columns
+    public static final String STREAM_CHANGE_TYPE_COL = "__DORIS_STREAM_CHANGE_TYPE_COL__";
+    public static final String STREAM_SEQ_COL = "__DORIS_STREAM_SEQUENCE_COL__";
     // NOTE: you should name hidden column start with '__DORIS_' !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
     private static final String COLUMN_ARRAY_CHILDREN = "item";
-    private static final String COLUMN_STRUCT_CHILDREN = "field";
     private static final String COLUMN_AGG_ARGUMENT_CHILDREN = "argument";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
-
-    public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, -1,
-            null, "invalid", true, null, -1, null);
 
     @SerializedName(value = "name")
     private String name;
@@ -274,8 +275,8 @@ public class Column implements GsonPostProcessable {
         }
         this.sessionVariables = sessionVariables;
 
-        if (type.isAggStateType()) {
-            AggStateType aggState = (AggStateType) type;
+        if (this.type.isAggStateType()) {
+            AggStateType aggState = (AggStateType) (this.type);
             for (int i = 0; i < aggState.getSubTypes().size(); i++) {
                 Column c = new Column(COLUMN_AGG_ARGUMENT_CHILDREN, aggState.getSubTypes().get(i));
                 c.setIsAllowNull(aggState.getSubTypeNullables().get(i));
@@ -378,10 +379,6 @@ public class Column implements GsonPostProcessable {
         this.children.add(column);
     }
 
-    public void setDefineName(String defineName) {
-        this.defineName = defineName;
-    }
-
     public String getDefineName() {
         if (defineName != null) {
             return defineName;
@@ -408,22 +405,7 @@ public class Column implements GsonPostProcessable {
     }
 
     public String getDisplayName() {
-        if (defineExpr == null) {
-            return name;
-        } else {
-            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
-        }
-    }
-
-    public String getNameWithoutPrefix(String prefix) {
-        if (isNameWithPrefix(prefix)) {
-            return name.substring(prefix.length());
-        }
         return name;
-    }
-
-    public boolean isNameWithPrefix(String prefix) {
-        return this.name.startsWith(prefix);
     }
 
     public void setIsKey(boolean isKey) {
@@ -620,6 +602,7 @@ public class Column implements GsonPostProcessable {
         tColumnType.setPrecision(this.getPrecision());
         tColumnType.setScale(this.getScale());
         tColumnType.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
+        tColumnType.setVariantEnableDocMode(this.getVariantEnableDocMode());
 
         tColumnType.setIndexLen(this.getOlapColumnIndexSize());
 
@@ -813,8 +796,8 @@ public class Column implements GsonPostProcessable {
 
         // when doing schema change, some modified column has a prefix in name.
         // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-        builder.setName(name.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)
-                ? name.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length()) : name);
+        builder.setName(name.startsWith(SHADOW_NAME_PREFIX)
+                ? name.substring(SHADOW_NAME_PREFIX.length()) : name);
 
         builder.setUniqueId(uniqueId);
         builder.setType(this.getDataType().toThrift().name());
@@ -973,9 +956,6 @@ public class Column implements GsonPostProcessable {
             if (this.getVariantEnableDocMode() != other.getVariantEnableDocMode()) {
                 throw new DdlException("Can not change variant enable doc snapshot mode");
             }
-            if (this.getvariantDocMaterializationMinRows() != other.getvariantDocMaterializationMinRows()) {
-                throw new DdlException("Can not change variant doc snapshot min rows");
-            }
             if (this.getVariantDocShardCount() != other.getVariantDocShardCount()) {
                 throw new DdlException("Can not change variant doc snapshot shard count");
             }
@@ -1005,8 +985,8 @@ public class Column implements GsonPostProcessable {
     }
 
     public static String removeNamePrefix(String colName) {
-        if (colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX)) {
-            return colName.substring(SchemaChangeHandler.SHADOW_NAME_PREFIX.length());
+        if (colName.startsWith(SHADOW_NAME_PREFIX)) {
+            return colName.substring(SHADOW_NAME_PREFIX.length());
         }
         return colName;
     }
@@ -1015,11 +995,11 @@ public class Column implements GsonPostProcessable {
         if (isShadowColumn(colName)) {
             return colName;
         }
-        return SchemaChangeHandler.SHADOW_NAME_PREFIX + colName;
+        return SHADOW_NAME_PREFIX + colName;
     }
 
     public static boolean isShadowColumn(String colName) {
-        return colName.startsWith(SchemaChangeHandler.SHADOW_NAME_PREFIX);
+        return colName.startsWith(SHADOW_NAME_PREFIX);
     }
 
     public Expr getDefineExpr() {
@@ -1076,7 +1056,7 @@ public class Column implements GsonPostProcessable {
             sb.append(" ").append(aggregationType.toSql());
         }
         if (generatedColumnInfo != null) {
-            sb.append(" AS (").append(generatedColumnInfo.getExpr().toSql()).append(")");
+            sb.append(" AS (").append(generatedColumnInfo.getExprSql()).append(")");
         }
         if (isAllowNull) {
             sb.append(" NULL");

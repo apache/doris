@@ -30,9 +30,9 @@
 
 #include "common/config.h"
 #include "common/status.h"
-#include "format/wal/wal_reader.h"
 #include "io/fs/local_file_system.h"
 #include "load/group_commit/wal/wal_dirs_info.h"
+#include "load/group_commit/wal/wal_reader.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "util/parse_util.h"

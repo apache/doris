@@ -19,7 +19,7 @@
 
 #include "exprs/function/ai/ai_functions.h"
 
-namespace doris::vectorized {
+namespace doris {
 class FunctionAISimilarity : public AIFunction<FunctionAISimilarity> {
 public:
     static constexpr auto name = "ai_similarity";
@@ -47,4 +47,4 @@ public:
                         std::string& prompt) const override;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

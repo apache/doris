@@ -30,7 +30,7 @@
 #include "exprs/vexpr_fwd.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // VSortedRunMerger is used to merge multiple sorted runs of blocks. A run is a sorted
@@ -96,6 +96,6 @@ private:
     bool _need_more_data(MergeSortCursor& current);
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

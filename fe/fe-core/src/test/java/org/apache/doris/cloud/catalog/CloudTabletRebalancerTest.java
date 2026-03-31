@@ -17,13 +17,15 @@
 
 package org.apache.doris.cloud.catalog;
 
-import org.apache.doris.catalog.Tablet;
+import org.apache.doris.cloud.system.CloudSystemInfoService;
 import org.apache.doris.common.Config;
+import org.apache.doris.metric.MetricRepo;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 import org.mockito.Mockito;
 
 import java.lang.reflect.Field;
@@ -104,26 +106,21 @@ public class CloudTabletRebalancerTest {
         TestRebalancer r = new TestRebalancer();
         setField(r, "rand", new Random(1));
 
-        Tablet hot = Mockito.mock(Tablet.class);
-        Mockito.when(hot.getId()).thenReturn(100L);
-        Tablet cold = Mockito.mock(Tablet.class);
-        Mockito.when(cold.getId()).thenReturn(200L);
-
-        Set<Tablet> tablets = new HashSet<>();
-        tablets.add(hot);
-        tablets.add(cold);
+        Set<Long> tabletIds = new HashSet<>();
+        tabletIds.add(100L); // hot
+        tabletIds.add(200L); // cold
 
         Set<Long> activeIds = new HashSet<>();
         activeIds.add(100L);
 
         Set<Long> picked = new HashSet<>();
 
-        Tablet pickedTablet = invokePrivate(r, "pickTabletPreferCold",
+        Long pickedTabletId = invokePrivate(r, "pickTabletPreferCold",
                 new Class<?>[] {long.class, Set.class, Set.class, Set.class},
-                new Object[] {1L, tablets, activeIds, picked});
+                new Object[] {1L, tabletIds, activeIds, picked});
 
-        Assertions.assertNotNull(pickedTablet);
-        Assertions.assertEquals(200L, pickedTablet.getId(), "Should prefer cold tablet when available");
+        Assertions.assertNotNull(pickedTabletId);
+        Assertions.assertEquals(200L, pickedTabletId.longValue(), "Should prefer cold tablet when available");
     }
 
     @Test
@@ -131,21 +128,19 @@ public class CloudTabletRebalancerTest {
         TestRebalancer r = new TestRebalancer();
         setField(r, "rand", new Random(1));
 
-        Tablet only = Mockito.mock(Tablet.class);
-        Mockito.when(only.getId()).thenReturn(300L);
-        Set<Tablet> tablets = new HashSet<>();
-        tablets.add(only);
+        Set<Long> tabletIds = new HashSet<>();
+        tabletIds.add(300L);
 
         // active stats unavailable -> activeIds empty or cache null
         Set<Long> activeIds = new HashSet<>();
         Set<Long> picked = new HashSet<>();
 
-        Tablet pickedTablet = invokePrivate(r, "pickTabletPreferCold",
+        Long pickedTabletId = invokePrivate(r, "pickTabletPreferCold",
                 new Class<?>[] {long.class, Set.class, Set.class, Set.class},
-                new Object[] {1L, tablets, activeIds,  picked});
+                new Object[] {1L, tabletIds, activeIds, picked});
 
-        Assertions.assertNotNull(pickedTablet);
-        Assertions.assertEquals(300L, pickedTablet.getId());
+        Assertions.assertNotNull(pickedTabletId);
+        Assertions.assertEquals(300L, pickedTabletId.longValue());
     }
 
     @Test
@@ -173,10 +168,10 @@ public class CloudTabletRebalancerTest {
         tableActive.put(20L, 100L); // should still lose because dbActive(2)=1 < dbActive(1)=5
         setField(r, "tableIdToActiveCount", new ConcurrentHashMap<>(tableActive));
 
-        Comparator<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> cmp =
+        Comparator<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> cmp =
                 invokePrivate(r, "tableEntryComparator", new Class<?>[] {}, new Object[] {});
 
-        List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> list = new ArrayList<>();
+        List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> list = new ArrayList<>();
         list.add(new AbstractMap.SimpleEntry<>(10L, new ConcurrentHashMap<>()));
         list.add(new AbstractMap.SimpleEntry<>(11L, new ConcurrentHashMap<>()));
         list.add(new AbstractMap.SimpleEntry<>(20L, new ConcurrentHashMap<>()));
@@ -201,10 +196,10 @@ public class CloudTabletRebalancerTest {
         setField(r, "dbIdToActiveCount", new ConcurrentHashMap<>());
         setField(r, "tableIdToActiveCount", new ConcurrentHashMap<>());
 
-        Comparator<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> cmp =
+        Comparator<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> cmp =
                 invokePrivate(r, "tableEntryComparator", new Class<?>[] {}, new Object[] {});
 
-        List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Tablet>>>> list = new ArrayList<>();
+        List<Map.Entry<Long, ConcurrentHashMap<Long, Set<Long>>>> list = new ArrayList<>();
         list.add(new AbstractMap.SimpleEntry<>(10L, new ConcurrentHashMap<>()));
         list.add(new AbstractMap.SimpleEntry<>(20L, new ConcurrentHashMap<>()));
         list.sort(cmp);
@@ -235,10 +230,10 @@ public class CloudTabletRebalancerTest {
         setField(r, "partitionIdToActiveCount", new ConcurrentHashMap<>(partActive));
 
         @SuppressWarnings("unchecked")
-        Comparator<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>>> cmp =
+        Comparator<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> cmp =
                 invokePrivate(r, "partitionEntryComparator", new Class<?>[] {}, new Object[] {});
 
-        List<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Tablet>>>>> list = new ArrayList<>();
+        List<Map.Entry<Long, ConcurrentHashMap<Long, ConcurrentHashMap<Long, Set<Long>>>>> list = new ArrayList<>();
         list.add(new AbstractMap.SimpleEntry<>(100L, new ConcurrentHashMap<>()));
         list.add(new AbstractMap.SimpleEntry<>(200L, new ConcurrentHashMap<>()));
         list.add(new AbstractMap.SimpleEntry<>(201L, new ConcurrentHashMap<>()));
@@ -307,5 +302,30 @@ public class CloudTabletRebalancerTest {
         boolean migrated = invokePrivate(r, "migrateTabletsForSmoothUpgrade", new Class<?>[] {}, new Object[] {});
         Assertions.assertFalse(migrated);
     }
-}
 
+    @Test
+    public void testResetCloudBalanceMetric_clearsMetricForAllClusters() throws Exception {
+        CloudSystemInfoService systemInfoService = Mockito.mock(CloudSystemInfoService.class);
+        TestRebalancer r = new TestRebalancer();
+        setField(r, "cloudSystemInfoService", systemInfoService);
+
+        Map<String, List<Long>> clusterToBes = new HashMap<>();
+        clusterToBes.put("cluster-a", Collections.singletonList(1L));
+        clusterToBes.put("cluster-b", Collections.singletonList(2L));
+        setField(r, "clusterToBes", clusterToBes);
+
+        Mockito.when(systemInfoService.getClusterNameByClusterId("cluster-a")).thenReturn("compute_cluster_a");
+        Mockito.when(systemInfoService.getClusterNameByClusterId("cluster-b")).thenReturn("compute_cluster_b");
+
+        try (MockedStatic<MetricRepo> metricRepo = Mockito.mockStatic(MetricRepo.class)) {
+            invokePrivate(r, "resetCloudBalanceMetric",
+                    new Class<?>[] {CloudTabletRebalancer.StatType.class},
+                    new Object[] {CloudTabletRebalancer.StatType.PARTITION});
+
+            metricRepo.verify(() -> MetricRepo.updateClusterCloudBalanceNum(
+                    "compute_cluster_a", "cluster-a", CloudTabletRebalancer.StatType.PARTITION, 0L));
+            metricRepo.verify(() -> MetricRepo.updateClusterCloudBalanceNum(
+                    "compute_cluster_b", "cluster-b", CloudTabletRebalancer.StatType.PARTITION, 0L));
+        }
+    }
+}

@@ -24,7 +24,7 @@
 
 #include "core/column/column_nothing.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 MutableColumnPtr DataTypeNothing::create_column() const {
     return ColumnNothing::create(0);
@@ -49,4 +49,4 @@ bool DataTypeNothing::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

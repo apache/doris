@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <brpc/closure_guard.h>
 #include <gen_cpp/FrontendService_types.h>
 #include <gen_cpp/QueryPlanExtra_types.h>
 #include <gen_cpp/Types_types.h>
@@ -25,8 +26,10 @@
 #include <cstdint>
 #include <functional>
 #include <iosfwd>
+#include <map>
 #include <memory>
 #include <mutex>
+#include <set>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -49,9 +52,7 @@ namespace doris {
 extern bvar::Adder<uint64_t> g_fragment_executing_count;
 extern bvar::Status<uint64_t> g_fragment_last_active_time;
 
-namespace pipeline {
 class PipelineFragmentContext;
-} // namespace pipeline
 class QueryContext;
 class ExecEnv;
 class ThreadPool;
@@ -76,7 +77,7 @@ public:
     Value find(const Key& query_id);
     void insert(const Key& query_id, std::shared_ptr<ValueType>);
     void clear();
-    void erase(const Key& query_id);
+    bool erase(const Key& query_id);
     size_t num_items() const {
         size_t n = 0;
         for (auto& pair : _internal_map) {
@@ -134,7 +135,7 @@ public:
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
     Status trigger_pipeline_context_report(const ReportStatusRequest,
-                                           std::shared_ptr<pipeline::PipelineFragmentContext>&&);
+                                           std::shared_ptr<PipelineFragmentContext>&&);
 
     // Can be used in both version.
     MOCK_FUNCTION void cancel_query(const TUniqueId query_id, const Status reason);
@@ -191,7 +192,8 @@ public:
                                   const google::protobuf::RepeatedPtrField<PBlock>& pblocks,
                                   bool eos);
 
-    Status rerun_fragment(const TUniqueId& query_id, int fragment,
+    Status rerun_fragment(const std::shared_ptr<brpc::ClosureGuard>& guard,
+                          const TUniqueId& query_id, int fragment,
                           PRerunFragmentParams_Opcode stage);
 
     Status reset_global_rf(const TUniqueId& query_id,
@@ -228,10 +230,29 @@ private:
     ExecEnv* _exec_env = nullptr;
 
     // (QueryID, FragmentID) -> PipelineFragmentContext
-    ConcurrentContextMap<std::pair<TUniqueId, int>,
-                         std::shared_ptr<pipeline::PipelineFragmentContext>,
-                         pipeline::PipelineFragmentContext>
+    ConcurrentContextMap<std::pair<TUniqueId, int>, std::shared_ptr<PipelineFragmentContext>,
+                         PipelineFragmentContext>
             _pipeline_map;
+
+    // Saved params and callback for rerunnable (recursive CTE) fragments.
+    // Only populated when need_notify_close == true during exec_plan_fragment.
+    // Lifecycle: created in exec_plan_fragment(), used in rerun_fragment(rebuild)
+    // to recreate PFC with fresh state, cleaned up in remove_query_context().
+    struct RerunableFragmentInfo {
+        // Runtime filter IDs registered by the old PFC, collected during wait_for_destroy.
+        // These are deregistered from the RuntimeFilterMgr before the new PFC is created.
+        std::set<int> deregister_runtime_filter_ids;
+        // Original params from FE, used to recreate the PFC each round.
+        TPipelineFragmentParams params;
+        TPipelineFragmentParamsList parent;
+        FinishCallback finish_callback;
+        // Hold query_ctx to prevent it from being destroyed while rerunnable fragments exist.
+        std::shared_ptr<QueryContext> query_ctx;
+        // Monotonically increasing stage counter, stamps runtime filter RPCs.
+        uint32_t stage = 0;
+    };
+    std::mutex _rerunnable_params_lock;
+    std::map<std::pair<TUniqueId, int>, RerunableFragmentInfo> _rerunnable_params_map;
 
     // query id -> QueryContext
     ConcurrentContextMap<TUniqueId, std::weak_ptr<QueryContext>, QueryContext> _query_ctx_map;

@@ -22,7 +22,6 @@
 #include <sstream>
 
 namespace doris {
-namespace vectorized {
 
 const std::regex VHiveUtils::PATH_CHAR_TO_ESCAPE("[\\x00-\\x1F\"#%'*/:=?\\\\\\x7F\\{\\[\\]\\^]");
 
@@ -74,5 +73,4 @@ std::string VHiveUtils::escape_path_name(const std::string& path) {
     }
     return ss.str();
 }
-} // namespace vectorized
 } // namespace doris

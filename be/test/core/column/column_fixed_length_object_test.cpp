@@ -30,7 +30,7 @@
 #include "exec/common/sip_hash.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnFixedLenghtObjectTest, InsertRangeFrom) {
     auto column1 = ColumnFixedLengthObject::create(sizeof(size_t));
@@ -220,7 +220,7 @@ TEST(ColumnFixedLenghtObjectTest, GetDataAtTest) {
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed6->get_data_at(2).data), 33);
     std::cout << "10. test replace_column_data data success" << std::endl;
 
-    vectorized::IColumn::Filter filter {0, 1, 0};
+    IColumn::Filter filter {0, 1, 0};
     ASSERT_EQ(column_fixed5->clone()->filter(filter), 1);
     auto column_filter_res = column_fixed6->filter(filter, 0);
     ASSERT_EQ(column_filter_res->size(), 1);
@@ -259,4 +259,4 @@ TEST(ColumnFixedLenghtObjectTest, GetDataAtTest) {
     ASSERT_EQ(*reinterpret_cast<const int64_t*>(column_fixed7->get_data_at(2).data), 33);
     std::cout << "15. test deserialize_and_insert_from_arena data success" << std::endl;
 }
-} // namespace doris::vectorized
+} // namespace doris

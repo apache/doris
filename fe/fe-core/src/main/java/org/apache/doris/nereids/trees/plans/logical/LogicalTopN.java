@@ -23,6 +23,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -128,36 +129,42 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
     }
 
     public LogicalTopN<Plan> withOrderKeys(List<OrderKey> orderKeys) {
-        return new LogicalTopN<>(orderKeys, limit, offset,
-                Optional.empty(), Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTopN<>(orderKeys, limit, offset,
+                Optional.empty(), Optional.of(getLogicalProperties()), child()));
     }
 
     public LogicalTopN<Plan> withLimitChild(long limit, long offset, Plan child) {
-        return new LogicalTopN<>(orderKeys, limit, offset, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTopN<>(orderKeys, limit, offset, child));
     }
 
     public LogicalTopN<Plan> withLimitOrderKeyAndChild(long limit, long offset, List<OrderKey> orderKeys, Plan child) {
-        return new LogicalTopN<>(orderKeys, limit, offset, child);
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTopN<>(orderKeys, limit, offset, child));
     }
 
     @Override
     public LogicalTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalTopN should have 1 child, but input is %s", children.size());
-        return new LogicalTopN<>(orderKeys, limit, offset, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTopN<>(orderKeys, limit, offset, children.get(0)));
     }
 
     @Override
     public LogicalTopN<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(getLogicalProperties()),
-                child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(getLogicalProperties()),
+                child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalTopN<>(orderKeys, limit, offset, groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override

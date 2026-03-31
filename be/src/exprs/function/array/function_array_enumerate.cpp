@@ -48,7 +48,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionArrayEnumerate : public IFunction {
 public:
@@ -120,4 +120,4 @@ void register_function_array_enumerate(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayEnumerate>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

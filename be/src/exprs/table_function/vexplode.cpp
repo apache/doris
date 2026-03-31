@@ -35,7 +35,7 @@
 #include "exprs/vexpr.h"
 #include "exprs/vexpr_context.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 VExplodeTableFunction::VExplodeTableFunction() {
@@ -49,6 +49,7 @@ Status VExplodeTableFunction::_process_init_variant(Block* block, int value_colu
     auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
     variant_column.finalize();
     _detail.output_as_variant = true;
+    _detail.variant_enable_doc_mode = variant_column.enable_doc_mode();
     if (!variant_column.is_null_root()) {
         _array_column = variant_column.get_root();
         // We need to wrap the output nested column within a variant column.
@@ -152,4 +153,4 @@ int VExplodeTableFunction::get_value(MutableColumnPtr& column, int max_step) {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

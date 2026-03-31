@@ -24,12 +24,11 @@
 #include "exprs/aggregate/aggregate_function_hll_union_agg.h"
 #include "exprs/aggregate/aggregate_function_min_max.h"
 #include "exprs/aggregate/aggregate_function_quantile_state.h"
-#include "exprs/aggregate/aggregate_function_reader_first_last.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/aggregate_function_sum.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 // auto spread at nullable condition, null value do not participate aggregate
@@ -58,29 +57,4 @@ void register_aggregate_function_reader_load(AggregateFunctionSimpleFactory& fac
     register_function_both("quantile_union", create_aggregate_function_quantile_state_union);
 }
 
-// only replace function in load/reader do different agg operation.
-// because Doris can ensure that the data is globally ordered in reader, but cannot in load
-// 1. reader, get the first value of input data.
-// 2. load, get the last value of input data.
-void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory) {
-    auto register_function = [&](const std::string& name, const std::string& suffix,
-                                 const AggregateFunctionCreator& creator, bool nullable) {
-        factory.register_function(name + suffix, creator, nullable);
-    };
-
-    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true>, false);
-    register_function("replace", AGG_READER_SUFFIX, create_aggregate_function_first<true>, true);
-    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false>, false);
-    register_function("replace", AGG_LOAD_SUFFIX, create_aggregate_function_last<false>, true);
-
-    register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first_non_null_value<true>, false);
-    register_function("replace_if_not_null", AGG_READER_SUFFIX,
-                      create_aggregate_function_first_non_null_value<true>, true);
-    register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last_non_null_value<false>, false);
-    register_function("replace_if_not_null", AGG_LOAD_SUFFIX,
-                      create_aggregate_function_last_non_null_value<false>, true);
-}
-
-} // namespace doris::vectorized
+} // namespace doris

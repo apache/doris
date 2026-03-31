@@ -31,7 +31,6 @@
 #include "runtime/runtime_state.h"
 
 namespace doris {
-namespace pipeline {
 
 BlackholeSinkOperatorX::BlackholeSinkOperatorX(int operator_id) : Base(operator_id, 0, 0) {}
 
@@ -45,7 +44,7 @@ Status BlackholeSinkOperatorX::init(const TDataSink& tsink) {
     return Status::OK();
 }
 
-Status BlackholeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* block, bool eos) {
+Status BlackholeSinkOperatorX::sink(RuntimeState* state, Block* block, bool eos) {
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)block->rows());
@@ -57,7 +56,7 @@ Status BlackholeSinkOperatorX::sink(RuntimeState* state, vectorized::Block* bloc
     return Status::OK();
 }
 
-Status BlackholeSinkOperatorX::_process_block(RuntimeState* state, vectorized::Block* block) {
+Status BlackholeSinkOperatorX::_process_block(RuntimeState* state, Block* block) {
     auto& local_state = get_local_state(state);
 
     // Update metrics - count rows and bytes processed
@@ -108,5 +107,4 @@ Status BlackholeSinkOperatorX::close(RuntimeState* state) {
     return Status::OK();
 }
 
-} // namespace pipeline
 } // namespace doris

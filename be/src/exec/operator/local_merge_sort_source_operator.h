@@ -27,8 +27,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
-
 // The LocalMergeSortSourceOperatorX is an operator that performs merge sort locally.
 // If there is an instance, it will only operate in one instance (referred to as the main source below),
 // while the other instances will directly return EOS (referred to as other sources below).
@@ -72,7 +70,7 @@ private:
 
     friend class LocalMergeSortSourceOperatorX;
     int _task_idx;
-    std::unique_ptr<vectorized::VSortedRunMerger> _merger = nullptr;
+    std::unique_ptr<VSortedRunMerger> _merger = nullptr;
 };
 
 class LocalMergeSortSourceOperatorX final : public OperatorX<LocalMergeSortLocalState> {
@@ -85,7 +83,7 @@ public:
     LocalMergeSortSourceOperatorX() : _merge_by_exchange(false), _offset(0) {}
 #endif
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
     Status prepare(RuntimeState* state) override;
@@ -95,8 +93,8 @@ public:
 private:
     void init_dependencies_and_sorter();
 
-    Status other_source_get_block(RuntimeState* state, vectorized::Block* block, bool* eos);
-    Status main_source_get_block(RuntimeState* state, vectorized::Block* block, bool* eos);
+    Status other_source_get_block(RuntimeState* state, Block* block, bool* eos);
+    Status main_source_get_block(RuntimeState* state, Block* block, bool* eos);
 
     friend class PipelineFragmentContext;
     friend class LocalMergeSortLocalState;
@@ -104,14 +102,13 @@ private:
     const bool _merge_by_exchange;
     std::vector<bool> _is_asc_order;
     std::vector<bool> _nulls_first;
-    vectorized::VSortExecExprs _vsort_exec_exprs;
+    VSortExecExprs _vsort_exec_exprs;
     const int64_t _offset;
 
     std::vector<DependencySPtr> _other_source_deps;
     // The sorters of all instances are used in the main source.
-    std::vector<std::shared_ptr<vectorized::Sorter>> _sorters;
+    std::vector<std::shared_ptr<Sorter>> _sorters;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

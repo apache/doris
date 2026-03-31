@@ -46,6 +46,9 @@
 #include "core/value/timestamptz_value.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/common/util.hpp"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/vexpr_context.h"
 #include "exprs/vliteral.h"
 #include "gtest/gtest_pred_impl.h"
@@ -58,9 +61,9 @@
 TEST(TEST_VEXPR, ABSTEST) {
     doris::ObjectPool object_pool;
     doris::DescriptorTblBuilder builder(&object_pool);
-    builder.declare_tuple() << doris::vectorized::DataTypeFactory::instance().create_data_type(
-                                       doris::TYPE_INT, false)
-                            << doris::vectorized::DataTypeFactory::instance().create_data_type(
+    builder.declare_tuple() << doris::DataTypeFactory::instance().create_data_type(doris::TYPE_INT,
+                                                                                   false)
+                            << doris::DataTypeFactory::instance().create_data_type(
                                        doris::TYPE_DOUBLE, false);
     doris::DescriptorTbl* desc_tbl = builder.build();
 
@@ -69,8 +72,8 @@ TEST(TEST_VEXPR, ABSTEST) {
     std::string expr_json =
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     doris::TExpr exprx = apache::thrift::from_json_string<doris::TExpr>(expr_json);
-    doris::vectorized::VExprContextSPtr context;
-    static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
+    doris::VExprContextSPtr context;
+    static_cast<void>(doris::VExpr::create_expr_tree(exprx, context));
 
     doris::RuntimeState runtime_stat;
     runtime_stat.set_desc_tbl(desc_tbl);
@@ -101,11 +104,11 @@ static doris::TupleDescriptor* create_tuple_desc(
     for (int i = 0; i < column_descs.size(); ++i) {
         TSlotDescriptor t_slot_desc;
         if (column_descs[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(vectorized::DataTypeFactory::instance()
+            t_slot_desc.__set_slotType(DataTypeFactory::instance()
                                                .create_data_type(TYPE_DECIMALV2, false, 27, 9)
                                                ->to_thrift());
         } else {
-            auto descriptor = vectorized::DataTypeFactory::instance().create_data_type(
+            auto descriptor = DataTypeFactory::instance().create_data_type(
                     column_descs[i].type, false,
                     column_descs[i].precision >= 0 ? column_descs[i].precision : 0,
                     column_descs[i].scale >= 0 ? column_descs[i].scale : 0);
@@ -161,8 +164,8 @@ TEST(TEST_VEXPR, ABSTEST2) {
             R"|({"1":{"lst":["rec",2,{"1":{"i32":20},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"4":{"i32":1},"20":{"i32":-1},"26":{"rec":{"1":{"rec":{"2":{"str":"abs"}}},"2":{"i32":0},"3":{"lst":["rec",1,{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}]},"4":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":6}}}}]}}},"5":{"tf":0},"7":{"str":"abs(INT)"},"9":{"rec":{"1":{"str":"_ZN5doris13MathFunctions3absEPN9doris_udf15FunctionContextERKNS1_6IntValE"}}},"11":{"i64":0}}}},{"1":{"i32":16},"2":{"rec":{"1":{"lst":["rec",1,{"1":{"i32":0},"2":{"rec":{"1":{"i32":5}}}}]}}},"4":{"i32":0},"15":{"rec":{"1":{"i32":0},"2":{"i32":0}}},"20":{"i32":-1},"23":{"i32":-1}}]}})|";
     TExpr exprx = apache::thrift::from_json_string<TExpr>(expr_json);
 
-    doris::vectorized::VExprContextSPtr context;
-    static_cast<void>(doris::vectorized::VExpr::create_expr_tree(exprx, context));
+    doris::VExprContextSPtr context;
+    static_cast<void>(doris::VExpr::create_expr_tree(exprx, context));
 
     doris::RuntimeState runtime_stat;
     DescriptorTbl desc_tbl;
@@ -414,7 +417,7 @@ doris::TExprNode create_literal(const U& value, int scale = 9) {
 
 TEST(TEST_VEXPR, LITERALTEST) {
     using namespace doris;
-    using namespace doris::vectorized;
+    using namespace doris;
     // bool
     {
         VLiteral literal(create_literal<TYPE_BOOLEAN>(true));
@@ -524,7 +527,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
     {
         VecDateTimeValue data_time_value;
         const char* date = "20210407000000";
-        data_time_value.from_date_str(date, strlen(date));
+        {
+            CastParameters p;
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE_TIME>(
+                    {date, strlen(date)}, data_time_value, nullptr, p);
+        }
         std::cout << data_time_value.type() << std::endl;
         VLiteral literal(create_literal<TYPE_DATETIME, std::string>(std::string(date)));
         Block block;
@@ -601,7 +609,12 @@ TEST(TEST_VEXPR, LITERALTEST) {
         VecDateTimeValue date_time_value;
         date_time_value.set_type(TIME_DATE);
         const char* date = "20210407";
-        date_time_value.from_date_str(date, strlen(date));
+        {
+            CastParameters p;
+            CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                          DatelikeTargetType::DATE>(
+                    {date, strlen(date)}, date_time_value, nullptr, p);
+        }
         __int64_t dt;
         memcpy(&dt, &date_time_value, sizeof(__int64_t));
         VLiteral literal(create_literal<TYPE_DATE, std::string>(std::string(date)));
@@ -619,7 +632,11 @@ TEST(TEST_VEXPR, LITERALTEST) {
     {
         DateV2Value<DateV2ValueType> data_time_value;
         const char* date = "20210407";
-        data_time_value.from_date_str(date, strlen(date));
+        {
+            CastParameters p;
+            CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                    {date, strlen(date)}, data_time_value, nullptr, p);
+        }
         uint32_t dt;
         memcpy(&dt, &data_time_value, sizeof(uint32_t));
         VLiteral literal(create_literal<TYPE_DATEV2, std::string>(std::string(date)));
@@ -639,26 +656,56 @@ TEST(TEST_VEXPR, LITERALTEST) {
     {
         DateV2Value<DateV2ValueType> data_time_value;
         const char* date = "00000000";
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date), -1, true), true);
+        {
+            CastParameters p;
+            EXPECT_EQ(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                              {date, strlen(date)}, data_time_value, nullptr, p),
+                      true);
+        }
 
         DateV2Value<DateV2ValueType> data_time_value1;
         const char* date1 = "00000101";
-        EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
+        {
+            CastParameters p;
+            EXPECT_EQ(CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                              {date1, strlen(date1)}, data_time_value1, nullptr, p),
+                      true);
+        }
         EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
 
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), true);
+        {
+            CastParameters p;
+            EXPECT_EQ(CastToDateV2::from_string_non_strict_mode({date, strlen(date)},
+                                                                data_time_value, nullptr, p),
+                      true);
+        }
     }
     {
         DateV2Value<DateTimeV2ValueType> data_time_value;
         const char* date = "00000000111111";
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date), -1, true), true);
+        {
+            CastParameters p;
+            EXPECT_EQ(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                              {date, strlen(date)}, data_time_value, nullptr, -1, p),
+                      true);
+        }
 
         DateV2Value<DateTimeV2ValueType> data_time_value1;
         const char* date1 = "00000101111111";
-        EXPECT_EQ(data_time_value1.from_date_str(date1, strlen(date1), -1, true), true);
+        {
+            CastParameters p;
+            EXPECT_EQ(CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                              {date1, strlen(date1)}, data_time_value1, nullptr, -1, p),
+                      true);
+        }
         EXPECT_EQ(data_time_value.to_int64(), data_time_value1.to_int64());
 
-        EXPECT_EQ(data_time_value.from_date_str(date, strlen(date)), true);
+        {
+            CastParameters p;
+            EXPECT_EQ(CastToDatetimeV2::from_string_non_strict_mode(
+                              {date, strlen(date)}, data_time_value, nullptr, -1, p),
+                      true);
+        }
     }
     // jsonb
     {

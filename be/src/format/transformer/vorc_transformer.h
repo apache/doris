@@ -37,9 +37,7 @@ namespace doris {
 namespace io {
 class FileWriter;
 } // namespace io
-namespace vectorized {
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 namespace orc {
 struct ColumnVectorBatch;
@@ -48,7 +46,7 @@ namespace iceberg {
 class NestedField;
 } // namespace iceberg
 
-namespace doris::vectorized {
+namespace doris {
 
 class VOrcOutputStream : public orc::OutputStream {
 public:
@@ -139,6 +137,6 @@ private:
     static constexpr const char* ICEBERG_LONG_TYPE = "iceberg.long-type";
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

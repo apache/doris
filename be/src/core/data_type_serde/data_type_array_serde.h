@@ -32,7 +32,6 @@ class PValues;
 struct JsonbValue;
 class JsonWriter;
 
-namespace vectorized {
 class IColumn;
 class Arena;
 class IDataType;
@@ -103,7 +102,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
@@ -136,5 +135,4 @@ private:
 
     DataTypeSerDeSPtr nested_serde;
 };
-} // namespace vectorized
 } // namespace doris

@@ -25,7 +25,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& name,
@@ -47,9 +47,10 @@ AggregateFunctionPtr create_aggregate_function_window_funnel(const std::string& 
 }
 
 void register_aggregate_function_window_funnel(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function_both("window_funnel", create_aggregate_function_window_funnel);
+    factory.register_function_both("window_funnel_v1", create_aggregate_function_window_funnel);
+    factory.register_alias("window_funnel_v1", "window_funnel");
 }
 void register_aggregate_function_window_funnel_old(AggregateFunctionSimpleFactory& factory) {
     BeExecVersionManager::registe_restrict_function_compatibility("window_funnel");
 }
-} // namespace doris::vectorized
+} // namespace doris

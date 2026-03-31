@@ -130,7 +130,7 @@ FileCacheSettings get_file_cache_settings(size_t capacity, size_t max_query_cach
 }
 
 std::string UInt128Wrapper::to_string() const {
-    return vectorized::get_hex_uint_lowercase(value_);
+    return get_hex_uint_lowercase(value_);
 }
 
 FileBlocksHolderPtr FileCacheAllocatorBuilder::allocate_cache_holder(size_t offset, size_t size,

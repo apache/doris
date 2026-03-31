@@ -36,7 +36,6 @@ import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
 import org.apache.doris.cloud.stage.StageUtil;
 import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.DebugUtil;
@@ -188,7 +187,7 @@ public class CopyIntoInfo {
         if (stage.isEmpty()) {
             throw new AnalysisException("Stage name can not be empty");
         }
-        this.userName = ClusterNamespace.getNameFromFullName(ctx.getCurrentUserIdentity().getQualifiedUser());
+        this.userName = ctx.getCurrentUserIdentity().getQualifiedUser();
         doValidate(userName, db, true);
     }
 

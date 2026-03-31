@@ -23,7 +23,7 @@
 #include "core/column/column_string.h"
 #include "core/memcpy_small.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 /** URL processing functions. See implementation in separate .cpp files.
   * All functions are not strictly follow RFC, instead they are maximally simplified for performance reasons.
@@ -152,4 +152,4 @@ struct CutSubstringImpl {
     }
 };
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

@@ -37,7 +37,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_reader_first_last.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class BufferReadable;
@@ -73,7 +73,7 @@ public:
 
     void insert_result_into(ConstAggregateDataPtr place, IColumn& to) const override {
         assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to).get_data().push_back(
-                doris::vectorized::WindowFunctionRowNumber::data(place).count);
+                doris::WindowFunctionRowNumber::data(place).count);
     }
 
     bool result_column_could_resize() const override { return true; }
@@ -82,7 +82,7 @@ public:
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::vectorized::WindowFunctionRowNumber::data(place).count);
+            column.get_data()[i] = (doris::WindowFunctionRowNumber::data(place).count);
         }
     }
 
@@ -138,7 +138,7 @@ public:
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::vectorized::WindowFunctionRank::data(place).rank);
+            column.get_data()[i] = (doris::WindowFunctionRank::data(place).rank);
         }
     }
 
@@ -191,7 +191,7 @@ public:
                                   const size_t start, const size_t end) const override {
         auto& column = assert_cast<ColumnInt64&, TypeCheckOnRelease::DISABLE>(to);
         for (size_t i = start; i < end; ++i) {
-            column.get_data()[i] = (doris::vectorized::WindowFunctionDenseRank::data(place).rank);
+            column.get_data()[i] = (doris::WindowFunctionDenseRank::data(place).rank);
         }
     }
 
@@ -689,6 +689,6 @@ private:
     DataTypePtr _argument_type;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

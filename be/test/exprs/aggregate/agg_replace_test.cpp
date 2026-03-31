@@ -55,7 +55,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VAggReplaceTest : public testing::Test {
 public:
@@ -180,7 +180,7 @@ public:
         using FieldType = typename DataType::FieldType;
         Field field;
         for (int32_t i = 0; i <= input_nums; ++i) {
-            doris::vectorized::Array array(i);
+            doris::Array array(i);
             for (int32_t j = 0; j < i; ++j) {
                 if constexpr (std::is_same_v<DataType, DataTypeString>) {
                     auto item = std::string("item") + std::to_string(j);
@@ -231,22 +231,22 @@ public:
     }
 
     template <typename DataType, bool nullable, bool array>
-    vectorized::DataTypePtr get_data_type() {
-        vectorized::DataTypePtr data_type = get_basic_type<DataType>();
+    DataTypePtr get_data_type() {
+        DataTypePtr data_type = get_basic_type<DataType>();
         if constexpr (nullable) {
-            data_type = std::make_shared<vectorized::DataTypeNullable>(data_type);
+            data_type = std::make_shared<DataTypeNullable>(data_type);
         }
         if constexpr (array) {
-            data_type = std::make_shared<vectorized::DataTypeArray>(data_type);
+            data_type = std::make_shared<DataTypeArray>(data_type);
             if constexpr (nullable) {
-                data_type = std::make_shared<vectorized::DataTypeNullable>(data_type);
+                data_type = std::make_shared<DataTypeNullable>(data_type);
             }
         }
         return data_type;
     }
 
     template <typename DataType>
-    vectorized::DataTypePtr get_basic_type() {
+    DataTypePtr get_basic_type() {
         using FieldType = typename DataType::FieldType;
         if constexpr (IsDecimalNumber<FieldType>) {
             //decimal column get_int will return (data * scale), so let scale be 1.
@@ -257,7 +257,7 @@ public:
 
     template <typename DataType, bool nullable>
     void test_agg_replace(const std::string& fn_name, size_t input_nums, size_t expect_num) {
-        vectorized::DataTypePtr data_type = get_data_type<DataType, nullable, false>();
+        DataTypePtr data_type = get_data_type<DataType, nullable, false>();
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
@@ -281,7 +281,7 @@ public:
 
     template <typename DataType, bool nullable>
     void test_agg_array_replace(const std::string& fn_name, size_t input_nums, size_t expect_num) {
-        vectorized::DataTypePtr data_type = get_data_type<DataType, nullable, true>();
+        DataTypePtr data_type = get_data_type<DataType, nullable, true>();
         DataTypes data_types = {data_type};
         LOG(INFO) << "test_agg_replace for " << fn_name << "(" << data_types[0]->get_name() << ")";
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
@@ -305,7 +305,7 @@ public:
 
     template <typename DataType, typename ColumnType, bool nullable>
     void test_basic_data(int8_t input_nums) {
-        vectorized::DataTypePtr data_type = get_data_type<DataType, nullable, false>();
+        DataTypePtr data_type = get_data_type<DataType, nullable, false>();
 
         auto data_column = data_type->create_column();
         add_elements<DataType, nullable>(data_column, input_nums);
@@ -352,7 +352,7 @@ public:
 
     template <typename DataType, typename ColumnType, bool nullable>
     void test_array_data(int8_t input_nums) {
-        vectorized::DataTypePtr data_type = get_data_type<DataType, nullable, true>();
+        DataTypePtr data_type = get_data_type<DataType, nullable, true>();
 
         auto data_column = data_type->create_column();
         array_add_elements<DataType, nullable>(data_column, input_nums);
@@ -523,4 +523,4 @@ TEST_F(VAggReplaceTest, test_array_replace_load) {
     test_agg_array_replace<DataTypeDateTime, true>("replace_load", 10, 10);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

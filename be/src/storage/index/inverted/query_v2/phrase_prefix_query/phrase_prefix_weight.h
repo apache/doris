@@ -65,7 +65,7 @@ private:
         std::vector<std::pair<size_t, PostingsPtr>> all_postings;
         for (const auto& [offset, term] : _phrase_terms) {
             auto posting = create_position_posting(reader.get(), _field, term, _enable_scoring,
-                                                   _context->io_ctx);
+                                                   _similarity, _context->io_ctx);
             if (!posting) {
                 return std::make_shared<EmptyScorer>();
             }
@@ -81,7 +81,7 @@ private:
         std::vector<SegmentPostingsPtr> suffix_postings;
         for (const auto& term : expanded_terms) {
             auto posting = create_position_posting(reader.get(), _field, term, _enable_scoring,
-                                                   _context->io_ctx);
+                                                   _similarity, _context->io_ctx);
             if (posting) {
                 suffix_postings.emplace_back(std::move(posting));
             }

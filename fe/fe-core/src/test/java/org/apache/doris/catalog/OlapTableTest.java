@@ -19,13 +19,14 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.VersionHelper;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.FastByteArrayOutputStream;
+import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.UnitTestUtil;
-import org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.resource.Tag;
@@ -74,7 +75,7 @@ public class OlapTableTest {
             }
             OlapTable tbl = (OlapTable) table;
             tbl.setIndexes(Lists.newArrayList(new Index(0, "index", Lists.newArrayList("col"),
-                    IndexDefinition.IndexType.BITMAP, null, "xxxxxx")));
+                    IndexType.BITMAP, null, "xxxxxx")));
             System.out.println("orig table id: " + tbl.getId());
 
             FastByteArrayOutputStream byteArrayOutputStream = new FastByteArrayOutputStream();
@@ -137,6 +138,21 @@ public class OlapTableTest {
         Assert.assertTrue(olapTable.getTableProperty().getDynamicPartitionProperty().isExist());
         Assert.assertFalse(olapTable.getTableProperty().getDynamicPartitionProperty().getEnable());
         Assert.assertEquals((short) 3, olapTable.getDefaultReplicaAllocation().getTotalReplicaNum());
+    }
+
+    @Test
+    public void testBuildVariantEnableFlattenNestedWithLegacyPropertyKey() throws IOException {
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED, "true");
+
+        TableProperty tableProperty = new TableProperty(properties);
+        tableProperty.gsonPostProcess();
+
+        Assert.assertTrue(tableProperty.variantEnableFlattenNested());
+        Assert.assertEquals("true",
+                tableProperty.getProperties().get(PropertyAnalyzer.PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
+        Assert.assertFalse(
+                tableProperty.getProperties().containsKey(PropertyAnalyzer.LEGACY_PROPERTIES_VARIANT_ENABLE_FLATTEN_NESTED));
     }
 
     @Test

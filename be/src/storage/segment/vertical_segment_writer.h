@@ -40,11 +40,9 @@
 #include "util/slice.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
 class IOlapColumnDataAccessor;
 class OlapBlockDataConvertor;
-} // namespace vectorized
 
 class DataDir;
 class MemTracker;
@@ -71,7 +69,7 @@ struct VerticalSegmentWriterOptions {
 };
 
 struct RowsInBlock {
-    const vectorized::Block* block;
+    const Block* block;
     size_t row_pos;
     size_t num_rows;
 };
@@ -92,7 +90,7 @@ public:
     // Add one block to batch, memory is owned by the caller.
     // The batched blocks will be flushed in write_batch.
     // Once write_batch is called, no more blocks shoud be added.
-    Status batch_block(const vectorized::Block* block, size_t row_pos, size_t num_rows);
+    Status batch_block(const Block* block, size_t row_pos, size_t num_rows);
     Status write_batch();
 
     [[nodiscard]] std::string data_dir_path() const {
@@ -145,23 +143,22 @@ private:
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
     void _maybe_invalid_row_cache(const std::string& key) const;
-    std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-                             size_t pos);
+    std::string _encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns, size_t pos);
     // used for unique-key with merge on write and segment min_max key
-    std::string _full_encode_keys(
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
-    std::string _full_encode_keys(
-            const std::vector<const KeyCoder*>& key_coders,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos);
+    std::string _full_encode_keys(const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos);
+    std::string _full_encode_keys(const std::vector<const KeyCoder*>& key_coders,
+                                  const std::vector<IOlapColumnDataAccessor*>& key_columns,
+                                  size_t pos);
     // used for unique-key with merge on write
-    void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+    void _encode_seq_column(const IOlapColumnDataAccessor* seq_column, size_t pos,
                             std::string* encoded_keys);
     // used for unique-key with merge on write tables with cluster keys
     void _encode_rowid(const uint32_t rowid, std::string* encoded_keys);
     void _set_min_max_key(const Slice& key);
     void _set_min_key(const Slice& key);
     void _set_max_key(const Slice& key);
-    void _serialize_block_to_row_column(const vectorized::Block& block);
+    void _serialize_block_to_row_column(const Block& block);
     Status _probe_key_for_mow(std::string key, std::size_t segment_pos, bool have_input_seq_column,
                               bool have_delete_sign,
                               const std::vector<RowsetSharedPtr>& specified_rowsets,
@@ -172,9 +169,8 @@ private:
                               const std::function<Status()>& not_found_cb,
                               PartialUpdateStats& stats);
     Status _partial_update_preconditions_check(size_t row_pos, bool is_flexible_update);
-    Status _append_block_with_partial_content(RowsInBlock& data, vectorized::Block& full_block);
-    Status _append_block_with_flexible_partial_content(RowsInBlock& data,
-                                                       vectorized::Block& full_block);
+    Status _append_block_with_partial_content(RowsInBlock& data, Block& full_block);
+    Status _append_block_with_flexible_partial_content(RowsInBlock& data, Block& full_block);
     Status _generate_encoded_default_seq_value(const TabletSchema& tablet_schema,
                                                const PartialUpdateInfo& info,
                                                std::string* encoded_value);
@@ -182,21 +178,21 @@ private:
             FlexibleReadPlan& read_plan, RowsInBlock& data, size_t segment_start_pos,
             bool schema_has_sequence_col, int32_t seq_map_col_unique_id,
             std::vector<BitmapValue>* skip_bitmaps,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
+            const std::vector<IOlapColumnDataAccessor*>& key_columns,
+            IOlapColumnDataAccessor* seq_column, const signed char* delete_signs,
             const std::vector<RowsetSharedPtr>& specified_rowsets,
             std::vector<std::unique_ptr<SegmentCacheHandle>>& segment_caches,
             bool& has_default_or_nullable, std::vector<bool>& use_default_or_null_flag,
             PartialUpdateStats& stats);
-    Status _generate_key_index(
-            RowsInBlock& data, std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column,
-            std::map<uint32_t, vectorized::IOlapColumnDataAccessor*>& cid_to_column);
+    Status _generate_key_index(RowsInBlock& data,
+                               std::vector<IOlapColumnDataAccessor*>& key_columns,
+                               IOlapColumnDataAccessor* seq_column,
+                               std::map<uint32_t, IOlapColumnDataAccessor*>& cid_to_column);
     Status _generate_primary_key_index(
             const std::vector<const KeyCoder*>& primary_key_coders,
-            const std::vector<vectorized::IOlapColumnDataAccessor*>& primary_key_columns,
-            vectorized::IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
-    Status _generate_short_key_index(std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
+            const std::vector<IOlapColumnDataAccessor*>& primary_key_columns,
+            IOlapColumnDataAccessor* seq_column, size_t num_rows, bool need_sort);
+    Status _generate_short_key_index(std::vector<IOlapColumnDataAccessor*>& key_columns,
                                      size_t num_rows, const std::vector<size_t>& short_key_pos);
     Status _finalize_column_writer_and_update_meta(size_t cid);
 
@@ -227,7 +223,7 @@ private:
     std::vector<std::unique_ptr<ColumnWriter>> _column_writers;
     std::unique_ptr<MemTracker> _mem_tracker;
 
-    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
+    std::unique_ptr<OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     std::vector<const KeyCoder*> _key_coders;
     // for mow table with cluster keys, this is primary keys

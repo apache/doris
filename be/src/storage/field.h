@@ -27,7 +27,6 @@
 #include "storage/key_coder.h"
 #include "storage/olap_common.h"
 #include "storage/olap_define.h"
-#include "storage/row_cursor_cell.h"
 #include "storage/tablet/tablet_schema.h"
 #include "storage/types.h"
 #include "storage/utils.h"
@@ -39,9 +38,9 @@ namespace doris {
 #include "common/compile_check_begin.h"
 // A Field is used to represent a column in memory format.
 // User can use this class to access or deal with column data in memory.
-class Field {
+class StorageField {
 public:
-    Field(const TabletColumn& column)
+    StorageField(const TabletColumn& column)
             : _type_info(get_type_info(&column)),
               _desc(column),
               _length(column.length()),
@@ -54,7 +53,7 @@ public:
               _is_extracted_column(column.is_extracted_column()),
               _path(column.path_info_ptr()) {}
 
-    virtual ~Field() = default;
+    virtual ~StorageField() = default;
 
     size_t size() const { return _type_info->size(); }
     size_t length() const { return _length; }
@@ -64,74 +63,16 @@ public:
     int32_t parent_unique_id() const { return _parent_unique_id; }
     bool is_extracted_column() const { return _is_extracted_column; }
     const std::string& name() const { return _name; }
-    const vectorized::PathInDataPtr& path() const { return _path; }
+    const PathInDataPtr& path() const { return _path; }
 
     virtual void set_to_max(char* buf) const { return _type_info->set_to_max(buf); }
 
     virtual void set_to_min(char* buf) const { return _type_info->set_to_min(buf); }
 
-    void set_long_text_buf(char** buf) { _long_text_buf = buf; }
-
-    virtual size_t get_variable_len() const { return 0; }
-
-    virtual Field* clone() const {
-        auto* local = new Field(_desc);
+    virtual StorageField* clone() const {
+        auto* local = new StorageField(_desc);
         this->clone(local);
         return local;
-    }
-
-    // Only compare column content, without considering nullptr condition.
-    // RETURNS:
-    //      0 means equal,
-    //      -1 means left less than right,
-    //      1 means left bigger than right
-    int compare(const void* left, const void* right) const { return _type_info->cmp(left, right); }
-
-    // Compare two types of cell.
-    // This function differs compare in that this function compare cell which
-    // will consider the condition which cell may be nullptr. While compare only
-    // compare column content without considering nullptr condition.
-    // Only compare column content, without considering nullptr condition.
-    // RETURNS:
-    //      0 means equal,
-    //      -1 means left less than right,
-    //      1 means left bigger than right
-    template <typename LhsCellType, typename RhsCellType>
-    int compare_cell(const LhsCellType& lhs, const RhsCellType& rhs) const {
-        bool l_null = lhs.is_null();
-        bool r_null = rhs.is_null();
-        if (l_null != r_null) {
-            return l_null ? -1 : 1;
-        }
-        return l_null ? 0 : _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
-    }
-
-    // deep copy source cell' content to destination cell.
-    // For string type, this will allocate data form arena,
-    // and copy source's content.
-    template <typename DstCellType, typename SrcCellType>
-    void deep_copy(DstCellType* dst, const SrcCellType& src, vectorized::Arena& arena) const {
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
-        }
-        _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), arena);
-    }
-
-    // used by init scan key stored in string format
-    // value_string should end with '\0'
-    Status from_string(char* buf, const std::string& value_string, const int precision = 0,
-                       const int scale = 0) const {
-        if (type() == FieldType::OLAP_FIELD_TYPE_STRING && !value_string.empty()) {
-            auto slice = reinterpret_cast<Slice*>(buf);
-            if (slice->size < value_string.size()) {
-                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, value_string.size()));
-                slice->data = *_long_text_buf;
-                slice->size = value_string.size();
-            }
-        }
-        return _type_info->from_string(buf, value_string, precision, scale);
     }
 
     FieldType type() const { return _type_info->type(); }
@@ -148,10 +89,10 @@ public:
     void full_encode_ascending(const void* value, std::string* buf) const {
         _key_coder->full_encode_ascending(value, buf);
     }
-    void add_sub_field(std::unique_ptr<Field> sub_field) {
+    void add_sub_field(std::unique_ptr<StorageField> sub_field) {
         _sub_fields.emplace_back(std::move(sub_field));
     }
-    Field* get_sub_field(size_t i) const { return _sub_fields[i].get(); }
+    StorageField* get_sub_field(size_t i) const { return _sub_fields[i].get(); }
     size_t get_sub_field_count() const { return _sub_fields.size(); }
 
     void set_precision(int32_t precision) { _precision = precision; }
@@ -173,22 +114,8 @@ protected:
     // its number of subfields is a variable, so the actual length of
     // a struct field is not fixed.
     size_t _length;
-    // Since the length of the STRING type cannot be determined,
-    // only dynamic memory can be used. Arena cannot realize realloc.
-    // The schema information is shared globally. Therefore,
-    // dynamic memory can only be managed in thread local mode.
-    // The memory will be created and released in rowcursor.
-    char** _long_text_buf = nullptr;
 
-    char* allocate_string_value(vectorized::Arena& arena) const {
-        char* type_value = arena.alloc(sizeof(Slice));
-        auto slice = reinterpret_cast<Slice*>(type_value);
-        slice->size = _length;
-        slice->data = arena.alloc(slice->size);
-        return type_value;
-    }
-
-    void clone(Field* other) const {
+    void clone(StorageField* other) const {
         other->_type_info = clone_type_info(this->_type_info.get());
         other->_key_coder = this->_key_coder;
         other->_name = this->_name;
@@ -201,8 +128,8 @@ protected:
         other->_parent_unique_id = this->_parent_unique_id;
         other->_is_extracted_column = this->_is_extracted_column;
         for (const auto& f : _sub_fields) {
-            Field* item = f->clone();
-            other->add_sub_field(std::unique_ptr<Field>(item));
+            StorageField* item = f->clone();
+            other->add_sub_field(std::unique_ptr<StorageField>(item));
         }
     }
 
@@ -213,51 +140,37 @@ private:
     std::string _name;
     size_t _index_size;
     bool _is_nullable;
-    std::vector<std::unique_ptr<Field>> _sub_fields;
+    std::vector<std::unique_ptr<StorageField>> _sub_fields;
     int32_t _precision;
     int32_t _scale;
     int32_t _unique_id;
     int32_t _parent_unique_id;
     bool _is_extracted_column = false;
-    vectorized::PathInDataPtr _path;
+    PathInDataPtr _path;
 };
 
-class MapField : public Field {
+class MapField : public StorageField {
 public:
-    MapField(const TabletColumn& column) : Field(column) {}
-
-    size_t get_variable_len() const override { return _length; }
+    MapField(const TabletColumn& column) : StorageField(column) {}
 };
 
-class StructField : public Field {
+class StructField : public StorageField {
 public:
-    StructField(const TabletColumn& column) : Field(column) {}
-
-    size_t get_variable_len() const override {
-        size_t variable_len = _length;
-        for (size_t i = 0; i < get_sub_field_count(); i++) {
-            variable_len += get_sub_field(i)->get_variable_len();
-        }
-        return variable_len;
-    }
+    StructField(const TabletColumn& column) : StorageField(column) {}
 };
 
-class ArrayField : public Field {
+class ArrayField : public StorageField {
 public:
-    ArrayField(const TabletColumn& column) : Field(column) {}
-
-    size_t get_variable_len() const override { return _length; }
+    ArrayField(const TabletColumn& column) : StorageField(column) {}
 };
 
-class CharField : public Field {
+class CharField : public StorageField {
 public:
-    CharField(const TabletColumn& column) : Field(column) {}
-
-    size_t get_variable_len() const override { return _length; }
+    CharField(const TabletColumn& column) : StorageField(column) {}
 
     CharField* clone() const override {
         auto* local = new CharField(_desc);
-        Field::clone(local);
+        StorageField::clone(local);
         return local;
     }
 
@@ -268,15 +181,13 @@ public:
     }
 };
 
-class VarcharField : public Field {
+class VarcharField : public StorageField {
 public:
-    VarcharField(const TabletColumn& column) : Field(column) {}
-
-    size_t get_variable_len() const override { return _length - OLAP_VARCHAR_MAX_BYTES; }
+    VarcharField(const TabletColumn& column) : StorageField(column) {}
 
     VarcharField* clone() const override {
         auto* local = new VarcharField(_desc);
-        Field::clone(local);
+        StorageField::clone(local);
         return local;
     }
 
@@ -286,13 +197,13 @@ public:
         memset(slice->data, 0xFF, slice->size);
     }
 };
-class StringField : public Field {
+class StringField : public StorageField {
 public:
-    StringField(const TabletColumn& column) : Field(column) {}
+    StringField(const TabletColumn& column) : StorageField(column) {}
 
     StringField* clone() const override {
         auto* local = new StringField(_desc);
-        Field::clone(local);
+        StorageField::clone(local);
         return local;
     }
 
@@ -302,53 +213,53 @@ public:
     }
 };
 
-class BitmapAggField : public Field {
+class BitmapAggField : public StorageField {
 public:
-    BitmapAggField(const TabletColumn& column) : Field(column) {}
+    BitmapAggField(const TabletColumn& column) : StorageField(column) {}
 
     BitmapAggField* clone() const override {
         auto* local = new BitmapAggField(_desc);
-        Field::clone(local);
+        StorageField::clone(local);
         return local;
     }
 };
 
-class QuantileStateAggField : public Field {
+class QuantileStateAggField : public StorageField {
 public:
-    QuantileStateAggField(const TabletColumn& column) : Field(column) {}
+    QuantileStateAggField(const TabletColumn& column) : StorageField(column) {}
 
     QuantileStateAggField* clone() const override {
         auto* local = new QuantileStateAggField(_desc);
-        Field::clone(local);
+        StorageField::clone(local);
         return local;
     }
 };
 
-class AggStateField : public Field {
+class AggStateField : public StorageField {
 public:
-    AggStateField(const TabletColumn& column) : Field(column) {}
+    AggStateField(const TabletColumn& column) : StorageField(column) {}
 
     AggStateField* clone() const override {
         auto* local = new AggStateField(_desc);
-        Field::clone(local);
+        StorageField::clone(local);
         return local;
     }
 };
 
-class HllAggField : public Field {
+class HllAggField : public StorageField {
 public:
-    HllAggField(const TabletColumn& column) : Field(column) {}
+    HllAggField(const TabletColumn& column) : StorageField(column) {}
 
     HllAggField* clone() const override {
         auto* local = new HllAggField(_desc);
-        Field::clone(local);
+        StorageField::clone(local);
         return local;
     }
 };
 
-class FieldFactory {
+class StorageFieldFactory {
 public:
-    static Field* create(const TabletColumn& column) {
+    static StorageField* create(const TabletColumn& column) {
         // for key column
         if (column.is_key()) {
             switch (column.type()) {
@@ -360,21 +271,24 @@ public:
             case FieldType::OLAP_FIELD_TYPE_STRUCT: {
                 auto* local = new StructField(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
-                    std::unique_ptr<Field> sub_field(
-                            FieldFactory::create(column.get_sub_column(i)));
+                    std::unique_ptr<StorageField> sub_field(
+                            StorageFieldFactory::create(column.get_sub_column(i)));
                     local->add_sub_field(std::move(sub_field));
                 }
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-                std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> item_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_MAP: {
-                std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
-                std::unique_ptr<Field> val_field(FieldFactory::create(column.get_sub_column(1)));
+                std::unique_ptr<StorageField> key_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> val_field(
+                        StorageFieldFactory::create(column.get_sub_column(1)));
                 auto* local = new MapField(column);
                 local->add_sub_field(std::move(key_field));
                 local->add_sub_field(std::move(val_field));
@@ -393,13 +307,13 @@ public:
             case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-                Field* field = new Field(column);
+                StorageField* field = new StorageField(column);
                 field->set_precision(column.precision());
                 field->set_scale(column.frac());
                 return field;
             }
             default:
-                return new Field(column);
+                return new StorageField(column);
             }
         }
 
@@ -421,14 +335,15 @@ public:
             case FieldType::OLAP_FIELD_TYPE_STRUCT: {
                 auto* local = new StructField(column);
                 for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
-                    std::unique_ptr<Field> sub_field(
-                            FieldFactory::create(column.get_sub_column(i)));
+                    std::unique_ptr<StorageField> sub_field(
+                            StorageFieldFactory::create(column.get_sub_column(i)));
                     local->add_sub_field(std::move(sub_field));
                 }
                 return local;
             }
             case FieldType::OLAP_FIELD_TYPE_ARRAY: {
-                std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> item_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
@@ -436,8 +351,10 @@ public:
             case FieldType::OLAP_FIELD_TYPE_MAP: {
                 DCHECK(column.get_subtype_count() == 2);
                 auto* local = new MapField(column);
-                std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
-                std::unique_ptr<Field> value_field(FieldFactory::create(column.get_sub_column(1)));
+                std::unique_ptr<StorageField> key_field(
+                        StorageFieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<StorageField> value_field(
+                        StorageFieldFactory::create(column.get_sub_column(1)));
                 local->add_sub_field(std::move(key_field));
                 local->add_sub_field(std::move(value_field));
                 return local;
@@ -455,13 +372,13 @@ public:
             case FieldType::OLAP_FIELD_TYPE_TIMESTAMPTZ:
                 [[fallthrough]];
             case FieldType::OLAP_FIELD_TYPE_DATETIMEV2: {
-                Field* field = new Field(column);
+                StorageField* field = new StorageField(column);
                 field->set_precision(column.precision());
                 field->set_scale(column.frac());
                 return field;
             }
             default:
-                return new Field(column);
+                return new StorageField(column);
             }
         case FieldAggregationMethod::OLAP_FIELD_AGGREGATION_HLL_UNION:
             return new HllAggField(column);
@@ -478,7 +395,7 @@ public:
         return nullptr;
     }
 
-    static Field* create_by_type(const FieldType& type) {
+    static StorageField* create_by_type(const FieldType& type) {
         TabletColumn column(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE, type);
         return create(column);
     }

@@ -76,9 +76,7 @@ class RowsetBinlogMetasPB;
 namespace io {
 class RemoteFileSystem;
 } // namespace io
-namespace vectorized {
 class Block;
-} // namespace vectorized
 struct RowLocation;
 enum KeysType : int;
 enum SortType : int;

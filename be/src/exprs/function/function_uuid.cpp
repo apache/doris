@@ -43,7 +43,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 constexpr static std::array<int, 5> SPLIT_POS = {8, 13, 18, 23, 36}; // 8-4-4-4-12
 constexpr static char DELIMITER = '-';
 
@@ -210,4 +210,4 @@ void register_function_uuid_transforms(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionInttoUuid>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

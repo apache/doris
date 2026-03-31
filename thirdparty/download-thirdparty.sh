@@ -431,6 +431,10 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " ARROW " ]]; then
             # Paimon-cpp parquet patches: row-group-aware batch reader, max_row_group_size,
             # GetBufferedSize(), int96 NANO guard, and Thrift_VERSION empty fix.
             patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-paimon.patch"
+
+            # apache-arrow-17.0.0-force-write-int96-timestamps.patch : 
+            # Introducing the parameter that forces writing int96 timestampes for compatibility with Paimon cpp. 
+            patch -p1 <"${TP_PATCH_DIR}/apache-arrow-17.0.0-force-write-int96-timestamps.patch"
             touch "${PATCHED_MARK}"
         fi
         cd -
@@ -721,6 +725,19 @@ if [[ " ${TP_ARCHIVES[*]} " =~ " CCTZ " ]] ; then
     fi
     cd -
     echo "Finished patching ${CCTZ_SOURCE}"
+fi
+
+# boost patch to fix sigtimedwait not available on macOS
+if [[ " ${TP_ARCHIVES[*]} " =~ " BOOST " ]]; then
+    cd "${TP_SOURCE_DIR}/${BOOST_SOURCE}"
+    if [[ ! -f "${PATCHED_MARK}" ]]; then
+        if [[ "$(uname -s)" == "Darwin" ]]; then
+            patch -p1 <"${TP_PATCH_DIR}/boost-1.81.0-mac-sigtimedwait.patch"
+        fi
+        touch "${PATCHED_MARK}"
+    fi
+    cd -
+    echo "Finished patching ${BOOST_SOURCE}"
 fi
 
 # vim: ts=4 sw=4 ts=4 tw=100:

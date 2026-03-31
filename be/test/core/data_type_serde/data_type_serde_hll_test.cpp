@@ -25,10 +25,10 @@
 #include "core/value/hll.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(HLLSerdeTest, writeOneCellToJsonb) {
-    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
+    auto hll_serde = std::make_shared<DataTypeHLLSerDe>(1);
     auto column_hll = ColumnHLL::create();
     HyperLogLog hll;
     hll.update(123);
@@ -60,7 +60,7 @@ TEST(HLLSerdeTest, writeOneCellToJsonb) {
 }
 
 TEST(HLLSerdeTest, writeColumnToPb) {
-    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
+    auto hll_serde = std::make_shared<DataTypeHLLSerDe>(1);
     auto column_hll = ColumnHLL::create();
     column_hll->insert_value(HyperLogLog::empty());
     HyperLogLog hll;
@@ -88,7 +88,7 @@ TEST(HLLSerdeTest, writeColumnToPb) {
 }
 
 TEST(HLLSerdeTest, serializeOneCellToJson) {
-    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
+    auto hll_serde = std::make_shared<DataTypeHLLSerDe>(1);
     auto column_hll = ColumnHLL::create();
     column_hll->insert_value(HyperLogLog::empty());
     HyperLogLog hll;
@@ -133,7 +133,7 @@ TEST(HLLSerdeTest, serializeOneCellToJson) {
 }
 
 TEST(HLLSerdeTest, serializeColumnToJson) {
-    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
+    auto hll_serde = std::make_shared<DataTypeHLLSerDe>(1);
     auto column_hll = ColumnHLL::create();
     column_hll->insert_value(HyperLogLog::empty());
     HyperLogLog hll;
@@ -176,7 +176,7 @@ TEST(HLLSerdeTest, serializeColumnToJson) {
 }
 
 TEST(HLLSerdeTest, SerdeArrowTest) {
-    auto hll_serde = std::make_shared<vectorized::DataTypeHLLSerDe>(1);
+    auto hll_serde = std::make_shared<DataTypeHLLSerDe>(1);
     auto column_hll = ColumnHLL::create();
     column_hll->insert_value(HyperLogLog::empty());
     HyperLogLog hll;
@@ -186,7 +186,7 @@ TEST(HLLSerdeTest, SerdeArrowTest) {
 
     auto block = std::make_shared<Block>();
     DataTypePtr st = std::make_shared<DataTypeHLL>();
-    vectorized::ColumnWithTypeAndName type_and_name(column_hll->get_ptr(), st, "hll");
+    ColumnWithTypeAndName type_and_name(column_hll->get_ptr(), st, "hll");
     block->insert(type_and_name);
     std::shared_ptr<arrow::RecordBatch> record_batch =
             CommonDataTypeSerdeTest::serialize_arrow(block);
@@ -197,4 +197,4 @@ TEST(HLLSerdeTest, SerdeArrowTest) {
     // CommonDataTypeSerdeTest::compare_two_blocks(block, assert_block);
     std::cout << "test write/read_column_to_arrow " << std::endl;
 }
-} // namespace doris::vectorized
+} // namespace doris

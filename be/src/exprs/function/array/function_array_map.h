@@ -27,7 +27,7 @@
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 enum class MapOperation { INTERSECT, UNION };
@@ -202,4 +202,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

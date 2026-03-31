@@ -60,11 +60,19 @@ suite("test_iceberg_table_stats", "p0,external") {
             assert_stats("sample_mor_parquet", "1000")
 
             // test catalog_meta_cache_statistics
-            sql """select * from information_schema.catalog_meta_cache_statistics;"""
-            sql """select * from information_schema.catalog_meta_cache_statistics where catalog_name="${catalog_name}";"""
+            sql """
+                select catalog_name, engine_name, entry_name, request_count, hit_count, miss_count, load_failure_count
+                from information_schema.catalog_meta_cache_statistics
+                order by catalog_name, engine_name, entry_name;
+            """
+            sql """
+                select catalog_name, engine_name, entry_name, request_count, hit_count, miss_count, load_failure_count
+                from information_schema.catalog_meta_cache_statistics
+                where catalog_name="${catalog_name}"
+                order by catalog_name, engine_name, entry_name;
+            """
 
         } finally {
         }
     }
 }
-

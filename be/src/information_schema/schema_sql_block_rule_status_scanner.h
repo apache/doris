@@ -27,9 +27,7 @@ namespace doris {
 
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-}
 
 class SchemaSqlBlockRuleStatusScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaSqlBlockRuleStatusScanner);
@@ -39,7 +37,7 @@ public:
     ~SchemaSqlBlockRuleStatusScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
     static std::vector<SchemaScanner::ColumnDesc> _s_sql_block_rule_status_columns;
 
@@ -49,7 +47,7 @@ private:
     int _block_rows_limit = 4096;
     int _row_idx = 0;
     int _total_rows = 0;
-    std::unique_ptr<vectorized::Block> _sql_block_rule_status_block = nullptr;
+    std::unique_ptr<Block> _sql_block_rule_status_block = nullptr;
     int _rpc_timeout = 3000;
 };
 

@@ -50,16 +50,14 @@
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 template <PrimitiveType T>
 class ColumnDecimal;
 template <PrimitiveType T>
 class ColumnVector;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 /// For numeric values.
 template <PrimitiveType T>
@@ -770,7 +768,10 @@ public:
 
     DataTypePtr get_return_type() const override { return type; }
 
-    bool is_trivial() const override { return Data::IsFixedLength; }
+    // min/max require sentinel-initialized state (MAX_VALUE for min, MIN_VALUE for max) via
+    // create(), so they cannot use zero-init and must return false. any_value is safe with
+    // zero-init because it checks has_value before comparing (change_first_time).
+    bool is_trivial() const override { return Data::IsFixedLength && Data::IS_ANY; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {
@@ -988,6 +989,6 @@ template <template <typename> class Data>
 AggregateFunctionPtr create_aggregate_function_single_value_any_value_function(
         const String& name, const DataTypes& argument_types, const DataTypePtr& result_type,
         const bool result_is_nullable, const AggregateFunctionAttr& attr = {});
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

@@ -26,7 +26,11 @@ import org.apache.doris.catalog.StructType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.nereids.util.MoreFieldsThread;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.SessionVariable;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -35,10 +39,25 @@ import java.util.Collections;
 import java.util.List;
 
 /**
- * Unit tests verifying toSql() output for all 39 concrete Expr subclasses.
- * These tests validate current behavior prior to visitor-pattern refactoring.
+ * Unit tests verifying visitor-based SQL generation for all 39 concrete Expr subclasses.
+ * Uses ExprToSqlVisitor and ExprToExternalSqlVisitor instead of the removed toSql() methods.
  */
 public class ExprToSqlTest {
+
+    /** Remove any ConnectContext installed by a test so it does not leak into the next one. */
+    @AfterEach
+    public void tearDown() {
+        ConnectContext.remove();
+    }
+
+    // helper: install a minimal ConnectContext with the given flags into the current thread.
+    private void installConnectContext(boolean isNereids, boolean isQuery) {
+        ConnectContext ctx = new ConnectContext();
+        ctx.getState().setNereids(isNereids);
+        ctx.getState().setIsQuery(isQuery);
+        ctx.setSessionVariable(new SessionVariable());
+        MoreFieldsThread.setConnectContext(ctx);
+    }
 
     // -----------------------------------------------------------------------
     // Literals
@@ -47,128 +66,128 @@ public class ExprToSqlTest {
     @Test
     public void testBoolLiteralTrue() {
         BoolLiteral expr = new BoolLiteral(true);
-        Assertions.assertEquals("TRUE", expr.toSql());
+        Assertions.assertEquals("TRUE", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testBoolLiteralFalse() {
         BoolLiteral expr = new BoolLiteral(false);
-        Assertions.assertEquals("FALSE", expr.toSql());
+        Assertions.assertEquals("FALSE", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testStringLiteralSimple() {
         StringLiteral expr = new StringLiteral("hello");
-        Assertions.assertEquals("'hello'", expr.toSql());
+        Assertions.assertEquals("'hello'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testStringLiteralWithSingleQuote() {
         // Single quotes inside the value should be escaped as ''
         StringLiteral expr = new StringLiteral("it's");
-        Assertions.assertEquals("'it''s'", expr.toSql());
+        Assertions.assertEquals("'it''s'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testIntLiteral() {
         IntLiteral expr = new IntLiteral(42L);
-        Assertions.assertEquals("42", expr.toSql());
+        Assertions.assertEquals("42", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testFloatLiteralDouble() {
         FloatLiteral expr = new FloatLiteral(3.14, Type.DOUBLE);
-        Assertions.assertEquals("3.14", expr.toSql());
+        Assertions.assertEquals("3.14", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testFloatLiteralDoubleWholeNumber() {
         // Trailing zeros are stripped: 1.0 → "1"
         FloatLiteral expr = new FloatLiteral(1.0, Type.DOUBLE);
-        Assertions.assertEquals("1", expr.toSql());
+        Assertions.assertEquals("1", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testFloatLiteralFloat() {
         // FLOAT type uses maxFractionDigits=7; 1.5f fits exactly
         FloatLiteral expr = new FloatLiteral(1.5, Type.FLOAT);
-        Assertions.assertEquals("1.5", expr.toSql());
+        Assertions.assertEquals("1.5", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testFloatLiteralFloatPrecisionArtifact() {
         // 3.14 cannot be represented exactly as a 32-bit float, exposing a precision artifact
         FloatLiteral expr = new FloatLiteral((double) 3.14f, Type.FLOAT);
-        Assertions.assertTrue(expr.toSql().startsWith("3.1400"));
+        Assertions.assertTrue(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE).startsWith("3.1400"));
     }
 
     @Test
     public void testDecimalLiteral() {
         DecimalLiteral expr = new DecimalLiteral(new java.math.BigDecimal("1.5"));
-        Assertions.assertEquals("1.5", expr.toSql());
+        Assertions.assertEquals("1.5", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testLargeIntLiteral() {
         LargeIntLiteral expr = new LargeIntLiteral(java.math.BigInteger.valueOf(12345678901234L));
-        Assertions.assertEquals("12345678901234", expr.toSql());
+        Assertions.assertEquals("12345678901234", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testNullLiteral() {
         NullLiteral expr = new NullLiteral();
-        Assertions.assertEquals("NULL", expr.toSql());
+        Assertions.assertEquals("NULL", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testMaxLiteral() {
         MaxLiteral expr = MaxLiteral.MAX_VALUE;
-        Assertions.assertEquals("MAXVALUE", expr.toSql());
+        Assertions.assertEquals("MAXVALUE", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testJsonLiteral() throws AnalysisException {
         JsonLiteral expr = new JsonLiteral("{\"k\":1}");
-        Assertions.assertEquals("'{\"k\":1}'", expr.toSql());
+        Assertions.assertEquals("'{\"k\":1}'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testIPv4Literal() throws AnalysisException {
         IPv4Literal expr = new IPv4Literal("192.168.1.1");
-        Assertions.assertEquals("\"192.168.1.1\"", expr.toSql());
+        Assertions.assertEquals("\"192.168.1.1\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testIPv6Literal() throws AnalysisException {
         IPv6Literal expr = new IPv6Literal("::1");
-        // IPv6Literal.toSqlImpl() returns '"' + value + '"'
-        Assertions.assertEquals("\"::1\"", expr.toSql());
+        // IPv6Literal visitor returns '"' + value + '"'
+        Assertions.assertEquals("\"::1\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testTimeV2LiteralPositive() {
         // 01:02:03.000000, scale 6, not negative
         TimeV2Literal expr = new TimeV2Literal(1, 2, 3, 0, 6, false);
-        Assertions.assertEquals("\"01:02:03.000000\"", expr.toSql());
+        Assertions.assertEquals("\"01:02:03.000000\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testTimeV2LiteralNegative() {
         TimeV2Literal expr = new TimeV2Literal(10, 20, 30, 0, 0, true);
-        Assertions.assertEquals("\"-10:20:30\"", expr.toSql());
+        Assertions.assertEquals("\"-10:20:30\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testVarBinaryLiteral() throws AnalysisException {
         byte[] bytes = new byte[]{0x68, 0x65, 0x6c, 0x6c, 0x6f};
         VarBinaryLiteral expr = new VarBinaryLiteral(bytes);
-        Assertions.assertEquals("X'68656C6C6F'", expr.toSql());
+        Assertions.assertEquals("X'68656C6C6F'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteral() throws AnalysisException {
         DateLiteral expr = new DateLiteral("2024-01-15", Type.DATEV2);
-        Assertions.assertEquals("'2024-01-15'", expr.toSql());
+        Assertions.assertEquals("'2024-01-15'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -176,13 +195,13 @@ public class ExprToSqlTest {
         ArrayType arrayType = new ArrayType(Type.INT);
         ArrayLiteral expr = new ArrayLiteral(arrayType,
                 new IntLiteral(1L), new IntLiteral(2L), new IntLiteral(3L));
-        Assertions.assertEquals("[1, 2, 3]", expr.toSql());
+        Assertions.assertEquals("[1, 2, 3]", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testArrayLiteralEmpty() {
         ArrayLiteral expr = new ArrayLiteral();
-        Assertions.assertEquals("[]", expr.toSql());
+        Assertions.assertEquals("[]", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -191,7 +210,7 @@ public class ExprToSqlTest {
         List<LiteralExpr> keys = Arrays.asList(new StringLiteral("a"), new StringLiteral("b"));
         List<LiteralExpr> values = Arrays.asList(new IntLiteral(1L), new IntLiteral(2L));
         MapLiteral expr = new MapLiteral(mapType, keys, values);
-        Assertions.assertEquals("MAP{'a':1, 'b':2}", expr.toSql());
+        Assertions.assertEquals("MAP{'a':1, 'b':2}", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -200,20 +219,20 @@ public class ExprToSqlTest {
                 new StructField("f1", Type.INT),
                 new StructField("f2", Type.VARCHAR));
         StructLiteral expr = new StructLiteral(structType, new IntLiteral(10L), new StringLiteral("x"));
-        Assertions.assertEquals("STRUCT(10, 'x')", expr.toSql());
+        Assertions.assertEquals("STRUCT(10, 'x')", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testPlaceHolderExprNull() {
         // null lExpr case → "?"
         PlaceHolderExpr expr = new PlaceHolderExpr();
-        Assertions.assertEquals("?", expr.toSql());
+        Assertions.assertEquals("?", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testPlaceHolderExprWithLiteral() throws AnalysisException {
         PlaceHolderExpr expr = PlaceHolderExpr.create("42", Type.INT);
-        Assertions.assertEquals("_placeholder_(42)", expr.toSql());
+        Assertions.assertEquals("_placeholder_(42)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -224,13 +243,13 @@ public class ExprToSqlTest {
     public void testColumnRefExpr() {
         ColumnRefExpr expr = new ColumnRefExpr(false);
         expr.setName("my_col");
-        Assertions.assertEquals("my_col", expr.toSql());
+        Assertions.assertEquals("my_col", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testInformationFunction() {
         InformationFunction expr = new InformationFunction("DATABASE");
-        Assertions.assertEquals("DATABASE()", expr.toSql());
+        Assertions.assertEquals("DATABASE()", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -238,7 +257,7 @@ public class ExprToSqlTest {
         // parts = ["mykey"] → db=null, keyName="mykey"
         EncryptKeyName keyName = new EncryptKeyName(Collections.singletonList("mykey"));
         EncryptKeyRef expr = new EncryptKeyRef(keyName);
-        Assertions.assertEquals("KEY mykey", expr.toSql());
+        Assertions.assertEquals("KEY mykey", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -246,21 +265,144 @@ public class ExprToSqlTest {
         // parts = ["mydb", "mykey"]
         EncryptKeyName keyName = new EncryptKeyName(Arrays.asList("mydb", "mykey"));
         EncryptKeyRef expr = new EncryptKeyRef(keyName);
-        Assertions.assertEquals("KEY mydb.mykey", expr.toSql());
+        Assertions.assertEquals("KEY mydb.mykey", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testSlotRefNoTable() {
         // No table, no desc → falls back to label
         SlotRef expr = new SlotRef(null, "col1");
-        Assertions.assertEquals("`col1`", expr.toSql());
+        Assertions.assertEquals("`col1`", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testSlotRefWithTable() {
         SlotRef expr = new SlotRef(new TableNameInfo("mytbl"), "col1");
         // TableNameInfo("mytbl").toSql() = "`mytbl`"
-        Assertions.assertEquals("`mytbl`.`col1`", expr.toSql());
+        Assertions.assertEquals("`mytbl`.`col1`", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefLabelNoConnectContext() {
+        // label is set, ConnectContext is absent → returns label as-is
+        SlotRef expr = new SlotRef(null, "amount");
+        Assertions.assertEquals("`amount`", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefLabelNereidsNotQuery() {
+        // isNereids=true, isQuery=false, sessionVariable set, desc set
+        // → Nereids plan-printing path: label + "[#<slotId>]"
+        TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(3), tupleDesc);
+        slotDesc.setLabel("`col`");
+        SlotRef expr = new SlotRef(null, "col");
+        expr.setDesc(slotDesc);
+
+        installConnectContext(true, false);
+        Assertions.assertEquals("`col`[#3]", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefLabelNereidsIsQuery() {
+        // isNereids=true, isQuery=true → query execution path, slot-id suffix suppressed
+        TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(5), tupleDesc);
+        slotDesc.setLabel("`score`");
+        SlotRef expr = new SlotRef(null, "score");
+        expr.setDesc(slotDesc);
+
+        installConnectContext(true, true);
+        Assertions.assertEquals("`score`", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefLabelNotNereids() {
+        // isNereids=false → non-Nereids path, no slot-id suffix regardless of desc
+        TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(7), tupleDesc);
+        slotDesc.setLabel("`price`");
+        SlotRef expr = new SlotRef(null, "price");
+        expr.setDesc(slotDesc);
+
+        installConnectContext(false, false);
+        Assertions.assertEquals("`price`", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefNoLabelNoDesc() {
+        // label=null, desc=null → virtual alias-function slot, returns "`col`"
+        SlotRef expr = new SlotRef(null, "alias_col");
+        // forcibly clear the label that the (TableNameInfo, String) ctor sets
+        java.lang.reflect.Field labelField;
+        try {
+            labelField = SlotRef.class.getDeclaredField("label");
+            labelField.setAccessible(true);
+            labelField.set(expr, null);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+        Assertions.assertEquals("`alias_col`", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefDescWithSourceExprs() {
+        // label=null, desc has sourceExprs → "<slot N> expr visitor result"
+        TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(2), tupleDesc);
+        slotDesc.setSourceExpr(new IntLiteral(42L));
+
+        SlotRef expr = new SlotRef(null, "x");
+        try {
+            java.lang.reflect.Field labelField = SlotRef.class.getDeclaredField("label");
+            labelField.setAccessible(true);
+            labelField.set(expr, null);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+        expr.setDesc(slotDesc);
+        // SlotId=2 (!=1) → "<slot 2> 42"
+        Assertions.assertEquals("<slot 2> 42", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefDescNoSourceExprs() {
+        // label=null, desc has no sourceExprs → "<slot N>"
+        TupleDescriptor tupleDesc = new TupleDescriptor(new TupleId(0));
+        SlotDescriptor slotDesc = new SlotDescriptor(new SlotId(4), tupleDesc);
+
+        SlotRef expr = new SlotRef(null, "x");
+        try {
+            java.lang.reflect.Field labelField = SlotRef.class.getDeclaredField("label");
+            labelField.setAccessible(true);
+            labelField.set(expr, null);
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+        expr.setDesc(slotDesc);
+        Assertions.assertEquals("<slot 4>", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefWithTableAndSubColPath() {
+        // tableNameInfo present, subColPath set → "`tbl`.`col`.field1.field2"
+        SlotRef expr = new SlotRef(new TableNameInfo("tbl"), "col");
+        try {
+            java.lang.reflect.Field subColField = SlotRef.class.getDeclaredField("subColPath");
+            subColField.setAccessible(true);
+            subColField.set(expr, Arrays.asList("field1", "field2"));
+        } catch (ReflectiveOperationException e) {
+            throw new RuntimeException(e);
+        }
+        Assertions.assertEquals("`tbl`.`col`.field1.field2", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
+    }
+
+    @Test
+    public void testSlotRefDisableTableName() {
+        // toSqlWithoutTbl(): disableTableName=true, label present → returns label only, table stripped
+        SlotRef expr = new SlotRef(new TableNameInfo("tbl"), "col");
+        String sql = expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE);
+        Assertions.assertEquals("`col`", sql);
     }
 
     // -----------------------------------------------------------------------
@@ -272,7 +414,7 @@ public class ExprToSqlTest {
         Expr e1 = new SlotRef(null, "a");
         Expr e2 = new IntLiteral(1L);
         BinaryPredicate expr = new BinaryPredicate(BinaryPredicate.Operator.EQ, e1, e2);
-        Assertions.assertEquals("(`a` = 1)", expr.toSql());
+        Assertions.assertEquals("(`a` = 1)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -280,21 +422,21 @@ public class ExprToSqlTest {
         Expr e1 = new SlotRef(null, "x");
         Expr e2 = new IntLiteral(0L);
         BinaryPredicate expr = new BinaryPredicate(BinaryPredicate.Operator.NE, e1, e2);
-        Assertions.assertEquals("(`x` != 0)", expr.toSql());
+        Assertions.assertEquals("(`x` != 0)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testIsNullPredicate() {
         Expr e1 = new SlotRef(null, "col");
         IsNullPredicate expr = new IsNullPredicate(e1, false);
-        Assertions.assertEquals("`col` IS NULL", expr.toSql());
+        Assertions.assertEquals("`col` IS NULL", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testIsNotNullPredicate() {
         Expr e1 = new SlotRef(null, "col");
         IsNullPredicate expr = new IsNullPredicate(e1, true);
-        Assertions.assertEquals("`col` IS NOT NULL", expr.toSql());
+        Assertions.assertEquals("`col` IS NOT NULL", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -302,7 +444,7 @@ public class ExprToSqlTest {
         Expr e1 = new BoolLiteral(true);
         Expr e2 = new BoolLiteral(false);
         CompoundPredicate expr = new CompoundPredicate(CompoundPredicate.Operator.AND, e1, e2);
-        Assertions.assertEquals("(TRUE AND FALSE)", expr.toSql());
+        Assertions.assertEquals("(TRUE AND FALSE)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -310,7 +452,7 @@ public class ExprToSqlTest {
         Expr e1 = new BoolLiteral(true);
         Expr e2 = new BoolLiteral(false);
         CompoundPredicate expr = new CompoundPredicate(CompoundPredicate.Operator.OR, e1, e2);
-        Assertions.assertEquals("(TRUE OR FALSE)", expr.toSql());
+        Assertions.assertEquals("(TRUE OR FALSE)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -318,7 +460,7 @@ public class ExprToSqlTest {
         // NOT with default SQL: "NOT child"
         Expr e1 = new BoolLiteral(true);
         CompoundPredicate expr = new CompoundPredicate(CompoundPredicate.Operator.NOT, e1, null);
-        Assertions.assertEquals("NOT TRUE", expr.toSql());
+        Assertions.assertEquals("(NOT TRUE)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -326,7 +468,7 @@ public class ExprToSqlTest {
         // NOT with external SQL: "(NOT child)"
         Expr e1 = new BoolLiteral(true);
         CompoundPredicate expr = new CompoundPredicate(CompoundPredicate.Operator.NOT, e1, null);
-        String sql = expr.toSql(true, true, null, null);
+        String sql = expr.accept(ExprToSqlVisitor.INSTANCE, new ToSqlParams(false, true, null, null));
         Assertions.assertEquals("(NOT TRUE)", sql);
     }
 
@@ -335,7 +477,7 @@ public class ExprToSqlTest {
         Expr e1 = new SlotRef(null, "col");
         List<Expr> inList = Arrays.asList(new IntLiteral(1L), new IntLiteral(2L));
         InPredicate expr = new InPredicate(e1, inList, false);
-        Assertions.assertEquals("`col` IN (1, 2)", expr.toSql());
+        Assertions.assertEquals("`col` IN (1, 2)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -343,7 +485,7 @@ public class ExprToSqlTest {
         Expr e1 = new SlotRef(null, "col");
         List<Expr> inList = Arrays.asList(new IntLiteral(1L), new IntLiteral(2L));
         InPredicate expr = new InPredicate(e1, inList, true);
-        Assertions.assertEquals("`col` NOT IN (1, 2)", expr.toSql());
+        Assertions.assertEquals("`col` NOT IN (1, 2)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -351,7 +493,7 @@ public class ExprToSqlTest {
         Expr e1 = new SlotRef(null, "name");
         Expr e2 = new StringLiteral("foo%");
         LikePredicate expr = new LikePredicate(LikePredicate.Operator.LIKE, e1, e2);
-        Assertions.assertEquals("`name` LIKE 'foo%'", expr.toSql());
+        Assertions.assertEquals("`name` LIKE 'foo%'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -359,7 +501,7 @@ public class ExprToSqlTest {
         Expr e1 = new SlotRef(null, "name");
         Expr e2 = new StringLiteral("^foo");
         LikePredicate expr = new LikePredicate(LikePredicate.Operator.REGEXP, e1, e2);
-        Assertions.assertEquals("`name` REGEXP '^foo'", expr.toSql());
+        Assertions.assertEquals("`name` REGEXP '^foo'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -369,7 +511,7 @@ public class ExprToSqlTest {
         MatchPredicate expr = new MatchPredicate(
                 MatchPredicate.Operator.MATCH_ANY, e1, e2, Type.BOOLEAN,
                 NullableMode.ALWAYS_NULLABLE, null, false);
-        Assertions.assertEquals("`content` MATCH_ANY 'word'", expr.toSql());
+        Assertions.assertEquals("`content` MATCH_ANY 'word'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -392,7 +534,7 @@ public class ExprToSqlTest {
         expr.addChild(low);
         expr.addChild(high);
 
-        Assertions.assertEquals("`age` BETWEEN 18 AND 65", expr.toSql());
+        Assertions.assertEquals("`age` BETWEEN 18 AND 65", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -414,7 +556,7 @@ public class ExprToSqlTest {
         expr.addChild(low);
         expr.addChild(high);
 
-        Assertions.assertEquals("`age` NOT BETWEEN 18 AND 65", expr.toSql());
+        Assertions.assertEquals("`age` NOT BETWEEN 18 AND 65", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -428,7 +570,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.ADD, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(1 + 2)", expr.toSql());
+        Assertions.assertEquals("(1 + 2)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -438,33 +580,33 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.BITNOT, e1, null, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("~ 5", expr.toSql());
+        Assertions.assertEquals("~ 5", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testCastExprDefault() {
         CastExpr expr = new CastExpr(Type.BIGINT, new IntLiteral(1L), false);
-        Assertions.assertEquals("CAST(1 AS bigint)", expr.toSql());
+        Assertions.assertEquals("CAST(1 AS bigint)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testCastExprExternal() {
         // External SQL strips the cast and returns just the child
         CastExpr expr = new CastExpr(Type.BIGINT, new IntLiteral(1L), false);
-        String sql = expr.toSql(false, true, null, null);
+        String sql = expr.accept(ExprToExternalSqlVisitor.INSTANCE, new ToSqlParams(false, true, null, null));
         Assertions.assertEquals("1", sql);
     }
 
     @Test
     public void testTryCastExprDefault() {
         TryCastExpr expr = new TryCastExpr(Type.INT, new IntLiteral(1L), false, false);
-        Assertions.assertEquals("TRY_CAST(1 AS int)", expr.toSql());
+        Assertions.assertEquals("TRY_CAST(1 AS int)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testTryCastExprExternal() {
         TryCastExpr expr = new TryCastExpr(Type.INT, new IntLiteral(1L), false, false);
-        String sql = expr.toSql(false, true, null, null);
+        String sql = expr.accept(ExprToExternalSqlVisitor.INSTANCE, new ToSqlParams(false, true, null, null));
         Assertions.assertEquals("1", sql);
     }
 
@@ -479,7 +621,7 @@ public class ExprToSqlTest {
         Expr thenExpr = new IntLiteral(1L);
         CaseWhenClause clause = new CaseWhenClause(whenExpr, thenExpr);
         CaseExpr expr = new CaseExpr(Collections.singletonList(clause), null, false);
-        Assertions.assertEquals("CASE WHEN TRUE THEN 1 END", expr.toSql());
+        Assertions.assertEquals("CASE WHEN TRUE THEN 1 END", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -490,39 +632,39 @@ public class ExprToSqlTest {
         Expr elseExpr = new IntLiteral(0L);
         CaseWhenClause clause = new CaseWhenClause(whenExpr, thenExpr);
         CaseExpr expr = new CaseExpr(Collections.singletonList(clause), elseExpr, false);
-        Assertions.assertEquals("CASE WHEN TRUE THEN 1 ELSE 0 END", expr.toSql());
+        Assertions.assertEquals("CASE WHEN TRUE THEN 1 ELSE 0 END", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testVariableExprUser() {
         VariableExpr expr = new VariableExpr("myvar", SetType.USER);
-        Assertions.assertEquals("@myvar", expr.toSql());
+        Assertions.assertEquals("@myvar", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testVariableExprSession() {
         VariableExpr expr = new VariableExpr("version", SetType.SESSION);
-        Assertions.assertEquals("@@version", expr.toSql());
+        Assertions.assertEquals("@@version", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testVariableExprGlobal() {
         VariableExpr expr = new VariableExpr("timeout", SetType.GLOBAL);
-        Assertions.assertEquals("@@GLOBAL.timeout", expr.toSql());
+        Assertions.assertEquals("@@GLOBAL.timeout", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testFunctionCallExpr() {
         FunctionCallExpr expr = new FunctionCallExpr("upper",
                 Arrays.asList(new StringLiteral("hello")), false);
-        Assertions.assertEquals("upper('hello')", expr.toSql());
+        Assertions.assertEquals("upper('hello')", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testFunctionCallExprNoArgs() {
         FunctionCallExpr expr = new FunctionCallExpr("now",
                 Collections.emptyList(), false);
-        Assertions.assertEquals("now()", expr.toSql());
+        Assertions.assertEquals("now()", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -533,7 +675,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "date_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "YEAR", Type.DATETIMEV2, false);
-        Assertions.assertEquals("date_add(`dt`, INTERVAL 1 YEAR)", expr.toSql());
+        Assertions.assertEquals("date_add(`dt`, INTERVAL 1 YEAR)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -544,7 +686,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "TIMESTAMPDIFF", ArithmeticExpr.Operator.ADD,
                 e1, e2, "YEAR", Type.DATETIMEV2, false);
-        Assertions.assertEquals("TIMESTAMPDIFF(YEAR, `start_dt`, `end_dt`)", expr.toSql());
+        Assertions.assertEquals("TIMESTAMPDIFF(YEAR, `start_dt`, `end_dt`)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -557,7 +699,7 @@ public class ExprToSqlTest {
         LambdaFunctionExpr expr = new LambdaFunctionExpr(
                 body, Collections.singletonList("x"),
                 Collections.singletonList(slot), false);
-        Assertions.assertEquals("x -> (`x` + 1)", expr.toSql());
+        Assertions.assertEquals("x -> (`x` + 1)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -571,7 +713,7 @@ public class ExprToSqlTest {
         LambdaFunctionExpr expr = new LambdaFunctionExpr(
                 body, Arrays.asList("x", "y"),
                 Arrays.asList(slotX, slotY), false);
-        Assertions.assertEquals("(x,y) -> (`x` + `y`)", expr.toSql());
+        Assertions.assertEquals("(x,y) -> (`x` + `y`)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -585,7 +727,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.SUBTRACT, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(10 - 3)", expr.toSql());
+        Assertions.assertEquals("(10 - 3)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -595,7 +737,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.MULTIPLY, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(4 * 5)", expr.toSql());
+        Assertions.assertEquals("(4 * 5)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -605,7 +747,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.DIVIDE, e1, e2, Type.DOUBLE,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(10 / 2)", expr.toSql());
+        Assertions.assertEquals("(10 / 2)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -615,7 +757,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.MOD, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(7 % 3)", expr.toSql());
+        Assertions.assertEquals("(7 % 3)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -625,7 +767,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.INT_DIVIDE, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(7 DIV 3)", expr.toSql());
+        Assertions.assertEquals("(7 DIV 3)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -635,7 +777,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.BITAND, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(12 & 10)", expr.toSql());
+        Assertions.assertEquals("(12 & 10)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -645,7 +787,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.BITOR, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(12 | 10)", expr.toSql());
+        Assertions.assertEquals("(12 | 10)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -655,7 +797,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.BITXOR, e1, e2, Type.BIGINT,
                 NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(12 ^ 10)", expr.toSql());
+        Assertions.assertEquals("(12 ^ 10)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -667,7 +809,7 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.MULTIPLY, add, new IntLiteral(3L),
                 Type.BIGINT, NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("((1 + 2) * 3)", expr.toSql());
+        Assertions.assertEquals("((1 + 2) * 3)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -685,7 +827,7 @@ public class ExprToSqlTest {
                 new CaseWhenClause(when2, new StringLiteral("mid")));
         CaseExpr expr = new CaseExpr(clauses, new StringLiteral("small"), false);
         Assertions.assertEquals("CASE WHEN (`col` > 10) THEN 'big' WHEN (`col` > 5) THEN 'mid' ELSE 'small' END",
-                expr.toSql());
+                expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -695,7 +837,8 @@ public class ExprToSqlTest {
                 new CaseWhenClause(new BoolLiteral(true), new IntLiteral(1L)),
                 new CaseWhenClause(new BoolLiteral(false), new IntLiteral(2L)));
         CaseExpr expr = new CaseExpr(clauses, null, false);
-        Assertions.assertEquals("CASE WHEN TRUE THEN 1 WHEN FALSE THEN 2 END", expr.toSql());
+        Assertions.assertEquals("CASE WHEN TRUE THEN 1 WHEN FALSE THEN 2 END",
+                expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -706,7 +849,8 @@ public class ExprToSqlTest {
         CaseExpr expr = new CaseExpr(
                 Collections.singletonList(new CaseWhenClause(when1, new StringLiteral("null_val"))),
                 col, false);
-        Assertions.assertEquals("CASE WHEN `val` IS NULL THEN 'null_val' ELSE `val` END", expr.toSql());
+        Assertions.assertEquals("CASE WHEN `val` IS NULL THEN 'null_val' ELSE `val` END",
+                expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -718,7 +862,8 @@ public class ExprToSqlTest {
         ArithmeticExpr expr = new ArithmeticExpr(
                 ArithmeticExpr.Operator.ADD, caseExpr, new IntLiteral(5L),
                 Type.BIGINT, NullableMode.DEPEND_ON_ARGUMENT, false);
-        Assertions.assertEquals("(CASE WHEN TRUE THEN 1 ELSE 0 END + 5)", expr.toSql());
+        Assertions.assertEquals("(CASE WHEN TRUE THEN 1 ELSE 0 END + 5)",
+                expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -729,7 +874,7 @@ public class ExprToSqlTest {
     public void testFunctionCallExprMultipleArgs() {
         FunctionCallExpr expr = new FunctionCallExpr("concat",
                 Arrays.asList(new StringLiteral("a"), new StringLiteral("b"), new StringLiteral("c")), false);
-        Assertions.assertEquals("concat('a', 'b', 'c')", expr.toSql());
+        Assertions.assertEquals("concat('a', 'b', 'c')", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -742,7 +887,7 @@ public class ExprToSqlTest {
         java.lang.reflect.Field fnParamsField = FunctionCallExpr.class.getDeclaredField("fnParams");
         fnParamsField.setAccessible(true);
         fnParamsField.set(expr, distinctParams);
-        Assertions.assertEquals("count(DISTINCT `col`)", expr.toSql());
+        Assertions.assertEquals("count(DISTINCT `col`)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -753,7 +898,7 @@ public class ExprToSqlTest {
         java.lang.reflect.Field fnParamsField = FunctionCallExpr.class.getDeclaredField("fnParams");
         fnParamsField.setAccessible(true);
         fnParamsField.set(expr, starParams);
-        Assertions.assertEquals("count(*)", expr.toSql());
+        Assertions.assertEquals("count(*)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -763,7 +908,7 @@ public class ExprToSqlTest {
                 Collections.singletonList(new StringLiteral("hello")), false);
         FunctionCallExpr expr = new FunctionCallExpr("length",
                 Collections.singletonList(inner), false);
-        Assertions.assertEquals("length(upper('hello'))", expr.toSql());
+        Assertions.assertEquals("length(upper('hello'))", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -771,7 +916,7 @@ public class ExprToSqlTest {
         // coalesce(col, 0)
         FunctionCallExpr expr = new FunctionCallExpr("coalesce",
                 Arrays.asList(new SlotRef(null, "col"), new IntLiteral(0L)), false);
-        Assertions.assertEquals("coalesce(`col`, 0)", expr.toSql());
+        Assertions.assertEquals("coalesce(`col`, 0)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -779,7 +924,7 @@ public class ExprToSqlTest {
         // ifnull(a, b)
         FunctionCallExpr expr = new FunctionCallExpr("ifnull",
                 Arrays.asList(new SlotRef(null, "a"), new StringLiteral("default")), false);
-        Assertions.assertEquals("ifnull(`a`, 'default')", expr.toSql());
+        Assertions.assertEquals("ifnull(`a`, 'default')", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -794,7 +939,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "date_sub", ArithmeticExpr.Operator.SUBTRACT,
                 e1, e2, "DAY", Type.DATETIMEV2, false);
-        Assertions.assertEquals("date_sub(`dt`, INTERVAL 7 DAY)", expr.toSql());
+        Assertions.assertEquals("date_sub(`dt`, INTERVAL 7 DAY)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -805,7 +950,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "days_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "DAY", Type.DATETIMEV2, false);
-        Assertions.assertEquals("days_add(`created_at`, INTERVAL 30 DAY)", expr.toSql());
+        Assertions.assertEquals("days_add(`created_at`, INTERVAL 30 DAY)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -816,7 +961,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "months_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "MONTH", Type.DATETIMEV2, false);
-        Assertions.assertEquals("months_add(`dt`, INTERVAL 3 MONTH)", expr.toSql());
+        Assertions.assertEquals("months_add(`dt`, INTERVAL 3 MONTH)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -827,7 +972,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "hours_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "HOUR", Type.DATETIMEV2, false);
-        Assertions.assertEquals("hours_add(`ts`, INTERVAL 2 HOUR)", expr.toSql());
+        Assertions.assertEquals("hours_add(`ts`, INTERVAL 2 HOUR)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -838,7 +983,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "minutes_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "MINUTE", Type.DATETIMEV2, false);
-        Assertions.assertEquals("minutes_add(`ts`, INTERVAL 15 MINUTE)", expr.toSql());
+        Assertions.assertEquals("minutes_add(`ts`, INTERVAL 15 MINUTE)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -849,7 +994,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "seconds_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "SECOND", Type.DATETIMEV2, false);
-        Assertions.assertEquals("seconds_add(`ts`, INTERVAL 30 SECOND)", expr.toSql());
+        Assertions.assertEquals("seconds_add(`ts`, INTERVAL 30 SECOND)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -861,7 +1006,7 @@ public class ExprToSqlTest {
                 "TIMESTAMPADD", ArithmeticExpr.Operator.ADD,
                 e1, e2, "MONTH", Type.DATETIMEV2, false);
         // TIMESTAMPADD(unit, interval, timestamp) — same layout as TIMESTAMPDIFF
-        Assertions.assertEquals("TIMESTAMPADD(MONTH, 1, `dt`)", expr.toSql());
+        Assertions.assertEquals("TIMESTAMPADD(MONTH, 1, `dt`)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -872,7 +1017,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "TIMESTAMPDIFF", ArithmeticExpr.Operator.ADD,
                 e1, e2, "DAY", Type.DATETIMEV2, false);
-        Assertions.assertEquals("TIMESTAMPDIFF(DAY, `start_date`, `end_date`)", expr.toSql());
+        Assertions.assertEquals("TIMESTAMPDIFF(DAY, `start_date`, `end_date`)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -883,7 +1028,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "weeks_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "WEEK", Type.DATETIMEV2, false);
-        Assertions.assertEquals("weeks_add(`dt`, INTERVAL 2 WEEK)", expr.toSql());
+        Assertions.assertEquals("weeks_add(`dt`, INTERVAL 2 WEEK)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -899,7 +1044,7 @@ public class ExprToSqlTest {
         TimestampArithmeticExpr expr = new TimestampArithmeticExpr(
                 "date_add", ArithmeticExpr.Operator.ADD,
                 e1, e2, "YEAR", Type.DATETIMEV2, false);
-        Assertions.assertEquals("date_add('2024-01-01', INTERVAL 1 YEAR)", expr.toSql());
+        Assertions.assertEquals("date_add('2024-01-01', INTERVAL 1 YEAR)", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -910,7 +1055,7 @@ public class ExprToSqlTest {
     public void testTimeV2LiteralScale0() {
         // scale=0 → no fractional part: "01:02:03"
         TimeV2Literal expr = new TimeV2Literal(1, 2, 3, 0, 0, false);
-        Assertions.assertEquals("\"01:02:03\"", expr.toSql());
+        Assertions.assertEquals("\"01:02:03\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -918,7 +1063,7 @@ public class ExprToSqlTest {
         // scale=1 → 1 digit: "01:02:03.1"
         // microsecond=100000 → scaled: 100000 / 10^(6-1) = 100000/100000 = 1
         TimeV2Literal expr = new TimeV2Literal(1, 2, 3, 100000, 1, false);
-        Assertions.assertEquals("\"01:02:03.1\"", expr.toSql());
+        Assertions.assertEquals("\"01:02:03.1\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
@@ -926,35 +1071,35 @@ public class ExprToSqlTest {
         // scale=3 → 3 digits: "01:02:03.123"
         // microsecond=123000 → scaled: 123000 / 10^(6-3) = 123000/1000 = 123
         TimeV2Literal expr = new TimeV2Literal(1, 2, 3, 123000, 3, false);
-        Assertions.assertEquals("\"01:02:03.123\"", expr.toSql());
+        Assertions.assertEquals("\"01:02:03.123\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testTimeV2LiteralScale6() {
         // scale=6 → 6 digits: "01:02:03.123456"
         TimeV2Literal expr = new TimeV2Literal(1, 2, 3, 123456, 6, false);
-        Assertions.assertEquals("\"01:02:03.123456\"", expr.toSql());
+        Assertions.assertEquals("\"01:02:03.123456\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testTimeV2LiteralNegativeWithScale() {
         // negative, scale=3: "-10:20:30.500"
         TimeV2Literal expr = new TimeV2Literal(10, 20, 30, 500000, 3, true);
-        Assertions.assertEquals("\"-10:20:30.500\"", expr.toSql());
+        Assertions.assertEquals("\"-10:20:30.500\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testTimeV2LiteralLargeHour() {
         // hour > 99, scale=0: "838:59:59"
         TimeV2Literal expr = new TimeV2Literal(838, 59, 59, 0, 0, false);
-        Assertions.assertEquals("\"838:59:59\"", expr.toSql());
+        Assertions.assertEquals("\"838:59:59\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testTimeV2LiteralZero() {
         // 00:00:00, scale=0
         TimeV2Literal expr = new TimeV2Literal(0, 0, 0, 0, 0, false);
-        Assertions.assertEquals("\"00:00:00\"", expr.toSql());
+        Assertions.assertEquals("\"00:00:00\"", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     // -----------------------------------------------------------------------
@@ -965,55 +1110,55 @@ public class ExprToSqlTest {
     public void testDateLiteralDateV2() throws AnalysisException {
         // DATE type: 'YYYY-MM-DD'
         DateLiteral expr = new DateLiteral("2024-03-15", Type.DATEV2);
-        Assertions.assertEquals("'2024-03-15'", expr.toSql());
+        Assertions.assertEquals("'2024-03-15'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteralDatetime() throws AnalysisException {
         // DATETIME (v1) type: 'YYYY-MM-DD HH:MM:SS'
         DateLiteral expr = new DateLiteral("2024-03-15 10:30:00", Type.DATETIME);
-        Assertions.assertEquals("'2024-03-15 10:30:00'", expr.toSql());
+        Assertions.assertEquals("'2024-03-15 10:30:00'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteralDatetimeV2Scale0() throws AnalysisException {
         // DATETIMEV2 scale=0: 'YYYY-MM-DD HH:MM:SS'
         DateLiteral expr = new DateLiteral("2024-03-15 10:30:00", ScalarType.createDatetimeV2Type(0));
-        Assertions.assertEquals("'2024-03-15 10:30:00'", expr.toSql());
+        Assertions.assertEquals("'2024-03-15 10:30:00'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteralDatetimeV2Scale3() throws AnalysisException {
         // DATETIMEV2 scale=3: 'YYYY-MM-DD HH:MM:SS.mmm'
         DateLiteral expr = new DateLiteral("2024-03-15 10:30:00.123", ScalarType.createDatetimeV2Type(3));
-        Assertions.assertEquals("'2024-03-15 10:30:00.123'", expr.toSql());
+        Assertions.assertEquals("'2024-03-15 10:30:00.123'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteralDatetimeV2Scale6() throws AnalysisException {
         // DATETIMEV2 scale=6: 'YYYY-MM-DD HH:MM:SS.mmmmmm'
         DateLiteral expr = new DateLiteral("2024-03-15 10:30:00.123456", ScalarType.createDatetimeV2Type(6));
-        Assertions.assertEquals("'2024-03-15 10:30:00.123456'", expr.toSql());
+        Assertions.assertEquals("'2024-03-15 10:30:00.123456'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteralDateV2FromLongConstructor() {
         // Long-based constructor: year=2023, month=12, day=31
         DateLiteral expr = new DateLiteral(2023L, 12L, 31L, Type.DATEV2);
-        Assertions.assertEquals("'2023-12-31'", expr.toSql());
+        Assertions.assertEquals("'2023-12-31'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteralDatetimeFromLongConstructor() {
         // Long-based constructor with time: 2023-06-01 08:00:00
         DateLiteral expr = new DateLiteral(2023L, 6L, 1L, 8L, 0L, 0L, Type.DATETIME);
-        Assertions.assertEquals("'2023-06-01 08:00:00'", expr.toSql());
+        Assertions.assertEquals("'2023-06-01 08:00:00'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 
     @Test
     public void testDateLiteralDatetimeV2Scale1() throws AnalysisException {
         // DATETIMEV2 scale=1: 'YYYY-MM-DD HH:MM:SS.m'
         DateLiteral expr = new DateLiteral("2024-01-01 00:00:00.5", ScalarType.createDatetimeV2Type(1));
-        Assertions.assertEquals("'2024-01-01 00:00:00.5'", expr.toSql());
+        Assertions.assertEquals("'2024-01-01 00:00:00.5'", expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
     }
 }

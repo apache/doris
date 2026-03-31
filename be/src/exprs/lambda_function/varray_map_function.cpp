@@ -40,7 +40,7 @@
 #include "exprs/vcolumn_ref.h"
 #include "exprs/vslot_ref.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class VExprContext;
 
@@ -76,8 +76,8 @@ public:
 
     std::string get_name() const override { return name; }
 
-    Status execute(VExprContext* context, const vectorized::Block* block, Selector* expr_selector,
-                   size_t count, ColumnPtr& result_column, const DataTypePtr& result_type,
+    Status execute(VExprContext* context, const Block* block, Selector* expr_selector, size_t count,
+                   ColumnPtr& result_column, const DataTypePtr& result_type,
                    const VExprSPtrs& children) const override {
         LambdaArgs args_info;
         // collect used slot ref in lambda function body
@@ -277,8 +277,8 @@ public:
 
             if (!mem_reuse) {
                 for (int i = 0; i < column_size; ++i) {
-                    lambda_block.insert(vectorized::ColumnWithTypeAndName(std::move(columns[i]),
-                                                                          data_types[i], names[i]));
+                    lambda_block.insert(
+                            ColumnWithTypeAndName(std::move(columns[i]), data_types[i], names[i]));
                 }
             }
             //3. child[0]->execute(new_block)
@@ -379,9 +379,9 @@ private:
     }
 };
 
-void register_function_array_map(doris::vectorized::LambdaFunctionFactory& factory) {
+void register_function_array_map(doris::LambdaFunctionFactory& factory) {
     factory.register_function<ArrayMapFunction>();
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

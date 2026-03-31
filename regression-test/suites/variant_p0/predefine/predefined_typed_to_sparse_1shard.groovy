@@ -48,7 +48,7 @@ suite("test_predefine_typed_to_sparse_1shard", "p0"){
         }
     }
 
-    def tableName = "test_predefine_typed_to_sparse"
+    def tableName = "test_predefine_typed_to_sparse_1shard"
     sql "set default_variant_sparse_hash_shard_count = 1"
     sql "DROP TABLE IF EXISTS ${tableName}"
     sql """

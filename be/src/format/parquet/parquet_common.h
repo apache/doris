@@ -30,7 +30,7 @@
 #include "core/column/column_nullable.h"
 #include "storage/segment/row_ranges.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 using level_t = int16_t;
 
@@ -272,4 +272,4 @@ private:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

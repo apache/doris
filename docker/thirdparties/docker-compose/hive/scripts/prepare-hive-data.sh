@@ -130,8 +130,9 @@ jars=(
     aliyun-java-sdk-ecs-4.2.0.jar
     aliyun-java-sdk-ram-3.0.0.jar
     aliyun-java-sdk-sts-3.0.0.jar
-    aliyun-sdk-oss-3.4.1.jar
-    hadoop-aliyun-3.2.1.jar
+    jindo-core-6.3.4.jar
+    jindo-core-linux-el7-aarch64-6.3.4.jar
+    jindo-sdk-6.3.4.jar
     aws-java-sdk-bundle-1.11.375.jar
     hadoop-huaweicloud-3.1.1-hw-54.5.jar
     hadoop-cos-3.1.0-8.3.22.jar

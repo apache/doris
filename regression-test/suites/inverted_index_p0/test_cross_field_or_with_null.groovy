@@ -118,22 +118,33 @@ suite("test_cross_field_or_with_null") {
 
     // Test 4: NOT with cross-field OR
     // NOT (title MATCH "Philosophy" OR content MATCH "Disney+ Hotstar")
-    // Rows 1-16: title matches or content matches -> OR = TRUE -> NOT TRUE = FALSE (excluded)
-    // Rows 17-20: title doesn't match (FALSE) and content is NULL -> FALSE OR NULL = NULL -> NOT NULL = NULL (excluded)
-    // Expected: 0 rows (all rows are either TRUE or NULL in the OR, none are FALSE)
+    // Standard mode (SQL three-valued logic):
+    //   Rows 1-16: OR = TRUE -> NOT TRUE = FALSE (excluded)
+    //   Rows 17-20: FALSE OR NULL = NULL -> NOT NULL = NULL (excluded)
+    //   Expected: 0 rows
+    // Lucene mode (two-valued logic):
+    //   Rows 1-16: OR = TRUE -> NOT TRUE = FALSE (excluded)
+    //   Rows 17-20: no match -> NOT no_match = TRUE (included)
+    //   Expected: 4 rows
     def result4_match = sql """
         SELECT COUNT(*) FROM ${tableName}
         WHERE NOT (title MATCH_ALL 'Philosophy' OR content MATCH_ALL 'Disney+ Hotstar')
     """
 
-    def result4_search = sql """
+    def result4_search_standard = sql """
         SELECT COUNT(*) FROM ${tableName}
-        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))')
+        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))', '{"mode":"standard"}')
     """
 
     assertEquals(0, result4_match[0][0])  // All rows excluded due to NULL semantics
-    assertEquals(result4_match[0][0], result4_search[0][0])
-    logger.info("Test 4 passed: NOT with cross-field OR (NULL semantics correctly exclude rows)")
+    assertEquals(result4_match[0][0], result4_search_standard[0][0])
+
+    def result4_search_lucene = sql """
+        SELECT COUNT(*) FROM ${tableName}
+        WHERE SEARCH('NOT (title:ALL(Philosophy) OR content:ALL("Disney+ Hotstar"))')
+    """
+    assertEquals(4, result4_search_lucene[0][0])  // Lucene mode: rows 17-20 included
+    logger.info("Test 4 passed: NOT with cross-field OR works correctly in both modes")
 
     // Test 5: AND with cross-field OR containing NULL
     // category = "Education" AND (title MATCH "Philosophy" OR content MATCH "Disney")

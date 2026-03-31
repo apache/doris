@@ -34,9 +34,7 @@ namespace doris {
 
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaColumnsScanner::_s_col_columns = {
         //   name,       type,          size,                     is_null
@@ -372,7 +370,7 @@ Status SchemaColumnsScanner::_get_new_table() {
     return Status::OK();
 }
 
-Status SchemaColumnsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaColumnsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("use this class before inited.");
     }
@@ -394,7 +392,7 @@ Status SchemaColumnsScanner::get_next_block_internal(vectorized::Block* block, b
     return _fill_block_impl(block);
 }
 
-Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaColumnsScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto columns_num = _desc_result.columns.size();
     std::vector<void*> null_datas(columns_num, nullptr);

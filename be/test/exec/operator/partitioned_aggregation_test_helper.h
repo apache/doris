@@ -35,11 +35,11 @@
 #include "exec/operator/partitioned_aggregation_source_operator.h"
 #include "exec/operator/spillable_operator_test_helper.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 class MockAggSharedState : public AggSharedState {
 public:
 };
@@ -48,7 +48,7 @@ class MockPartitionedAggSharedState : public PartitionedAggSharedState {
     ENABLE_FACTORY_CREATOR(MockPartitionedAggSharedState);
 
 public:
-    MockPartitionedAggSharedState() { is_spilled = false; }
+    MockPartitionedAggSharedState() { _is_spilled = false; }
 };
 
 class MockPartitionedAggSinkLocalState : public PartitionedAggSinkLocalState {
@@ -83,9 +83,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
-        return Status::OK();
-    }
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
 };
 
 class MockPartitionedAggLocalState : public PartitionedAggLocalState {
@@ -126,7 +124,7 @@ public:
     bool need_more_input_data(RuntimeState* state) const override { return need_more_data; }
     bool need_more_data = true;
 
-    vectorized::Block block;
+    Block block;
     bool eos = false;
 };
 
@@ -154,4 +152,4 @@ public:
                std::shared_ptr<PartitionedAggSinkOperatorX>>
     create_operators();
 };
-} // namespace doris::pipeline
+} // namespace doris

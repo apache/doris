@@ -26,7 +26,7 @@
 #include "gtest/gtest_pred_impl.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST(FunctionUrlTEST, DomainTest) {
@@ -93,4 +93,4 @@ TEST(FunctionUrlTEST, ProtocolTest) {
     static_cast<void>(check_function<DataTypeString, true>(func_name, input_types, data_set));
 }
 
-} // namespace doris::vectorized
+} // namespace doris

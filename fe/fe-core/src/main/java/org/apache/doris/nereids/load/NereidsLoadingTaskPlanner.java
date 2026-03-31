@@ -36,6 +36,7 @@ import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.planner.PlanFragmentId;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -81,8 +82,6 @@ public class NereidsLoadingTaskPlanner {
     // Output params
     private List<PlanFragment> fragments = Lists.newArrayList();
     private List<ScanNode> scanNodes = Lists.newArrayList();
-
-    private int nextNodeId = 0;
 
     /**
      * NereidsLoadingTaskPlanner
@@ -195,7 +194,10 @@ public class NereidsLoadingTaskPlanner {
         }
 
         // Create a single FileLoadScanNode for all file groups
-        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfos.get(0).getDestTuple());
+        String clusterName = ConnectContext.get() == null ? ""
+                : ConnectContext.get().getSessionVariable().resolveCloudClusterName();
+        FileLoadScanNode fileScanNode = new FileLoadScanNode(new PlanNodeId(0), loadPlanInfos.get(0).getDestTuple(),
+                ScanContext.builder().clusterName(clusterName).build());
         fileScanNode.finalizeForNereids(loadId, fileGroupInfos, contexts, loadPlanInfos);
         scanNodes.add(fileScanNode);
 

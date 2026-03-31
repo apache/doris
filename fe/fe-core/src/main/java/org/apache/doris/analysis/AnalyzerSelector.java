@@ -70,8 +70,8 @@ public final class AnalyzerSelector {
         String userAnalyzer = normalize(requestedAnalyzer);
 
         // 2. Get index configuration
-        String indexParser = InvertedIndexUtil.getInvertedIndexParser(properties);
-        String indexCustomAnalyzer = InvertedIndexUtil.getPreferredAnalyzer(properties);
+        String indexParser = InvertedIndexProperties.getInvertedIndexParser(properties);
+        String indexCustomAnalyzer = InvertedIndexProperties.getPreferredAnalyzer(properties);
 
         // 3. Determine parser for slow path tokenization
         //    - No index: use english (more aggressive tokenization)
@@ -81,16 +81,16 @@ public final class AnalyzerSelector {
         //    - Has index but no analyzer/parser: use none (keyword matching)
         String parser;
         if (noIndex) {
-            parser = InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH;
+            parser = InvertedIndexProperties.INVERTED_INDEX_PARSER_ENGLISH;
         } else if (!Strings.isNullOrEmpty(indexParser)
-                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(indexParser)) {
+                && !InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(indexParser)) {
             parser = indexParser;
         } else if (!Strings.isNullOrEmpty(indexCustomAnalyzer)) {
             // Custom analyzer exists but no explicit parser
             // Use english for slow-path tokenization since custom analyzer implies fulltext
-            parser = InvertedIndexUtil.INVERTED_INDEX_PARSER_ENGLISH;
+            parser = InvertedIndexProperties.INVERTED_INDEX_PARSER_ENGLISH;
         } else {
-            parser = InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE;
+            parser = InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE;
         }
 
         // 4. Create selection
@@ -110,7 +110,7 @@ public final class AnalyzerSelector {
             return customAnalyzer.trim().toLowerCase();
         }
         if (!Strings.isNullOrEmpty(parser)
-                && !InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
+                && !InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE.equalsIgnoreCase(parser)) {
             return parser.trim().toLowerCase();
         }
         // Keyword index (parser=none) or no analyzer configured
@@ -144,7 +144,7 @@ public final class AnalyzerSelector {
             this.userAnalyzer = userAnalyzer;
             this.indexAnalyzer = indexAnalyzer;
             this.parser = Strings.isNullOrEmpty(parser)
-                    ? InvertedIndexUtil.INVERTED_INDEX_PARSER_NONE
+                    ? InvertedIndexProperties.INVERTED_INDEX_PARSER_NONE
                     : parser.trim().toLowerCase();
             this.explicit = explicit;
         }

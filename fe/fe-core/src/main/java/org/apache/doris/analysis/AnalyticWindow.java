@@ -20,8 +20,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.thrift.TAnalyticWindow;
 import org.apache.doris.thrift.TAnalyticWindowBoundary;
 import org.apache.doris.thrift.TAnalyticWindowBoundaryType;
@@ -130,19 +128,7 @@ public class AnalyticWindow {
             StringBuilder sb = new StringBuilder();
 
             if (expr != null) {
-                sb.append(expr.toSql()).append(" ");
-            }
-
-            sb.append(type.toString());
-            return sb.toString();
-        }
-
-        public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType,
-                TableIf table) {
-            StringBuilder sb = new StringBuilder();
-
-            if (expr != null) {
-                sb.append(expr.toSql(disableTableName, needExternalSql, tableType, table)).append(" ");
+                sb.append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append(" ");
             }
 
             sb.append(type.toString());
@@ -230,26 +216,6 @@ public class AnalyticWindow {
         } else {
             sb.append("BETWEEN ").append(leftBoundary.toSql()).append(" AND ");
             sb.append(rightBoundary.toSql());
-        }
-
-        return sb.toString();
-    }
-
-    public String toSql(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        if (toSqlString != null) {
-            return toSqlString;
-        }
-
-        StringBuilder sb = new StringBuilder();
-        sb.append(type.toString()).append(" ");
-
-        if (rightBoundary == null) {
-            sb.append(leftBoundary.toSql(disableTableName, needExternalSql, tableType, table));
-        } else {
-            sb.append("BETWEEN ").append(leftBoundary.toSql(disableTableName, needExternalSql, tableType, table))
-                    .append(" AND ");
-            sb.append(rightBoundary.toSql(disableTableName, needExternalSql, tableType, table));
         }
 
         return sb.toString();

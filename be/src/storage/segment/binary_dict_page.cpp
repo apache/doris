@@ -300,7 +300,7 @@ void BinaryDictPageDecoder::set_dict_decoder(uint32_t num_dict_items, StringRef*
     _dict_word_info = dict_word_info;
 };
 
-Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+Status BinaryDictPageDecoder::next_batch(size_t* n, MutableColumnPtr& dst) {
     if (!is_dict_encoding()) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->next_batch(n, dst);
@@ -330,7 +330,7 @@ Status BinaryDictPageDecoder::next_batch(size_t* n, vectorized::MutableColumnPtr
 }
 
 Status BinaryDictPageDecoder::read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal,
-                                             size_t* n, vectorized::MutableColumnPtr& dst) {
+                                             size_t* n, MutableColumnPtr& dst) {
     if (!is_dict_encoding()) {
         dst = dst->convert_to_predicate_column_if_dictionary();
         return _data_page_decoder->read_by_rowids(rowids, page_first_ordinal, n, dst);

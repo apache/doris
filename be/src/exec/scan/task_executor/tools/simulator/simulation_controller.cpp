@@ -34,7 +34,6 @@
 #include "exec/scan/task_executor/tools/simulator/simulation_task.h"
 
 namespace doris {
-namespace vectorized {
 
 SimulationController::SimulationController(
         std::shared_ptr<TimeSharingTaskExecutor> executor,
@@ -243,5 +242,4 @@ SimulationController::completed_tasks() const {
     return _completed_tasks;
 }
 
-} // namespace vectorized
 } // namespace doris

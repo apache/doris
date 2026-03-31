@@ -56,6 +56,7 @@ import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.Getter;
 import lombok.Setter;
@@ -92,13 +93,13 @@ public class DorisBatchStreamLoad implements Serializable {
     private final Map<String, ReadWriteLock> bufferMapLock = new ConcurrentHashMap<>();
     @Setter @Getter private String currentTaskId;
     private String targetDb;
-    private long jobId;
+    private String jobId;
     @Setter private String token;
     // stream load headers
     @Setter private Map<String, String> loadProps = new HashMap<>();
     @Getter private LoadStatistic loadStatistic;
 
-    public DorisBatchStreamLoad(long jobId, String targetDb) {
+    public DorisBatchStreamLoad(String jobId, String targetDb) {
         this.hostPort = Env.getCurrentEnv().getBackendHostPort();
         this.loadStatistic = new LoadStatistic();
         this.flushQueue = new LinkedBlockingDeque<>(1);
@@ -328,9 +329,9 @@ public class DorisBatchStreamLoad implements Serializable {
     class LoadAsyncExecutor implements Runnable {
 
         private int flushQueueSize;
-        private long jobId;
+        private String jobId;
 
-        public LoadAsyncExecutor(int flushQueueSize, long jobId) {
+        public LoadAsyncExecutor(int flushQueueSize, String jobId) {
             this.flushQueueSize = flushQueueSize;
             this.jobId = jobId;
         }
@@ -503,18 +504,20 @@ public class DorisBatchStreamLoad implements Serializable {
             String taskId,
             List<Map<String, String>> meta,
             long scannedRows,
-            LoadStatistic loadStatistic) {
+            LoadStatistic loadStatistic,
+            String tableSchemas) {
         try {
             String url = String.format(COMMIT_URL_PATTERN, frontendAddress, targetDb);
             CommitOffsetRequest commitRequest =
                     CommitOffsetRequest.builder()
                             .offset(OBJECT_MAPPER.writeValueAsString(meta))
-                            .jobId(jobId)
+                            .jobId(Long.parseLong(jobId))
                             .taskId(Long.parseLong(taskId))
                             .scannedRows(scannedRows)
                             .filteredRows(loadStatistic.getFilteredRows())
                             .loadedRows(loadStatistic.getLoadedRows())
                             .loadBytes(loadStatistic.getLoadBytes())
+                            .tableSchemas(tableSchemas)
                             .build();
             String param = OBJECT_MAPPER.writeValueAsString(commitRequest);
 
@@ -527,7 +530,11 @@ public class DorisBatchStreamLoad implements Serializable {
                             .commit()
                             .setEntity(new StringEntity(param));
 
-            LOG.info("commit offset for jobId {} taskId {}, params {}", jobId, taskId, param);
+            LOG.info(
+                    "commit offset for jobId {} taskId {}, commitRequest {}",
+                    jobId,
+                    taskId,
+                    commitRequest.toString());
             Throwable resEx = null;
             int retry = 0;
             while (retry <= RETRY) {
@@ -541,11 +548,15 @@ public class DorisBatchStreamLoad implements Serializable {
                                         : "";
                         LOG.info("commit result {}", responseBody);
                         if (statusCode == 200) {
-                            LOG.info("commit offset for jobId {} taskId {}", jobId, taskId);
-                            // A 200 response indicates that the request was successful, and
-                            // information such as offset and statistics may have already been
-                            // updated. Retrying may result in repeated updates.
-                            return;
+                            JsonNode root = OBJECT_MAPPER.readTree(responseBody);
+                            JsonNode code = root.get("code");
+                            if (code != null && code.asInt() == 0) {
+                                LOG.info(
+                                        "commit offset for jobId {} taskId {} successfully",
+                                        jobId,
+                                        taskId);
+                                return;
+                            }
                         }
                         LOG.error(
                                 "commit offset failed with {}, reason {}, to retry",

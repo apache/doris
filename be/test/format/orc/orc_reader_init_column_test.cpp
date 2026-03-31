@@ -25,7 +25,6 @@
 #include "orc/ColumnPrinter.hh"
 
 namespace doris {
-namespace vectorized {
 class OrcReaderInitColumnTest : public ::testing::Test {
 protected:
     void SetUp() override {}
@@ -229,5 +228,4 @@ TEST_F(OrcReaderInitColumnTest, RemoveAcidTest) {
     }
 }
 
-} // namespace vectorized
 } // namespace doris

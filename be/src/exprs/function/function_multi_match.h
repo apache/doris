@@ -24,7 +24,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/function.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionMultiMatch : public IFunction {
 public:
@@ -52,10 +52,10 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

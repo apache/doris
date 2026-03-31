@@ -294,8 +294,9 @@ struct TIcebergDeleteFileDesc {
     5: optional i32 content;
     // 6 & 7 : iceberg v3 deletion vector.
     // The content_offset and content_size_in_bytes fields are used to reference a specific blob for direct access to a deletion vector. 
-    6: optional i32 content_offset;
-    7: optional i32 content_size_in_bytes;
+    6: optional i64 content_offset;
+    7: optional i64 content_size_in_bytes;
+    8: optional TFileFormatType file_format;
 }
 
 struct TIcebergFileDesc {
@@ -312,6 +313,12 @@ struct TIcebergFileDesc {
     6: optional string original_file_path;
     // Deprecated
     7: optional i64 row_count;
+    8: optional i32 partition_spec_id;
+    9: optional string partition_data_json;
+    // Only for format_version >= 3, the starting _row_id to assign to rows added by ADDED data files. 
+    10: optional i64 first_row_id;
+    // Only for format_version >= 3, the sequence number which last updated this file.
+    11: optional i64 last_updated_sequence_number;
 }
 
 struct TPaimonDeletionFileDesc {
@@ -416,6 +423,8 @@ struct TTableFormatFileDesc {
     8: optional TLakeSoulFileDesc lakesoul_params
     9: optional i64 table_level_row_count = -1
     10: optional TRemoteDorisFileDesc remote_doris_params
+    // JDBC connection parameters (used when table_format_type == "jdbc")
+    11: optional map<string, string> jdbc_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type
@@ -489,6 +498,9 @@ struct TFileScanRangeParams {
     // enable mapping varbinary type for Doris external table and TVF
     28: optional bool enable_mapping_varbinary = false;
     29: optional bool enable_mapping_timestamp_tz = false;
+    // Paimon options from FE, used for jni/native scanner
+    // Set at ScanNode level to avoid redundant serialization in each split
+    30: optional map<string, string> paimon_options
 }
 
 struct TFileRangeDesc {
@@ -520,6 +532,7 @@ struct TFileRangeDesc {
     14: optional i64 self_split_weight
     // whether the value of columns_from_path is null
     15: optional list<bool> columns_from_path_is_null;
+    16: optional bool file_cache_admission;
 }
 
 struct TSplitSource {
@@ -596,6 +609,7 @@ struct TBackendsMetadataParams {
 
 struct TFrontendsMetadataParams {
   1: optional string cluster_name
+  2: optional string current_connected_fe_host
 }
 
 struct TMaterializedViewsMetadataParams {
@@ -894,6 +908,10 @@ struct TOlapScanNode {
   21: optional TSortInfo ann_sort_info
   22: optional i64 ann_sort_limit
   23: optional TScoreRangeInfo score_range_info
+  // Enable value predicate pushdown for MOR tables
+  24: optional bool enable_mor_value_predicate_pushdown
+  // Read MOR table as DUP table: skip merge, skip delete sign
+  25: optional bool read_mor_as_dup
 }
 
 struct TEqJoinCondition {
@@ -923,7 +941,11 @@ enum TJoinOp {
   // be rejected (ANTI-join), based on the other join conjuncts. This is in contrast
   // to LEFT_ANTI_JOIN where NULLs are not matches and therefore always returned.
   NULL_AWARE_LEFT_ANTI_JOIN = 10,
-  NULL_AWARE_LEFT_SEMI_JOIN = 11
+  NULL_AWARE_LEFT_SEMI_JOIN = 11,
+  ASOF_LEFT_INNER_JOIN = 12,
+  ASOF_RIGHT_INNER_JOIN = 13,
+  ASOF_LEFT_OUTER_JOIN = 14,
+  ASOF_RIGHT_OUTER_JOIN = 15
 }
 
 enum TJoinDistributionType {
@@ -968,6 +990,7 @@ struct THashJoinNode {
   // use_specific_projections true, if output exprssions is denoted by srcExprList represents, o.w. PlanNode.projections
   // deprecated
   14: optional bool use_specific_projections
+  15: optional Exprs.TExpr match_condition
 }
 
 struct TNestedLoopJoinNode {

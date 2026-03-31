@@ -19,7 +19,7 @@ package org.apache.doris.nereids.parser;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.Pair;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.nereids.DorisParser;
 import org.apache.doris.nereids.DorisParser.InsertTableContext;
 import org.apache.doris.nereids.DorisParser.JobFromToClauseContext;
@@ -214,7 +214,7 @@ public class LogicalPlanBuilderForEncryption extends LogicalPlanBuilder {
 
     private void encryptProperty(Map<String, String> properties, int start, int stop) {
         if (MapUtils.isNotEmpty(properties)) {
-            PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=",
+            DatasourcePrintableMap<String, String> printableMap = new DatasourcePrintableMap<>(properties, "=",
                     true, false, true);
             indexInSqlToString.put(Pair.of(start, stop), printableMap.toString());
         }

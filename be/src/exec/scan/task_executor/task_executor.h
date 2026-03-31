@@ -26,7 +26,6 @@
 #include "exec/scan/task_executor/task_id.h"
 
 namespace doris {
-namespace vectorized {
 
 class TaskHandle;
 
@@ -57,5 +56,4 @@ public:
                                     const std::shared_ptr<SplitRunner>& split) = 0;
 };
 
-} // namespace vectorized
 } // namespace doris

@@ -30,9 +30,9 @@ import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.JdbcTable;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.thrift.TOdbcTableType;
 
 import mockit.Expectations;
@@ -46,7 +46,7 @@ import java.util.List;
 public class JdbcScanNodeTest {
 
     @Mocked
-    private JdbcTable mockTable;
+    private JdbcExternalTable mockTable;
 
     @Test
     public void testSimpleBinaryPredicate() {

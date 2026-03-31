@@ -30,6 +30,9 @@ struct IndexQueryContext {
 
     CollectionStatisticsPtr collection_statistics;
     CollectionSimilarityPtr collection_similarity;
+
+    size_t query_limit = 0;
+    bool is_asc = false;
 };
 using IndexQueryContextPtr = std::shared_ptr<IndexQueryContext>;
 

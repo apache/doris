@@ -18,15 +18,8 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.nereids.trees.expressions.literal.format.FractionalFormat;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
-import org.apache.doris.thrift.TFloatLiteral;
 
 import com.google.gson.annotations.SerializedName;
 
@@ -132,14 +125,8 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String toSqlImpl() {
-        return getStringValue();
-    }
-
-    @Override
-    public String toSqlImpl(boolean disableTableName, boolean needExternalSql, TableType tableType,
-            TableIf table) {
-        return getStringValue();
+    public <R, C> R accept(ExprVisitor<R, C> visitor, C context) {
+        return visitor.visitFloatLiteral(this, context);
     }
 
     @Override
@@ -160,37 +147,6 @@ public class FloatLiteral extends NumericLiteralExpr {
     }
 
     @Override
-    public String getStringValueForQuery(FormatOptions options) {
-        if (type == Type.TIMEV2) {
-            // FloatLiteral used to represent TIME type, here we need to remove apostrophe from timeStr
-            // for example '11:22:33' -> 11:22:33
-            String timeStr = getStringValue();
-            return timeStr.substring(1, timeStr.length() - 1);
-        } else {
-            if (type == Type.FLOAT) {
-                Float fValue = (float) value;
-                if (fValue.equals(Float.POSITIVE_INFINITY)) {
-                    value = Double.POSITIVE_INFINITY;
-                }
-                if (fValue.equals(Float.NEGATIVE_INFINITY)) {
-                    value = Double.NEGATIVE_INFINITY;
-                }
-            }
-            return FractionalFormat.getFormatStringValue(value, type == Type.DOUBLE ? 16 : 7,
-                    type == Type.DOUBLE ? "%.15E" : "%.6E");
-        }
-    }
-
-    @Override
-    protected String getStringValueInComplexTypeForQuery(FormatOptions options) {
-        String ret = this.getStringValueForQuery(options);
-        if (type == Type.TIMEV2) {
-            ret = options.getNestedStringWrapper() + ret + options.getNestedStringWrapper();
-        }
-        return ret;
-    }
-
-    @Override
     public long getLongValue() {
         return (long) value;
     }
@@ -198,12 +154,6 @@ public class FloatLiteral extends NumericLiteralExpr {
     @Override
     public double getDoubleValue() {
         return value;
-    }
-
-    @Override
-    protected void toThrift(TExprNode msg) {
-        msg.node_type = TExprNodeType.FLOAT_LITERAL;
-        msg.float_literal = new TFloatLiteral(value);
     }
 
     public double getValue() {

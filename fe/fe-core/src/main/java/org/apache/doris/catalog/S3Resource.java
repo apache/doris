@@ -21,7 +21,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.credentials.CloudCredentialWithEndpoint;
 import org.apache.doris.common.proc.BaseProcResult;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
@@ -136,7 +136,7 @@ public class S3Resource extends Resource {
         if (!Status.OK.equals(status)) {
             String errMsg = "pingS3 failed(put),"
                     + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false);
             throw new DdlException(errMsg);
         }
@@ -145,7 +145,7 @@ public class S3Resource extends Resource {
         if (!Status.OK.equals(status)) {
             String errMsg = "pingS3 failed(head),"
                     + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false);
             throw new DdlException(errMsg);
         }
@@ -157,7 +157,7 @@ public class S3Resource extends Resource {
         if (!Status.OK.equals(status)) {
             String errMsg = "pingS3 failed(multipartUpload),"
                     + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false);
             throw new DdlException(errMsg);
         }
@@ -166,7 +166,7 @@ public class S3Resource extends Resource {
         if (!Status.OK.equals(status)) {
             String errMsg = "pingS3 failed(delete),"
                     + " please check your endpoint, ak/sk or permissions(put/head/delete/list/multipartUpload),"
-                    + " status: " + status + ", properties: " + new PrintableMap<>(
+                    + " status: " + status + ", properties: " + new DatasourcePrintableMap<>(
                             newProperties, "=", true, false, true, false);
             throw new DdlException(errMsg);
         }
@@ -267,7 +267,7 @@ public class S3Resource extends Resource {
         readLock();
         result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (PrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
+            if (DatasourcePrintableMap.HIDDEN_KEY.contains(entry.getKey())) {
                 continue;
             }
             // it's dangerous to show password in show odbc resource,

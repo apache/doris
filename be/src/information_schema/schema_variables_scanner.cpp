@@ -32,9 +32,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaVariablesScanner::_s_vars_columns = {
         //   name,       type,          size
@@ -71,7 +69,7 @@ Status SchemaVariablesScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaVariablesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaVariablesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -86,7 +84,7 @@ Status SchemaVariablesScanner::get_next_block_internal(vectorized::Block* block,
     return _fill_block_impl(block);
 }
 
-Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaVariablesScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto row_num = _var_result.variables.size();
     std::vector<void*> datas(row_num);

@@ -52,7 +52,7 @@
 #include "runtime/runtime_state.h"
 #include "util/mysql_global.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void GetResultBatchCtx::on_failure(const Status& status) {
@@ -329,4 +329,4 @@ Status VMysqlResultWriter::close(Status) {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

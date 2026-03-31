@@ -46,7 +46,7 @@
 //          to_string (const IColumn &column, size_t row_num, BufferWritable &ostr), to_string (const IColumn &column, size_t row_num), to_string_batch (const IColumn &column, ColumnString &column_to)
 //          serialize (const IColumn &column, char *buf, int be_exec_version), deserialize (const char *buf, MutableColumnPtr *column, int be_exec_version)
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeQuantileStateTest : public ::testing::TestWithParam<int> {
 protected:
@@ -147,12 +147,12 @@ TEST_P(DataTypeQuantileStateTest, SerializeDeserializeAsStreamTest) {
     auto* column_res = assert_cast<ColumnQuantileState*>(c.get());
     column_res->resize(rows_value);
     for (size_t i = 0; i != rows_value; ++i) {
-        doris::vectorized::DataTypeQuantileState::serialize_as_stream(column_data->get_element(i),
-                                                                      buffer_writer);
+        doris::DataTypeQuantileState::serialize_as_stream(column_data->get_element(i),
+                                                          buffer_writer);
         buffer_writer.commit();
         BufferReadable buffer_readable(ser_col->get_data_at(i));
-        doris::vectorized::DataTypeQuantileState::deserialize_as_stream(column_res->get_element(i),
-                                                                        buffer_readable);
+        doris::DataTypeQuantileState::deserialize_as_stream(column_res->get_element(i),
+                                                            buffer_readable);
         ASSERT_EQ(column_data->get_data()[i].get_serialized_size(),
                   column_res->get_data()[i].get_serialized_size());
     }
@@ -160,4 +160,4 @@ TEST_P(DataTypeQuantileStateTest, SerializeDeserializeAsStreamTest) {
 }
 
 INSTANTIATE_TEST_SUITE_P(Params, DataTypeQuantileStateTest, ::testing::Values(0, 1, 100, 1000));
-} // namespace doris::vectorized
+} // namespace doris

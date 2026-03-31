@@ -19,9 +19,9 @@ package org.apache.doris.datasource.paimon;
 
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.datasource.ExternalSchemaCache.SchemaCacheKey;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.NameMapping;
+import org.apache.doris.datasource.SchemaCacheKey;
 import org.apache.doris.datasource.SchemaCacheValue;
 import org.apache.doris.datasource.systable.SysTable;
 import org.apache.doris.statistics.AnalysisInfo;
@@ -86,6 +86,11 @@ public class PaimonSysExternalTable extends ExternalTable {
                 TableIf.TableType.PAIMON_EXTERNAL_TABLE);
         this.sourceTable = sourceTable;
         this.sysTableType = sysTableType;
+    }
+
+    @Override
+    public String getMetaCacheEngine() {
+        return PaimonExternalMetaCache.ENGINE;
     }
 
     protected synchronized void makeSureInitialized() {
@@ -198,7 +203,8 @@ public class PaimonSysExternalTable extends ExternalTable {
         if (PaimonExternalCatalog.PAIMON_HMS.equals(catalogType)
                 || PaimonExternalCatalog.PAIMON_FILESYSTEM.equals(catalogType)
                 || PaimonExternalCatalog.PAIMON_DLF.equals(catalogType)
-                || PaimonExternalCatalog.PAIMON_REST.equals(catalogType)) {
+                || PaimonExternalCatalog.PAIMON_REST.equals(catalogType)
+                || PaimonExternalCatalog.PAIMON_JDBC.equals(catalogType)) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
@@ -206,7 +212,7 @@ public class PaimonSysExternalTable extends ExternalTable {
             return tTableDescriptor;
         } else {
             throw new IllegalArgumentException(
-                    "Currently only supports hms/dlf/rest/filesystem catalog, do not support :" + catalogType);
+                    "Currently only supports hms/dlf/rest/filesystem/jdbc catalog, do not support: " + catalogType);
         }
     }
 
@@ -226,6 +232,11 @@ public class PaimonSysExternalTable extends ExternalTable {
 
     @Override
     public Optional<SchemaCacheValue> initSchema(SchemaCacheKey key) {
+        return Optional.of(new SchemaCacheValue(getFullSchema()));
+    }
+
+    @Override
+    public Optional<SchemaCacheValue> getSchemaCacheValue() {
         return Optional.of(new SchemaCacheValue(getFullSchema()));
     }
 

@@ -25,7 +25,6 @@ class RowDescriptor;
 class RuntimeState;
 class TExprNode;
 
-namespace vectorized {
 class VExprContext;
 
 class VArrayLiteral : public VLiteral {
@@ -37,6 +36,5 @@ public:
     virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
                            VExprContext* context) override;
 };
-} // namespace vectorized
 
 } // namespace doris

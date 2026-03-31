@@ -31,20 +31,26 @@ public:
     OccurBooleanQueryBuilder() = default;
     ~OccurBooleanQueryBuilder() = default;
 
-    void add(const QueryPtr& query, Occur occur) { _sub_queries.emplace_back(occur, query); }
+    void add(const QueryPtr& query, Occur occur, std::string binding_key = {}) {
+        _sub_queries.emplace_back(occur, query);
+        _binding_keys.emplace_back(std::move(binding_key));
+    }
 
     void set_minimum_number_should_match(size_t value) { _minimum_number_should_match = value; }
 
     QueryPtr build() {
         if (_minimum_number_should_match.has_value()) {
             return std::make_shared<OccurBooleanQuery>(std::move(_sub_queries),
+                                                       std::move(_binding_keys),
                                                        _minimum_number_should_match.value());
         }
-        return std::make_shared<OccurBooleanQuery>(std::move(_sub_queries));
+        return std::make_shared<OccurBooleanQuery>(std::move(_sub_queries),
+                                                   std::move(_binding_keys));
     }
 
 private:
     std::vector<std::pair<Occur, QueryPtr>> _sub_queries;
+    std::vector<std::string> _binding_keys;
     std::optional<size_t> _minimum_number_should_match;
 };
 

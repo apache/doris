@@ -47,7 +47,7 @@
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 ParquetOutputStream::ParquetOutputStream(doris::io::FileWriter* file_writer)
@@ -209,7 +209,7 @@ Status VParquetTransformer::_parse_properties() {
         //build arrow  writer properties
         ::parquet::ArrowWriterProperties::Builder arrow_builder;
         if (_parquet_options.enable_int96_timestamps) {
-            arrow_builder.enable_deprecated_int96_timestamps();
+            arrow_builder.enable_force_write_int96_timestamps();
         }
         arrow_builder.store_schema();
         _arrow_properties = arrow_builder.build();
@@ -376,4 +376,4 @@ Status VParquetTransformer::collect_file_statistics_after_close(TIcebergColumnSt
     }
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

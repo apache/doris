@@ -28,7 +28,7 @@
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 bool DataTypeIPv6::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
@@ -37,4 +37,4 @@ MutableColumnPtr DataTypeIPv6::create_column() const {
     return ColumnIPv6::create();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

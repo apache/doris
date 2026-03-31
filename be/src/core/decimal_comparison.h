@@ -30,7 +30,7 @@
 #include "exec/common/arithmetic_overflow.h"
 #include "exprs/function/function_helpers.h" /// todo core should not depend on function"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <size_t>
 struct ConstructDecInt {
@@ -331,4 +331,4 @@ private:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

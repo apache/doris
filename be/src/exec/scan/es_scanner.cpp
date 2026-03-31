@@ -30,15 +30,15 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 class VExprContext;
-} // namespace doris::vectorized
+} // namespace doris
 
 static const std::string NEW_SCANNER_TYPE = "EsScanner";
 
-namespace doris::vectorized {
+namespace doris {
 
-EsScanner::EsScanner(RuntimeState* state, pipeline::ScanLocalStateBase* local_state, int64_t limit,
+EsScanner::EsScanner(RuntimeState* state, ScanLocalStateBase* local_state, int64_t limit,
                      TupleId tuple_id, const std::map<std::string, std::string>& properties,
                      const std::map<std::string, std::string>& docvalue_context,
                      bool doc_value_mode, RuntimeProfile* profile)
@@ -162,8 +162,8 @@ Status EsScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) 
     return Status::OK();
 }
 
-Status EsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& columns) {
-    SCOPED_TIMER(_local_state->cast<pipeline::EsScanLocalState>()._read_timer);
+Status EsScanner::_get_next(std::vector<MutableColumnPtr>& columns) {
+    SCOPED_TIMER(_local_state->cast<EsScanLocalState>()._read_timer);
     if (_line_eof && _batch_eof) {
         _es_eof = true;
         return Status::OK();
@@ -178,8 +178,8 @@ Status EsScanner::_get_next(std::vector<vectorized::MutableColumnPtr>& columns) 
             }
         }
 
-        COUNTER_UPDATE(_local_state->cast<pipeline::EsScanLocalState>()._blocks_read_counter, 1);
-        SCOPED_TIMER(_local_state->cast<pipeline::EsScanLocalState>()._materialize_timer);
+        COUNTER_UPDATE(_local_state->cast<EsScanLocalState>()._blocks_read_counter, 1);
+        SCOPED_TIMER(_local_state->cast<EsScanLocalState>()._materialize_timer);
         RETURN_IF_ERROR(_es_scroll_parser->fill_columns(_tuple_desc, columns, &_line_eof,
                                                         _docvalue_context, _state->timezone_obj()));
         if (!_line_eof) {
@@ -202,4 +202,4 @@ Status EsScanner::close(RuntimeState* state) {
     RETURN_IF_ERROR(Scanner::close(state));
     return Status::OK();
 }
-} // namespace doris::vectorized
+} // namespace doris

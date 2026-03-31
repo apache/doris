@@ -32,7 +32,7 @@ class PHHashSet : private boost::noncopyable {
 public:
     using Self = PHHashSet;
     using Hash = HashMethod;
-    using HashSetImpl = doris::vectorized::flat_hash_set<Key, Hash>;
+    using HashSetImpl = doris::flat_hash_set<Key, Hash>;
 
     using key_type = Key;
     using mapped_type = void;

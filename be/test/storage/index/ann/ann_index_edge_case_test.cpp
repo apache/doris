@@ -30,7 +30,7 @@
 
 using namespace doris::vector_search_utils;
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST_F(VectorSearchTest, TestAnnIndexStatsInitialization) {
     doris::segment_v2::AnnIndexStats stats;
@@ -256,4 +256,4 @@ TEST_F(VectorSearchTest, TestLargeRoaringBitmap) {
     EXPECT_TRUE(result.find("input rows 100000") != std::string::npos);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

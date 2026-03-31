@@ -22,9 +22,9 @@
 
 #include "common/status.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ColumnVariant;
-} // namespace doris::vectorized
+} // namespace doris
 
 namespace doris::segment_v2 {
 
@@ -65,18 +65,27 @@ struct NestedGroupRoutingPlan {
 
 // Build NG routing plan from variant content. Scans the variant for
 // array<object> paths, detects conflicts, and populates the plan.
-Status build_nested_group_routing_plan(const vectorized::ColumnVariant& variant,
-                                       NestedGroupRoutingPlan* plan);
+Status build_nested_group_routing_plan(const ColumnVariant& variant, NestedGroupRoutingPlan* plan);
+
+// Build NG routing plan from pre-collected NG and conflict paths.
+Status build_nested_group_routing_plan_from_candidates(
+        const ColumnVariant& variant, const std::vector<std::string>& ng_candidate_paths,
+        const std::vector<std::string>& conflict_candidate_paths, NestedGroupRoutingPlan* plan);
 
 // Collect NG routing metadata from variant content:
 // - out_ng_paths: all NG candidate paths
 // - out_conflict_paths: NG paths that have ARRAY<OBJECT> vs non-array structural conflicts
 // Both outputs are de-duplicated and sorted.
 Status collect_nested_group_routing_paths_from_variant_jsonb(
-        const vectorized::ColumnVariant& variant, std::vector<std::string>* out_ng_paths,
+        const ColumnVariant& variant, std::vector<std::string>* out_ng_paths,
         std::vector<std::string>* out_conflict_paths);
 
 // Get the current global conflict policy (driven by config).
 NestedGroupConflictPolicy get_nested_group_conflict_policy();
+
+// Shared helpers for conflict reporting / validation across write and compaction planners.
+std::string format_nested_group_conflict_paths(const std::vector<std::string>& conflict_paths);
+Status validate_nested_group_conflicts(const std::vector<std::string>& conflict_paths,
+                                       NestedGroupConflictPolicy policy);
 
 } // namespace doris::segment_v2

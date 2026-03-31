@@ -26,6 +26,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.TableSample;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -152,17 +153,17 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
 
     @Override
     public PhysicalFileScan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots, scanParams);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), selectedPartitions, tableSample,
+                tableSnapshot, operativeSlots, scanParams));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
-        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, logicalProperties.get(), selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots, scanParams);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, logicalProperties.get(), selectedPartitions, tableSample,
+                tableSnapshot, operativeSlots, scanParams));
     }
 
     @Override
@@ -173,10 +174,9 @@ public class PhysicalFileScan extends PhysicalCatalogRelation {
     @Override
     public PhysicalFileScan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
                                                        Statistics statistics) {
-        return new PhysicalFileScan(relationId, getTable(), qualifier, distributionSpec,
-                groupExpression, getLogicalProperties(), physicalProperties, statistics,
-                selectedPartitions, tableSample, tableSnapshot,
-                operativeSlots, scanParams);
+        return AbstractPlan.copyWithSameId(this, () -> new PhysicalFileScan(relationId, getTable(), qualifier,
+                distributionSpec, groupExpression, getLogicalProperties(), physicalProperties, statistics,
+                selectedPartitions, tableSample, tableSnapshot, operativeSlots, scanParams));
     }
 
     @Override

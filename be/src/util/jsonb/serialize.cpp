@@ -40,7 +40,7 @@
 #include "util/jsonb_stream.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block& block,
                                         ColumnString& dst, int num_cols,
@@ -145,4 +145,4 @@ Status JsonbSerializeUtil::jsonb_to_block(
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

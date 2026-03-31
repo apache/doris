@@ -37,7 +37,6 @@
 namespace doris {
 class JsonbOutStream;
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class Arena;
 
 // special data type using, maybe has various serde actions, so use specific date serde
@@ -62,9 +61,6 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
@@ -127,7 +123,7 @@ public:
                                         const FormatOptions& options) const override;
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
@@ -144,7 +140,7 @@ public:
     void to_string_batch(const IColumn& column, ColumnString& column_to,
                          const FormatOptions& options) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
 
     // will override in DateTime and Time
     virtual int get_scale() const { return 0; }
@@ -153,6 +149,10 @@ public:
 
     static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
                                                       FieldInfo& info);
+
+protected:
+    Status from_olap_string(const std::string& str, Field& field,
+                            const FormatOptions& options) const override;
 };
 
 template <PrimitiveType T>
@@ -313,5 +313,4 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
 }
 
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

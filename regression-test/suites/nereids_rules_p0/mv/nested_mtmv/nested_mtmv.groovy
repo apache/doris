@@ -40,7 +40,7 @@ suite("nested_mtmv") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`o_orderkey`, `o_custkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`o_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -69,7 +69,7 @@ suite("nested_mtmv") {
     ) ENGINE=OLAP
     DUPLICATE KEY(l_orderkey, l_linenumber, l_partkey, l_suppkey )
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 96
+    DISTRIBUTED BY HASH(`l_orderkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -87,7 +87,7 @@ suite("nested_mtmv") {
     ) ENGINE=OLAP
     DUPLICATE KEY(`ps_partkey`)
     COMMENT 'OLAP'
-    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 24
+    DISTRIBUTED BY HASH(`ps_partkey`) BUCKETS 2
     PROPERTIES (
     "replication_allocation" = "tag.location.default: 1"
     );"""
@@ -771,7 +771,7 @@ PARTITION p20251002 VALUES [('2025-10-02'), ('2025-10-03')),
 PARTITION p20251003 VALUES [('2025-10-03'), ('2025-10-04')),
 PARTITION p_other VALUES [('2025-10-04'), ('2025-11-01'))
 )
-DISTRIBUTED BY HASH(product_id) BUCKETS 10
+DISTRIBUTED BY HASH(product_id) BUCKETS 2
     PROPERTIES (
     "replication_num" = "1"
 );

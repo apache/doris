@@ -40,7 +40,7 @@
 #include "runtime/query_context.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 class ScannerContextTest : public testing::Test {
 public:
     void SetUp() override {
@@ -115,20 +115,21 @@ private:
 
     TupleDescriptor* output_tuple_desc = nullptr;
     RowDescriptor* output_row_descriptor = nullptr;
-    std::shared_ptr<pipeline::Dependency> scan_dependency =
-            pipeline::Dependency::create_shared(0, 0, "TestScanDependency");
+    std::shared_ptr<Dependency> scan_dependency =
+            Dependency::create_shared(0, 0, "TestScanDependency");
     std::shared_ptr<CgroupCpuCtl> cgroup_cpu_ctl = std::make_shared<CgroupV2CpuCtl>(1);
     std::unique_ptr<ScannerScheduler> scan_scheduler =
             std::make_unique<ThreadPoolSimplifiedScanScheduler>("ForTest", cgroup_cpu_ctl);
+    std::atomic<int64_t> shared_limit {-1};
 };
 
 TEST_F(ScannerContextTest, test_init) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -148,7 +149,7 @@ TEST_F(ScannerContextTest, test_init) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     scan_operator->_should_run_serial = false;
 
@@ -184,11 +185,11 @@ TEST_F(ScannerContextTest, test_init) {
 
 TEST_F(ScannerContextTest, test_serial_run) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -208,7 +209,7 @@ TEST_F(ScannerContextTest, test_serial_run) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     scan_operator->_should_run_serial = true;
 
@@ -242,11 +243,11 @@ TEST_F(ScannerContextTest, test_serial_run) {
 
 TEST_F(ScannerContextTest, test_max_column_reader_num) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -266,7 +267,7 @@ TEST_F(ScannerContextTest, test_max_column_reader_num) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     scan_operator->_should_run_serial = false;
 
@@ -292,11 +293,11 @@ TEST_F(ScannerContextTest, test_max_column_reader_num) {
 
 TEST_F(ScannerContextTest, test_push_back_scan_task) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -316,7 +317,7 @@ TEST_F(ScannerContextTest, test_push_back_scan_task) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     scanner_context->_num_scheduled_scanners = 11;
 
@@ -329,11 +330,11 @@ TEST_F(ScannerContextTest, test_push_back_scan_task) {
 
 TEST_F(ScannerContextTest, get_margin) {
     const int parallel_tasks = 4;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -353,7 +354,7 @@ TEST_F(ScannerContextTest, get_margin) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
@@ -425,11 +426,11 @@ TEST_F(ScannerContextTest, get_margin) {
 
 TEST_F(ScannerContextTest, pull_next_scan_task) {
     const int parallel_tasks = 4;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -449,7 +450,7 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
@@ -501,11 +502,11 @@ TEST_F(ScannerContextTest, pull_next_scan_task) {
 
 TEST_F(ScannerContextTest, schedule_scan_task) {
     const int parallel_tasks = 4;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -525,7 +526,7 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     std::mutex transfer_mutex;
     std::unique_lock<std::mutex> transfer_lock(transfer_mutex);
@@ -557,7 +558,7 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
 
     scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     scanner_context->_scanner_scheduler = scheduler.get();
 
@@ -578,7 +579,7 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
 
     scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     scanner_context->_scanner_scheduler = scheduler.get();
 
@@ -594,7 +595,7 @@ TEST_F(ScannerContextTest, schedule_scan_task) {
 
     scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     scanner_context->_scanner_scheduler = scheduler.get();
 
@@ -619,11 +620,11 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
     ASSERT_EQ(state->scan_queue_mem_limit(), 200 / 20);
 
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
     olap_scan_local_state->_max_scan_concurrency = max_concurrency_counter.get();
     olap_scan_local_state->_min_scan_concurrency = min_concurrency_counter.get();
 
@@ -647,7 +648,7 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
 
     std::unique_ptr<MockSimplifiedScanScheduler> scheduler =
             std::make_unique<MockSimplifiedScanScheduler>(cgroup_cpu_ctl);
@@ -663,11 +664,11 @@ TEST_F(ScannerContextTest, scan_queue_mem_limit) {
 
 TEST_F(ScannerContextTest, get_free_block) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -687,7 +688,7 @@ TEST_F(ScannerContextTest, get_free_block) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
     scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
     scanner_context->_newly_create_free_blocks_num->set(0L);
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
@@ -716,11 +717,11 @@ TEST_F(ScannerContextTest, get_free_block) {
 
 TEST_F(ScannerContextTest, return_free_block) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -740,7 +741,7 @@ TEST_F(ScannerContextTest, return_free_block) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
     scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
     scanner_context->_max_bytes_in_queue = 200;
@@ -760,11 +761,11 @@ TEST_F(ScannerContextTest, return_free_block) {
 
 TEST_F(ScannerContextTest, get_block_from_queue) {
     const int parallel_tasks = 1;
-    auto scan_operator = std::make_unique<pipeline::OlapScanOperatorX>(
-            obj_pool.get(), tnode, 0, *descs, parallel_tasks, TQueryCacheParam {});
+    auto scan_operator = std::make_unique<OlapScanOperatorX>(obj_pool.get(), tnode, 0, *descs,
+                                                             parallel_tasks, TQueryCacheParam {});
 
     auto olap_scan_local_state =
-            pipeline::OlapScanLocalState::create_unique(state.get(), scan_operator.get());
+            OlapScanLocalState::create_unique(state.get(), scan_operator.get());
 
     const int64_t limit = 100;
 
@@ -784,7 +785,7 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, parallel_tasks);
     scanner_context->_newly_create_free_blocks_num = newly_create_free_blocks_num.get();
     scanner_context->_scanner_memory_used_counter = scanner_memory_used_counter.get();
     scanner_context->_max_bytes_in_queue = 200;
@@ -833,4 +834,4 @@ TEST_F(ScannerContextTest, get_block_from_queue) {
     EXPECT_EQ(scanner_context->_num_finished_scanners, 1);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -22,6 +22,9 @@
 #include <fmt/format.h>
 #include <gen_cpp/cloud.pb.h>
 #include <google/protobuf/util/json_util.h>
+#include <rapidjson/document.h>
+#include <rapidjson/prettywriter.h>
+#include <rapidjson/stringbuffer.h>
 
 #include <algorithm>
 #include <functional>
@@ -32,10 +35,13 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/configbase.h"
 #include "common/defer.h"
 #include "common/logging.h"
+#include "common/string_util.h"
 #include "common/util.h"
 #include "cpp/s3_rate_limiter.h"
+#include "meta-service/meta_service_http.h"
 #include "meta-store/keys.h"
 #include "meta-store/txn_kv_error.h"
 #include "recycler/checker.h"
@@ -46,8 +52,6 @@
 #include "snapshot/snapshot_manager.h"
 
 namespace doris::cloud {
-
-extern std::tuple<int, std::string_view> convert_ms_code_to_http_code(MetaServiceCode ret);
 
 RecyclerServiceImpl::RecyclerServiceImpl(std::shared_ptr<TxnKv> txn_kv, Recycler* recycler,
                                          Checker* checker,
@@ -503,208 +507,248 @@ void check_meta(const std::shared_ptr<TxnKv>& txn_kv, const std::string& instanc
 #endif
 }
 
-void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
-                               const ::doris::cloud::MetaServiceHttpRequest* request,
-                               ::doris::cloud::MetaServiceHttpResponse* response,
-                               ::google::protobuf::Closure* done) {
-    auto cntl = static_cast<brpc::Controller*>(controller);
-    LOG(INFO) << "rpc from " << cntl->remote_side() << " request: " << request->DebugString();
-    brpc::ClosureGuard closure_guard(done);
+static HttpResponse process_recycle_instance(RecyclerServiceImpl* service, brpc::Controller* cntl) {
+    std::string request_body = cntl->request_attachment().to_string();
+    RecycleInstanceRequest req;
+    auto st = google::protobuf::util::JsonStringToMessage(request_body, &req);
+    if (!st.ok()) {
+        std::string msg = "failed to RecycleInstanceRequest, error: " + st.message().ToString();
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
+    RecycleInstanceResponse res;
+    service->recycle_instance(cntl, &req, &res, nullptr);
+    return http_text_reply(res.status(), res.status().msg());
+}
+
+static HttpResponse process_statistics_recycle(RecyclerServiceImpl* service,
+                                               brpc::Controller* cntl) {
+    std::string request_body = cntl->request_attachment().to_string();
+    StatisticsRecycleRequest req;
+    auto st = google::protobuf::util::JsonStringToMessage(request_body, &req);
+    if (!st.ok()) {
+        std::string msg = "failed to StatisticsRecycleRequest, error: " + st.message().ToString();
+        LOG(WARNING) << msg;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, msg);
+    }
     MetaServiceCode code = MetaServiceCode::OK;
-    int status_code = 200;
-    std::string msg = "OK";
-    std::string req;
-    std::string response_body;
-    std::string request_body;
-    DORIS_CLOUD_DEFER {
-        status_code = std::get<0>(convert_ms_code_to_http_code(code));
-        LOG(INFO) << (code == MetaServiceCode::OK ? "succ to " : "failed to ") << "http"
-                  << " " << cntl->remote_side() << " request=\n"
-                  << req << "\n ret=" << code << " msg=" << msg;
-        cntl->http_response().set_status_code(status_code);
-        cntl->response_attachment().append(response_body);
-        cntl->response_attachment().append("\n");
+    std::string msg;
+    service->statistics_recycle(req, code, msg);
+    return http_text_reply(code, msg, msg);
+}
+
+static HttpResponse process_recycle_copy_jobs(RecyclerServiceImpl* service,
+                                              brpc::Controller* cntl) {
+    const auto* instance_id = cntl->http_request().uri().GetQuery("instance_id");
+    if (instance_id == nullptr || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    recycle_copy_jobs(service->txn_kv(), *instance_id, code, msg,
+                      service->recycler()->thread_pool_group(), service->txn_lazy_committer());
+    return http_text_reply(code, msg, msg);
+}
+
+static HttpResponse process_recycle_job_info(RecyclerServiceImpl* service, brpc::Controller* cntl) {
+    const auto* instance_id = cntl->http_request().uri().GetQuery("instance_id");
+    if (instance_id == nullptr || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    std::string key;
+    job_recycle_key({*instance_id}, &key);
+    recycle_job_info(service->txn_kv(), *instance_id, key, code, msg);
+    return http_text_reply(code, msg, msg);
+}
+
+static HttpResponse process_check_instance(RecyclerServiceImpl* service, brpc::Controller* cntl) {
+    const auto* instance_id = cntl->http_request().uri().GetQuery("instance_id");
+    if (instance_id == nullptr || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+    if (!service->checker()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "checker not enabled");
+    }
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    service->check_instance(*instance_id, code, msg);
+    return http_text_reply(code, msg, msg);
+}
+
+static HttpResponse process_check_job_info(RecyclerServiceImpl* service, brpc::Controller* cntl) {
+    const auto* instance_id = cntl->http_request().uri().GetQuery("instance_id");
+    if (instance_id == nullptr || instance_id->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "no instance id");
+    }
+    MetaServiceCode code = MetaServiceCode::OK;
+    std::string msg;
+    std::string key;
+    job_check_key({*instance_id}, &key);
+    recycle_job_info(service->txn_kv(), *instance_id, key, code, msg);
+    return http_text_reply(code, msg, msg);
+}
+
+static HttpResponse process_check_meta(RecyclerServiceImpl* service, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    const auto* instance_id = uri.GetQuery("instance_id");
+    const auto* host = uri.GetQuery("host");
+    const auto* port = uri.GetQuery("port");
+    const auto* user = uri.GetQuery("user");
+    const auto* password = uri.GetQuery("password");
+    if (instance_id == nullptr || instance_id->empty() || host == nullptr || host->empty() ||
+        port == nullptr || port->empty() || password == nullptr || user == nullptr ||
+        user->empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "no instance id or mysql conn str info");
+    }
+    LOG(INFO) << " host " << *host << " port " << *port << " user " << *user << " instance "
+              << *instance_id;
+    std::string msg;
+    check_meta(service->txn_kv(), *instance_id, *host, *port, *user, *password, msg);
+    return http_text_reply(MetaServiceCode::OK, msg, msg);
+}
+
+static HttpResponse process_adjust_rate_limiter(RecyclerServiceImpl*, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    const auto* type_string = uri.GetQuery("type");
+    const auto* speed = uri.GetQuery("speed");
+    const auto* burst = uri.GetQuery("burst");
+    const auto* limit = uri.GetQuery("limit");
+    if (type_string == nullptr || type_string->empty() || speed == nullptr || burst == nullptr ||
+        limit == nullptr || (*type_string != "get" && *type_string != "put")) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "argument not suitable");
+    }
+    auto max_speed = speed->empty() ? 0 : std::stoul(*speed);
+    auto max_burst = burst->empty() ? 0 : std::stoul(*burst);
+    auto max_limit = limit->empty() ? 0 : std::stoul(*limit);
+    if (0 != reset_s3_rate_limiter(string_to_s3_rate_limit_type(*type_string), max_speed, max_burst,
+                                   max_limit)) {
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "adjust failed");
+    }
+    return http_json_reply(MetaServiceCode::OK, "");
+}
+
+static HttpResponse process_show_config(RecyclerServiceImpl*, brpc::Controller* cntl) {
+    const auto* conf_key_ptr = cntl->http_request().uri().GetQuery("conf_key");
+    std::string conf_name = conf_key_ptr ? *conf_key_ptr : "";
+
+    if (config::full_conf_map == nullptr) {
+        return http_json_reply(MetaServiceCode::UNDEFINED_ERR, "config map not initialized");
+    }
+
+    rapidjson::Document d;
+    d.SetArray();
+    for (auto& [name, field] : *config::Register::_s_field_map) {
+        if (!conf_name.empty() && name != conf_name) {
+            continue;
+        }
+        auto it = config::full_conf_map->find(name);
+        std::string value = (it != config::full_conf_map->end()) ? it->second : "";
+
+        rapidjson::Value entry(rapidjson::kArrayType);
+        entry.PushBack(rapidjson::Value(name.c_str(), d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(field.type, d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(value.c_str(), d.GetAllocator()), d.GetAllocator());
+        entry.PushBack(rapidjson::Value(field.valmutable), d.GetAllocator());
+        d.PushBack(entry, d.GetAllocator());
+    }
+    rapidjson::StringBuffer sb;
+    rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(sb);
+    d.Accept(writer);
+    return http_json_reply(MetaServiceCode::OK, "", sb.GetString());
+}
+
+static HttpResponse process_update_config(RecyclerServiceImpl*, brpc::Controller* cntl) {
+    const auto& uri = cntl->http_request().uri();
+    bool persist = (uri.GetQuery("persist") != nullptr && *uri.GetQuery("persist") == "true");
+    const auto* configs_ptr = uri.GetQuery("configs");
+    const auto* reason_ptr = uri.GetQuery("reason");
+    std::string configs = configs_ptr ? *configs_ptr : "";
+    std::string reason = reason_ptr ? *reason_ptr : "";
+    LOG(INFO) << "modify configs for reason=" << reason << ", configs=" << configs
+              << ", persist=" << persist;
+    if (configs.empty()) {
+        LOG(WARNING) << "query param `configs` should not be empty";
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                               "query param `configs` should not be empty");
+    }
+    std::unordered_map<std::string, std::string> conf_map;
+    auto conf_list = split(configs, ',');
+    for (const auto& conf : conf_list) {
+        auto conf_pair = split(conf, '=');
+        if (conf_pair.size() != 2) {
+            LOG(WARNING) << "failed to split config=[" << conf << "] from `k=v` pattern";
+            return http_json_reply(MetaServiceCode::INVALID_ARGUMENT,
+                                   fmt::format("config {} is invalid", conf));
+        }
+        trim(conf_pair[0]);
+        trim(conf_pair[1]);
+        conf_map.emplace(std::move(conf_pair[0]), std::move(conf_pair[1]));
+    }
+    if (auto [succ, cause] =
+                config::set_config(std::move(conf_map), persist, config::custom_conf_path);
+        !succ) {
+        LOG(WARNING) << cause;
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, cause);
+    }
+    return http_json_reply(MetaServiceCode::OK, "");
+}
+
+void RecyclerServiceImpl::http(::google::protobuf::RpcController* controller,
+                               const ::doris::cloud::MetaServiceHttpRequest*,
+                               ::doris::cloud::MetaServiceHttpResponse*,
+                               ::google::protobuf::Closure* done) {
+    using HttpHandler = HttpResponse (*)(RecyclerServiceImpl*, brpc::Controller*);
+    static const std::unordered_map<std::string_view, HttpHandler> http_handlers {
+            {"recycle_instance", process_recycle_instance},
+            {"statistics_recycle", process_statistics_recycle},
+            {"recycle_copy_jobs", process_recycle_copy_jobs},
+            {"recycle_job_info", process_recycle_job_info},
+            {"check_instance", process_check_instance},
+            {"check_job_info", process_check_job_info},
+            {"check_meta", process_check_meta},
+            {"adjust_rate_limiter", process_adjust_rate_limiter},
+            {"show_config", process_show_config},
+            {"update_config", process_update_config},
     };
 
-    // Prepare input request info
-    auto unresolved_path = cntl->http_request().unresolved_path();
-    auto uri = cntl->http_request().uri();
-    std::stringstream ss;
-    ss << "\nuri_path=" << uri.path();
-    ss << "\nunresolved_path=" << unresolved_path;
-    ss << "\nmethod=" << brpc::HttpMethod2Str(cntl->http_request().method());
-    ss << "\nquery strings:";
-    for (auto it = uri.QueryBegin(); it != uri.QueryEnd(); ++it) {
-        ss << "\n" << it->first << "=" << it->second;
-    }
-    ss << "\nheaders:";
-    for (auto it = cntl->http_request().HeaderBegin(); it != cntl->http_request().HeaderEnd();
-         ++it) {
-        ss << "\n" << it->first << ":" << it->second;
-    }
-    req = ss.str();
-    ss.clear();
-    request_body = cntl->request_attachment().to_string(); // Just copy
+    auto* cntl = static_cast<brpc::Controller*>(controller);
+    LOG(INFO) << "rpc from " << cntl->remote_side()
+              << " request: " << cntl->http_request().uri().path();
+    brpc::ClosureGuard closure_guard(done);
 
     // Auth
-    auto token = uri.GetQuery("token");
+    const auto* token = cntl->http_request().uri().GetQuery("token");
     if (token == nullptr || *token != config::http_token) {
-        msg = "incorrect token, token=" + (token == nullptr ? std::string("(not given)") : *token);
-        response_body = "incorrect token";
-        status_code = 403;
+        std::string msg = "incorrect token, token=" +
+                          (token == nullptr ? std::string("(not given)") : *token);
+        cntl->http_response().set_status_code(403);
+        cntl->response_attachment().append(msg);
+        cntl->response_attachment().append("\n");
+        LOG(WARNING) << "failed to handle http from " << cntl->remote_side() << " msg: " << msg;
         return;
     }
 
-    if (unresolved_path == "recycle_instance") {
-        RecycleInstanceRequest req;
-        auto st = google::protobuf::util::JsonStringToMessage(request_body, &req);
-        if (!st.ok()) {
-            msg = "failed to RecycleInstanceRequest, error: " + st.message().ToString();
-            response_body = msg;
-            LOG(WARNING) << msg;
-            return;
-        }
-        RecycleInstanceResponse res;
-        recycle_instance(cntl, &req, &res, nullptr);
-        code = res.status().code();
-        msg = res.status().msg();
-        response_body = msg;
+    const auto& unresolved_path = cntl->http_request().unresolved_path();
+    auto it = http_handlers.find(unresolved_path);
+    if (it == http_handlers.end()) {
+        std::string msg = "http path " + cntl->http_request().uri().path() +
+                          " not found, it may be not implemented";
+        cntl->http_response().set_status_code(404);
+        cntl->response_attachment().append(msg);
+        cntl->response_attachment().append("\n");
         return;
     }
 
-    if (unresolved_path == "statistics_recycle") {
-        StatisticsRecycleRequest req;
-        auto st = google::protobuf::util::JsonStringToMessage(request_body, &req);
-        if (!st.ok()) {
-            msg = "failed to StatisticsRecycleRequest, error: " + st.message().ToString();
-            response_body = msg;
-            LOG(WARNING) << msg;
-            return;
-        }
-        statistics_recycle(req, code, msg);
-        response_body = msg;
-        return;
-    }
+    auto [status_code, msg, body] = it->second(this, cntl);
+    cntl->http_response().set_status_code(status_code);
+    cntl->response_attachment().append(body);
+    cntl->response_attachment().append("\n");
 
-    if (unresolved_path == "recycle_copy_jobs") {
-        auto instance_id = uri.GetQuery("instance_id");
-        if (instance_id == nullptr || instance_id->empty()) {
-            msg = "no instance id";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-        recycle_copy_jobs(txn_kv_, *instance_id, code, msg, recycler_->_thread_pool_group,
-                          txn_lazy_committer_);
-
-        response_body = msg;
-        return;
-    }
-
-    if (unresolved_path == "recycle_job_info") {
-        auto instance_id = uri.GetQuery("instance_id");
-        if (instance_id == nullptr || instance_id->empty()) {
-            msg = "no instance id";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-        std::string key;
-        job_recycle_key({*instance_id}, &key);
-        recycle_job_info(txn_kv_, *instance_id, key, code, msg);
-        response_body = msg;
-        return;
-    }
-
-    if (unresolved_path == "check_instance") {
-        auto instance_id = uri.GetQuery("instance_id");
-        if (instance_id == nullptr || instance_id->empty()) {
-            msg = "no instance id";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-        if (!checker_) {
-            msg = "checker not enabled";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-        check_instance(*instance_id, code, msg);
-        response_body = msg;
-        return;
-    }
-
-    if (unresolved_path == "check_job_info") {
-        auto instance_id = uri.GetQuery("instance_id");
-        if (instance_id == nullptr || instance_id->empty()) {
-            msg = "no instance id";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-        std::string key;
-        job_check_key({*instance_id}, &key);
-        recycle_job_info(txn_kv_, *instance_id, key, code, msg);
-        response_body = msg;
-        return;
-    }
-
-    if (unresolved_path == "check_meta") {
-        auto instance_id = uri.GetQuery("instance_id");
-        auto host = uri.GetQuery("host");
-        auto port = uri.GetQuery("port");
-        auto user = uri.GetQuery("user");
-        auto password = uri.GetQuery("password");
-        if (instance_id == nullptr || instance_id->empty() || host == nullptr || host->empty() ||
-            port == nullptr || port->empty() || password == nullptr || user == nullptr ||
-            user->empty()) {
-            msg = "no instance id or mysql conn str info";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-        LOG(INFO) << " host " << *host;
-        LOG(INFO) << " port " << *port;
-        LOG(INFO) << " user " << *user;
-        LOG(INFO) << " instance " << *instance_id;
-        check_meta(txn_kv_, *instance_id, *host, *port, *user, *password, msg);
-        status_code = 200;
-        response_body = msg;
-        return;
-    }
-
-    if (unresolved_path == "adjust_rate_limiter") {
-        auto type_string = uri.GetQuery("type");
-        auto speed = uri.GetQuery("speed");
-        auto burst = uri.GetQuery("burst");
-        auto limit = uri.GetQuery("limit");
-        if (type_string->empty() || speed->empty() || burst->empty() || limit->empty() ||
-            (*type_string != "get" && *type_string != "put")) {
-            msg = "argument not suitable";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-        auto max_speed = speed->empty() ? 0 : std::stoul(*speed);
-        auto max_burst = burst->empty() ? 0 : std::stoul(*burst);
-        auto max_limit = burst->empty() ? 0 : std::stoul(*limit);
-        if (0 != reset_s3_rate_limiter(string_to_s3_rate_limit_type(*type_string), max_speed,
-                                       max_burst, max_limit)) {
-            msg = "adjust failed";
-            response_body = msg;
-            status_code = 400;
-            return;
-        }
-
-        status_code = 200;
-        response_body = msg;
-        return;
-    }
-
-    status_code = 404;
-    msg = "http path " + uri.path() + " not found, it may be not implemented";
-    response_body = msg;
+    LOG(INFO) << (status_code == 200 ? "succ to " : "failed to ") << __PRETTY_FUNCTION__ << " "
+              << cntl->remote_side() << " ret=" << status_code << " msg=" << msg;
 }
 
 } // namespace doris::cloud

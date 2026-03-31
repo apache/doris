@@ -955,7 +955,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
                 } else {
-                    remoteOdbcTable.resetIdsForRestore(env);
+                    // ODBC tables are deprecated. We can no longer reset IDs for restore.
+                    // Just add the table as-is for metadata compatibility.
+                    LOG.warn("Skipping resetIdsForRestore for deprecated ODBC table: {}", backupOdbcTableName);
                     stagingRestoreTables.add(remoteOdbcTable);
                 }
             }
@@ -1454,7 +1456,8 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                             localTbl.variantEnableFlattenNested(),
                             localTbl.storagePageSize(), localTbl.getTDEAlgorithm(),
                             localTbl.storageDictPageSize(),
-                            localTbl.getColumnSeqMapping());
+                            localTbl.getColumnSeqMapping(),
+                            localTbl.getVerticalCompactionNumColumnsPerGroup());
                     task.setInvertedIndexFileStorageFormat(localTbl.getInvertedIndexFileStorageFormat());
                     task.setInRestoreMode(true);
                     if (baseTabletRef != null) {

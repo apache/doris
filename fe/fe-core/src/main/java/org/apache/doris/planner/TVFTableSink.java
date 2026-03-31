@@ -60,6 +60,22 @@ public class TVFTableSink extends DataSink {
         this.cols = cols;
     }
 
+    public String getTvfName() {
+        return tvfName;
+    }
+
+    /**
+     * Returns the backend_id specified in properties, or -1 if not set.
+     * For local TVF, this indicates the specific BE node where data should be written.
+     */
+    public long getBackendId() {
+        String backendIdStr = properties.get("backend_id");
+        if (backendIdStr != null) {
+            return Long.parseLong(backendIdStr);
+        }
+        return -1;
+    }
+
     public void bindDataSink() throws AnalysisException {
         TTVFTableSink tSink = new TTVFTableSink();
         tSink.setTvfName(tvfName);

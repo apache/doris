@@ -37,15 +37,13 @@
 namespace doris {
 using namespace ErrorCode;
 
-namespace vectorized {
-
 class VGenericIteratorsTest : public testing::Test {
 public:
     VGenericIteratorsTest() {}
     virtual ~VGenericIteratorsTest() {}
 };
 
-Schema create_schema() {
+static Schema create_schema() {
     std::vector<TabletColumnPtr> col_schemas;
     col_schemas.emplace_back(
             std::make_shared<TabletColumn>(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE,
@@ -63,26 +61,26 @@ Schema create_schema() {
     return schema;
 }
 
-static void create_block(Schema& schema, vectorized::Block& block) {
+static void create_block(Schema& schema, Block& block) {
     for (auto& column_desc : schema.columns()) {
         EXPECT_TRUE(column_desc);
         auto data_type = Schema::get_data_type_ptr(*column_desc);
         EXPECT_NE(data_type, nullptr);
         auto column = data_type->create_column();
-        vectorized::ColumnWithTypeAndName ctn(std::move(column), data_type, column_desc->name());
+        ColumnWithTypeAndName ctn(std::move(column), data_type, column_desc->name());
         block.insert(ctn);
     }
 }
 
 TEST(VGenericIteratorsTest, AutoIncrement) {
     auto schema = create_schema();
-    auto iter = vectorized::new_auto_increment_iterator(schema, 10);
+    auto iter = new_auto_increment_iterator(schema, 10);
 
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
-    vectorized::Block block;
+    Block block;
     create_block(schema, block);
 
     auto ret = iter->next_batch(&block);
@@ -108,16 +106,16 @@ TEST(VGenericIteratorsTest, Union) {
     auto output_schema = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_union_iterator(std::move(inputs), output_schema);
+    auto iter = new_union_iterator(std::move(inputs), output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
-    vectorized::Block block;
+    Block block;
     create_block(schema, block);
 
     do {
@@ -153,17 +151,16 @@ TEST(VGenericIteratorsTest, MergeAgg) {
     auto output_schema = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, false, false, nullptr,
-                                               output_schema);
+    auto iter = new_merge_iterator(std::move(inputs), -1, false, false, nullptr, output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
-    vectorized::Block block;
+    Block block;
     std::vector<bool> row_is_same;
     BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
@@ -204,17 +201,16 @@ TEST(VGenericIteratorsTest, MergeUnique) {
     auto output_schema = std::make_shared<Schema>(schema);
     std::vector<RowwiseIteratorUPtr> inputs;
 
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 100));
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 200));
-    inputs.push_back(vectorized::new_auto_increment_iterator(schema, 300));
+    inputs.push_back(new_auto_increment_iterator(schema, 100));
+    inputs.push_back(new_auto_increment_iterator(schema, 200));
+    inputs.push_back(new_auto_increment_iterator(schema, 300));
 
-    auto iter = vectorized::new_merge_iterator(std::move(inputs), -1, true, false, nullptr,
-                                               output_schema);
+    auto iter = new_merge_iterator(std::move(inputs), -1, true, false, nullptr, output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
-    vectorized::Block block;
+    Block block;
     std::vector<bool> row_is_same;
     BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
@@ -257,12 +253,12 @@ public:
     // NOTE: Currently, this function will ignore StorageReadOptions
     Status init(const StorageReadOptions& opts) override { return Status::OK(); }
 
-    Status next_batch(vectorized::Block* block) override {
+    Status next_batch(Block* block) override {
         int row_idx = 0;
         while (_rows_returned < _num_rows) {
             for (int j = 0; j < _schema.num_columns(); ++j) {
-                vectorized::ColumnWithTypeAndName& vc = block->get_by_position(j);
-                vectorized::IColumn& vi = (vectorized::IColumn&)(*vc.column);
+                ColumnWithTypeAndName& vc = block->get_by_position(j);
+                IColumn& vi = (IColumn&)(*vc.column);
 
                 char data[16] = {};
                 size_t data_len = 0;
@@ -332,13 +328,13 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
                 schema, num_rows, rows_begin, seq_column_id, seq_id_in_every_file));
     }
 
-    auto iter = vectorized::new_merge_iterator(std::move(inputs), seq_column_id, true, false,
-                                               nullptr, output_schema);
+    auto iter = new_merge_iterator(std::move(inputs), seq_column_id, true, false, nullptr,
+                                   output_schema);
     StorageReadOptions opts;
     auto st = iter->init(opts);
     EXPECT_TRUE(st.ok());
 
-    vectorized::Block block;
+    Block block;
     std::vector<bool> row_is_same;
     BlockWithSameBit block_with_same_bit {.block = &block, .same_bit = row_is_same};
     create_block(schema, block);
@@ -356,7 +352,5 @@ TEST(VGenericIteratorsTest, MergeWithSeqColumn) {
     size_t actual_value = (*seq_col)[0].get<TYPE_BIGINT>();
     EXPECT_EQ(seg_iter_num - 1, actual_value);
 }
-
-} // namespace vectorized
 
 } // namespace doris

@@ -29,7 +29,7 @@
 #include "format/parquet/fix_length_dict_decoder.hpp"
 #include "format/parquet/fix_length_plain_decoder.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type encoding,
                             std::unique_ptr<Decoder>& decoder) {
@@ -151,4 +151,4 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
 }
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

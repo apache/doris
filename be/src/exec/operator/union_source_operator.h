@@ -27,11 +27,8 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
-namespace pipeline {
 class DataQueue;
 
 class UnionSourceOperatorX;
@@ -55,7 +52,7 @@ private:
     friend class OperatorX<UnionSourceLocalState>;
     bool _need_read_for_const_expr {true};
     int _const_expr_list_idx {0};
-    std::vector<vectorized::VExprContextSPtrs> _const_expr_lists;
+    std::vector<VExprContextSPtrs> _const_expr_lists;
 
     // If this operator has no children, there is no shared state which owns dependency. So we
     // use this local state to hold this dependency.
@@ -72,7 +69,7 @@ public:
 #ifdef BE_TEST
     UnionSourceOperatorX(int child_size) : _child_size(child_size) {}
 #endif
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override;
 
     bool is_source() const override { return true; }
 
@@ -82,8 +79,8 @@ public:
         // Create const_expr_ctx_lists_ from thrift exprs.
         auto& const_texpr_lists = tnode.union_node.const_expr_lists;
         for (auto& texprs : const_texpr_lists) {
-            vectorized::VExprContextSPtrs ctxs;
-            RETURN_IF_ERROR(vectorized::VExpr::create_expr_trees(texprs, ctxs));
+            VExprContextSPtrs ctxs;
+            RETURN_IF_ERROR(VExpr::create_expr_trees(texprs, ctxs));
             _const_expr_lists.push_back(ctxs);
         }
         return Status::OK();
@@ -92,12 +89,12 @@ public:
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(Base::prepare(state));
         // Prepare const expr lists.
-        for (const vectorized::VExprContextSPtrs& exprs : _const_expr_lists) {
-            RETURN_IF_ERROR(vectorized::VExpr::prepare(exprs, state, row_descriptor()));
+        for (const VExprContextSPtrs& exprs : _const_expr_lists) {
+            RETURN_IF_ERROR(VExpr::prepare(exprs, state, row_descriptor()));
         }
         // open const expr lists.
         for (const auto& exprs : _const_expr_lists) {
-            RETURN_IF_ERROR(vectorized::VExpr::open(exprs, state));
+            RETURN_IF_ERROR(VExpr::open(exprs, state));
         }
         return Status::OK();
     }
@@ -140,10 +137,9 @@ private:
     }
     friend class UnionSourceLocalState;
     const int _child_size;
-    Status get_next_const(RuntimeState* state, vectorized::Block* block);
-    std::vector<vectorized::VExprContextSPtrs> _const_expr_lists;
+    Status get_next_const(RuntimeState* state, Block* block);
+    std::vector<VExprContextSPtrs> _const_expr_lists;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

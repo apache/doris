@@ -33,25 +33,25 @@
 #include "exec/operator/partitioned_hash_join_sink_operator.h"
 #include "exec/operator/spillable_operator_test_helper.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class MockPartitionedHashJoinSharedState : public PartitionedHashJoinSharedState {
 public:
     MockPartitionedHashJoinSharedState() {
-        is_spilled = false;
-        inner_runtime_state = nullptr;
-        spilled_streams.clear();
-        partitioned_build_blocks.clear();
+        _is_spilled = false;
+        _inner_runtime_state = nullptr;
+        _spilled_build_groups.clear();
+        _partitioned_build_blocks.clear();
     }
 
     void init(size_t partition_count) {
-        spilled_streams.resize(partition_count);
-        partitioned_build_blocks.resize(partition_count);
+        _spilled_build_groups.resize(partition_count);
+        _partitioned_build_blocks.resize(partition_count);
     }
 };
 
@@ -62,9 +62,8 @@ public:
     MockRuntimeFilterProducerHelper() = default;
     ~MockRuntimeFilterProducerHelper() override = default;
 
-    Status send_filter_size(
-            RuntimeState* state, uint64_t hash_table_size,
-            const std::shared_ptr<pipeline::CountedFinishDependency>& dependency) override {
+    Status send_filter_size(RuntimeState* state, uint64_t hash_table_size,
+                            const std::shared_ptr<CountedFinishDependency>& dependency) override {
         return Status::OK();
     }
 
@@ -116,9 +115,7 @@ public:
         return Status::OK();
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override {
-        return Status::OK();
-    }
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override { return Status::OK(); }
 
     std::string get_memory_usage_debug_str(RuntimeState* state) const override { return "mock"; }
 };
@@ -146,15 +143,14 @@ public:
             : HashJoinProbeOperatorX(pool, tnode, operator_id, descs) {}
     ~MockHashJoinProbeOperator() override = default;
 
-    Status push(RuntimeState* state, vectorized::Block* input_block, bool eos_) const override {
+    Status push(RuntimeState* state, Block* input_block, bool eos_) const override {
         const_cast<MockHashJoinProbeOperator*>(this)->block.swap(*input_block);
         const_cast<MockHashJoinProbeOperator*>(this)->eos = eos_;
         const_cast<MockHashJoinProbeOperator*>(this)->need_more_data = !eos;
         return Status::OK();
     }
 
-    Status pull(doris::RuntimeState* state, vectorized::Block* output_block,
-                bool* eos_) const override {
+    Status pull(doris::RuntimeState* state, Block* output_block, bool* eos_) const override {
         output_block->swap(const_cast<MockHashJoinProbeOperator*>(this)->block);
         *eos_ = eos;
         const_cast<MockHashJoinProbeOperator*>(this)->block.clear_column_data();
@@ -170,7 +166,7 @@ public:
     bool need_more_input_data(RuntimeState* state) const override { return need_more_data; }
     bool need_more_data = true;
 
-    vectorized::Block block;
+    Block block;
     bool eos = false;
 };
 
@@ -243,4 +239,4 @@ public:
                std::shared_ptr<PartitionedHashJoinSinkOperatorX>>
     create_operators();
 };
-} // namespace doris::pipeline
+} // namespace doris

@@ -62,6 +62,7 @@ public class UnassignedShuffleJobTest {
         sessionVariable = Mockito.mock(SessionVariable.class);
         connectContext = Mockito.mock(ConnectContext.class);
         Mockito.when(connectContext.getSessionVariable()).thenReturn(sessionVariable);
+        Mockito.when(sessionVariable.resolveCloudClusterName(connectContext)).thenReturn("test_cluster");
 
         // nextInstanceId() is called from buildInstances; provide unique IDs
         instanceIdCounter = new AtomicLong(0);
@@ -178,7 +179,7 @@ public class UnassignedShuffleJobTest {
         // exchangeInstanceParallel not set
         Mockito.when(sessionVariable.getExchangeInstanceParallel()).thenReturn(-1);
         // parallelExecInstanceNum = 8, backendNum = 3 => maxInstanceNum = 24
-        Mockito.when(sessionVariable.getParallelExecInstanceNum()).thenReturn(8);
+        Mockito.when(sessionVariable.getParallelExecInstanceNum(Mockito.anyString())).thenReturn(8);
 
         ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob = ArrayListMultimap.create();
 
@@ -208,7 +209,7 @@ public class UnassignedShuffleJobTest {
     public void testDegreeOfParallelismWithQueryCacheChildSmallerThanMax() {
         Mockito.when(sessionVariable.getExchangeInstanceParallel()).thenReturn(-1);
         // parallelExecInstanceNum = 8, backendNum = 3 => maxInstanceNum = 24
-        Mockito.when(sessionVariable.getParallelExecInstanceNum()).thenReturn(8);
+        Mockito.when(sessionVariable.getParallelExecInstanceNum(Mockito.anyString())).thenReturn(8);
 
         ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob = ArrayListMultimap.create();
 
@@ -239,7 +240,7 @@ public class UnassignedShuffleJobTest {
         // exchangeInstanceParallel = 5
         Mockito.when(sessionVariable.getExchangeInstanceParallel()).thenReturn(5);
         // parallelExecInstanceNum = 8, backendNum = 3 => maxInstanceNum = 24
-        Mockito.when(sessionVariable.getParallelExecInstanceNum()).thenReturn(8);
+        Mockito.when(sessionVariable.getParallelExecInstanceNum(Mockito.anyString())).thenReturn(8);
 
         ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob = ArrayListMultimap.create();
 
@@ -269,7 +270,7 @@ public class UnassignedShuffleJobTest {
         // exchangeInstanceParallel = 50 (larger than maxInstanceNum)
         Mockito.when(sessionVariable.getExchangeInstanceParallel()).thenReturn(50);
         // parallelExecInstanceNum = 4, backendNum = 3 => maxInstanceNum = 12
-        Mockito.when(sessionVariable.getParallelExecInstanceNum()).thenReturn(4);
+        Mockito.when(sessionVariable.getParallelExecInstanceNum(Mockito.anyString())).thenReturn(4);
 
         ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob = ArrayListMultimap.create();
 
@@ -297,7 +298,7 @@ public class UnassignedShuffleJobTest {
     @Test
     public void testDegreeOfParallelismWithMixedQueryCacheJobs() {
         Mockito.when(sessionVariable.getExchangeInstanceParallel()).thenReturn(-1);
-        Mockito.when(sessionVariable.getParallelExecInstanceNum()).thenReturn(8);
+        Mockito.when(sessionVariable.getParallelExecInstanceNum(Mockito.anyString())).thenReturn(8);
 
         ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob = ArrayListMultimap.create();
 
@@ -354,7 +355,7 @@ public class UnassignedShuffleJobTest {
     public void testComputeAssignedJobsWithQueryCacheLimitsInstanceCount() {
         Mockito.when(sessionVariable.getExchangeInstanceParallel()).thenReturn(-1);
         // parallelExecInstanceNum = 2, backendNum = 3 => maxInstanceNum = 6
-        Mockito.when(sessionVariable.getParallelExecInstanceNum()).thenReturn(2);
+        Mockito.when(sessionVariable.getParallelExecInstanceNum(Mockito.anyString())).thenReturn(2);
 
         ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob = ArrayListMultimap.create();
         ExchangeNode exchangeNode = Mockito.mock(ExchangeNode.class);
@@ -415,7 +416,7 @@ public class UnassignedShuffleJobTest {
     public void testComputeAssignedJobsWithQueryCacheTakesIfBranch() {
         Mockito.when(sessionVariable.getExchangeInstanceParallel()).thenReturn(-1);
         // parallelExecInstanceNum = 1, backendNum = 3 => maxInstanceNum = 3
-        Mockito.when(sessionVariable.getParallelExecInstanceNum()).thenReturn(1);
+        Mockito.when(sessionVariable.getParallelExecInstanceNum(Mockito.anyString())).thenReturn(1);
 
         ListMultimap<ExchangeNode, UnassignedJob> exchangeToChildJob = ArrayListMultimap.create();
         ExchangeNode exchangeNode = Mockito.mock(ExchangeNode.class);

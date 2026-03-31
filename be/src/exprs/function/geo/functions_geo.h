@@ -33,12 +33,10 @@
 namespace doris {
 class GeoShape;
 
-namespace vectorized {
 class Block;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 struct StConstructState {
     StConstructState() : is_null(false) {}
@@ -75,4 +73,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

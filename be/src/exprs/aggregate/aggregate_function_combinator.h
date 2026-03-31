@@ -25,7 +25,7 @@
 #include "core/data_type/data_type.h"
 #include "exprs/aggregate/aggregate_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 /** Aggregate function combinator allows to take one aggregate function
@@ -69,6 +69,6 @@ public:
     virtual ~IAggregateFunctionCombinator() = default;
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

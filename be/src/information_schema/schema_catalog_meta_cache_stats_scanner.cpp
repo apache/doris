@@ -30,10 +30,29 @@ namespace doris {
 #include "common/compile_check_begin.h"
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCatalogMetaCacheStatsScanner::_s_tbls_columns = {
+        {"FE_HOST", TYPE_STRING, sizeof(StringRef), true},
         {"CATALOG_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"CACHE_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"METRIC_NAME", TYPE_STRING, sizeof(StringRef), true},
-        {"METRIC_VALUE", TYPE_STRING, sizeof(StringRef), true},
+        {"ENGINE_NAME", TYPE_STRING, sizeof(StringRef), true},
+        {"ENTRY_NAME", TYPE_STRING, sizeof(StringRef), true},
+        {"EFFECTIVE_ENABLED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"CONFIG_ENABLED", TYPE_BOOLEAN, sizeof(bool), true},
+        {"AUTO_REFRESH", TYPE_BOOLEAN, sizeof(bool), true},
+        {"TTL_SECOND", TYPE_BIGINT, sizeof(int64_t), true},
+        {"CAPACITY", TYPE_BIGINT, sizeof(int64_t), true},
+        {"ESTIMATED_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
+        {"REQUEST_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"HIT_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"MISS_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"HIT_RATE", TYPE_DOUBLE, sizeof(double), true},
+        {"LOAD_SUCCESS_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"LOAD_FAILURE_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"TOTAL_LOAD_TIME_MS", TYPE_BIGINT, sizeof(int64_t), true},
+        {"AVG_LOAD_PENALTY_MS", TYPE_DOUBLE, sizeof(double), true},
+        {"EVICTION_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"INVALIDATE_COUNT", TYPE_BIGINT, sizeof(int64_t), true},
+        {"LAST_LOAD_SUCCESS_TIME", TYPE_STRING, sizeof(StringRef), true},
+        {"LAST_LOAD_FAILURE_TIME", TYPE_STRING, sizeof(StringRef), true},
+        {"LAST_ERROR", TYPE_STRING, sizeof(StringRef), true},
 };
 
 SchemaCatalogMetaCacheStatsScanner::SchemaCatalogMetaCacheStatsScanner()
@@ -77,12 +96,12 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
     }
     std::vector<TRow> result_data = result.data_batch;
 
-    _block = vectorized::Block::create_unique();
+    _block = Block::create_unique();
     for (int i = 0; i < _s_tbls_columns.size(); ++i) {
-        auto data_type = vectorized::DataTypeFactory::instance().create_data_type(
-                _s_tbls_columns[i].type, true);
-        _block->insert(vectorized::ColumnWithTypeAndName(data_type->create_column(), data_type,
-                                                         _s_tbls_columns[i].name));
+        auto data_type =
+                DataTypeFactory::instance().create_data_type(_s_tbls_columns[i].type, true);
+        _block->insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                             _s_tbls_columns[i].name));
     }
 
     _block->reserve(_block_rows_limit);
@@ -105,8 +124,7 @@ Status SchemaCatalogMetaCacheStatsScanner::_get_meta_cache_from_fe() {
     return Status::OK();
 }
 
-Status SchemaCatalogMetaCacheStatsScanner::get_next_block_internal(vectorized::Block* block,
-                                                                   bool* eos) {
+Status SchemaCatalogMetaCacheStatsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -126,7 +144,7 @@ Status SchemaCatalogMetaCacheStatsScanner::get_next_block_internal(vectorized::B
     }
 
     int current_batch_rows = std::min(_block_rows_limit, _total_rows - _row_idx);
-    vectorized::MutableBlock mblock = vectorized::MutableBlock::build_mutable_block(block);
+    MutableBlock mblock = MutableBlock::build_mutable_block(block);
     RETURN_IF_ERROR(mblock.add_rows(_block.get(), _row_idx, current_batch_rows));
     _row_idx += current_batch_rows;
 

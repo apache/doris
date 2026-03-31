@@ -58,13 +58,11 @@ class DeleteBitmap;
 class HybridSetBase;
 class RuntimeProfile;
 
-namespace vectorized {
 class VCollectIterator;
 class Block;
 class VExpr;
 class Arena;
 class VExprContext;
-} // namespace vectorized
 
 // Used to compare row with input scan key. Scan key only contains key columns,
 // row contains all key columns, which is superset of key columns.
@@ -72,12 +70,20 @@ class VExprContext;
 //
 // NOTE: if you are not sure if you can use it, please don't use this function.
 inline int compare_row_key(const RowCursor& lhs, const RowCursor& rhs) {
-    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    auto cmp_cids = std::min(lhs.field_count(), rhs.field_count());
     for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
-        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
-        if (res != 0) {
-            return res;
+        const auto& lf = lhs.field(cid);
+        const auto& rf = rhs.field(cid);
+        // Handle nulls: null < non-null
+        if (lf.is_null() != rf.is_null()) {
+            return lf.is_null() ? -1 : 1;
         }
+        if (lf.is_null()) {
+            continue; // both null
+        }
+        auto cmp = lf <=> rf;
+        if (cmp < 0) return -1;
+        if (cmp > 0) return 1;
     }
     return 0;
 }
@@ -140,7 +146,7 @@ public:
         std::vector<FunctionFilter> function_filters;
         std::vector<RowsetMetaSharedPtr> delete_predicates;
         // slots that cast may be eliminated in storage layer
-        std::map<std::string, vectorized::DataTypePtr> target_cast_type_for_variants;
+        std::map<std::string, DataTypePtr> target_cast_type_for_variants;
 
         std::map<int32_t, TColumnAccessPaths> all_access_paths;
         std::map<int32_t, TColumnAccessPaths> predicate_access_paths;
@@ -160,8 +166,8 @@ public:
         std::vector<ColumnId>* origin_return_columns = nullptr;
         std::unordered_set<uint32_t>* tablet_columns_convert_to_null_set = nullptr;
         TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
-        std::vector<vectorized::VExprSPtr> remaining_conjunct_roots;
-        vectorized::VExprContextSPtrs common_expr_ctxs_push_down;
+        std::vector<VExprSPtr> remaining_conjunct_roots;
+        VExprContextSPtrs common_expr_ctxs_push_down;
 
         // used for compaction to record row ids
         bool record_rowids = false;
@@ -177,7 +183,7 @@ public:
         // limit of rows for read_orderby_key
         size_t read_orderby_key_limit = 0;
         // filter_block arguments
-        vectorized::VExprContextSPtrs filter_block_conjuncts;
+        VExprContextSPtrs filter_block_conjuncts;
 
         // for vertical compaction
         bool is_key_column_group = false;
@@ -189,19 +195,20 @@ public:
 
         bool is_segcompaction = false;
 
+        // Enable value predicate pushdown for MOR tables
+        bool enable_mor_value_predicate_pushdown = false;
+
         std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
 
         void check_validation() const;
 
-        std::string to_string() const;
-
         int64_t batch_size = -1;
 
-        std::map<ColumnId, vectorized::VExprContextSPtr> virtual_column_exprs;
+        std::map<ColumnId, VExprContextSPtr> virtual_column_exprs;
         std::map<ColumnId, size_t> vir_cid_to_idx_in_block;
-        std::map<size_t, vectorized::DataTypePtr> vir_col_idx_to_type;
+        std::map<size_t, DataTypePtr> vir_col_idx_to_type;
 
-        std::shared_ptr<vectorized::ScoreRuntime> score_runtime;
+        std::shared_ptr<ScoreRuntime> score_runtime;
         CollectionStatisticsPtr collection_statistics;
         std::shared_ptr<segment_v2::AnnTopNRuntime> ann_topn_runtime;
 
@@ -222,7 +229,7 @@ public:
     // Return OK and set `*eof` to false when next block is read
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
-    virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
+    virtual Status next_block_with_aggregation(Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>(
                 "TabletReader not support next_block_with_aggregation");
     }
@@ -246,10 +253,10 @@ public:
     static Status init_reader_params_and_create_block(
             TabletSharedPtr tablet, ReaderType reader_type,
             const std::vector<RowsetSharedPtr>& input_rowsets,
-            TabletReader::ReaderParams* reader_params, vectorized::Block* block);
+            TabletReader::ReaderParams* reader_params, Block* block);
 
 protected:
-    friend class vectorized::VCollectIterator;
+    friend class VCollectIterator;
     friend class DeleteHandler;
 
     Status _init_params(const ReaderParams& read_params);
@@ -280,7 +287,7 @@ protected:
 
     const TabletSchema& tablet_schema() { return *_tablet_schema; }
 
-    vectorized::Arena _predicate_arena;
+    Arena _predicate_arena;
     std::vector<ColumnId> _return_columns;
 
     // used for special optimization for query : ORDER BY key [ASC|DESC] LIMIT n

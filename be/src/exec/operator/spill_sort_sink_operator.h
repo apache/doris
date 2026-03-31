@@ -21,8 +21,10 @@
 
 #include "exec/operator/operator.h"
 #include "exec/operator/sort_sink_operator.h"
+#include "exec/spill/spill_file.h"
+#include "exec/spill/spill_file_writer.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 class SpillSortSinkLocalState;
 class SpillSortSinkOperatorX;
@@ -44,13 +46,13 @@ public:
 
     Status setup_in_memory_sort_op(RuntimeState* state);
     [[nodiscard]] size_t get_reserve_mem_size(RuntimeState* state, bool eos);
-    Status revoke_memory(RuntimeState* state, const std::shared_ptr<SpillContext>& spill_context);
+    Status revoke_memory(RuntimeState* state);
 
 private:
     void _init_counters();
     void update_profile(RuntimeProfile* child_profile);
 
-    Status _execute_spill_sort(RuntimeState* state, TUniqueId query_id);
+    Status _execute_spill_sort(RuntimeState* state);
 
     friend class SpillSortSinkOperatorX;
 
@@ -59,7 +61,8 @@ private:
 
     RuntimeProfile::Counter* _spill_merge_sort_timer = nullptr;
 
-    vectorized::SpillStreamSPtr _spilling_stream;
+    SpillFileSPtr _spilling_file;
+    SpillFileWriterSPtr _spilling_writer;
 
     std::atomic<bool> _eos = false;
 };
@@ -77,7 +80,7 @@ public:
     Status init(const TPlanNode& tnode, RuntimeState* state) override;
 
     Status prepare(RuntimeState* state) override;
-    Status sink(RuntimeState* state, vectorized::Block* in_block, bool eos) override;
+    Status sink(RuntimeState* state, Block* in_block, bool eos) override;
     DataDistribution required_data_distribution(RuntimeState* state) const override {
         return _sort_sink_operator->required_data_distribution(state);
     }
@@ -101,8 +104,7 @@ public:
 
     size_t revocable_mem_size(RuntimeState* state) const override;
 
-    Status revoke_memory(RuntimeState* state,
-                         const std::shared_ptr<SpillContext>& spill_context) override;
+    Status revoke_memory(RuntimeState* state) override;
 
     using DataSinkOperatorX<LocalStateType>::node_id;
     using DataSinkOperatorX<LocalStateType>::operator_id;
@@ -114,4 +116,4 @@ private:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

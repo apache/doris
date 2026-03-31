@@ -34,7 +34,7 @@
 #include "core/types.h"
 #include "core/value/quantile_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 class BufferReadable;
 class BufferWritable;
 class IColumn;
@@ -81,4 +81,4 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     };
 };
-} // namespace doris::vectorized
+} // namespace doris

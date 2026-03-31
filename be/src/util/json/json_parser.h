@@ -37,7 +37,7 @@
 #include "util/json/simd_json_parser.h"
 #include "util/jsonb_writer.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Element>
 Field getValueAsField(const Element& element) {
@@ -100,7 +100,7 @@ void writeValueAsJsonb(const Element& element, JsonbWriter& writer) {
 }
 
 struct ParseConfig {
-    bool enable_flatten_nested = false;
+    bool deprecated_enable_flatten_nested = false;
     enum class ParseTo {
         OnlySubcolumns = 0,
         OnlyDocValueColumn = 1,
@@ -127,7 +127,7 @@ private:
         PathInDataBuilder builder;
         std::vector<PathInData::Parts> paths;
         std::vector<Field> values;
-        bool enable_flatten_nested = false;
+        bool deprecated_enable_flatten_nested = false;
         bool has_nested_in_flatten = false;
         bool is_top_array = false;
     };
@@ -167,4 +167,4 @@ private:
     ParserImpl parser;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

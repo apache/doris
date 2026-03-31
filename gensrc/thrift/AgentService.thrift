@@ -229,6 +229,7 @@ struct TCreateTabletReq {
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
+    31: optional i32 vertical_compaction_num_columns_per_group = 5
 
     // For cloud
     1000: optional bool is_in_memory = false
@@ -543,6 +544,7 @@ struct TTabletMetaInfo {
     16: optional bool disable_auto_compaction
     17: optional i64 time_series_compaction_empty_rowsets_threshold
     18: optional i64 time_series_compaction_level_threshold
+    19: optional i32 vertical_compaction_num_columns_per_group
 }
 
 struct TUpdateTabletMetaInfoReq {
@@ -564,6 +566,14 @@ struct TCooldownConf {
 
 struct TPushCooldownConfReq {
     1: required list<TCooldownConf> cooldown_confs
+}
+
+// Request to make temporary cloud rowsets visible
+struct TMakeCloudTmpRsVisibleRequest {
+    1: required i64 txn_id
+    2: required list<Types.TTabletId> tablet_ids // tablets on this BE involved in the transaction
+    3: required map<Types.TPartitionId, Types.TVersion> partition_version_map
+    4: optional i64 version_update_time_ms
 }
 
 struct TAgentTaskRequest {
@@ -608,6 +618,7 @@ struct TAgentTaskRequest {
 
     // For cloud
     1000: optional TCalcDeleteBitmapRequest calc_delete_bitmap_req
+    1001: optional TMakeCloudTmpRsVisibleRequest make_cloud_tmp_rs_visible_req
 }
 
 struct TAgentResult {

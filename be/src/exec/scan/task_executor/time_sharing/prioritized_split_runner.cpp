@@ -26,7 +26,6 @@
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
 namespace doris {
-namespace vectorized {
 
 std::atomic<int64_t> PrioritizedSplitRunner::_next_worker_id(0);
 
@@ -157,5 +156,4 @@ std::string PrioritizedSplitRunner::get_info() const {
     return "";
 }
 
-} // namespace vectorized
 } // namespace doris

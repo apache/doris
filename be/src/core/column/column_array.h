@@ -50,7 +50,7 @@ class SipHash;
 #define ALL_COLUMNS_NUMERIC ALL_COLUMNS_NUMBER, ALL_COLUMNS_TIME
 #define ALL_COLUMNS_SIMPLE ALL_COLUMNS_NUMERIC, ColumnString, ColumnIPv4, ColumnIPv6
 
-namespace doris::vectorized {
+namespace doris {
 
 class Arena;
 
@@ -257,4 +257,4 @@ private:
     WrappedPtr offsets;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -21,7 +21,7 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_string.h"
 
-namespace doris::vectorized::CastWrapper {
+namespace doris::CastWrapper {
 
 // shared implementation for casting from variant to arbitrary non-nullable target type
 inline Status cast_from_variant_impl(FunctionContext* context, Block& block,
@@ -134,7 +134,12 @@ struct CastToVariant {
         const auto& from_type = col_with_type_and_name.type;
         const auto& col_from = col_with_type_and_name.column;
         // set variant root column/type to from column/type
-        auto variant = ColumnVariant::create(true /*always nullable*/);
+        const auto& data_type_to = block.get_by_position(result).type;
+        const auto* variant_type =
+                typeid_cast<const DataTypeVariant*>(remove_nullable(data_type_to).get());
+        auto variant = ColumnVariant::create(
+                variant_type ? variant_type->variant_max_subcolumns_count() : 0,
+                variant_type ? variant_type->enable_doc_mode() : false);
         variant->create_root(from_type, col_from->assume_mutable());
         block.replace_by_position(result, std::move(variant));
         return Status::OK();
@@ -169,4 +174,4 @@ WrapperType create_cast_from_variant_wrapper(const DataTypeVariant& from_type,
     };
 }
 
-} // namespace doris::vectorized::CastWrapper
+} // namespace doris::CastWrapper

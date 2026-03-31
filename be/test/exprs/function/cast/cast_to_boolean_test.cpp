@@ -18,7 +18,7 @@
 #include "core/data_type/data_type_number.h"
 #include "exprs/function/cast/cast_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST_F(FunctionCastTest, test_from_int_to_bool) {
@@ -433,4 +433,4 @@ TEST_F(FunctionCastTest, test_from_decimal_to_bool_strict_mode) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

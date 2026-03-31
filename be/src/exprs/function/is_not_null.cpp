@@ -23,10 +23,10 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_function_is_not_null(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionIsNotNull>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

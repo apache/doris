@@ -30,7 +30,7 @@
 #include "exec/operator/operator.h"
 #include "runtime/runtime_profile.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 class PipelineFragmentContext;
 class Pipeline;
@@ -180,4 +180,4 @@ private:
     const int _num_tasks_of_parent;
 };
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

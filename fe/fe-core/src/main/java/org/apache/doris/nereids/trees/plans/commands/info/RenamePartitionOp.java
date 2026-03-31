@@ -38,7 +38,6 @@ public class RenamePartitionOp extends AlterTableOp {
         super(AlterOpType.RENAME);
         this.partitionName = partitionName;
         this.newPartitionName = newPartitionName;
-        this.needTableStable = false;
     }
 
     public String getPartitionName() {

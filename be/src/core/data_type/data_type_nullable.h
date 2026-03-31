@@ -38,13 +38,11 @@
 namespace doris {
 class PColumnMeta;
 
-namespace vectorized {
 class BufferWritable;
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 /// A nullable data type is an ordinary data type provided with a tag
 /// indicating that it also contains the NULL value. The following class
@@ -125,4 +123,4 @@ DataTypePtr remove_nullable(const DataTypePtr& type);
 DataTypes remove_nullable(const DataTypes& types);
 bool have_nullable(const DataTypes& types);
 
-} // namespace doris::vectorized
+} // namespace doris

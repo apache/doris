@@ -27,7 +27,7 @@
 #include "storage/storage_engine.h"
 #include "storage/tablet/tablet_schema.h"
 
-using namespace doris::vectorized;
+using namespace doris;
 
 using namespace doris::segment_v2;
 
@@ -132,26 +132,26 @@ static void fill_string_column_with_test_data(auto& column_string, int size, int
             all_path_stats[uid][key] += 1;
         }
         json_str += "}";
-        // vectorized::Field str(json_str);
+        // Field str(json_str);
         column_string->insert_data(json_str.data(), json_str.size());
     }
 }
 
 static void fill_varaint_column(auto& variant_column, int size, int uid) {
-    auto type_string = std::make_shared<vectorized::DataTypeString>();
+    auto type_string = std::make_shared<DataTypeString>();
     auto column = type_string->create_column();
     auto column_string = assert_cast<ColumnString*>(column.get());
     fill_string_column_with_test_data(column_string, size, uid);
-    vectorized::ParseConfig config;
-    config.enable_flatten_nested = false;
+    ParseConfig config;
+    config.deprecated_enable_flatten_nested = false;
     variant_util::parse_json_to_variant(*variant_column, *column_string, config);
 }
 
-static void fill_block_with_test_data(vectorized::Block* block, int size) {
+static void fill_block_with_test_data(Block* block, int size) {
     auto columns = block->mutate_columns();
     // insert key
     for (int i = 0; i < size; i++) {
-        auto field = vectorized::Field::create_field<PrimitiveType::TYPE_INT>(i);
+        auto field = Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[0]->insert(field);
     }
 
@@ -160,7 +160,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
 
     // insert v2
     for (int i = 0; i < size; i++) {
-        auto v2 = vectorized::Field::create_field<PrimitiveType::TYPE_STRING>("V2");
+        auto v2 = Field::create_field<PrimitiveType::TYPE_STRING>("V2");
         columns[2]->insert(v2);
     }
 
@@ -169,7 +169,7 @@ static void fill_block_with_test_data(vectorized::Block* block, int size) {
 
     // insert v4
     for (int i = 0; i < size; i++) {
-        auto v4 = vectorized::Field::create_field<PrimitiveType::TYPE_INT>(i);
+        auto v4 = Field::create_field<PrimitiveType::TYPE_INT>(i);
         columns[4]->insert(v4);
     }
 }
@@ -196,7 +196,7 @@ static RowsetWriterContext rowset_writer_context(const std::unique_ptr<DataDir>&
 }
 
 static RowsetSharedPtr create_rowset(auto& rowset_writer, const TabletSchemaSPtr& tablet_schema) {
-    vectorized::Block block = tablet_schema->create_block();
+    Block block = tablet_schema->create_block();
     fill_block_with_test_data(&block, 1000);
     auto st = rowset_writer->add_block(&block);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -706,7 +706,7 @@ TEST_F(SchemaUtilRowsetTest, some_test_for_subcolumn_writer) {
     auto size = variant_subcolumn_writer->estimate_buffer_size();
     std::cout << "size: " << size << std::endl;
     // append data
-    auto insert_object = ColumnVariant::create(true);
+    auto insert_object = ColumnVariant::create(0, false);
     fill_varaint_column(insert_object, 1, 1);
     std::cout << insert_object->debug_string() << std::endl;
     std::unique_ptr<VariantColumnData> _variant_column_data = std::make_unique<VariantColumnData>();

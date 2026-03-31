@@ -66,7 +66,7 @@
 //  write_column_to_arrow (const IColumn &column, const NullMap *null_map, arrow::ArrayBuilder *array_builder, int start, int end, const cctz::time_zone &ctz) const =0
 //  read_column_from_arrow (IColumn &column, const arrow::Array *arrow_array, int start, int end, const cctz::time_zone &ctz) const =0
 
-namespace doris::vectorized {
+namespace doris {
 
 class CommonDataTypeSerdeTest : public ::testing::Test {
 public:
@@ -112,6 +112,11 @@ public:
                     }
                 }
             }
+        } else {
+            auto err_code = errno;
+            auto* err_msg = std::strerror(err_code);
+            throw doris::Exception(err_code, "can not open the file: {} , error: {} ",
+                                   column_data_file, err_msg);
         }
 
         // Step 2: Validate the data in `column` matches `expected_data`
@@ -391,7 +396,9 @@ public:
                                                  column_with_type_and_name.type, rows, "UTC");
             // do check data
             std::cout << "arrow_column_to_doris_column done, column data: "
-                      << column_with_type_and_name.to_string(0).substr(0, 256)
+                      << (column_with_type_and_name.column->empty()
+                                  ? "empty"
+                                  : column_with_type_and_name.to_string(0).substr(0, 256))
                       << ", column size: " << column_with_type_and_name.column->size() << std::endl;
             EXPECT_EQ(Status::OK(), ret) << "convert arrow to block failed" << ret.to_string();
         }
@@ -428,4 +435,4 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

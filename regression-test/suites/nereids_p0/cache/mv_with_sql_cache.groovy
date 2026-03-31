@@ -18,8 +18,6 @@
 import com.google.common.util.concurrent.Uninterruptibles
 
 import java.util.concurrent.TimeUnit
-import java.util.stream.Collectors
-
 class CanRetryException extends IllegalStateException {
     CanRetryException() {
     }
@@ -81,8 +79,10 @@ suite("mv_with_sql_cache") {
         }
 
         String dbName = context.config.getDbNameByFile(context.file)
+        // Keep multiple rounds for flaky cache timing, but align the actual execution count with 3 retries.
+        int flakyRetryRounds = 3
 
-        for (def __ in 0..3) {
+        for (def __ in 0..<flakyRetryRounds) {
             combineFutures(
                     extraThread("testRenameMv", {
                         retryTestSqlCache(3, 1000) {

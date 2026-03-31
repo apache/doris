@@ -53,6 +53,7 @@ import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.ScanContext;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
@@ -241,7 +242,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc, SessionVariable sv) {
-        return new TVFScanNode(id, desc, false, sv);
+        return new TVFScanNode(id, desc, false, sv,
+                ScanContext.builder().clusterName(sv.resolveCloudClusterName()).build());
     }
 
     @Override
@@ -412,13 +414,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         } else if (tPrimitiveType == TPrimitiveType.VARIANT) {
             // Preserve VARIANT-specific properties from PTypeNode, especially variant_max_subcolumns_count.
             int maxSubcolumns = typeNode.getVariantMaxSubcolumnsCount();
+            boolean enableDocMode = typeNode.hasVariantEnableDocMode()
+                    ? typeNode.getVariantEnableDocMode() : false;
             // Currently no predefined fields are carried in PTypeNode for VARIANT, so use empty list and default
             // values for other properties.
             type = new VariantType(new ArrayList<>(), maxSubcolumns,
                     /*enableTypedPathsToSparse*/ false,
                     /*variantMaxSparseColumnStatisticsSize*/ 10000,
                     /*variantSparseHashShardCount*/ 0,
-                    /*variantEnableDocMode*/ false,
+                    /*variantEnableDocMode*/ enableDocMode,
                     /*variantDocMaterializationMinRows*/ 0,
                     /*variantDocShardCount*/ 0);
             parsedNodes = 1;

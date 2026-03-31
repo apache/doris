@@ -17,11 +17,11 @@
 
 #include "exprs/function/cast/cast_to_decimal_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 TEST_F(FunctionCastToDecimalTest, test_to_decimal256_from_decimal128) {
     between_decimal_test_func<Decimal128V3, Decimal256>();
 }
 TEST_F(FunctionCastToDecimalTest, test_to_decimal256_from_decimalv2) {
     between_decimal_test_func<DecimalV2Value, Decimal256>();
 }
-} // namespace doris::vectorized
+} // namespace doris

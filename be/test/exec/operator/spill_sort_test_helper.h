@@ -35,13 +35,13 @@
 #include "exec/operator/spill_sort_source_operator.h"
 #include "exec/operator/spillable_operator_test_helper.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class MockSpillSortSharedState : public SpillSortSharedState {};
 
@@ -53,14 +53,14 @@ public:
                             const DescriptorTbl& descs)
             : SortSourceOperatorX(pool, tnode, operator_id, descs) {}
 
-    Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) override {
+    Status get_block(RuntimeState* state, Block* block, bool* eos) override {
         std::swap(*block, this->block);
         *eos = this->eos;
         return Status::OK();
     }
 
     bool eos = false;
-    vectorized::Block block;
+    Block block;
 };
 
 class SpillSortTestHelper : public SpillableOperatorTestHelper {
@@ -82,4 +82,4 @@ public:
     std::tuple<std::shared_ptr<SpillSortSourceOperatorX>, std::shared_ptr<SpillSortSinkOperatorX>>
     create_operators();
 };
-} // namespace doris::pipeline
+} // namespace doris

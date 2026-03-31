@@ -27,7 +27,7 @@
 #include "exprs/function/function_test_util.h"
 #include "exprs/function/ip_address_dictionary.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(IpDictTest, TestIpv4) {
     std::vector<std::string> ips = {
@@ -142,4 +142,4 @@ TEST(IpDictTest, String64) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

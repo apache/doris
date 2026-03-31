@@ -100,7 +100,7 @@ public:
         EXPECT_EQ(slices.size(), page_decoder.count());
 
         // Read all values
-        vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+        MutableColumnPtr column = ColumnString::create();
         size_t num_to_read = slices.size();
         status = page_decoder.next_batch(&num_to_read, column);
         EXPECT_TRUE(status.ok());
@@ -108,7 +108,7 @@ public:
         EXPECT_EQ(slices.size(), column->size());
 
         // Verify values
-        auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+        auto* string_column = assert_cast<ColumnString*>(column.get());
         for (size_t i = 0; i < slices.size(); ++i) {
             EXPECT_EQ(src_strings[i], string_column->get_data_at(i).to_string())
                     << "Mismatch at index " << i;
@@ -162,12 +162,12 @@ public:
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(seek_pos, page_decoder.current_index());
 
-            vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+            MutableColumnPtr column = ColumnString::create();
             size_t num_to_read = 1;
             status = page_decoder.next_batch(&num_to_read, column);
             EXPECT_TRUE(status.ok());
             EXPECT_EQ(1, num_to_read);
-            auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+            auto* string_column = assert_cast<ColumnString*>(column.get());
             EXPECT_EQ(src_strings[seek_pos], string_column->get_data_at(0).to_string())
                     << "Mismatch at seek position " << seek_pos;
         }
@@ -219,7 +219,7 @@ public:
         rowids.push_back(static_cast<rowid_t>(slices.size() - 1));
         ordinal_t page_first_ordinal = 0;
 
-        vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+        MutableColumnPtr column = ColumnString::create();
         size_t num_to_read = rowids.size();
         status = page_decoder.read_by_rowids(rowids.data(), page_first_ordinal, &num_to_read,
                                              column);
@@ -227,7 +227,7 @@ public:
         EXPECT_EQ(rowids.size(), num_to_read);
 
         // Verify values
-        auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+        auto* string_column = assert_cast<ColumnString*>(column.get());
         for (size_t i = 0; i < rowids.size(); ++i) {
             EXPECT_EQ(src_strings[rowids[i]], string_column->get_data_at(i).to_string())
                     << "Mismatch at rowid " << rowids[i];
@@ -273,7 +273,7 @@ public:
         EXPECT_EQ(0, page_decoder.count());
 
         // Try to read from empty page
-        vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+        MutableColumnPtr column = ColumnString::create();
         size_t num_to_read = 1;
         status = page_decoder.next_batch(&num_to_read, column);
         EXPECT_TRUE(status.ok());
@@ -606,12 +606,12 @@ TEST_F(BinaryPlainPageV2Test, TestSeekAndRead) {
     EXPECT_TRUE(status.ok());
 
     // Read remaining 3 strings
-    vectorized::MutableColumnPtr column = vectorized::ColumnString::create();
+    MutableColumnPtr column = ColumnString::create();
     size_t num_to_read = 10; // Request more than available
     status = page_decoder.next_batch(&num_to_read, column);
     EXPECT_TRUE(status.ok());
     EXPECT_EQ(3, num_to_read); // Should only read 3 (c, d, e)
-    auto* string_column = assert_cast<vectorized::ColumnString*>(column.get());
+    auto* string_column = assert_cast<ColumnString*>(column.get());
     EXPECT_EQ("c", string_column->get_data_at(0).to_string());
     EXPECT_EQ("d", string_column->get_data_at(1).to_string());
     EXPECT_EQ("e", string_column->get_data_at(2).to_string());

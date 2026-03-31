@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.exploration.mv;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Id;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
@@ -224,10 +223,10 @@ public abstract class MaterializationContext {
     public static List<String> generateMaterializationIdentifier(OlapTable olapTable, String indexName) {
         return indexName == null
                 ? ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
-                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getDatabase().getFullName(),
                         olapTable.getName())
                 : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
-                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getDatabase().getFullName(),
                         olapTable.getName(), indexName);
     }
 
@@ -237,10 +236,10 @@ public abstract class MaterializationContext {
     public static List<String> generateMaterializationIdentifierByIndexId(OlapTable olapTable, Long indexId) {
         return indexId == null
                 ? ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
-                ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                olapTable.getDatabase().getFullName(),
                 olapTable.getName())
                 : ImmutableList.of(olapTable.getDatabase().getCatalog().getName(),
-                        ClusterNamespace.getNameFromFullName(olapTable.getDatabase().getFullName()),
+                        olapTable.getDatabase().getFullName(),
                         olapTable.getName(), olapTable.getIndexNameById(indexId));
     }
 

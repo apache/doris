@@ -35,7 +35,6 @@ import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.cloud.system.CloudSystemInfoService;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -175,6 +174,8 @@ public class ConnectContext {
     protected volatile SessionVariable sessionVariable;
     // Store user variable in this connection
     private Map<String, LiteralExpr> userVars = new HashMap<>();
+    // Connection attributes provided by the MySQL client during handshake.
+    private Map<String, String> connectAttributes = new HashMap<>();
     // Scheduler this connection belongs to
     protected volatile ConnectScheduler connectScheduler;
     // Executor
@@ -273,6 +274,11 @@ public class ConnectContext {
     }
 
     private StatementContext statementContext;
+    // internal flag to expose Iceberg rowid metadata during analysis/planning.
+    // When set to a valid table ID (>= 0), only that specific table's getFullSchema()
+    // will include __DORIS_ICEBERG_ROWID_COL__. This prevents ambiguity in MERGE INTO
+    // when the source table is also an Iceberg table.
+    private long icebergRowIdTargetTableId = -1;
 
     // new planner
     private Map<String, PreparedStatementContext> preparedStatementContextMap = Maps.newHashMap();
@@ -420,7 +426,20 @@ public class ConnectContext {
         context.setEnv(env);
         context.setDatabase(currentDb);
         context.setCurrentUserIdentity(currentUserIdentity);
+        context.setConnectAttributes(connectAttributes);
         return context;
+    }
+
+    public Map<String, String> getConnectAttributes() {
+        return connectAttributes;
+    }
+
+    public void setConnectAttributes(Map<String, String> connectAttributes) {
+        if (connectAttributes == null || connectAttributes.isEmpty()) {
+            this.connectAttributes = new HashMap<>();
+            return;
+        }
+        this.connectAttributes = new HashMap<>(connectAttributes);
     }
 
     public boolean isTxnModel() {
@@ -1009,6 +1028,28 @@ public class ConnectContext {
         this.statementContext = statementContext;
     }
 
+    /** Backward-compatible: returns true if any Iceberg table is targeted for row_id injection. */
+    public boolean needIcebergRowId() {
+        return icebergRowIdTargetTableId >= 0;
+    }
+
+    /** Check if a specific table should include the hidden row_id column. */
+    public boolean needIcebergRowIdForTable(long tableId) {
+        return icebergRowIdTargetTableId >= 0 && icebergRowIdTargetTableId == tableId;
+    }
+
+    /** Set the target table ID for row_id injection. Use -1 to clear. */
+    public void setIcebergRowIdTargetTableId(long tableId) {
+        this.icebergRowIdTargetTableId = tableId;
+    }
+
+    /** Get the previously saved target table ID (for save/restore pattern). */
+    public long getIcebergRowIdTargetTableId() {
+        return icebergRowIdTargetTableId;
+    }
+
+
+
     public void setResultSinkType(TResultSinkType resultSinkType) {
         this.resultSinkType = resultSinkType;
     }
@@ -1211,7 +1252,7 @@ public class ConnectContext {
                 row.add("No");
             }
             row.add("" + connectionId);
-            row.add(ClusterNamespace.getNameFromFullName(getQualifiedUser()));
+            row.add(getQualifiedUser());
             row.add(getRemoteHostPortString());
             if (timeZone.isPresent()) {
                 row.add(TimeUtils.longToTimeStringWithTimeZone(loginTime, timeZone.get()));
@@ -1219,7 +1260,7 @@ public class ConnectContext {
                 row.add(TimeUtils.longToTimeString(loginTime));
             }
             row.add(defaultCatalog);
-            row.add(ClusterNamespace.getNameFromFullName(currentDb));
+            row.add(currentDb);
             row.add(command.toString());
             row.add("" + (nowMs - startTime) / 1000);
             row.add(state.toString());

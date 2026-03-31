@@ -31,7 +31,7 @@
 #include "util/thrift_util.h"
 
 using namespace doris;
-using namespace doris::vectorized;
+using namespace doris;
 
 class FakeBufferedReader : public io::BufferedStreamReader {
 public:

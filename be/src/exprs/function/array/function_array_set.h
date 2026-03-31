@@ -27,7 +27,7 @@
 #include "exprs/function/array/function_array_utils.h"
 #include "exprs/function/function_helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 enum class SetOperation { UNION, EXCEPT };
 
@@ -216,4 +216,4 @@ private:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

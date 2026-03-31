@@ -77,7 +77,7 @@ public class OrderByElement {
 
     public String toSql() {
         StringBuilder strBuilder = new StringBuilder();
-        strBuilder.append(expr.toSql());
+        strBuilder.append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         strBuilder.append(isAsc ? " ASC" : " DESC");
 
         // When ASC and NULLS LAST or DESC and NULLS FIRST, we do not print NULLS FIRST/LAST

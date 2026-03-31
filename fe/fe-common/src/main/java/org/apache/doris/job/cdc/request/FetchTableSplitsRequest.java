@@ -35,7 +35,7 @@ public class FetchTableSplitsRequest extends JobBaseConfig {
 
     public FetchTableSplitsRequest(Long jobId, String name,
             Map<String, String> sourceProperties, String frontendAddress, String snapshotTable) {
-        super(jobId, name, sourceProperties, frontendAddress);
+        super(jobId.toString(), name, sourceProperties, frontendAddress);
         this.snapshotTable = snapshotTable;
     }
 }

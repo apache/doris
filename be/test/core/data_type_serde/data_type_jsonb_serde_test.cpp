@@ -42,7 +42,7 @@
 #include "storage/olap_common.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 static std::string test_data_dir;
 
 static auto serde_jsonb = std::make_shared<DataTypeJsonbSerDe>();
@@ -275,4 +275,4 @@ TEST_F(DataTypeJsonbSerDeTest, ArrowMemNotAligned) {
     EXPECT_TRUE(st.ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

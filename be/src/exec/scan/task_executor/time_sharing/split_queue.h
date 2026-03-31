@@ -24,7 +24,6 @@
 #include "exec/scan/task_executor/time_sharing/priority.h"
 
 namespace doris {
-namespace vectorized {
 
 class SplitQueue {
 public:
@@ -44,5 +43,4 @@ public:
     virtual int64_t get_level_min_priority(int level, int64_t scheduled_nanos) = 0;
 };
 
-} // namespace vectorized
 } // namespace doris

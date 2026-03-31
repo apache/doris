@@ -19,11 +19,11 @@
 
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 void register_function_array_element(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayElement>();
     factory.register_alias(FunctionArrayElement::name, "%element_extract%");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

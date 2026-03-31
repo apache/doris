@@ -25,7 +25,7 @@
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VLambdaFunctionCallExpr : public VExpr {
     ENABLE_FACTORY_CREATOR(VLambdaFunctionCallExpr);
@@ -94,4 +94,4 @@ private:
     std::string _expr_name;
     LambdaFunctionPtr _lambda_function;
 };
-} // namespace doris::vectorized
+} // namespace doris

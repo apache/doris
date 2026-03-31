@@ -19,7 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.SearchDslParser;
+import org.apache.doris.catalog.info.IndexType;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 import org.apache.doris.thrift.TSearchFieldBinding;
@@ -93,7 +93,7 @@ public class SearchPredicateTest {
 
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
-        String sql = predicate.toSqlImpl(false, false, null, null);
+        String sql = predicate.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE);
         Assertions.assertEquals("search('title:hello')", sql);
     }
 
@@ -107,7 +107,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         Assertions.assertEquals(TExprNodeType.SEARCH_EXPR, thriftNode.node_type);
         Assertions.assertNotNull(thriftNode.search_param);
@@ -140,7 +140,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertEquals(dsl, param.original_dsl);
@@ -154,6 +154,35 @@ public class SearchPredicateTest {
     }
 
     @Test
+    public void testNestedRelativeFieldsAreNormalizedBeforeThrift() {
+        String dsl = "NESTED(data.items, msg:hello AND meta.channel:action)";
+        SearchDslParser.QsPlan plan = SearchDslParser.parseDsl(dsl, "{\"mode\":\"standard\"}");
+        List<Expr> children = Arrays.asList(createTestSlotRef("data"), createTestSlotRef("data"));
+
+        SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
+
+        TExprNode thriftNode = new TExprNode();
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
+
+        TSearchParam param = thriftNode.search_param;
+        Assertions.assertNotNull(param);
+        Assertions.assertEquals("NESTED", param.root.clause_type);
+        Assertions.assertEquals("data.items", param.root.nested_path);
+        Assertions.assertEquals(1, param.root.children.size());
+        Assertions.assertEquals("AND", param.root.children.get(0).clause_type);
+        Assertions.assertEquals("data.items.msg", param.root.children.get(0).children.get(0).field_name);
+        Assertions.assertEquals("data.items.meta.channel", param.root.children.get(0).children.get(1).field_name);
+
+        Assertions.assertEquals(2, param.field_bindings.size());
+        Assertions.assertEquals("data.items.msg", param.field_bindings.get(0).field_name);
+        Assertions.assertEquals("data", param.field_bindings.get(0).parent_field_name);
+        Assertions.assertEquals("items.msg", param.field_bindings.get(0).subcolumn_path);
+        Assertions.assertEquals("data.items.meta.channel", param.field_bindings.get(1).field_name);
+        Assertions.assertEquals("data", param.field_bindings.get(1).parent_field_name);
+        Assertions.assertEquals("items.meta.channel", param.field_bindings.get(1).subcolumn_path);
+    }
+
+    @Test
     public void testClone() {
         String dsl = "title:hello";
         SearchDslParser.QsPlan plan = createTestPlan();
@@ -163,8 +192,8 @@ public class SearchPredicateTest {
         SearchPredicate cloned = (SearchPredicate) original.clone();
 
         Assertions.assertNotNull(cloned);
-        Assertions.assertEquals(original.toSqlImpl(false, false, null, null),
-                cloned.toSqlImpl(false, false, null, null));
+        Assertions.assertEquals(original.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE),
+                cloned.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE));
         Assertions.assertEquals(original.getChildren().size(), cloned.getChildren().size());
     }
 
@@ -219,7 +248,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertEquals(dsl, param.original_dsl);
@@ -251,7 +280,7 @@ public class SearchPredicateTest {
         Assertions.assertEquals(0, predicate.getChildren().size());
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         Assertions.assertNotNull(thriftNode.search_param);
         Assertions.assertEquals(dsl, thriftNode.search_param.original_dsl);
@@ -276,14 +305,14 @@ public class SearchPredicateTest {
         indexProps.put("parser", "unicode");
         indexProps.put("lower_case", "true");
         Index invertedIndex = new Index(1L, "idx_text", Arrays.asList("data"),
-                org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType.INVERTED, indexProps, "");
+                IndexType.INVERTED, indexProps, "");
 
         List<Index> fieldIndexes = Arrays.asList(invertedIndex);
 
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, fieldIndexes, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertNotNull(param);
@@ -314,7 +343,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, fieldIndexes, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         TSearchFieldBinding binding = param.field_bindings.get(0);
@@ -335,7 +364,7 @@ public class SearchPredicateTest {
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         TSearchFieldBinding binding = param.field_bindings.get(0);
@@ -369,14 +398,14 @@ public class SearchPredicateTest {
         indexProps.put("parser", "unicode");
         indexProps.put("lower_case", "true");
         Index variantIndex = new Index(1L, "idx_text", Arrays.asList("data"),
-                org.apache.doris.nereids.trees.plans.commands.info.IndexDefinition.IndexType.INVERTED, indexProps, "");
+                IndexType.INVERTED, indexProps, "");
 
         List<Index> fieldIndexes = Arrays.asList(null, variantIndex);
 
         SearchPredicate predicate = new SearchPredicate(dsl, plan, children, fieldIndexes, true);
 
         TExprNode thriftNode = new TExprNode();
-        predicate.toThrift(thriftNode);
+        predicate.accept(ExprToThriftVisitor.INSTANCE, thriftNode);
 
         TSearchParam param = thriftNode.search_param;
         Assertions.assertEquals(2, param.field_bindings.size());

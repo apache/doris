@@ -18,7 +18,7 @@
 package org.apache.doris.nereids.trees.plans.commands.info;
 
 import org.apache.doris.alter.AlterOpType;
-import org.apache.doris.common.util.PrintableMap;
+import org.apache.doris.common.util.DatasourcePrintableMap;
 
 import java.util.Map;
 
@@ -42,7 +42,8 @@ public class AlterLoadErrorUrlOp extends AlterSystemOp {
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("ALTER SYSTEM SET LOAD ERRORS HUB PROPERTIES(");
-        PrintableMap<String, String> printableMap = new PrintableMap<>(properties, "=", true, true, true);
+        DatasourcePrintableMap<String, String> printableMap =
+                new DatasourcePrintableMap<>(properties, "=", true, true, true);
         sb.append(printableMap.toString());
         sb.append(")");
         return sb.toString();

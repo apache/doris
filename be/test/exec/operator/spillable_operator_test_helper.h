@@ -24,18 +24,19 @@
 #include <gtest/gtest.h>
 
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "common/object_pool.h"
 #include "core/block/block.h"
 #include "exec/pipeline/pipeline_task.h"
-#include "exec/spill/spill_stream_manager.h"
+#include "exec/spill/spill_file_manager.h"
 #include "runtime/runtime_profile.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 
-class MockPartitioner : public vectorized::PartitionerBase {
+class MockPartitioner : public PartitionerBase {
 public:
     MockPartitioner(size_t partition_count) : PartitionerBase(partition_count) {}
     Status init(const std::vector<TExpr>& texprs) override { return Status::OK(); }
@@ -48,7 +49,7 @@ public:
 
     Status close(RuntimeState* state) override { return Status::OK(); }
 
-    Status do_partitioning(RuntimeState* state, vectorized::Block* block) const override {
+    Status do_partitioning(RuntimeState* state, Block* block) const override {
         return Status::OK();
     }
 
@@ -63,14 +64,14 @@ private:
     std::vector<HashValType> _mocked_hash_vals;
 };
 
-class MockExpr : public vectorized::VExpr {
+class MockExpr : public VExpr {
 public:
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                   vectorized::VExprContext* context) override {
+                   VExprContext* context) override {
         return Status::OK();
     }
 
-    Status open(RuntimeState* state, vectorized::VExprContext* context,
+    Status open(RuntimeState* state, VExprContext* context,
                 FunctionContext::FunctionStateScope scope) override {
         return Status::OK();
     }
@@ -79,15 +80,19 @@ public:
 class SpillableDebugPointHelper {
 public:
     SpillableDebugPointHelper(const std::string name)
-            : _enable_debug_points(config::enable_debug_points) {
+            : _enable_debug_points(config::enable_debug_points), _debug_point_name(name) {
         config::enable_debug_points = true;
         DebugPoints::instance()->add(name);
     }
 
-    ~SpillableDebugPointHelper() { config::enable_debug_points = _enable_debug_points; }
+    ~SpillableDebugPointHelper() {
+        DebugPoints::instance()->remove(_debug_point_name);
+        config::enable_debug_points = _enable_debug_points;
+    }
 
 private:
     const bool _enable_debug_points;
+    const std::string _debug_point_name;
 };
 
 class SpillableOperatorTestHelper {
@@ -110,4 +115,4 @@ public:
     DescriptorTbl* desc_tbl;
     static constexpr uint32_t TEST_PARTITION_COUNT = 8;
 };
-} // namespace doris::pipeline
+} // namespace doris

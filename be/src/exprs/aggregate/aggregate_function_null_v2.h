@@ -34,7 +34,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_distinct.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 template <typename NestFunction, bool result_is_nullable, typename Derived>
@@ -595,6 +595,6 @@ public:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #include "common/compile_check_end.h"

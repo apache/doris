@@ -25,7 +25,7 @@
 #include "core/types.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(ColumnWithTypeAndNameTest, get_nested_test) {
     ColumnWithTypeAndName column_with_type_and_name;
@@ -40,4 +40,4 @@ TEST(ColumnWithTypeAndNameTest, get_nested_test) {
     EXPECT_EQ(result.column->size(), 3);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

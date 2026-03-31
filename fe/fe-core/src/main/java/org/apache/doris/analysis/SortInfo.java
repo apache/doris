@@ -79,10 +79,6 @@ public class SortInfo {
         return isAscOrder;
     }
 
-    public List<Boolean> getNullsFirstParams() {
-        return nullsFirstParams;
-    }
-
     public void setUseTwoPhaseRead() {
         useTwoPhaseRead = true;
     }
@@ -115,7 +111,7 @@ public class SortInfo {
      */
     public TSortInfo toThrift() {
         TSortInfo sortInfo = new TSortInfo(
-                Expr.treesToThrift(orderingExprs),
+                ExprToThriftVisitor.treesToThrift(orderingExprs),
                 isAscOrder,
                 nullsFirstParams);
         if (useTwoPhaseRead) {

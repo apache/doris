@@ -30,7 +30,7 @@ class RowDescriptor;
 class RuntimeState;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 Status VSortExecExprs::init(const TSortInfo& sort_info, ObjectPool* pool) {
     return init(sort_info.ordering_exprs,
@@ -84,4 +84,4 @@ Status VSortExecExprs::clone(RuntimeState* state, VSortExecExprs& new_exprs) {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

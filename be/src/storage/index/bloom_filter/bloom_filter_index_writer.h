@@ -69,12 +69,8 @@ private:
 // `BloomFilterIndexWriterImpl`, so vector can be used to accelerate.
 class PrimaryKeyBloomFilterIndexWriterImpl : public BloomFilterIndexWriter {
 public:
-    explicit PrimaryKeyBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options,
-                                                  const TypeInfo* type_info)
-            : _bf_options(bf_options),
-              _type_info(type_info),
-              _has_null(false),
-              _bf_buffer_size(0) {}
+    explicit PrimaryKeyBloomFilterIndexWriterImpl(const BloomFilterOptions& bf_options)
+            : _bf_options(bf_options), _has_null(false), _bf_buffer_size(0) {}
 
     ~PrimaryKeyBloomFilterIndexWriterImpl() override {
         for (auto& bf : _bfs) {
@@ -101,8 +97,7 @@ public:
 
 private:
     BloomFilterOptions _bf_options;
-    const TypeInfo* _type_info = nullptr;
-    vectorized::Arena _arena;
+    Arena _arena;
     bool _has_null;
     uint64_t _bf_buffer_size;
     // distinct values
@@ -128,7 +123,7 @@ private:
     BloomFilterOptions _bf_options;
     uint8_t _gram_size;
     uint16_t _bf_size;
-    vectorized::Arena _arena;
+    Arena _arena;
     uint64_t _bf_buffer_size;
     NgramTokenExtractor _token_extractor;
     std::unique_ptr<BloomFilter> _bf;

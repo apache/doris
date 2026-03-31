@@ -26,11 +26,11 @@
 #include "io/file_factory.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 VTVFTableWriter::VTVFTableWriter(const TDataSink& t_sink, const VExprContextSPtrs& output_exprs,
-                                 std::shared_ptr<pipeline::Dependency> dep,
-                                 std::shared_ptr<pipeline::Dependency> fin_dep)
+                                 std::shared_ptr<Dependency> dep,
+                                 std::shared_ptr<Dependency> fin_dep)
         : AsyncResultWriter(output_exprs, dep, fin_dep) {
     _tvf_sink = t_sink.tvf_table_sink;
 }
@@ -58,7 +58,7 @@ Status VTVFTableWriter::open(RuntimeState* state, RuntimeProfile* profile) {
     return _create_next_file_writer();
 }
 
-Status VTVFTableWriter::write(RuntimeState* state, vectorized::Block& block) {
+Status VTVFTableWriter::write(RuntimeState* state, Block& block) {
     COUNTER_UPDATE(_written_rows_counter, block.rows());
     state->update_num_rows_load_total(block.rows());
 
@@ -169,4 +169,4 @@ Status VTVFTableWriter::_get_next_file_name(std::string* file_name) {
     return Status::OK();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

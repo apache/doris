@@ -30,7 +30,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::pipeline {
+namespace doris {
 class SpillSortSinkOperatorTest : public testing::Test {
 protected:
     void SetUp() override { _helper.SetUp(); }
@@ -125,16 +125,15 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    vectorized::Block empty_block;
+    Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
@@ -146,15 +145,15 @@ TEST_F(SpillSortSinkOperatorTest, Sink) {
     ASSERT_TRUE(sorter != nullptr);
 
     bool eos = false;
-    std::unique_ptr<vectorized::MutableBlock> mutable_column;
+    std::unique_ptr<MutableBlock> mutable_column;
     while (!eos) {
-        vectorized::Block block;
+        Block block;
         st = sorter->get_next(_helper.runtime_state.get(), &block, &eos);
         ASSERT_TRUE(st.ok()) << "get_next failed: " << st.to_string();
 
         if (!block.empty()) {
             if (mutable_column == nullptr) {
-                mutable_column = vectorized::MutableBlock::create_unique(std::move(block));
+                mutable_column = MutableBlock::create_unique(std::move(block));
             } else {
                 st = mutable_column->merge(std::move(block));
                 ASSERT_TRUE(st.ok()) << "merge failed: " << st.to_string();
@@ -223,33 +222,28 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
-    auto input_block2 = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block2 = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
     input_block2.insert(
-            vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-                    {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block2, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    ASSERT_GT(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
-
     // Because there are some rows in the sorter,
     // the sink operator will revoke memory when sinking eos with empty block.
-    vectorized::Block empty_block;
+    Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
@@ -293,21 +287,20 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpill2) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
 
     ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
 
-    vectorized::Block empty_block;
+    Block empty_block;
     st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
@@ -350,20 +343,144 @@ TEST_F(SpillSortSinkOperatorTest, SinkWithSpillError) {
     st = sink_local_state->open(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
-    auto input_block = vectorized::ColumnHelper::create_block<vectorized::DataTypeInt32>(
-            {1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>({1, 2, 3, 4, 5, 5, 4, 3, 2, 1});
 
-    input_block.insert(vectorized::ColumnHelper::create_column_with_name<vectorized::DataTypeInt64>(
-            {10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
+    input_block.insert(
+            ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6, 5, 4, 3, 2, 1}));
 
     st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
     ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
 
-    SpillableDebugPointHelper dp_helper("fault_inject::spill_stream::spill_block");
+    SpillableDebugPointHelper dp_helper("fault_inject::spill_file::spill_block");
 
-    st = sink_operator->revoke_memory(_helper.runtime_state.get(), nullptr);
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
 
     ASSERT_FALSE(st.ok()) << "spilll status should be failed";
 }
 
-} // namespace doris::pipeline
+// Test multiple consecutive revoke_memory calls to verify repeated spilling works.
+TEST_F(SpillSortSinkOperatorTest, SinkMultipleRevokes) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    auto tnode = _helper.create_test_plan_node();
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    ASSERT_TRUE(shared_state != nullptr);
+
+    shared_state->create_source_dependency(sink_operator->operator_id(), sink_operator->node_id(),
+                                           "SpillSortSinkOperatorTest");
+
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = _helper.operator_profile.get(),
+                             .sender_id = 0,
+                             .shared_state = shared_state.get(),
+                             .shared_state_map = {},
+                             .tsink = {}};
+
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* sink_local_state = reinterpret_cast<SpillSortSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr);
+
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    // Perform 3 rounds of sink → revoke
+    for (int round = 0; round < 3; ++round) {
+        auto input_block = ColumnHelper::create_block<DataTypeInt32>(
+                {1 + round, 2 + round, 3 + round, 4 + round, 5 + round});
+        input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>({10, 9, 8, 7, 6}));
+
+        st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
+        ASSERT_TRUE(st.ok()) << "sink failed on round " << round << ": " << st.to_string();
+
+        st = sink_operator->revoke_memory(_helper.runtime_state.get());
+        ASSERT_TRUE(st.ok()) << "revoke_memory failed on round " << round << ": " << st.to_string();
+
+        ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0)
+                << "revocable_mem_size should be 0 after revoke on round " << round;
+    }
+
+    // After 3 rounds of spilling, should have 3 spill files
+    ASSERT_EQ(shared_state->sorted_spill_groups.size(), 3)
+            << "Should have 3 spill groups after 3 revokes";
+
+    ASSERT_TRUE(shared_state->is_spilled) << "is_spilled should be true after revoke";
+}
+
+// Test sinking large data (>1M rows), then verify spill counters.
+TEST_F(SpillSortSinkOperatorTest, SinkLargeDataWithSpill) {
+    auto [source_operator, sink_operator] = _helper.create_operators();
+
+    auto tnode = _helper.create_test_plan_node();
+    auto st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
+
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state =
+            std::dynamic_pointer_cast<SpillSortSharedState>(sink_operator->create_shared_state());
+    ASSERT_TRUE(shared_state != nullptr);
+
+    shared_state->create_source_dependency(sink_operator->operator_id(), sink_operator->node_id(),
+                                           "SpillSortSinkOperatorTest");
+
+    LocalSinkStateInfo info {.task_idx = 0,
+                             .parent_profile = _helper.operator_profile.get(),
+                             .sender_id = 0,
+                             .shared_state = shared_state.get(),
+                             .shared_state_map = {},
+                             .tsink = {}};
+
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* sink_local_state = reinterpret_cast<SpillSortSinkLocalState*>(
+            _helper.runtime_state->get_sink_local_state());
+    ASSERT_TRUE(sink_local_state != nullptr);
+
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
+
+    // Create large data
+    const size_t count = 100000;
+    std::vector<int32_t> data(count);
+    std::iota(data.begin(), data.end(), 0);
+    std::vector<int64_t> data2(count);
+    std::iota(data2.begin(), data2.end(), 0);
+
+    auto input_block = ColumnHelper::create_block<DataTypeInt32>(data);
+    input_block.insert(ColumnHelper::create_column_with_name<DataTypeInt64>(data2));
+
+    st = sink_operator->sink(_helper.runtime_state.get(), &input_block, false);
+    ASSERT_TRUE(st.ok()) << "sink failed: " << st.to_string();
+
+    ASSERT_GT(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
+
+    st = sink_operator->revoke_memory(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "revoke_memory failed: " << st.to_string();
+
+    ASSERT_EQ(sink_operator->revocable_mem_size(_helper.runtime_state.get()), 0);
+    ASSERT_TRUE(shared_state->is_spilled);
+
+    auto* spill_write_rows = sink_local_state->custom_profile()->get_counter("SpillWriteRows");
+    ASSERT_TRUE(spill_write_rows != nullptr);
+    ASSERT_EQ(spill_write_rows->value(), count)
+            << "SpillWriteRows should match the number of rows sunk";
+
+    // Sink empty EOS after spill
+    Block empty_block;
+    st = sink_operator->sink(_helper.runtime_state.get(), &empty_block, true);
+    ASSERT_TRUE(st.ok()) << "sink eos failed: " << st.to_string();
+}
+
+} // namespace doris

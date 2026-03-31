@@ -30,9 +30,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaSchemaPrivilegesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
@@ -82,7 +80,7 @@ Status SchemaSchemaPrivilegesScanner::_get_new_table() {
     return Status::OK();
 }
 
-Status SchemaSchemaPrivilegesScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaSchemaPrivilegesScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
@@ -97,7 +95,7 @@ Status SchemaSchemaPrivilegesScanner::get_next_block_internal(vectorized::Block*
     return _fill_block_impl(block);
 }
 
-Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaSchemaPrivilegesScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto privileges_num = _priv_result.privileges.size();
     std::vector<void*> datas(privileges_num);

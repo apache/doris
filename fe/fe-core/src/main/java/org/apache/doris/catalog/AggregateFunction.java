@@ -17,13 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.common.util.URI;
-import org.apache.doris.thrift.TAggregateFunction;
-import org.apache.doris.thrift.TFunction;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
-import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Arrays;
@@ -81,7 +76,7 @@ public class AggregateFunction extends Function {
             URI location, String updateFnSymbol, String initFnSymbol,
             String serializeFnSymbol, String mergeFnSymbol, String getValueFnSymbol,
             String removeFnSymbol, String finalizeFnSymbol, boolean ignoresDistinct,
-            boolean isAnalyticFn, boolean returnsNonNullOnEmpty, TFunctionBinaryType binaryType,
+            boolean isAnalyticFn, boolean returnsNonNullOnEmpty, BinaryType binaryType,
             boolean userVisible, boolean vectorized, NullableMode nullableMode) {
         // only `count` is always not nullable, other aggregate function is always nullable
         super(0, fnName, argTypes, retType, hasVarArgs, binaryType, userVisible, vectorized, nullableMode);
@@ -133,7 +128,7 @@ public class AggregateFunction extends Function {
     }
 
     public static class AggregateFunctionBuilder {
-        TFunctionBinaryType binaryType;
+        BinaryType binaryType;
         FunctionName name;
         Type[] argTypes;
         Type retType;
@@ -149,12 +144,12 @@ public class AggregateFunction extends Function {
         String getValueFnSymbol;
         String symbolName;
 
-        private AggregateFunctionBuilder(TFunctionBinaryType binaryType) {
+        private AggregateFunctionBuilder(BinaryType binaryType) {
             this.binaryType = binaryType;
         }
 
         public static AggregateFunctionBuilder createUdfBuilder() {
-            return new AggregateFunctionBuilder(TFunctionBinaryType.JAVA_UDF);
+            return new AggregateFunctionBuilder(BinaryType.JAVA_UDF);
         }
 
         public AggregateFunctionBuilder name(FunctionName name) {
@@ -222,7 +217,7 @@ public class AggregateFunction extends Function {
             return this;
         }
 
-        public AggregateFunctionBuilder binaryType(TFunctionBinaryType binaryType) {
+        public AggregateFunctionBuilder binaryType(BinaryType binaryType) {
             this.binaryType = binaryType;
             return this;
         }
@@ -331,93 +326,4 @@ public class AggregateFunction extends Function {
         intermediateType = t;
     }
 
-    @Override
-    public String toSql(boolean ifNotExists) {
-        StringBuilder sb = new StringBuilder("CREATE ");
-
-        if (this.isGlobal) {
-            sb.append("GLOBAL ");
-        }
-        sb.append("AGGREGATE FUNCTION ");
-
-        if (ifNotExists) {
-            sb.append("IF NOT EXISTS ");
-        }
-
-        sb.append(signatureString()).append(" RETURNS " + getReturnType());
-        if (getIntermediateType() != null) {
-            sb.append(" INTERMEDIATE " + getIntermediateType());
-        }
-
-        sb.append(" PROPERTIES (");
-        if (getBinaryType() != TFunctionBinaryType.JAVA_UDF) {
-            sb.append("\n  \"INIT_FN\"=\"" + getInitFnSymbol() + "\",")
-                    .append("\n  \"UPDATE_FN\"=\"" + getUpdateFnSymbol() + "\",")
-                    .append("\n  \"MERGE_FN\"=\"" + getMergeFnSymbol() + "\",");
-            if (getSerializeFnSymbol() != null) {
-                sb.append("\n  \"SERIALIZE_FN\"=\"" + getSerializeFnSymbol() + "\",");
-            }
-            if (getFinalizeFnSymbol() != null) {
-                sb.append("\n  \"FINALIZE_FN\"=\"" + getFinalizeFnSymbol() + "\",");
-            }
-        }
-        if (getSymbolName() != null) {
-            sb.append("\n  \"SYMBOL\"=\"" + getSymbolName() + "\",");
-        }
-
-        if (getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
-            sb.append("\n  \"FILE\"=")
-                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\",");
-            boolean isReturnNull = this.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
-            sb.append("\n  \"ALWAYS_NULLABLE\"=").append("\"" + isReturnNull + "\",");
-        } else {
-            sb.append("\n  \"OBJECT_FILE\"=")
-                    .append("\"" + (getLocation() == null ? "" : getLocation().toString()) + "\",");
-        }
-        sb.append("\n  \"TYPE\"=").append("\"" + this.getBinaryType() + "\"");
-        sb.append("\n);");
-        return sb.toString();
-    }
-
-    @Override
-    public TFunction toThrift(Type realReturnType, Type[] realArgTypes, Boolean[] realArgTypeNullables) {
-        TFunction fn = super.toThrift(realReturnType, realArgTypes, realArgTypeNullables);
-        TAggregateFunction aggFn = new TAggregateFunction();
-        aggFn.setIsAnalyticOnlyFn(isAnalyticFn && !isAggregateFn);
-        aggFn.setUpdateFnSymbol(updateFnSymbol);
-        aggFn.setInitFnSymbol(initFnSymbol);
-        if (serializeFnSymbol != null) {
-            aggFn.setSerializeFnSymbol(serializeFnSymbol);
-        }
-        aggFn.setMergeFnSymbol(mergeFnSymbol);
-        if (getValueFnSymbol != null) {
-            aggFn.setGetValueFnSymbol(getValueFnSymbol);
-        }
-        if (removeFnSymbol != null) {
-            aggFn.setRemoveFnSymbol(removeFnSymbol);
-        }
-        if (finalizeFnSymbol != null) {
-            aggFn.setFinalizeFnSymbol(finalizeFnSymbol);
-        }
-        if (symbolName != null) {
-            aggFn.setSymbol(symbolName);
-        }
-        if (intermediateType != null) {
-            aggFn.setIntermediateType(intermediateType.toThrift());
-        } else {
-            aggFn.setIntermediateType(getReturnType().toThrift());
-        }
-        //    agg_fn.setIgnores_distinct(ignoresDistinct);
-        fn.setAggregateFn(aggFn);
-
-        // Set runtime_version and function_code for Python UDAF
-        if (getBinaryType() == TFunctionBinaryType.PYTHON_UDF) {
-            if (!Strings.isNullOrEmpty(functionCode)) {
-                fn.setFunctionCode(functionCode);
-            }
-            fn.setRuntimeVersion(runtimeVersion);
-        }
-
-        return fn;
-    }
 }

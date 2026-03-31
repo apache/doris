@@ -39,7 +39,7 @@
 #include "gtest/gtest.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct DataTypeSerDeFromStringTest : public ::testing::Test {
     void SetUp() override {
@@ -673,4 +673,4 @@ TEST_F(DataTypeSerDeFromStringTest, timeTest) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

@@ -397,8 +397,8 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     _output_rowset = _output_rs_writer->manual_build(rowset_meta);
 
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
-            _input_rowsets, _output_rowset, _tablet));
+    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(_input_rowsets,
+                                                                          _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -447,9 +447,8 @@ Status CompactionMixin::build_basic_info(bool is_ordered_compaction) {
     // so get_extended_compaction_schema will extended the schema for variant columns
     // for ordered compaction, we don't need to extend the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns && !is_ordered_compaction) {
-        RETURN_IF_ERROR(
-                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                        _input_rowsets, _cur_tablet_schema));
+        RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();
 }
@@ -820,7 +819,7 @@ Status Compaction::do_inverted_index_compaction() {
                 fs,
                 std::string {InvertedIndexDescriptor::get_index_file_path_prefix(seg_path.value())},
                 _cur_tablet_schema->get_inverted_index_storage_format(),
-                rowset->rowset_meta()->inverted_index_file_info(seg_id));
+                rowset->rowset_meta()->inverted_index_file_info(seg_id), _tablet->tablet_id());
         auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
         DBUG_EXECUTE_IF("Compaction::do_inverted_index_compaction_init_inverted_index_file_reader",
                         {
@@ -1021,7 +1020,7 @@ static bool check_rowset_has_inverted_index(const RowsetSharedPtr& src_rs, int32
                         std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                                 seg_path.value())},
                         cur_tablet_schema->get_inverted_index_storage_format(),
-                        rowset->rowset_meta()->inverted_index_file_info(i));
+                        rowset->rowset_meta()->inverted_index_file_info(i), tablet->tablet_id());
                 auto st = index_file_reader->init(config::inverted_index_read_buffer_size);
                 index_file_path = index_file_reader->get_index_file_path(index_meta);
                 DBUG_EXECUTE_IF(
@@ -1451,8 +1450,8 @@ Status Compaction::check_correctness() {
                 _output_rowset->num_rows());
     }
     // 2. check variant column path stats
-    RETURN_IF_ERROR(vectorized::variant_util::VariantCompactionUtil::check_path_stats(
-            _input_rowsets, _output_rowset, _tablet));
+    RETURN_IF_ERROR(variant_util::VariantCompactionUtil::check_path_stats(_input_rowsets,
+                                                                          _output_rowset, _tablet));
     return Status::OK();
 }
 
@@ -1514,9 +1513,8 @@ Status CloudCompactionMixin::build_basic_info() {
     // if enable_vertical_compact_variant_subcolumns is true, we need to compact the variant subcolumns in seperate column groups
     // so get_extended_compaction_schema will extended the schema for variant columns
     if (_enable_vertical_compact_variant_subcolumns) {
-        RETURN_IF_ERROR(
-                vectorized::variant_util::VariantCompactionUtil::get_extended_compaction_schema(
-                        _input_rowsets, _cur_tablet_schema));
+        RETURN_IF_ERROR(variant_util::VariantCompactionUtil::get_extended_compaction_schema(
+                _input_rowsets, _cur_tablet_schema));
     }
     return Status::OK();
 }

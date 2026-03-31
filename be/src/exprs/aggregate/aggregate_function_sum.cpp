@@ -23,7 +23,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
@@ -49,4 +49,4 @@ void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
     factory.register_alias("sum", "sum0");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

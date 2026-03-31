@@ -34,7 +34,7 @@ struct ColumnMapping {
     // >=0: use origin column
     int32_t ref_column_idx = -1;
     // normally for default value. stores values for filters
-    vectorized::Field default_value;
+    Field default_value;
     std::shared_ptr<TExpr> expr;
     const TabletColumn* new_column = nullptr;
 };

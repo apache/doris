@@ -52,7 +52,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename Impl>
 class FunctionConv : public IFunction {
@@ -225,4 +225,4 @@ void register_function_conv(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionConv<ConvStringImpl>>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

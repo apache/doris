@@ -33,7 +33,7 @@
 #include "core/types.h"
 #include "exprs/aggregate/aggregate_function.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class VExprContext;
@@ -64,7 +64,7 @@ std::string VLiteral::value(const DataTypeSerDe::FormatOptions& options) const {
 
 #ifdef BE_TEST
 std::string VLiteral::value() const {
-    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto format_options = DataTypeSerDe::get_default_format_options();
     auto timezone = cctz::utc_time_zone();
     format_options.timezone = &timezone;
     return value(format_options);
@@ -72,7 +72,7 @@ std::string VLiteral::value() const {
 #endif
 
 std::string VLiteral::debug_string() const {
-    auto format_options = vectorized::DataTypeSerDe::get_default_format_options();
+    auto format_options = DataTypeSerDe::get_default_format_options();
     auto timezone = cctz::utc_time_zone();
     format_options.timezone = &timezone;
 
@@ -111,4 +111,4 @@ uint64_t VLiteral::get_digest(uint64_t seed) const {
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::vectorized
+} // namespace doris

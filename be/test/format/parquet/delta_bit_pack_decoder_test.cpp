@@ -27,7 +27,7 @@
 #include "parquet/types.h"
 #include "util/slice.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DeltaBitPackDecoderTest : public ::testing::Test {
 protected:
@@ -269,4 +269,4 @@ TEST_F(DeltaBitPackDecoderTest, test_invalid_data) {
     ASSERT_FALSE(_decoder->decode_values(column, data_type, select_vector, false).ok());
 }
 
-} // namespace doris::vectorized
+} // namespace doris

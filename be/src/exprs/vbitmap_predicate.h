@@ -32,13 +32,11 @@ class BitmapFilterFuncBase;
 class RowDescriptor;
 class RuntimeState;
 class TExprNode;
-namespace vectorized {
 class Block;
 class VExprContext;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // used for bitmap runtime filter
 class VBitmapPredicate final : public VExpr {
@@ -82,4 +80,4 @@ private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;
     inline static const std::string EXPR_NAME = "bitmap_predicate";
 };
-} // namespace doris::vectorized
+} // namespace doris

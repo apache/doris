@@ -28,7 +28,7 @@
 #include "core/data_type/data_type_struct.h"
 #include "core/field.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct DataTypeTestCases {
     FieldVector field_values;
@@ -114,4 +114,4 @@ TEST(ToStringMethodTest, DataTypeToStringTest) {
         ASSERT_EQ(cases.expect_values[i], to);
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -53,7 +53,7 @@
 // 4. compare: equals (const IDataType &rhs)
 // 5. others: update_avg_value_size_hint (const IColumn &column, double &avg_value_size_hint)
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeArrayTest : public CommonDataTypeTest {
 protected:
@@ -622,4 +622,4 @@ TEST_F(DataTypeArrayTest, GetFieldWithDataTypeTest) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

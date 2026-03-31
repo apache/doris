@@ -65,9 +65,8 @@ public:
 
     PredicateType type() const override { return _nested->type(); }
 
-    Status evaluate(const vectorized::IndexFieldNameAndTypePair& name_with_type,
-                    IndexIterator* iterator, uint32_t num_rows,
-                    roaring::Roaring* bitmap) const override {
+    Status evaluate(const IndexFieldNameAndTypePair& name_with_type, IndexIterator* iterator,
+                    uint32_t num_rows, roaring::Roaring* bitmap) const override {
         roaring::Roaring null_rows_in_bitmap;
         if (iterator != nullptr) {
             bool has_null = DORIS_TRY(iterator->has_null());
@@ -85,13 +84,13 @@ public:
         return Status::OK();
     }
 
-    void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_and(const IColumn& column, const uint16_t* sel, uint16_t size,
                       bool* flags) const override {
         if (column.has_null()) {
             std::vector<uint8_t> original_flags(size);
             memcpy(original_flags.data(), flags, size);
 
-            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             _nested->evaluate_and(nullable_col.get_nested_column(), sel, size, flags);
             const auto& nullmap = nullable_col.get_null_map_data();
             for (uint16_t i = 0; i < size; ++i) {
@@ -102,7 +101,7 @@ public:
         }
     }
 
-    void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
+    void evaluate_or(const IColumn& column, const uint16_t* sel, uint16_t size,
                      bool* flags) const override {
         DCHECK(false) << "should not reach here";
     }
@@ -115,14 +114,14 @@ public:
         return _nested->evaluate_and(zone_map);
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::ColumnStat* statistic) const override {
+    bool evaluate_and(ParquetPredicate::ColumnStat* statistic) const override {
         return _nested->evaluate_and(statistic) || statistic->has_null;
     }
 
-    bool evaluate_and(vectorized::ParquetPredicate::CachedPageIndexStat* statistic,
+    bool evaluate_and(ParquetPredicate::CachedPageIndexStat* statistic,
                       RowRanges* row_ranges) const override {
         _nested->evaluate_and(statistic, row_ranges);
-        vectorized::ParquetPredicate::PageIndexStat* stat = nullptr;
+        ParquetPredicate::PageIndexStat* stat = nullptr;
         if (!(statistic->get_stat_func)(&stat, column_id())) {
             return true;
         }
@@ -145,10 +144,9 @@ public:
         return _nested->can_do_bloom_filter(ngram);
     }
 
-    void evaluate_vec(const vectorized::IColumn& column, uint16_t size,
-                      bool* flags) const override {
+    void evaluate_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         if (column.has_null()) {
-            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             _nested->evaluate_vec(nullable_col.get_nested_column(), size, flags);
             for (uint16_t i = 0; i < size; ++i) {
                 if (!flags[i] && nullable_col.is_null_at(i)) {
@@ -161,14 +159,13 @@ public:
         }
     }
 
-    void evaluate_and_vec(const vectorized::IColumn& column, uint16_t size,
-                          bool* flags) const override {
+    void evaluate_and_vec(const IColumn& column, uint16_t size, bool* flags) const override {
         if (column.has_null()) {
             // copy original flags
             std::vector<uint8_t> original_flags(size);
             memcpy(original_flags.data(), flags, size);
 
-            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             // call evaluate_and_vec and restore true for NULL rows
             _nested->evaluate_and_vec(nullable_col.get_nested_column(), size, flags);
             for (uint16_t i = 0; i < size; ++i) {
@@ -184,8 +181,7 @@ public:
     std::string get_search_str() const override { return _nested->get_search_str(); }
 
 private:
-    uint16_t _evaluate_inner(const vectorized::IColumn& column, uint16_t* sel,
-                             uint16_t size) const override {
+    uint16_t _evaluate_inner(const IColumn& column, uint16_t* sel, uint16_t size) const override {
         if (column.has_null()) {
             if (size == 0) {
                 return 0;
@@ -195,7 +191,7 @@ private:
             std::vector<uint16_t> old_sel(size);
             memcpy(old_sel.data(), sel, sizeof(uint16_t) * size);
 
-            const auto& nullable_col = assert_cast<const vectorized::ColumnNullable&>(column);
+            const auto& nullable_col = assert_cast<const ColumnNullable&>(column);
             // call nested predicate evaluate
             uint16_t new_size = _nested->evaluate(nullable_col.get_nested_column(), sel, size);
 

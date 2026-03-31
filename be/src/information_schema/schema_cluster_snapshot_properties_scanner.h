@@ -24,9 +24,7 @@
 
 namespace doris {
 class RuntimeState;
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 class SchemaClusterSnapshotPropertiesScanner : public SchemaScanner {
     ENABLE_FACTORY_CREATOR(SchemaClusterSnapshotPropertiesScanner);
@@ -36,10 +34,10 @@ public:
     ~SchemaClusterSnapshotPropertiesScanner() override;
 
     Status start(RuntimeState* state) override;
-    Status get_next_block_internal(vectorized::Block* block, bool* eos) override;
+    Status get_next_block_internal(Block* block, bool* eos) override;
 
 private:
-    Status _fill_block_impl(vectorized::Block* block);
+    Status _fill_block_impl(Block* block);
 
     static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
     cloud::SnapshotSwitchStatus _switch_status;

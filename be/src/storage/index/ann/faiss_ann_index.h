@@ -194,7 +194,7 @@ public:
      * @param vec Pointer to training vector data (n * dim float values)
      * @return Status indicating success or failure
      */
-    doris::Status train(vectorized::Int64 n, const float* vec) override;
+    doris::Status train(Int64 n, const float* vec) override;
 
     /**
      * @brief Adds vectors to the index for future searches.
@@ -206,7 +206,17 @@ public:
      * @param vec Pointer to vector data (n * dim float values)
      * @return Status indicating success or failure
      */
-    doris::Status add(vectorized::Int64 n, const float* vec) override;
+    doris::Status add(Int64 n, const float* vec) override;
+
+    /**
+     * @brief Returns the minimum number of rows required for training the index.
+     *
+     * For IVF index types, this returns ivf_nlist (the number of clusters).
+     * For HNSW, this returns 0 as it doesn't require minimum training data.
+     *
+     * @return Minimum number of rows required for training
+     */
+    Int64 get_min_train_rows() const override;
 
     /**
      * @brief Sets the build parameters for the index.

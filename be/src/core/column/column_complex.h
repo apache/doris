@@ -33,7 +33,7 @@
 #include "core/types.h"
 #include "core/value/hll.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType T>
 class ColumnComplexType final : public COWHelper<IColumn, ColumnComplexType<T>> {
@@ -377,4 +377,4 @@ struct is_complex<TYPE_QUANTILE_STATE> : std::true_type {};
 template <PrimitiveType T>
 constexpr bool is_complex_v = is_complex<T>::value;
 
-} // namespace doris::vectorized
+} // namespace doris

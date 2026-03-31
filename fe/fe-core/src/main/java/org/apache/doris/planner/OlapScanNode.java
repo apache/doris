@@ -18,12 +18,15 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.ExprToSqlVisitor;
+import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
+import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
@@ -149,7 +152,6 @@ public class OlapScanNode extends ScanNode {
      */
     private boolean isPreAggregation = false;
     private String reasonOfPreAggregation = null;
-    private boolean forceOpenPreAgg = false;
     private OlapTable olapTable = null;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
@@ -201,8 +203,8 @@ public class OlapScanNode extends ScanNode {
     private Column globalRowIdColumn;
 
     // Constructs node to scan given data files of table 'tbl'.
-    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
-        super(id, desc, planNodeName);
+    public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName, ScanContext scanContext) {
+        super(id, desc, planNodeName, scanContext);
         olapTable = (OlapTable) desc.getTable();
         distributionColumnIds = Sets.newTreeSet();
 
@@ -234,20 +236,12 @@ public class OlapScanNode extends ScanNode {
         this.tableSample = tSample;
     }
 
-    public Set<Long> getNereidsPrunedTabletIds() {
-        return nereidsPrunedTabletIds;
-    }
-
     public void setNereidsPrunedTabletIds(Set<Long> nereidsPrunedTabletIds) {
         this.nereidsPrunedTabletIds = nereidsPrunedTabletIds;
     }
 
     public long getTotalTabletsNum() {
         return totalTabletsNum;
-    }
-
-    public boolean getForceOpenPreAgg() {
-        return forceOpenPreAgg;
     }
 
     public ArrayList<Long> getScanTabletIds() {
@@ -993,7 +987,8 @@ public class OlapScanNode extends ScanNode {
         if (sortInfo != null) {
             output.append(prefix).append("SORT INFO:\n");
             sortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (sortLimit != -1) {
@@ -1002,7 +997,8 @@ public class OlapScanNode extends ScanNode {
         if (scoreSortInfo != null) {
             output.append(prefix).append("SCORE SORT INFO:\n");
             scoreSortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (scoreSortLimit != -1) {
@@ -1012,7 +1008,8 @@ public class OlapScanNode extends ScanNode {
         if (annSortInfo != null) {
             output.append(prefix).append("ANN SORT INFO:\n");
             annSortInfo.getOrderingExprs().forEach(expr -> {
-                output.append(prefix).append(prefix).append(expr.toSql()).append("\n");
+                output.append(prefix).append(prefix)
+                        .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
             });
         }
         if (annSortLimit != -1) {
@@ -1028,7 +1025,8 @@ public class OlapScanNode extends ScanNode {
 
         if (!conjuncts.isEmpty()) {
             Expr expr = convertConjunctsToAndCompoundPredicate(conjuncts);
-            output.append(prefix).append("PREDICATES: ").append(expr.toSql()).append("\n");
+            output.append(prefix).append("PREDICATES: ")
+                    .append(expr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)).append("\n");
         }
 
         String selectedPartitions = getSelectedPartitionIds().stream().sorted()
@@ -1065,8 +1063,9 @@ public class OlapScanNode extends ScanNode {
     public int getNumInstances() {
         // In pipeline exec engine, the instance num equals be_num * parallel instance.
         // so here we need count distinct be_num to do the work. make sure get right instance
-        if (ConnectContext.get().getSessionVariable().isIgnoreStorageDataDistribution()) {
-            return ConnectContext.get().getSessionVariable().getParallelExecInstanceNum();
+        ConnectContext context = ConnectContext.get();
+        if (context != null && context.getSessionVariable().isIgnoreStorageDataDistribution()) {
+            return context.getSessionVariable().getParallelExecInstanceNum(scanContext.getClusterName());
         }
         return scanRangeLocations.size();
     }
@@ -1147,7 +1146,7 @@ public class OlapScanNode extends ScanNode {
         }
         if (sortInfo != null) {
             TSortInfo tSortInfo = new TSortInfo(
-                    Expr.treesToThrift(sortInfo.getOrderingExprs()),
+                    ExprToThriftVisitor.treesToThrift(sortInfo.getOrderingExprs()),
                     sortInfo.getIsAscOrder(),
                     sortInfo.getNullsFirst());
             msg.olap_scan_node.setSortInfo(tSortInfo);
@@ -1157,7 +1156,7 @@ public class OlapScanNode extends ScanNode {
         }
         if (scoreSortInfo != null) {
             TSortInfo tScoreSortInfo = new TSortInfo(
-                    Expr.treesToThrift(scoreSortInfo.getOrderingExprs()),
+                    ExprToThriftVisitor.treesToThrift(scoreSortInfo.getOrderingExprs()),
                     scoreSortInfo.getIsAscOrder(),
                     scoreSortInfo.getNullsFirst());
             msg.olap_scan_node.setScoreSortInfo(tScoreSortInfo);
@@ -1170,7 +1169,7 @@ public class OlapScanNode extends ScanNode {
         }
         if (annSortInfo != null) {
             TSortInfo tAnnSortInfo = new TSortInfo(
-                    Expr.treesToThrift(annSortInfo.getOrderingExprs()),
+                    ExprToThriftVisitor.treesToThrift(annSortInfo.getOrderingExprs()),
                     annSortInfo.getIsAscOrder(),
                     annSortInfo.getNullsFirst());
             msg.olap_scan_node.setAnnSortInfo(tAnnSortInfo);
@@ -1189,6 +1188,19 @@ public class OlapScanNode extends ScanNode {
         }
         msg.olap_scan_node.setTableName(tableName);
         msg.olap_scan_node.setEnableUniqueKeyMergeOnWrite(olapTable.getEnableUniqueKeyMergeOnWrite());
+
+        // Set MOR value predicate pushdown flag based on session variable
+        if (olapTable.isMorTable() && ConnectContext.get() != null) {
+            String dbName = olapTable.getQualifiedDbName();
+            String tblName = olapTable.getName();
+            boolean enabled = ConnectContext.get().getSessionVariable()
+                    .isMorValuePredicatePushdownEnabled(dbName, tblName);
+            msg.olap_scan_node.setEnableMorValuePredicatePushdown(enabled);
+            if (ConnectContext.get().getSessionVariable()
+                    .isReadMorAsDupEnabled(dbName, tblName)) {
+                msg.olap_scan_node.setReadMorAsDup(true);
+            }
+        }
 
         msg.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
 
@@ -1228,7 +1240,16 @@ public class OlapScanNode extends ScanNode {
                 .flatMap(tupleId -> normalizer.getDescriptorTable().getTupleDesc(tupleId).getSlots().stream())
                 .collect(Collectors.toList());
         List<Pair<SlotId, String>> selectColumns = slots.stream()
-                .map(slot -> Pair.of(slot.getId(), slot.getColumn().getName()))
+                .map(slot -> {
+                    // For variant subcolumns, use the materialized column name (e.g. "data.int_1")
+                    // to distinguish different subcolumns of the same variant column in cache digest.
+                    List<String> subColPath = slot.getSubColLables();
+                    String colName = slot.getColumn().getName();
+                    if (subColPath != null && !subColPath.isEmpty()) {
+                        colName = colName + "." + String.join(".", subColPath);
+                    }
+                    return Pair.of(slot.getId(), colName);
+                })
                 .collect(Collectors.toList());
         for (Column partitionColumn : olapTable.getPartitionInfo().getPartitionColumns()) {
             boolean selectPartitionColumn = false;
@@ -1302,11 +1323,6 @@ public class OlapScanNode extends ScanNode {
     public TupleId getTupleId() {
         Preconditions.checkNotNull(desc);
         return desc.getId();
-    }
-
-    @VisibleForTesting
-    public String getReasonOfPreAggregation() {
-        return reasonOfPreAggregation;
     }
 
     @VisibleForTesting

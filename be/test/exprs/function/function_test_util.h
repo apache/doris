@@ -62,7 +62,7 @@
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeJsonb;
 class TableFunction;
@@ -532,4 +532,4 @@ void check_function_all_arg_comb(const std::string& func_name, const InputTypeSe
         }
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

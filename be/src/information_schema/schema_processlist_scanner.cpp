@@ -26,6 +26,7 @@
 #include "core/data_type/data_type_factory.hpp"
 #include "core/data_type/define_primitive_type.h"
 #include "core/string_ref.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
 #include "information_schema/schema_helper.h"
 #include "runtime/runtime_state.h"
 
@@ -81,7 +82,7 @@ Status SchemaProcessListScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaProcessListScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaProcessListScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -97,7 +98,7 @@ Status SchemaProcessListScanner::get_next_block_internal(vectorized::Block* bloc
     return _fill_block_impl(block);
 }
 
-Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaProcessListScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
 
     const auto& process_list = _process_list_result.process_list;
@@ -139,8 +140,9 @@ Status SchemaProcessListScanner::_fill_block_impl(vectorized::Block* block) {
                 datas[row_idx] = &int_vals[row_idx];
             } else if (_s_processlist_columns[col_idx].type == TYPE_DATETIMEV2) {
                 auto* dv = reinterpret_cast<DateV2Value<DateTimeV2ValueType>*>(&int_vals[row_idx]);
-                if (!dv->from_date_str(column_value.data(), (int)column_value.size(), -1,
-                                       config::allow_zero_date)) {
+                CastParameters params;
+                if (!CastToDatetimeV2::from_string_non_strict_mode(
+                            {column_value.data(), column_value.size()}, *dv, nullptr, -1, params)) {
                     return Status::InternalError(
                             "process list meet invalid data, column={}, data={}, reason={}",
                             _s_processlist_columns[col_idx].name, column_value);

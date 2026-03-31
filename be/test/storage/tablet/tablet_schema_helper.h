@@ -27,9 +27,7 @@
 #include "storage/tablet/tablet_schema.h"
 
 namespace doris {
-namespace vectorized {
 class Arena;
-} // namespace vectorized
 
 TabletColumnPtr create_int_key(int32_t id, bool is_nullable = true, bool is_bf_column = false);
 
@@ -56,10 +54,10 @@ TabletColumnPtr create_with_default_value(std::string default_value) {
     return column;
 }
 
-void set_column_value_by_type(FieldType fieldType, int src, char* target, vectorized::Arena& arena,
+void set_column_value_by_type(FieldType fieldType, int src, char* target, Arena& arena,
                               size_t _length = 8);
 
 void set_column_value_by_type(FieldType fieldType, const std::string& src, char* target,
-                              vectorized::Arena& arena, size_t _length = 8);
+                              Arena& arena, size_t _length = 8);
 
 } // namespace doris

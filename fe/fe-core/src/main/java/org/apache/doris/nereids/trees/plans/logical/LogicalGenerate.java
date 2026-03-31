@@ -24,6 +24,7 @@ import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.DiffOutputInAsterisk;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
@@ -103,7 +104,8 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
     @Override
     public LogicalGenerate<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts, children.get(0)));
     }
 
     @Override
@@ -136,21 +138,24 @@ public class LogicalGenerate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD
         for (int i = 0; i < generators.size(); i++) {
             newGeneratorOutput.add(generatorOutput.get(i).withNullable(generators.get(i).nullable()));
         }
-        return new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias, conjuncts, child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalGenerate<>(generators, newGeneratorOutput, expandColumnAlias, conjuncts, child()));
     }
 
     @Override
     public LogicalGenerate<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
     public Plan withGroupExprLogicalPropChildren(Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts,
-                groupExpression, logicalProperties, children.get(0));
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalGenerate<>(generators, generatorOutput, expandColumnAlias, conjuncts,
+                groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override

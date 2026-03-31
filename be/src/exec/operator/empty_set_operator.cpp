@@ -21,14 +21,13 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 
-Status EmptySetSourceOperatorX::get_block(RuntimeState* state, vectorized::Block* block,
-                                          bool* eos) {
+Status EmptySetSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eos) {
     *eos = true;
     return Status::OK();
 }
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

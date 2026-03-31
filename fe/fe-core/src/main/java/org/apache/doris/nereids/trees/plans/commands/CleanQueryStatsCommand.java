@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.StmtType;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
@@ -106,7 +105,7 @@ public class CleanQueryStatsCommand extends Command implements ForwardWithSync {
                         .checkDbPriv(ConnectContext.get(), ctx.getCurrentCatalog().getName(), dbName,
                             PrivPredicate.ALTER)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
-                            "CLEAN DATABASE QUERY STATS FOR " + ClusterNamespace.getNameFromFullName(dbName));
+                            "CLEAN DATABASE QUERY STATS FOR " + dbName);
                 }
                 break;
             case TABLE:

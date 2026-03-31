@@ -58,32 +58,12 @@ under the License.
                 <fe_ut_parallel>${env.FE_UT_PARALLEL}</fe_ut_parallel>
             </properties>
         </profile>
-        <profile>
-            <id>protoc_rosetta</id>
-            <activation>
-                <os>
-                    <family>mac</family>
-                    <arch>aarch64</arch>
-                </os>
-            </activation>
-            <properties>
-                <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}:exe:osx-x86_64</protoc.artifact>
-                <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc-java.version}:exe:osx-x86_64</grpc.java.artifact>
-            </properties>
-        </profile>
-        <profile>
-            <id>protoc_command</id>
-            <activation>
-                <file>
-                    <exists>${doris.thirdparty}/installed/bin/protoc</exists>
-                </file>
-            </activation>
-            <properties>
-                <protoc.command>${doris.thirdparty}/installed/bin/protoc</protoc.command>
-            </properties>
-        </profile>
     </profiles>
     <dependencies>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-foundation</artifactId>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-common</artifactId>
@@ -96,12 +76,42 @@ under the License.
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
+            <artifactId>fe-grpc</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
             <artifactId>fe-type</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-catalog</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-loader</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-authentication-handler</artifactId>
             <version>${project.version}</version>
         </dependency>
         <dependency>
@@ -223,11 +233,6 @@ under the License.
         <dependency>
             <groupId>org.objenesis</groupId>
             <artifactId>objenesis</artifactId>
-        </dependency>
-        <!-- https://mvnrepository.com/artifact/com.google.protobuf/protobuf-java -->
-        <dependency>
-            <groupId>com.google.protobuf</groupId>
-            <artifactId>protobuf-java</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/com.squareup/protoparser -->
         <dependency>
@@ -366,11 +371,31 @@ under the License.
         <dependency>
             <groupId>com.tencentcloudapi</groupId>
             <artifactId>tencentcloud-sdk-java-sts</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>okio</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- huawei cloud sts -->
         <dependency>
             <groupId>com.huaweicloud.sdk</groupId>
             <artifactId>huaweicloud-sdk-iam</artifactId>
+            <exclusions>
+                <exclusion>
+                    <groupId>com.squareup.okhttp3</groupId>
+                    <artifactId>okhttp</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>com.squareup.okio</groupId>
+                    <artifactId>okio</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         <!-- ICU4J for unicode normalization -->
         <dependency>
@@ -389,18 +414,6 @@ under the License.
         <dependency>
             <groupId>hu.webarticum</groupId>
             <artifactId>tree-printer</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-netty-shaded</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-protobuf</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.grpc</groupId>
-            <artifactId>grpc-stub</artifactId>
         </dependency>
         <dependency>
             <groupId>org.apache.httpcomponents</groupId>
@@ -545,12 +558,6 @@ under the License.
         </dependency>
 
         <dependency>
-            <groupId>org.apache.paimon</groupId>
-            <artifactId>paimon-oss</artifactId>
-            <version>${paimon.version}</version>
-        </dependency>
-
-        <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
             <exclusions>
@@ -622,7 +629,7 @@ under the License.
         </dependency>
         <dependency>
             <groupId>com.squareup.okhttp3</groupId>
-            <artifactId>okhttp</artifactId>
+            <artifactId>okhttp-jvm</artifactId>
         </dependency>
 
         <dependency>
@@ -721,10 +728,6 @@ under the License.
             <artifactId>arrow-vector</artifactId>
         </dependency>
         <dependency>
-            <groupId>org.hamcrest</groupId>
-            <artifactId>hamcrest</artifactId>
-        </dependency>
-        <dependency>
             <groupId>org.apache.arrow</groupId>
             <artifactId>flight-sql</artifactId>
         </dependency>
@@ -786,6 +789,12 @@ under the License.
             <groupId>org.mockito</groupId>
             <artifactId>mockito-inline</artifactId>
             <scope>test</scope>
+        </dependency>
+        <!-- fastutil-core: keep as direct dependency to ensure classpath priority
+             over the ancient unrelocated fastutil classes embedded in hive-catalog-shade -->
+        <dependency>
+            <groupId>it.unimi.dsi</groupId>
+            <artifactId>fastutil-core</artifactId>
         </dependency>
     </dependencies>
     <repositories>
@@ -862,38 +871,6 @@ under the License.
                     <skip>true</skip>
                 </configuration>
             </plugin>
-            <!-- protobuf -->
-            <plugin>
-                <groupId>com.github.os72</groupId>
-                <artifactId>protoc-jar-maven-plugin</artifactId>
-                <version>3.11.4</version>
-                <executions>
-                    <execution>
-                        <phase>generate-sources</phase>
-                        <goals>
-                            <goal>run</goal>
-                        </goals>
-                        <configuration>
-                            <protocCommand>${protoc.command}</protocCommand>
-                            <!--You can use following protocArtifact instead of protocCommand, so that you don't need to install protobuf tools-->
-                            <protocArtifact>${protoc.artifact}</protocArtifact>
-                            <protocVersion>${protobuf.version}</protocVersion>
-                            <inputDirectories>
-                                <include>${doris.home}/gensrc/proto</include>
-                            </inputDirectories>
-                            <outputTargets>
-                                <outputTarget>
-                                    <type>java</type>
-                                </outputTarget>
-                                <outputTarget>
-                                    <type>grpc-java</type>
-                                    <pluginArtifact>${grpc.java.artifact}</pluginArtifact>
-                                </outputTarget>
-                            </outputTargets>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
             <!-- run make to generate Version and builtin -->
             <!-- also parse the proto for FE -->
             <plugin>
@@ -920,27 +897,6 @@ under the License.
                             <skip>${skip.plugin}</skip>
                         </configuration>
                     </execution>
-                    <!--execution>
-                        <id>doc</id>
-                        <phase>process-classes</phase>
-                        <goals>
-                            <goal>java</goal>
-                        </goals>
-                        <configuration>
-                            <mainClass>org.apache.doris.common.util.DocGenerator</mainClass>
-                            <arguments>
-                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config-template.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config-template.md</argument>
-                                <argument>${doris.home}/docs/en/docs/admin-manual/config/fe-config.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/admin-manual/config/fe-config.md</argument>
-                                <argument>${doris.home}/docs/en/docs/advanced/variables-template.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables-template.md</argument>
-                                <argument>${doris.home}/docs/en/docs/advanced/variables.md</argument>
-                                <argument>${doris.home}/docs/zh-CN/docs/advanced/variables.md</argument>
-                            </arguments>
-                            <skip>${skip.doc}</skip>
-                        </configuration>
-                    </execution-->
                 </executions>
             </plugin>
 

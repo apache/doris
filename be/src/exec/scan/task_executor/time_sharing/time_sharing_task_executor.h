@@ -40,7 +40,6 @@
 #include "util/threadpool.h"
 
 namespace doris {
-namespace vectorized {
 
 class TimeSharingTaskExecutor;
 class SplitThreadPoolToken;
@@ -508,5 +507,4 @@ private:
     int _num_unsubmitted_tasks;
 };
 
-} // namespace vectorized
 } // namespace doris

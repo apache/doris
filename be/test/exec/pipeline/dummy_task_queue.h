@@ -18,7 +18,7 @@
 #include "exec/pipeline/task_queue.h"
 #include "exec/pipeline/task_scheduler.h"
 
-namespace doris::pipeline {
+namespace doris {
 
 class DummyTaskQueue final : public MultiCoreTaskQueue {
     explicit DummyTaskQueue(int core_size) : MultiCoreTaskQueue(core_size) {}
@@ -66,4 +66,4 @@ public:
 private:
     std::unique_ptr<DummyTaskQueue> _task_queue;
 };
-} // namespace doris::pipeline
+} // namespace doris

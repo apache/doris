@@ -33,7 +33,7 @@
 #include "exprs/function/function.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 struct DictGetState {
     std::shared_ptr<const IDictionary> dict;
@@ -133,4 +133,4 @@ void register_function_dict_get_many(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionDictGetMany>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

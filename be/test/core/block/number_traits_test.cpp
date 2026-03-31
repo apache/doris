@@ -26,35 +26,35 @@
 #include "core/types.h"
 #include "gtest/gtest_pred_impl.h"
 
-namespace doris::vectorized {
+namespace doris {
 //
 //TEST(VNumberTraits, ResultOfAdditionMultiplication) {
-//    EXPECT_TRUE(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<UInt8, UInt8>::Type ==
+//    EXPECT_TRUE(doris::NumberTraits::ResultOfAdditionMultiplication<UInt8, UInt8>::Type ==
 //           PrimitiveType::TYPE_INT);
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<UInt8, Int32>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfAdditionMultiplication<UInt8, Int32>::Type,
 //              PrimitiveType::TYPE_BIGINT);
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfAdditionMultiplication<UInt8, Float32>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfAdditionMultiplication<UInt8, Float32>::Type,
 //              PrimitiveType::TYPE_DOUBLE);
 //}
 //
 //TEST(VNumberTraits, ResultOfSubtraction) {
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfSubtraction<UInt8, UInt8>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfSubtraction<UInt8, UInt8>::Type,
 //              PrimitiveType::TYPE_SMALLINT);
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfSubtraction<UInt16, UInt8>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfSubtraction<UInt16, UInt8>::Type,
 //              PrimitiveType::TYPE_INT);
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfSubtraction<UInt16, Int8>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfSubtraction<UInt16, Int8>::Type,
 //              PrimitiveType::TYPE_INT);
 //}
 //
 //TEST(VNumberTraits, Others) {
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfFloatingPointDivision<UInt16, Int16>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfFloatingPointDivision<UInt16, Int16>::Type,
 //              PrimitiveType::TYPE_DOUBLE);
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfFloatingPointDivision<UInt32, Int16>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfFloatingPointDivision<UInt32, Int16>::Type,
 //              PrimitiveType::TYPE_DOUBLE);
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfIntegerDivision<UInt8, Int16>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfIntegerDivision<UInt8, Int16>::Type,
 //              PrimitiveType::TYPE_TINYINT);
-//    ASSERT_EQ(doris::vectorized::NumberTraits::ResultOfModulo<UInt32, Int8>::Type,
+//    ASSERT_EQ(doris::NumberTraits::ResultOfModulo<UInt32, Int8>::Type,
 //              PrimitiveType::TYPE_INT);
 //}
 
-} // namespace doris::vectorized
+} // namespace doris

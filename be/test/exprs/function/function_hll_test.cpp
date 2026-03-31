@@ -25,7 +25,7 @@
 #include "core/types.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(function_hll_test, function_hll_cardinality_test) {
     std::string func_name = "hll_cardinality";
@@ -133,4 +133,4 @@ TEST(function_hll_test, function_hll_from_base64_test) {
 
     static_cast<void>(check_function<DataTypeHLL, true>(func_name, input_types, data_set));
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -30,7 +30,6 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -163,8 +162,8 @@ public class TrinoConnectorPredicateConverter {
         String colName = slotRef.getColumnName();
         Type type = trinoConnectorColumnMetadataMap.get(colName).getType();
         Domain domain = null;
-        TExprOpcode opcode = predicate.getOpcode();
-        switch (opcode) {
+        BinaryPredicate.Operator op = ((BinaryPredicate) predicate).getOp();
+        switch (op) {
             case EQ:
                 domain = Domain.create(ValueSet.ofRanges(Range.equal(type,
                         convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
@@ -198,9 +197,8 @@ public class TrinoConnectorPredicateConverter {
                 domain = Domain.create(ValueSet.ofRanges(Range.greaterThanOrEqual(type,
                         convertLiteralToDomainValues(type.getClass(), literalExpr))), false);
                 break;
-            case INVALID_OPCODE:
             default:
-                throw new AnalysisException("Do not support opcode [" + opcode + "] in binaryPredicateConverter.");
+                throw new AnalysisException("Do not support operator [" + op + "] in binaryPredicateConverter.");
         }
         return TupleDomain.withColumnDomains(ImmutableMap.of(trinoConnectorColumnHandleMap.get(colName), domain));
     }

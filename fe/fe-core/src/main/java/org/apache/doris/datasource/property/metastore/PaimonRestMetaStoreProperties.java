@@ -18,9 +18,9 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.datasource.paimon.PaimonExternalCatalog;
-import org.apache.doris.datasource.property.ConnectorProperty;
-import org.apache.doris.datasource.property.ParamRules;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.foundation.property.ConnectorProperty;
+import org.apache.doris.foundation.property.ParamRules;
 
 import lombok.Getter;
 import org.apache.paimon.catalog.Catalog;

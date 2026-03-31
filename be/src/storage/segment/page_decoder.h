@@ -60,17 +60,17 @@ public:
         return Status::NotSupported("seek_at_or_after_value"); // FIXME
     }
 
-    virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) = 0;
+    virtual Status next_batch(size_t* n, MutableColumnPtr& dst) = 0;
 
     virtual Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
-                                  vectorized::MutableColumnPtr& dst) {
+                                  MutableColumnPtr& dst) {
         return Status::NotSupported("not implement vec op now");
     }
 
     // Same as `next_batch` except for not moving forward the cursor.
     // When read array's ordinals in `ArrayFileColumnIterator`, we want to read one extra ordinal
     // but do not want to move forward the cursor.
-    virtual Status peek_next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+    virtual Status peek_next_batch(size_t* n, MutableColumnPtr& dst) {
         return Status::NotSupported("not implement vec op now");
     }
 

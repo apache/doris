@@ -18,7 +18,7 @@
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "exprs/function/cast/cast_test.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 TEST_F(FunctionCastTest, string_to_datetime6_valid_case_strict_mode) {
@@ -414,4 +414,4 @@ TEST_F(FunctionCastTest, test_from_time_to_datetime) {
 }
 //FIXME: fix cast with different scale then add cases about datetime to datetime
 
-} // namespace doris::vectorized
+} // namespace doris

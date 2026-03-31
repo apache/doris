@@ -22,7 +22,6 @@
 #include "format/parquet/parquet_common.h"
 
 namespace doris {
-namespace vectorized {
 class ParquetVersionTest : public testing::Test {
 public:
     ParquetVersionTest() = default;
@@ -217,5 +216,4 @@ TEST_F(ParquetVersionTest, test_parse) {
     EXPECT_EQ(*semantic_version, SemanticVersion(1, 5, 0, std::nullopt, "cdh5.5.0", std::nullopt));
 }
 
-} // namespace vectorized
 } // namespace doris

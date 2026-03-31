@@ -58,14 +58,14 @@ TEST(NestedGroupProviderTest, DefaultWriteProviderIsNoOp) {
         GTEST_SKIP() << "EE build: write provider has real implementation";
     }
 
-    auto column_variant = vectorized::ColumnVariant::create(0);
+    auto column_variant = ColumnVariant::create(0, false);
     ColumnWriterOptions opts;
     VariantStatistics statistics;
 
-    EXPECT_TRUE(write_provider
-                        ->prepare(*column_variant, false, nullptr, opts, nullptr, 0, nullptr,
-                                  &statistics)
-                        .ok());
+    auto status =
+            write_provider->prepare(*column_variant, nullptr, opts, nullptr, nullptr, &statistics);
+    EXPECT_FALSE(status.ok());
+    EXPECT_TRUE(status.is<ErrorCode::INVALID_ARGUMENT>());
     EXPECT_EQ(0, write_provider->estimate_buffer_size());
     EXPECT_TRUE(write_provider->finish().ok());
     EXPECT_TRUE(write_provider->write_data().ok());
@@ -85,11 +85,11 @@ TEST(DefaultNestedGroupReadProviderTest, TryBuildReadPlanReturnsFalse) {
 
     NestedGroupReaders readers;
     TabletColumn col;
-    vectorized::PathInData path;
+    PathInData path;
 
     bool is_whole = true;
-    vectorized::DataTypePtr out_type;
-    vectorized::PathInData out_path;
+    DataTypePtr out_type;
+    PathInData out_path;
     std::string child_path, pruned_path;
     std::vector<const NestedGroupReader*> chain;
     std::optional<NestedGroupPathFilter> path_filter;
@@ -109,7 +109,7 @@ TEST(DefaultNestedGroupReadProviderTest, CreateNestedGroupIteratorCEBehavior) {
 
     std::vector<const NestedGroupReader*> chain;
     ColumnIteratorUPtr iter;
-    vectorized::DataTypePtr out_type;
+    DataTypePtr out_type;
     std::optional<NestedGroupPathFilter> filter;
 
     auto status =
@@ -161,7 +161,7 @@ TEST(DefaultNestedGroupReadProviderTest, InitReadersCEBehavior) {
 
     ColumnReaderOptions opts;
     NestedGroupReaders out_readers;
-    auto status = provider->init_readers(opts, nullptr, nullptr, nullptr, 0, out_readers);
+    auto status = provider->init_readers(opts, nullptr, nullptr, nullptr, 0, 0, out_readers);
     EXPECT_TRUE(status.ok());
     EXPECT_TRUE(out_readers.empty());
 }

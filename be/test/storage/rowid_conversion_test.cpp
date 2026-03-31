@@ -191,7 +191,7 @@ protected:
 
         uint32_t num_rows = 0;
         for (int i = 0; i < rowset_data.size(); ++i) {
-            vectorized::Block block = tablet_schema->create_block();
+            Block block = tablet_schema->create_block();
             auto columns = block.mutate_columns();
             for (int rid = 0; rid < rowset_data[i].size(); ++rid) {
                 int32_t c1 = std::get<0>(rowset_data[i][rid]);
@@ -370,7 +370,7 @@ protected:
         // read output rowset data
         std::vector<std::tuple<int64_t, int64_t>> output_data;
         do {
-            vectorized::Block output_block = tablet_schema->create_block();
+            Block output_block = tablet_schema->create_block();
             s = output_rs_reader->next_batch(&output_block);
             auto columns = output_block.get_columns_with_type_and_name();
             EXPECT_EQ(columns.size(), 2);

@@ -28,7 +28,7 @@
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 class VExprContext;
 
 VSlotRef::VSlotRef(const doris::TExprNode& node)
@@ -142,4 +142,4 @@ uint64_t VSlotRef::get_digest(uint64_t seed) const {
     return HashUtil::hash64(_column_name->c_str(), _column_name->size(), seed);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

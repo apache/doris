@@ -27,7 +27,7 @@
 #include "exprs/function/function_test_util.h"
 #include "testutil/any_type.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 using namespace ut_type;
 
@@ -900,4 +900,4 @@ TEST(MathFunctionTest, factorial_test) {
         }
     }
 }
-} // namespace doris::vectorized
+} // namespace doris

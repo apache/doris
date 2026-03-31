@@ -27,7 +27,6 @@
 namespace doris {
 class PValues;
 
-namespace vectorized {
 class IColumn;
 class Arena;
 #include "common/compile_check_begin.h"
@@ -40,8 +39,8 @@ public:
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
-    Status from_olap_string(const std::string& str, Field& field,
-                            const FormatOptions& options) const override;
+    Status from_zonemap_string(const std::string& str, Field& field) const override;
+    Status from_fe_string(const std::string& str, Field& field) const override;
 
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
@@ -96,7 +95,7 @@ public:
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
-                               int64_t start, int64_t end, vectorized::Arena& arena,
+                               int64_t start, int64_t end, Arena& arena,
                                const FormatOptions& options) const override;
 
     bool write_column_to_presto_text(const IColumn& column, BufferWritable& bw, int64_t row_idx,
@@ -126,11 +125,10 @@ public:
     void to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
                    const FormatOptions& options) const override;
 
-    std::string to_olap_string(const vectorized::Field& field) const override;
+    std::string to_olap_string(const Field& field) const override;
 
 private:
     DataTypeSerDeSPtr nested_serde;
 };
 #include "common/compile_check_end.h"
-} // namespace vectorized
 } // namespace doris

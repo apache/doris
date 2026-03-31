@@ -32,14 +32,14 @@
 #include "core/string_buffer.hpp"
 #include "core/types.h"
 #include "core/value/vdatetime_value.h"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
-namespace vectorized {
 class IColumn;
-} // namespace vectorized
 } // namespace doris
 
 // FIXME: This file contains widespread UB due to unsafe type-punning casts.
@@ -51,7 +51,36 @@ class IColumn;
 #pragma GCC diagnostic ignored "-Wcast-user-defined"
 #endif
 
-namespace doris::vectorized {
+namespace doris {
+
+Field DataTypeDateV2::get_field(const TExprNode& node) const {
+    DateV2Value<DateV2ValueType> value;
+    CastParameters params;
+    if (CastToDateV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {node.date_literal.value.c_str(), node.date_literal.value.size()}, value, nullptr,
+                params)) {
+        return Field::create_field<TYPE_DATEV2>(std::move(value));
+    } else {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "Invalid value: {} for type DateV2", node.date_literal.value);
+    }
+}
+
+Field DataTypeDateTimeV2::get_field(const TExprNode& node) const {
+    DateV2Value<DateTimeV2ValueType> value;
+    const int32_t scale = node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
+    CastParameters params;
+    if (CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                {node.date_literal.value.c_str(), node.date_literal.value.size()}, value, nullptr,
+                scale, params)) {
+        return Field::create_field<TYPE_DATETIMEV2>(std::move(value));
+    } else {
+        throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
+                               "Invalid value: {} for type DateTimeV2({})", node.date_literal.value,
+                               _scale);
+    }
+}
+
 bool DataTypeDateV2::equals(const IDataType& rhs) const {
     return typeid(rhs) == typeid(*this);
 }
@@ -164,7 +193,7 @@ DataTypePtr create_datetimev2(UInt64 scale_value) {
     return std::make_shared<DataTypeDateTimeV2>(scale_value);
 }
 
-} // namespace doris::vectorized
+} // namespace doris
 
 #if defined(__GNUC__) && (__GNUC__ >= 15)
 #pragma GCC diagnostic pop

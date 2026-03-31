@@ -32,10 +32,10 @@ using namespace doris::vector_search_utils;
 
 namespace doris::segment_v2 {
 
-class AnnIndexIteratorTest : public doris::vectorized::VectorSearchTest {
+class AnnIndexIteratorTest : public doris::VectorSearchTest {
 protected:
     void SetUp() override {
-        doris::vectorized::VectorSearchTest::SetUp();
+        doris::VectorSearchTest::SetUp();
 
         // Create test index properties
         _properties["index_type"] = "hnsw";
@@ -57,7 +57,7 @@ protected:
                 std::make_shared<AnnIndexReader>(_tablet_index.get(), _mock_index_file_reader);
     }
 
-    void TearDown() override { doris::vectorized::VectorSearchTest::TearDown(); }
+    void TearDown() override { doris::VectorSearchTest::TearDown(); }
 
     std::map<std::string, std::string> _properties;
     std::unique_ptr<doris::TabletIndex> _tablet_index;

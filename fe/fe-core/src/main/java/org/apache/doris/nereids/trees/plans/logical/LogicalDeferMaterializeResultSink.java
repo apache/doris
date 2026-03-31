@@ -22,6 +22,7 @@ import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.plans.AbstractPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PropagateFuncDeps;
 import org.apache.doris.nereids.trees.plans.algebra.Sink;
@@ -78,15 +79,17 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
     public LogicalDeferMaterializeResultSink<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalDeferMaterializeResultSink only accepts one child");
-        return new LogicalDeferMaterializeResultSink<>(
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeResultSink<>(
                 logicalResultSink.withChildren(ImmutableList.of(children.get(0))),
-                olapTable, selectedIndexId, Optional.empty(), Optional.empty(), children.get(0));
+                olapTable, selectedIndexId, Optional.empty(), Optional.empty(), children.get(0)));
     }
 
     @Override
     public LogicalDeferMaterializeResultSink<CHILD_TYPE> withOutputExprs(List<NamedExpression> outputExprs) {
-        return new LogicalDeferMaterializeResultSink<>(logicalResultSink, olapTable, selectedIndexId,
-                Optional.empty(), Optional.empty(), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeResultSink<>(logicalResultSink, olapTable, selectedIndexId,
+                Optional.empty(), Optional.empty(), child()));
     }
 
     @Override
@@ -101,8 +104,9 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
 
     @Override
     public LogicalDeferMaterializeResultSink<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new LogicalDeferMaterializeResultSink<>(logicalResultSink, olapTable, selectedIndexId,
-                groupExpression, Optional.of(getLogicalProperties()), child());
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeResultSink<>(logicalResultSink, olapTable, selectedIndexId,
+                groupExpression, Optional.of(getLogicalProperties()), child()));
     }
 
     @Override
@@ -112,9 +116,10 @@ public class LogicalDeferMaterializeResultSink<CHILD_TYPE extends Plan>
             List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1,
                 "LogicalDeferMaterializeResultSink only accepts one child");
-        return new LogicalDeferMaterializeResultSink<>(
+        return AbstractPlan.copyWithSameId(this, () ->
+                new LogicalDeferMaterializeResultSink<>(
                 logicalResultSink.withChildren(ImmutableList.of(children.get(0))),
-                olapTable, selectedIndexId, groupExpression, logicalProperties, children.get(0));
+                olapTable, selectedIndexId, groupExpression, logicalProperties, children.get(0)));
     }
 
     @Override

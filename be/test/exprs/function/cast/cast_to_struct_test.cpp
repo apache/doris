@@ -36,7 +36,7 @@
 #include "exprs/function/cast/cast_test.h"
 #include "testutil/column_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 using namespace ut_type;
 
 template <typename... DataType>
@@ -128,4 +128,4 @@ TEST_F(FunctionCastTest, test_from_string_to_struct2) {
                                      std::make_shared<DataTypeString>(), "from"),
                builder.build({"a", "b", "c", "d"}), false);
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -29,7 +29,6 @@ namespace doris {
 #include "common/compile_check_begin.h"
 class RuntimeState;
 
-namespace pipeline {
 class DataQueue;
 
 class RecCTEAnchorSinkOperatorX;
@@ -47,7 +46,7 @@ private:
     using Base = PipelineXSinkLocalState<RecCTESharedState>;
     using Parent = RecCTEAnchorSinkOperatorX;
 
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
 };
 
 class RecCTEAnchorSinkOperatorX MOCK_REMOVE(final)
@@ -81,14 +80,14 @@ public:
         return Base::close(state);
     }
 
-    Status sink(RuntimeState* state, vectorized::Block* input_block, bool eos) override {
+    Status sink(RuntimeState* state, Block* input_block, bool eos) override {
         auto& local_state = get_local_state(state);
 
         RETURN_IF_ERROR(_notify_rec_side_ready_if_needed(state));
 
         COUNTER_UPDATE(local_state.rows_input_counter(), (int64_t)input_block->rows());
         if (input_block->rows() != 0) {
-            vectorized::Block block;
+            Block block;
             RETURN_IF_ERROR(materialize_block(local_state._child_expr, input_block, &block, true));
             RETURN_IF_ERROR(local_state._shared_state->emplace_block(state, std::move(block)));
         }
@@ -118,11 +117,10 @@ private:
     }
 
     const RowDescriptor _row_descriptor;
-    vectorized::VExprContextSPtrs _child_expr;
+    VExprContextSPtrs _child_expr;
 
     bool _need_notify_rec_side_ready = true;
 };
 
-} // namespace pipeline
 #include "common/compile_check_end.h"
 } // namespace doris

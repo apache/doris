@@ -40,7 +40,7 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
 
 /** A column of map values.
   */
@@ -794,4 +794,4 @@ void ColumnMap::replace_float_special_values() {
     values_column->replace_float_special_values();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

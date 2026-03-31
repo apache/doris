@@ -36,7 +36,7 @@
 #include "exprs/function_context.h"
 #include "util/jni-util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class JavaUdfPreparedFunction : public PreparedFunctionImpl {
 public:
@@ -145,4 +145,4 @@ private:
     };
 };
 
-} // namespace doris::vectorized
+} // namespace doris

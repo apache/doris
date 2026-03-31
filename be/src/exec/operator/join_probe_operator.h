@@ -19,7 +19,7 @@
 
 #include "exec/operator/operator.h"
 
-namespace doris::pipeline {
+namespace doris {
 #include "common/compile_check_begin.h"
 template <typename LocalStateType>
 class JoinProbeOperatorX;
@@ -34,12 +34,12 @@ protected:
     template <typename LocalStateType>
     friend class StatefulOperatorX;
     JoinProbeLocalState(RuntimeState* state, OperatorXBase* parent)
-            : Base(state, parent), _child_block(vectorized::Block::create_unique()) {}
+            : Base(state, parent), _child_block(Block::create_unique()) {}
     ~JoinProbeLocalState() override = default;
     void _construct_mutable_join_block();
-    Status _build_output_block(vectorized::Block* origin_block, vectorized::Block* output_block);
+    Status _build_output_block(Block* origin_block, Block* output_block);
     // output expr
-    vectorized::Block _join_block;
+    Block _join_block;
 
     size_t _mark_column_id = -1;
 
@@ -49,7 +49,7 @@ protected:
     RuntimeProfile::Counter* _build_output_block_timer = nullptr;
     RuntimeProfile::Counter* _finish_probe_phase_timer = nullptr;
 
-    std::unique_ptr<vectorized::Block> _child_block = nullptr;
+    std::unique_ptr<Block> _child_block = nullptr;
     bool _child_eos = false;
 };
 
@@ -109,4 +109,4 @@ protected:
 };
 
 #include "common/compile_check_end.h"
-} // namespace doris::pipeline
+} // namespace doris

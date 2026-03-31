@@ -27,6 +27,9 @@ import org.apache.doris.nereids.trees.expressions.InPredicate;
 import org.apache.doris.nereids.trees.expressions.Multiply;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
+import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Avg;
+import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
@@ -283,6 +286,30 @@ public class TypeCoercionUtilsTest {
         // datetime
         Assertions.assertEquals(DateTimeV2Type.SYSTEM_DEFAULT,
                                 TypeCoercionUtils.characterLiteralTypeCoercion("2020-02-02", DateTimeType.INSTANCE).get().getDataType());
+    }
+
+    @Test
+    public void testProcessBoundFunction() {
+        SlotReference jsonCol = new SlotReference("c_json", JsonType.INSTANCE);
+        BoundFunction sum = new Sum(jsonCol);
+        Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processBoundFunction(sum));
+
+        Expression coerced = TypeCoercionUtils.processBoundFunction(sum);
+        Expression coercedArg = ((BoundFunction) coerced).child(0);
+        Assertions.assertTrue(
+                coercedArg.getDataType().equals(DoubleType.INSTANCE) || coercedArg.getDataType().isNumericType(),
+                "The argument of SUM should be of a numeric type after type coercion."
+        );
+
+        BoundFunction avg = new Avg(jsonCol);
+        Assertions.assertDoesNotThrow(() -> TypeCoercionUtils.processBoundFunction(avg));
+
+        coerced = TypeCoercionUtils.processBoundFunction(sum);
+        coercedArg = ((BoundFunction) coerced).child(0);
+        Assertions.assertTrue(
+                coercedArg.getDataType().equals(DoubleType.INSTANCE) || coercedArg.getDataType().isNumericType(),
+                "The argument of AVG should be of a numeric type after type coercion."
+        );
     }
 
     @Test

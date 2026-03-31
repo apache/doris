@@ -97,9 +97,9 @@ static void classify_columns(const SegmentFooterPB& footer, ColumnClassification
         const ColumnMetaPB& col = footer.columns(i);
         bool is_subcol = false;
         if (col.has_column_path_info()) {
-            vectorized::PathInData full_path;
+            PathInData full_path;
             full_path.from_protobuf(col.column_path_info());
-            vectorized::PathInData rel = full_path.copy_pop_front();
+            PathInData rel = full_path.copy_pop_front();
             if (!rel.empty()) {
                 is_subcol = true;
                 std::string rel_path = rel.get_path();

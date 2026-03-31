@@ -32,7 +32,7 @@
 #include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeAggState : public DataTypeString {
 public:
@@ -164,4 +164,4 @@ inline DataTypePtr get_serialized_type(const DataTypePtr& type) {
     }
     return type;
 }
-} // namespace doris::vectorized
+} // namespace doris

@@ -23,7 +23,7 @@
 #include "exprs/vectorized_fn_call.h"
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 class Block;
 class VExprContext;
 // use to mock a slot ref expr
@@ -69,4 +69,4 @@ private:
     bool _mock_is_constant = false;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

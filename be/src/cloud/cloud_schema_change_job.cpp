@@ -111,6 +111,13 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
     _output_cumulative_point = _base_tablet->cumulative_layer_point();
     std::vector<RowSetSplits> rs_splits;
     int64_t base_max_version = _base_tablet->max_version_unlocked();
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::process_alter_tablet.override_base_max_version", {
+        auto v = dp->param<int64_t>("version", -1);
+        if (v > 0) {
+            LOG(INFO) << "override base_max_version from " << base_max_version << " to " << v;
+            base_max_version = v;
+        }
+    });
     cloud::TabletJobInfoPB job;
     auto* idx = job.mutable_idx();
     idx->set_tablet_id(_base_tablet->tablet_id());
@@ -148,6 +155,32 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
         LOG(WARNING) << "inject error. res=" << res;
         return res;
     });
+
+    // Check for cross-V1 compaction rowsets on new tablet.
+    // During queue wait, compaction may have committed a rowset that crosses the
+    // alter_version boundary (V1). This happens when compaction commits before
+    // prepare_tablet_job registers the SC job in meta-service.
+    // If such a rowset exists, SC commit would create version overlap, so we
+    // fail early and let FE retry (with a higher V1 next time).
+    {
+        RETURN_IF_ERROR(_new_tablet->sync_rowsets());
+        std::shared_lock rlock(_new_tablet->get_header_lock());
+        for (auto& [v, rs] : _new_tablet->rowset_map()) {
+            if (v.first > 1 && v.first <= start_resp.alter_version() &&
+                v.second > start_resp.alter_version()) {
+                LOG(WARNING) << "cross-V1 compaction detected on new tablet"
+                             << ", tablet_id=" << _new_tablet->tablet_id() << ", rowset=["
+                             << v.first << "-" << v.second << "]"
+                             << ", alter_version=" << start_resp.alter_version()
+                             << ", job_id=" << _job_id << ". Will retry with higher alter_version.";
+                return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                        "cross-V1 compaction detected on new tablet, tablet_id={}, "
+                        "rowset=[{}-{}], alter_version={}",
+                        _new_tablet->tablet_id(), v.first, v.second, start_resp.alter_version());
+            }
+        }
+    }
+
     if (request.alter_version > 1) {
         // [0-1] is a placeholder rowset, no need to convert
         RETURN_IF_ERROR(_base_tablet->capture_rs_readers({2, start_resp.alter_version()},
@@ -156,6 +189,10 @@ Status CloudSchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& reque
                                                           .enable_prefer_cached_rowset = false,
                                                           .query_freshness_tolerance_ms = -1}));
     }
+    // Between prepare_tablet_job (SC job registered in meta-service) and
+    // set_alter_version (local alter_version update). Used to test cross-V1 race.
+    DBUG_EXECUTE_IF("CloudSchemaChangeJob::process_alter_tablet.after_prepare_job", DBUG_BLOCK);
+
     Defer defer2 {[&]() {
         _new_tablet->set_alter_version(-1);
         _base_tablet->set_alter_version(-1);

@@ -87,8 +87,15 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, int64_t tab
                      uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
                      const io::FileReaderOptions& reader_options, std::shared_ptr<Segment>* output,
                      InvertedIndexFileInfo idx_file_info, OlapReaderStatistics* stats) {
-    auto s = _open(fs, path, segment_id, rowset_id, tablet_schema, reader_options, output,
+    // Ensure tablet_id is available in reader_options for CachedRemoteFileReader peer read.
+    io::FileReaderOptions opts_with_tablet = reader_options;
+    opts_with_tablet.tablet_id = tablet_id;
+
+    auto s = _open(fs, path, segment_id, rowset_id, tablet_schema, opts_with_tablet, output,
                    idx_file_info, stats);
+    if (s.ok() && output && *output) {
+        (*output)->_tablet_id = tablet_id;
+    }
     if (!s.ok()) {
         if (!config::is_cloud_mode()) {
             auto res = ExecEnv::get_tablet(tablet_id);
@@ -116,8 +123,13 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         segment->_fs = fs;
         segment->_file_reader = std::move(file_reader);
         st = segment->_open(stats);
-    } else if (st.is<ErrorCode::CORRUPTION>() &&
-               reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
+    }
+
+    // Three-tier retry for CORRUPTION errors when file cache is enabled.
+    // This handles CORRUPTION from both open_file() and _parse_footer() (via _open()).
+    if (st.is<ErrorCode::CORRUPTION>() &&
+        reader_options.cache_type == io::FileCachePolicy::FILE_BLOCK_CACHE) {
+        // Tier 1: Clear file cache and retry with cache support (re-downloads from remote).
         LOG(WARNING) << "bad segment file may be read from file cache, try to read remote source "
                         "file directly, file path: "
                      << path << " cache_key: " << file_cache_key_str(path);
@@ -133,6 +145,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
         }
         TEST_INJECTION_POINT_CALLBACK("Segment::open:corruption1", &st);
         if (st.is<ErrorCode::CORRUPTION>()) { // corrupt again
+            // Tier 2: Bypass cache entirely and read directly from remote storage.
             LOG(WARNING) << "failed to try to read remote source file again with cache support,"
                          << " try to read from remote directly, "
                          << " file path: " << path << " cache_key: " << file_cache_key_str(path);
@@ -146,6 +159,7 @@ Status Segment::_open(io::FileSystemSPtr fs, const std::string& path, uint32_t s
             segment->_file_reader = std::move(file_reader);
             st = segment->_open(stats);
             if (!st.ok()) {
+                // Tier 3: Remote source itself is corrupt.
                 LOG(WARNING) << "failed to try to read remote source file directly,"
                              << " file path: " << path
                              << " cache_key: " << file_cache_key_str(path);
@@ -228,7 +242,7 @@ Status Segment::_open_index_file_reader() {
             _fs,
             std::string {InvertedIndexDescriptor::get_index_file_path_prefix(
                     _file_reader->path().native())},
-            _tablet_schema->get_inverted_index_storage_format(), _idx_file_info);
+            _tablet_schema->get_inverted_index_storage_format(), _idx_file_info, _tablet_id);
     return Status::OK();
 }
 
@@ -282,7 +296,7 @@ Status Segment::new_iterator(SchemaSPtr schema, const StorageReadOptions& read_o
     if (read_options.delete_condition_predicates->num_of_column_predicate() == 0 &&
         read_options.push_down_agg_type_opt != TPushAggOp::NONE &&
         read_options.push_down_agg_type_opt != TPushAggOp::COUNT_ON_INDEX) {
-        iter->reset(vectorized::new_vstatistics_iterator(this->shared_from_this(), *schema));
+        iter->reset(new_vstatistics_iterator(this->shared_from_this(), *schema));
     } else {
         *iter = std::make_unique<SegmentIterator>(this->shared_from_this(), schema);
     }
@@ -564,22 +578,22 @@ Status Segment::healthy_status() {
 }
 
 // Return the storage datatype of related column to field.
-vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
-                                                  const StorageReadOptions& read_options) {
-    const vectorized::PathInDataPtr path = column.path_info_ptr();
+DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
+                                      const StorageReadOptions& read_options) {
+    const PathInDataPtr path = column.path_info_ptr();
 
     // none variant column
     if (path == nullptr || path->empty()) {
-        return vectorized::DataTypeFactory::instance().create_data_type(column);
+        return DataTypeFactory::instance().create_data_type(column);
     }
 
     // Path exists, proceed with variant logic.
-    vectorized::PathInData relative_path = path->copy_pop_front();
+    PathInData relative_path = path->copy_pop_front();
     int32_t unique_id = column.unique_id() >= 0 ? column.unique_id() : column.parent_unique_id();
 
     // If this uid does not exist in segment meta, fallback to schema type.
     if (!_column_meta_accessor->has_column_uid(unique_id)) {
-        return vectorized::DataTypeFactory::instance().create_data_type(column);
+        return DataTypeFactory::instance().create_data_type(column);
     }
 
     std::shared_ptr<ColumnReader> v_reader;
@@ -591,7 +605,7 @@ vectorized::DataTypePtr Segment::get_data_type_of(const TabletColumn& column,
     DCHECK(v_reader != nullptr);
     auto* variant_reader = static_cast<VariantColumnReader*>(v_reader.get());
     // Delegate type inference for variant paths to VariantColumnReader.
-    vectorized::DataTypePtr type;
+    DataTypePtr type;
     THROW_IF_ERROR(variant_reader->infer_data_type_for_path(&type, column, read_options,
                                                             _column_reader_cache.get()));
     return type;
@@ -752,7 +766,7 @@ Status Segment::get_column_reader(const TabletColumn& col,
                                                           col_uid);
     }
     if (col.has_path_info()) {
-        vectorized::PathInData relative_path = col.path_info_ptr()->copy_pop_front();
+        PathInData relative_path = col.path_info_ptr()->copy_pop_front();
         return _column_reader_cache->get_path_column_reader(col_uid, relative_path, column_reader,
                                                             stats);
     }
@@ -819,7 +833,7 @@ Status Segment::lookup_row_key(const Slice& key, const TabletSchema* latest_sche
     row_location->rowset_id = _rowset_id;
 
     size_t num_to_read = 1;
-    auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+    auto index_type = DataTypeFactory::instance().create_data_type(
             _pk_index_reader->type_info()->type(), 1, 0);
     auto index_column = index_type->create_column();
     size_t num_read = num_to_read;
@@ -892,7 +906,7 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
     std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
     RETURN_IF_ERROR(_pk_index_reader->new_iterator(&iter, null_stat));
 
-    auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+    auto index_type = DataTypeFactory::instance().create_data_type(
             _pk_index_reader->type_info()->type(), 1, 0);
     auto index_column = index_type->create_column();
     RETURN_IF_ERROR(iter->seek_to_ordinal(row_id));
@@ -914,7 +928,7 @@ Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
 }
 
 Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescriptor* slot,
-                                       uint32_t row_id, vectorized::MutableColumnPtr& result,
+                                       uint32_t row_id, MutableColumnPtr& result,
                                        StorageReadOptions& storage_read_options,
                                        std::unique_ptr<ColumnIterator>& iterator_hint) {
     segment_v2::ColumnIteratorOptions opt {
@@ -932,13 +946,14 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(_create_column_meta_once(storage_read_options.stats));
 
+        const auto& dt_variant =
+                assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
         TabletColumn column = TabletColumn::create_materialized_variant_column(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
-                slot->col_unique_id(),
-                assert_cast<const vectorized::DataTypeVariant&>(*remove_nullable(slot->type()))
-                        .variant_max_subcolumns_count());
+                slot->col_unique_id(), dt_variant.variant_max_subcolumns_count(),
+                dt_variant.enable_doc_mode());
         auto storage_type = get_data_type_of(column, storage_read_options);
-        vectorized::MutableColumnPtr file_storage_column = storage_type->create_column();
+        MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);
 
         if (iterator_hint == nullptr) {
@@ -947,11 +962,10 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         }
         RETURN_IF_ERROR(
                 iterator_hint->read_by_rowids(single_row_loc.data(), 1, file_storage_column));
-        vectorized::ColumnPtr source_ptr;
+        ColumnPtr source_ptr;
         // storage may have different type with schema, so we need to cast the column
-        RETURN_IF_ERROR(vectorized::variant_util::cast_column(
-                vectorized::ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type,
-                                                  column.name()),
+        RETURN_IF_ERROR(variant_util::cast_column(
+                ColumnWithTypeAndName(file_storage_column->get_ptr(), storage_type, column.name()),
                 slot->type(), &source_ptr));
         RETURN_IF_CATCH_EXCEPTION(result->insert_range_from(*source_ptr, 0, 1));
     } else {

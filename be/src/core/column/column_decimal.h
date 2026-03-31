@@ -42,7 +42,7 @@
 
 class SipHash;
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 class Arena;
 class ColumnSorter;
@@ -311,5 +311,5 @@ using ColumnDecimal128V2 = ColumnDecimal<TYPE_DECIMALV2>;
 using ColumnDecimal128V3 = ColumnDecimal<TYPE_DECIMAL128I>;
 using ColumnDecimal256 = ColumnDecimal<TYPE_DECIMAL256>;
 
-} // namespace doris::vectorized
+} // namespace doris
 #include "common/compile_check_end.h"

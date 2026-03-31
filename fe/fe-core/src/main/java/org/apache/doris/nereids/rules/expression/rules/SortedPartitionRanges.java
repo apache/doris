@@ -46,7 +46,7 @@ public class SortedPartitionRanges<K> {
     /**
      * Build SortedPartitionRanges from a partition map.
      * This method extracts the common logic for building sorted partition ranges
-     * from both NereidsSortedPartitionsCacheManager and HiveMetaStoreCache.
+     * from both NereidsSortedPartitionsCacheManager and HiveExternalMetaCache.
      *
      * @param partitionMap map of partition id to partition item
      * @return SortedPartitionRanges or null if the map is empty

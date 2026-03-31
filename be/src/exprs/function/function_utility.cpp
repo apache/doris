@@ -49,7 +49,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 class FunctionSleep : public IFunction {
 public:
@@ -145,4 +145,4 @@ void register_function_utility(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionVersion>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

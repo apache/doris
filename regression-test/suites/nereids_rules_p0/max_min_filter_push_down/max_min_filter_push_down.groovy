@@ -18,6 +18,7 @@ suite("max_min_filter_push_down") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET ignore_shape_nodes='PhysicalDistribute,PhysicalProject'"
+    sql "set disable_nereids_rules='REWRITE_SIMPLE_AGG_TO_CONSTANT'"
 
     sql "drop table if exists max_min_filter_push_down1"
     sql"""

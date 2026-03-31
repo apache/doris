@@ -19,7 +19,7 @@
 
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_agg_function_map_agg_v2(const DataTypes& argument_types,
@@ -67,4 +67,4 @@ void register_aggregate_function_map_agg_v2(AggregateFunctionSimpleFactory& fact
     factory.register_function_both("map_agg_v2", create_aggregate_function_map_agg_v2);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

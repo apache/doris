@@ -24,7 +24,7 @@
 #include "exprs/function/function_helpers.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 // size function for size with map and array
 class FunctionSize : public IFunction {
@@ -93,4 +93,4 @@ void register_function_size(SimpleFunctionFactory& factory) {
     factory.register_alias(FunctionSize::name, "cardinality");
     factory.register_alias(FunctionSize::name, "array_size");
 }
-} // namespace doris::vectorized
+} // namespace doris

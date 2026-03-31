@@ -32,7 +32,7 @@
 #include "core/data_type_serde/data_type_serde.h"
 #include "core/data_type_serde/data_type_timestamptz_serde.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class DataTypeTimeStampTz final : public DataTypeNumberBase<PrimitiveType::TYPE_TIMESTAMPTZ> {
 public:
@@ -69,4 +69,4 @@ private:
     const UInt32 _scale = 6; // Default precision is 6
 };
 
-} // namespace doris::vectorized
+} // namespace doris

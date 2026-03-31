@@ -26,9 +26,7 @@
 #include "runtime/runtime_profile.h"
 
 namespace doris {
-namespace vectorized {
 class Block;
-} // namespace vectorized
 
 std::vector<SchemaScanner::ColumnDesc> SchemaCharsetsScanner::_s_css_columns = {
         //   name,       type,          size
@@ -48,7 +46,7 @@ SchemaCharsetsScanner::SchemaCharsetsScanner()
 
 SchemaCharsetsScanner::~SchemaCharsetsScanner() {}
 
-Status SchemaCharsetsScanner::get_next_block_internal(vectorized::Block* block, bool* eos) {
+Status SchemaCharsetsScanner::get_next_block_internal(Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("call this before initial.");
     }
@@ -59,7 +57,7 @@ Status SchemaCharsetsScanner::get_next_block_internal(vectorized::Block* block, 
     return _fill_block_impl(block);
 }
 
-Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
+Status SchemaCharsetsScanner::_fill_block_impl(Block* block) {
     SCOPED_TIMER(_fill_block_timer);
     auto row_num = 0;
     while (nullptr != _s_charsets[row_num].charset) {

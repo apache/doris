@@ -64,7 +64,7 @@ public class MVColumnItem {
     }
 
     public MVColumnItem(Expr defineExpr) throws AnalysisException {
-        this(defineExpr.toSqlWithoutTbl(), defineExpr);
+        this(defineExpr.accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITHOUT_TABLE), defineExpr);
     }
 
     public MVColumnItem(String name, Expr defineExpr) {

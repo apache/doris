@@ -24,7 +24,7 @@
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
@@ -41,4 +41,4 @@ void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
             creator::creator<AggregateFunctionBitwise, AggregateFunctionGroupBitXorData>);
 }
 
-} // namespace doris::vectorized
+} // namespace doris

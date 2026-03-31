@@ -23,7 +23,7 @@
 #include "exprs/vexpr_context.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 VExprContextSPtrs MockSlotRef::create_mock_contexts(DataTypePtr data_type) {
     auto ctx = VExprContext::create_shared(std::make_shared<MockSlotRef>(0, data_type));
@@ -77,4 +77,4 @@ TEST(MockSlotRefTest, test) {
     }
 }
 
-} // namespace doris::vectorized
+} // namespace doris

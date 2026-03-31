@@ -25,7 +25,7 @@
 #include "exprs/function/dictionary.h"
 #include "exprs/function/function_test_util.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename DataType>
 ColumnPtr create_column_with_data(std::vector<typename DataType::FieldType> datas) {
@@ -132,4 +132,4 @@ TEST(ComplexHashMapDictTest, Test1) {
             "dict1");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

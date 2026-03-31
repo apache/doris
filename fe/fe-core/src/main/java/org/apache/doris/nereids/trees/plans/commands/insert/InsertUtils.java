@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.trees.plans.commands.insert;
 
+import org.apache.doris.analysis.ExprToStringValueVisitor;
+import org.apache.doris.analysis.StringValueContext;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -26,10 +28,10 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.FormatOptions;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
+import org.apache.doris.foundation.format.FormatOptions;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -182,7 +184,8 @@ public class InsertUtils {
                 throw new AnalysisException(
                         "do not support non-literal expr in transactional insert operation: " + expr.toSql());
             }
-            row.addColBuilder().setValue(((Literal) expr).toLegacyLiteral().getStringValueForStreamLoad(options));
+            row.addColBuilder().setValue(((Literal) expr).toLegacyLiteral().accept(
+                    ExprToStringValueVisitor.INSTANCE, StringValueContext.forStreamLoad(options)));
         }
         return row.build();
     }

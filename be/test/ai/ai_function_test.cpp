@@ -39,7 +39,7 @@
 #include "testutil/column_helper.h"
 #include "testutil/mock/mock_runtime_state.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 TEST(AIFunctionTest, AISummarizeTest) {
     FunctionAISummarize function;
@@ -662,4 +662,4 @@ TEST(AIFunctionTest, NormalizeEndpointNoopForOtherPaths) {
     ASSERT_EQ(resource.endpoint, "https://localhost/v1/responses");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

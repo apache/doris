@@ -72,7 +72,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
@@ -605,4 +605,4 @@ void register_function_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonValid>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

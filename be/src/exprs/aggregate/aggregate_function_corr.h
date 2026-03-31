@@ -18,7 +18,7 @@
 #include "core/types.h"
 #include "util/io_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType Type>
 struct CorrMoment {
@@ -166,4 +166,4 @@ struct CorrMomentWelford {
         count = 0;
     }
 };
-} // namespace doris::vectorized
+} // namespace doris

@@ -27,7 +27,7 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
     @Override
     protected void runBeforeAll() throws Exception {
         createDatabase("test");
-        connectContext.setDatabase("default_cluster:test");
+        connectContext.setDatabase("test");
         createTables(
                 "CREATE TABLE IF NOT EXISTS t1 (\n"
                         + "    id1 int not null,\n"
@@ -276,6 +276,35 @@ class EagerAggRewriterTest extends TestWithFeService implements MemoPatternMatch
                     .analyze(sql2)
                     .rewrite()
                     .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+        } finally {
+            connectContext.getSessionVariable().setEagerAggregationMode(0);
+            connectContext.getSessionVariable().setDisableJoinReorder(false);
+        }
+    }
+
+    @Test
+    void testAsofJoinNotPushAgg() {
+        // Ensure ASOF joins are ignored by EagerAggRewriter (no pushdown)
+        connectContext.getSessionVariable().setEagerAggregationMode(1);
+        connectContext.getSessionVariable().setDisableJoinReorder(true);
+        try {
+            String sql = "select count(t1.name), t2.id2 from t1 ASOF JOIN t2 "
+                    + "MATCH_CONDITION(cast(t1.id1 as datetime) > cast(t2.id2 as datetime)) "
+                    + "on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(any(), logicalAggregate()))
+                    .printlnTree();
+
+            sql = "select count(t1.name), t2.id2 from t1 ASOF INNER JOIN t2 "
+                    + "MATCH_CONDITION(cast(t1.id1 as datetime) > cast(t2.id2 as datetime)) "
+                    + "on t1.id1 = t2.id2 group by t2.id2";
+            PlanChecker.from(connectContext)
+                    .analyze(sql)
+                    .rewrite()
+                    .nonMatch(logicalJoin(logicalAggregate(), any()))
                     .printlnTree();
         } finally {
             connectContext.getSessionVariable().setEagerAggregationMode(0);

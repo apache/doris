@@ -57,13 +57,11 @@ inline int32_t get_execution_rpc_timeout_ms(int32_t execution_timeout_sec) {
     return std::min(config::execution_max_rpc_timeout_sec, execution_timeout_sec) * 1000;
 }
 
-namespace pipeline {
 class PipelineXLocalStateBase;
 class PipelineXSinkLocalStateBase;
 class PipelineFragmentContext;
 class PipelineTask;
 class Dependency;
-} // namespace pipeline
 
 class DescriptorTbl;
 class ObjectPool;
@@ -621,8 +619,8 @@ public:
 
     void set_be_exec_version(int32_t version) noexcept { _query_options.be_exec_version = version; }
 
-    using LocalState = doris::pipeline::PipelineXLocalStateBase;
-    using SinkLocalState = doris::pipeline::PipelineXSinkLocalStateBase;
+    using LocalState = doris::PipelineXLocalStateBase;
+    using SinkLocalState = doris::PipelineXSinkLocalStateBase;
     // get result can return an error message, and we will only call it during the prepare.
     void emplace_local_state(int id, std::unique_ptr<LocalState> state);
 
@@ -645,6 +643,8 @@ public:
         _task_execution_context_inited = true;
         _task_execution_context = context;
     }
+
+    bool task_execution_context_inited() const { return _task_execution_context_inited; }
 
     std::weak_ptr<TaskExecutionContext> get_task_execution_context() {
         CHECK(_task_execution_context_inited)
@@ -673,37 +673,91 @@ public:
 
     int64_t spill_min_revocable_mem() const {
         if (_query_options.__isset.min_revocable_mem) {
-            return std::max(_query_options.min_revocable_mem, (int64_t)1);
+            return std::max(_query_options.min_revocable_mem, (int64_t)1 << 20);
         }
-        return 1;
-    }
-
-    int64_t spill_sort_mem_limit() const {
-        if (_query_options.__isset.spill_sort_mem_limit) {
-            return std::max(_query_options.spill_sort_mem_limit, (int64_t)16777216);
-        }
-        return 134217728;
-    }
-
-    int64_t spill_sort_batch_bytes() const {
-        if (_query_options.__isset.spill_sort_batch_bytes) {
-            return std::max(_query_options.spill_sort_batch_bytes, (int64_t)8388608);
-        }
-        return 8388608;
+        return 32 << 20;
     }
 
     int spill_aggregation_partition_count() const {
         if (_query_options.__isset.spill_aggregation_partition_count) {
-            return std::min(std::max(_query_options.spill_aggregation_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_aggregation_partition_count), 32);
         }
-        return 32;
+        return 8;
     }
 
     int spill_hash_join_partition_count() const {
         if (_query_options.__isset.spill_hash_join_partition_count) {
-            return std::min(std::max(_query_options.spill_hash_join_partition_count, 16), 8192);
+            return std::min(std::max(2, _query_options.spill_hash_join_partition_count), 32);
         }
-        return 32;
+        return 8;
+    }
+
+    int spill_repartition_max_depth() const {
+        if (_query_options.__isset.spill_repartition_max_depth) {
+            // Clamp to a reasonable range: [1, 128]
+            return std::max(1, std::min(_query_options.spill_repartition_max_depth, 128));
+        }
+        return 8;
+    }
+
+    int64_t spill_buffer_size_bytes() const {
+        // clamp to [1MB, 256MB]
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 256LL * 1024 * 1024;
+        if (_query_options.__isset.spill_buffer_size_bytes) {
+            int64_t v = _query_options.spill_buffer_size_bytes;
+            if (v < kMin) return kMin;
+            if (v > kMax) return kMax;
+            return v;
+        }
+        return 8LL * 1024 * 1024;
+    }
+
+    // Per-sink memory limits: after spill is triggered, the sink proactively
+    // spills when its revocable memory exceeds this threshold.
+    // Clamped to [1MB, 4GB], default 64MB.
+    int64_t spill_join_build_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_join_build_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_join_build_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_aggregation_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_aggregation_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_aggregation_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_sink_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_sink_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_sink_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
+    }
+
+    int64_t spill_sort_merge_mem_limit_bytes() const {
+        constexpr int64_t kMin = 1LL * 1024 * 1024;
+        constexpr int64_t kMax = 4LL * 1024 * 1024 * 1024;
+        constexpr int64_t kDefault = 64LL * 1024 * 1024;
+        if (_query_options.__isset.spill_sort_merge_mem_limit_bytes) {
+            int64_t v = _query_options.spill_sort_merge_mem_limit_bytes;
+            return std::min(std::max(v, kMin), kMax);
+        }
+        return kDefault;
     }
 
     int64_t low_memory_mode_buffer_limit() const {
@@ -730,7 +784,7 @@ public:
             return _query_options.minimum_operator_memory_required_kb * 1024;
         } else {
             // refer other database
-            return 100 * 1024;
+            return 4 * 1024 * 1024;
         }
     }
 
@@ -762,16 +816,14 @@ public:
                                       _query_options.hnsw_bounded_queue, _query_options.ivf_nprobe);
     }
 
-    void reset_to_rerun();
-
-    void set_force_make_rf_wait_infinite() {
-        _query_options.__set_runtime_filter_wait_infinitely(true);
-    }
-
     bool runtime_filter_wait_infinitely() const {
         return _query_options.__isset.runtime_filter_wait_infinitely &&
                _query_options.runtime_filter_wait_infinitely;
     }
+
+    const std::set<int>& get_deregister_runtime_filter() const;
+
+    void merge_register_runtime_filter(const std::set<int>& runtime_filter_ids);
 
 private:
     Status create_error_log_file();
@@ -881,9 +933,9 @@ private:
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
 
-    std::vector<std::unique_ptr<doris::pipeline::PipelineXLocalStateBase>> _op_id_to_local_state;
+    std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 
-    std::unique_ptr<doris::pipeline::PipelineXSinkLocalStateBase> _sink_local_state;
+    std::unique_ptr<doris::PipelineXSinkLocalStateBase> _sink_local_state;
 
     QueryContext* _query_ctx = nullptr;
 

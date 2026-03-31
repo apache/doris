@@ -47,7 +47,7 @@
 #include "exprs/hybrid_set.h"
 #include "storage/index/index_reader_helper.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 template <typename T>
 class ColumnStr;
@@ -135,7 +135,7 @@ public:
 
     Status evaluate_inverted_index(
             const ColumnsWithTypeAndName& arguments,
-            const std::vector<vectorized::IndexFieldNameAndTypePair>& data_type_with_names,
+            const std::vector<IndexFieldNameAndTypePair>& data_type_with_names,
             std::vector<segment_v2::IndexIterator*> iterators, uint32_t num_rows,
             const InvertedIndexAnalyzerCtx* analyzer_ctx,
             segment_v2::InvertedIndexResultBitmap& bitmap_result) const override {
@@ -218,16 +218,15 @@ public:
         if (in_state->use_set) {
             if (materialized_column->is_nullable()) {
                 const auto* null_col_ptr =
-                        vectorized::check_and_get_column<vectorized::ColumnNullable>(
-                                materialized_column.get());
-                const auto& null_map = assert_cast<const vectorized::ColumnUInt8&>(
-                                               null_col_ptr->get_null_map_column())
-                                               .get_data();
+                        check_and_get_column<ColumnNullable>(materialized_column.get());
+                const auto& null_map =
+                        assert_cast<const ColumnUInt8&>(null_col_ptr->get_null_map_column())
+                                .get_data();
                 const auto* nested_col_ptr = null_col_ptr->get_nested_column_ptr().get();
 
                 if (nested_col_ptr->is_column_string()) {
                     const auto* column_string_ptr =
-                            assert_cast<const vectorized::ColumnString*>(nested_col_ptr);
+                            assert_cast<const ColumnString*>(nested_col_ptr);
                     search_hash_set_check_null(in_state, input_rows_count, vec_res, null_map,
                                                column_string_ptr);
                 } else {
@@ -249,7 +248,7 @@ public:
             } else { // non-nullable
                 if (is_string_type(left_arg.type->get_primitive_type())) {
                     const auto* column_string_ptr =
-                            assert_cast<const vectorized::ColumnString*>(materialized_column.get());
+                            assert_cast<const ColumnString*>(materialized_column.get());
                     search_hash_set(in_state, input_rows_count, vec_res, column_string_ptr);
                 } else {
                     search_hash_set(in_state, input_rows_count, vec_res, materialized_column.get());
@@ -351,4 +350,4 @@ private:
     }
 };
 
-} // namespace doris::vectorized
+} // namespace doris

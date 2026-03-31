@@ -23,9 +23,6 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.FormatOptions;
-import org.apache.doris.thrift.TExprNode;
-import org.apache.doris.thrift.TExprNodeType;
 
 import com.google.common.base.Preconditions;
 
@@ -152,10 +149,6 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public abstract String getStringValue();
 
-    public String getStringValueForQuery(FormatOptions options) {
-        return getStringValue();
-    }
-
     public long getLongValue() {
         return 0;
     }
@@ -205,23 +198,4 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
         }
         return this.exprName.get();
     }
-
-    public static LiteralExpr getLiteralExprFromThrift(TExprNode node) throws AnalysisException {
-        TExprNodeType type = node.node_type;
-        switch (type) {
-            case NULL_LITERAL: return new NullLiteral();
-            case BOOL_LITERAL: return new BoolLiteral(node.bool_literal.value);
-            case INT_LITERAL: return new IntLiteral(node.int_literal.value);
-            case LARGE_INT_LITERAL: return new LargeIntLiteral(node.large_int_literal.value);
-            case FLOAT_LITERAL: return new FloatLiteral(node.float_literal.value);
-            case DECIMAL_LITERAL: return new DecimalLiteral(node.decimal_literal.value);
-            case STRING_LITERAL: return new StringLiteral(node.string_literal.value);
-            case JSON_LITERAL: return new JsonLiteral(node.json_literal.value);
-            case DATE_LITERAL: return new DateLiteral(node.date_literal.value);
-            case IPV4_LITERAL: return new IPv4Literal(node.ipv4_literal.value);
-            case IPV6_LITERAL: return new IPv6Literal(node.ipv6_literal.value);
-            default: throw new AnalysisException("Wrong type from thrift;");
-        }
-    }
-
 }

@@ -29,12 +29,10 @@
 #include "util/slice.h"
 
 namespace doris {
-namespace vectorized {
 class ColumnSelectVector;
-} // namespace vectorized
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 /// Decoder bit-packed boolean-encoded values.
 /// Implementation from https://github.com/apache/impala/blob/master/be/src/exec/parquet/parquet-bool-decoder.h
@@ -97,4 +95,4 @@ protected:
 };
 #include "common/compile_check_end.h"
 
-} // namespace doris::vectorized
+} // namespace doris

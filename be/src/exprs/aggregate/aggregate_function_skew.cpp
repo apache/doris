@@ -22,7 +22,7 @@
 #include "exprs/aggregate/factory_helpers.h"
 #include "exprs/aggregate/helpers.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 AggregateFunctionPtr create_aggregate_function_skew(const std::string& name,
@@ -56,4 +56,4 @@ void register_aggregate_function_skewness(AggregateFunctionSimpleFactory& factor
     factory.register_alias("skew", "skewness");
 }
 
-} // namespace doris::vectorized
+} // namespace doris

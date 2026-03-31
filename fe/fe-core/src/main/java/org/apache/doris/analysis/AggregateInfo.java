@@ -101,7 +101,8 @@ public final class AggregateInfo {
         for (int i = 0; i < aggExprSize; i++) {
             result.materializedSlots.add(i);
             String label = (isPartialAgg ? "partial_" : "")
-                    + aggExprs.get(i).toSql() + "[#" + aggExprIds.get(i) + "]";
+                    + aggExprs.get(i).accept(ExprToSqlVisitor.INSTANCE, ToSqlParams.WITH_TABLE)
+                    + "[#" + aggExprIds.get(i) + "]";
             result.materializedSlotLabels.add(label);
         }
         return result;

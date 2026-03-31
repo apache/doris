@@ -18,7 +18,7 @@
 #include "core/data_type/data_type_jsonb.h"
 #include "exprs/function/simple_function_factory.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 class FunctionToJson : public IFunction {
@@ -54,4 +54,4 @@ void register_function_to_json(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToJson>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

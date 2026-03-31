@@ -21,7 +21,7 @@
 
 #include "exprs/vexpr.h"
 
-namespace doris::vectorized {
+namespace doris {
 
 class VSearchExpr : public VExpr {
 public:
@@ -53,4 +53,4 @@ private:
     bool _enable_cache = true;
 };
 
-} // namespace doris::vectorized
+} // namespace doris

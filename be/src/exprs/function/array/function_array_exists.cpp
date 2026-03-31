@@ -42,7 +42,7 @@ namespace doris {
 class FunctionContext;
 } // namespace doris
 
-namespace doris::vectorized {
+namespace doris {
 
 // array_exists([1, 2, 3, 0]) -> [1, 1, 1, 0]
 class FunctionArrayExists : public IFunction {
@@ -103,4 +103,4 @@ void register_function_array_exists(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionArrayExists>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris

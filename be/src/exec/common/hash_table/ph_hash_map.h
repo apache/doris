@@ -36,7 +36,7 @@ public:
     using Self = PHHashMap;
     using Hash = HashMethod;
     using cell_type = std::pair<const Key, Mapped>;
-    using HashMapImpl = doris::vectorized::flat_hash_map<Key, Mapped, Hash>;
+    using HashMapImpl = doris::flat_hash_map<Key, Mapped, Hash>;
 
     using key_type = Key;
     using mapped_type = Mapped;
@@ -186,6 +186,12 @@ public:
     template <typename Func>
     void for_each_mapped(Func&& func) {
         for (auto& v : *this) func(v.get_second());
+    }
+
+    /// Call func(const Key &, Mapped &) for each hash map element.
+    template <typename Func>
+    void for_each(Func&& func) {
+        for (auto& v : *this) func(v.get_first(), v.get_second());
     }
 
     size_t get_buffer_size_in_bytes() const {

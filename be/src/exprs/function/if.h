@@ -36,7 +36,7 @@
 #include <arm_neon.h>
 #endif
 
-namespace doris::vectorized {
+namespace doris {
 
 template <PrimitiveType PType>
 struct NumIfImpl {
@@ -266,4 +266,4 @@ private:
 #endif
 };
 
-} // namespace doris::vectorized
+} // namespace doris

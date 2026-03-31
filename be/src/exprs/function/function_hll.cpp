@@ -46,7 +46,7 @@
 #include "util/hash_util.hpp"
 #include "util/url_coding.h"
 
-namespace doris::vectorized {
+namespace doris {
 #include "common/compile_check_begin.h"
 
 struct HLLCardinality {
@@ -321,4 +321,4 @@ void register_function_hll(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionHllToBase64>();
 }
 
-} // namespace doris::vectorized
+} // namespace doris
