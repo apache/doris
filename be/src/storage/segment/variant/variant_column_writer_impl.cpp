@@ -1908,7 +1908,7 @@ Status VariantDocCompactWriter::finalize() {
     for (const auto& [k, cnt] : column_stats) {
         (*doc_value_column_non_null_size)[std::string(k)] = cnt;
     }
-    _column = ColumnVariant::create(0);
+    _column = ColumnVariant::create(0, false);
     _data_written = true;
     _is_finalized = true;
     return Status::OK();

@@ -102,7 +102,7 @@ TEST(VariantUtilTest, MaterializeDocsToSubcolumnsMap_ExpectedUniquePathsPreserve
             R"({"a":3,"c":4})",   //
     };
 
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
 
     ParseConfig cfg;
