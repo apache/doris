@@ -56,16 +56,24 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
 
     public boolean reopen(VALUE object, int timeoutMs) {
         boolean ok = true;
+        // Set a short timeout BEFORE close() to protect the connect + TLS handshake phase
+        // in the subsequent open(). Must be done before close() because Thrift 0.16.0's
+        // TSocket.close() nulls the internal socket, and setSocketTimeout() would NPE after that.
+        // setTimeout() sets both connectTimeout_ and socketTimeout_ fields which survive close().
+        if (!isNonBlockingIO && Config.thrift_rpc_connect_timeout_ms > 0) {
+            TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+            socket.setTimeout(Config.thrift_rpc_connect_timeout_ms);
+        }
         object.getOutputProtocol().getTransport().close();
         try {
             object.getOutputProtocol().getTransport().open();
-            // transport.open() doesn't set timeout, Maybe the timeoutMs change.
-            // here we cannot set timeoutMs for TFramedTransport, just skip it
+            // Restore the actual RPC timeout after successful open()
             if (!isNonBlockingIO) {
                 TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
                 socket.setTimeout(timeoutMs);
             }
         } catch (TTransportException e) {
+            LOG.warn("reopen failed", e);
             ok = false;
         }
         return ok;
@@ -73,12 +81,37 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
 
     public boolean reopen(VALUE object) {
         boolean ok = true;
+        if (!isNonBlockingIO && Config.thrift_rpc_connect_timeout_ms > 0) {
+            TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+            socket.setTimeout(Config.thrift_rpc_connect_timeout_ms);
+        }
         object.getOutputProtocol().getTransport().close();
         try {
             object.getOutputProtocol().getTransport().open();
+            // Restore to pool-level default timeout
+            if (!isNonBlockingIO) {
+                TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+                socket.setTimeout(this.timeoutMs);
+            }
         } catch (TTransportException e) {
             LOG.warn("reopen error", e);
             ok = false;
+        }
+        return ok;
+    }
+
+    public boolean reopenOrClear(TNetworkAddress address, VALUE object, int timeoutMs) {
+        boolean ok = reopen(object, timeoutMs);
+        if (!ok) {
+            clearPool(address);
+        }
+        return ok;
+    }
+
+    public boolean reopenOrClear(TNetworkAddress address, VALUE object) {
+        boolean ok = reopen(object);
+        if (!ok) {
+            clearPool(address);
         }
         return ok;
     }
