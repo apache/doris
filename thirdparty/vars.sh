@@ -48,6 +48,7 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 
 # source of all dependencies, default unuse it
 # export REPOSITORY_URL=
+DORIS_THIRDPARTY_REPOSITORY_URL="${DORIS_THIRDPARTY_REPOSITORY_URL:-https://doris-thirdparty-repo.bj.bcebos.com/thirdparty}"
 
 #####################################################
 # Download url, filename and unpaced filename
@@ -548,7 +549,8 @@ JINDOFS_SOURCE=jindofs-6.10.4-libs-0.1
 JINDOFS_MD5SUM="bd30b4c5fe97c4367eeb3bb228b317d9"
 
 # juicefs
-JUICEFS_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
+JUICEFS_DOWNLOAD="${DORIS_THIRDPARTY_REPOSITORY_URL%/}/juicefs-hadoop-1.3.1.jar"
+JUICEFS_FALLBACK_DOWNLOAD="https://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar"
 JUICEFS_NAME=juicefs-hadoop-1.3.1.jar
 JUICEFS_SOURCE=
 JUICEFS_MD5SUM="f374dfbfbdc4b83417cfea78a6728c54"
