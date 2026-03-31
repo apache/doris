@@ -271,15 +271,12 @@ static std::pair<MetaServiceCode, std::string> get_instance(Transaction* txn,
     std::string key = instance_key(instance_key_info);
     std::string val;
     TxnErrorCode err = txn->get(key, &val);
-    if (err != TxnErrorCode::TXN_OK) {
-        if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
-            return {MetaServiceCode::INVALID_ARGUMENT,
-                    fmt::format("instance not found, instance_id={}", instance_id)};
-        } else {
-            return {cast_as<ErrCategory::READ>(err),
-                    fmt::format("failed to get instance, instance_id={}, err={}", instance_id,
-                                err)};
-        }
+    if (err == TxnErrorCode::TXN_KEY_NOT_FOUND) {
+        return {MetaServiceCode::INVALID_ARGUMENT,
+                fmt::format("instance not found, instance_id={}", instance_id)};
+    } else if (err != TxnErrorCode::TXN_OK) {
+        return {cast_as<ErrCategory::READ>(err),
+                fmt::format("failed to get instance, instance_id={}, err={}", instance_id, err)};
     }
 
     if (!instance_info->ParseFromString(val)) {
@@ -309,6 +306,7 @@ std::pair<MetaServiceCode, std::string> SnapshotManager::get_all_snapshots(
         current_instance_id = instance_info.original_instance_id();
     }
 
+    std::unordered_set<std::string> visited;
     do {
         MetaReader meta_reader(current_instance_id);
         if (required_snapshot_id.empty()) {
@@ -332,7 +330,10 @@ std::pair<MetaServiceCode, std::string> SnapshotManager::get_all_snapshots(
         }
         auto [code, error_msg] = get_instance(txn, current_instance_id, &instance_info);
         if (code != MetaServiceCode::OK) {
-            return {code, error_msg};
+            std::string msg = fmt::format("failed to get ancestor instance {}: {}",
+                                          current_instance_id, error_msg);
+            LOG_WARNING(msg);
+            return {code, msg};
         }
         if (!instance_info.has_successor_instance_id() ||
             instance_info.successor_instance_id().empty()) {
@@ -343,6 +344,15 @@ std::pair<MetaServiceCode, std::string> SnapshotManager::get_all_snapshots(
             LOG_WARNING(error_msg);
             return {code, error_msg};
         }
+        if (visited.count(current_instance_id) > 0) {
+            code = MetaServiceCode::INVALID_ARGUMENT;
+            error_msg = fmt::format(
+                    "cycle detected in instance chain, current instance_id={}, instance_id={}",
+                    current_instance_id, instance_id);
+            LOG_WARNING(error_msg);
+            return {code, error_msg};
+        }
+        visited.insert(current_instance_id);
         current_instance_id = instance_info.successor_instance_id();
     } while (true);
     return {MetaServiceCode::OK, ""};

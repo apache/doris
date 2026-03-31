@@ -2184,7 +2184,7 @@ static std::pair<MetaServiceCode, std::string> get_predecessor_instances(
 
 static std::pair<MetaServiceCode, std::string> ensure_all_snapshot_recycled(
         Transaction* txn, const std::string& instance_id,
-        std::optional<std::reference_wrapper<std::unordered_set<std::string_view>>>
+        std::optional<std::reference_wrapper<std::unordered_set<std::string>>>
                 exclude_snapshot_set) {
     MetaReader meta_reader(instance_id);
     std::vector<std::pair<SnapshotPB, Versionstamp>> snapshots;
@@ -2258,7 +2258,7 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
         return {code, std::move(err)};
     }
 
-    std::unordered_set<std::string_view> exclude_snapshot_set;
+    std::unordered_set<std::string> exclude_snapshot_set;
     if (auto [code, err] = ensure_all_snapshot_recycled(txn, tail_instance_id, std::nullopt);
         code != MetaServiceCode::OK) {
         return {code, std::move(err)};
