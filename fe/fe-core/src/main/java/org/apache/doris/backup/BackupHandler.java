@@ -277,7 +277,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
      */
     private Map<String, String> mergeProperties(Repository repo, Map<String, String> newProps) {
         // General case: just override old props with new ones
-        Map<String, String> combined = new HashMap<>(repo.getRemoteFileSystem().getProperties());
+        Map<String, String> combined = new HashMap<>(repo.getFileSystemDescriptor().getProperties());
         combined.putAll(newProps);
         return combined;
     }

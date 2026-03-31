@@ -17,6 +17,8 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.fs.FsStorageType;
 
 import com.google.common.collect.Maps;
@@ -68,6 +70,22 @@ public class FileSystemDescriptor {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    /**
+     * Returns the Thrift storage type corresponding to this descriptor's storage type.
+     * Used to populate {@code storage_backend} in BE snapshot/download task RPCs.
+     */
+    public StorageBackend.StorageType getThriftStorageType() {
+        return FsStorageTypeAdapter.toThrift(storageType);
+    }
+
+    /**
+     * Returns the backend configuration properties (AK, SK, endpoint, etc.) needed
+     * by BE to initialize its storage client for snapshot/upload/download tasks.
+     */
+    public Map<String, String> getBackendConfigProperties() {
+        return StorageProperties.createPrimary(properties).getBackendConfigProperties();
     }
 
     /** Creates a FileSystemDescriptor from an existing PersistentFileSystem (migration helper). */
