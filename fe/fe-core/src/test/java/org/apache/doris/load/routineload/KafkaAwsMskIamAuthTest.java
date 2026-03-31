@@ -182,8 +182,8 @@ public class KafkaAwsMskIamAuthTest {
         Assert.assertEquals("SASL_SSL", customProps.get("security.protocol"));
         Assert.assertEquals("OAUTHBEARER", customProps.get("sasl.mechanism"));
         Assert.assertEquals("us-east-1", customProps.get("aws.region"));
-        Assert.assertEquals("arn:aws:iam::123456789012:role/MyMskRole", customProps.get("aws.msk.iam.role.arn"));
-        Assert.assertEquals("default", customProps.get("aws.profile.name"));
+        Assert.assertEquals("arn:aws:iam::123456789012:role/MyMskRole", customProps.get("aws.role_arn"));
+        Assert.assertEquals("default", customProps.get("aws.profile_name"));
     }
 
     @Test
@@ -319,7 +319,7 @@ public class KafkaAwsMskIamAuthTest {
 
         Map<String, String> customProps = props.getCustomKafkaProperties();
         Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
-        Assert.assertEquals("arn:aws:iam::111111111111:role/AccountAMskRole", customProps.get("aws.msk.iam.role.arn"));
+        Assert.assertEquals("arn:aws:iam::111111111111:role/AccountAMskRole", customProps.get("aws.role_arn"));
     }
 
     @Test
@@ -430,7 +430,7 @@ public class KafkaAwsMskIamAuthTest {
         // All properties should be preserved (BE will use them in priority order)
         Map<String, String> customProps = props.getCustomKafkaProperties();
         Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
-        Assert.assertEquals("arn:aws:iam::123456789012:role/MyRole", customProps.get("aws.msk.iam.role.arn"));
-        Assert.assertEquals("default", customProps.get("aws.profile.name"));
+        Assert.assertEquals("arn:aws:iam::123456789012:role/MyRole", customProps.get("aws.role_arn"));
+        Assert.assertEquals("default", customProps.get("aws.profile_name"));
     }
 }
