@@ -46,6 +46,8 @@ struct MurmurHash3Impl {
     static constexpr auto get_name() {
         if constexpr (ReturnType == TYPE_INT) {
             return "murmur_hash3_32";
+        } else if constexpr (ReturnType == TYPE_LARGEINT) {
+            return "murmur_hash3_u64_v2";
         } else if constexpr (is_mmh64_v2) {
             return "murmur_hash3_64_v2";
         } else {
@@ -98,7 +100,7 @@ struct MurmurHash3Impl {
                 } else {
                     col_to_data[i] = HashUtil::murmur_hash3_64<is_mmh64_v2>(
                             reinterpret_cast<const char*>(&data[current_offset]),
-                            offsets[i] - current_offset, col_to_data[i]);
+                            offsets[i] - current_offset, static_cast<uint64_t>(col_to_data[i]));
                 }
                 current_offset = offsets[i];
             }
@@ -111,7 +113,7 @@ struct MurmurHash3Impl {
                             HashUtil::murmur_hash3_32(value.data(), value.size(), col_to_data[i]);
                 } else {
                     col_to_data[i] = HashUtil::murmur_hash3_64<is_mmh64_v2>(
-                            value.data(), value.size(), col_to_data[i]);
+                            value.data(), value.size(), static_cast<uint64_t>(col_to_data[i]));
                 }
             }
         } else {
@@ -129,6 +131,8 @@ using FunctionMurmurHash3_64 =
         FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<TYPE_BIGINT>>;
 using FunctionMurmurHash3_64_V2 =
         FunctionVariadicArgumentsBase<DataTypeInt64, MurmurHash3Impl<TYPE_BIGINT, true>>;
+using FunctionMurmurHash3U64V2 =
+        FunctionVariadicArgumentsBase<DataTypeInt128, MurmurHash3Impl<TYPE_LARGEINT, true>>;
 
 #ifdef BE_TEST
 const char* murmur_hash3_get_name_type_int_for_test() {
@@ -230,6 +234,7 @@ void register_function_hash(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMurmurHash3_32>();
     factory.register_function<FunctionMurmurHash3_64>();
     factory.register_function<FunctionMurmurHash3_64_V2>();
+    factory.register_function<FunctionMurmurHash3U64V2>();
     factory.register_function<FunctionXxHash_32>();
     factory.register_function<FunctionXxHash_64>();
     factory.register_alias("xxhash_64", "xxhash3_64");
