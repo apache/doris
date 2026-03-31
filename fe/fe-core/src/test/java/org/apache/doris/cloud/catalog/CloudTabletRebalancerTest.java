@@ -249,10 +249,11 @@ public class CloudTabletRebalancerTest {
 
 
     @Test
-    public void testMigrateTabletsForSmoothUpgrade_emptyQueueReturnsFalse() throws Exception {
+    public void testMigrateTabletsForSmoothUpgrade_emptyQueueDoesNotThrow() throws Exception {
         TestRebalancer r = new TestRebalancer();
-        boolean migrated = invokePrivate(r, "migrateTabletsForSmoothUpgrade", new Class<?>[] {}, new Object[] {});
-        Assertions.assertFalse(migrated);
+        // migrateTabletsForSmoothUpgrade returns void; just verify it completes without error on empty queue
+        Assertions.assertDoesNotThrow(() ->
+                invokePrivate(r, "migrateTabletsForSmoothUpgrade", new Class<?>[] {}, new Object[] {}));
     }
 
     @Test
