@@ -300,7 +300,7 @@ std::pair<MetaServiceCode, std::string> SnapshotManager::get_all_snapshots(
     if (code != MetaServiceCode::OK) {
         return {code, error_msg};
     }
-    std::string current_instance_id = instance_id;
+    std::string current_instance_id(instance_id);
     if (instance_info.has_original_instance_id() && !instance_info.original_instance_id().empty()) {
         // the earliest instance_id for rollback
         current_instance_id = instance_info.original_instance_id();
