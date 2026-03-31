@@ -999,6 +999,7 @@ Status KinesisDataConsumer::reset() {
     _cancelled = false;
     _consuming_shard_ids.clear();
     _shard_iterators.clear();
+    _millis_behind_latest.clear();
     _committed_sequence_numbers.clear();
     _closed_shard_ids.clear();
     _last_visit_time = time(nullptr);

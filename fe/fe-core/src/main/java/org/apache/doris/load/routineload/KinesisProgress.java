@@ -80,7 +80,7 @@ public class KinesisProgress extends RoutineLoadProgress {
     // Not persisted — only used during task commit to remove closed shards from tracking.
     private java.util.Set<String> closedShardIds = new java.util.HashSet<>();
 
-    private ReentrantLock lock = new ReentrantLock(true);
+    private transient ReentrantLock lock = new ReentrantLock(true);
 
     public KinesisProgress() {
         super(LoadDataSourceType.KINESIS);
@@ -131,11 +131,12 @@ public class KinesisProgress extends RoutineLoadProgress {
      * Add a shard with its starting position.
      */
     public void addShardPosition(Pair<String, String> shardPosition) {
-        lock.lock();
+        ReentrantLock progressLock = getLock();
+        progressLock.lock();
         try {
             shardIdToSequenceNumber.put(shardPosition.first, shardPosition.second);
         } finally {
-            lock.unlock();
+            progressLock.unlock();
         }
     }
 
@@ -213,13 +214,14 @@ public class KinesisProgress extends RoutineLoadProgress {
      * Modify the position for specific shards.
      */
     public void modifyPosition(List<Pair<String, String>> kinesisShardPositions) {
-        lock.lock();
+        ReentrantLock progressLock = getLock();
+        progressLock.lock();
         try {
             for (Pair<String, String> pair : kinesisShardPositions) {
                 shardIdToSequenceNumber.put(pair.first, pair.second);
             }
         } finally {
-            lock.unlock();
+            progressLock.unlock();
         }
     }
 
@@ -279,7 +281,8 @@ public class KinesisProgress extends RoutineLoadProgress {
     public void update(RLTaskTxnCommitAttachment attachment) {
         KinesisProgress newProgress = (KinesisProgress) attachment.getProgress();
 
-        lock.lock();
+        ReentrantLock progressLock = getLock();
+        progressLock.lock();
         try {
             // Update sequence numbers for each shard
             newProgress.shardIdToSequenceNumber.forEach((shardId, newSeqNum) -> {
@@ -302,7 +305,7 @@ public class KinesisProgress extends RoutineLoadProgress {
                 this.closedShardIds.addAll(newProgress.getClosedShardIds());
             }
         } finally {
-            lock.unlock();
+            progressLock.unlock();
         }
 
         if (LOG.isDebugEnabled()) {
@@ -319,5 +322,12 @@ public class KinesisProgress extends RoutineLoadProgress {
         // Return the number of shards being tracked
         // Actual progress is better represented by millisBehindLatest
         return (long) shardIdToSequenceNumber.size();
+    }
+
+    private ReentrantLock getLock() {
+        if (lock == null) {
+            lock = new ReentrantLock(true);
+        }
+        return lock;
     }
 }

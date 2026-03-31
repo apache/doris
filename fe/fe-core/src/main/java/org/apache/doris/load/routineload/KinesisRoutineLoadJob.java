@@ -456,6 +456,9 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
      */
     public static KinesisRoutineLoadJob fromCreateInfo(CreateRoutineLoadInfo info, ConnectContext ctx)
             throws UserException {
+        if (Config.isCloudMode()) {
+            throw new DdlException("Kinesis routine load does not support cloud mode");
+        }
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(info.getDBName());
 
         long id = Env.getCurrentEnv().getNextId();
@@ -659,6 +662,7 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
         if (dataSourceProperties != null) {
             List<Pair<String, String>> shardPositions = Lists.newArrayList();
             Map<String, String> customKinesisProperties = Maps.newHashMap();
+            boolean resetProgress = false;
 
             if (MapUtils.isNotEmpty(dataSourceProperties.getOriginalDataSourceProperties())) {
                 shardPositions = dataSourceProperties.getKinesisShardPositions();
@@ -671,16 +675,10 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
                 convertCustomProperties(true);
             }
 
-            // Check and modify shard positions
-            if (!shardPositions.isEmpty()) {
-                ((KinesisProgress) progress).checkShards(shardPositions);
-                ((KinesisProgress) progress).modifyPosition(shardPositions);
-            }
-
             // Modify stream if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getStream())) {
                 this.stream = dataSourceProperties.getStream();
-                this.progress = new KinesisProgress();
+                resetProgress = true;
             }
 
             // Modify region if provided
@@ -691,6 +689,17 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
             // Modify endpoint if provided
             if (!Strings.isNullOrEmpty(dataSourceProperties.getEndpoint())) {
                 this.endpoint = dataSourceProperties.getEndpoint();
+            }
+
+            if (resetProgress) {
+                this.progress = new KinesisProgress();
+            }
+
+            if (!shardPositions.isEmpty()) {
+                if (!resetProgress) {
+                    ((KinesisProgress) progress).checkShards(shardPositions);
+                }
+                ((KinesisProgress) progress).modifyPosition(shardPositions);
             }
         }
 
@@ -825,11 +834,11 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
 
     @Override
     public void updateCloudProgress() throws UserException {
-        // Cloud mode not supported for Kinesis yet
+        throw new UserException("Kinesis routine load does not support cloud mode");
     }
 
     @Override
     protected void updateCloudProgress(RLTaskTxnCommitAttachment attachment) {
-        // Cloud mode not supported for Kinesis yet
+        throw new IllegalStateException("Kinesis routine load does not support cloud mode");
     }
 }

@@ -130,7 +130,7 @@ Status StreamLoadExecutor::execute_plan_fragment(
                 ctx->kafka_info->reset_offset();
                 break;
             case TLoadSourceType::KINESIS:
-                // (TODO Refrain)
+                ctx->kinesis_info->reset_sequence_numbers();
                 break;
             default:
                 break;
