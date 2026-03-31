@@ -39,18 +39,18 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 
-public class IVMDeltaExecutorTest {
+public class IvmDeltaExecutorTest {
 
-    private IVMDeltaExecutor deltaExecutor;
+    private IvmDeltaExecutor deltaExecutor;
 
     @BeforeEach
     public void setUp() {
-        deltaExecutor = new IVMDeltaExecutor();
+        deltaExecutor = new IvmDeltaExecutor();
     }
 
     @Test
     public void testExecuteEmptyBundles(@Mocked MTMV mtmv) throws AnalysisException {
-        IVMRefreshContext context = newContext(mtmv);
+        IvmRefreshContext context = newContext(mtmv);
         deltaExecutor.execute(context, Collections.emptyList());
     }
 
@@ -199,8 +199,8 @@ public class IVMDeltaExecutorTest {
         Assertions.assertEquals(Arrays.asList(1, 2), executionOrder);
     }
 
-    private static IVMRefreshContext newContext(MTMV mtmv) {
-        return new IVMRefreshContext(mtmv, new ConnectContext(),
+    private static IvmRefreshContext newContext(MTMV mtmv) {
+        return new IvmRefreshContext(mtmv, new ConnectContext(),
                 new org.apache.doris.mtmv.MTMVRefreshContext(mtmv));
     }
 }

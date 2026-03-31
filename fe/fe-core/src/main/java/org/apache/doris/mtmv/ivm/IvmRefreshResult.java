@@ -19,30 +19,30 @@ package org.apache.doris.mtmv.ivm;
 
 import java.util.Objects;
 
-/** Result of checking whether incremental refresh is viable for a materialized view. */
-public class IVMCapabilityResult {
-    private final boolean incremental;
+/** Result of one FE-side incremental refresh attempt. */
+public class IvmRefreshResult {
+    private final boolean success;
     private final FallbackReason fallbackReason;
     private final String detailMessage;
 
-    private IVMCapabilityResult(boolean incremental, FallbackReason fallbackReason, String detailMessage) {
-        this.incremental = incremental;
+    private IvmRefreshResult(boolean success, FallbackReason fallbackReason, String detailMessage) {
+        this.success = success;
         this.fallbackReason = fallbackReason;
         this.detailMessage = detailMessage;
     }
 
-    public static IVMCapabilityResult ok() {
-        return new IVMCapabilityResult(true, null, null);
+    public static IvmRefreshResult success() {
+        return new IvmRefreshResult(true, null, null);
     }
 
-    public static IVMCapabilityResult unsupported(FallbackReason fallbackReason, String detailMessage) {
-        return new IVMCapabilityResult(false,
+    public static IvmRefreshResult fallback(FallbackReason fallbackReason, String detailMessage) {
+        return new IvmRefreshResult(false,
                 Objects.requireNonNull(fallbackReason, "fallbackReason can not be null"),
                 Objects.requireNonNull(detailMessage, "detailMessage can not be null"));
     }
 
-    public boolean isIncremental() {
-        return incremental;
+    public boolean isSuccess() {
+        return success;
     }
 
     public FallbackReason getFallbackReason() {
@@ -55,11 +55,11 @@ public class IVMCapabilityResult {
 
     @Override
     public String toString() {
-        if (incremental) {
-            return "IVMCapabilityResult{incremental=true}";
+        if (success) {
+            return "IvmRefreshResult{success=true}";
         }
-        return "IVMCapabilityResult{"
-                + "incremental=false"
+        return "IvmRefreshResult{"
+                + "success=false"
                 + ", fallbackReason=" + fallbackReason
                 + ", detailMessage='" + detailMessage + '\''
                 + '}';
