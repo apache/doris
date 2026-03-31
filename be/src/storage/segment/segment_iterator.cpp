@@ -3244,9 +3244,8 @@ Status SegmentIterator::_materialization_of_virtual_column(Block* block) {
 
             block->replace_by_position(idx_in_block, std::move(result_column));
             if (block->get_by_position(idx_in_block).column->size() == 0) {
-                LOG_WARNING(
-                        "Result of expr column {} is empty. cid {}, idx_in_block {}",
-                        column_expr->root()->debug_string(), cid, idx_in_block);
+                LOG_WARNING("Result of expr column {} is empty. cid {}, idx_in_block {}",
+                            column_expr->root()->debug_string(), cid, idx_in_block);
             }
         }
     }

@@ -337,7 +337,6 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         }
     }
 
-
     return Status::OK();
 }
 
