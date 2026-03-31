@@ -48,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
@@ -77,6 +78,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     private IcebergMetadataOps icebergMetadataOps;
 
     private volatile AbstractHiveProperties hmsProperties;
+
+    public static final String DB_NAME_PATTERN = "^[A-Za-z][A-Za-z0-9_]*$";
 
     /**
      * Lazily initializes HMSProperties from catalog properties.
@@ -249,6 +252,23 @@ public class HMSExternalCatalog extends ExternalCatalog {
         makeSureInitialized();
         return Objects.requireNonNull(getFilteredDatabaseNames()).stream().map(Pair::value).collect(
                 Collectors.toList());
+    }
+
+    protected HMSExternalDatabase buildDbForInit(String remoteDbName, String localDbName,
+                                                 long dbId, InitCatalogLog.Type logType, boolean checkExists) {
+        if (localDbName == null && remoteDbName != null) {
+            localDbName = fromRemoteDatabaseName(remoteDbName);
+        }
+
+        if (!Pattern.matches(DB_NAME_PATTERN, localDbName)) {
+            LOG.warn("HMSExternalCatalog buildDbForInit find hive database name is invalid {}", localDbName);
+            return null;
+        }
+
+        if (remoteDbName == null) {
+            remoteDbName = localDbName;
+        }
+        return new HMSExternalDatabase(this, dbId, localDbName, remoteDbName);
     }
 }
 
