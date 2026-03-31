@@ -53,14 +53,7 @@ public class CreateMTMVCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testConvertToPartitionTableInfo() throws Exception {
-        testUnpartitionConvertToPartitionTableInfo();
-        testRangePartitionConvertToPartitionTableInfo();
-        testInPartitionConvertToPartitionTableInfo();
-        testLessThanPartitionConvertToPartitionTableInfo();
-    }
-
-    private void testUnpartitionConvertToPartitionTableInfo() throws Exception {
+    public void testUnpartitionConvertToPartitionTableInfo() throws Exception {
         String partitionTable = "CREATE TABLE aa1 (\n"
                 + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
                 + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
@@ -89,7 +82,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         Assertions.assertEquals(PartitionTableInfo.EMPTY, createMTMVInfo.getPartitionTableInfo());
     }
 
-    private void testRangePartitionConvertToPartitionTableInfo() throws Exception {
+    @Test
+    public void testRangePartitionConvertToPartitionTableInfo() throws Exception {
         String fixedRangePartitionTable = "CREATE TABLE mm1 (\n"
                 + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
                 + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
@@ -117,7 +111,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         check(fixedRangePartitionTable, mv);
     }
 
-    private void testLessThanPartitionConvertToPartitionTableInfo() throws Exception {
+    @Test
+    public void testLessThanPartitionConvertToPartitionTableInfo() throws Exception {
         String lessThanPartitionTable = "CREATE TABLE te2 (\n"
                 + " `user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
                 + " `date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
@@ -147,7 +142,8 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         check(lessThanPartitionTable, mv);
     }
 
-    private void testInPartitionConvertToPartitionTableInfo() throws Exception {
+    @Test
+    public void testInPartitionConvertToPartitionTableInfo() throws Exception {
         String inPartitionTable = "CREATE TABLE cc1 (\n"
                 + "`user_id` LARGEINT NOT NULL COMMENT '\\\"用户id\\\"',\n"
                 + "`date` DATE NOT NULL COMMENT '\\\"数据灌入日期时间\\\"',\n"
