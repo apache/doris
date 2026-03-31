@@ -5,6 +5,9 @@
 -- !ignore_enabled --
 0
 
+-- !ignore_io_error --
+0
+
 -- !recovery --
 6
 

@@ -81,6 +81,35 @@ suite("test_ignore_not_found_segment", "nonConcurrent") {
         set_be_config.call("ignore_not_found_segment", "true")
     }
 
-    // Test 3: After clearing the debug point, data should be fully accessible again
+    // Test 3: With ignore_not_found_segment=true, injecting IO_ERROR
+    // should return 0 rows since all segments fail to load and are skipped.
+    try {
+        set_be_config.call("ignore_not_found_segment", "true")
+        set_be_config.call("disable_segment_cache", "true")
+        GetDebugPoint().enableDebugPointForAllBEs("BetaRowset::load_segment.return_io_error")
+
+        qt_ignore_io_error "SELECT count(*) FROM ${tableName}"
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("BetaRowset::load_segment.return_io_error")
+        set_be_config.call("disable_segment_cache", "false")
+    }
+
+    // Test 4: With ignore_not_found_segment=false, injecting IO_ERROR should cause query failure
+    try {
+        set_be_config.call("ignore_not_found_segment", "false")
+        set_be_config.call("disable_segment_cache", "true")
+        GetDebugPoint().enableDebugPointForAllBEs("BetaRowset::load_segment.return_io_error")
+
+        test {
+            sql "SELECT count(*) FROM ${tableName}"
+            exception "IO_ERROR"
+        }
+    } finally {
+        GetDebugPoint().disableDebugPointForAllBEs("BetaRowset::load_segment.return_io_error")
+        set_be_config.call("disable_segment_cache", "false")
+        set_be_config.call("ignore_not_found_segment", "true")
+    }
+
+    // Test 5: After clearing the debug point, data should be fully accessible again
     qt_recovery "SELECT count(*) FROM ${tableName}"
 }
