@@ -101,6 +101,7 @@ import org.apache.doris.datasource.es.EsExternalCatalog;
 import org.apache.doris.datasource.hive.HiveTransactionMgr;
 import org.apache.doris.datasource.hive.event.MetastoreEventsProcessor;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
+import org.apache.doris.datasource.iceberg.IcebergSysExternalTable;
 import org.apache.doris.datasource.jdbc.JdbcExternalTable;
 import org.apache.doris.datasource.paimon.PaimonExternalTable;
 import org.apache.doris.datasource.paimon.PaimonSysExternalTable;
@@ -4344,7 +4345,14 @@ public class Env {
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            IcebergExternalTable icebergExternalTable;
+            if (table instanceof IcebergExternalTable) {
+                icebergExternalTable = (IcebergExternalTable) table;
+            } else if (table instanceof IcebergSysExternalTable) {
+                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
+            } else {
+                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
+            }
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
             }
@@ -4731,7 +4739,14 @@ public class Env {
             sb.append("\n-- Internal JDBC tables are deprecated. Please use JDBC Catalog instead.");
         } else if (table.getType() == TableType.ICEBERG_EXTERNAL_TABLE) {
             addTableComment(table, sb);
-            IcebergExternalTable icebergExternalTable = (IcebergExternalTable) table;
+            IcebergExternalTable icebergExternalTable;
+            if (table instanceof IcebergExternalTable) {
+                icebergExternalTable = (IcebergExternalTable) table;
+            } else if (table instanceof IcebergSysExternalTable) {
+                icebergExternalTable = ((IcebergSysExternalTable) table).getSourceTable();
+            } else {
+                throw new RuntimeException("Unexpected Iceberg table type: " + table.getClass().getSimpleName());
+            }
             if (icebergExternalTable.hasSortOrder()) {
                 sb.append("\n").append(icebergExternalTable.getSortOrderSql());
             }
