@@ -18,10 +18,11 @@
 package org.apache.doris.filesystem.spi;
 
 import java.io.IOException;
+import java.util.List;
 
 /**
  * Abstract base class for object-storage-backed FileSystems.
- * Delegates existence checks to the underlying ObjStorage instance.
+ * Delegates existence checks and cloud-specific operations to the underlying ObjStorage instance.
  */
 public abstract class ObjFileSystem implements FileSystem {
 
@@ -55,6 +56,36 @@ public abstract class ObjFileSystem implements FileSystem {
      */
     protected boolean isNotFoundError(IOException e) {
         return e.getMessage() != null && e.getMessage().contains("404");
+    }
+
+    // -----------------------------------------------------------------------
+    // Cloud-specific delegates - forward to ObjStorage
+    // -----------------------------------------------------------------------
+
+    /** @see ObjStorage#getStsToken() */
+    public StsCredentials getStsToken() throws IOException {
+        return objStorage.getStsToken();
+    }
+
+    /** @see ObjStorage#listObjectsWithPrefix(String, String, String) */
+    public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
+            String continuationToken) throws IOException {
+        return objStorage.listObjectsWithPrefix(prefix, subPrefix, continuationToken);
+    }
+
+    /** @see ObjStorage#headObjectWithMeta(String, String) */
+    public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
+        return objStorage.headObjectWithMeta(prefix, subKey);
+    }
+
+    /** @see ObjStorage#getPresignedUrl(String) */
+    public String getPresignedUrl(String objectKey) throws IOException {
+        return objStorage.getPresignedUrl(objectKey);
+    }
+
+    /** @see ObjStorage#deleteObjectsByKeys(String, List) */
+    public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
+        objStorage.deleteObjectsByKeys(bucket, keys);
     }
 
     @Override

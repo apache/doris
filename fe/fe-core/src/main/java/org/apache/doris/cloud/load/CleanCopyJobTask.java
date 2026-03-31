@@ -26,8 +26,8 @@ import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.ObjFileSystem;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -59,7 +59,7 @@ public class CleanCopyJobTask {
         }
         try {
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
             fs.deleteObjectsByKeys(objectInfo.getBucket(), loadFiles);
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .finishCopy(stageId, stageType, tableId, copyId, 0, Action.REMOVE);

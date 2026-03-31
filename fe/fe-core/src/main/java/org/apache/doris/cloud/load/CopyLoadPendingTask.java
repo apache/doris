@@ -35,10 +35,10 @@ import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.obj.ListObjectsResult;
-import org.apache.doris.fs.obj.ObjectFile;
-import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.loadv2.BrokerLoadPendingTask;
@@ -262,7 +262,7 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         loadedFileNum = 0;
         reachLimitStr = "";
         StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
+        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
         Set<String> loadedFileSet = copiedFiles.stream().map(f -> StageUtil.getFileInfoUniqueId(f))
                 .collect(Collectors.toSet());
         try {
@@ -272,16 +272,16 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
             String continuationToken = null;
             boolean finish = false;
             while (!finish) {
-                ListObjectsResult listObjectsResult = fs.listObjectsWithPrefix(
+                RemoteObjects listObjectsResult = fs.listObjectsWithPrefix(
                         objectInfo.getPrefix(), "", continuationToken);
-                listFileNum += listObjectsResult.getObjectInfoList().size();
+                listFileNum += listObjectsResult.getObjectList().size();
                 long costSeconds = (System.currentTimeMillis() - startTimestamp) / 1000;
                 if (costSeconds >= 3600 || listFileNum >= 1000000) {
                     throw new DdlException("Abort list object for queryId=" + ((CopyJob) callback).getCopyId()
                             + ". We don't collect enough files to load, after listing " + listFileNum + " objects for "
                             + costSeconds + " seconds, please check if your pattern " + pattern + " is correct.");
                 }
-                for (ObjectFile objectFile : listObjectsResult.getObjectInfoList()) {
+                for (RemoteObject objectFile : listObjectsResult.getObjectList()) {
                     // check:
                     // 1. match pattern if it's set
                     // 2. file is not copying or copied by other copy jobs
@@ -344,13 +344,13 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         isBeginCopyDone = true;
         try {
             StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatuses = Lists.newArrayList();
             for (ObjectFilePB objectFile : copyJobPB.getObjectFilesList()) {
-                List<ObjectFile> files = fs.headObjectWithMeta(
-                        objectInfo.getPrefix(), objectFile.getRelativePath()).getObjectInfoList();
+                List<RemoteObject> files = fs.headObjectWithMeta(
+                        objectInfo.getPrefix(), objectFile.getRelativePath()).getObjectList();
                 TBrokerFileStatus brokerFileStatus = null;
-                for (ObjectFile file : files) {
+                for (RemoteObject file : files) {
                     if (file.getRelativePath().equals(objectFile.getRelativePath()) && file.getEtag()
                             .equals(objectFile.getEtag())) {
                         String objUrl = "s3://" + objectInfo.getBucket() + "/" + file.getKey();

@@ -18,7 +18,9 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.StsCredentials;
 import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import org.apache.logging.log4j.LogManager;
@@ -50,15 +52,24 @@ import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
+import software.amazon.awssdk.services.sts.model.Credentials;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -85,14 +96,23 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     static final String PROP_SECRET_KEY = "AWS_SECRET_KEY";
     static final String PROP_TOKEN = "AWS_TOKEN";
     static final String PROP_PATH_STYLE = "use_path_style";
+    static final String PROP_BUCKET = "AWS_BUCKET";
+    static final String PROP_ROLE_ARN = "AWS_ROLE_ARN";
+    static final String PROP_EXTERNAL_ID = "AWS_EXTERNAL_ID";
+
+    /** Validity period for pre-signed URLs and STS tokens (seconds). */
+    private static final int SESSION_EXPIRE_SECONDS = 3600;
 
     private final Map<String, String> properties;
     private final boolean usePathStyle;
+    /** Bucket name; may be null if not provided (listObjectsWithPrefix and related methods will fail). */
+    private final String bucket;
     private volatile S3Client client;
 
     public S3ObjStorage(Map<String, String> properties) {
         this.properties = Collections.unmodifiableMap(properties);
         this.usePathStyle = Boolean.parseBoolean(properties.getOrDefault(PROP_PATH_STYLE, "false"));
+        this.bucket = properties.get(PROP_BUCKET);
     }
 
     @Override
@@ -316,10 +336,170 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Cloud-specific extensions
+    // -----------------------------------------------------------------------
+
+    @Override
+    public StsCredentials getStsToken() throws IOException {
+        String roleArn = properties.get(PROP_ROLE_ARN);
+        String externalId = properties.get(PROP_EXTERNAL_ID);
+        if (roleArn == null || roleArn.isEmpty()) {
+            throw new IOException("STS role ARN (AWS_ROLE_ARN) is not configured");
+        }
+        String accessKey = properties.get(PROP_ACCESS_KEY);
+        String secretKey = properties.get(PROP_SECRET_KEY);
+        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
+        try {
+            AwsBasicCredentials basicCred = AwsBasicCredentials.create(accessKey, secretKey);
+            try (StsClient stsClient = StsClient.builder()
+                    .credentialsProvider(StaticCredentialsProvider.create(basicCred))
+                    .region(Region.of(region))
+                    .build()) {
+                AssumeRoleRequest.Builder reqBuilder = AssumeRoleRequest.builder()
+                        .roleArn(roleArn)
+                        .durationSeconds(SESSION_EXPIRE_SECONDS)
+                        .roleSessionName("doris_" + UUID.randomUUID().toString().replace("-", ""));
+                if (externalId != null && !externalId.isEmpty()) {
+                    reqBuilder.externalId(externalId);
+                }
+                AssumeRoleResponse resp = stsClient.assumeRole(reqBuilder.build());
+                Credentials cred = resp.credentials();
+                return new StsCredentials(cred.accessKeyId(), cred.secretAccessKey(), cred.sessionToken());
+            }
+        } catch (Exception e) {
+            LOG.warn("Failed to get STS token, roleArn={}", roleArn, e);
+            throw new IOException("Failed to get STS token: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix,
+            String continuationToken) throws IOException {
+        requireBucket("listObjectsWithPrefix");
+        String fullPrefix = normalizeAndCombinePrefix(prefix, subPrefix);
+        try {
+            ListObjectsV2Request.Builder reqBuilder = ListObjectsV2Request.builder()
+                    .bucket(bucket)
+                    .prefix(fullPrefix);
+            if (continuationToken != null && !continuationToken.isEmpty()) {
+                reqBuilder.continuationToken(continuationToken);
+            }
+            ListObjectsV2Response resp = getClient().listObjectsV2(reqBuilder.build());
+            List<RemoteObject> files = resp.contents().stream()
+                    .map(s3Obj -> new RemoteObject(
+                            s3Obj.key(),
+                            getRelativePathSafe(prefix, s3Obj.key()),
+                            s3Obj.eTag(),
+                            s3Obj.size()))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(files, resp.isTruncated(),
+                    resp.isTruncated() ? resp.nextContinuationToken() : null);
+        } catch (S3Exception e) {
+            LOG.warn("Failed to listObjectsWithPrefix, fullPrefix={}", fullPrefix, e);
+            throw new IOException("Failed to listObjectsWithPrefix: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
+        requireBucket("headObjectWithMeta");
+        String fullKey = normalizeAndCombinePrefix(prefix, subKey);
+        try {
+            HeadObjectResponse resp = getClient().headObject(
+                    HeadObjectRequest.builder()
+                            .bucket(bucket)
+                            .key(fullKey)
+                            .build());
+            RemoteObject obj = new RemoteObject(
+                    fullKey, getRelativePathSafe(prefix, fullKey), resp.eTag(), resp.contentLength());
+            return new RemoteObjects(Collections.singletonList(obj), false, null);
+        } catch (NoSuchKeyException e) {
+            LOG.warn("Key not found in headObjectWithMeta, key={}", fullKey);
+            return new RemoteObjects(Collections.emptyList(), false, null);
+        } catch (S3Exception e) {
+            LOG.warn("Failed to headObjectWithMeta, key={}", fullKey, e);
+            throw new IOException("Failed to headObjectWithMeta: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public String getPresignedUrl(String objectKey) throws IOException {
+        requireBucket("getPresignedUrl");
+        String accessKey = properties.get(PROP_ACCESS_KEY);
+        String secretKey = properties.get(PROP_SECRET_KEY);
+        String region = properties.getOrDefault(PROP_REGION, "us-east-1");
+        try {
+            PutObjectRequest putReq = PutObjectRequest.builder()
+                    .bucket(bucket)
+                    .key(objectKey)
+                    .build();
+            PutObjectPresignRequest presignReq = PutObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofSeconds(SESSION_EXPIRE_SECONDS))
+                    .putObjectRequest(putReq)
+                    .build();
+            AwsBasicCredentials cred = AwsBasicCredentials.create(accessKey, secretKey);
+            try (S3Presigner presigner = S3Presigner.builder()
+                    .region(Region.of(region))
+                    .credentialsProvider(StaticCredentialsProvider.create(cred))
+                    .build()) {
+                PresignedPutObjectRequest presigned = presigner.presignPutObject(presignReq);
+                LOG.info("Generated S3 presigned URL for key={}", objectKey);
+                return presigned.url().toString();
+            }
+        } catch (S3Exception e) {
+            LOG.warn("Failed to generate S3 presigned URL for key={}", objectKey, e);
+            throw new IOException("Failed to generate S3 presigned URL: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
+        List<IOException> errors = new ArrayList<>();
+        for (String key : keys) {
+            try {
+                deleteObject("s3://" + bucket + "/" + key);
+            } catch (IOException e) {
+                LOG.warn("Failed to delete object key={} from bucket={}", key, bucket, e);
+                errors.add(e);
+            }
+        }
+        if (!errors.isEmpty()) {
+            throw new IOException("Failed to delete " + errors.size() + " object(s): "
+                    + errors.get(0).getMessage(), errors.get(0));
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Private helpers
+    // -----------------------------------------------------------------------
+
+    private void requireBucket(String operation) throws IOException {
+        if (bucket == null || bucket.isEmpty()) {
+            throw new IOException(operation + " requires AWS_BUCKET to be configured");
+        }
+    }
+
+    private static String normalizeAndCombinePrefix(String prefix, String subPrefix) {
+        String normalized = (prefix == null || prefix.isEmpty()) ? ""
+                : (prefix.endsWith("/") ? prefix : prefix + "/");
+        if (subPrefix == null || subPrefix.isEmpty()) {
+            return normalized;
+        }
+        return normalized.isEmpty() ? subPrefix : normalized + subPrefix;
+    }
+
+    private static String getRelativePathSafe(String prefix, String key) {
+        String normalized = (prefix == null || prefix.isEmpty()) ? ""
+                : (prefix.endsWith("/") ? prefix : prefix + "/");
+        if (!key.startsWith(normalized)) {
+            return key;
+        }
+        return key.substring(normalized.length());
+    }
+
     @Override
     public Map<String, String> getProperties() {
-        return properties;
-    }
 
     @Override
     public void close() throws IOException {

@@ -23,6 +23,8 @@ import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 
+import org.apache.commons.lang3.StringUtils;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -56,6 +58,19 @@ public final class StoragePropertiesConverter {
             map.put("AWS_ACCESS_KEY", s3Props.getAccessKey());
             map.put("AWS_REGION", s3Props.getRegion());
             map.put("_STORAGE_TYPE_", s3Props.getStorageName());
+            // Bucket is required by cloud-specific operations (listObjectsWithPrefix, getPresignedUrl, etc.)
+            if (StringUtils.isNotBlank(s3Props.getBucket())) {
+                map.put("AWS_BUCKET", s3Props.getBucket());
+            }
+            // Pass through STS role ARN and external ID when present in original properties
+            String roleArn = s3Props.getOrigProps().get("sts.role_arn");
+            if (StringUtils.isNotBlank(roleArn)) {
+                map.put("AWS_ROLE_ARN", roleArn);
+            }
+            String externalId = s3Props.getOrigProps().get("sts.external_id");
+            if (StringUtils.isNotBlank(externalId)) {
+                map.put("AWS_EXTERNAL_ID", externalId);
+            }
         } else if (props instanceof AzureProperties) {
             AzureProperties azureProps = (AzureProperties) props;
             map.put("AZURE_ACCOUNT_NAME", azureProps.getAccountName());

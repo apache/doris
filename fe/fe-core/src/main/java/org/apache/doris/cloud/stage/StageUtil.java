@@ -32,10 +32,10 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.obj.ListObjectsResult;
-import org.apache.doris.fs.obj.ObjectFile;
-import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -153,19 +153,19 @@ public class StageUtil {
         int loadedFileNum = 0;
         String reachLimitStr = "";
         StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
-        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
+        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(storageProps);
 
         List<Pair<String, Boolean>> globs = analyzeGlob(copyId, pattern);
         LOG.info("Input copy into glob={}, analyzed={}", pattern, globs);
         try {
             PathMatcher matcher = getPathMatcher(pattern);
             boolean finish = false;
-            List<ObjectFile> matchPatternFiles = new ArrayList<>();
+            List<RemoteObject> matchPatternFiles = new ArrayList<>();
             for (int i = 0; i < globs.size() && !finish; i++) {
                 Pair<String, Boolean> glob = globs.get(i);
                 String continuationToken = null;
                 while (!finish) {
-                    ListObjectsResult listObjectsResult;
+                    RemoteObjects listObjectsResult;
                     if (glob.second) {
                         // list objects with sub prefix
                         listObjectsResult = fs.listObjectsWithPrefix(objectInfo.getPrefix(), glob.first,
@@ -174,7 +174,7 @@ public class StageUtil {
                         // head object
                         listObjectsResult = fs.headObjectWithMeta(objectInfo.getPrefix(), glob.first);
                     }
-                    listFileNum += listObjectsResult.getObjectInfoList().size();
+                    listFileNum += listObjectsResult.getObjectList().size();
                     long costSeconds = (System.currentTimeMillis() - startTimestamp) / 1000;
                     if (costSeconds >= 3600 || listFileNum >= 1000000) {
                         throw new DdlException("Abort list object for copyId=" + copyId
@@ -183,7 +183,7 @@ public class StageUtil {
                                 + " is correct.");
                     }
                     // 1. check if pattern is matched
-                    for (ObjectFile objectFile : listObjectsResult.getObjectInfoList()) {
+                    for (RemoteObject objectFile : listObjectsResult.getObjectList()) {
                         if (!matchPattern(objectFile.getRelativePath(), matcher)) {
                             LOG.info("not matchPattern path:{}", objectFile.getRelativePath());
                             continue;
@@ -249,7 +249,7 @@ public class StageUtil {
     }
 
     private static List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, boolean force,
-            List<ObjectFile> objectFiles) throws DdlException {
+            List<RemoteObject> objectFiles) throws DdlException {
         if (force) {
             return objectFiles.stream()
                     .map(f -> ObjectFilePB.newBuilder().setRelativePath(f.getRelativePath()).setEtag(f.getEtag())
@@ -273,7 +273,7 @@ public class StageUtil {
         return matcher.matches(path);
     }
 
-    public static String getFileInfoUniqueId(ObjectFile objectFile) {
+    public static String getFileInfoUniqueId(RemoteObject objectFile) {
         return objectFile.getRelativePath() + "_" + objectFile.getEtag();
     }
 
@@ -435,13 +435,13 @@ public class StageUtil {
     }
 
     private static List<Pair<TBrokerFileStatus, ObjectFilePB>> generateFiles(List<ObjectFilePB> filterFiles,
-            List<ObjectFile> allFiles, String bucket) {
+            List<RemoteObject> allFiles, String bucket) {
         List<Pair<TBrokerFileStatus, ObjectFilePB>> files = new ArrayList<>();
         Map<String, ObjectFilePB> fileMap = new HashMap<>();
         for (ObjectFilePB filterFile : filterFiles) {
             fileMap.put(getFileInfoUniqueId(filterFile), filterFile);
         }
-        for (ObjectFile file : allFiles) {
+        for (RemoteObject file : allFiles) {
             if (fileMap.containsKey(getFileInfoUniqueId(file))) {
                 String objUrl = "s3://" + bucket + "/" + file.getKey();
                 files.add(Pair.of(new TBrokerFileStatus(objUrl, false, file.getSize(), true),

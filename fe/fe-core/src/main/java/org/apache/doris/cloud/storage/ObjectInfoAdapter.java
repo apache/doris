@@ -22,17 +22,16 @@ import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageAccessType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
 import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.COSProperties;
 import org.apache.doris.datasource.property.storage.OBSProperties;
 import org.apache.doris.datasource.property.storage.OSSProperties;
 import org.apache.doris.datasource.property.storage.S3Properties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.StsCredentials;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.ObjFileSystem;
 
-import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -116,16 +115,13 @@ public class ObjectInfoAdapter {
             ObjectInfo arnObj = new ObjectInfo(infoPB, stagePB.getRoleName(), stagePB.getArn(),
                     encodedExternalId, null);
             StorageProperties props = toStorageProperties(arnObj);
-            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(props);
-            Triple<String, String, String> stsToken = fs.getStsToken();
-            ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), stsToken.getLeft(), stsToken.getMiddle(),
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.getFileSystem(props);
+            StsCredentials stsToken = fs.getStsToken();
+            ObjectInfo objInfo = new ObjectInfo(infoPB.getProvider(), stsToken.getAccessKey(), stsToken.getSecretKey(),
                     infoPB.getBucket(), infoPB.getEndpoint(), infoPB.getRegion(), infoPB.getPrefix(),
-                    stagePB.getRoleName(), stagePB.getArn(), encodedExternalId, stsToken.getRight());
+                    stagePB.getRoleName(), stagePB.getArn(), encodedExternalId, stsToken.getSecurityToken());
             LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
             return objInfo;
-        } catch (DdlException e) {
-            LOG.warn("Failed analyze stagePB={}", stagePB, e);
-            throw new AnalysisException("Failed analyze object info of stagePB, " + e.getMessage());
         } catch (Throwable e) {
             LOG.warn("Failed analyze stagePB={}", stagePB, e);
             throw new AnalysisException("Failed analyze object info of stagePB, " + e.getMessage());

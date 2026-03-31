@@ -27,9 +27,9 @@ import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
-import org.apache.doris.fs.obj.ListObjectsResult;
-import org.apache.doris.fs.obj.ObjectFile;
-import org.apache.doris.fs.remote.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.utframe.TestWithFeService;
@@ -62,12 +62,12 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
     private ObjectInfo objectInfo = new ObjectInfo(Provider.OSS, "test_ak", "test_sk", "test_bucket", "test_endpoint",
             "test_region", STORAGE_PREFIX);
     // In-memory file store used by MockUp<ObjFileSystem>
-    private Map<String, ObjectFile> objectStore = new LinkedHashMap<>();
+    private Map<String, RemoteObject> objectStore = new LinkedHashMap<>();
     MockInternalCatalog mockInternalCatalog = new MockInternalCatalog();
 
     private class MockInternalCatalog extends CloudInternalCatalog {
         @Override
-        public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<ObjectFile> objectFiles)
+        public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<RemoteObject> objectFiles)
                 throws DdlException {
             if (tableId == 200) {
                 return objectFiles.stream().filter(f -> !f.getRelativePath().equals("dir1/file_1.csv"))
@@ -87,31 +87,31 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
 
     /** Registers a MockUp on ObjFileSystem to serve list/head calls from {@link #objectStore}. */
     private void setupObjFsMock() {
-        Map<String, ObjectFile> store = objectStore;
+        Map<String, RemoteObject> store = objectStore;
         new MockUp<ObjFileSystem>() {
             @Mock
-            public ListObjectsResult listObjectsWithPrefix(String prefix, String subPrefix, String continuationToken)
+            public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix, String continuationToken)
                     throws IOException {
                 String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
                 String fullPrefix = normalizedPrefix + subPrefix;
-                List<ObjectFile> result = new ArrayList<>();
-                for (Map.Entry<String, ObjectFile> entry : store.entrySet()) {
+                List<RemoteObject> result = new ArrayList<>();
+                for (Map.Entry<String, RemoteObject> entry : store.entrySet()) {
                     if (entry.getKey().startsWith(fullPrefix)) {
                         result.add(entry.getValue());
                     }
                 }
-                return new ListObjectsResult(result, false, null);
+                return new RemoteObjects(result, false, null);
             }
 
             @Mock
-            public ListObjectsResult headObjectWithMeta(String prefix, String subKey) throws IOException {
+            public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
                 String normalizedPrefix = prefix.isEmpty() ? "" : (prefix.endsWith("/") ? prefix : prefix + "/");
                 String fullKey = normalizedPrefix + subKey;
-                ObjectFile f = store.get(fullKey);
+                RemoteObject f = store.get(fullKey);
                 if (f == null) {
-                    return new ListObjectsResult(new ArrayList<>(), false, null);
+                    return new RemoteObjects(new ArrayList<>(), false, null);
                 }
-                return new ListObjectsResult(Lists.newArrayList(f), false, null);
+                return new RemoteObjects(Lists.newArrayList(f), false, null);
             }
         };
     }
@@ -155,7 +155,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
                 String relativePath = subPrefixes.get(i) + (subPrefixes.get(i).isEmpty() ? "" : "/") + "file_" + j
                         + ".csv";
                 String etag = "";
-                ObjectFile objectFile = new ObjectFile(
+                RemoteObject objectFile = new RemoteObject(
                         STORAGE_PREFIX + (STORAGE_PREFIX.isEmpty() ? "" : "/") + relativePath, relativePath, etag,
                         (j + 1) * 10);
                 objectStore.put(objectFile.getKey(), objectFile);
@@ -239,13 +239,13 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         String prefix = "prefix1";
         List<String> subPrefixes = Lists.newArrayList("", "dir1", "dir2/dir3", "dir4/dir5/dir6");
         // list object files
-        List<ObjectFile> objectFiles = new ArrayList<>();
+        List<RemoteObject> objectFiles = new ArrayList<>();
         for (int i = 0; i < subPrefixes.size(); i++) {
             for (int j = 0; j < i + 1; j++) {
                 String relativePath = subPrefixes.get(i) + (subPrefixes.get(i).isEmpty() ? "" : "/") + "file_" + j
                         + ".csv";
                 String etag = "";
-                ObjectFile objectFile = new ObjectFile(prefix + (prefix.isEmpty() ? "" : "/") + relativePath,
+                RemoteObject objectFile = new RemoteObject(prefix + (prefix.isEmpty() ? "" : "/") + relativePath,
                         relativePath, etag, (j + 1) * 10);
                 objectFiles.add(objectFile);
                 System.out.println(
@@ -293,7 +293,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             String subPrefix = subPrefixes.get(i);
             for (int j = 0; j < 10; j++) {
                 String relativePath = subPrefix + (subPrefix.isEmpty() ? "" : "/") + "file" + j + ".csv";
-                ObjectFile objectFile = new ObjectFile(STORAGE_PREFIX + "/" + relativePath, relativePath, "",
+                RemoteObject objectFile = new RemoteObject(STORAGE_PREFIX + "/" + relativePath, relativePath, "",
                         (j + 1) * 10);
                 objectStore.put(objectFile.getKey(), objectFile);
                 System.out.println("Add " + objectFile);
@@ -303,7 +303,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         List<String> specialNames = Lists.newArrayList("sf,csv", "sd/sf,csv", "sf?csv", "sd/sf?csv", "sf*csv", "sf-csv",
                 "sf[csv", "sf]csv", "sf{csv", "sf}csv");
         for (String specialName : specialNames) {
-            ObjectFile objectFile = new ObjectFile(STORAGE_PREFIX + "/" + specialName, specialName, "", 1);
+            RemoteObject objectFile = new RemoteObject(STORAGE_PREFIX + "/" + specialName, specialName, "", 1);
             objectStore.put(objectFile.getKey(), objectFile);
         }
         setupObjFsMock();
