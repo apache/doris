@@ -22,6 +22,7 @@ import org.apache.doris.filesystem.spi.DorisInputStream;
 import org.apache.doris.filesystem.spi.DorisOutputFile;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileIterator;
+import org.apache.doris.filesystem.spi.GlobListing;
 import org.apache.doris.filesystem.spi.Location;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
@@ -30,10 +31,17 @@ import org.apache.doris.filesystem.spi.RequestBody;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
+import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
+import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
+import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.file.FileSystems;
+import java.nio.file.PathMatcher;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -348,5 +356,105 @@ public class S3FileSystem extends ObjFileSystem {
             // Use a buffered in-memory stream; flush triggers PutObject on close
             return new S3OutputStream(location.uri(), (S3ObjStorage) objStorage);
         }
+    }
+
+    /**
+     * Returns the longest key-prefix of {@code globPattern} that contains no glob metacharacters
+     * ({@code * ? [ { \}).  Used as the {@code prefix} parameter for S3 {@code ListObjectsV2}.
+     */
+    static String longestNonGlobPrefix(String globPattern) {
+        int earliest = globPattern.length();
+        for (char c : new char[]{'*', '?', '[', '{', '\\'}) {
+            int idx = globPattern.indexOf(c);
+            if (idx >= 0 && idx < earliest) {
+                earliest = idx;
+            }
+        }
+        return globPattern.substring(0, earliest);
+    }
+
+    @Override
+    public GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
+            long maxFiles) throws IOException {
+        // Parse s3://bucket/keyPattern from the Location URI
+        String uri = path.uri();
+        int schemeEnd = uri.indexOf("://");
+        String bucketAndKey = schemeEnd >= 0 ? uri.substring(schemeEnd + 3) : uri;
+        int firstSlash = bucketAndKey.indexOf('/');
+        String bucket = firstSlash >= 0 ? bucketAndKey.substring(0, firstSlash) : bucketAndKey;
+        String keyPattern = firstSlash >= 0 ? bucketAndKey.substring(firstSlash + 1) : "";
+
+        java.nio.file.Path pathPattern = Paths.get(keyPattern);
+        PathMatcher matcher = FileSystems.getDefault().getPathMatcher("glob:" + pathPattern);
+        String listPrefix = longestNonGlobPrefix(keyPattern);
+
+        S3ObjStorage s3 = (S3ObjStorage) objStorage;
+        ListObjectsV2Request.Builder reqBuilder = ListObjectsV2Request.builder()
+                .bucket(bucket)
+                .prefix(listPrefix);
+        if (startAfter != null && !startAfter.isEmpty()) {
+            reqBuilder.startAfter(startAfter);
+        }
+        ListObjectsV2Request request = reqBuilder.build();
+
+        List<FileEntry> files = new ArrayList<>();
+        long totalSize = 0L;
+        boolean reachLimit = false;
+        String currentMaxFile = "";
+        String lastMatchedKey = "";
+        boolean isTruncated;
+
+        try {
+            do {
+                ListObjectsV2Response response = s3.getClient().listObjectsV2(request);
+                for (S3Object obj : response.contents()) {
+                    // Once limit reached: scan remaining objects to find the next glob-match
+                    // so callers can determine whether more data exists.
+                    if (reachLimit) {
+                        if (matcher.matches(Paths.get(obj.key()))) {
+                            currentMaxFile = obj.key();
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if (!matcher.matches(Paths.get(obj.key()))) {
+                        continue;
+                    }
+
+                    files.add(new FileEntry(
+                            Location.of("s3://" + bucket + "/" + obj.key()),
+                            obj.size(),
+                            false,
+                            null));
+                    totalSize += obj.size();
+                    lastMatchedKey = obj.key();
+
+                    if ((maxFiles > 0 && files.size() >= maxFiles)
+                            || (maxBytes > 0 && totalSize >= maxBytes)) {
+                        reachLimit = true;
+                        break;
+                    }
+                }
+
+                if (currentMaxFile.isEmpty()) {
+                    currentMaxFile = lastMatchedKey;
+                }
+
+                isTruncated = response.isTruncated();
+                if (isTruncated) {
+                    request = request.toBuilder()
+                            .continuationToken(response.nextContinuationToken())
+                            .build();
+                }
+            } while (isTruncated && !reachLimit);
+        } catch (NoSuchKeyException e) {
+            LOG.info("NoSuchKey when listing s3://{}/{}, treating as empty", bucket, listPrefix);
+            return new GlobListing(List.of(), bucket, listPrefix, "");
+        } catch (Exception e) {
+            throw new IOException("Failed to list S3 objects at " + uri + ": " + e.getMessage(), e);
+        }
+
+        return new GlobListing(files, bucket, listPrefix, currentMaxFile);
     }
 }

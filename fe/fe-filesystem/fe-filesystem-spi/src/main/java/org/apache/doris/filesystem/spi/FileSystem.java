@@ -53,6 +53,33 @@ public interface FileSystem extends AutoCloseable {
 
     DorisOutputFile newOutputFile(Location location) throws IOException;
 
+    /**
+     * Lists objects under {@code path} whose names match the given glob pattern, returning
+     * at most {@code maxFiles} entries whose total size does not exceed {@code maxBytes}.
+     *
+     * <p>The listing is resumed from {@code startAfter} (exclusive, lexicographic order) when
+     * non-null and non-empty.  Results are returned in ascending lexicographic key order.
+     *
+     * <p>The returned {@link GlobListing#getMaxFile()} contains the last key <em>seen</em>
+     * in the full listing (which may be beyond the page limit), allowing callers to detect
+     * whether additional objects exist without issuing another request.
+     *
+     * @param path       the base object-storage URI (may include a glob pattern, e.g.
+     *                   {@code s3://bucket/prefix/*.csv})
+     * @param startAfter exclusive lower-bound key; pass {@code null} or empty to start from the
+     *                   beginning
+     * @param maxBytes   maximum cumulative object size (bytes) for the returned page; 0 means
+     *                   unlimited
+     * @param maxFiles   maximum number of objects in the returned page; 0 means unlimited
+     * @return {@link GlobListing} with matched entries plus listing metadata
+     * @throws UnsupportedOperationException if the implementation does not support glob listing
+     */
+    default GlobListing globListWithLimit(Location path, String startAfter, long maxBytes,
+            long maxFiles) throws IOException {
+        throw new UnsupportedOperationException(
+                "globListWithLimit is not supported by " + getClass().getSimpleName());
+    }
+
     @Override
     void close() throws IOException;
 }
