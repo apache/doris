@@ -18,40 +18,60 @@
 
 # Shared JindoFS helper functions used by build packaging.
 
-jindofs_find_common_jars() {
-    local jindofs_dir="$1"
-    local jar=""
-    while IFS= read -r jar; do
-        case "$(basename "${jar}")" in
-        jindo-core-linux-*.jar)
-            ;;
-        *)
-            echo "${jar}"
-            ;;
-        esac
-    done < <(compgen -G "${jindofs_dir}/*.jar" | sort)
+JINDOFS_PLATFORM_JAR_PATTERNS_X86_64=(
+    'jindo-core-linux-ubuntu22-x86_64-*.jar'
+)
+
+JINDOFS_PLATFORM_JAR_PATTERNS_AARCH64=(
+    'jindo-core-linux-el7-aarch64-*.jar'
+)
+
+jindofs_all_platform_jar_patterns() {
+    printf '%s\n' \
+        "${JINDOFS_PLATFORM_JAR_PATTERNS_X86_64[@]}" \
+        "${JINDOFS_PLATFORM_JAR_PATTERNS_AARCH64[@]}"
 }
 
-jindofs_platform_jar_glob() {
-    local jindofs_dir="$1"
-    local target_system="$2"
-    local target_arch="$3"
+jindofs_platform_jar_patterns() {
+    local target_system="$1"
+    local target_arch="$2"
 
     if [[ "${target_system}" != "Linux" ]]; then
         return 1
     fi
 
     if [[ "${target_arch}" == "x86_64" ]]; then
-        echo "${jindofs_dir}/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar"
+        printf '%s\n' "${JINDOFS_PLATFORM_JAR_PATTERNS_X86_64[@]}"
         return 0
     fi
 
     if [[ "${target_arch}" == "aarch64" ]]; then
-        echo "${jindofs_dir}/jindo-core-linux-el7-aarch64-[0-9]*.jar"
+        printf '%s\n' "${JINDOFS_PLATFORM_JAR_PATTERNS_AARCH64[@]}"
         return 0
     fi
 
     return 1
+}
+
+jindofs_is_platform_jar() {
+    local jar_name="$1"
+    local pattern=""
+    while IFS= read -r pattern; do
+        if [[ -n "${pattern}" && "${jar_name}" == ${pattern} ]]; then
+            return 0
+        fi
+    done < <(jindofs_all_platform_jar_patterns)
+    return 1
+}
+
+jindofs_find_common_jars() {
+    local jindofs_dir="$1"
+    local jar=""
+    while IFS= read -r jar; do
+        if ! jindofs_is_platform_jar "$(basename "${jar}")"; then
+            echo "${jar}"
+        fi
+    done < <(compgen -G "${jindofs_dir}/*.jar" | sort)
 }
 
 jindofs_copy_jars() {
@@ -60,7 +80,7 @@ jindofs_copy_jars() {
     local target_system="$3"
     local target_arch="$4"
     local jar=""
-    local platform_jar_glob=""
+    local platform_jar_pattern=""
 
     if [[ "${target_system}" != "Linux" ]]; then
         return 0
@@ -75,13 +95,10 @@ jindofs_copy_jars() {
         echo "Copy JindoFS jar to ${target_dir}: $(basename "${jar}")"
     done < <(jindofs_find_common_jars "${jindofs_dir}")
 
-    platform_jar_glob=$(jindofs_platform_jar_glob "${jindofs_dir}" "${target_system}" "${target_arch}" || true)
-    if [[ -z "${platform_jar_glob}" ]]; then
-        return 0
-    fi
-
-    while IFS= read -r jar; do
-        cp -r -p "${jar}" "${target_dir}/"
-        echo "Copy JindoFS jar to ${target_dir}: $(basename "${jar}")"
-    done < <(compgen -G "${platform_jar_glob}" | sort)
+    while IFS= read -r platform_jar_pattern; do
+        while IFS= read -r jar; do
+            cp -r -p "${jar}" "${target_dir}/"
+            echo "Copy JindoFS jar to ${target_dir}: $(basename "${jar}")"
+        done < <(compgen -G "${jindofs_dir}/${platform_jar_pattern}" | sort)
+    done < <(jindofs_platform_jar_patterns "${target_system}" "${target_arch}" || true)
 }

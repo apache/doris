@@ -55,31 +55,31 @@ x64_target_dir="${tmp_dir}/x64"
 arm_target_dir="${tmp_dir}/arm"
 mkdir -p "${source_dir}" "${x64_target_dir}" "${arm_target_dir}"
 
-touch "${source_dir}/bennett-iceberg-plugin-2.8.0.jar"
-touch "${source_dir}/jindo-core-6.10.4.jar"
-touch "${source_dir}/jindo-core-linux-el7-aarch64-6.10.4.jar"
-touch "${source_dir}/jindo-core-linux-ubuntu22-x86_64-6.10.4.jar"
-touch "${source_dir}/jindo-sdk-6.10.4.jar"
+touch "${source_dir}/bennett-iceberg-plugin-v2.8.0.jar"
+touch "${source_dir}/jindo-core-v6.10.4.jar"
+touch "${source_dir}/jindo-core-linux-el7-aarch64-v6.10.4.jar"
+touch "${source_dir}/jindo-core-linux-ubuntu22-x86_64-v6.10.4.jar"
+touch "${source_dir}/jindo-sdk-v6.10.4.jar"
 
-expected_common_jars=$'bennett-iceberg-plugin-2.8.0.jar\njindo-core-6.10.4.jar\njindo-sdk-6.10.4.jar'
+expected_common_jars=$'bennett-iceberg-plugin-v2.8.0.jar\njindo-core-v6.10.4.jar\njindo-sdk-v6.10.4.jar'
 actual_common_jars="$(jindofs_find_common_jars "${source_dir}" | basename_set)"
 assert_equals "${expected_common_jars}" "${actual_common_jars}" "common jars should exclude platform-specific jars"
 
-expected_x64_platform_jar='jindo-core-linux-ubuntu22-x86_64-6.10.4.jar'
-actual_x64_platform_jar="$(compgen -G "$(jindofs_platform_jar_glob "${source_dir}" Linux x86_64)" | basename_set)"
-assert_equals "${expected_x64_platform_jar}" "${actual_x64_platform_jar}" "x86_64 platform jar glob should match the ubuntu22 jar"
+expected_x64_platform_patterns='jindo-core-linux-ubuntu22-x86_64-*.jar'
+actual_x64_platform_patterns="$(jindofs_platform_jar_patterns Linux x86_64)"
+assert_equals "${expected_x64_platform_patterns}" "${actual_x64_platform_patterns}" "x86_64 platform jar list should use wildcard patterns"
 
-expected_arm_platform_jar='jindo-core-linux-el7-aarch64-6.10.4.jar'
-actual_arm_platform_jar="$(compgen -G "$(jindofs_platform_jar_glob "${source_dir}" Linux aarch64)" | basename_set)"
-assert_equals "${expected_arm_platform_jar}" "${actual_arm_platform_jar}" "aarch64 platform jar glob should match the el7 jar"
+expected_arm_platform_patterns='jindo-core-linux-el7-aarch64-*.jar'
+actual_arm_platform_patterns="$(jindofs_platform_jar_patterns Linux aarch64)"
+assert_equals "${expected_arm_platform_patterns}" "${actual_arm_platform_patterns}" "aarch64 platform jar list should use wildcard patterns"
 
 jindofs_copy_jars "${source_dir}" "${x64_target_dir}" Linux x86_64
-expected_x64_target_jars=$'bennett-iceberg-plugin-2.8.0.jar\njindo-core-6.10.4.jar\njindo-core-linux-ubuntu22-x86_64-6.10.4.jar\njindo-sdk-6.10.4.jar'
+expected_x64_target_jars=$'bennett-iceberg-plugin-v2.8.0.jar\njindo-core-linux-ubuntu22-x86_64-v6.10.4.jar\njindo-core-v6.10.4.jar\njindo-sdk-v6.10.4.jar'
 actual_x64_target_jars="$(jar_set_in_dir "${x64_target_dir}")"
 assert_equals "${expected_x64_target_jars}" "${actual_x64_target_jars}" "x86_64 copy should include common jars and the x86_64 platform jar"
 
 jindofs_copy_jars "${source_dir}" "${arm_target_dir}" Linux aarch64
-expected_arm_target_jars=$'bennett-iceberg-plugin-2.8.0.jar\njindo-core-6.10.4.jar\njindo-core-linux-el7-aarch64-6.10.4.jar\njindo-sdk-6.10.4.jar'
+expected_arm_target_jars=$'bennett-iceberg-plugin-v2.8.0.jar\njindo-core-linux-el7-aarch64-v6.10.4.jar\njindo-core-v6.10.4.jar\njindo-sdk-v6.10.4.jar'
 actual_arm_target_jars="$(jar_set_in_dir "${arm_target_dir}")"
 assert_equals "${expected_arm_target_jars}" "${actual_arm_target_jars}" "aarch64 copy should include common jars and the aarch64 platform jar"
 
