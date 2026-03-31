@@ -192,16 +192,14 @@ public:
             materialized_col1 = arg1.column->convert_to_full_column_if_const();
             arr1 = _extract_array_column(materialized_col1.get(), "First argument", get_name());
             float1 = _extract_float_data(arr1, "First argument", get_name());
-            offset1 = assert_cast<const ColumnArray::ColumnOffsets*>(
-                    arr1->get_offsets_ptr().get());
+            offset1 = assert_cast<const ColumnArray::ColumnOffsets*>(arr1->get_offsets_ptr().get());
         }
 
         if (!const_info2) {
             materialized_col2 = arg2.column->convert_to_full_column_if_const();
             arr2 = _extract_array_column(materialized_col2.get(), "Second argument", get_name());
             float2 = _extract_float_data(arr2, "Second argument", get_name());
-            offset2 = assert_cast<const ColumnArray::ColumnOffsets*>(
-                    arr2->get_offsets_ptr().get());
+            offset2 = assert_cast<const ColumnArray::ColumnOffsets*>(arr2->get_offsets_ptr().get());
         }
 
         // prepare return data
@@ -218,8 +216,8 @@ public:
                 size1 = const_info1->dim;
             } else {
                 size1 = offset1->get_data()[row] - (row == 0 ? 0 : offset1->get_data()[row - 1]);
-                data_ptr1 = float1->get_data().data() +
-                            (row == 0 ? 0 : offset1->get_data()[row - 1]);
+                data_ptr1 =
+                        float1->get_data().data() + (row == 0 ? 0 : offset1->get_data()[row - 1]);
             }
 
             if (const_info2) {
@@ -227,8 +225,8 @@ public:
                 size2 = const_info2->dim;
             } else {
                 size2 = offset2->get_data()[row] - (row == 0 ? 0 : offset2->get_data()[row - 1]);
-                data_ptr2 = float2->get_data().data() +
-                            (row == 0 ? 0 : offset2->get_data()[row - 1]);
+                data_ptr2 =
+                        float2->get_data().data() + (row == 0 ? 0 : offset2->get_data()[row - 1]);
             }
 
             if (size1 != size2) [[unlikely]] {
