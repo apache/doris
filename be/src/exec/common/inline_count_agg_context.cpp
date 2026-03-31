@@ -314,6 +314,15 @@ void InlineCountAggContext::close() {
     // Skip agg state destruction — the hash table memory is managed by AggregatedDataVariants.
 }
 
+size_t InlineCountAggContext::estimated_memory_for_merging(size_t rows) const {
+    return std::visit(Overload {[&](std::monostate& arg) -> size_t { return 0; },
+                                [&](auto& agg_method) {
+                                    return agg_method.hash_table->estimate_memory(rows);
+                                }},
+                      _hash_table_data->method_variant);
+    // No AggregateDataContainer memory to add — InlineCount stores UInt64 directly in mapped slots.
+}
+
 Status InlineCountAggContext::reset_hash_table() {
     return agg_context_utils::visit_agg_method<Status>(
             *_hash_table_data, [&](auto& agg_method) -> Status {

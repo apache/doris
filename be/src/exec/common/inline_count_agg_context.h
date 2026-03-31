@@ -85,6 +85,9 @@ public:
     /// No-op: InlineCount does not use AggregateDataContainer.
     void init_agg_data_container() override {}
 
+    /// Override: only estimate hash table memory (no AggregateDataContainer).
+    size_t estimated_memory_for_merging(size_t rows) const override;
+
 private:
     /// Merge helper: emplace keys and add count values from a serialized count column.
     void _merge_inline_count(ColumnRawPtrs& key_columns, const IColumn* merge_column,
