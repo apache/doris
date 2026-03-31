@@ -74,6 +74,22 @@ jindofs_find_common_jars() {
     done < <(compgen -G "${jindofs_dir}/*.jar" | sort)
 }
 
+jindofs_log_source_jars() {
+    local jindofs_dir="$1"
+    local target_dir="$2"
+    local jar=""
+    local -a jars=()
+
+    while IFS= read -r jar; do
+        jars+=("${jar}")
+    done < <(compgen -G "${jindofs_dir}/*.jar" | sort)
+
+    echo "JindoFS source jar count for ${target_dir}: ${#jars[@]}"
+    for jar in "${jars[@]}"; do
+        echo "JindoFS source jar for ${target_dir}: $(basename "${jar}")"
+    done
+}
+
 jindofs_copy_jars() {
     local jindofs_dir="$1"
     local target_dir="$2"
@@ -89,6 +105,8 @@ jindofs_copy_jars() {
     if [[ "${target_arch}" != "x86_64" && "${target_arch}" != "aarch64" ]]; then
         return 0
     fi
+
+    jindofs_log_source_jars "${jindofs_dir}" "${target_dir}"
 
     while IFS= read -r jar; do
         cp -r -p "${jar}" "${target_dir}/"
