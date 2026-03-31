@@ -17,18 +17,26 @@
 
 package org.apache.doris.filesystem.spi;
 
+import org.apache.doris.extension.spi.Plugin;
+import org.apache.doris.extension.spi.PluginFactory;
+
 import java.io.IOException;
 import java.util.Map;
 
 /**
  * SPI interface for filesystem provider discovery via Java ServiceLoader.
  *
- * Implementations must:
+ * <p>Extends {@link PluginFactory} to allow {@link
+ * org.apache.doris.extension.loader.DirectoryPluginRuntimeManager} to load filesystem
+ * providers from plugin directories at runtime, decoupling fe-core from concrete
+ * storage backend implementations at the Maven dependency level.
+ *
+ * <p>Implementations must:
  * 1. Have a public no-arg constructor.
  * 2. Register in META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  * 3. Have NO dependency on fe-core, fe-common, or fe-catalog.
  */
-public interface FileSystemProvider {
+public interface FileSystemProvider extends PluginFactory {
 
     /**
      * Returns true if this provider can handle the given properties.
@@ -52,7 +60,18 @@ public interface FileSystemProvider {
     /**
      * Human-readable name for logging/diagnostics (e.g., "S3", "HDFS", "Azure").
      */
+    @Override
     default String name() {
         return getClass().getSimpleName().replace("FileSystemProvider", "");
+    }
+
+    /**
+     * Not used by DirectoryPluginRuntimeManager (it only discovers factories via ServiceLoader).
+     * Provided to satisfy {@link PluginFactory} contract.
+     */
+    @Override
+    default Plugin create() {
+        throw new UnsupportedOperationException(
+                "FileSystemProvider does not support no-arg create(). Use create(Map) instead.");
     }
 }

@@ -114,6 +114,8 @@ import org.apache.doris.encryption.KeyManagerInterface;
 import org.apache.doris.encryption.KeyManagerStore;
 import org.apache.doris.event.EventProcessor;
 import org.apache.doris.event.ReplacePartitionEvent;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.FileSystemPluginManager;
 import org.apache.doris.ha.BDBHA;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.ha.HAProtocol;
@@ -322,9 +324,12 @@ import java.io.File;
 import java.io.IOException;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -1198,6 +1203,9 @@ public class Env {
         pluginMgr.init();
         auditEventProcessor.start();
         lineageEventProcessor.start();
+
+        // init filesystem plugin manager (before any storage backend access)
+        initFileSystemPluginManager();
 
         cloneClusterSnapshot();
 
@@ -2088,6 +2096,18 @@ public class Env {
             LOG.error("failed to transfer to non-master.", e);
             System.exit(-1);
         }
+    }
+
+    private void initFileSystemPluginManager() {
+        FileSystemPluginManager fsPluginManager = new FileSystemPluginManager();
+        fsPluginManager.loadBuiltins();
+        String pluginRoot = Config.filesystem_plugin_root;
+        if (pluginRoot != null && !pluginRoot.isEmpty()) {
+            Path rootPath = Paths.get(pluginRoot);
+            fsPluginManager.loadPlugins(Collections.singletonList(rootPath));
+        }
+        FileSystemFactory.initPluginManager(fsPluginManager);
+        LOG.info("FileSystemPluginManager initialized with plugin root: {}", pluginRoot);
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.

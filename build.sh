@@ -897,6 +897,28 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/hadoop_conf/"
     mkdir -p "${DORIS_OUTPUT}/fe/plugins/java_extensions/"
 
+    # Deploy filesystem provider plugins as independent plugin directories
+    # Each sub-directory is one storage backend loaded at runtime by FileSystemPluginManager.
+    FS_PLUGIN_DIR="${DORIS_OUTPUT}/fe/plugins/filesystem"
+    FS_SPI_MODULE="fe/fe-filesystem/fe-filesystem-spi"
+    for fs_module in s3 azure oss cos obs hdfs local; do
+        fs_plugin_target="${FS_PLUGIN_DIR}/${fs_module}"
+        fs_module_dir="fe/fe-filesystem/fe-filesystem-${fs_module}"
+        if [ ! -d "${fs_module_dir}" ]; then
+            continue
+        fi
+        mkdir -p "${fs_plugin_target}/lib"
+        # Copy main JAR
+        cp -f "${fs_module_dir}/target/doris-fe-filesystem-${fs_module}-"*.jar "${fs_plugin_target}/" 2>/dev/null || true
+        # Copy transitive dependencies, excluding spi JARs already on FE classpath
+        mvn dependency:copy-dependencies \
+            -pl "fe/fe-filesystem/fe-filesystem-${fs_module}" \
+            -DoutputDirectory="${fs_plugin_target}/lib" \
+            -DexcludeArtifactIds="fe-filesystem-spi,fe-extension-spi" \
+            --no-transfer-progress -q 2>/dev/null || true
+    done
+    unset FS_PLUGIN_DIR FS_SPI_MODULE fs_module fs_plugin_target fs_module_dir
+
     if [ "${TARGET_SYSTEM}" = "Darwin" ] || [ "${TARGET_SYSTEM}" = "Linux" ]; then
       mkdir -p "${DORIS_OUTPUT}/fe/arthas"
       rm -rf "${DORIS_OUTPUT}/fe/arthas/*"

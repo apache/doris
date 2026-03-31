@@ -75,43 +75,9 @@ under the License.
             <artifactId>fe-filesystem-spi</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- fe-filesystem impl modules: runtime-only, discovered via ServiceLoader -->
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-s3</artifactId>
-            <version>${project.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-azure</artifactId>
-            <version>${project.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-oss</artifactId>
-            <version>${project.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-cos</artifactId>
-            <version>${project.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-obs</artifactId>
-            <version>${project.version}</version>
-            <scope>runtime</scope>
-        </dependency>
-        <dependency>
-            <groupId>${project.groupId}</groupId>
-            <artifactId>fe-filesystem-hdfs</artifactId>
-            <version>${project.version}</version>
-            <scope>runtime</scope>
-        </dependency>
+        <!-- fe-filesystem impl modules: runtime dependencies removed in Phase 4 P4.1.
+             Providers are now loaded from plugins/filesystem/ directory at startup
+             via FileSystemPluginManager + DirectoryPluginRuntimeManager. -->
         <!-- fe-filesystem-local: test-scope only, used for unit testing FileSystemTransferUtil etc. -->
         <dependency>
             <groupId>${project.groupId}</groupId>

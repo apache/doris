@@ -40,20 +40,23 @@ import java.util.ServiceLoader;
  *       delegates to {@link StorageTypeMapper}; returns {@link RemoteFileSystem}. All existing
  *       fe-core callers continue to use this path unchanged.</li>
  *   <li><b>SPI API</b> ({@code getFileSystem(Map)} / {@code getFileSystem(StorageProperties)}) —
- *       uses Java ServiceLoader to discover {@link FileSystemProvider} implementations at runtime;
- *       returns {@code org.apache.doris.filesystem.spi.FileSystem}. New code should use this path.
- *       Adding a new storage backend requires only a new Maven module; zero changes here.</li>
+ *       delegates to {@link FileSystemPluginManager}; returns
+ *       {@code org.apache.doris.filesystem.spi.FileSystem}. New code should use this path.</li>
  * </ul>
  *
- * <p>Compile-time dependency on {@code fe-filesystem-spi} only. All implementation modules
- * ({@code fe-filesystem-s3}, {@code fe-filesystem-hdfs}, …) are runtime-only dependencies
- * discovered via {@code META-INF/services}.
+ * <p>Call {@link #initPluginManager(FileSystemPluginManager)} at FE startup before any
+ * {@code getFileSystem()} call. In production, providers are loaded from the plugin directory
+ * configured via {@code filesystem_plugin_root}. In unit tests, providers are discovered from
+ * the test classpath via ServiceLoader.
  */
 public final class FileSystemFactory {
 
     private static final Logger LOG = LogManager.getLogger(FileSystemFactory.class);
 
-    // SPI provider cache (loaded once, reloadable in tests)
+    // Plugin manager singleton, set at FE startup
+    private static volatile FileSystemPluginManager pluginManager;
+
+    // Fallback provider cache for non-initialized environments (tests, migration phase)
     private static volatile List<FileSystemProvider> cachedProviders = null;
 
     private FileSystemFactory() {}
@@ -91,12 +94,23 @@ public final class FileSystemFactory {
     }
 
     // =========================================================
-    // SPI API — ServiceLoader-based, returns spi.FileSystem
+    // SPI API — returns spi.FileSystem
     // =========================================================
 
     /**
-     * SPI entry point: discovers and selects a {@link FileSystemProvider} via ServiceLoader,
-     * then creates the filesystem.
+     * Sets the plugin manager singleton. Called once at FE startup before any
+     * {@code getFileSystem()} invocation.
+     */
+    public static void initPluginManager(FileSystemPluginManager manager) {
+        pluginManager = manager;
+    }
+
+    /**
+     * SPI entry point: selects a provider and creates the filesystem.
+     *
+     * <p>If {@link #initPluginManager} has been called (production path),
+     * delegates to {@link FileSystemPluginManager#createFileSystem}.
+     * Otherwise falls back to ServiceLoader discovery (unit-test / migration path).
      *
      * @param properties key-value storage configuration
      * @return initialized {@code org.apache.doris.filesystem.spi.FileSystem}
@@ -104,6 +118,11 @@ public final class FileSystemFactory {
      */
     public static org.apache.doris.filesystem.spi.FileSystem getFileSystem(Map<String, String> properties)
             throws IOException {
+        FileSystemPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            return mgr.createFileSystem(properties);
+        }
+        // Fallback: ServiceLoader discovery (unit-test / migration path)
         List<FileSystemProvider> providers = getProviders();
         List<String> tried = new ArrayList<>();
         for (FileSystemProvider provider : providers) {
@@ -131,7 +150,8 @@ public final class FileSystemFactory {
     }
 
     /**
-     * Returns all discovered SPI providers. Uses cached list after first load.
+     * Returns all discovered SPI providers via ServiceLoader. Uses cached list after first load.
+     * Used only in the fallback path when pluginManager is not initialized.
      * Package-private for testing.
      */
     static List<FileSystemProvider> getProviders() {
@@ -155,9 +175,10 @@ public final class FileSystemFactory {
     }
 
     /**
-     * Clears the SPI provider cache. For testing only.
+     * Clears the SPI provider cache and plugin manager. For testing only.
      */
     static void clearProviderCache() {
         cachedProviders = null;
+        pluginManager = null;
     }
 }

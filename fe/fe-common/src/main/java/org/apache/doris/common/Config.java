@@ -3424,6 +3424,11 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Security plugin directory."})
     public static String security_plugins_dir = EnvUtils.getDorisHome() + "/plugins/security";
 
+    @ConfField(description = {"Directory containing filesystem provider plugin subdirectories. "
+            + "Each subdirectory is one storage backend (e.g., s3/, hdfs/, azure/). "
+            + "If empty, only classpath-based built-in providers are used (test/dev mode)."})
+    public static String filesystem_plugin_root = EnvUtils.getDorisHome() + "/plugins/filesystem";
+
     @ConfField(description = {"Authorization plugin configuration file path. Must be under DORIS_HOME. "
             + "Default is conf/authorization.conf."})
     public static String authorization_config_file_path = "/conf/authorization.conf";

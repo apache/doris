@@ -34,11 +34,20 @@ under the License.
     <name>Doris FE Filesystem SPI</name>
     <description>
         Service Provider Interface (SPI) for Doris FE filesystem abstraction.
-        Zero external dependencies - only JDK 11.
+        Zero third-party external dependencies — only JDK and Doris internal SPI interfaces.
         This is the ONLY filesystem artifact compiled into fe-core.
     </description>
 
-    <!-- Intentionally no dependencies: only JDK 11 is allowed -->
+    <dependencies>
+        <!-- fe-extension-spi: pure Java interfaces (no third-party deps) required for
+             FileSystemProvider extends PluginFactory, enabling DirectoryPluginRuntimeManager
+             to load filesystem provider plugins from the filesystem directory. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
 
     <build>
         <finalName>doris-fe-filesystem-spi</finalName>
