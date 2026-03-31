@@ -18,6 +18,94 @@
 
 set -e -x
 
+wait_for_yarn_services() {
+    local rm_pid="$1"
+    local nm_pid="$2"
+    local yarn_startup_timeout_seconds="${YARN_STARTUP_TIMEOUT_SECONDS:-90}"
+    local yarn_nodes_log="/tmp/yarn-nodes.log"
+    local waited=0
+
+    while (( waited < yarn_startup_timeout_seconds )); do
+        if nc -z localhost "${YARN_RM_PORT:-8032}" \
+            && nc -z localhost "${YARN_NM_WEBAPP_PORT:-8042}" \
+            && yarn node -list -all >"${yarn_nodes_log}" 2>&1 \
+            && grep -Eq 'Total Nodes:[[:space:]]*[1-9][0-9]*' "${yarn_nodes_log}"; then
+            return 0
+        fi
+
+        if ! kill -0 "${rm_pid}" 2>/dev/null; then
+            echo "ERROR: yarn resourcemanager exited before becoming ready"
+            break
+        fi
+
+        if ! kill -0 "${nm_pid}" 2>/dev/null; then
+            echo "ERROR: yarn nodemanager exited before becoming ready"
+            break
+        fi
+
+        sleep 5s
+        waited=$((waited + 5))
+    done
+
+    echo "ERROR: yarn services failed to start within ${yarn_startup_timeout_seconds} seconds"
+    ps -ef | grep -E "ResourceManager|NodeManager" || true
+    ss -ltnp | grep -E ":(${YARN_RM_PORT:-8032}|${YARN_NM_WEBAPP_PORT:-8042}|${YARN_RM_TRACKER_PORT:-8031}|${YARN_RM_ADMIN_PORT:-8033})" || true
+    tail -n 200 "${yarn_nodes_log}" || true
+    tail -n 200 /tmp/yarn-resourcemanager.log || true
+    tail -n 200 /tmp/yarn-nodemanager.log || true
+    return 1
+}
+
+wait_for_metastore_db() {
+    local schematool_log="/tmp/hive-schematool.log"
+
+    for i in {1..60}; do
+        if timeout 10s /opt/hive/bin/schematool -dbType postgres -info >"${schematool_log}" 2>&1; then
+            return 0
+        fi
+        sleep 5s
+    done
+
+    tail -n 200 "${schematool_log}" || true
+    return 1
+}
+
+wait_for_hive_tez_runtime() {
+    if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" != "true" ]]; then
+        return 0
+    fi
+
+    local hive_tez_warmup_timeout_seconds="${HIVE_TEZ_WARMUP_TIMEOUT_SECONDS:-180}"
+    local warmup_sql_path="${HIVE_TEZ_WARMUP_SQL_PATH:-/tmp/hive-tez-warmup.hql}"
+    local warmup_log_path="${HIVE_TEZ_WARMUP_LOG_PATH:-/tmp/hive-tez-warmup.log}"
+    local waited=0
+
+    cat >"${warmup_sql_path}" <<EOF
+CREATE DATABASE IF NOT EXISTS doris_tez_warmup;
+DROP TABLE IF EXISTS doris_tez_warmup.tez_runtime_probe;
+CREATE TABLE doris_tez_warmup.tez_runtime_probe (id INT) STORED AS ORC;
+INSERT INTO TABLE doris_tez_warmup.tez_runtime_probe VALUES (1);
+SELECT COUNT(*) FROM doris_tez_warmup.tez_runtime_probe;
+DROP TABLE doris_tez_warmup.tez_runtime_probe;
+EOF
+
+    while (( waited < hive_tez_warmup_timeout_seconds )); do
+        if hive -f "${warmup_sql_path}" >"${warmup_log_path}" 2>&1; then
+            return 0
+        fi
+
+        sleep 5s
+        waited=$((waited + 5))
+    done
+
+    echo "ERROR: Hive Tez runtime failed to become ready within ${hive_tez_warmup_timeout_seconds} seconds"
+    tail -n 200 "${warmup_log_path}" || true
+    yarn node -list -all || true
+    tail -n 200 /tmp/yarn-resourcemanager.log || true
+    tail -n 200 /tmp/yarn-nodemanager.log || true
+    return 1
+}
+
 
 AUX_LIB="/mnt/scripts/auxlib"
 for file in "${AUX_LIB}"/*.tar.gz; do
@@ -27,7 +115,7 @@ for file in "${AUX_LIB}"/*.tar.gz; do
 done
 ls "${AUX_LIB}/"
 
-# Keep existing behavior for Hive metastore classpath.
+# copy auxiliary jars to hive lib, avoid jars copy
 cp -r "${AUX_LIB}"/* /opt/hive/lib/
 
 # Add JuiceFS jar into Hadoop classpath for `hadoop fs jfs://...`.
@@ -42,6 +130,22 @@ if (( ${#juicefs_jars[@]} > 0 )); then
 fi
 shopt -u nullglob
 
+if [[ "${ENABLE_HIVE3_TEZ_RUNTIME:-false}" == "true" ]]; then
+    echo "ENABLE_HIVE3_TEZ_RUNTIME is true, prepare Tez runtime and YARN services"
+    mkdir -p /etc/tez/conf
+    cp -f /mnt/scripts/tez-conf/tez-site.xml /etc/tez/conf/tez-site.xml
+    nohup yarn resourcemanager >/tmp/yarn-resourcemanager.log 2>&1 &
+    rm_pid=$!
+    nohup yarn nodemanager >/tmp/yarn-nodemanager.log 2>&1 &
+    nm_pid=$!
+    wait_for_yarn_services "${rm_pid}" "${nm_pid}"
+
+    # Tez write jobs create scratch directories on HDFS. Make sure HDFS is writable.
+    hdfs dfsadmin -safemode leave >/dev/null 2>&1 || true
+fi
+
+wait_for_metastore_db
+
 # start metastore
 nohup /opt/hive/bin/hive --service metastore &
 
@@ -50,6 +154,8 @@ nohup /opt/hive/bin/hive --service metastore &
 while ! $(nc -z localhost "${HMS_PORT:-9083}"); do
     sleep 5s
 done
+
+wait_for_hive_tez_runtime
 
 if [[ ${NEED_LOAD_DATA} = "0" ]]; then
     echo "NEED_LOAD_DATA is 0, skip load data"

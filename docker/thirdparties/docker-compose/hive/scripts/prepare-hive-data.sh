@@ -18,6 +18,40 @@ set -eo pipefail
 # under the License.
 
 CUR_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
+PREPARE_MODE="${HIVE_PREPARE_MODE:-all}"
+
+prepare_tez_runtime() {
+    local tez_runtime_dir="${CUR_DIR}/tez-runtime"
+    local tez_conf_dir="${CUR_DIR}/tez-conf"
+    local tez_source_image="${HIVE3_TEZ_SOURCE_IMAGE:-doristhirdpartydocker/trinodb:hdp3.1-hive-kerberized_96}"
+
+    if [[ -f "${tez_runtime_dir}/lib/tez.tar.gz" ]] && [[ -f "${tez_conf_dir}/tez-site.xml" ]]; then
+        echo "${tez_runtime_dir} and ${tez_conf_dir} exist, continue !"
+        return
+    fi
+
+    echo "Preparing Tez runtime from ${tez_source_image}"
+    if ! docker image inspect "${tez_source_image}" >/dev/null 2>&1; then
+        docker pull "${tez_source_image}"
+    fi
+
+    local container_id
+    container_id="$(docker create "${tez_source_image}")"
+    rm -rf "${tez_runtime_dir}" "${tez_conf_dir}"
+    mkdir -p "${tez_runtime_dir}" "${tez_conf_dir}"
+    docker cp "${container_id}:/usr/hdp/3.1.0.0-78/tez/." "${tez_runtime_dir}/"
+    docker cp "${container_id}:/etc/tez/conf/tez-site.xml" "${tez_conf_dir}/tez-site.xml"
+    docker rm -f "${container_id}" >/dev/null
+}
+
+prepare_tez_runtime
+mkdir -p "${CUR_DIR}/nm-local-dir" "${CUR_DIR}/nm-log-dir"
+mkdir -p "${CUR_DIR}/hive-local-scratch"
+
+if [[ "${PREPARE_MODE}" == "tez-runtime" ]]; then
+    exit 0
+fi
+
 # Extract all tar.gz files under the repo
 find ${CUR_DIR}/data -type f -name "*.tar.gz" -print0 | \
 xargs -0 -n1 -P"${LOAD_PARALLEL}" bash -c '
@@ -145,4 +179,3 @@ cd ${CUR_DIR}/auxlib
 for jar in "${jars[@]}"; do
     curl -O "https://${s3BucketName}.${s3Endpoint}/regression/docker/hive3/${jar}"
 done
-
