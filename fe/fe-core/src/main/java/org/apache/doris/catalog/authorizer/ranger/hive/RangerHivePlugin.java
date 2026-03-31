@@ -21,12 +21,14 @@ import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 public class RangerHivePlugin extends RangerBasePlugin {
+    private static final String SERVICE_TYPE = "hive";
+
     public RangerHivePlugin(String serviceName) {
-        super(serviceName, null);
+        super(SERVICE_TYPE, serviceName, null);
     }
 
     public RangerHivePlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
-        super(serviceName, null, null);
+        super(SERVICE_TYPE, serviceName, null);
         super.init();
         super.registerAuthContextEventListener(rangerAuthContextListener);
     }

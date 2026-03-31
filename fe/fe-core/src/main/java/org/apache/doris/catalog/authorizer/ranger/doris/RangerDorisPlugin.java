@@ -21,12 +21,14 @@ import org.apache.ranger.plugin.service.RangerAuthContextListener;
 import org.apache.ranger.plugin.service.RangerBasePlugin;
 
 public class RangerDorisPlugin extends RangerBasePlugin {
+    private static final String SERVICE_TYPE = "doris";
+
     public RangerDorisPlugin(String serviceName) {
-        this(serviceName, null);
+        super(SERVICE_TYPE, serviceName, null);
     }
 
     public RangerDorisPlugin(String serviceName, RangerAuthContextListener rangerAuthContextListener) {
-        super(serviceName, null, null);
+        super(SERVICE_TYPE, serviceName, null);
         super.init();
         super.registerAuthContextEventListener(rangerAuthContextListener);
     }

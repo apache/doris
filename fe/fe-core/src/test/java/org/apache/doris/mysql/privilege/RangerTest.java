@@ -20,7 +20,9 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.ResourceTypeEnum;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisAccessController;
+import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisPlugin;
 import org.apache.doris.catalog.authorizer.ranger.doris.RangerDorisResource;
+import org.apache.doris.catalog.authorizer.ranger.hive.RangerHivePlugin;
 import org.apache.doris.common.AuthorizationException;
 
 import com.google.common.base.Strings;
@@ -126,6 +128,20 @@ public class RangerTest {
             }
             return result;
         }
+    }
+
+    @Test
+    public void testHivePluginUsesFixedServiceType() {
+        RangerHivePlugin plugin = new RangerHivePlugin("hive_wrong");
+        Assertions.assertEquals("hive", plugin.getServiceType());
+        Assertions.assertEquals("hive_wrong", plugin.getServiceName());
+    }
+
+    @Test
+    public void testDorisPluginUsesFixedServiceType() {
+        RangerDorisPlugin plugin = new RangerDorisPlugin("doris_service");
+        Assertions.assertEquals("doris", plugin.getServiceType());
+        Assertions.assertEquals("doris_service", plugin.getServiceName());
     }
 
     // Does not have priv on ctl1.db1.tbl1.col3
