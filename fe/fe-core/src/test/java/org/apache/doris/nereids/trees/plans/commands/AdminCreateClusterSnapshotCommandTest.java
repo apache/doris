@@ -25,6 +25,7 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableMap;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.jupiter.api.AfterEach;
