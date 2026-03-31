@@ -65,9 +65,6 @@ AggregateFunctionPtr create_aggregate_function_window_nth_value(const std::strin
                                                                 const DataTypePtr& result_type,
                                                                 const bool result_is_nullable,
                                                                 const AggregateFunctionAttr& attr);
-AggregateFunctionPtr create_aggregate_function_window_nth_value_ignore_null(
-        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
-        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 template <typename AggregateFunctionTemplate>
 AggregateFunctionPtr create_empty_arg_window(const std::string& name,
@@ -125,18 +122,10 @@ void register_aggregate_function_window_lead_lag_first_last(
                 return create_aggregate_function_window_last(name, argument_types, result_type,
                                                              result_is_nullable, attr);
             });
-    factory.register_function_both(
-            "nth_value",
-            [](const std::string& name, const DataTypes& argument_types,
-               const DataTypePtr& result_type, const bool result_is_nullable,
-               const AggregateFunctionAttr& attr) -> AggregateFunctionPtr {
-                if (argument_types.size() == 2) {
-                    return create_aggregate_function_window_nth_value_ignore_null(
-                            name, argument_types, result_type, result_is_nullable, attr);
-                }
-                return create_aggregate_function_window_nth_value(name, argument_types, result_type,
-                                                                  result_is_nullable, attr);
-            });
+    // nth_value always has 2 args (column, N) from FE.
+    // WindowFunctionNthValueImpl does not implement ignore-null logic,
+    // so register directly without dispatch.
+    factory.register_function_both("nth_value", create_aggregate_function_window_nth_value);
 }
 
 } // namespace doris
