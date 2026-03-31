@@ -262,7 +262,11 @@ PInternalService::PInternalService(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(arrow_flight_work_max_threads,
                          []() { return config::brpc_arrow_flight_work_pool_threads; });
 
-    _exec_env->load_stream_mgr()->set_heavy_work_pool(&_heavy_work_pool);
+    if (_exec_env != nullptr) {
+        if (auto* load_stream_mgr = _exec_env->load_stream_mgr(); load_stream_mgr != nullptr) {
+            load_stream_mgr->set_heavy_work_pool(&_heavy_work_pool);
+        }
+    }
 
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
