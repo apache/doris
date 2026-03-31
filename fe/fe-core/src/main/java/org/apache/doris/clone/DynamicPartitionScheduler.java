@@ -979,7 +979,9 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             for (Table table : tableList) {
                 table.readLock();
                 try {
-                    if (DynamicPartitionUtil.isDynamicPartitionTable(table)) {
+                    if (table instanceof OlapTable
+                            && (((OlapTable) table).getPartitionRetentionCount() > 0
+                            || DynamicPartitionUtil.isDynamicPartitionTable(table))) {
                         registerDynamicPartitionTable(db.getId(), table.getId());
                     }
                 } finally {
