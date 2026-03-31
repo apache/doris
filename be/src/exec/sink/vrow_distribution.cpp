@@ -289,11 +289,8 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         Block* block, const VExprContextSPtr& where_clause, RowPartTabletIds& row_part_tablet_id) {
     // TODO
     //SCOPED_RAW_TIMER(&_stat.where_clause_ns);
-    int result_index = -1;
-    size_t column_number = block->columns();
-    RETURN_IF_ERROR(where_clause->execute(block, &result_index));
-
-    auto filter_column = block->get_by_position(result_index).column;
+    ColumnPtr filter_column;
+    RETURN_IF_ERROR(where_clause->execute(block, filter_column));
 
     auto& row_ids = row_part_tablet_id.row_ids;
     auto& partition_ids = row_part_tablet_id.partition_ids;
@@ -330,9 +327,6 @@ Status VRowDistribution::_filter_block_by_skip_and_where_clause(
         }
     }
 
-    for (size_t i = block->columns() - 1; i >= column_number; i--) {
-        block->erase(i);
-    }
     return Status::OK();
 }
 

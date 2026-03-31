@@ -359,14 +359,12 @@ Status HashJoinBuildSinkLocalState::build_asof_index(Block& block) {
     // Compute build ASOF column by executing build-side expression directly on build block.
     // Expression is prepared against build child's row_desc, matching the build block layout.
     DORIS_CHECK(p._asof_build_side_expr);
-    int result_col_idx = -1;
+    ColumnPtr asof_build_col;
     {
         SCOPED_TIMER(_asof_index_expr_timer);
-        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, &result_col_idx));
+        RETURN_IF_ERROR(p._asof_build_side_expr->execute(&block, asof_build_col));
     }
-    DORIS_CHECK(result_col_idx >= 0 && result_col_idx < static_cast<int>(block.columns()));
-    auto asof_build_col =
-            block.get_by_position(result_col_idx).column->convert_to_full_column_if_const();
+    asof_build_col = asof_build_col->convert_to_full_column_if_const();
 
     // Handle nullable: extract nested column for value access, keep nullable for null checks
     const ColumnNullable* nullable_col = nullptr;

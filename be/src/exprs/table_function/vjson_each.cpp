@@ -46,10 +46,10 @@ VJsonEachTableFunction<TEXT_MODE>::VJsonEachTableFunction() {
 
 template <bool TEXT_MODE>
 Status VJsonEachTableFunction<TEXT_MODE>::process_init(Block* block, RuntimeState* /*state*/) {
-    int value_column_idx = -1;
-    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
-                                                                  &value_column_idx));
-    auto [col, is_const] = unpack_if_const(block->get_by_position(value_column_idx).column);
+    ColumnPtr value_column;
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
+            _expr_context.get(), block, nullptr, block->rows(), value_column));
+    auto [col, is_const] = unpack_if_const(value_column);
     _json_column = col;
     _is_const = is_const;
     return Status::OK();

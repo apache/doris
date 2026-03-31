@@ -58,16 +58,15 @@ Status VExplodeMapTableFunction::process_init(Block* block, RuntimeState* state)
             << "VExplodeMapTableFunction only support 1 child but has "
             << _expr_context->root()->children().size();
 
-    int value_column_idx = -1;
-    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute(_expr_context.get(), block,
-                                                                  &value_column_idx));
+    ColumnPtr value_column;
+    RETURN_IF_ERROR(_expr_context->root()->children()[0]->execute_column(
+            _expr_context.get(), block, nullptr, block->rows(), value_column));
 
-    _collection_column =
-            block->get_by_position(value_column_idx).column->convert_to_full_column_if_const();
+    _collection_column = value_column->convert_to_full_column_if_const();
 
     if (!extract_column_map_info(*_collection_column, _map_detail)) {
         return Status::NotSupported("column type {} not supported now, only support array or map",
-                                    block->get_by_position(value_column_idx).column->get_name());
+                                    _collection_column->get_name());
     }
 
     return Status::OK();
