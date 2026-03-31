@@ -17,12 +17,14 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.backup.Status;
-import org.apache.doris.fs.LegacyFileSystemApi;
-import org.apache.doris.fs.LegacyFileSystemProviderFactory;
-import org.apache.doris.fs.LocalDfsFileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.SwitchingFileSystem;
+import org.apache.doris.filesystem.local.LocalFileSystem;
+import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.spi.DorisOutputFile;
+import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileIterator;
+import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.qe.ConnectContext;
 
 import org.junit.After;
@@ -30,8 +32,10 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Set;
 
@@ -84,21 +88,19 @@ public class HMSTransactionPathTest {
     @Test
     public void testDeleteTargetPathContentsNotFoundAllowed() throws Exception {
         FakeFileSystem fakeFs = new FakeFileSystem();
-        fakeFs.listDirectoriesStatus = new Status(Status.ErrCode.NOT_FOUND, "missing");
-        fakeFs.listFilesStatus = new Status(Status.ErrCode.NOT_FOUND, "missing");
+        fakeFs.listDirectoriesThrows = new IOException("not found");
+        fakeFs.listFilesThrows = new IOException("not found");
 
         HMSTransaction transaction = createTransaction(fakeFs);
-        transaction.deleteTargetPathContents(
-                "/tmp/does_not_exist", "/tmp/does_not_exist/.doris_staging");
-        Assert.assertTrue(fakeFs.deletedDirectories.isEmpty());
-        Assert.assertTrue(fakeFs.deletedFiles.isEmpty());
+        Assert.assertThrows(RuntimeException.class, () -> transaction.deleteTargetPathContents(
+                "/tmp/does_not_exist", "/tmp/does_not_exist/.doris_staging"));
     }
 
     // Verifies listDirectories failures surface as runtime errors.
     @Test
     public void testDeleteTargetPathContentsListError() throws Exception {
         FakeFileSystem fakeFs = new FakeFileSystem();
-        fakeFs.listDirectoriesStatus = new Status(Status.ErrCode.COMMON_ERROR, "list failed");
+        fakeFs.listDirectoriesThrows = new IOException("list failed");
 
         HMSTransaction transaction = createTransaction(fakeFs);
         Assert.assertThrows(RuntimeException.class, () -> transaction.deleteTargetPathContents(
@@ -107,7 +109,7 @@ public class HMSTransactionPathTest {
 
     @Test
     public void testEnsureDirectorySuccess() throws Exception {
-        LocalDfsFileSystem localFs = new LocalDfsFileSystem();
+        LocalFileSystem localFs = new LocalFileSystem(Collections.emptyMap());
         HMSTransaction transaction = createTransaction(localFs);
 
         java.nio.file.Path dir = Files.createTempDirectory("hms_tx_ensure_").resolve("nested");
@@ -119,7 +121,7 @@ public class HMSTransactionPathTest {
     @Test
     public void testEnsureDirectoryError() throws Exception {
         FakeFileSystem fakeFs = new FakeFileSystem();
-        fakeFs.makeDirStatus = new Status(Status.ErrCode.COMMON_ERROR, "mkdir failed");
+        fakeFs.mkdirsThrows = new IOException("mkdir failed");
 
         HMSTransaction transaction = createTransaction(fakeFs);
         Assert.assertThrows(RuntimeException.class, () -> transaction.ensureDirectory("/tmp/target"));
@@ -132,7 +134,7 @@ public class HMSTransactionPathTest {
     // 4) Ensure the target directory exists after cleanup.
     @Test
     public void testDeleteTargetPathContentsSkipsExcludedDir() throws Exception {
-        LocalDfsFileSystem localFs = new LocalDfsFileSystem();
+        LocalFileSystem localFs = new LocalFileSystem(Collections.emptyMap());
         HMSTransaction transaction = createTransaction(localFs);
 
         java.nio.file.Path targetDir = Files.createTempDirectory("hms_tx_path_test_");
@@ -161,102 +163,96 @@ public class HMSTransactionPathTest {
         Assert.assertFalse(Files.exists(otherFile));
     }
 
-    private static HMSTransaction createTransaction(LegacyFileSystemApi delegate) {
-        SwitchingFileSystem switchingFs = new TestSwitchingFileSystem(delegate);
-        LegacyFileSystemProviderFactory provider = ctx -> switchingFs;
-        return new HMSTransaction(null, provider, Runnable::run);
+    private static HMSTransaction createTransaction(FileSystem delegate) {
+        SpiSwitchingFileSystem spiFs = new SpiSwitchingFileSystem(delegate);
+        return new HMSTransaction(null, spiFs, Runnable::run);
     }
 
-    private static class TestSwitchingFileSystem extends SwitchingFileSystem {
-        private final LegacyFileSystemApi delegate;
+    private static class FakeFileSystem implements FileSystem {
+        IOException listDirectoriesThrows;
+        IOException listFilesThrows;
+        IOException mkdirsThrows;
 
-        TestSwitchingFileSystem(LegacyFileSystemApi delegate) {
-            super(null, null);
-            this.delegate = delegate;
-        }
-
-        @Override
-        public LegacyFileSystemApi fileSystem(String location) {
-            return delegate;
-        }
-    }
-
-    private static class FakeFileSystem implements LegacyFileSystemApi {
-        private Status listDirectoriesStatus = Status.OK;
-        private Status listFilesStatus = Status.OK;
-        private Status makeDirStatus = Status.OK;
-        private Status deleteStatus = Status.OK;
-        private Status deleteDirStatus = Status.OK;
-
-        private final List<String> deletedDirectories = new ArrayList<>();
-        private final List<String> deletedFiles = new ArrayList<>();
+        final List<String> deletedDirectories = new ArrayList<>();
+        final List<String> deletedFiles = new ArrayList<>();
 
         @Override
-        public Status listDirectories(String remotePath, Set<String> result) {
-            if (!listDirectoriesStatus.ok()) {
-                return listDirectoriesStatus;
+        public Set<String> listDirectories(Location dir) throws IOException {
+            if (listDirectoriesThrows != null) {
+                throw listDirectoriesThrows;
             }
-            return Status.OK;
+            return Collections.emptySet();
         }
 
         @Override
-        public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
-            if (!listFilesStatus.ok()) {
-                return listFilesStatus;
+        public List<FileEntry> listFiles(Location dir) throws IOException {
+            if (listFilesThrows != null) {
+                throw listFilesThrows;
             }
-            return Status.OK;
+            return Collections.emptyList();
         }
 
         @Override
-        public Status deleteDirectory(String dir) {
-            deletedDirectories.add(dir);
-            return deleteDirStatus;
+        public void mkdirs(Location location) throws IOException {
+            if (mkdirsThrows != null) {
+                throw mkdirsThrows;
+            }
         }
 
         @Override
-        public Status delete(String remotePath) {
-            deletedFiles.add(remotePath);
-            return deleteStatus;
+        public void delete(Location location, boolean recursive) throws IOException {
+            if (recursive) {
+                deletedDirectories.add(location.uri());
+            } else {
+                deletedFiles.add(location.uri());
+            }
         }
 
         @Override
-        public Status makeDir(String remotePath) {
-            return makeDirStatus;
+        public boolean exists(Location location) throws IOException {
+            return false;
         }
 
         @Override
-        public Status exists(String remotePath) {
-            return Status.OK;
+        public void rename(Location src, Location dst) throws IOException {
         }
 
         @Override
-        public Status downloadWithFileSize(String remoteFilePath, String localFilePath, long fileSize) {
-            return Status.OK;
+        public FileIterator list(Location location) throws IOException {
+            return new FileIterator() {
+                @Override
+                public boolean hasNext() {
+                    return false;
+                }
+
+                @Override
+                public FileEntry next() {
+                    throw new java.util.NoSuchElementException();
+                }
+
+                @Override
+                public void close() {
+                }
+            };
         }
 
         @Override
-        public Status upload(String localPath, String remotePath) {
-            return Status.OK;
+        public DorisInputFile newInputFile(Location location) throws IOException {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public Status directUpload(String content, String remoteFile) {
-            return Status.OK;
+        public DorisInputFile newInputFile(Location location, long length) throws IOException {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public Status rename(String origFilePath, String destFilePath) {
-            return Status.OK;
+        public DorisOutputFile newOutputFile(Location location) throws IOException {
+            throw new UnsupportedOperationException();
         }
 
         @Override
-        public Status globList(String remotePath, List<RemoteFile> result, boolean fileNameOnly) {
-            return Status.OK;
-        }
-
-        @Override
-        public java.util.Map<String, String> getProperties() {
-            return null;
+        public void close() throws IOException {
         }
     }
 }

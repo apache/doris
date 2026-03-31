@@ -33,8 +33,7 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
-import org.apache.doris.fs.FileSystemProviderImpl;
-import org.apache.doris.fs.LegacyFileSystemProviderFactory;
+import org.apache.doris.fs.SpiSwitchingFileSystem;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
@@ -146,12 +145,11 @@ public class HMSExternalCatalog extends ExternalCatalog {
                 String.format("hms_iceberg_catalog_%s_executor_pool", name),
                 true,
                 executionAuthenticator);
-        LegacyFileSystemProviderFactory fileSystemProvider =
-                new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
-                        this.catalogProperty.getStoragePropertiesMap());
+        SpiSwitchingFileSystem spiFileSystem =
+                new SpiSwitchingFileSystem(this.catalogProperty.getStoragePropertiesMap());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,
                 Integer.MAX_VALUE, String.format("hms_committer_%s_file_system_executor_pool", name), true);
-        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, fileSystemProvider,
+        transactionManager = TransactionManagerFactory.createHiveTransactionManager(hiveOps, spiFileSystem,
                 fileSystemExecutor);
         metadataOps = hiveOps;
     }

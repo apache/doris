@@ -17,7 +17,8 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.backup.Status;
+import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.Location;
 
 import org.apache.hadoop.fs.Path;
 
@@ -28,7 +29,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 public class FileSystemUtil {
 
-    public static void asyncRenameFiles(LegacyFileSystemApi fs,
+    public static void asyncRenameFiles(FileSystem fs,
                                         Executor executor,
                                         List<CompletableFuture<?>> renameFileFutures,
                                         AtomicBoolean cancelled,
@@ -42,15 +43,16 @@ public class FileSystemUtil {
                 if (cancelled.get()) {
                     return;
                 }
-                Status status = fs.rename(source.toString(), target.toString());
-                if (!status.ok()) {
-                    throw new RuntimeException(status.getErrMsg());
+                try {
+                    fs.rename(Location.of(source.toString()), Location.of(target.toString()));
+                } catch (java.io.IOException e) {
+                    throw new RuntimeException(e.getMessage(), e);
                 }
             }, executor));
         }
     }
 
-    public static void asyncRenameDir(LegacyFileSystemApi fs,
+    public static void asyncRenameDir(FileSystem fs,
                                       Executor executor,
                                       List<CompletableFuture<?>> renameFileFutures,
                                       AtomicBoolean cancelled,
@@ -61,10 +63,12 @@ public class FileSystemUtil {
             if (cancelled.get()) {
                 return;
             }
-            Status status = fs.renameDir(origFilePath, destFilePath, runWhenPathNotExist);
-            if (!status.ok()) {
-                throw new RuntimeException(status.getErrMsg());
+            try {
+                fs.renameDirectory(Location.of(origFilePath), Location.of(destFilePath), runWhenPathNotExist);
+            } catch (java.io.IOException e) {
+                throw new RuntimeException(e.getMessage(), e);
             }
         }, executor));
     }
 }
+

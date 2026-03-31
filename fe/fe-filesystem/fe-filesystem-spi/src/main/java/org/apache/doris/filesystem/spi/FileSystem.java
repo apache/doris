@@ -18,6 +18,10 @@
 package org.apache.doris.filesystem.spi;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Core filesystem abstraction.
@@ -34,6 +38,85 @@ public interface FileSystem extends AutoCloseable {
     void rename(Location src, Location dst) throws IOException;
 
     FileIterator list(Location location) throws IOException;
+
+    /**
+     * Returns all non-directory entries directly under {@code dir} (non-recursive).
+     * The default implementation iterates {@link #list(Location)} and filters out directories.
+     */
+    default List<FileEntry> listFiles(Location dir) throws IOException {
+        List<FileEntry> result = new ArrayList<>();
+        try (FileIterator it = list(dir)) {
+            while (it.hasNext()) {
+                FileEntry e = it.next();
+                if (!e.isDirectory()) {
+                    result.add(e);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns all non-directory entries under {@code dir}, recursively traversing
+     * sub-directories reported by {@link #list(Location)}.
+     *
+     * <p>For object-storage backends (e.g. S3) that return a flat list of objects from
+     * {@link #list}, this method is equivalent to {@link #listFiles(Location)}.
+     */
+    default List<FileEntry> listFilesRecursive(Location dir) throws IOException {
+        List<FileEntry> result = new ArrayList<>();
+        try (FileIterator it = list(dir)) {
+            while (it.hasNext()) {
+                FileEntry e = it.next();
+                if (e.isDirectory()) {
+                    result.addAll(listFilesRecursive(e.location()));
+                } else {
+                    result.add(e);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Returns the URIs of direct child <em>directories</em> under {@code dir}.
+     *
+     * <p>The default implementation iterates {@link #list(Location)} and collects entries
+     * where {@link FileEntry#isDirectory()} is {@code true}.  Object-storage backends that
+     * do not model directories (e.g. S3) will return an empty set.
+     */
+    default Set<String> listDirectories(Location dir) throws IOException {
+        Set<String> result = new HashSet<>();
+        try (FileIterator it = list(dir)) {
+            while (it.hasNext()) {
+                FileEntry e = it.next();
+                if (e.isDirectory()) {
+                    result.add(e.location().uri());
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Renames (moves) the directory at {@code src} to {@code dst}.
+     *
+     * <p>If {@code src} does not exist, {@code whenSrcNotExists} is invoked and the method
+     * returns without error—this matches the semantics of
+     * {@code LegacyFileSystemApi.renameDir(src, dst, Runnable)}.
+     *
+     * <p>The default implementation delegates to {@link #exists(Location)} and
+     * {@link #rename(Location, Location)}.  Implementations backed by file-systems that offer
+     * an atomic directory-rename operation should override this method.
+     */
+    default void renameDirectory(Location src, Location dst, Runnable whenSrcNotExists)
+            throws IOException {
+        if (!exists(src)) {
+            whenSrcNotExists.run();
+            return;
+        }
+        rename(src, dst);
+    }
 
     DorisInputFile newInputFile(Location location) throws IOException;
 

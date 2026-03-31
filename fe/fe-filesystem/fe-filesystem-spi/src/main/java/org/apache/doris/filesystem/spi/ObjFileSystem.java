@@ -18,7 +18,10 @@
 package org.apache.doris.filesystem.spi;
 
 import java.io.IOException;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Abstract base class for object-storage-backed FileSystems.
@@ -86,6 +89,26 @@ public abstract class ObjFileSystem implements FileSystem {
     /** @see ObjStorage#deleteObjectsByKeys(String, List) */
     public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
         objStorage.deleteObjectsByKeys(bucket, keys);
+    }
+
+    /**
+     * Convenience overload for completing a multipart upload when part ETags are provided
+     * as a {@code Map<partNumber, etag>} (as returned by the Thrift/Backend protocol).
+     *
+     * <p>Converts the map to a sorted {@link UploadPartResult} list before delegating to
+     * {@link ObjStorage#completeMultipartUpload(String, String, List)}.
+     *
+     * @param remotePath the full object URI (e.g. {@code s3://bucket/key})
+     * @param uploadId   the multipart upload session ID
+     * @param etags      mapping of 1-based part numbers to their ETags
+     */
+    public void completeMultipartUpload(String remotePath, String uploadId,
+            Map<Integer, String> etags) throws IOException {
+        List<UploadPartResult> parts = etags.entrySet().stream()
+                .map(e -> new UploadPartResult(e.getKey(), e.getValue()))
+                .sorted(Comparator.comparingInt(UploadPartResult::partNumber))
+                .collect(Collectors.toList());
+        objStorage.completeMultipartUpload(remotePath, uploadId, parts);
     }
 
     @Override
