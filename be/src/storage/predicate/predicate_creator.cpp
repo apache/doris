@@ -17,6 +17,11 @@
 
 #include "storage/predicate/predicate_creator.h"
 
+#include "common/exception.h"
+#include "exprs/create_predicate_function.h"
+#include "storage/predicate/bitmap_filter_predicate.h"
+#include "storage/predicate/bloom_filter_predicate.h"
+
 namespace doris {
 
 std::shared_ptr<ColumnPredicate> create_bloom_filter_predicate(
