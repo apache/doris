@@ -120,6 +120,12 @@ public class AddPartitionOp extends AlterTableOp {
         partitionDefinition.validate(properties);
     }
 
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Adding partition is allowed for row binlog tables.
+        return true;
+    }
+
     public boolean isTempPartition() {
         return isTempPartition;
     }

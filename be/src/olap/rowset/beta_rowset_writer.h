@@ -321,4 +321,9 @@ private:
     std::atomic<int> _segcompaction_status {ErrorCode::OK};
 };
 
+class RowBinlogRowsetWriter : public BetaRowsetWriter {
+public: 
+    RowBinlogRowsetWriter(StorageEngine& engine);
+};
+
 } // namespace doris

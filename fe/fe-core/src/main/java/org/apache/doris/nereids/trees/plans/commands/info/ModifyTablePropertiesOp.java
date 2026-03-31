@@ -69,6 +69,22 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Only allow table property changes that are not related to bloom filter
+        // when row binlog is enabled.
+        if (properties == null || properties.isEmpty()) {
+            return true;
+        }
+        // BF related properties are forbidden on row binlog tables.
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_COLUMNS)
+                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BF_FPP)) {
+            return false;
+        }
+        // Other properties are allowed.
+        return true;
+    }
+
+    @Override
     public void validate(ConnectContext ctx) throws UserException {
         if (properties == null || properties.isEmpty()) {
             throw new AnalysisException("Properties is not set");
@@ -150,11 +166,10 @@ public class ModifyTablePropertiesOp extends AlterTableOp {
             this.needTableStable = false;
             setIsBeingSynced(Boolean.parseBoolean(properties.getOrDefault(
                     PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED, "false")));
-        } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)
-                || properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
-            // do nothing, will be alter in SchemaChangeHandler.updateBinlogConfig
+        } else if (TableProperty.isSamePrefixProperties(properties, PropertyAnalyzer.PROPERTIES_BINLOG_PREFIX)) {
+            // validate binlog.* properties
+            PropertyAnalyzer.analyzeBinlogConfig(new java.util.HashMap<>(properties));
+            // will be altered in SchemaChangeHandler.updateBinlogConfig
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY)) {
             String compactionPolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_COMPACTION_POLICY, "");
             if (compactionPolicy != null

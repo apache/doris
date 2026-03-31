@@ -49,6 +49,12 @@ public class ModifyDistributionOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Changing distribution is allowed for row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY DISTRIBUTION ");

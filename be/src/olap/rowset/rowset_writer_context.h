@@ -36,7 +36,10 @@
 #include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
+#include "olap/rowset/segment_v2/segment_writer.h"
+
 #include "runtime/exec_env.h"
+
 
 namespace doris {
 
@@ -64,6 +67,7 @@ struct RowsetWriterContext {
     RowsetTypePB rowset_type {BETA_ROWSET};
 
     TabletSchemaSPtr tablet_schema;
+
     // PREPARED/COMMITTED for pending rowset
     // VISIBLE for non-pending rowset
     RowsetStatePB rowset_state {PREPARED};
@@ -240,6 +244,34 @@ struct RowsetWriterContext {
 
         return opts;
     }
+
+    struct BinlogOptions {
+    public:
+        void mark_primary_writer() { binlog_write_type = BinlogWriteType::PrimaryWriter; }
+
+        void mark_binlog_writer() { binlog_write_type = BinlogWriteType::BinlogWriter; }
+
+        bool is_primary_writer() const { return binlog_write_type == BinlogWriteType::PrimaryWriter; }
+
+        bool is_binlog_writer() const { return binlog_write_type == BinlogWriteType::BinlogWriter; }
+
+        bool need_build_binlog() const { return binlog_write_type != BinlogWriteType::Unknown; }
+
+        void set_need_before(bool need_before) {
+            this->_need_before = need_before;
+        }
+
+    private:
+        // if you don't need to build row_binlog, `PrimaryWriter` and `BinlogWriter` are both false
+        // if you need to build row_binlog, the `is_primary_writer` of normal rowset writer is true
+        enum BinlogWriteType { PrimaryWriter, BinlogWriter, Unknown } binlog_write_type =
+                BinlogWriteType::Unknown;
+        bool _need_before = false;
+    } _write_binlog_opt;
+
+    BinlogOptions& write_binlog_opt() { return _write_binlog_opt; }
+
+    const BinlogOptions& write_binlog_opt() const { return _write_binlog_opt; }
 };
 
 } // namespace doris

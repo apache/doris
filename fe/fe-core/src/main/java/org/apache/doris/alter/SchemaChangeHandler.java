@@ -197,9 +197,28 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         Set<String> newColNameSet = Sets.newHashSet(column.getName());
+        boolean lightSchemaChange = addColumnInternal(olapTable, column, columnPos,
+                targetIndexId, baseIndexId, indexSchemaMap,
+                newColNameSet, false, colUniqueIdSupplierMap);
 
-        return addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId, indexSchemaMap,
-            newColNameSet, false, colUniqueIdSupplierMap);
+        // add column to binlog<Row> schema
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0) {
+            if (column.getType().isVariantType()) {
+                throw new DdlException("table with binlog<Row> does not support VARIANT column: " + column.getName());
+            }
+            if (!lightSchemaChange) {
+                throw new DdlException("table with binlog<Row> only support light schema change,"
+                        + "add column: " + column);
+            }
+            Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+
+            LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
+            addColumnRowBinlog(rowBinlogSchema, column, columnPos, newColNameSet,
+                    colUniqueIdSupplierMap.get(rowBinlogIndexId));
+        }
+
+        return lightSchemaChange;
     }
 
     private void processAddColumn(AddColumnOp addColumnOp, Table externalTable, List<Column> newSchema)
@@ -260,6 +279,24 @@ public class SchemaChangeHandler extends AlterHandler {
                     newColNameSet, ignoreSameColumn, colUniqueIdSupplierMap);
             if (!result) {
                 lightSchemaChange = false;
+            }
+
+            // add column to binlog<Row> schema
+            long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+            if (rowBinlogIndexId > 0) {
+                if (column.getType().isVariantType()) {
+                    throw new DdlException(
+                            "table with binlog<Row> does not support VARIANT column: " + column.getName());
+                }
+                if (!lightSchemaChange) {
+                    throw new DdlException("table with binlog<Row> only support light schema change,"
+                            + "add column: " + column);
+                }
+                Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+
+                LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
+                addColumnRowBinlog(rowBinlogSchema, column, null, newColNameSet,
+                        colUniqueIdSupplierMap.get(rowBinlogIndexId));
             }
         }
         return lightSchemaChange;
@@ -399,6 +436,43 @@ public class SchemaChangeHandler extends AlterHandler {
                     }
                     break;
                 }
+            }
+        }
+    }
+
+    private void addColumnRowBinlog(List<Column> rowBinlogSchema,
+                                    Column newColumn, ColumnPosition columnPos,
+                                    Set<String> newColNameSet, IntSupplier columnUniqueIdSupplier) throws DdlException {
+        if (newColumn.isAutoInc() || newColumn.getDataType().isVariantType()) {
+            throw new DdlException("can't add AutoInc/Variant column "
+                    + " on table with binlog<Row>, column: " + newColumn.getDataType());
+        }
+
+        if (newColumn.isKey()) {
+            // key (don't support now)
+            Column keyBinlogColumn = Column.generateRowBinlogKeyColumn(newColumn);
+            ColumnPosition keyBinlogColumnPos =
+                    ColumnPosition.convertToRowBinlog(rowBinlogSchema, columnPos, true, false);
+            checkAndAddColumn(rowBinlogSchema, keyBinlogColumn, keyBinlogColumnPos,
+                    newColNameSet, false, columnUniqueIdSupplier.getAsInt());
+        } else {
+            // after value
+            Column afterBinlogColumn = Column.generateAfterValueColumn(newColumn);
+            ColumnPosition afterBinlogColumnPos =
+                    ColumnPosition.convertToRowBinlog(rowBinlogSchema, columnPos, false, false);
+            checkAndAddColumn(rowBinlogSchema, afterBinlogColumn, afterBinlogColumnPos,
+                    newColNameSet, false, columnUniqueIdSupplier.getAsInt());
+
+            // before value: only exist when row binlog schema includes historical columns.
+            boolean needHistoricalValue = rowBinlogSchema.stream()
+                    .anyMatch(c -> c.getName().startsWith(Column.BINLOG_BEFORE_PREFIX));
+            if (needHistoricalValue) {
+                newColNameSet.add(Column.generateBeforeColName(newColumn.getName()));
+                Column beforeBinlogColumn = Column.generateBeforeValueColumn(newColumn);
+                ColumnPosition beforeBinlogColumnPos =
+                        ColumnPosition.convertToRowBinlog(rowBinlogSchema, columnPos, false, true);
+                checkAndAddColumn(rowBinlogSchema, beforeBinlogColumn, beforeBinlogColumnPos,
+                        newColNameSet, false, columnUniqueIdSupplier.getAsInt());
             }
         }
     }
@@ -635,6 +709,20 @@ public class SchemaChangeHandler extends AlterHandler {
                 throw new DdlException("Column does not exists: " + dropColName);
             }
         }
+
+        // drop column to binlog<Row> schema
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0) {
+            if (!lightSchemaChange) {
+                throw new DdlException("table with binlog<Row> only support light schema change,"
+                        + "drop column: " + dropColName);
+            }
+            Preconditions.checkState(indexSchemaMap.containsKey(rowBinlogIndexId));
+
+            LinkedList<Column> rowBinlogSchema = indexSchemaMap.get(rowBinlogIndexId);
+            dropColumnRowBinlog(rowBinlogSchema, dropColumnOp);
+        }
+
         return lightSchemaChange;
     }
 
@@ -650,6 +738,36 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         for (List<String> colGroup : sequenceMapping.values()) {
             colGroup.remove(colName);
+        }
+    }
+
+    private void dropColumnRowBinlog(List<Column> rowBinlogSchema, DropColumnOp dropColumnOp) throws DdlException {
+        String dropColName = dropColumnOp.getColName();
+        Iterator<Column> rowBinlogIter = rowBinlogSchema.iterator();
+        boolean foundKey = false;
+        boolean foundAfter = false;
+        boolean foundBefore = false;
+        while (rowBinlogIter.hasNext()) {
+            Column column = rowBinlogIter.next();
+            if (column.getName().equalsIgnoreCase(dropColName)) {
+                rowBinlogIter.remove();
+                if (column.isKey()) {
+                    foundKey = true;
+                    // key column only exists once
+                    continue;
+                } else {
+                    // value(after) column
+                    foundAfter = true;
+                }
+            }
+            if (column.getName().equalsIgnoreCase(Column.generateBeforeColName(dropColName))) {
+                rowBinlogIter.remove();
+                foundBefore = true;
+                continue;
+            }
+        }
+        if (!foundKey && !foundAfter && !foundBefore) {
+            throw new DdlException("Column does not exists in binlog<Row>: " + dropColName);
         }
     }
 
@@ -725,6 +843,12 @@ public class SchemaChangeHandler extends AlterHandler {
                                         Map<Long, LinkedList<Column>> indexSchemaMap) throws DdlException {
         Column modColumn = modifyColumnOp.getColumn();
         boolean lightSchemaChange = false;
+
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0) {
+            throw new DdlException("table with binlog<Row> don't support modify column,"
+                    + "modify column: " + modColumn);
+        }
 
         if (KeysType.AGG_KEYS == olapTable.getKeysType()) {
             if (modColumn.isKey() && null != modColumn.getAggregationType()) {
@@ -2098,7 +2222,7 @@ public class SchemaChangeHandler extends AlterHandler {
             //for multi add columns clauses
             //index id -> index col_unique_id supplier
             Map<Long, IntSupplier> colUniqueIdSupplierMap = new HashMap<>();
-            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchema(true).entrySet()) {
+            for (Map.Entry<Long, List<Column>> entry : olapTable.getIndexIdToSchemaWithRowBinlog(true).entrySet()) {
                 indexSchemaMap.put(entry.getKey(), new LinkedList<>(entry.getValue()));
 
                 IntSupplier colUniqueIdSupplier = null;
@@ -2380,6 +2504,10 @@ public class SchemaChangeHandler extends AlterHandler {
                         + " buildIndexChange: {}, indexSchemaMap:{}",
                         olapTable.getName(), olapTable.getId(), lightSchemaChange,
                         lightIndexChange, buildIndexChange, indexSchemaMap);
+            }
+
+            if (olapTable.needRowBinlog() && !(lightSchemaChange || lightIndexChange)) {
+                throw new DdlException("only support light schema change operator when use table with binlog<Row>");
             }
 
             if (lightSchemaChange) {
@@ -3171,7 +3299,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
 
         //update base index schema
-        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchema(true);
+        Map<Long, List<Column>> oldIndexSchemaMap = olapTable.getCopiedIndexIdToSchemaWithRowBinlog(true);
         try {
             updateBaseIndexSchema(olapTable, indexSchemaMap, indexes);
         } catch (Exception e) {
@@ -3372,6 +3500,12 @@ public class SchemaChangeHandler extends AlterHandler {
         List<Long> indexIds = new ArrayList<Long>();
         indexIds.add(baseIndexId);
         indexIds.addAll(olapTable.getIndexIdListExceptBaseIndex());
+
+        long rowBinlogIndexId = olapTable.getBaseIndexMeta().getRowBinlogIndexId();
+        if (rowBinlogIndexId > 0 && indexSchemaMap.containsKey(rowBinlogIndexId)) {
+            indexIds.add(rowBinlogIndexId);
+        }
+
         for (int i = 0; i < indexIds.size(); i++) {
             List<Column> indexSchema = indexSchemaMap.get(indexIds.get(i));
             MaterializedIndexMeta currentIndexMeta = olapTable.getIndexMetaByIndexId(indexIds.get(i));
@@ -3593,33 +3727,17 @@ public class SchemaChangeHandler extends AlterHandler {
                 continue;
             }
 
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
-                boolean binlogEnable = Boolean.parseBoolean(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));
-                if (binlogEnable != oldBinlogConfig.isEnable()) {
-                    newBinlogConfig.setEnable(binlogEnable);
+            try {
+                Map<String, String> binlogConfigMap = PropertyAnalyzer.analyzeBinlogConfig(Maps.newHashMap(properties));
+                if (binlogConfigMap != null) {
+                    Pair<Boolean, String> mergePropertiesStatus =
+                            newBinlogConfig.mergeFromProperties(binlogConfigMap, false);
+                    if (!mergePropertiesStatus.first) {
+                        throw new AnalysisException(mergePropertiesStatus.second);
+                    }
                 }
-            }
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
-                Long binlogTtlSeconds = Long.parseLong(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
-                if (binlogTtlSeconds != oldBinlogConfig.getTtlSeconds()) {
-                    newBinlogConfig.setTtlSeconds(binlogTtlSeconds);
-                }
-            }
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)) {
-                Long binlogMaxBytes = Long.parseLong(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES));
-                if (binlogMaxBytes != oldBinlogConfig.getMaxBytes()) {
-                    newBinlogConfig.setMaxBytes(binlogMaxBytes);
-                }
-            }
-            if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
-                Long binlogMaxHistoryNums = Long.parseLong(properties.get(
-                        PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
-                if (binlogMaxHistoryNums != oldBinlogConfig.getMaxHistoryNums()) {
-                    newBinlogConfig.setMaxHistoryNums(binlogMaxHistoryNums);
-                }
+            } catch (AnalysisException e) {
+                throw new DdlException(e.getMessage());
             }
         }
 
@@ -3638,14 +3756,13 @@ public class SchemaChangeHandler extends AlterHandler {
         } finally {
             db.readUnlock();
         }
-        boolean dbBinlogEnable = (dbBinlogConfig != null && dbBinlogConfig.isEnable());
-        if (dbBinlogEnable && !newBinlogConfig.isEnable()) {
+        boolean dbBinlogEnable = (dbBinlogConfig != null && dbBinlogConfig.isEnableForCCR());
+        if (dbBinlogEnable && !newBinlogConfig.isEnableForCCR()) {
             throw new DdlException("db binlog is enable, but table binlog is disable");
         }
 
         LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
                 olapTable.getName(), oldBinlogConfig, newBinlogConfig);
-
 
         for (Partition partition : partitions) {
             updatePartitionProperties(db, olapTable.getName(), partition.getName(), -1, -1,

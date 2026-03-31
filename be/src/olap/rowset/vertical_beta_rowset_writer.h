@@ -33,7 +33,7 @@ class Block;
 // for vertical compaction
 template <class T>
     requires std::is_base_of_v<BaseBetaRowsetWriter, T>
-class VerticalBetaRowsetWriter final : public T {
+class VerticalBetaRowsetWriter : public T {
 public:
     template <class... Args>
     explicit VerticalBetaRowsetWriter(Args&&... args) : T(std::forward<Args>(args)...) {}
@@ -61,6 +61,28 @@ private:
     std::vector<std::unique_ptr<segment_v2::SegmentWriter>> _segment_writers;
     size_t _cur_writer_idx = 0;
     size_t _total_key_group_rows = 0;
+};
+
+template <typename T>
+requires std::is_base_of_v<BaseBetaRowsetWriter, T>
+class VerticalRowBinlogRowsetWriter : public VerticalBetaRowsetWriter<T> {
+public:
+    explicit VerticalRowBinlogRowsetWriter(StorageEngine& engine) : VerticalBetaRowsetWriter<T>(engine) {}
+
+    Status add_columns(const vectorized::Block* block, const std::vector<uint32_t>& col_ids,
+                       bool is_key, uint32_t max_rows_per_segment, bool has_cluster_key) override {
+        return Status::NotSupported("VerticalRowBinlogRowsetWriter::add_columns not implemented");
+    }
+
+    // flush last segment's column
+    Status flush_columns(bool is_key) override {
+        return Status::NotSupported("VerticalRowBinlogRowsetWriter::flush_columns not implemented");
+    }
+
+    // flush when all column finished, flush column footer
+    Status final_flush() override {
+        return Status::NotSupported("VerticalRowBinlogRowsetWriter::final_flush not implemented");
+    }
 };
 
 } // namespace doris

@@ -138,6 +138,12 @@ public class ReplacePartitionOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Replacing partition does not change schema, allow on row binlog tables.
+        return true;
+    }
+
+    @Override
     public boolean needChangeMTMVState() {
         return false;
     }

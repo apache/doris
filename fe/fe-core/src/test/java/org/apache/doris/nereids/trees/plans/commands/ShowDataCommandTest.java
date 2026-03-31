@@ -67,7 +67,7 @@ public class ShowDataCommandTest {
     private Database database;
 
     @Test
-    public void testValidateNormal() throws Exception {
+    public void testValidateShowDataWithRowBinlogColumns() throws Exception {
         Database db = CatalogMocker.mockDb();
         new Expectations() {
             {
@@ -112,6 +112,56 @@ public class ShowDataCommandTest {
         Map<String, String> properties = new HashMap<>();
         ShowDataCommand command = new ShowDataCommand(tableNameInfo, keys, properties, false);
         Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+
+        // Ensure show data result includes binlog columns in metadata.
+        Assertions.assertTrue(command.getMetaData().getColumns().stream()
+                        .anyMatch(c -> c.getName().equalsIgnoreCase("BinlogSize")),
+                "SHOW DATA should contain BinlogSize column");
+    }
+
+    @Test
+    public void testValidateShowAllDataWithRowBinlogColumns() throws Exception {
+        Database db = CatalogMocker.mockDb();
+        new Expectations() {
+            {
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                Env.getCurrentInternalCatalog();
+                minTimes = 0;
+                result = catalog;
+
+                catalog.getDbOrAnalysisException(anyString);
+                minTimes = 0;
+                result = db;
+
+                ConnectContext.get();
+                minTimes = 0;
+                result = connectContext;
+
+                connectContext.getDatabase();
+                minTimes = 0;
+                result = CatalogMocker.TEST_DB_NAME;
+
+                connectContext.isSkipAuth();
+                minTimes = 0;
+                result = true;
+            }
+        };
+
+        SlotReference tableName = new SlotReference("TableName", IntegerType.INSTANCE);
+        List<OrderKey> keys = ImmutableList.of(
+                new OrderKey(tableName, true, false)
+        );
+
+        Map<String, String> properties = new HashMap<>();
+        ShowDataCommand command = new ShowDataCommand(null, keys, properties, false);
+        Assertions.assertDoesNotThrow(() -> command.validate(connectContext));
+
+        Assertions.assertTrue(command.getMetaData().getColumns().stream()
+                        .anyMatch(c -> c.getName().equalsIgnoreCase("BinlogSize")),
+                "SHOW DATA should contain BinlogSize column");
     }
 
     @Test

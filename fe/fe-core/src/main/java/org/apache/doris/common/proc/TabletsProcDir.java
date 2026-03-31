@@ -58,12 +58,11 @@ public class TabletsProcDir implements ProcDirInterface {
                 .add("LstConsistencyCheckTime").add("CheckVersion")
                 .add("VisibleVersionCount").add("VersionCount").add("QueryHits").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus")
-                .add("CooldownReplicaId").add("CooldownMetaId");
-
+                .add("CooldownReplicaId").add("CooldownMetaId")
+                .add("BinlogSize").add("BinlogFileNum");
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");
         }
-
         TITLE_NAMES = builder.build();
     }
 
@@ -133,6 +132,8 @@ public class TabletsProcDir implements ProcDirInterface {
                     tabletInfo.add(FeConstants.null_string); // meta url
                     tabletInfo.add(FeConstants.null_string); // compaction status
                     tabletInfo.add(-1); // cooldown replica id
+                    tabletInfo.add(-1L); // binlog data size
+                    tabletInfo.add(-1L); // binlog file num
                     tabletInfo.add(""); // cooldown meta id
                     if (Config.isCloudMode()) {
                         tabletInfo.add(-1L); // primary backend id
@@ -184,6 +185,8 @@ public class TabletsProcDir implements ProcDirInterface {
                         } else {
                             tabletInfo.add(replica.getCooldownMetaId().toString());
                         }
+                        tabletInfo.add(replica.getBinlogSize());
+                        tabletInfo.add(replica.getBinlogFileNum());
                         if (Config.isCloudMode()) {
                             tabletInfo.add(((CloudReplica) replica).getPrimaryBackendId());
                         }

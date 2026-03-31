@@ -97,6 +97,10 @@ void build_rowset_meta_with_spec_field(RowsetMeta& rowset_meta,
     std::vector<KeyBoundsPB> segments_key_bounds;
     spec_rowset_meta.get_segments_key_bounds(&segments_key_bounds);
     rowset_meta.set_segments_key_bounds(segments_key_bounds);
+
+    if (spec_rowset_meta.is_row_binlog()) {
+        rowset_meta.mark_row_binlog();
+    }
 }
 
 } // namespace
@@ -266,6 +270,9 @@ BaseBetaRowsetWriter::BaseBetaRowsetWriter()
 BetaRowsetWriter::BetaRowsetWriter(StorageEngine& engine)
         : _engine(engine), _segcompaction_worker(std::make_shared<SegcompactionWorker>(this)) {}
 
+RowBinlogRowsetWriter::RowBinlogRowsetWriter(StorageEngine& engine)
+        : BetaRowsetWriter(engine) {}
+
 BaseBetaRowsetWriter::~BaseBetaRowsetWriter() {
     if (!_already_built && _rowset_meta->is_local()) {
         // abnormal exit, remove all files generated
@@ -317,6 +324,9 @@ Status BaseBetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_conte
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
+    if (_context.write_binlog_opt().is_binlog_writer()) {
+        _rowset_meta->mark_row_binlog();
+    }
     _context.segment_collector = std::make_shared<SegmentCollectorT<BaseBetaRowsetWriter>>(this);
     _context.file_writer_creator = std::make_shared<FileWriterCreatorT<BaseBetaRowsetWriter>>(this);
     return Status::OK();

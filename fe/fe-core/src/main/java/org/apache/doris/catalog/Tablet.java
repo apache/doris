@@ -507,6 +507,12 @@ public class Tablet extends MetaObject {
         return replicas.stream().max(Comparator.comparing(Replica::getRemoteDataSize)).get().getRemoteDataSize();
     }
 
+    public long getBinlogDataSize() {
+        LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
+                .mapToLong(Replica::getBinlogSize);
+        return s.sum();
+    }
+
     public long getRowCount(boolean singleReplica) {
         LongStream s = replicas.stream().filter(r -> r.getState() == ReplicaState.NORMAL)
                 .mapToLong(Replica::getRowCount);

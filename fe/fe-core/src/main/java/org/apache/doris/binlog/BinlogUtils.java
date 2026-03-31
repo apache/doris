@@ -29,6 +29,12 @@ import java.util.TreeSet;
 import java.util.stream.Collectors;
 
 public class BinlogUtils {
+    private static final String ROW_BINLOG_NAME = "binlog<Row>";
+
+    public static String wrapBinlogName(String originTableName) {
+        return ROW_BINLOG_NAME + "(" + originTableName + ")";
+    }
+
     public static Pair<TStatus, List<TBinlog>> getBinlog(
             TreeSet<TBinlog> binlogs, long prevCommitSeq, long numAcquired) {
         TStatus status = new TStatus(TStatusCode.OK);

@@ -29,6 +29,7 @@
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
 #include <initializer_list>
+#include <optional>
 #include <set>
 #include <thread>
 #include <utility>
@@ -199,6 +200,7 @@ Status BaseTabletsChannel::incremental_open(const PTabletWriterOpenRequest& para
 
     std::vector<SlotDescriptor*>* index_slots = nullptr;
     int32_t schema_hash = 0;
+
     for (const auto& index : _schema->indexes()) {
         if (index->index_id == _index_id) {
             index_slots = &index->slots;

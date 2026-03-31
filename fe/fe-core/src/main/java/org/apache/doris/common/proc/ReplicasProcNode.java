@@ -51,12 +51,11 @@ public class ReplicasProcNode implements ProcNodeInterface {
                 .add("IsUserDrop")
                 .add("VisibleVersionCount").add("VersionCount").add("PathHash").add("Path")
                 .add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
-                .add("CooldownMetaId").add("QueryHits");
-
+                .add("CooldownMetaId").add("QueryHits")
+                .add("BinlogSize").add("BinlogFileNum");
         if (Config.isCloudMode()) {
             builder.add("PrimaryBackendId");
         }
-
         TITLE_NAMES = builder.build();
     }
 
@@ -93,6 +92,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
         for (Replica replica : replicas) {
             long beId = replica.getBackendIdWithoutException();
             Backend be = backendMap.get(beId);
+
             String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
             String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
@@ -118,27 +118,29 @@ public class ReplicasProcNode implements ProcNodeInterface {
                 queryHits = QueryStatsUtil.getMergedReplicaStats(replica.getId());
             }
             List<String> replicaInfo = Lists.newArrayList(String.valueOf(replica.getId()),
-                    String.valueOf(beId),
-                    String.valueOf(replica.getVersion()),
-                    String.valueOf(replica.getLastSuccessVersion()),
-                    String.valueOf(replica.getLastFailedVersion()),
-                    TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
-                    String.valueOf(replica.getSchemaHash()),
-                    String.valueOf(replica.getDataSize()),
-                    String.valueOf(replica.getRemoteDataSize()),
-                    String.valueOf(replica.getRowCount()),
-                    String.valueOf(replica.getState()),
-                    String.valueOf(replica.isBad()),
-                    String.valueOf(replica.isUserDrop()),
-                    String.valueOf(replica.getVisibleVersionCount()),
-                    String.valueOf(replica.getTotalVersionCount()),
-                    String.valueOf(replica.getPathHash()),
-                    path,
-                    metaUrl,
-                    compactionUrl,
-                    String.valueOf(tablet.getCooldownConf().first),
-                    cooldownMetaId,
-                    String.valueOf(queryHits));
+                                        String.valueOf(beId),
+                                        String.valueOf(replica.getVersion()),
+                                        String.valueOf(replica.getLastSuccessVersion()),
+                                        String.valueOf(replica.getLastFailedVersion()),
+                                        TimeUtils.longToTimeString(replica.getLastFailedTimestamp()),
+                                        String.valueOf(replica.getSchemaHash()),
+                                        String.valueOf(replica.getDataSize()),
+                                        String.valueOf(replica.getRemoteDataSize()),
+                                        String.valueOf(replica.getRowCount()),
+                                        String.valueOf(replica.getState()),
+                                        String.valueOf(replica.isBad()),
+                                        String.valueOf(replica.isUserDrop()),
+                                        String.valueOf(replica.getVisibleVersionCount()),
+                                        String.valueOf(replica.getTotalVersionCount()),
+                                        String.valueOf(replica.getPathHash()),
+                                        path,
+                                        metaUrl,
+                                        compactionUrl,
+                                        String.valueOf(tablet.getCooldownConf().first),
+                                        cooldownMetaId,
+                                        String.valueOf(queryHits),
+                                        String.valueOf(replica.getBinlogSize()),
+                                        String.valueOf(replica.getBinlogFileNum()));
             if (Config.isCloudMode()) {
                 replicaInfo.add(String.valueOf(((CloudReplica) replica).getPrimaryBackendId()));
             }

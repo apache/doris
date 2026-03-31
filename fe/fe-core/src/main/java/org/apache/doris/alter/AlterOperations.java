@@ -56,6 +56,15 @@ public class AlterOperations {
         }
     }
 
+    // Check whether current alter operations are allowed on tables with row binlog enabled.
+    public void checkRowBinlogAllow(List<AlterOp> alterOps) throws DdlException {
+        for (AlterOp alterOp : alterOps) {
+            if (!alterOp.allowOpRowBinlog()) {
+                throw new DdlException("Not allowed to perform current operation on Table With Row Binlog");
+            }
+        }
+    }
+
     // some operations take up disk space. so we need to check the disk capacity before processing.
     // return true if we see these kind of operations.
     public boolean needCheckCapacity() {

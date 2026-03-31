@@ -63,6 +63,12 @@ public class DropRollupOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Dropping rollup index is allowed for row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("DROP ROLLUP ");

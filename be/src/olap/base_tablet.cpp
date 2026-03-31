@@ -321,10 +321,15 @@ void BaseTablet::_print_missed_versions(const Versions& missed_versions) const {
 }
 
 bool BaseTablet::_reconstruct_version_tracker_if_necessary() {
-    double orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
-    if (orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
+    double data_orphan_vertex_ratio = _timestamped_version_tracker.get_orphan_vertex_ratio();
+    double row_binlog_orphan_vertex_ratio = _row_binlog_version_tracker.get_orphan_vertex_ratio();
+    if (data_orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
         _timestamped_version_tracker.construct_versioned_tracker(
                 _tablet_meta->all_rs_metas(), _tablet_meta->all_stale_rs_metas());
+        return true;
+    } else if (row_binlog_orphan_vertex_ratio >= config::tablet_version_graph_orphan_vertex_ratio) {
+        _row_binlog_version_tracker.construct_versioned_tracker(
+                _tablet_meta->all_row_binlog_rs_metas());
         return true;
     }
     return false;

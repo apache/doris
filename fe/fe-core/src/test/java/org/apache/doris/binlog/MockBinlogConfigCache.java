@@ -30,12 +30,12 @@ final class MockBinlogConfigCache extends BinlogConfigCache {
     }
 
     public void addDbBinlogConfig(long dbId, boolean enableBinlog, long expiredTime) {
-        BinlogConfig config = BinlogTestUtils.newTestBinlogConfig(enableBinlog, expiredTime);
+        BinlogConfig config = BinlogTestUtils.newTestCCRBinlogConfig(enableBinlog, expiredTime);
         mockedConfigs.put(String.valueOf(dbId), config);
     }
 
     public void addTableBinlogConfig(long dbId, long tableId, boolean enableBinlog, long expiredTime) {
-        BinlogConfig config = BinlogTestUtils.newTestBinlogConfig(enableBinlog, expiredTime);
+        BinlogConfig config = BinlogTestUtils.newTestCCRBinlogConfig(enableBinlog, expiredTime);
         mockedConfigs.put(String.format("%d_%d", dbId, tableId), config);
     }
 
@@ -58,7 +58,7 @@ final class MockBinlogConfigCache extends BinlogConfigCache {
     public boolean isEnableDB(long dbId) {
         BinlogConfig config = mockedConfigs.get(String.valueOf(dbId));
         if (config != null) {
-            return config.isEnable();
+            return config.getEnable();
         }
         return false;
     }

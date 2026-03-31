@@ -27,5 +27,9 @@ class RowsetMeta;
 using RowsetMetaSharedPtr = std::shared_ptr<RowsetMeta>;
 class RowsetReader;
 using RowsetReaderSharedPtr = std::shared_ptr<RowsetReader>;
+class RowsetWriter;
+using RowsetWriterSharedPtr = std::shared_ptr<RowsetWriter>;
+class RowsetBuilder;
+using RowsetBuilderSharedPtr = std::shared_ptr<RowsetBuilder>;
 
 } // namespace doris

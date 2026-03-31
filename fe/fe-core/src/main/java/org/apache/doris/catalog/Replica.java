@@ -99,6 +99,8 @@ public class Replica {
     private int schemaHash = -1;
     @SerializedName(value = "ds", alternate = {"dataSize"})
     private volatile long dataSize = 0;
+    @SerializedName(value = "bs", alternate = {"binlogSize"})
+    private volatile long binlogSize = 0;
     @SerializedName(value = "rds", alternate = {"remoteDataSize"})
     private volatile long remoteDataSize = 0;
     @SerializedName(value = "rc", alternate = {"rowCount"})
@@ -140,6 +142,8 @@ public class Replica {
 
     private volatile long totalVersionCount = -1;
     private volatile long visibleVersionCount = -1;
+    // Number of binlog file num retained on this replica.
+    private volatile long binlogFileNum = -1;
 
     private long pathHash = -1;
 
@@ -296,6 +300,14 @@ public class Replica {
         this.remoteDataSize = remoteDataSize;
     }
 
+    public long getBinlogSize() {
+        return binlogSize;
+    }
+
+    public void setBinlogSize(long binlogSize) {
+        this.binlogSize = binlogSize;
+    }
+
     public long getRowCount() {
         return rowCount;
     }
@@ -318,6 +330,14 @@ public class Replica {
 
     public void setRowsetCount(long rowsetCount) {
         this.rowsetCount = rowsetCount;
+    }
+
+    public long getBinlogFileNum() {
+        return binlogFileNum;
+    }
+
+    public void setBinlogFileNum(long binlogFileNum) {
+        this.binlogFileNum = binlogFileNum;
     }
 
     public long getLastFailedVersion() {
@@ -409,6 +429,10 @@ public class Replica {
         setVisibleVersionCount(
                 backendReplica.isSetVisibleVersionCount() ? backendReplica.getVisibleVersionCount()
                         : backendReplica.getTotalVersionCount());
+        if (backendReplica.isSetBinlogSize()) {
+            setBinlogSize(backendReplica.getBinlogSize());
+            setBinlogFileNum(backendReplica.getBinlogFileNum());
+        }
     }
 
     public synchronized void updateVersion(long newVersion) {

@@ -556,8 +556,15 @@ public class TableProperty implements GsonPostProcessable {
             binlogConfig.setMaxHistoryNums(
                     Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)));
         }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
+            binlogConfig.setBinlogFormat(BinlogConfig.BinlogFormat.valueOf(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)));
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            binlogConfig.setNeedHistoricalValue(Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)));
+        }
         this.binlogConfig = binlogConfig;
-
         return this;
     }
 
@@ -570,13 +577,17 @@ public class TableProperty implements GsonPostProcessable {
 
     public void setBinlogConfig(BinlogConfig newBinlogConfig) {
         Map<String, String> binlogProperties = Maps.newHashMap();
-        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.isEnable()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE, String.valueOf(newBinlogConfig.getEnable()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS,
                 String.valueOf(newBinlogConfig.getTtlSeconds()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES,
                 String.valueOf(newBinlogConfig.getMaxBytes()));
         binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS,
                 String.valueOf(newBinlogConfig.getMaxHistoryNums()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT,
+                String.valueOf(newBinlogConfig.getBinlogFormat()));
+        binlogProperties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                String.valueOf(newBinlogConfig.getNeedHistoricalValue()));
         modifyTableProperties(binlogProperties);
         this.binlogConfig = newBinlogConfig;
     }

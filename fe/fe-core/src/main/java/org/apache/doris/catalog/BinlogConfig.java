@@ -17,11 +17,15 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TBinlogConfig;
+import org.apache.doris.thrift.TBinlogFormat;
 
 import com.google.gson.annotations.SerializedName;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,50 +43,114 @@ public class BinlogConfig {
     @SerializedName("maxHistoryNums")
     private long maxHistoryNums;
 
+    @SerializedName("binlogFormat")
+    private BinlogFormat binlogFormat;
+
+    public enum BinlogFormat {
+        // record all meta update operator, and generate snapshot for write data, only used for ccr
+        STATEMENT_AND_SNAPSHOT(0),
+        // generate row binlog when write, used for table binlog transform
+        ROW(1),
+        // generate row binlog when need, calculate binlog by compaction and read snapshot,
+        // used for table binlog transform
+        DELTA(2);
+
+        private final int value;
+
+        BinlogFormat(int value) {
+            this.value = value;
+        }
+
+        public int value() {
+            return this.value;
+        }
+    }
+
+    @SerializedName("needHistoricalValue")
+    private boolean needHistoricalValue;
+    public static final long NO_TTL = -1L;
     public static final long TTL_SECONDS = 86400L; // 1 day
     public static final long MAX_BYTES = 0x7fffffffffffffffL;
     public static final long MAX_HISTORY_NUMS = 0x7fffffffffffffffL;
 
-    public BinlogConfig(boolean enable, long ttlSeconds, long maxBytes, long maxHistoryNums) {
+    private static final Logger LOG = LogManager.getLogger(BinlogConfig.class);
+
+    public BinlogConfig(boolean enable, long ttlSeconds, long maxBytes, long maxHistoryNums,
+                        BinlogFormat binlogFormat, boolean needHistoricalValue) {
         this.enable = enable;
         this.ttlSeconds = ttlSeconds;
         this.maxBytes = maxBytes;
         this.maxHistoryNums = maxHistoryNums;
+        this.binlogFormat = binlogFormat;
+        this.needHistoricalValue = needHistoricalValue;
     }
 
     public BinlogConfig(BinlogConfig config) {
-        this(config.enable, config.ttlSeconds, config.maxBytes, config.maxHistoryNums);
+        this(config.enable, config.ttlSeconds, config.maxBytes, config.maxHistoryNums,
+                config.getBinlogFormat(), config.needHistoricalValue);
     }
 
     public BinlogConfig() {
-        this(false, TTL_SECONDS, MAX_BYTES, MAX_HISTORY_NUMS);
+        this(false, TTL_SECONDS, MAX_BYTES, MAX_HISTORY_NUMS, BinlogFormat.STATEMENT_AND_SNAPSHOT, false);
     }
 
-    public void mergeFromProperties(Map<String, String> properties) {
+    public Pair<Boolean, String> mergeFromProperties(Map<String, String> properties) {
+        return mergeFromProperties(properties, true);
+    }
+
+    public Pair<Boolean, String> mergeFromProperties(Map<String, String> properties, boolean force) {
         if (properties == null) {
-            return;
+            return Pair.of(true, null);
         }
 
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE)) {
-            enable = Boolean.parseBoolean(properties.get(
-                    PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));
+            boolean tmpEnable = Boolean.parseBoolean(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE));
+            if (!force && this.enable != tmpEnable && binlogFormat == BinlogFormat.ROW) {
+                LOG.warn("can't disable binlog when format is [Row]");
+                return Pair.of(false, "can't disable binlog when format is [Row]");
+            }
+            enable = tmpEnable;
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS)) {
-            ttlSeconds = Long.parseLong(properties.get(
-                    PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
-
+            ttlSeconds = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES)) {
-            maxBytes = Long.parseLong(properties.get(
-                    PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES));
+            maxBytes = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES));
         }
         if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS)) {
-            maxHistoryNums = Long.parseLong(properties.get(
-                    PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
+            maxHistoryNums = Long.parseLong(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS));
         }
+
+        // before binlogFormat change
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)) {
+            boolean tmpNeedHistoricalValue = Boolean.parseBoolean(
+                    properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE));
+            if (!force && this.needHistoricalValue != tmpNeedHistoricalValue) {
+                LOG.warn("not support change {} from {} to {}",
+                        PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE,
+                        this.needHistoricalValue, tmpNeedHistoricalValue);
+                return Pair.of(false, "not support change "
+                        + PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE
+                        + " from " + this.needHistoricalValue + " to " + tmpNeedHistoricalValue);
+            }
+            needHistoricalValue = tmpNeedHistoricalValue;
+        }
+        if (properties.containsKey(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT)) {
+            BinlogFormat tmpBinlogFormat =
+                    BinlogFormat.valueOf(properties.get(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT));
+            if (!force && tmpBinlogFormat != binlogFormat) {
+                LOG.warn("not support change {} from {} to {}",
+                        PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT,
+                        binlogFormat, tmpBinlogFormat);
+                return Pair.of(false, "not support change binlog format "
+                        + "from " + binlogFormat + " to " + tmpBinlogFormat);
+            }
+            binlogFormat = tmpBinlogFormat;
+        }
+        return Pair.of(true, null);
     }
 
-    public boolean isEnable() {
+    public boolean getEnable() {
         return enable;
     }
 
@@ -114,12 +182,40 @@ public class BinlogConfig {
         this.maxHistoryNums = maxHistoryNums;
     }
 
+    public BinlogFormat getBinlogFormat() {
+        return binlogFormat;
+    }
+
+    public void setBinlogFormat(BinlogFormat binlogFormat) {
+        this.binlogFormat = binlogFormat;
+    }
+
+    public boolean getNeedHistoricalValue() {
+        return needHistoricalValue;
+    }
+
+    public void setNeedHistoricalValue(boolean needHistoricalValue) {
+        this.needHistoricalValue = needHistoricalValue;
+    }
+
+    public boolean isEnableForCCR() {
+        return enable && binlogFormat != BinlogFormat.ROW;
+    }
+
+    public boolean isEnableForStreaming() {
+        return enable && binlogFormat == BinlogFormat.ROW;
+    }
+
     public TBinlogConfig toThrift() {
         TBinlogConfig tBinlogConfig = new TBinlogConfig();
         tBinlogConfig.setEnable(enable);
         tBinlogConfig.setTtlSeconds(ttlSeconds);
         tBinlogConfig.setMaxBytes(maxBytes);
         tBinlogConfig.setMaxHistoryNums(maxHistoryNums);
+        if (binlogFormat != null) {
+            tBinlogConfig.setBinlogFormat(TBinlogFormat.valueOf(binlogFormat.name()));
+        }
+        tBinlogConfig.setNeedHistoricalValue(needHistoricalValue);
         return tBinlogConfig;
     }
 
@@ -129,29 +225,23 @@ public class BinlogConfig {
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS, String.valueOf(ttlSeconds));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES, String.valueOf(maxBytes));
         properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS, String.valueOf(maxHistoryNums));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT, String.valueOf(binlogFormat));
+        properties.put(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE, String.valueOf(needHistoricalValue));
         return properties;
     }
 
     @Override
     public boolean equals(Object obj) {
-        if (obj == null) {
-            return false;
-        }
         if (!(obj instanceof BinlogConfig)) {
             return false;
         }
-
         BinlogConfig other = (BinlogConfig) obj;
-        if (this.enable != other.enable) {
-            return false;
-        }
-        if (this.ttlSeconds != other.ttlSeconds) {
-            return false;
-        }
-        if (this.maxBytes != other.maxBytes) {
-            return false;
-        }
-        return this.maxHistoryNums == other.maxHistoryNums;
+        return enable == other.enable
+                && ttlSeconds == other.ttlSeconds
+                && maxBytes == other.maxBytes
+                && maxHistoryNums == other.maxHistoryNums
+                && binlogFormat == other.binlogFormat
+                && needHistoricalValue == other.needHistoricalValue;
     }
 
     @Override
@@ -160,14 +250,21 @@ public class BinlogConfig {
     }
 
     public void appendToShowCreateTable(StringBuilder sb) {
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE).append("\" = \"").append(enable)
-                .append("\"");
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS).append("\" = \"").append(ttlSeconds)
-                .append("\"");
-        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES).append("\" = \"").append(maxBytes)
-                .append("\"");
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_ENABLE).append("\" = \"")
+                .append(enable).append("\"");
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_TTL_SECONDS).append("\" = \"")
+                .append(ttlSeconds).append("\"");
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_BYTES).append("\" = \"")
+                .append(maxBytes).append("\"");
         sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_MAX_HISTORY_NUMS).append("\" = \"")
                 .append(maxHistoryNums).append("\"");
+
+        sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_FORMAT).append("\" = \"")
+                .append(binlogFormat).append("\"");
+        if (binlogFormat == BinlogFormat.ROW) {
+            sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_BINLOG_NEED_HISTORICAL_VALUE)
+                    .append("\" = \"").append(needHistoricalValue).append("\"");
+        }
     }
 
     public static BinlogConfig fromProperties(Map<String, String> properties) {

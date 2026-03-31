@@ -67,6 +67,12 @@ public class RenameTableOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Renaming table does not change schema, allow on row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         return "RENAME " + newTableName;
     }

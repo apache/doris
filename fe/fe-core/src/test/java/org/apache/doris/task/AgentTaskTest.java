@@ -18,9 +18,12 @@
 package org.apache.doris.task;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.binlog.BinlogTestUtils;
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.BinlogConfig;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
@@ -92,6 +95,8 @@ public class AgentTaskTest {
     private AgentTask cancelDeleteTask;
     private AgentTask storageMediaMigrationTask;
 
+    private Map<Object, Object> objectPool;
+
     @Before
     public void setUp() throws AnalysisException {
         MetricRepo.init();
@@ -110,13 +115,13 @@ public class AgentTaskTest {
         range2 = Range.closedOpen(pk2, pk3);
 
         // create tasks
-        Map<Object, Object> objectPool = new HashMap<Object, Object>();
+        objectPool = new HashMap<Object, Object>();
         // create
         createReplicaTask = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
                 indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
                 TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
                 TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false, null, null, objectPool, rowStorePageSize, false,
-                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>());
+                storagePageSize, TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), null);
 
         // drop
         dropTask = new DropReplicaTask(backendId1, tabletId1, replicaId1, schemaHash1, false);
@@ -167,6 +172,25 @@ public class AgentTaskTest {
         Assert.assertEquals(TTaskType.CREATE, request.getTaskType());
         Assert.assertEquals(createReplicaTask.getSignature(), request.getSignature());
         Assert.assertNotNull(request.getCreateTabletReq());
+
+        // create with row binlog schema
+        BinlogConfig binlogConfig = BinlogTestUtils.newTestRowBinlogConfig(true, false);
+        List<Column> rowBinlogColumns = new LinkedList<>();
+        rowBinlogColumns.add(new Column("k1", ScalarType.createType(PrimitiveType.INT), true, null, "1", ""));
+        rowBinlogColumns.add(new Column("v1", ScalarType.createType(PrimitiveType.INT), false, AggregateType.NONE, "1", ""));
+        MaterializedIndexMeta rowBinlogMeta = new MaterializedIndexMeta(9999L, rowBinlogColumns, 1, 1, (short) 1,
+                TStorageType.COLUMN, KeysType.DUP_KEYS, null);
+        rowBinlogMeta.initSchemaColumnUniqueId();
+
+        AgentTask createWithRowBinlog = new CreateReplicaTask(backendId1, dbId, tableId, partitionId,
+                indexId1, tabletId1, replicaId1, shortKeyNum, schemaHash1, version, KeysType.AGG_KEYS, storageType,
+                TStorageMedium.SSD, columns, null, 0, latch, null, false, TTabletType.TABLET_TYPE_DISK, null,
+                TCompressionType.LZ4F, false, "", false, false, false, "", 0, 0, 0, 0, 0, false,
+                binlogConfig, null, objectPool, rowStorePageSize, false, storagePageSize,
+                TEncryptionAlgorithm.PLAINTEXT, storageDictPageSize, new HashMap<>(), rowBinlogMeta);
+        TAgentTaskRequest requestRow = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, createWithRowBinlog);
+        Assert.assertNotNull(requestRow.getCreateTabletReq());
+        Assert.assertTrue(requestRow.getCreateTabletReq().isSetRowBinlogSchema());
 
         // drop
         TAgentTaskRequest request2 = (TAgentTaskRequest) toAgentTaskRequest.invoke(agentBatchTask, dropTask);

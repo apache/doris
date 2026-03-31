@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.ColumnsUtil;
@@ -129,6 +130,8 @@ public class CreateReplicaTask extends AgentTask {
     private boolean storeRowColumn;
 
     private BinlogConfig binlogConfig;
+    // update binlog only when create base index
+    private MaterializedIndexMeta rowBinlogMeta;
     private List<Integer> clusterKeyUids;
 
     private Map<Object, Object> objectPool;
@@ -166,7 +169,8 @@ public class CreateReplicaTask extends AgentTask {
                              long rowStorePageSize,
                              boolean variantEnableFlattenNested,
                              long storagePageSize, TEncryptionAlgorithm tdeAlgorithm,
-                             long storageDictPageSize, Map<String, List<String>> columnSeqMapping) {
+                             long storageDictPageSize, Map<String, List<String>> columnSeqMapping,
+                             MaterializedIndexMeta rowBinlogMeta) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -218,6 +222,7 @@ public class CreateReplicaTask extends AgentTask {
         this.storageDictPageSize = storageDictPageSize;
         this.tdeAlgorithm = tdeAlgorithm;
         this.columnSeqMapping = columnSeqMapping;
+        this.rowBinlogMeta = rowBinlogMeta;
     }
 
     public void setIsRecoverTask(boolean isRecoverTask) {
@@ -448,6 +453,32 @@ public class CreateReplicaTask extends AgentTask {
 
         if (binlogConfig != null) {
             createTabletReq.setBinlogConfig(binlogConfig.toThrift());
+        }
+
+        if (binlogConfig != null && binlogConfig.isEnableForStreaming() && rowBinlogMeta != null) {
+            TTabletSchema tRowBinlogSchema = new TTabletSchema();
+            tRowBinlogSchema.setShortKeyColumnCount(rowBinlogMeta.getShortKeyColumnCount());
+            tRowBinlogSchema.setSchemaHash(rowBinlogMeta.getSchemaHash());
+            tRowBinlogSchema.setKeysType(rowBinlogMeta.getKeysType().toThrift());
+            tRowBinlogSchema.setStorageType(TStorageType.COLUMN);
+
+            List<TColumn> tRowBinlogColumns = null;
+            List<Column> rowBinlogColumns = rowBinlogMeta.getSchema(true);
+            Object tRowBinlogCols = objectPool.get(rowBinlogColumns);
+            if (tRowBinlogCols != null) {
+                tRowBinlogColumns = (List<TColumn>) tRowBinlogCols;
+            } else {
+                tRowBinlogColumns = new ArrayList<>();
+                for (int i = 0; i < rowBinlogColumns.size(); i++) {
+                    Column column = rowBinlogColumns.get(i);
+                    TColumn tColumn = column.toThrift();
+                    tColumn.setVisible(column.isVisible());
+                    tRowBinlogColumns.add(tColumn);
+                }
+                objectPool.put(rowBinlogColumns, tRowBinlogColumns);
+            }
+            tRowBinlogSchema.setColumns(tRowBinlogColumns);
+            createTabletReq.setRowBinlogSchema(tRowBinlogSchema);
         }
 
         return createTabletReq;

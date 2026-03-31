@@ -49,6 +49,12 @@ public class AddPartitionLikeOp extends AlterTableOp {
         return false;
     }
 
+    @Override
+    public boolean allowOpRowBinlog() {
+        // Adding partition like is allowed for row binlog tables.
+        return true;
+    }
+
     public String getPartitionName() {
         return partitionName;
     }

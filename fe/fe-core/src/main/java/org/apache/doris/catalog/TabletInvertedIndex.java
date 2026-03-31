@@ -461,6 +461,10 @@ public class TabletInvertedIndex {
             replica.setVisibleVersionCount(backendTabletInfo.isSetVisibleVersionCount()
                     ? backendTabletInfo.getVisibleVersionCount()
                     : backendTabletInfo.getTotalVersionCount());
+            if (backendTabletInfo.isSetBinlogSize()) {
+                replica.setBinlogSize(backendTabletInfo.getBinlogSize());
+                replica.setBinlogFileNum(backendTabletInfo.getBinlogFileNum());
+            }
         }
     }
 

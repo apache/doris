@@ -152,9 +152,6 @@ private:
 
     void _request_slave_tablet_pull_rowset(const PNodeInfo& node_info);
 
-    // Convert `_rowset_builder` from `BaseRowsetBuilder` to `RowsetBuilder`
-    RowsetBuilder* rowset_builder();
-
     std::mutex _lock;
 
     StorageEngine& _engine;

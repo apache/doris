@@ -974,7 +974,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
             BinlogConfig oldBinlogConfig = getBinlogConfig();
             BinlogConfig newBinlogConfig = BinlogConfig.fromProperties(properties);
 
-            if (newBinlogConfig.isEnable() && !oldBinlogConfig.isEnable()) {
+            if (newBinlogConfig.isEnableForCCR() && !oldBinlogConfig.isEnableForCCR()) {
                 // check all tables binlog enable is true
                 for (Table table : idToTable.values()) {
                     if (!table.isManagedTable()) {
@@ -984,7 +984,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                     OlapTable olapTable = (OlapTable) table;
                     olapTable.readLock();
                     try {
-                        if (!olapTable.getBinlogConfig().isEnable()) {
+                        if (!olapTable.getBinlogConfig().isEnableForCCR()) {
                             String errMsg = String
                                     .format("binlog is not enable in table[%s] in db [%s]",
                                         table.getDisplayName(), getFullName());

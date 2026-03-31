@@ -184,6 +184,14 @@ public class MaterializedIndex extends MetaObject implements GsonPostProcessable
         return remoteDataSize;
     }
 
+    public long getBinlogDataSize() {
+        long binlogDataSize = 0;
+        for (Tablet tablet : getTablets()) {
+            binlogDataSize += tablet.getBinlogDataSize();
+        }
+        return binlogDataSize;
+    }
+
     public long getReplicaCount() {
         long replicaCount = 0;
         for (Tablet tablet : getTablets()) {

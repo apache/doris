@@ -76,6 +76,9 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
     @SerializedName(value = "dbName")
     private String dbName;
 
+    @SerializedName(value = "rowBinlogIndexId")
+    private long rowBinlogIndexId = 0;
+
     private static final Logger LOG = LogManager.getLogger(MaterializedIndexMeta.class);
 
 
@@ -238,6 +241,22 @@ public class MaterializedIndexMeta implements GsonPostProcessable {
 
     public OriginStatement getDefineStmt() {
         return defineStmt;
+    }
+
+    public void resetRowBinlogIndexId() {
+        this.rowBinlogIndexId = 0;
+    }
+
+    public void setRowBinlogIndexId(long indexId) {
+        this.rowBinlogIndexId = indexId;
+    }
+
+    public long getRowBinlogIndexId() {
+        return this.rowBinlogIndexId;
+    }
+
+    public boolean isRowBinlogIndex() {
+        return this.rowBinlogIndexId == this.indexId;
     }
 
     @Override

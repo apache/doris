@@ -86,9 +86,11 @@
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_fwd.h"
+
 #include "olap/rowset/rowset_meta.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_writer.h"
+#include "olap/rowset/group_rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/common.h"
@@ -327,6 +329,20 @@ Status Tablet::_init_once_action() {
         _stale_rs_version_map[version] = std::move(rowset);
     }
 
+    // init row_binlog rowset
+    for (const auto& [_, row_binlog_rs_meta] : _tablet_meta->all_row_binlog_rs_metas()) {
+        Version version = row_binlog_rs_meta->version();
+        RowsetSharedPtr rowset;
+        res = create_rowset(row_binlog_rs_meta, &rowset);
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to init row_binlog rowset. tablet_id:" << tablet_id()
+                         << ", schema_hash:" << schema_hash() << ", version=" << version
+                         << ", res:" << res;
+            return res;
+        }
+        _row_binlog_rs_version_map[version] = std::move(rowset);
+    }
+
     return res;
 }
 
@@ -483,7 +499,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
     return Status::OK();
 }
 
-Status Tablet::add_rowset(RowsetSharedPtr rowset) {
+Status Tablet::add_rowset(RowsetSharedPtr rowset, RowsetSharedPtr row_binlog_rowset) {
     DCHECK(rowset != nullptr);
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     SCOPED_SIMPLE_TRACE_IF_TIMEOUT(TRACE_TABLET_LOCK_THRESHOLD);
@@ -499,6 +515,12 @@ Status Tablet::add_rowset(RowsetSharedPtr rowset) {
     _rs_version_map[rowset->version()] = rowset;
     _timestamped_version_tracker.add_version(rowset->version());
     add_compaction_score(rowset->rowset_meta()->get_compaction_score());
+
+    if (row_binlog_rowset != nullptr) {
+        RETURN_IF_ERROR(_tablet_meta->add_row_binlog_rs_meta(row_binlog_rowset->rowset_meta()));
+        _row_binlog_rs_version_map[rowset->version()] = row_binlog_rowset;
+        _row_binlog_version_tracker.add_version(row_binlog_rowset->version());
+    }
 
     std::vector<RowsetSharedPtr> rowsets_to_delete;
     // yiguolei: temp code, should remove the rowset contains by this rowset
@@ -1723,6 +1745,12 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_local_segment_size(_tablet_meta->tablet_local_segment_size());
     tablet_info->__set_remote_index_size(_tablet_meta->tablet_remote_index_size());
     tablet_info->__set_remote_segment_size(_tablet_meta->tablet_remote_segment_size());
+    if (enable_row_binlog()) {
+        int64_t total_binlog_size = _tablet_meta->binlog_size();
+        int64_t total_binlog_file_num = _tablet_meta->binlog_file_num();
+        tablet_info->__set_binlog_file_num(total_binlog_file_num);
+        tablet_info->__set_binlog_size(total_binlog_size);
+    }
 }
 
 void Tablet::report_error(const Status& st) {
@@ -1921,18 +1949,56 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
                 "init version of tablet should at least 1. req.ver={}", req_version);
     }
     Version version(0, req_version);
-    RowsetSharedPtr new_rowset;
-    // there is no data in init rowset, so overlapping info is unknown.
-    RowsetWriterContext context;
-    context.version = version;
-    context.rowset_state = VISIBLE;
-    context.segments_overlap = OVERLAP_UNKNOWN;
-    context.tablet_schema = tablet_schema();
-    context.newest_write_timestamp = UnixSeconds();
-    auto rs_writer = DORIS_TRY(create_rowset_writer(context, false));
-    RETURN_IF_ERROR(rs_writer->flush());
-    RETURN_IF_ERROR(rs_writer->build(new_rowset));
-    RETURN_IF_ERROR(add_rowset(std::move(new_rowset)));
+
+    auto get_rowset_writer_context = [&](RowsetWriterContext& context, TabletSchemaSPtr schema) {
+        // there is no data in init rowset, so overlapping info is unknown.
+        context.version = version;
+        context.rowset_state = VISIBLE;
+        context.segments_overlap = OVERLAP_UNKNOWN;
+        context.tablet_schema = schema;
+        context.newest_write_timestamp = UnixSeconds();
+
+        return Status::OK();
+    };
+
+    if (!enable_row_binlog()) {
+        RowsetWriterContext context;
+        RowsetSharedPtr new_rowset;
+        RETURN_IF_ERROR(get_rowset_writer_context(context, tablet_schema()));
+        auto rs_writer = DORIS_TRY(create_rowset_writer(context, false));
+
+        RETURN_IF_ERROR(rs_writer->flush());
+        RETURN_IF_ERROR(rs_writer->build(new_rowset));
+        RETURN_IF_ERROR(add_rowset(std::move(new_rowset), nullptr));
+    } else {
+        std::unique_ptr<GroupRowsetWriter> group_rowset_writer;
+        RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_rowset_writer));
+
+        RowsetWriterContext data_context;
+        data_context.write_binlog_opt().mark_primary_writer();
+        RETURN_IF_ERROR(get_rowset_writer_context(data_context, tablet_schema()));
+        auto data_writer = DORIS_TRY(create_rowset_writer(data_context, false));
+        group_rowset_writer->set_data_writer(std::move(data_writer));
+
+        RowsetWriterContext row_binlog_context;
+        row_binlog_context.write_binlog_opt().mark_binlog_writer();
+        RETURN_IF_ERROR(get_rowset_writer_context(row_binlog_context, tablet_schema()));
+        auto row_binlog_writer = DORIS_TRY(create_rowset_writer(row_binlog_context, false));
+        group_rowset_writer->set_row_binlog_writer(std::move(row_binlog_writer));
+
+        RETURN_IF_ERROR(group_rowset_writer->flush_rowsets());
+
+        RowsetSharedPtr new_data_rowset;
+        RowsetSharedPtr new_row_binlog_rowset;
+        std::vector<RowsetSharedPtr> waited_build_rowsets;
+        waited_build_rowsets.push_back(std::move(new_data_rowset));
+        waited_build_rowsets.push_back(std::move(new_row_binlog_rowset));
+
+        RETURN_IF_ERROR(group_rowset_writer->build_rowsets(waited_build_rowsets));
+        // don't need to think rollback when only one rowset build success becuase they had not been persisted.
+        RETURN_IF_ERROR(add_rowset(std::move(waited_build_rowsets.at(0)), waited_build_rowsets.at(1)));
+    }
+
     set_cumulative_layer_point(req_version + 1);
     return Status::OK();
 }
@@ -2006,12 +2072,18 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
 
     context.encrypt_algorithm = tablet_meta()->encryption_algorithm();
+
+    if (context.write_binlog_opt().is_binlog_writer()) {
+        context.tablet_schema_hash = row_binlog_schema_hash();
+        bool need_before = tablet_meta()->binlog_config().need_historical_value();
+        context.write_binlog_opt().set_need_before(need_before);
+        context.tablet_path = row_binlog_path();
+    }
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
     return RowsetFactory::create_rowset(_tablet_meta->tablet_schema(),
-                                        rowset_meta->is_local() ? _tablet_path : "", rowset_meta,
-                                        rowset);
+                                        get_rowset_path(rowset_meta), rowset_meta, rowset);
 }
 
 Status Tablet::cooldown(RowsetSharedPtr rowset) {
@@ -2659,10 +2731,6 @@ std::vector<std::string> Tablet::get_binlog_filepath(std::string_view binlog_ver
 
 bool Tablet::can_add_binlog(uint64_t total_binlog_size) const {
     return !_data_dir->reach_capacity_limit(total_binlog_size);
-}
-
-bool Tablet::is_enable_binlog() {
-    return config::enable_feature_binlog && tablet_meta()->binlog_config().is_enable();
 }
 
 void Tablet::set_binlog_config(BinlogConfig binlog_config) {

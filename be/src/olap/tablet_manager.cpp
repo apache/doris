@@ -1115,6 +1115,10 @@ void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* 
         t_tablet_stat.__set_local_segment_size(tablet_info.local_segment_size);
         t_tablet_stat.__set_remote_index_size(tablet_info.remote_index_size);
         t_tablet_stat.__set_remote_segment_size(tablet_info.remote_segment_size);
+        if (tablet_info.__isset.binlog_size) {
+            t_tablet_stat.__set_binlog_size(tablet_info.binlog_size);
+            t_tablet_stat.__set_binlog_file_num(tablet_info.binlog_file_num);
+        }
     };
     for_each_tablet(handler, filter_all_tablets);
 

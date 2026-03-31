@@ -148,6 +148,12 @@ public class ModifyPartitionOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Modify partition does not change schema, allow on row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("MODIFY PARTITION ");

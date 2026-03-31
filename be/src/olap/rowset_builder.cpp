@@ -40,9 +40,11 @@
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/rowset/pending_rowset_helper.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
+#include "olap/rowset/group_rowset_writer.h"
 #include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
@@ -64,17 +66,30 @@ namespace doris {
 #include "common/compile_check_begin.h"
 using namespace ErrorCode;
 
+
 BaseRowsetBuilder::BaseRowsetBuilder(const WriteRequest& req, RuntimeProfile* profile)
         : _req(req), _tablet_schema(std::make_shared<TabletSchema>()) {
     _init_profile(profile);
 }
 
-RowsetBuilder::RowsetBuilder(StorageEngine& engine, const WriteRequest& req,
-                             RuntimeProfile* profile)
+RowsetBuilder::RowsetBuilder(StorageEngine& engine, const WriteRequest& req, RuntimeProfile* profile)
         : BaseRowsetBuilder(req, profile), _engine(engine) {}
 
+RowBinlogRowsetBuilder::RowBinlogRowsetBuilder(StorageEngine& engine, const WriteRequest& req,
+                                               RuntimeProfile* profile)
+        : RowsetBuilder(engine, req, profile) {}
+
 void BaseRowsetBuilder::_init_profile(RuntimeProfile* profile) {
-    _profile = profile->create_child(fmt::format("RowsetBuilder {}", _req.tablet_id), true, true);
+    if (_req.write_req_type == WriteRequestType::GROUP) {
+        _profile = profile->create_child(fmt::format("GroupRowsetBuilder {}", _req.tablet_id),
+                                         true, true);
+        return;
+    }
+
+    _profile = profile->create_child(
+            fmt::format("RowsetBuilder {} {}",
+            _req.tablet_id, _req.write_req_type == WriteRequestType::ROW_BINLOG ? "row_binlog" : "data"),
+            true, true);
     _build_rowset_timer = ADD_TIMER(_profile, "BuildRowsetTime");
     _submit_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapSubmitTime");
     _wait_delete_bitmap_timer = ADD_TIMER(_profile, "DeleteBitmapWaitTime");
@@ -97,7 +112,8 @@ BaseRowsetBuilder::~BaseRowsetBuilder() {
 
 RowsetBuilder::~RowsetBuilder() {
     if (_is_init && !_is_committed) {
-        _garbage_collection();
+        // For txn rowset builders, we need to rollback txn when necessary.
+        _garbage_collection(is_data_builder());
     }
 }
 
@@ -109,21 +125,28 @@ TabletSharedPtr RowsetBuilder::tablet_sptr() {
     return std::static_pointer_cast<Tablet>(_tablet);
 }
 
-void RowsetBuilder::_garbage_collection() {
+void RowsetBuilder::_garbage_collection(bool cancel_txn) {
     Status rollback_status;
-    TxnManager* txn_mgr = _engine.txn_manager();
-    if (tablet() != nullptr) {
+    bool need_clean = true;
+    if (tablet() != nullptr && cancel_txn) {
+        TxnManager* txn_mgr = _engine.txn_manager();
         rollback_status = txn_mgr->rollback_txn(_req.partition_id, *tablet(), _req.txn_id);
+        need_clean = rollback_status.ok();
     }
     // has to check rollback status, because the rowset maybe committed in this thread and
     // published in another thread, then rollback will fail.
     // when rollback failed should not delete rowset
-    if (rollback_status.ok()) {
+    if (need_clean) {
         _engine.add_unused_rowset(_rowset);
+        for (auto& rs : _attach_rowsets) {
+            _engine.add_unused_rowset(rs);
+        }
     }
 }
 
 Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_context) {
+    DCHECK(is_data_builder());
+
     std::lock_guard<std::shared_mutex> lck(tablet()->get_header_lock());
     _max_version_in_flush_phase = tablet()->max_version_unlocked();
     std::vector<RowsetSharedPtr> rowset_ptrs;
@@ -148,6 +171,8 @@ Status BaseRowsetBuilder::init_mow_context(std::shared_ptr<MowContext>& mow_cont
 }
 
 Status RowsetBuilder::check_tablet_version_count() {
+    DCHECK(is_data_builder());
+
     auto max_version_config = _tablet->max_version_config();
     auto version_count = tablet()->version_count();
     DBUG_EXECUTE_IF("RowsetBuilder.check_tablet_version_count.too_many_version",
@@ -179,11 +204,19 @@ Status RowsetBuilder::check_tablet_version_count() {
 }
 
 Status RowsetBuilder::prepare_txn() {
+    DCHECK(is_data_builder());
     return tablet()->prepare_txn(_req.partition_id, _req.txn_id, _req.load_id, false);
 }
 
 Status RowsetBuilder::init() {
-    _tablet = DORIS_TRY(_engine.get_tablet(_req.tablet_id));
+    RowsetWriterContext context;
+
+    RETURN_IF_ERROR(_init_context_common_fields(context));
+    
+    if (tablet()->enable_row_binlog()) {
+        context.write_binlog_opt().mark_primary_writer();
+    }
+
     std::shared_ptr<MowContext> mow_context;
     if (_tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(init_mow_context(mow_context));
@@ -213,7 +246,26 @@ Status RowsetBuilder::init() {
     // build tablet schema in request level
     RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
                                                  *_tablet->tablet_schema()));
-    RowsetWriterContext context;
+
+    context.mow_context = mow_context;
+
+    context.partial_update_info = _partial_update_info;
+    _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
+
+    std::vector<RowsetId> tmp_pending_rowset_ids = {_rowset_id};
+    tmp_pending_rowset_ids.resize(1 + _attach_rowset_ids.size());
+    std::copy(_attach_rowset_ids.begin(), _attach_rowset_ids.end(), tmp_pending_rowset_ids.begin() + 1);
+    _pending_rs_guard = _engine.pending_local_rowsets().add(tmp_pending_rowset_ids);
+
+    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
+
+    _is_init = true;
+    return Status::OK();
+}
+
+Status BaseRowsetBuilder::_init_context_common_fields(RowsetWriterContext& context) {
+    _tablet = DORIS_TRY(ExecEnv::get_tablet(_req.tablet_id));
+
     context.txn_id = _req.txn_id;
     context.load_id = _req.load_id;
     context.rowset_state = PREPARED;
@@ -225,15 +277,8 @@ Status RowsetBuilder::init() {
     context.tablet = _tablet;
     context.enable_segcompaction = true;
     context.write_type = DataWriteType::TYPE_DIRECT;
-    context.mow_context = mow_context;
     context.write_file_cache = _req.write_file_cache;
-    context.partial_update_info = _partial_update_info;
-    _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
-    _pending_rs_guard = _engine.pending_local_rowsets().add(context.rowset_id);
 
-    _calc_delete_bitmap_token = _engine.calc_delete_bitmap_executor()->create_token();
-
-    _is_init = true;
     return Status::OK();
 }
 
@@ -248,7 +293,14 @@ Status BaseRowsetBuilder::build_rowset() {
     return Status::OK();
 }
 
+Status GroupRowsetBuilder::build_rowset() {
+    // build binlog rowset first, then data rowset
+    RETURN_IF_ERROR(_row_binlog_rowset_builder->build_rowset());
+    return _txn_rs_builder->build_rowset();
+}
+
 Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
+    DCHECK(is_data_builder());
     if (!_tablet->enable_unique_key_merge_on_write() || _rowset->num_segments() == 0) {
         return Status::OK();
     }
@@ -305,6 +357,7 @@ Status BaseRowsetBuilder::submit_calc_delete_bitmap_task() {
 }
 
 Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
+    DCHECK(is_data_builder());
     if (!_tablet->enable_unique_key_merge_on_write() || _partial_update_info->is_partial_update()) {
         return Status::OK();
     }
@@ -315,6 +368,7 @@ Status BaseRowsetBuilder::wait_calc_delete_bitmap() {
 }
 
 Status RowsetBuilder::commit_txn() {
+    DCHECK(is_data_builder());
     if (tablet()->enable_unique_key_merge_on_write() &&
         config::enable_merge_on_write_correctness_check && _rowset->num_rows() != 0 &&
         tablet()->tablet_state() != TABLET_NOTREADY) {
@@ -390,13 +444,15 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
         // After adding a column v2, the schema version increases, max_version_schema needs to be updated.
         // _tablet_schema includes k, v, and v2
         // if v is a variant, need to add the columns decomposed from the v to the _tablet_schema.
-        if (_tablet_schema->num_variant_columns() > 0) {
-            TabletSchemaSPtr max_version_schema = std::make_shared<TabletSchema>();
-            max_version_schema->copy_from(*_tablet_schema);
-            max_version_schema->copy_extracted_columns(ori_tablet_schema);
-            _tablet->update_max_version_schema(max_version_schema);
-        } else {
-            _tablet->update_max_version_schema(_tablet_schema);
+        if (is_data_builder()) {
+            if (_tablet_schema->num_variant_columns() > 0) {
+                TabletSchemaSPtr max_version_schema = std::make_shared<TabletSchema>();
+                max_version_schema->copy_from(*_tablet_schema);
+                max_version_schema->copy_extracted_columns(ori_tablet_schema);
+                _tablet->update_max_version_schema(max_version_schema);
+            } else {
+                _tablet->update_max_version_schema(_tablet_schema);
+            }
         }
     }
 
@@ -418,5 +474,94 @@ Status BaseRowsetBuilder::_build_current_tablet_schema(
             table_schema_param->sequence_map_col_uid(), _max_version_in_flush_phase));
     return Status::OK();
 }
+
+GroupRowsetBuilder::GroupRowsetBuilder(StorageEngine& engine, const WriteRequest& req,
+                                       const WriteRequest& row_binlog_req,
+                                       RuntimeProfile* profile)
+        : BaseRowsetBuilder(
+                  [](int64_t tablet_id) {
+                      WriteRequest group_req;
+                      group_req.tablet_id = tablet_id;
+                      group_req.write_req_type = WriteRequestType::GROUP;
+                      return group_req;
+                  }(req.tablet_id),
+                  profile) {
+    _row_binlog_rowset_builder =
+            std::make_shared<RowBinlogRowsetBuilder>(engine, row_binlog_req, profile);
+    _txn_rs_builder = std::make_shared<RowsetBuilder>(engine, req, profile);
+}
+
+Status GroupRowsetBuilder::init() {
+    // init binlog builder first so that its rowset id can be added into
+    // PendingLocalRowsets before txn builder init.
+    RETURN_IF_ERROR(_row_binlog_rowset_builder->init());
+    // before init txn, need to add all rowset_ids into PendingLocalRowsets. 
+    // see https://github.com/apache/doris/pull/25921
+    RETURN_IF_ERROR(
+            _txn_rs_builder->attach_pending_rs_guard_to_txn(_row_binlog_rowset_builder->rowset_id()));
+    RETURN_IF_ERROR(_txn_rs_builder->init());
+
+    // Create a GroupRowsetWriter that forwards flush to both underlying
+    // RowsetWriters.
+    std::unique_ptr<doris::GroupRowsetWriter> group_writer;
+    RETURN_IF_ERROR(RowsetFactory::create_empty_group_rowset_writer(&group_writer));
+    group_writer->set_data_writer(_txn_rs_builder->rowset_writer());
+    group_writer->set_row_binlog_writer(_row_binlog_rowset_builder->rowset_writer());
+
+    _rowset_writer = std::move(group_writer);
+    _is_init = true;
+    return Status::OK();
+}
+
+Status GroupRowsetBuilder::submit_calc_delete_bitmap_task() {
+    return _txn_rs_builder->submit_calc_delete_bitmap_task();
+}
+
+Status GroupRowsetBuilder::wait_calc_delete_bitmap() {
+    return _txn_rs_builder->wait_calc_delete_bitmap();
+}
+
+Status GroupRowsetBuilder::commit_txn() {
+    // Attach binlog rowset to txn rowset, so that commit/rollback and
+    // clean-up are all handled by txn rowset builder.
+    RETURN_IF_ERROR(
+            _txn_rs_builder->attach_rowset_to_txn(_row_binlog_rowset_builder->rowset()));
+    return _txn_rs_builder->commit_txn();
+}
+
+Status RowBinlogRowsetBuilder::init() {
+    RowsetWriterContext context;
+
+    RETURN_IF_ERROR(_init_context_common_fields(context));
+
+    // build tablet schema in request level
+    RETURN_IF_ERROR(_build_current_tablet_schema(_req.index_id, _req.table_schema_param.get(),
+                                                 *std::dynamic_pointer_cast<Tablet>(_tablet)->row_binlog_tablet_schema()));
+    context.write_binlog_opt().mark_binlog_writer();
+
+    _rowset_writer = DORIS_TRY(_tablet->create_rowset_writer(context, false));
+    // need to attach PendingRowsetGuard after txn_rs_builder init 
+    _rowset_id = context.rowset_id;
+
+    _is_init = true;
+    return Status::OK();
+}
+
+Status BaseRowsetBuilder::attach_rowset_to_txn(const RowsetSharedPtr& rowset) {
+    if (!is_data_builder()) {
+        return Status::RuntimeError("the rowset isn't allowed to manage txn");
+    }
+    _attach_rowsets.push_back(rowset);
+    return Status::OK();
+}
+
+Status BaseRowsetBuilder::attach_pending_rs_guard_to_txn(const RowsetId& rowset_id) {
+    if (!is_data_builder()) {
+        return Status::RuntimeError("the rowset isn't allowed to manage txn");
+    }
+    _attach_rowset_ids.push_back(rowset_id);
+    return Status::OK();
+}
+
 #include "common/compile_check_end.h"
 } // namespace doris

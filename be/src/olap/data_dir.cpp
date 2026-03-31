@@ -615,9 +615,13 @@ Status DataDir::load() {
         if (!tablet) {
             return true;
         }
-        const auto& all_rowsets = tablet->tablet_meta()->all_rs_metas();
+        const auto& all_data_rowsets = tablet->tablet_meta()->all_rs_metas();
+        const auto& all_row_binlogs = tablet->tablet_meta()->all_row_binlog_rs_metas();
         RowsetIdUnorderedSet rowset_ids;
-        for (const auto& [_, rowset_meta] : all_rowsets) {
+        for (const auto& [_, rowset_meta] : all_data_rowsets) {
+            rowset_ids.insert(rowset_meta->rowset_id());
+        }
+        for (auto& [_, rowset_meta] : all_row_binlogs) {
             rowset_ids.insert(rowset_meta->rowset_id());
         }
 
@@ -626,12 +630,14 @@ Status DataDir::load() {
         int rst_ids_size = delete_bitmap_pb.rowset_ids_size();
         int seg_ids_size = delete_bitmap_pb.segment_ids_size();
         int seg_maps_size = delete_bitmap_pb.segment_delete_bitmaps_size();
+        int binlog_mark_size = delete_bitmap_pb.is_binlog_delvec_size();
         CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size);
+        CHECK(binlog_mark_size == 0 || binlog_mark_size == rst_ids_size);
 
         for (int i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(delete_bitmap_pb.rowset_ids(i));
-            // only process the rowset in _rs_metas
+            // only process the rowset in _rs_metas and _row_binlog_rs_metas
             if (rowset_ids.find(rst_id) == rowset_ids.end()) {
                 ++unknown_dbm_cnt;
                 continue;
@@ -645,8 +651,20 @@ Status DataDir::load() {
                 continue;
             }
             auto bitmap = delete_bitmap_pb.segment_delete_bitmaps(i).data();
-            tablet->tablet_meta()->delete_bitmap().delete_bitmap[{rst_id, seg_id, version}] =
-                    roaring::Roaring::read(bitmap);
+
+            bool from_binlog = delete_bitmap_pb.is_binlog_delvec_size() > 0 ? 
+                    delete_bitmap_pb.is_binlog_delvec(i) : false;
+            if (!from_binlog) {
+                tablet->tablet_meta()->delete_bitmap().delete_bitmap[{rst_id, seg_id, version}] =
+                        roaring::Roaring::read(bitmap);
+            } else {
+                tablet->tablet_meta()->binlog_delvec().delete_bitmap[{rst_id, seg_id, version}] =
+                        roaring::Roaring::read(bitmap);
+            }
+            VLOG_ROW << "successfully to add delete_bitmap, tablet_id=" 
+                     << tablet->tablet_id() << ", rowset_id=" << rst_id
+                     << ", seg_id=" << seg_id << ", version=" << version
+                     << ", from_binlog=" << from_binlog;
         }
         return true;
     };

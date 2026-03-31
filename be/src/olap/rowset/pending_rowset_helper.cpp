@@ -23,29 +23,31 @@ namespace doris {
 
 PendingRowsetGuard::~PendingRowsetGuard() {
     if (_pending_rowset_set) {
-        _pending_rowset_set->remove(_rowset_id);
+        for (const auto& rowset_id : _rowset_ids) {
+            _pending_rowset_set->remove(rowset_id);
+        }
     }
 }
 
-PendingRowsetGuard::PendingRowsetGuard(const RowsetId& rowset_id, PendingRowsetSet* set)
-        : _rowset_id(rowset_id), _pending_rowset_set(set) {}
+PendingRowsetGuard::PendingRowsetGuard(const std::vector<RowsetId>& rowset_ids, PendingRowsetSet* set)
+        : _rowset_ids(rowset_ids), _pending_rowset_set(set) {}
 
 PendingRowsetGuard::PendingRowsetGuard(PendingRowsetGuard&& other) noexcept {
     CHECK(!_pending_rowset_set ||
-          (_rowset_id == other._rowset_id && _pending_rowset_set == other._pending_rowset_set))
-            << _rowset_id << ' ' << other._rowset_id << ' ' << _pending_rowset_set << ' '
+          (_rowset_ids == other._rowset_ids && _pending_rowset_set == other._pending_rowset_set))
+            << _rowset_ids << ' ' << other._rowset_ids << ' ' << _pending_rowset_set << ' '
             << other._pending_rowset_set;
-    _rowset_id = other._rowset_id;
+    _rowset_ids = other._rowset_ids;
     _pending_rowset_set = other._pending_rowset_set;
     other._pending_rowset_set = nullptr;
 }
 
 PendingRowsetGuard& PendingRowsetGuard::operator=(PendingRowsetGuard&& other) noexcept {
     CHECK(!_pending_rowset_set ||
-          (_rowset_id == other._rowset_id && _pending_rowset_set == other._pending_rowset_set))
-            << _rowset_id << ' ' << other._rowset_id << ' ' << _pending_rowset_set << ' '
+          (_rowset_ids == other._rowset_ids && _pending_rowset_set == other._pending_rowset_set))
+            << _rowset_ids << ' ' << other._rowset_ids << ' ' << _pending_rowset_set << ' '
             << other._pending_rowset_set;
-    _rowset_id = other._rowset_id;
+    _rowset_ids = other._rowset_ids;
     _pending_rowset_set = other._pending_rowset_set;
     other._pending_rowset_set = nullptr;
     return *this;
@@ -53,10 +55,12 @@ PendingRowsetGuard& PendingRowsetGuard::operator=(PendingRowsetGuard&& other) no
 
 void PendingRowsetGuard::drop() {
     if (_pending_rowset_set) {
-        _pending_rowset_set->remove(_rowset_id);
+        for (const auto& rowset_id : _rowset_ids) {
+            _pending_rowset_set->remove(rowset_id);
+        }
     }
     _pending_rowset_set = nullptr;
-    _rowset_id = RowsetId {};
+    _rowset_ids = std::vector{RowsetId {}};
 }
 
 bool PendingRowsetSet::contains(const RowsetId& rowset_id) {
@@ -69,7 +73,17 @@ PendingRowsetGuard PendingRowsetSet::add(const RowsetId& rowset_id) {
         std::lock_guard lock(_mtx);
         _set.insert(rowset_id);
     }
-    return PendingRowsetGuard {rowset_id, this};
+    return PendingRowsetGuard {std::vector<RowsetId>{rowset_id}, this};
+}
+
+PendingRowsetGuard PendingRowsetSet::add(const std::vector<RowsetId>& rowset_ids) {
+    {
+        std::lock_guard lock(_mtx);
+        for (const auto& rowset_id : rowset_ids) {
+            _set.insert(rowset_id);
+        }
+    }
+    return PendingRowsetGuard {rowset_ids, this};
 }
 
 void PendingRowsetSet::remove(const RowsetId& rowset_id) {

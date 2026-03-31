@@ -157,6 +157,9 @@ public class TabletStatMgr extends MasterDaemon {
 
                 Long tableRowCount = 0L;
 
+                Long tableBinlogSize = 0L;
+                Long tableTotalBinlogSize = 0L;
+
                 if (!table.readLockIfExist()) {
                     continue;
                 }
@@ -177,6 +180,8 @@ public class TabletStatMgr extends MasterDaemon {
                                 Long tabletRemoteDataSize = 0L;
 
                                 Long tabletRowCount = Long.MAX_VALUE;
+
+                                Long tabletBinlogSize = 0L;
 
                                 boolean tabletReported = false;
                                 for (Replica replica : tablet.getReplicas()) {
@@ -217,6 +222,11 @@ public class TabletStatMgr extends MasterDaemon {
                                     tableTotalLocalSegmentSize += replica.getLocalSegmentSize();
                                     tableTotalRemoteIndexSize += replica.getRemoteInvertedIndexSize();
                                     tableTotalRemoteSegmentSize += replica.getRemoteSegmentSize();
+
+                                    if (replica.getBinlogSize() > tabletBinlogSize) {
+                                        tabletBinlogSize = replica.getBinlogSize();
+                                    }
+                                    tableTotalBinlogSize += replica.getBinlogSize();
                                 }
 
                                 tableDataSize += tabletDataSize;
@@ -237,6 +247,8 @@ public class TabletStatMgr extends MasterDaemon {
                                 indexRowCount += tabletRowCount;
                                 // Only when all tablets of this index are reported, we set indexReported to true.
                                 indexReported = indexReported && tabletReported;
+
+                                tableBinlogSize += tabletBinlogSize;
                             } // end for tablets
                             index.setRowCountReported(indexReported);
                             index.setRowCount(indexRowCount);
@@ -263,7 +275,8 @@ public class TabletStatMgr extends MasterDaemon {
                             tableDataSize, tableTotalReplicaDataSize,
                             tableRemoteDataSize, tableReplicaCount, tableRowCount, 0L, 0L,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize,
-                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize));
+                            tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize,
+                            tableBinlogSize, tableTotalBinlogSize));
 
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("finished to set row num for table: {} in database: {}",
@@ -352,17 +365,14 @@ public class TabletStatMgr extends MasterDaemon {
                     if (replica != null) {
                         replica.setDataSize(stat.getDataSize());
                         replica.setRemoteDataSize(stat.getRemoteDataSize());
-                        replica.setLocalInvertedIndexSize(stat.getLocalIndexSize());
-                        replica.setLocalSegmentSize(stat.getLocalSegmentSize());
-                        replica.setRemoteInvertedIndexSize(stat.getRemoteIndexSize());
-                        replica.setRemoteSegmentSize(stat.getRemoteSegmentSize());
                         replica.setRowCount(stat.getRowCount());
                         replica.setTotalVersionCount(stat.getTotalVersionCount());
                         replica.setVisibleVersionCount(stat.isSetVisibleVersionCount() ? stat.getVisibleVersionCount()
                                 : stat.getTotalVersionCount());
-                        // Older version BE doesn't set visible version. Set it to max for compatibility.
-                        replica.setLastReportVersion(stat.isSetVisibleVersion() ? stat.getVisibleVersion()
-                                : Long.MAX_VALUE);
+                        if (stat.isSetBinlogSize()) {
+                            replica.setBinlogSize(stat.getBinlogSize());
+                            replica.setBinlogFileNum(stat.getBinlogFileNum());
+                        }
                     }
                 }
             }

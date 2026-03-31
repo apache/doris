@@ -136,6 +136,8 @@ message RowsetMetaPB {
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
 
+    optional bool is_row_binlog = 56 [default = false];
+
     // For cloud
     // for data recycling
     optional int64 txn_expiration = 1000;
@@ -233,6 +235,8 @@ message RowsetMetaCloudPB {
     optional string source_rowset_id = 54;
     // indicate that whether the segments key bounds is truncated
     optional bool segments_key_bounds_truncated = 55;
+
+    optional bool is_row_binlog = 56 [default = false];
 
     // cloud
     // the field is a vector, rename it
@@ -561,11 +565,18 @@ message S3StorageParamPB {
     optional string root_path = 8;
 }
 
+enum BinlogFormatPB {
+    STATEMENT_AND_SNAPSHOT = 0;
+    ROW = 1;
+}
+
 message BinlogConfigPB {
     optional bool enable = 1;
     optional int64 ttl_seconds = 2;
     optional int64 max_bytes = 3;
     optional int64 max_history_nums = 4;
+    optional BinlogFormatPB binlog_format = 5;
+    optional bool need_historical_value = 6;
 }
 
 // ATTN: When adding or deleting fields, please update `message TabletMetaCloudPB`
@@ -605,6 +616,9 @@ message TabletMetaPB {
     optional int64 storage_policy_id = 25;
     optional PUniqueId cooldown_meta_id = 26;
     optional BinlogConfigPB binlog_config = 27;
+    optional TabletSchemaPB row_binlog_schema = 42;
+    repeated RowsetMetaPB row_binlog_rs_metas = 43;
+    optional int32 row_binlog_schema_hash = 44;
     optional string compaction_policy = 28 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 29 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 30 [default = 2000];
@@ -660,6 +674,9 @@ message TabletMetaCloudPB {
     optional int64 storage_policy_id = 28;
     optional PUniqueId cooldown_meta_id = 29;
     optional BinlogConfigPB binlog_config = 30;
+    optional TabletSchemaCloudPB row_binlog_schema = 42;
+    repeated RowsetMetaCloudPB row_binlog_rs_metas = 43;
+    optional int32 row_binlog_schema_hash = 44;
     optional string compaction_policy = 31 [default = "size_based"];
     optional int64 time_series_compaction_goal_size_mbytes = 32 [default = 1024];
     optional int64 time_series_compaction_file_count_threshold = 33 [default = 2000];
@@ -686,6 +703,7 @@ message DeleteBitmapPB {
     repeated int64 versions = 3;
     // Serialized roaring bitmaps indexed with {rowset_id, segment_id, version}
     repeated bytes segment_delete_bitmaps = 4;
+    repeated bool is_binlog_delvec = 5;
 }
 
 message BinlogMetaEntryPB {

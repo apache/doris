@@ -27,6 +27,7 @@
 namespace doris {
 
 class RowsetWriter;
+class GroupRowsetWriter;
 struct RowsetWriterContext;
 class StorageEngine;
 class CloudStorageEngine;
@@ -47,6 +48,10 @@ public:
     // create and init cloud rowset writer.
     static Result<std::unique_ptr<RowsetWriter>> create_rowset_writer(
             CloudStorageEngine& engine, const RowsetWriterContext& context, bool is_vertical);
+
+    // group rowset writer is used to flush and build synchronously
+    // and reuse multiple rowset writers internally.
+    static Status create_empty_group_rowset_writer(std::unique_ptr<GroupRowsetWriter>* output);
 };
 
 } // namespace doris

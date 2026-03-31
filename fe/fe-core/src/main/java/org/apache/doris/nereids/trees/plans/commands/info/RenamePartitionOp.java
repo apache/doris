@@ -78,6 +78,12 @@ public class RenamePartitionOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Renaming partition does not change schema, allow on row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         return "RENAME PARTITION " + partitionName + " " + newPartitionName;
     }

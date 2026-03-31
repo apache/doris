@@ -563,7 +563,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     }
 
     /// Step 3:  add to binlog
-    auto enable_binlog = tablet->is_enable_binlog();
+    auto enable_binlog = tablet->enable_ccr_binlog();
     if (enable_binlog) {
         auto status = rowset->add_to_binlog();
         if (!status.ok()) {

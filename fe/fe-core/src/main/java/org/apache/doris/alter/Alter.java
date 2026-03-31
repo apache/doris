@@ -214,6 +214,11 @@ public class Alter {
             currentAlterOps.checkMTMVAllow(alterOps);
         }
 
+        // For row binlog tables, only allow operations explicitly marked as safe.
+        if (olapTable.needRowBinlog()) {
+            currentAlterOps.checkRowBinlogAllow(alterOps);
+        }
+
         // check cluster capacity and db quota, only need to check once.
         if (currentAlterOps.needCheckCapacity()) {
             Env.getCurrentInternalCatalog().checkAvailableCapacity(db);

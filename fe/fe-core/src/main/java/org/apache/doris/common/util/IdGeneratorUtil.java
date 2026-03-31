@@ -48,6 +48,8 @@ public class IdGeneratorUtil {
                 bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
             }
         }
+        // Reserve one extra id for binlog index id.
+        bufferSize += 1;
         return bufferSize;
     }
 
@@ -60,6 +62,8 @@ public class IdGeneratorUtil {
             long bucketNum = table.getPartition(partitionId).getDistributionInfo().getBucketNum();
             bufferSize = bufferSize + (replicaNum + 1) * indexNum * bucketNum;
         }
+        // Reserve one extra id for binlog index id.
+        bufferSize += 1;
         return bufferSize;
     }
 

@@ -83,6 +83,7 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("Size", ScalarType.createVarchar(30)))
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_WAREHOUSE_DATA_META_DATA =
@@ -100,15 +101,16 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("ReplicaCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RowCount", ScalarType.createVarchar(20)))
                     .addColumn(new Column("RemoteSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("BinlogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ImmutableList<String> SHOW_TABLE_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("Size").add("ReplicaCount")
-                  .add("RemoteSize").build();
+                  .add("RemoteSize").add("BinlogSize").build();
 
     private static final ImmutableList<String> SHOW_INDEX_DATA_META_DATA_ORIGIN =
             new ImmutableList.Builder<String>().add("TableName").add("IndexName").add("Size").add("ReplicaCount")
-                    .add("RowCount").add("RemoteSize").build();
+                    .add("RowCount").add("RemoteSize").add("BinlogSize").build();
 
     private static final ShowResultSetMetaData SHOW_DETAILED_TABLE_DATA_META_DATA =
             ShowResultSetMetaData.builder()
@@ -120,6 +122,7 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalBinlogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final ShowResultSetMetaData SHOW_DETAILED_INDEX_DATA_META_DATA =
@@ -134,6 +137,7 @@ public class ShowDataCommand extends ShowCommand {
                     .addColumn(new Column("RemoteTotalSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteDataSize", ScalarType.createVarchar(30)))
                     .addColumn(new Column("RemoteIndexSize", ScalarType.createVarchar(30)))
+                    .addColumn(new Column("LocalBinlogSize", ScalarType.createVarchar(30)))
                     .build();
 
     private static final String WAREHOUSE = "entire_warehouse";
@@ -153,6 +157,7 @@ public class ShowDataCommand extends ShowCommand {
     private long totalSize = 0;
     private long totalReplicaCount = 0;
     private long totalRemoteSize = 0;
+    private long totalBinlogSize = 0;
     private long totalLocalInvertedSize = 0;
     private long totalLocalSegmentSize = 0;
     private long totalRemoteInvertedSize = 0;
@@ -260,10 +265,12 @@ public class ShowDataCommand extends ShowCommand {
             long tableSize = 0;
             long replicaCount = 0;
             long remoteSize = 0;
+            long binlogSize = 0;
 
             tableSize = olapTable.getDataSize();
             replicaCount = olapTable.getReplicaCount();
             remoteSize = olapTable.getRemoteDataSize();
+            binlogSize = olapTable.getBinlogSize();
 
             boolean useDisplayName = false;
             if (!isAdmin && olapTable.isTemporary()) {
@@ -271,14 +278,14 @@ public class ShowDataCommand extends ShowCommand {
             }
             String tableName = useDisplayName ? olapTable.getDisplayName() : olapTable.getName();
             if (!detailed) {
-                totalRowsObject.add(Arrays.asList(tableName, tableSize, replicaCount, remoteSize));
+                totalRowsObject.add(Arrays.asList(tableName, tableSize, replicaCount, remoteSize, binlogSize));
             } else {
                 long localIndexSize = olapTable.getLocalIndexFileSize();
                 long localSegmentSize = olapTable.getLocalSegmentSize();
                 long remoteIndexSize = olapTable.getRemoteIndexFileSize();
                 long remoteSegmentSize = olapTable.getRemoteSegmentSize();
                 totalRowsObject.add(Arrays.asList(table.getName(), tableSize, replicaCount, remoteSize,
-                        localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
+                        localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize, binlogSize));
                 totalLocalInvertedSize += localIndexSize;
                 totalLocalSegmentSize += localSegmentSize;
                 totalRemoteInvertedSize += remoteIndexSize;
@@ -288,6 +295,7 @@ public class ShowDataCommand extends ShowCommand {
             totalSize += tableSize;
             totalReplicaCount += replicaCount;
             totalRemoteSize += remoteSize;
+            totalBinlogSize += binlogSize;
         } // end for tables
     }
 
@@ -308,6 +316,7 @@ public class ShowDataCommand extends ShowCommand {
             long localSegmentSize = 0;
             long remoteIndexSize = 0;
             long remoteSegmentSize = 0;
+            long localBinlogSize = 0;
             for (Partition partition : table.getAllPartitions()) {
                 MaterializedIndex mIndex = partition.getIndex(indexId);
                 indexSize += mIndex.getDataSize(false, false);
@@ -318,15 +327,17 @@ public class ShowDataCommand extends ShowCommand {
                 localSegmentSize += mIndex.getLocalSegmentSize();
                 remoteIndexSize += mIndex.getRemoteIndexSize();
                 remoteSegmentSize += mIndex.getRemoteSegmentSize();
+                localBinlogSize += mIndex.getBinlogDataSize();
             }
 
             String indexName = table.getIndexNameById(indexId);
             if (!detailed) {
                 totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount,
-                        indexRowCount, indexRemoteSize));
+                        indexRowCount, indexRemoteSize, localBinlogSize));
             } else {
                 totalRowsObject.add(Arrays.asList(tableName, indexName, indexSize, indexReplicaCount, indexRowCount,
-                        indexRemoteSize, localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize));
+                        indexRemoteSize, localIndexSize, localSegmentSize, remoteIndexSize, remoteSegmentSize,
+                        localBinlogSize));
             }
 
             totalSize += indexSize;
@@ -336,6 +347,7 @@ public class ShowDataCommand extends ShowCommand {
             totalLocalSegmentSize += localSegmentSize;
             totalRemoteInvertedSize += remoteIndexSize;
             totalRemoteSegmentSize += remoteSegmentSize;
+            totalBinlogSize += localBinlogSize;
         } // end for indices
     }
 
@@ -356,13 +368,15 @@ public class ShowDataCommand extends ShowCommand {
             if (!detailed) {
                 totalRows.add(Arrays.asList(String.valueOf(row.get(0)),
                         DebugUtil.printByteWithUnit((long) row.get(1)), String.valueOf(row.get(2)),
-                        DebugUtil.printByteWithUnit((long) row.get(3))));
+                        DebugUtil.printByteWithUnit((long) row.get(3)),
+                        DebugUtil.printByteWithUnit((long) row.get(4))));
             } else {
                 totalRows.add(Arrays.asList(String.valueOf(row.get(0)), String.valueOf(row.get(2)),
                         DebugUtil.printByteWithUnit((long) row.get(1)), DebugUtil.printByteWithUnit((long) row.get(5)),
                         DebugUtil.printByteWithUnit((long) row.get(4)), DebugUtil.printByteWithUnit((long) row.get(3)),
                         DebugUtil.printByteWithUnit((long) row.get(7)),
-                        DebugUtil.printByteWithUnit((long) row.get(6))));
+                        DebugUtil.printByteWithUnit((long) row.get(6)),
+                        DebugUtil.printByteWithUnit((long) row.get(8))));
             }
         }
 
@@ -383,7 +397,8 @@ public class ShowDataCommand extends ShowCommand {
                     DebugUtil.printByteWithUnit(totalLocalInvertedSize),
                     DebugUtil.printByteWithUnit(totalRemoteSize),
                     DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
-                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
+                    DebugUtil.printByteWithUnit(totalBinlogSize)));
             totalRows.add(Arrays.asList("Quota", String.valueOf(replicaQuota),
                     DebugUtil.printByteWithUnit(quota), "", "", "", "", ""));
             totalRows.add(Arrays.asList("Left", String.valueOf(replicaCountLeft),
@@ -398,14 +413,16 @@ public class ShowDataCommand extends ShowCommand {
             if (!detailed) {
                 totalRows.add(Arrays.asList(indexName, String.valueOf(row.get(1)),
                         DebugUtil.printByteWithUnit((long) row.get(2)), String.valueOf(row.get(3)),
-                        String.valueOf(row.get(4)), DebugUtil.printByteWithUnit((long) row.get(5))));
+                        String.valueOf(row.get(4)), DebugUtil.printByteWithUnit((long) row.get(5)),
+                        DebugUtil.printByteWithUnit((long) row.get(6))));
             } else {
                 totalRows.add(Arrays.asList(indexName, String.valueOf(row.get(1)),
                         String.valueOf(row.get(3)), String.valueOf(row.get(4)),
                         DebugUtil.printByteWithUnit((long) row.get(2)), DebugUtil.printByteWithUnit((long) row.get(7)),
                         DebugUtil.printByteWithUnit((long) row.get(6)), DebugUtil.printByteWithUnit((long) row.get(5)),
                         DebugUtil.printByteWithUnit((long) row.get(9)),
-                        DebugUtil.printByteWithUnit((long) row.get(8))));
+                        DebugUtil.printByteWithUnit((long) row.get(8)),
+                        DebugUtil.printByteWithUnit((long) row.get(10))));
             }
         }
 
@@ -419,13 +436,15 @@ public class ShowDataCommand extends ShowCommand {
                     DebugUtil.printByteWithUnit(totalLocalInvertedSize),
                     DebugUtil.printByteWithUnit(totalRemoteSize),
                     DebugUtil.printByteWithUnit(totalRemoteSegmentSize),
-                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize)));
+                    DebugUtil.printByteWithUnit(totalRemoteInvertedSize),
+                    DebugUtil.printByteWithUnit(totalBinlogSize)));
         }
     }
 
     // |TableName|Size|ReplicaCount|RemoteSize|
     // |TableName|ReplicaCount|LocalTotalSize|LocalDataSize|LocalIndexSize|
     //                        |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
+    //                        |LocalBinlogSize|
     private void getSingleDbStats(Database db) {
         db.readLock();
         long quota = 0;
@@ -445,6 +464,7 @@ public class ShowDataCommand extends ShowCommand {
     // |TableName|IndexName|Size|ReplicaCount|RowCount|RemoteSize|
     // |TableName|IndexName|ReplicaCount||RowCount|LocalTotalSize |LocalDataSize |LocalIndexSize|
     //                                            |RemoteTotalSize|RemoteDataSize|RemoteIndexSize|
+    //                                            |BinlogSize|
     private void getSingleTableStats(OlapTable table) {
         table.readLock();
         try {

@@ -200,14 +200,10 @@ Status BaseDeltaWriter::wait_calc_delete_bitmap() {
     return _rowset_builder->wait_calc_delete_bitmap();
 }
 
-RowsetBuilder* DeltaWriter::rowset_builder() {
-    return static_cast<RowsetBuilder*>(_rowset_builder.get());
-}
-
 Status DeltaWriter::commit_txn(const PSlaveTabletNodes& slave_tablet_nodes) {
     std::lock_guard<std::mutex> l(_lock);
     SCOPED_TIMER(_commit_txn_timer);
-    RETURN_IF_ERROR(rowset_builder()->commit_txn());
+    RETURN_IF_ERROR(_rowset_builder->commit_txn());
 
     for (auto&& node_info : slave_tablet_nodes.slave_nodes()) {
         _request_slave_tablet_pull_rowset(node_info);

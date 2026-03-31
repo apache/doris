@@ -202,6 +202,7 @@ Result<std::vector<PendingRowsetGuard>> SnapshotManager::convert_rowset_ids(
     // keep this just for safety
     new_tablet_meta_pb.clear_inc_rs_metas();
     new_tablet_meta_pb.clear_stale_rs_metas();
+
     // should modify tablet id and schema hash because in restore process the tablet id is not
     // equal to tablet id in meta
     new_tablet_meta_pb.set_tablet_id(tablet_id);

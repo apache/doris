@@ -88,6 +88,12 @@ public class DropPartitionOp extends AlterTableOp {
     }
 
     @Override
+    public boolean allowOpRowBinlog() {
+        // Dropping partition is allowed for row binlog tables.
+        return true;
+    }
+
+    @Override
     public String toSql() {
         StringBuilder sb = new StringBuilder();
         sb.append("DROP PARTITION " + partitionName);

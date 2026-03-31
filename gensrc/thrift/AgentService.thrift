@@ -185,11 +185,18 @@ enum TInvertedIndexStorageFormat {
     V2 = 2       // Segment id per idx: Indexes are organized based on segment identifiers, grouping indexes by their associated segment.
 }
 
+enum TBinlogFormat {
+    STATEMENT_AND_SNAPSHOT = 0,
+    ROW = 1
+}
+
 struct TBinlogConfig {
     1: optional bool enable;
     2: optional i64 ttl_seconds;
     3: optional i64 max_bytes;
     4: optional i64 max_history_nums;
+    5: optional TBinlogFormat binlog_format;
+    6: optional bool need_historical_value;
 }
 
 struct TCreateTabletReq {
@@ -228,6 +235,7 @@ struct TCreateTabletReq {
     28: optional TInvertedIndexStorageFormat inverted_index_storage_format = TInvertedIndexStorageFormat.DEFAULT // Deprecated
     29: optional Types.TInvertedIndexFileStorageFormat inverted_index_file_storage_format = Types.TInvertedIndexFileStorageFormat.V2
     30: optional TEncryptionAlgorithm tde_algorithm
+    31: optional TTabletSchema row_binlog_schema
 
     // For cloud
     1000: optional bool is_in_memory = false

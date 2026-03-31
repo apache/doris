@@ -26,6 +26,7 @@
 #include "cloud/config.h"
 #include "io/fs/file_writer.h" // IWYU pragma: keep
 #include "olap/rowset/beta_rowset_writer.h"
+#include "olap/rowset/group_rowset_writer.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/rowset/vertical_beta_rowset_writer.h"
@@ -54,6 +55,19 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
         return ResultError(Status::Error<ROWSET_INVALID>("invalid rowset_type"));
     }
 
+    if (context.write_binlog_opt().is_binlog_writer()) {
+        std::unique_ptr<RowsetWriter> writer;
+        if (is_vertical) {
+            writer = std::make_unique<VerticalRowBinlogRowsetWriter<BetaRowsetWriter>>(engine);
+            RETURN_IF_ERROR_RESULT(writer->init(context));
+            return writer;
+        } else {
+            writer = std::make_unique<RowBinlogRowsetWriter>(engine);
+             RETURN_IF_ERROR_RESULT(writer->init(context));
+            return writer;
+
+        }
+    }
     if (context.rowset_type == BETA_ROWSET) {
         std::unique_ptr<RowsetWriter> writer;
         if (is_vertical) {
@@ -81,6 +95,12 @@ Result<std::unique_ptr<RowsetWriter>> RowsetFactory::create_rowset_writer(
 
     RETURN_IF_ERROR_RESULT(writer->init(context));
     return writer;
+}
+
+Status RowsetFactory::create_empty_group_rowset_writer(
+        std::unique_ptr<GroupRowsetWriter>* output) {
+    output->reset(new GroupRowsetWriter());
+    return Status::OK();
 }
 
 } // namespace doris

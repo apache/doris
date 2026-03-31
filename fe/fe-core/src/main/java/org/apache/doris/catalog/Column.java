@@ -76,6 +76,45 @@ public class Column implements GsonPostProcessable {
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
 
+    // columns for binlog schema
+    // explicit columns
+    public static final String BINLOG_LSN_COL = "__DORIS_BINLOG_LSN__";
+    public static final String BINLOG_TIMESTAMP_COL = "__DORIS_BINLOG_TIMESTAMP__";
+    // implicit columns
+    public static final String BINLOG_OPERATION_COL = "__DORIS_BINLOG_OP__";
+    public static final String BINLOG_BEFORE_PREFIX = "__BEFORE__";
+
+    public static String generateBeforeColName(String colName) {
+        return BINLOG_BEFORE_PREFIX + colName + "__";
+    }
+
+    public static Column generateRowBinlogKeyColumn(Column column) {
+        Column keyColumn = new Column(column);
+        keyColumn.setComment("key (" + column.getName() + ")");
+        return keyColumn;
+    }
+
+    public static Column generateAfterValueColumn(Column column) {
+        Column afterValueColumn = new Column(column);
+        afterValueColumn.setComment("after value (" + column.getName() + ")");
+        afterValueColumn.setAggregationType(AggregateType.NONE, true);
+        return afterValueColumn;
+    }
+
+    public static Column generateBeforeValueColumn(Column column) {
+        Column beforeValueColumn = new Column(column);
+        beforeValueColumn.setName(Column.generateBeforeColName(column.getName()));
+        beforeValueColumn.setComment("before value (" + column.getName() + ")");
+        beforeValueColumn.setIsVisible(true);
+        beforeValueColumn.setAggregationType(AggregateType.NONE, true);
+        beforeValueColumn.setIsAllowNull(true);
+        // clear default value
+        beforeValueColumn.defaultValue = null;
+        beforeValueColumn.defaultValueExprDef = null;
+        beforeValueColumn.realDefaultValue = null;
+        return beforeValueColumn;
+    }
+
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown", Type.UNSUPPORTED, true, null, true, -1,
             null, "invalid", true, null, -1, null);
 

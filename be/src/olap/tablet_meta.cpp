@@ -125,7 +125,8 @@ TabletMetaSharedPtr TabletMeta::create(
             request.time_series_compaction_time_threshold_seconds,
             request.time_series_compaction_empty_rowsets_threshold,
             request.time_series_compaction_level_threshold, inverted_index_file_storage_format,
-            request.tde_algorithm, storage_format);
+            request.tde_algorithm, storage_format,
+            request.__isset.row_binlog_schema ? &request.row_binlog_schema : nullptr);
 }
 
 TabletMeta::~TabletMeta() {
@@ -137,7 +138,8 @@ TabletMeta::~TabletMeta() {
 TabletMeta::TabletMeta()
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
-          _delete_bitmap(new DeleteBitmap(_tablet_id)) {}
+          _delete_bitmap(new DeleteBitmap(_tablet_id)),
+          _binlog_delvec(new DeleteBitmap(_tablet_id)) {}
 
 TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id,
                        int64_t replica_id, int32_t schema_hash, int32_t shard_id,
@@ -154,10 +156,12 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
                        int64_t time_series_compaction_level_threshold,
                        TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format,
                        TEncryptionAlgorithm::type tde_algorithm,
-                       TStorageFormat::type storage_format)
+                       TStorageFormat::type storage_format,
+                       const TTabletSchema* row_binlog_schema)
         : _tablet_uid(0, 0),
           _schema(new TabletSchema),
           _delete_bitmap(new DeleteBitmap(tablet_id)),
+          _binlog_delvec(new DeleteBitmap(tablet_id)),
           _storage_format(storage_format) {
     TabletMetaPB tablet_meta_pb;
     tablet_meta_pb.set_table_id(table_id);
@@ -187,95 +191,188 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
             time_series_compaction_empty_rowsets_threshold);
     tablet_meta_pb.set_time_series_compaction_level_threshold(
             time_series_compaction_level_threshold);
-    TabletSchemaPB* schema = tablet_meta_pb.mutable_schema();
-    schema->set_num_short_key_columns(tablet_schema.short_key_column_count);
-    schema->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
-    schema->set_sequence_col_idx(tablet_schema.sequence_col_idx);
-    auto p_seq_map = schema->mutable_seq_map(); // ColumnGroupsPB
 
-    for (auto& it : tablet_schema.seq_map) { // std::vector< ::doris::TColumnGroup>
-        uint32_t key = it.sequence_column;
-        ColumnGroupPB* cg_pb = p_seq_map->add_cg(); // ColumnGroupPB {key: {v1, v2, v3}}
-        cg_pb->set_sequence_column(key);
-        for (auto v : it.columns_in_group) {
-            cg_pb->add_columns_in_group(v);
+    SchemaCreateOptions schema_create_options_for_data = {
+        .col_ordinal_to_unique_id = col_ordinal_to_unique_id, 
+        .compression_type = compression_type, 
+        .inverted_index_file_storage_format = inverted_index_file_storage_format,
+        .next_unique_id = next_unique_id
+    };
+    TabletSchemaPB* schema_pb_for_data = tablet_meta_pb.mutable_schema();
+    init_schema_from_thrift(tablet_schema, schema_create_options_for_data, schema_pb_for_data);
+
+    tablet_meta_pb.set_in_restore_mode(false);
+
+    TabletSchemaPB* schema_pb_for_row_binlog = nullptr;
+    if (row_binlog_schema != nullptr) {
+        tablet_meta_pb.set_row_binlog_schema_hash(row_binlog_schema->schema_hash);
+        DCHECK(binlog_config.has_value());
+        DCHECK(binlog_config->enable && binlog_config->binlog_format == TBinlogFormat::ROW);
+
+        std::unordered_map<uint32_t, uint32_t> row_binlog_col_ordinal_to_unique_id;
+        uint32_t row_binlog_next_unique_id = 0;
+        for (uint32_t col_ordinal = 0; col_ordinal < row_binlog_schema->columns.size(); ++col_ordinal) {
+            const auto& tcolumn = row_binlog_schema->columns[col_ordinal];
+            uint32_t unique_id = 0;
+            if (tcolumn.col_unique_id >= 0) {
+                unique_id = tcolumn.col_unique_id;
+            } else {
+                unique_id = col_ordinal;
+            }
+            row_binlog_col_ordinal_to_unique_id[col_ordinal] = unique_id;
+            if (row_binlog_next_unique_id <= unique_id) {
+                row_binlog_next_unique_id = unique_id + 1;
+            }
         }
+
+        SchemaCreateOptions schema_create_options_for_row_binlog {
+            .col_ordinal_to_unique_id = row_binlog_col_ordinal_to_unique_id, 
+            .compression_type = compression_type, 
+            .inverted_index_file_storage_format = inverted_index_file_storage_format,
+            .next_unique_id = row_binlog_next_unique_id
+        };
+        schema_pb_for_row_binlog = tablet_meta_pb.mutable_row_binlog_schema();
+        init_schema_from_thrift(*row_binlog_schema, schema_create_options_for_row_binlog, schema_pb_for_row_binlog);
     }
+
+    if (binlog_config.has_value()) {
+        BinlogConfig tmp_binlog_config;
+        tmp_binlog_config = binlog_config.value();
+        tmp_binlog_config.to_pb(tablet_meta_pb.mutable_binlog_config());
+    }
+
+    switch (tde_algorithm) {
+    case doris::TEncryptionAlgorithm::AES256:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::AES_256_CTR);
+        break;
+    case doris::TEncryptionAlgorithm::SM4:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::SM4_128_CTR);
+        break;
+    default:
+        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::PLAINTEXT);
+    }
+
+    // Initialize default external ColumnMeta usage according to storage format.
+    // V2: legacy behavior, inline ColumnMetaPB only.
+    // V3: V2 + external ColumnMetaPB (CMO) enabled by default.
+    switch (_storage_format) {
+    case TStorageFormat::V2:
+    case TStorageFormat::DEFAULT:
+    case TStorageFormat::V1:
+        break;
+    case TStorageFormat::V3:
+        schema_pb_for_data->set_is_external_segment_column_meta_used(true);
+        _schema->set_external_segment_meta_used_default(true);
+        schema_pb_for_data->set_integer_type_default_use_plain_encoding(true);
+        _schema->set_integer_type_default_use_plain_encoding(true);
+        schema_pb_for_data->set_binary_plain_encoding_default_impl(
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+        _schema->set_binary_plain_encoding_default_impl(
+                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+
+        if (row_binlog_schema != nullptr) {
+            schema_pb_for_row_binlog->set_is_external_segment_column_meta_used(true);
+            schema_pb_for_row_binlog->set_integer_type_default_use_plain_encoding(true);
+            schema_pb_for_row_binlog->set_binary_plain_encoding_default_impl(
+                    BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
+        }
+        break;
+    default:
+        break;
+    }
+
+    init_from_pb(tablet_meta_pb);
+}
+
+void TabletMeta::init_schema_from_thrift(const TTabletSchema& tablet_schema,
+                                        const SchemaCreateOptions& schema_create_options,
+                                        TabletSchemaPB* tablet_schema_pb) {
+    const std::unordered_map<uint32_t, uint32_t>& col_ordinal_to_unique_id =
+            schema_create_options.col_ordinal_to_unique_id;
+    TCompressionType::type compression_type = schema_create_options.compression_type;
+    TInvertedIndexFileStorageFormat::type inverted_index_file_storage_format =
+            schema_create_options.inverted_index_file_storage_format;
+    uint32_t next_unique_id = schema_create_options.next_unique_id;
+
+    tablet_schema_pb->set_num_short_key_columns(tablet_schema.short_key_column_count);
+    tablet_schema_pb->set_num_rows_per_row_block(config::default_num_rows_per_column_file_block);
+    tablet_schema_pb->set_sequence_col_idx(tablet_schema.sequence_col_idx);
+
     switch (tablet_schema.keys_type) {
     case TKeysType::DUP_KEYS:
-        schema->set_keys_type(KeysType::DUP_KEYS);
+        tablet_schema_pb->set_keys_type(KeysType::DUP_KEYS);
         break;
     case TKeysType::UNIQUE_KEYS:
-        schema->set_keys_type(KeysType::UNIQUE_KEYS);
+        tablet_schema_pb->set_keys_type(KeysType::UNIQUE_KEYS);
         break;
     case TKeysType::AGG_KEYS:
-        schema->set_keys_type(KeysType::AGG_KEYS);
+        tablet_schema_pb->set_keys_type(KeysType::AGG_KEYS);
         break;
     default:
         LOG(WARNING) << "unknown tablet keys type";
         break;
     }
+
     // compress_kind used to compress segment files
-    schema->set_compress_kind(COMPRESS_LZ4);
+    tablet_schema_pb->set_compress_kind(COMPRESS_LZ4);
 
     // compression_type used to compress segment page
     switch (compression_type) {
     case TCompressionType::NO_COMPRESSION:
-        schema->set_compression_type(segment_v2::NO_COMPRESSION);
+        tablet_schema_pb->set_compression_type(segment_v2::NO_COMPRESSION);
         break;
     case TCompressionType::SNAPPY:
-        schema->set_compression_type(segment_v2::SNAPPY);
+        tablet_schema_pb->set_compression_type(segment_v2::SNAPPY);
         break;
     case TCompressionType::LZ4:
-        schema->set_compression_type(segment_v2::LZ4);
+        tablet_schema_pb->set_compression_type(segment_v2::LZ4);
         break;
     case TCompressionType::LZ4F:
-        schema->set_compression_type(segment_v2::LZ4F);
+        tablet_schema_pb->set_compression_type(segment_v2::LZ4F);
         break;
     case TCompressionType::ZLIB:
-        schema->set_compression_type(segment_v2::ZLIB);
+        tablet_schema_pb->set_compression_type(segment_v2::ZLIB);
         break;
     case TCompressionType::ZSTD:
-        schema->set_compression_type(segment_v2::ZSTD);
+        tablet_schema_pb->set_compression_type(segment_v2::ZSTD);
         break;
     default:
-        schema->set_compression_type(segment_v2::LZ4F);
+        tablet_schema_pb->set_compression_type(segment_v2::LZ4F);
         break;
     }
 
     switch (inverted_index_file_storage_format) {
     case TInvertedIndexFileStorageFormat::V1:
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
+        tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V1);
         break;
     case TInvertedIndexFileStorageFormat::V2:
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
+        tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V2);
         break;
     case TInvertedIndexFileStorageFormat::V3:
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;
     default:
-        schema->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
+        tablet_schema_pb->set_inverted_index_storage_format(InvertedIndexStorageFormatPB::V3);
         break;
     }
 
     switch (tablet_schema.sort_type) {
     case TSortType::type::ZORDER:
-        schema->set_sort_type(SortType::ZORDER);
+        tablet_schema_pb->set_sort_type(SortType::ZORDER);
         break;
     default:
-        schema->set_sort_type(SortType::LEXICAL);
+        tablet_schema_pb->set_sort_type(SortType::LEXICAL);
     }
-    schema->set_sort_col_num(tablet_schema.sort_col_num);
+    tablet_schema_pb->set_sort_col_num(tablet_schema.sort_col_num);
     for (const auto& i : tablet_schema.cluster_key_uids) {
-        schema->add_cluster_key_uids(i);
+        tablet_schema_pb->add_cluster_key_uids(i);
     }
-    tablet_meta_pb.set_in_restore_mode(false);
 
     // set column information
     uint32_t col_ordinal = 0;
     bool has_bf_columns = false;
     for (TColumn tcolumn : tablet_schema.columns) {
-        ColumnPB* column = schema->add_column();
+        ColumnPB* column = tablet_schema_pb->add_column();
         uint32_t unique_id = -1;
         if (tcolumn.col_unique_id >= 0) {
             unique_id = tcolumn.col_unique_id;
@@ -306,13 +403,13 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     // copy index meta
     if (tablet_schema.__isset.indexes) {
         for (auto& index : tablet_schema.indexes) {
-            TabletIndexPB* index_pb = schema->add_index();
+            TabletIndexPB* index_pb = tablet_schema_pb->add_index();
             index_pb->set_index_id(index.index_id);
             index_pb->set_index_name(index.index_name);
             // init col_unique_id in index at be side, since col_unique_id may be -1 at fe side
             // get column unique id by name
             for (auto column_name : index.columns) {
-                for (auto column : schema->column()) {
+                for (auto column : tablet_schema_pb->column()) {
                     if (iequal(column.name(), column_name)) {
                         index_pb->add_col_unique_id(column.unique_id());
                     }
@@ -345,91 +442,55 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
         }
     }
 
-    schema->set_next_column_unique_id(next_unique_id);
+    tablet_schema_pb->set_next_column_unique_id(next_unique_id);
     if (has_bf_columns && tablet_schema.__isset.bloom_filter_fpp) {
-        schema->set_bf_fpp(tablet_schema.bloom_filter_fpp);
+        tablet_schema_pb->set_bf_fpp(tablet_schema.bloom_filter_fpp);
     }
 
     if (tablet_schema.__isset.is_in_memory) {
-        schema->set_is_in_memory(tablet_schema.is_in_memory);
+        tablet_schema_pb->set_is_in_memory(tablet_schema.is_in_memory);
     }
 
     if (tablet_schema.__isset.disable_auto_compaction) {
-        schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
+        tablet_schema_pb->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
     }
 
     if (tablet_schema.__isset.variant_enable_flatten_nested) {
-        schema->set_enable_variant_flatten_nested(tablet_schema.variant_enable_flatten_nested);
+        tablet_schema_pb->set_enable_variant_flatten_nested(tablet_schema.variant_enable_flatten_nested);
     }
 
     if (tablet_schema.__isset.enable_single_replica_compaction) {
-        schema->set_enable_single_replica_compaction(
-                tablet_schema.enable_single_replica_compaction);
+        tablet_schema_pb->set_enable_single_replica_compaction(tablet_schema.enable_single_replica_compaction);
     }
 
     if (tablet_schema.__isset.delete_sign_idx) {
-        schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
+        tablet_schema_pb->set_delete_sign_idx(tablet_schema.delete_sign_idx);
     }
+
     if (tablet_schema.__isset.store_row_column) {
-        schema->set_store_row_column(tablet_schema.store_row_column);
+        tablet_schema_pb->set_store_row_column(tablet_schema.store_row_column);
     }
+
     if (tablet_schema.__isset.row_store_page_size) {
-        schema->set_row_store_page_size(tablet_schema.row_store_page_size);
+        tablet_schema_pb->set_row_store_page_size(tablet_schema.row_store_page_size);
     }
+
     if (tablet_schema.__isset.storage_page_size) {
-        schema->set_storage_page_size(tablet_schema.storage_page_size);
+        tablet_schema_pb->set_storage_page_size(tablet_schema.storage_page_size);
     }
+
     if (tablet_schema.__isset.storage_dict_page_size) {
-        schema->set_storage_dict_page_size(tablet_schema.storage_dict_page_size);
+        tablet_schema_pb->set_storage_dict_page_size(tablet_schema.storage_dict_page_size);
     }
+
     if (tablet_schema.__isset.skip_write_index_on_load) {
-        schema->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
+        tablet_schema_pb->set_skip_write_index_on_load(tablet_schema.skip_write_index_on_load);
     }
+
     if (tablet_schema.__isset.row_store_col_cids) {
-        schema->mutable_row_store_column_unique_ids()->Add(tablet_schema.row_store_col_cids.begin(),
-                                                           tablet_schema.row_store_col_cids.end());
+        tablet_schema_pb->mutable_row_store_column_unique_ids()->Add(tablet_schema.row_store_col_cids.begin(),
+                                                                     tablet_schema.row_store_col_cids.end());
     }
-    if (binlog_config.has_value()) {
-        BinlogConfig tmp_binlog_config;
-        tmp_binlog_config = binlog_config.value();
-        tmp_binlog_config.to_pb(tablet_meta_pb.mutable_binlog_config());
-    }
-
-    switch (tde_algorithm) {
-    case doris::TEncryptionAlgorithm::AES256:
-        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::AES_256_CTR);
-        break;
-    case doris::TEncryptionAlgorithm::SM4:
-        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::SM4_128_CTR);
-        break;
-    default:
-        tablet_meta_pb.set_encryption_algorithm(EncryptionAlgorithmPB::PLAINTEXT);
-    }
-
-    // Initialize default external ColumnMeta usage according to storage format.
-    // V2: legacy behavior, inline ColumnMetaPB only.
-    // V3: V2 + external ColumnMetaPB (CMO) enabled by default.
-    switch (_storage_format) {
-    case TStorageFormat::V2:
-    case TStorageFormat::DEFAULT:
-    case TStorageFormat::V1:
-        break;
-    case TStorageFormat::V3:
-        schema->set_is_external_segment_column_meta_used(true);
-        _schema->set_external_segment_meta_used_default(true);
-
-        schema->set_integer_type_default_use_plain_encoding(true);
-        _schema->set_integer_type_default_use_plain_encoding(true);
-        schema->set_binary_plain_encoding_default_impl(
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
-        _schema->set_binary_plain_encoding_default_impl(
-                BinaryPlainEncodingTypePB::BINARY_PLAIN_ENCODING_V2);
-        break;
-    default:
-        break;
-    }
-
-    init_from_pb(tablet_meta_pb);
 }
 
 TabletMeta::TabletMeta(const TabletMeta& b)
@@ -455,6 +516,10 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _cooldown_meta_id(b._cooldown_meta_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap),
+          _binlog_delvec(b._binlog_delvec),
+          _row_binlog_schema_hash(b._row_binlog_schema_hash),
+          _row_binlog_schema(b._row_binlog_schema),
+          _row_binlog_rs_metas(b._row_binlog_rs_metas),
           _binlog_config(b._binlog_config),
           _compaction_policy(b._compaction_policy),
           _time_series_compaction_goal_size_mbytes(b._time_series_compaction_goal_size_mbytes),
@@ -777,9 +842,17 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _handle = pair.first;
     _schema = pair.second;
 
+    if (tablet_meta_pb.has_row_binlog_schema()) {
+        TabletSchemaSPtr row_binlog_schema = std::make_shared<TabletSchema>();
+        row_binlog_schema->init_from_pb(tablet_meta_pb.row_binlog_schema());
+        _row_binlog_schema = std::move(row_binlog_schema);
+        _row_binlog_schema_hash = tablet_meta_pb.row_binlog_schema_hash();
+    }
+
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
         _delete_bitmap->set_tablet_id(_tablet_id);
+        _binlog_delvec->set_tablet_id(_tablet_id);
     }
 
     // init _rs_metas
@@ -800,6 +873,12 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         }
     }
 
+    for (auto& it : tablet_meta_pb.row_binlog_rs_metas()) {
+        RowsetMetaSharedPtr rs_meta(new RowsetMeta());
+        rs_meta->init_from_pb(it);
+        _row_binlog_rs_metas.emplace(rs_meta->version(), rs_meta);
+    }
+
     if (tablet_meta_pb.has_in_restore_mode()) {
         _in_restore_mode = tablet_meta_pb.in_restore_mode();
     }
@@ -818,15 +897,23 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         int seg_ids_size = tablet_meta_pb.delete_bitmap().segment_ids_size();
         int versions_size = tablet_meta_pb.delete_bitmap().versions_size();
         int seg_maps_size = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps_size();
+        int binlog_mark_size = tablet_meta_pb.delete_bitmap().is_binlog_delvec_size();
         CHECK(rst_ids_size == seg_ids_size && seg_ids_size == seg_maps_size &&
               seg_maps_size == versions_size);
+        CHECK(binlog_mark_size == 0 || binlog_mark_size == rst_ids_size);
         for (int i = 0; i < rst_ids_size; ++i) {
             RowsetId rst_id;
             rst_id.init(tablet_meta_pb.delete_bitmap().rowset_ids(i));
             auto seg_id = tablet_meta_pb.delete_bitmap().segment_ids(i);
             auto ver = tablet_meta_pb.delete_bitmap().versions(i);
             auto bitmap = tablet_meta_pb.delete_bitmap().segment_delete_bitmaps(i).data();
-            delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
+            bool from_binlog = tablet_meta_pb.delete_bitmap().is_binlog_delvec_size() > 0 ? 
+                    tablet_meta_pb.delete_bitmap().is_binlog_delvec(i) : false;
+            if (!from_binlog) {
+                delete_bitmap().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
+            } else {
+                binlog_delvec().delete_bitmap[{rst_id, seg_id, ver}] = roaring::Roaring::read(bitmap);
+            }
         }
     }
 
@@ -889,9 +976,17 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
         for (const auto& [_, rs] : _stale_rs_metas) {
             rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
         }
+        for (const auto& [_, rs] : _row_binlog_rs_metas) {
+            rs->to_rowset_pb(tablet_meta_pb->add_row_binlog_rs_metas());
+        }
     }
 
     _schema->to_schema_pb(tablet_meta_pb->mutable_schema());
+
+    if (_row_binlog_schema != nullptr) {
+        _row_binlog_schema->to_schema_pb(tablet_meta_pb->mutable_row_binlog_schema());
+        tablet_meta_pb->set_row_binlog_schema_hash(_row_binlog_schema_hash);
+    }
 
     tablet_meta_pb->set_in_restore_mode(in_restore_mode());
 
@@ -922,6 +1017,17 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb, bool cloud_get_rowset_
             delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
             delete_bitmap_pb->add_segment_ids(segment_id);
             delete_bitmap_pb->add_versions(ver);
+            delete_bitmap_pb->add_is_binlog_delvec(false);
+            std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
+            bitmap.write(bitmap_data.data());
+            *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
+        }
+        for (auto& [id, bitmap] : binlog_delvec().snapshot().delete_bitmap) {
+            auto& [rowset_id, segment_id, ver] = id;
+            delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
+            delete_bitmap_pb->add_segment_ids(segment_id);
+            delete_bitmap_pb->add_versions(ver);
+            delete_bitmap_pb->add_is_binlog_delvec(true);
             std::string bitmap_data(bitmap.getSizeInBytes(), '\0');
             bitmap.write(bitmap_data.data());
             *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
@@ -1813,5 +1919,22 @@ std::string tablet_state_name(TabletState state) {
     }
 }
 
+Status TabletMeta::add_row_binlog_rs_meta(const RowsetMetaSharedPtr& row_binlog_meta) {
+    // check RowsetMeta is valid
+    for (auto& [_, rs] : _row_binlog_rs_metas) {
+        if (rs->version() == row_binlog_meta->version()) {
+            if (rs->rowset_id() != row_binlog_meta->rowset_id()) {
+                return Status::Error<PUSH_VERSION_ALREADY_EXIST>(
+                        "binlog version already exist. binlog_rowset_id={}, version={}, tablet={}",
+                        rs->rowset_id().to_string(), rs->version().to_string(), tablet_id());
+            } else {
+                // rowsetid,version is equal, it is a duplicate req, skip it
+                return Status::OK();
+            }
+        }
+    }
+    _row_binlog_rs_metas.emplace(row_binlog_meta->version(), row_binlog_meta);
+    return Status::OK();
+}
 #include "common/compile_check_end.h"
 } // namespace doris
