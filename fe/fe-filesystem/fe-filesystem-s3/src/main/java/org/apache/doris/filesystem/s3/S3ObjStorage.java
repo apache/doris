@@ -336,6 +336,41 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
         }
     }
 
+    /**
+     * Open an InputStream for reading an S3 object starting at a byte offset (HTTP Range request).
+     */
+    InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        try {
+            GetObjectRequest.Builder req = GetObjectRequest.builder()
+                    .bucket(uri.bucket()).key(uri.key());
+            if (fromByte > 0) {
+                req.range("bytes=" + fromByte + "-");
+            }
+            return getClient().getObject(req.build());
+        } catch (NoSuchKeyException e) {
+            throw new FileNotFoundException("Object not found: " + remotePath);
+        } catch (S3Exception e) {
+            throw new IOException("getObject failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Returns the last-modified time of an S3 object in milliseconds since epoch.
+     */
+    long headObjectLastModified(String remotePath) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
+        try {
+            HeadObjectResponse resp = getClient().headObject(
+                    HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
+            return resp.lastModified() != null ? resp.lastModified().toEpochMilli() : 0L;
+        } catch (NoSuchKeyException e) {
+            throw new FileNotFoundException("Object not found: " + remotePath);
+        } catch (S3Exception e) {
+            throw new IOException("headObject failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Cloud-specific extensions
     // -----------------------------------------------------------------------

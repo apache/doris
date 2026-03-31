@@ -37,6 +37,20 @@ public interface FileSystem extends AutoCloseable {
 
     DorisInputFile newInputFile(Location location) throws IOException;
 
+    /**
+     * Opens an input file at {@code location} with a pre-known length hint.
+     * Implementations may use the hint to skip a remote size query; they must
+     * NOT trust the hint for bounds-checking if it could be inaccurate.
+     *
+     * <p>Default implementation ignores the length hint.
+     *
+     * @param location the file location
+     * @param length   the expected file length in bytes; ignored if &le; 0
+     */
+    default DorisInputFile newInputFile(Location location, long length) throws IOException {
+        return newInputFile(location);
+    }
+
     DorisOutputFile newOutputFile(Location location) throws IOException;
 
     @Override

@@ -321,6 +321,43 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         }
     }
 
+    /**
+     * Opens an InputStream starting at {@code fromByte} using an HTTP Range request.
+     */
+    InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+        try {
+            AzureUri uri = AzureUri.parse(remotePath);
+            BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
+                    .getBlobClient(uri.key());
+            com.azure.storage.blob.options.BlobInputStreamOptions opts =
+                    new com.azure.storage.blob.options.BlobInputStreamOptions()
+                            .setRange(new com.azure.storage.blob.models.BlobRange(fromByte));
+            return blobClient.openInputStream(opts);
+        } catch (BlobStorageException e) {
+            if (e.getStatusCode() == HTTP_NOT_FOUND) {
+                throw new FileNotFoundException("Object not found: " + remotePath);
+            }
+            throw new IOException("openInputStream failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Returns the last-modified time of the blob in milliseconds since epoch.
+     */
+    long headObjectLastModified(String remotePath) throws IOException {
+        try {
+            AzureUri uri = AzureUri.parse(remotePath);
+            BlobProperties props = getClient().getBlobContainerClient(uri.container())
+                    .getBlobClient(uri.key()).getProperties();
+            return props.getLastModified() != null ? props.getLastModified().toInstant().toEpochMilli() : 0L;
+        } catch (BlobStorageException e) {
+            if (e.getStatusCode() == HTTP_NOT_FOUND) {
+                throw new FileNotFoundException("Object not found: " + remotePath);
+            }
+            throw new IOException("getProperties failed for " + remotePath + ": " + e.getMessage(), e);
+        }
+    }
+
     @Override
     public Map<String, String> getProperties() {
         return properties;

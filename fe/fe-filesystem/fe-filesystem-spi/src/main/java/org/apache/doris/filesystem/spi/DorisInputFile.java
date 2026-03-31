@@ -18,16 +18,58 @@
 package org.apache.doris.filesystem.spi;
 
 import java.io.IOException;
-import java.io.InputStream;
 
 /**
  * Represents a readable file in the filesystem.
+ *
+ * <p>The minimal contract ({@link #location()}, {@link #length()}, {@link #newStream()}) is
+ * required by all implementations. Optional capabilities ({@link #exists()},
+ * {@link #lastModifiedTime()}) provide defaults that throw {@link UnsupportedOperationException};
+ * implementations should override them where the underlying storage supports the operation.
  */
 public interface DorisInputFile {
 
+    /** Returns the location of this file. */
     Location location();
 
+    /**
+     * Returns the length of the file in bytes.
+     *
+     * @throws IOException if the length cannot be determined
+     */
     long length() throws IOException;
 
-    InputStream newStream() throws IOException;
+    /**
+     * Returns {@code true} if the file exists on the remote filesystem.
+     *
+     * <p>Default implementation throws {@link UnsupportedOperationException}.
+     * Override in implementations that can perform a lightweight existence check
+     * (e.g., a HEAD request on object storage, or {@code stat()} on HDFS).
+     *
+     * @throws IOException if the check fails for a reason other than "not found"
+     */
+    default boolean exists() throws IOException {
+        throw new UnsupportedOperationException(
+                "exists() is not supported by " + getClass().getSimpleName());
+    }
+
+    /**
+     * Returns the last-modified time of this file in milliseconds since the Unix epoch.
+     *
+     * <p>Default implementation throws {@link UnsupportedOperationException}.
+     *
+     * @throws IOException if the metadata cannot be retrieved
+     */
+    default long lastModifiedTime() throws IOException {
+        throw new UnsupportedOperationException(
+                "lastModifiedTime() is not supported by " + getClass().getSimpleName());
+    }
+
+    /**
+     * Opens a new {@link DorisInputStream} positioned at offset 0.
+     * Each call returns an independent stream; callers must close it after use.
+     *
+     * @throws IOException if the stream cannot be opened
+     */
+    DorisInputStream newStream() throws IOException;
 }

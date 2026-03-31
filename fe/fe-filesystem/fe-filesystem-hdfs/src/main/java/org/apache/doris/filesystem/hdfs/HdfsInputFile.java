@@ -18,16 +18,18 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.spi.DorisInputStream;
 import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 import org.apache.doris.filesystem.spi.Location;
 
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
-import java.io.InputStream;
 
 /**
- * HDFS-backed {@link DorisInputFile} that opens an {@link InputStream} via Hadoop FSDataInputStream.
+ * HDFS-backed {@link DorisInputFile} that opens a seekable {@link DorisInputStream}
+ * via Hadoop's {@link FSDataInputStream}.
  */
 class HdfsInputFile implements DorisInputFile {
 
@@ -54,7 +56,18 @@ class HdfsInputFile implements DorisInputFile {
     }
 
     @Override
-    public InputStream newStream() throws IOException {
-        return authenticator.doAs(() -> dfs.requireFs(path).open(path));
+    public boolean exists() throws IOException {
+        return authenticator.doAs(() -> dfs.requireFs(path).exists(path));
+    }
+
+    @Override
+    public long lastModifiedTime() throws IOException {
+        return authenticator.doAs(() -> dfs.requireFs(path).getFileStatus(path).getModificationTime());
+    }
+
+    @Override
+    public DorisInputStream newStream() throws IOException {
+        FSDataInputStream fds = authenticator.doAs(() -> dfs.requireFs(path).open(path));
+        return new HdfsSeekableInputStream(path.toString(), fds);
     }
 }

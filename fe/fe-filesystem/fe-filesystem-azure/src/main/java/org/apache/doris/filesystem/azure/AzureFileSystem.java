@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.spi.DorisInputStream;
 import org.apache.doris.filesystem.spi.DorisOutputFile;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileIterator;
@@ -214,8 +215,117 @@ public class AzureFileSystem extends ObjFileSystem {
         }
 
         @Override
-        public InputStream newStream() throws IOException {
-            return ((AzureObjStorage) objStorage).openInputStream(location.uri());
+        public boolean exists() throws IOException {
+            try {
+                objStorage.headObject(location.uri());
+                return true;
+            } catch (IOException e) {
+                if (isNotFoundError(e)) {
+                    return false;
+                }
+                throw e;
+            }
+        }
+
+        @Override
+        public long lastModifiedTime() throws IOException {
+            return ((AzureObjStorage) objStorage).headObjectLastModified(location.uri());
+        }
+
+        @Override
+        public DorisInputStream newStream() throws IOException {
+            long fileLength = length();
+            return new AzureSeekableInputStream(location.uri(), (AzureObjStorage) objStorage, fileLength);
+        }
+    }
+
+    /**
+     * Seekable input stream for Azure blobs.
+     * Uses Azure HTTP Range requests to seek without re-downloading the entire blob.
+     */
+    private static class AzureSeekableInputStream extends DorisInputStream {
+        private final String remotePath;
+        private final AzureObjStorage objStorage;
+        private final long fileLength;
+        private long position;
+        private java.io.InputStream current;
+        private boolean closed;
+
+        AzureSeekableInputStream(String remotePath, AzureObjStorage objStorage, long fileLength) {
+            this.remotePath = remotePath;
+            this.objStorage = objStorage;
+            this.fileLength = fileLength;
+        }
+
+        private void checkOpen() throws IOException {
+            if (closed) {
+                throw new IOException("Stream already closed: " + remotePath);
+            }
+        }
+
+        @Override
+        public long getPos() throws IOException {
+            checkOpen();
+            return position;
+        }
+
+        @Override
+        public void seek(long pos) throws IOException {
+            checkOpen();
+            if (pos < 0 || pos > fileLength) {
+                throw new IOException("Seek position out of range [0, " + fileLength + "]: " + pos);
+            }
+            if (pos == position) {
+                return;
+            }
+            if (current != null) {
+                current.close();
+                current = null;
+            }
+            position = pos;
+        }
+
+        @Override
+        public int read() throws IOException {
+            checkOpen();
+            if (position >= fileLength) {
+                return -1;
+            }
+            ensureOpen();
+            int b = current.read();
+            if (b >= 0) {
+                position++;
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            checkOpen();
+            if (position >= fileLength) {
+                return -1;
+            }
+            ensureOpen();
+            int n = current.read(b, off, len);
+            if (n > 0) {
+                position += n;
+            }
+            return n;
+        }
+
+        private void ensureOpen() throws IOException {
+            if (current == null) {
+                current = objStorage.openInputStreamAt(remotePath, position);
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            if (current != null) {
+                current.close();
+                current = null;
+            }
         }
     }
 

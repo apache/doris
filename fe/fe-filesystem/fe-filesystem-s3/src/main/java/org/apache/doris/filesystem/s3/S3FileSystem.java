@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.spi.DorisInputStream;
 import org.apache.doris.filesystem.spi.DorisOutputFile;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileIterator;
@@ -36,7 +37,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
+
  * S3-backed FileSystem implementation for the Doris FE filesystem SPI.
  * Does not depend on fe-core, fe-common, or fe-catalog.
  */
@@ -200,8 +201,127 @@ public class S3FileSystem extends ObjFileSystem {
         }
 
         @Override
-        public InputStream newStream() throws IOException {
-            return ((S3ObjStorage) objStorage).openInputStream(location.uri());
+        public boolean exists() throws IOException {
+            try {
+                objStorage.headObject(location.uri());
+                return true;
+            } catch (IOException e) {
+                if (isNotFoundError(e)) {
+                    return false;
+                }
+                throw e;
+            }
+        }
+
+        @Override
+        public long lastModifiedTime() throws IOException {
+            return ((S3ObjStorage) objStorage).headObjectLastModified(location.uri());
+        }
+
+        @Override
+        public DorisInputStream newStream() throws IOException {
+            long fileLength = length();
+            return new S3SeekableInputStream(location.uri(), (S3ObjStorage) objStorage, fileLength);
+        }
+    }
+
+    /**
+     * Seekable input stream for S3 objects.
+     * Uses HTTP Range requests to seek without downloading the entire object.
+     */
+    private static class S3SeekableInputStream extends DorisInputStream {
+        private final String remotePath;
+        private final S3ObjStorage objStorage;
+        private final long fileLength;
+        private long position;
+        private InputStream current;
+        private boolean closed;
+
+        S3SeekableInputStream(String remotePath, S3ObjStorage objStorage, long fileLength) {
+            this.remotePath = remotePath;
+            this.objStorage = objStorage;
+            this.fileLength = fileLength;
+        }
+
+        private void checkOpen() throws IOException {
+            if (closed) {
+                throw new IOException("Stream already closed: " + remotePath);
+            }
+        }
+
+        /** Opens a range-based GET stream starting at {@link #position}. */
+        private void openStream() throws IOException {
+            if (current != null) {
+                current.close();
+                current = null;
+            }
+            current = objStorage.openInputStreamAt(remotePath, position);
+        }
+
+        @Override
+        public long getPos() throws IOException {
+            checkOpen();
+            return position;
+        }
+
+        @Override
+        public void seek(long pos) throws IOException {
+            checkOpen();
+            if (pos < 0 || pos > fileLength) {
+                throw new IOException("Seek position out of range [0, " + fileLength + "]: " + pos);
+            }
+            if (pos == position) {
+                return;
+            }
+            // Close the current stream; a new range request will be issued on next read.
+            if (current != null) {
+                current.close();
+                current = null;
+            }
+            position = pos;
+        }
+
+        @Override
+        public int read() throws IOException {
+            checkOpen();
+            if (position >= fileLength) {
+                return -1;
+            }
+            ensureOpen();
+            int b = current.read();
+            if (b >= 0) {
+                position++;
+            }
+            return b;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            checkOpen();
+            if (position >= fileLength) {
+                return -1;
+            }
+            ensureOpen();
+            int n = current.read(b, off, len);
+            if (n > 0) {
+                position += n;
+            }
+            return n;
+        }
+
+        private void ensureOpen() throws IOException {
+            if (current == null) {
+                openStream();
+            }
+        }
+
+        @Override
+        public void close() throws IOException {
+            closed = true;
+            if (current != null) {
+                current.close();
+                current = null;
+            }
         }
     }
 

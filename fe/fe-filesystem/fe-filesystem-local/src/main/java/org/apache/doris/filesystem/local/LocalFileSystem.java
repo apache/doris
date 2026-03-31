@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.local;
 
 import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.spi.DorisInputStream;
 import org.apache.doris.filesystem.spi.DorisOutputFile;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileIterator;
@@ -25,8 +26,8 @@ import org.apache.doris.filesystem.spi.FileSystem;
 import org.apache.doris.filesystem.spi.Location;
 
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.RandomAccessFile;
 import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -139,10 +140,58 @@ public class LocalFileSystem implements FileSystem {
             }
 
             @Override
-            public InputStream newStream() throws IOException {
-                return Files.newInputStream(path);
+            public boolean exists() throws IOException {
+                return Files.exists(path);
+            }
+
+            @Override
+            public long lastModifiedTime() throws IOException {
+                return Files.getLastModifiedTime(path).toMillis();
+            }
+
+            @Override
+            public DorisInputStream newStream() throws IOException {
+                return new LocalSeekableInputStream(path);
             }
         };
+    }
+
+    /** Seekable stream backed by a local {@link RandomAccessFile}. For testing only. */
+    private static class LocalSeekableInputStream extends DorisInputStream {
+        private final RandomAccessFile raf;
+        private boolean closed;
+
+        LocalSeekableInputStream(Path path) throws IOException {
+            this.raf = new RandomAccessFile(path.toFile(), "r");
+        }
+
+        @Override
+        public long getPos() throws IOException {
+            return raf.getFilePointer();
+        }
+
+        @Override
+        public void seek(long pos) throws IOException {
+            raf.seek(pos);
+        }
+
+        @Override
+        public int read() throws IOException {
+            return raf.read();
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            return raf.read(b, off, len);
+        }
+
+        @Override
+        public void close() throws IOException {
+            if (!closed) {
+                closed = true;
+                raf.close();
+            }
+        }
     }
 
     @Override

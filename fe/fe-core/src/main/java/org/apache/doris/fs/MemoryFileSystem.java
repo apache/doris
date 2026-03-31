@@ -220,8 +220,61 @@ public class MemoryFileSystem implements FileSystem {
             if (data == null) {
                 throw new IOException("File not found: " + location);
             }
-            throw new UnsupportedOperationException(
-                    "MemoryFileSystem.newStream() requires DorisInputStream wrapper — implement in Phase 2");
+            return new MemorySeekableInputStream(data);
+        }
+    }
+
+    /** In-memory seekable stream over a fixed byte array. For testing only. */
+    private static class MemorySeekableInputStream extends DorisInputStream {
+        private final byte[] data;
+        private int position;
+        private boolean closed;
+
+        MemorySeekableInputStream(byte[] data) {
+            this.data = data;
+        }
+
+        @Override
+        public long getPosition() throws IOException {
+            return position;
+        }
+
+        @Override
+        public void seek(long pos) throws IOException {
+            if (pos < 0 || pos > data.length) {
+                throw new IOException("Seek out of range [0, " + data.length + "]: " + pos);
+            }
+            position = (int) pos;
+        }
+
+        @Override
+        public int read() throws IOException {
+            if (closed) {
+                throw new IOException("Stream closed");
+            }
+            if (position >= data.length) {
+                return -1;
+            }
+            return data[position++] & 0xFF;
+        }
+
+        @Override
+        public int read(byte[] b, int off, int len) throws IOException {
+            if (closed) {
+                throw new IOException("Stream closed");
+            }
+            if (position >= data.length) {
+                return -1;
+            }
+            int n = Math.min(len, data.length - position);
+            System.arraycopy(data, position, b, off, n);
+            position += n;
+            return n;
+        }
+
+        @Override
+        public void close() {
+            closed = true;
         }
     }
 
