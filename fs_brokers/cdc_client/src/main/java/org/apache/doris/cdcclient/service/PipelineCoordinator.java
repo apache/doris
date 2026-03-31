@@ -74,8 +74,9 @@ public class PipelineCoordinator {
     private static final String SPLIT_ID = "splitId";
     // jobId
     private final Map<String, DorisBatchStreamLoad> batchStreamLoadMap = new ConcurrentHashMap<>();
-    // taskId, offset
-    private final Map<String, Map<String, String>> taskOffsetCache = new ConcurrentHashMap<>();
+    // taskId -> list of split offsets (accumulates all splits processed in one task)
+    private final Map<String, List<Map<String, String>>> taskOffsetCache =
+            new ConcurrentHashMap<>();
     // taskId -> writeFailReason
     private final Map<String, String> taskErrorMaps = new ConcurrentHashMap<>();
     private final ThreadPoolExecutor executor;
@@ -107,14 +108,16 @@ public class PipelineCoordinator {
         SourceReader sourceReader;
         SplitReadResult readResult;
         try {
+            LOG.info(
+                    "Fetch record request with meta {}, jobId={}, taskId={}",
+                    fetchReq.getMeta(),
+                    fetchReq.getJobId(),
+                    fetchReq.getTaskId());
+            // TVF doesn't have meta value; meta need to be extracted from the offset.
             if (fetchReq.getTaskId() == null && fetchReq.getMeta() == null) {
-                LOG.info(
-                        "Generate initial meta for fetch record request, jobId={}, taskId={}",
-                        fetchReq.getJobId(),
-                        fetchReq.getTaskId());
-                // means the request did not originate from the job, only tvf
                 Map<String, Object> meta = generateMeta(fetchReq.getConfig());
                 fetchReq.setMeta(meta);
+                LOG.info("Generated meta for job {}: {}", fetchReq.getJobId(), meta);
             }
 
             sourceReader = Env.getCurrentEnv().getReader(fetchReq);
@@ -144,19 +147,33 @@ public class PipelineCoordinator {
             OutputStream rawOutputStream)
             throws Exception {
         SourceSplit split = readResult.getSplit();
-        Map<String, String> lastMeta = null;
+        boolean isSnapshotSplit = sourceReader.isSnapshotSplit(split);
         int rowCount = 0;
+        int heartbeatCount = 0;
         BufferedOutputStream bos = new BufferedOutputStream(rawOutputStream);
+        boolean hasReceivedData = false;
+        boolean lastMessageIsHeartbeat = false;
+        long startTime = System.currentTimeMillis();
         try {
-            // Poll records using the existing mechanism
             boolean shouldStop = false;
-            long startTime = System.currentTimeMillis();
+            LOG.info(
+                    "Start polling records for jobId={} taskId={}, isSnapshotSplit={}",
+                    fetchRecord.getJobId(),
+                    fetchRecord.getTaskId(),
+                    isSnapshotSplit);
             while (!shouldStop) {
                 Iterator<SourceRecord> recordIterator = sourceReader.pollRecords();
                 if (!recordIterator.hasNext()) {
                     Thread.sleep(100);
                     long elapsedTime = System.currentTimeMillis() - startTime;
-                    if (elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS) {
+                    boolean timeoutReached = elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
+                    if (shouldStop(
+                            isSnapshotSplit,
+                            hasReceivedData,
+                            lastMessageIsHeartbeat,
+                            elapsedTime,
+                            Constants.POLL_SPLIT_RECORDS_TIMEOUTS,
+                            timeoutReached)) {
                         break;
                     }
                     continue;
@@ -164,8 +181,19 @@ public class PipelineCoordinator {
                 while (recordIterator.hasNext()) {
                     SourceRecord element = recordIterator.next();
                     if (isHeartbeatEvent(element)) {
-                        shouldStop = true;
-                        break;
+                        heartbeatCount++;
+                        if (!isSnapshotSplit) {
+                            lastMessageIsHeartbeat = true;
+                        }
+                        long elapsedTime = System.currentTimeMillis() - startTime;
+                        boolean timeoutReached =
+                                elapsedTime > Constants.POLL_SPLIT_RECORDS_TIMEOUTS;
+                        if (!isSnapshotSplit && timeoutReached) {
+                            shouldStop = true;
+                            break;
+                        }
+                        // Heartbeat before timeout: skip and keep reading.
+                        continue;
                     }
                     DeserializeResult result =
                             sourceReader.deserialize(fetchRecord.getConfig(), element);
@@ -175,9 +203,18 @@ public class PipelineCoordinator {
                             bos.write(LINE_DELIMITER);
                         }
                         rowCount += result.getRecords().size();
+                        hasReceivedData = true;
+                        lastMessageIsHeartbeat = false;
                     }
                 }
             }
+            LOG.info(
+                    "Fetched {} records and {} heartbeats in {} ms for jobId={} taskId={}",
+                    rowCount,
+                    heartbeatCount,
+                    System.currentTimeMillis() - startTime,
+                    fetchRecord.getJobId(),
+                    fetchRecord.getTaskId());
             // force flush buffer
             bos.flush();
         } finally {
@@ -186,32 +223,10 @@ public class PipelineCoordinator {
             sourceReader.finishSplitRecords();
         }
 
-        LOG.info(
-                "Fetch records completed, jobId={}, taskId={}, splitId={}, rowCount={}",
-                fetchRecord.getJobId(),
-                fetchRecord.getTaskId(),
-                split.splitId(),
-                rowCount);
-
-        if (readResult.getSplitState() != null) {
-            if (sourceReader.isSnapshotSplit(split)) {
-                lastMeta = sourceReader.extractSnapshotStateOffset(readResult.getSplitState());
-                lastMeta.put(SPLIT_ID, split.splitId());
-            } else if (sourceReader.isBinlogSplit(split)) {
-                lastMeta = sourceReader.extractBinlogStateOffset(readResult.getSplitState());
-                lastMeta.put(SPLIT_ID, BinlogSplit.BINLOG_SPLIT_ID);
-            } else {
-                throw new RuntimeException(
-                        "unknown split type: " + split.getClass().getSimpleName());
-            }
-        } else {
-            throw new RuntimeException("split state is null");
-        }
-
+        List<Map<String, String>> offsetMeta = extractOffsetMeta(sourceReader, readResult);
         if (StringUtils.isNotEmpty(fetchRecord.getTaskId())) {
-            taskOffsetCache.put(fetchRecord.getTaskId(), lastMeta);
+            taskOffsetCache.put(fetchRecord.getTaskId(), offsetMeta);
         }
-
         // Convention: standalone TVF uses a UUID jobId; job-driven TVF will use a numeric Long
         // jobId (set via rewriteTvfParams). When the job-driven path is implemented,
         // rewriteTvfParams must inject the job's Long jobId into the TVF properties
@@ -751,8 +766,8 @@ public class PipelineCoordinator {
         return commitOffsets;
     }
 
-    public Map<String, String> getOffsetWithTaskId(String taskId) {
-        Map<String, String> taskOffset = taskOffsetCache.remove(taskId);
-        return taskOffset == null ? new HashMap<>() : taskOffset;
+    public List<Map<String, String>> getOffsetWithTaskId(String taskId) {
+        List<Map<String, String>> taskOffset = taskOffsetCache.remove(taskId);
+        return taskOffset == null ? new ArrayList<>() : taskOffset;
     }
 }

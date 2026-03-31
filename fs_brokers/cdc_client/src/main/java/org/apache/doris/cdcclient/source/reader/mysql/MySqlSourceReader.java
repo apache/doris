@@ -62,6 +62,7 @@ import org.apache.flink.cdc.connectors.mysql.source.utils.RecordUtils;
 import org.apache.flink.cdc.connectors.mysql.source.utils.TableDiscoveryUtils;
 import org.apache.flink.cdc.connectors.mysql.table.StartupMode;
 import org.apache.flink.cdc.connectors.mysql.table.StartupOptions;
+import org.apache.flink.table.catalog.ObjectPath;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.kafka.connect.source.SourceRecord;
 
@@ -846,6 +847,22 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)));
+        }
+
+        // todo: Currently, only one split key is supported; future will require multiple split
+        // keys.
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY)) {
+            String database = cdcConfig.get(DataSourceConfigKeys.DATABASE);
+            String table = cdcConfig.get(DataSourceConfigKeys.TABLE);
+            Preconditions.checkArgument(
+                    database != null && !database.isEmpty() && table != null && !table.isEmpty(),
+                    "When '%s' is set, both '%s' and '%s' must be configured (include_tables is not supported).",
+                    DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY,
+                    DataSourceConfigKeys.DATABASE,
+                    DataSourceConfigKeys.TABLE);
+            ObjectPath objectPath = new ObjectPath(database, table);
+            configFactory.chunkKeyColumn(
+                    objectPath, cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
 
         return configFactory.createConfig(0);

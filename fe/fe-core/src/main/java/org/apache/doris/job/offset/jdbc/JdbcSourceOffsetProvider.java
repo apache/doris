@@ -70,10 +70,10 @@ import java.util.stream.Collectors;
 public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
     public static final String SPLIT_ID = "splitId";
     private static final ObjectMapper objectMapper = new ObjectMapper();
-    private final int snapshotParallelism;
-    private Long jobId;
-    private DataSourceType sourceType;
-    private Map<String, String> sourceProperties = new HashMap<>();
+    protected int snapshotParallelism = 1;
+    protected Long jobId;
+    protected DataSourceType sourceType;
+    protected Map<String, String> sourceProperties = new HashMap<>();
 
     List<SnapshotSplit> remainingSplits = new ArrayList<>();
     List<SnapshotSplit> finishedSplits = new ArrayList<>();
@@ -92,6 +92,16 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     volatile boolean hasMoreData = true;
 
+    /**
+     * No-arg constructor for subclass use.
+     */
+    public JdbcSourceOffsetProvider() {
+        this.chunkHighWatermarkMap = new HashMap<>();
+    }
+
+    /**
+     * Constructor for FROM Source TO Database.
+     */
     public JdbcSourceOffsetProvider(Long jobId, DataSourceType sourceType, Map<String, String> sourceProperties) {
         this.jobId = jobId;
         this.sourceType = sourceType;
@@ -155,10 +165,13 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         return null;
     }
 
+    /**
+     * Should never call this.
+     */
     @Override
-    public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset nextOffset) {
-        // todo: only for cdc tvf
-        return null;
+    public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset nextOffset,
+            long taskId) {
+        throw new UnsupportedOperationException("rewriteTvfParams not supported for " + getClass().getSimpleName());
     }
 
     @Override
@@ -347,7 +360,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
 
     @Override
     public Offset deserializeOffsetProperty(String offset) {
-        // no need
+        // no need cause cdc_stream has offset property
         return null;
     }
 
@@ -415,7 +428,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
      * Assign the HW value to the synchronized Split,
      * and remove the Split from remainSplit and place it in finishedSplit.
      */
-    private List<SnapshotSplit> recalculateRemainingSplits(
+    protected List<SnapshotSplit> recalculateRemainingSplits(
             Map<String, Map<String, Map<String, String>>> chunkHighWatermarkMap,
             Map<String, List<SnapshotSplit>> snapshotSplits) {
         if (this.finishedSplits == null) {
@@ -541,7 +554,7 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
         }
     }
 
-    private boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {
+    protected boolean checkNeedSplitChunks(Map<String, String> sourceProperties) {
         String startMode = sourceProperties.get(DataSourceConfigKeys.OFFSET);
         if (startMode == null) {
             return false;
@@ -550,9 +563,16 @@ public class JdbcSourceOffsetProvider implements SourceOffsetProvider {
                 || DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startMode);
     }
 
-    private boolean isSnapshotOnlyMode() {
+    protected boolean isSnapshotOnlyMode() {
         String offset = sourceProperties.get(DataSourceConfigKeys.OFFSET);
         return DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(offset);
+    }
+
+    @Override
+    public void onTaskCommitted(long scannedRows, long loadBytes) {
+        if (scannedRows == 0 && loadBytes == 0) {
+            hasMoreData = false;
+        }
     }
 
     @Override

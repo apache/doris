@@ -574,6 +574,10 @@ public abstract class ScanNode extends PlanNode implements SplitGenerator {
         return scanBackendIds.size();
     }
 
+    public Set<Long> getScanBackendIds() {
+        return scanBackendIds;
+    }
+
     public int getScanRangeNum() {
         return Integer.MAX_VALUE;
     }
