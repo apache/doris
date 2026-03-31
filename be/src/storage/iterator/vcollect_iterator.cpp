@@ -269,6 +269,10 @@ Status VCollectIterator::next(Block* block) {
         // Apply filter_block_conjuncts that were moved from Scanner::_conjuncts.
         // This must happen BEFORE limit counting so that _general_rows_returned
         // reflects post-filter rows (same pattern as _topn_next).
+        // Intentionally not gated by _general_read_limit > 0:
+        // filter_block_conjuncts is only populated when the general-limit or
+        // topn branches move conjuncts into the storage layer (topn takes
+        // the _topn_next path and never reaches here).
         if (!_reader->_reader_context.filter_block_conjuncts.empty()) {
             RETURN_IF_ERROR(VExprContext::filter_block(
                     _reader->_reader_context.filter_block_conjuncts, block, block->columns()));

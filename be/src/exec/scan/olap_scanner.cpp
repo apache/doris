@@ -518,6 +518,13 @@ Status OlapScanner::_init_tablet_reader_params(
             } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
                 // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
                 // (non-merge path). Only when topn optimization is NOT active.
+                // NOTE: _limit is the global query limit (TPlanNode.limit), not a
+                // per-scanner budget. With N scanners each scanner may read up to
+                // _limit rows, so up to N * _limit rows are read in total before
+                // the _shared_scan_limit coordinator stops them. This is
+                // acceptable because _shared_scan_limit guarantees correctness,
+                // and the over-read is bounded by (N-1) * _limit which is small
+                // for typical LIMIT values.
                 _tablet_reader_params.general_read_limit = _limit;
                 _tablet_reader_params.filter_block_conjuncts = _conjuncts;
                 _conjuncts.clear();
