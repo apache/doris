@@ -303,7 +303,7 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
                 if (!(hasAccessKey && hasSecretKey)) {
                     throw new AnalysisException(
                             "When using explicit AWS credentials for public (internet) access, "
-                            + "both 'aws.access.key' and 'aws.secret.key' must be provided together.");
+                            + "both 'aws.access_key' and 'aws.secret_key' must be provided together.");
                 }
             }
         }

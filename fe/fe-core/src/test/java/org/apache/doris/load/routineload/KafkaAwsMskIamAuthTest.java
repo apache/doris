@@ -284,7 +284,7 @@ public class KafkaAwsMskIamAuthTest {
         props.analyze();
 
         Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("INSTANCE_PROFILE", props.getCustomKafkaProperties().get("aws.credentials.provider"));
+        Assert.assertEquals("INSTANCE_PROFILE", props.getCustomKafkaProperties().get("aws.credentials_provider"));
     }
 
     @Test
@@ -300,7 +300,7 @@ public class KafkaAwsMskIamAuthTest {
         props.analyze();
 
         Assert.assertNotNull(props.getCustomKafkaProperties());
-        Assert.assertEquals("default", props.getCustomKafkaProperties().get("aws.profile.name"));
+        Assert.assertEquals("default", props.getCustomKafkaProperties().get("aws.profile_name"));
     }
 
     @Test

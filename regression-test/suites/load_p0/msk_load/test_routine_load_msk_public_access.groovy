@@ -15,21 +15,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
+import com.google.common.base.Strings;
+
 suite("test_routine_load_msk_public_access") {
     def topicName = "routineload-test"
     def tableName = "test_routine_load_iam_aksk_table"
     def jobName = "test_routine_load_iam_aksk_job"
 
-    def ak = context.config.awsAccessKey
-    def sk = context.config.awsSecretKey
-    def region = context.config.awsRegion
-    def bootstrapBrokers = context.config.publicMskBrokerList
-    def sslCaLocation = context.config.sslCaLocation
-    
-    if (!ak || !sk || !region || !bootstrapBrokers) {
-        logger.info("skip ${name} case, AWS credentials or MSK endpoint not configured")
+    if (Strings.isNullOrEmpty(context.config.otherConfigs.get("publicMskBrokerList"))) {
         return
     }
+
+    String ak = context.config.otherConfigs.get("awsAccessKey")
+    String sk = context.config.otherConfigs.get("awsSecretKey")
+    String region = context.config.otherConfigs.get("awsRegion")
+    String bootstrapBrokers = context.config.otherConfigs.get("publicMskBrokerList")
+    String sslCaLocation = context.config.otherConfigs.get("sslCaLocation")
 
     logger.info("Using topic: ${topicName}")
     logger.info("Bootstrap brokers: ${bootstrapBrokers}")
