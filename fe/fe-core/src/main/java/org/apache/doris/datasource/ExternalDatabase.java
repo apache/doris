@@ -170,7 +170,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                     Math.max(Config.max_meta_object_cache_num, 1),
                     ignored -> listTableNames(),
                     localTableName -> Optional.ofNullable(
-                            buildTableForInit(null, localTableName,
+                            buildTableForInit(null, localTableName.split("\\$")[0],
                                     Util.genIdByName(extCatalog.getName(), name, localTableName),
                                     extCatalog,
                                     this, true)), null);

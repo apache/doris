@@ -31,7 +31,10 @@ import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.datasource.iceberg.IcebergExternalTable;
 import org.apache.doris.persist.OperationType;
+import org.apache.doris.qe.BDPAuthContext;
+import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -150,8 +153,14 @@ public class RefreshManager {
         }
         long updateTime = System.currentTimeMillis();
         refreshTableInternal((ExternalDatabase) db, (ExternalTable) table, updateTime);
+        if (table instanceof HMSExternalTable) {
+            Preconditions.checkArgument((ConnectContext.get() != null && BDPAuthContext.get() != null),
+                    "tableName can't be without auth info");
+            tableName = tableName + "$" + BDPAuthContext.get().getHadoopUserName()
+                + "$" + ConnectContext.get().isViewBased();
+        }
         ExternalObjectLog log = ExternalObjectLog.createForRefreshTable(catalog.getId(), db.getFullName(),
-                table.getName(), updateTime);
+                tableName, updateTime);
         Env.getCurrentEnv().getEditLog().logRefreshExternalTable(log);
     }
 

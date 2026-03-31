@@ -24,8 +24,10 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -74,6 +76,13 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         makeSureInitialized();
         // must use full qualified name to generate id.
         // otherwise, if 2 databases have the same table name, the id will be the same.
+        if (!tableName.contains("$")) {
+            Preconditions.checkArgument((ConnectContext.get() != null && BDPAuthContext.get() != null),
+                    "tableName can't be without auth info");
+            tableName = tableName + "$" + BDPAuthContext.get().getHadoopUserName()
+                    + "$" + ConnectContext.get().isViewBased();
+        }
+
         return metaCache.getMetaObj(tableName,
             Util.genIdByName(extCatalog.getName(), name, tableName)).orElse(null);
     }
