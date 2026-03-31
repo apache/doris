@@ -2099,10 +2099,46 @@ Status FileColumnIterator::next_batch(size_t* n, MutableColumnPtr& dst, bool* ha
                    << " in NULL_MAP_ONLY mode, reading only null map.";
         DORIS_CHECK(dst->is_nullable());
         auto& nullable_col = assert_cast<ColumnNullable&>(*dst);
-        nullable_col.get_nested_column().insert_many_defaults(*n);
         auto& null_map_data = nullable_col.get_null_map_data();
-        null_map_data.resize(null_map_data.size() + *n);
-        *has_null = true;
+
+        size_t remaining = *n;
+        *has_null = false;
+        while (remaining > 0) {
+            if (!_page.has_remaining()) {
+                bool eos = false;
+                RETURN_IF_ERROR(_load_next_page(&eos));
+                if (eos) {
+                    break;
+                }
+            }
+
+            size_t nrows_in_page = std::min(remaining, _page.remaining());
+            size_t nrows_to_read = nrows_in_page;
+            if (_page.has_null) {
+                while (nrows_to_read > 0) {
+                    bool is_null = false;
+                    size_t this_run = _page.null_decoder.GetNextRun(&is_null, nrows_to_read);
+                    const size_t cur_size = null_map_data.size();
+                    null_map_data.resize(cur_size + this_run);
+                    memset(null_map_data.data() + cur_size, is_null ? 1 : 0, this_run);
+                    if (is_null) {
+                        *has_null = true;
+                    }
+                    nrows_to_read -= this_run;
+                    _page.offset_in_page += this_run;
+                    _current_ordinal += this_run;
+                }
+            } else {
+                const size_t cur_size = null_map_data.size();
+                null_map_data.resize(cur_size + nrows_to_read);
+                memset(null_map_data.data() + cur_size, 0, nrows_to_read);
+                _page.offset_in_page += nrows_to_read;
+                _current_ordinal += nrows_to_read;
+            }
+            remaining -= nrows_in_page;
+        }
+        *n -= remaining;
+        nullable_col.get_nested_column().insert_many_defaults(*n);
         return Status::OK();
     }
 
