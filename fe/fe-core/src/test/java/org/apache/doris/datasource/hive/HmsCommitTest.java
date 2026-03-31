@@ -25,8 +25,8 @@ import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.TestHMSCachedClient;
-import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.LegacyFileSystemApi;
+import org.apache.doris.fs.LegacyFileSystemProviderFactory;
 import org.apache.doris.fs.LocalDfsFileSystem;
 import org.apache.doris.fs.remote.SwitchingFileSystem;
 import org.apache.doris.nereids.trees.plans.commands.insert.HiveInsertCommandContext;
@@ -71,7 +71,7 @@ public class HmsCommitTest {
     private static HiveMetadataOps hmsOps;
     private static HMSCachedClient hmsClient;
 
-    private static FileSystemProvider fileSystemProvider;
+    private static LegacyFileSystemProviderFactory fileSystemProvider;
     private static final String dbName = "test_db";
     private static final String tbWithPartition = "test_tb_with_partition";
     private static final String tbWithoutPartition = "test_tb_without_partition";

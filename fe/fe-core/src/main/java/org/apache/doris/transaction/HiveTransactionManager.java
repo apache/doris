@@ -19,16 +19,16 @@ package org.apache.doris.transaction;
 
 import org.apache.doris.datasource.hive.HMSTransaction;
 import org.apache.doris.datasource.hive.HiveMetadataOps;
-import org.apache.doris.fs.FileSystemProvider;
+import org.apache.doris.fs.LegacyFileSystemProviderFactory;
 
 import java.util.concurrent.Executor;
 
 public class HiveTransactionManager extends AbstractExternalTransactionManager<HMSTransaction> {
 
-    private final FileSystemProvider fileSystemProvider;
+    private final LegacyFileSystemProviderFactory fileSystemProvider;
     private final Executor fileSystemExecutor;
 
-    public HiveTransactionManager(HiveMetadataOps ops, FileSystemProvider fileSystemProvider,
+    public HiveTransactionManager(HiveMetadataOps ops, LegacyFileSystemProviderFactory fileSystemProvider,
             Executor fileSystemExecutor) {
         super(ops);
         this.fileSystemProvider = fileSystemProvider;

@@ -15,10 +15,26 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs;
+package org.apache.doris.filesystem.spi;
 
-import org.apache.doris.datasource.SessionContext;
+/**
+ * Result of a single multipart upload part operation.
+ */
+public final class UploadPartResult {
 
-public interface FileSystemProvider {
-    LegacyFileSystemApi get(SessionContext ctx);
+    private final int partNumber;
+    private final String etag;
+
+    public UploadPartResult(int partNumber, String etag) {
+        this.partNumber = partNumber;
+        this.etag = etag;
+    }
+
+    public int partNumber() {
+        return partNumber;
+    }
+
+    public String etag() {
+        return etag;
+    }
 }

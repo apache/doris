@@ -24,7 +24,7 @@ import org.apache.doris.fs.remote.SwitchingFileSystem;
 
 import java.util.Map;
 
-public class FileSystemProviderImpl implements FileSystemProvider {
+public class FileSystemProviderImpl implements LegacyFileSystemProviderFactory {
     private ExternalMetaCacheMgr extMetaCacheMgr;
 
     private Map<StorageProperties.Type, StorageProperties> storagePropertiesMap;

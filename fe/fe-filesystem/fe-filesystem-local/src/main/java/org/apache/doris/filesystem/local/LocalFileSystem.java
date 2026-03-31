@@ -1,0 +1,180 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+package org.apache.doris.filesystem.local;
+
+import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.spi.DorisOutputFile;
+import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileIterator;
+import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.Location;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.file.DirectoryStream;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
+
+/**
+ * Local filesystem implementation for unit testing only. Not for production use.
+ */
+public class LocalFileSystem implements FileSystem {
+
+    private final Map<String, String> properties;
+
+    public LocalFileSystem(Map<String, String> properties) {
+        this.properties = properties;
+    }
+
+    private Path toPath(Location location) {
+        String uri = location.toString();
+        if (uri.startsWith("file://")) {
+            return Paths.get(uri.substring("file://".length()));
+        }
+        if (uri.startsWith("local://")) {
+            return Paths.get(uri.substring("local://".length()));
+        }
+        return Paths.get(uri);
+    }
+
+    @Override
+    public boolean exists(Location location) throws IOException {
+        return Files.exists(toPath(location));
+    }
+
+    @Override
+    public void mkdirs(Location location) throws IOException {
+        Files.createDirectories(toPath(location));
+    }
+
+    @Override
+    public void delete(Location location, boolean recursive) throws IOException {
+        Path path = toPath(location);
+        if (recursive && Files.isDirectory(path)) {
+            deleteRecursive(path);
+        } else {
+            Files.deleteIfExists(path);
+        }
+    }
+
+    private void deleteRecursive(Path path) throws IOException {
+        if (Files.isDirectory(path)) {
+            try (DirectoryStream<Path> stream = Files.newDirectoryStream(path)) {
+                for (Path child : stream) {
+                    deleteRecursive(child);
+                }
+            }
+        }
+        Files.deleteIfExists(path);
+    }
+
+    @Override
+    public void rename(Location src, Location dst) throws IOException {
+        Files.move(toPath(src), toPath(dst));
+    }
+
+    @Override
+    public FileIterator list(Location location) throws IOException {
+        Path dirPath = toPath(location);
+        List<FileEntry> entries = new ArrayList<>();
+        try (DirectoryStream<Path> stream = Files.newDirectoryStream(dirPath)) {
+            for (Path child : stream) {
+                boolean isDir = Files.isDirectory(child);
+                long length = isDir ? 0L : Files.size(child);
+                entries.add(new FileEntry(Location.of(child.toUri().toString()), length, isDir, null));
+            }
+        }
+        Iterator<FileEntry> it = entries.iterator();
+        return new FileIterator() {
+            @Override
+            public boolean hasNext() {
+                return it.hasNext();
+            }
+
+            @Override
+            public FileEntry next() {
+                return it.next();
+            }
+
+            @Override
+            public void close() {
+                // no-op
+            }
+        };
+    }
+
+    @Override
+    public DorisInputFile newInputFile(Location location) throws IOException {
+        Path path = toPath(location);
+        return new DorisInputFile() {
+            @Override
+            public Location location() {
+                return location;
+            }
+
+            @Override
+            public long length() throws IOException {
+                return Files.size(path);
+            }
+
+            @Override
+            public InputStream newStream() throws IOException {
+                return Files.newInputStream(path);
+            }
+        };
+    }
+
+    @Override
+    public DorisOutputFile newOutputFile(Location location) throws IOException {
+        Path path = toPath(location);
+        return new DorisOutputFile() {
+            @Override
+            public Location location() {
+                return location;
+            }
+
+            @Override
+            public OutputStream create() throws IOException {
+                if (Files.exists(path)) {
+                    throw new IOException("File already exists: " + path);
+                }
+                Files.createDirectories(path.getParent());
+                return Files.newOutputStream(path);
+            }
+
+            @Override
+            public OutputStream createOrOverwrite() throws IOException {
+                Files.createDirectories(path.getParent());
+                return Files.newOutputStream(path,
+                        java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.TRUNCATE_EXISTING);
+            }
+        };
+    }
+
+    @Override
+    public void close() throws IOException {
+        // no-op
+    }
+}

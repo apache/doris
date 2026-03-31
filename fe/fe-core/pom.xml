@@ -69,6 +69,49 @@ under the License.
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- fe-filesystem-spi: compile-time SPI interfaces for FileSystemFactory -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem impl modules: runtime-only, discovered via ServiceLoader -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-s3</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-azure</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-oss</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-cos</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-obs</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-hdfs</artifactId>
+            <version>${project.version}</version>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-thrift</artifactId>

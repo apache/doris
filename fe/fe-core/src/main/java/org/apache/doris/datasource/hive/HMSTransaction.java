@@ -28,9 +28,9 @@ import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.foundation.util.PathUtils;
-import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemUtil;
 import org.apache.doris.fs.LegacyFileSystemApi;
+import org.apache.doris.fs.LegacyFileSystemProviderFactory;
 import org.apache.doris.fs.remote.MultipartUploadCapable;
 import org.apache.doris.fs.remote.RemoteFile;
 import org.apache.doris.fs.remote.S3FileSystem;
@@ -138,7 +138,8 @@ public class HMSTransaction implements Transaction {
 
     private final Set<UncompletedMpuPendingUpload> uncompletedMpuPendingUploads = new HashSet<>();
 
-    public HMSTransaction(HiveMetadataOps hiveOps, FileSystemProvider fileSystemProvider, Executor fileSystemExecutor) {
+    public HMSTransaction(HiveMetadataOps hiveOps, LegacyFileSystemProviderFactory fileSystemProvider,
+            Executor fileSystemExecutor) {
         this.hiveOps = hiveOps;
         this.fs = fileSystemProvider.get(null);
         if (!(fs instanceof SwitchingFileSystem)) {
