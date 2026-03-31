@@ -28,8 +28,6 @@
 #include <ctime>
 #include <map>
 #include <memory>
-
-#include "load/routine_load/kinesis_conf.h"
 #include <mutex>
 #include <ostream>
 #include <string>
@@ -39,6 +37,7 @@
 #include "common/logging.h"
 #include "common/status.h"
 #include "librdkafka/rdkafkacpp.h"
+#include "load/routine_load/kinesis_conf.h"
 #include "load/stream_load/stream_load_context.h"
 #include "util/uid_util.h"
 
@@ -216,9 +215,10 @@ private:
 
     // Type 2: Frequently-used AWS parameters (explicit members for performance)
     // These are parsed from aws.kinesis.* properties during init()
-    std::vector<std::string> _explicit_shards;     // aws.kinesis.shards (comma-separated)
-    std::string _default_position;                  // aws.kinesis.default.pos (LATEST/TRIM_HORIZON)
-    std::map<std::string, std::string> _shard_positions; // aws.kinesis.shards.pos (shard_id:position)
+    std::vector<std::string> _explicit_shards; // aws.kinesis.shards (comma-separated)
+    std::string _default_position;             // aws.kinesis.default.pos (LATEST/TRIM_HORIZON)
+    std::map<std::string, std::string>
+            _shard_positions; // aws.kinesis.shards.pos (shard_id:position)
 
     // Type 3: Less-frequently-used AWS API parameters (wrapped in KinesisConf)
     std::unique_ptr<KinesisConf> _kinesis_conf;

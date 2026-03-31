@@ -606,7 +606,8 @@ Status KinesisDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 
             // Type 2: Frequently-used parameters (explicit members)
             if (conf_key == "shards") {
-                std::vector<std::string> parts = absl::StrSplit(item.second, ",", absl::SkipWhitespace());
+                std::vector<std::string> parts =
+                        absl::StrSplit(item.second, ",", absl::SkipWhitespace());
                 _explicit_shards = std::move(parts);
                 VLOG_NOTICE << "Set explicit shards: " << item.second;
             } else if (conf_key == "default.pos") {
@@ -756,10 +757,10 @@ Status KinesisDataConsumer::_get_shard_iterator(const std::string& shard_id,
     // Apply all configurations through KinesisConf
     DCHECK(_kinesis_conf != nullptr);
     Status st = _kinesis_conf->apply_to_get_shard_iterator_request(request, _stream, shard_id,
-                                                                     sequence_number);
+                                                                   sequence_number);
     if (!st.ok()) {
-        return Status::InternalError("Failed to apply Kinesis config to GetShardIteratorRequest: {}",
-                                     st.to_string());
+        return Status::InternalError(
+                "Failed to apply Kinesis config to GetShardIteratorRequest: {}", st.to_string());
     }
 
     auto outcome = _kinesis_client->GetShardIterator(request);

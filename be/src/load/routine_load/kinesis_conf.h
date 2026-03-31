@@ -41,11 +41,7 @@ namespace doris {
  */
 class KinesisConf {
 public:
-    enum ConfResult {
-        CONF_OK = 0,
-        CONF_INVALID = 1,
-        CONF_UNKNOWN = 2
-    };
+    enum ConfResult { CONF_OK = 0, CONF_INVALID = 1, CONF_UNKNOWN = 2 };
 
     KinesisConf() = default;
     ~KinesisConf() = default;
@@ -69,14 +65,14 @@ public:
     ConfResult set(const std::string& name, const std::string& value, std::string& errstr);
 
     Status apply_to_get_records_request(Aws::Kinesis::Model::GetRecordsRequest& request,
-                                         const std::string& shard_iterator) const;
+                                        const std::string& shard_iterator) const;
 
     Status apply_to_get_shard_iterator_request(
             Aws::Kinesis::Model::GetShardIteratorRequest& request, const std::string& stream_name,
             const std::string& shard_id, const std::string& sequence_number) const;
 
     Status apply_to_list_shards_request(Aws::Kinesis::Model::ListShardsRequest& request,
-                                         const std::string& stream_name) const;
+                                        const std::string& stream_name) const;
 
 private:
     // Separate parameter maps for each API

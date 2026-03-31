@@ -22,7 +22,7 @@
 namespace doris {
 
 KinesisConf::ConfResult KinesisConf::set(const std::string& name, const std::string& value,
-                                          std::string& errstr) {
+                                         std::string& errstr) {
     // Determine which API(s) this parameter belongs to based on its semantic meaning
     // All parameters come in as simple names (e.g., "max_records", "stream_arn")
     // after "aws.kinesis." prefix is removed in data_consumer.cpp
@@ -71,9 +71,8 @@ KinesisConf::ConfResult KinesisConf::set(const std::string& name, const std::str
     return CONF_UNKNOWN;
 }
 
-Status KinesisConf::apply_to_get_records_request(
-        Aws::Kinesis::Model::GetRecordsRequest& request,
-        const std::string& shard_iterator) const {
+Status KinesisConf::apply_to_get_records_request(Aws::Kinesis::Model::GetRecordsRequest& request,
+                                                 const std::string& shard_iterator) const {
     request.SetShardIterator(shard_iterator);
 
     auto it = _get_records_params.find("max_records");
@@ -81,8 +80,7 @@ Status KinesisConf::apply_to_get_records_request(
         try {
             request.SetLimit(std::stoi(it->second));
         } catch (const std::exception&) {
-            return Status::InternalError("Failed to apply get_records.max_records: {}",
-                                         it->second);
+            return Status::InternalError("Failed to apply get_records.max_records: {}", it->second);
         }
     }
 
@@ -127,9 +125,8 @@ Status KinesisConf::apply_to_get_shard_iterator_request(
     return Status::OK();
 }
 
-Status KinesisConf::apply_to_list_shards_request(
-        Aws::Kinesis::Model::ListShardsRequest& request,
-        const std::string& stream_name) const {
+Status KinesisConf::apply_to_list_shards_request(Aws::Kinesis::Model::ListShardsRequest& request,
+                                                 const std::string& stream_name) const {
     request.SetStreamName(stream_name);
 
     auto it = _list_shards_params.find("stream_arn");
@@ -142,8 +139,7 @@ Status KinesisConf::apply_to_list_shards_request(
         try {
             request.SetMaxResults(std::stoi(it->second));
         } catch (const std::exception&) {
-            return Status::InternalError("Failed to apply list_shards.max_results: {}",
-                                         it->second);
+            return Status::InternalError("Failed to apply list_shards.max_results: {}", it->second);
         }
     }
 
