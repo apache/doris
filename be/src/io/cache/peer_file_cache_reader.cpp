@@ -17,6 +17,7 @@
 #include "io/cache/peer_file_cache_reader.h"
 
 #include <brpc/controller.h>
+#include <butil/iobuf.h>
 #include <bvar/latency_recorder.h>
 #include <bvar/reducer.h>
 #include <fmt/format.h>
@@ -38,6 +39,93 @@
 #include "util/network_util.h"
 
 namespace doris::io {
+
+namespace {
+
+struct ExpectedPeerFetch {
+    std::vector<FileBlock::Range> expected_ranges;
+    std::vector<FileBlock::Range> pending_ranges;
+    std::vector<size_t> expected_block_indexes;
+    size_t expected_bytes = 0;
+};
+
+size_t clip_requested_range(const FileBlock::Range& range, size_t file_size) {
+    if (range.left >= file_size) {
+        return 0;
+    }
+    return std::min(file_size - range.left, range.size());
+}
+
+ExpectedPeerFetch build_expected_peer_fetch(const std::vector<FileBlockSPtr>& blocks,
+                                            size_t file_size, PFetchPeerDataRequest* req) {
+    ExpectedPeerFetch expected;
+    for (size_t block_idx = 0; block_idx < blocks.size(); ++block_idx) {
+        const auto& blk = blocks[block_idx];
+        auto* cb = req->add_cache_req();
+        cb->set_block_offset(static_cast<int64_t>(blk->range().left));
+        cb->set_block_size(static_cast<int64_t>(blk->range().size()));
+        const size_t clipped_size = clip_requested_range(blk->range(), file_size);
+        if (clipped_size == 0) {
+            continue;
+        }
+        expected.expected_block_indexes.push_back(block_idx);
+        expected.expected_ranges.emplace_back(blk->range().left,
+                                              blk->range().left + clipped_size - 1);
+        expected.pending_ranges.emplace_back(expected.expected_ranges.back());
+        expected.expected_bytes += clipped_size;
+    }
+    return expected;
+}
+
+Status cut_attachment_payload(butil::IOBuf* attachment, size_t size, butil::IOBuf* out) {
+    const size_t cut_size = attachment->cutn(out, size);
+    if (cut_size != size) {
+        return Status::InternalError<false>(
+                "peer cache read incomplete attachment: need={}, got={}", size, cut_size);
+    }
+    return Status::OK();
+}
+
+bool subtract_pending_range(std::vector<FileBlock::Range>& pending_ranges,
+                            const FileBlock::Range& response_range) {
+    for (size_t idx = 0; idx < pending_ranges.size(); ++idx) {
+        auto pending_range = pending_ranges[idx];
+        if (response_range.left < pending_range.left ||
+            response_range.right > pending_range.right) {
+            continue;
+        }
+
+        if (response_range.left == pending_range.left &&
+            response_range.right == pending_range.right) {
+            pending_ranges.erase(pending_ranges.begin() + idx);
+        } else if (response_range.left == pending_range.left) {
+            pending_ranges[idx].left = response_range.right + 1;
+        } else if (response_range.right == pending_range.right) {
+            pending_ranges[idx].right = response_range.left - 1;
+        } else {
+            auto right_remain = FileBlock::Range(response_range.right + 1, pending_range.right);
+            pending_ranges[idx].right = response_range.left - 1;
+            pending_ranges.insert(pending_ranges.begin() + idx + 1, right_remain);
+        }
+        return true;
+    }
+    return false;
+}
+
+int find_expected_range_idx(const std::vector<FileBlock::Range>& expected_ranges,
+                            const FileBlock::Range& response_range) {
+    for (size_t idx = 0; idx < expected_ranges.size(); ++idx) {
+        const auto& expected_range = expected_ranges[idx];
+        if (response_range.left >= expected_range.left &&
+            response_range.right <= expected_range.right) {
+            return static_cast<int>(idx);
+        }
+    }
+    return -1;
+}
+
+} // namespace
+
 // read from peer
 
 bvar::Adder<uint64_t> peer_cache_reader_failed_counter("peer_cache_reader", "failed_counter");
@@ -65,13 +153,17 @@ PeerFileCacheReader::~PeerFileCacheReader() {
     peer_cache_being_read << -1;
 }
 
-Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& blocks, size_t off,
-                                         Slice s, size_t* bytes_read, size_t file_size,
-                                         const IOContext* ctx) {
-    VLOG_DEBUG << "enter PeerFileCacheReader::fetch_blocks, off=" << off
-               << " bytes_read=" << *bytes_read;
+Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& blocks,
+                                         PeerFetchResult* result, size_t file_size,
+                                         const IOContext* ctx, bool request_fill,
+                                         int64_t tablet_id) {
+    (void)ctx;
+    if (result == nullptr) {
+        return Status::InvalidArgument("peer cache fetch requires non-null result");
+    }
+    result->clear();
+    VLOG_DEBUG << "enter PeerFileCacheReader::fetch_blocks";
     if (blocks.empty()) {
-        *bytes_read = 0;
         return Status::OK();
     }
     if (!_is_doris_table) {
@@ -82,10 +174,21 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     req.set_type(PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK);
     req.set_path(_path.filename().native());
     req.set_file_size(static_cast<int64_t>(file_size));
-    for (const auto& blk : blocks) {
-        auto* cb = req.add_cache_req();
-        cb->set_block_offset(static_cast<int64_t>(blk->range().left));
-        cb->set_block_size(static_cast<int64_t>(blk->range().size()));
+    if (request_fill) {
+        // Ask the peer server to pull missing blocks from remote storage before serving them.
+        // Only set for cross-CG reads targeting the designated fill compute group
+        // (peer_cache_fill_compute_group_id). Server still gates with enable_peer_server_cache_fill.
+        req.set_request_cache_fill(true);
+        // Send tablet_id instead of the raw remote path so the server can look up its own tablet
+        // metadata and reconstruct the correct remote path. This keeps the server authoritative
+        // over its own path layout and avoids coupling client path knowledge into the protocol.
+        req.set_fill_tablet_id(tablet_id);
+    }
+    // Always advertise attachment support. Older peers can still reply in protobuf mode.
+    req.set_support_attachment(true);
+    auto expected = build_expected_peer_fetch(blocks, file_size, &req);
+    if (expected.expected_bytes == 0) {
+        return Status::OK();
     }
 
     std::string realhost = _host;
@@ -113,6 +216,9 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         st = Status::RpcError<false>("Address {} is wrong", brpc_addr);
         return st;
     }
+
+    size_t filled = 0;
+    size_t* bytes_read = &filled;
     LIMIT_REMOTE_SCAN_IO(bytes_read);
     int64_t begin_ts = std::chrono::duration_cast<std::chrono::microseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
@@ -125,7 +231,9 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
     }};
 
     brpc::Controller cntl;
-    cntl.set_timeout_ms(5000);
+    // Use a longer timeout when fill is requested: server may spend up to
+    // peer_server_cache_fill_timeout_ms (default 6000ms) pulling from S3 before responding.
+    cntl.set_timeout_ms(request_fill ? 7000 : 5000);
     PFetchPeerDataResponse resp;
     peer_cache_reader_read_counter << 1;
     brpc_stub->fetch_peer_data(&cntl, &req, &resp, nullptr);
@@ -138,33 +246,78 @@ Status PeerFileCacheReader::fetch_blocks(const std::vector<FileBlockSPtr>& block
         if (!st2.ok()) return st2;
     }
 
-    size_t filled = 0;
+    // Metadata stays in resp.datas(); payload may come from protobuf bytes or BRPC attachment.
+    const bool use_attachment = resp.has_data_in_attachment() && resp.data_in_attachment();
+    butil::IOBuf remaining_attachment(cntl.response_attachment());
+    result->chunks.reserve(resp.datas_size());
     for (const auto& data : resp.datas()) {
-        if (data.data().empty()) {
+        if (data.block_offset() < 0 || data.block_size() < 0) {
             peer_cache_reader_failed_counter << 1;
-            LOG(WARNING) << "peer cache read empty data" << data.block_offset();
-            return Status::InternalError<false>("peer cache read empty data");
+            result->clear();
+            return Status::InternalError<false>(
+                    "peer cache read invalid block metadata: offset={}, size={}",
+                    data.block_offset(), data.block_size());
         }
-        int64_t block_off = data.block_offset();
-        size_t rel = block_off > static_cast<int64_t>(off)
-                             ? static_cast<size_t>(block_off - static_cast<int64_t>(off))
-                             : 0;
-        size_t can_copy = std::min(s.size - rel, static_cast<size_t>(data.data().size()));
-        VLOG_DEBUG << "peer cache read data=" << data.block_offset()
-                   << " size=" << data.data().size() << " off=" << rel << " can_copy=" << can_copy;
-        std::memcpy(s.data + rel, data.data().data(), can_copy);
-        filled += can_copy;
+        const size_t block_off = static_cast<size_t>(data.block_offset());
+        const size_t payload_size =
+                use_attachment ? static_cast<size_t>(data.block_size()) : data.data().size();
+        if (payload_size == 0) {
+            continue;
+        }
+        const auto response_range = FileBlock::Range(block_off, block_off + payload_size - 1);
+        const int expected_idx = find_expected_range_idx(expected.expected_ranges, response_range);
+        if (expected_idx < 0) {
+            peer_cache_reader_failed_counter << 1;
+            result->clear();
+            return Status::InternalError<false>(
+                    "peer cache read block out of requested ranges: off={}, size={}", block_off,
+                    payload_size);
+        }
+        // Attachment payload is a single byte stream. Consume it in resp.datas() order so the
+        // peer can split or reorder requested ranges without forcing a fallback.
+        if (!subtract_pending_range(expected.pending_ranges, response_range)) {
+            peer_cache_reader_failed_counter << 1;
+            result->clear();
+            return Status::InternalError<false>("peer cache read unexpected block range: [{}, {}]",
+                                                response_range.left, response_range.right);
+        }
+
+        PeerFetchChunk chunk;
+        chunk.block_index = expected.expected_block_indexes[expected_idx];
+        chunk.block_offset = response_range.left;
+        VLOG_DEBUG << "peer cache read data=" << data.block_offset() << " size=" << payload_size
+                   << " block_idx=" << chunk.block_index;
+        if (use_attachment) {
+            auto cut_st =
+                    cut_attachment_payload(&remaining_attachment, payload_size, &chunk.payload);
+            if (!cut_st.ok()) {
+                peer_cache_reader_failed_counter << 1;
+                result->clear();
+                return cut_st;
+            }
+        } else if (chunk.payload.append(data.data().data(), payload_size) != 0) {
+            peer_cache_reader_failed_counter << 1;
+            result->clear();
+            return Status::InternalError<false>(
+                    "failed to append protobuf payload into iobuf: size={}", payload_size);
+        }
+        filled += payload_size;
+        result->chunks.emplace_back(std::move(chunk));
     }
     VLOG_DEBUG << "peer cache read filled=" << filled;
+    // Sparse reads are complete only when all requested block ranges are covered exactly.
+    if (!expected.pending_ranges.empty() || filled != expected.expected_bytes ||
+        (use_attachment && !remaining_attachment.empty())) {
+        peer_cache_reader_failed_counter << 1;
+        result->clear();
+        return Status::InternalError<false>(
+                "peer cache read incomplete: need={}, got={}, attachment_left={}",
+                expected.expected_bytes, filled, remaining_attachment.size());
+    }
     peer_bytes_read_total << filled;
     peer_bytes_per_read << filled;
-    if (filled != s.size) {
-        peer_cache_reader_failed_counter << 1;
-        return Status::InternalError<false>("peer cache read incomplete: need={}, got={}", s.size,
-                                            filled);
-    }
     peer_cache_reader_succ_counter << 1;
-    *bytes_read = filled;
+    result->bytes_read = filled;
     return Status::OK();
 }
 

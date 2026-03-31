@@ -60,7 +60,7 @@ public:
             : _fs(std::move(fs)),
               _index_path_prefix(std::move(index_path_prefix)),
               _storage_format(storage_format),
-              _idx_file_info(idx_file_info),
+              _idx_file_info(std::move(idx_file_info)),
               _tablet_id(tablet_id) {}
     virtual ~IndexFileReader() = default;
 

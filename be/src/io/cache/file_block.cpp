@@ -17,6 +17,7 @@
 
 #include "io/cache/file_block.h"
 
+#include <butil/iobuf.h>
 #include <glog/logging.h>
 // IWYU pragma: no_include <bits/chrono.h>
 #include <chrono> // IWYU pragma: keep
@@ -27,9 +28,25 @@
 #include "common/status.h"
 #include "cpp/sync_point.h"
 #include "io/cache/block_file_cache.h"
+#include "io/cache/fs_file_cache_storage.h"
+#include "io/cache/mem_file_cache_storage.h"
 
 namespace doris {
 namespace io {
+
+namespace {
+
+Status abort_pending_cache_write(FileCacheStorage* storage, const FileCacheKey& key) {
+    if (auto* fs_storage = dynamic_cast<FSFileCacheStorage*>(storage); fs_storage != nullptr) {
+        return fs_storage->abort(key);
+    }
+    if (auto* mem_storage = dynamic_cast<MemFileCacheStorage*>(storage); mem_storage != nullptr) {
+        return mem_storage->abort(key);
+    }
+    return Status::OK();
+}
+
+} // namespace
 
 std::ostream& operator<<(std::ostream& os, const FileBlock::State& value) {
     os << FileBlock::state_to_string(value);
@@ -123,6 +140,11 @@ Status FileBlock::set_downloaded(std::lock_guard<std::mutex>& /* block_lock */) 
     if (status.ok()) [[likely]] {
         _download_state = State::DOWNLOADED;
     } else {
+        auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
+        if (!abort_st.ok()) {
+            LOG(WARNING) << "abort file cache finalize failed, err=" << abort_st
+                         << ", origin_err=" << status;
+        }
         _download_state = State::EMPTY;
         _downloaded_size = 0;
     }
@@ -145,9 +167,41 @@ bool FileBlock::is_downloader_impl(std::lock_guard<std::mutex>& /* block_lock */
 }
 
 Status FileBlock::append(Slice data) {
-    DCHECK(data.size != 0) << "Writing zero size is not allowed";
-    RETURN_IF_ERROR(_mgr->_storage->append(_key, data));
-    _downloaded_size += data.size;
+    return appendv(&data, 1);
+}
+
+Status FileBlock::appendv(const Slice* data, size_t data_cnt) {
+    size_t appended_size = 0;
+    for (size_t idx = 0; idx < data_cnt; ++idx) {
+        appended_size += data[idx].size;
+    }
+    DCHECK(appended_size != 0) << "Writing zero size is not allowed";
+    auto st = _mgr->_storage->appendv(_key, data, data_cnt);
+    if (!st.ok()) {
+        auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
+        if (!abort_st.ok()) {
+            LOG(WARNING) << "abort file cache appendv failed, err=" << abort_st
+                         << ", origin_err=" << st;
+        }
+        return st;
+    }
+    _downloaded_size += appended_size;
+    return Status::OK();
+}
+
+Status FileBlock::append_iobuf(const butil::IOBuf& data) {
+    const size_t appended_size = data.length();
+    DCHECK(appended_size != 0) << "Writing zero size is not allowed";
+    auto st = _mgr->_storage->append_iobuf(_key, data);
+    if (!st.ok()) {
+        auto abort_st = abort_pending_cache_write(_mgr->_storage.get(), _key);
+        if (!abort_st.ok()) {
+            LOG(WARNING) << "abort file cache append_iobuf failed, err=" << abort_st
+                         << ", origin_err=" << st;
+        }
+        return st;
+    }
+    _downloaded_size += appended_size;
     return Status::OK();
 }
 
@@ -175,6 +229,11 @@ Status FileBlock::finalize() {
 
 Status FileBlock::read(Slice buffer, size_t read_offset) {
     return _mgr->_storage->read(_key, read_offset, buffer);
+}
+
+Status FileBlock::read_to_iobuf(butil::IOBuf* out, size_t read_offset, size_t bytes_req,
+                                size_t* bytes_read) {
+    return _mgr->_storage->read_to_iobuf(_key, read_offset, bytes_req, out, bytes_read);
 }
 
 Status FileBlock::change_cache_type(FileCacheType new_type) {

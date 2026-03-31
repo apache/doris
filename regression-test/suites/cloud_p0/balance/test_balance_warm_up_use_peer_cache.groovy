@@ -44,10 +44,13 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
-        'cache_read_from_peer_expired_seconds=100',
         'enable_cache_read_from_peer=true',
         "enable_packed_file=${enablePackedFile}",
         'skip_writing_empty_rowset_metadata=false',
+        'file_cache_enter_disk_resource_limit_mode_percent=99',
+        'file_cache_exit_disk_resource_limit_mode_percent=98',
+        'file_cache_enter_need_evict_cache_in_advance_percent=99',
+        'file_cache_exit_need_evict_cache_in_advance_percent=98'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -77,6 +80,12 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
+        def cacheKeyForBackend = { be ->
+            be.HttpPort == null ? be.Host as String : "${be.Host}:${be.HttpPort}"
+        }
+        def cacheDirsForBackend = { dirs, be ->
+            dirs[cacheKeyForBackend(be)] ?: dirs[be.Host]
+        }
         sql """CREATE TABLE $table (
             `k1` int(11) NULL,
             `v1` VARCHAR(2048)
@@ -121,9 +130,9 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         // version 4, new rs after warm up task
         def beforeCacheDirVersion4 = getTabletFileCacheDirFromBe(msHttpPort, table, 4)
         logger.info("cache dir version 4 {}", beforeCacheDirVersion4)
-        def afterMerged23CacheDir = [beforeCacheDirVersion2, beforeCacheDirVersion3, beforeCacheDirVersion4]
+        def beforeMerged234CacheDir = [beforeCacheDirVersion2, beforeCacheDirVersion3, beforeCacheDirVersion4]
             .inject([:]) { acc, m -> mergeDirs(acc, m) }
-        logger.info("after version 4 fe tablets {}, be tablets {}, cache dir {}", beforeGetFromFe, beforeGetFromBe, afterMerged23CacheDir)
+        logger.info("after version 4 fe tablets {}, be tablets {}, cache dir {}", beforeGetFromFe, beforeGetFromBe, beforeMerged234CacheDir)
 
         // after cloud_pre_heating_time_limit_sec = 30s 
         sleep(40 * 1000)
@@ -159,10 +168,19 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
             .inject([:]) { acc, m -> mergeDirs(acc, m) }
 
         logger.info("after fe tablets {}, be tablets {}, cache dir {}", afterGetFromFe, afterGetFromBe, afterMergedCacheDir)
-        def newAddBeCacheDir = afterMergedCacheDir.get(newAddBe.Host)
-        logger.info("new add be cache dir {}", newAddBeCacheDir)
+        // v4 is inserted after addBackend; newBe can legitimately own and write
+        // that rowset directly. Keep the peer-warmup checks focused on v2/v3.
+        def beforeWarmableCacheDir = [beforeCacheDirVersion2, beforeCacheDirVersion3]
+            .inject([:]) { acc, m -> mergeDirs(acc, m) }
+        def afterWarmableCacheDir = [afterCacheDirVersion2, afterCacheDirVersion3]
+            .inject([:]) { acc, m -> mergeDirs(acc, m) }
+        def beforeWarmableOldBe = cacheDirsForBackend(beforeWarmableCacheDir, oldBe) ?: []
+        def newAddBeCacheDir = cacheDirsForBackend(afterWarmableCacheDir, newAddBe) ?: []
+        logger.info("new add be cache dir (v2+v3 only) {}", newAddBeCacheDir)
         assert newAddBeCacheDir.size() != 0
-        assert afterMerged23CacheDir[oldBe.Host].containsAll(afterMergedCacheDir[newAddBe.Host])
+        assert beforeWarmableOldBe.containsAll(newAddBeCacheDir) :
+                "newBe v2/v3 cache must be a subset of oldBe's pre-add v2/v3 cache; " +
+                "oldBe pre=${beforeWarmableOldBe}, newBe post=${newAddBeCacheDir}"
 
         def be = cluster.getBeByBackendId(newAddBe.BackendId.toLong())
         def dataPath = new File("${be.path}/storage/file_cache")
@@ -192,6 +210,9 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
             "Available subdirs: ${subDirs}")
         }
 
+        def peerReadBeforeQuery = getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read")
+        def crossCgReadBeforeQuery = getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "peer_cross_compute_group_read")
+
         // The query triggers reading the file cache from the peer
         profile("test_balance_warm_up_use_peer_cache_profile") {
             sql """ set enable_profile = true;"""
@@ -210,7 +231,14 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
                     total += matcher.group(1).toInteger()
                     logger.info("NumPeerIOTotal: {}", matcher.group(1))
                 }
+                def remoteMatcher = (profileString =~ /-  NumRemoteIOTotal:\s+(\d+)/)
+                def remoteTotal = 0
+                while (remoteMatcher.find()) {
+                    remoteTotal += remoteMatcher.group(1).toInteger()
+                    logger.info("NumRemoteIOTotal: {}", remoteMatcher.group(1))
+                }
                 assertTrue(total > 0)
+                assertEquals(0, remoteTotal)
             } 
         }
 
@@ -223,8 +251,12 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
             "Expected cache file pattern ${hashFile} should found in BE ${newAddBe.Host}'s file_cache directory. " + 
             "Available subdirs: ${subDirs}")
         }
-        assert(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"))
-        assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"))
+        assert(getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read") > peerReadBeforeQuery)
+
+        // regression: same-CG rebalance warm-up must not be counted as cross-CG peer read.
+        assert crossCgReadBeforeQuery == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort,
+                "peer_cross_compute_group_read") :
+               "same-CG peer read must not increase peer_cross_compute_group_read"
     }
 
     docker(options) {

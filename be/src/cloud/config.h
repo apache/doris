@@ -198,14 +198,28 @@ DECLARE_mInt64(cluster_status_cache_refresh_interval_sec);
 // When version count exceeds this ratio of max_tablet_version_num, force compaction
 // even on read-only clusters (safety valve to prevent unbounded version growth)
 DECLARE_mDouble(compaction_rw_separation_version_threshold_ratio);
-
-DECLARE_mBool(enable_cache_read_from_peer);
-
 // Rate limit for warmup download in bytes per second, default 100MB/s
 // <= 0 means no limit
 DECLARE_mInt64(file_cache_warmup_download_rate_limit_bytes_per_second);
 
-DECLARE_mInt64(cache_read_from_peer_expired_seconds);
+DECLARE_mInt64(peer_candidate_cleanup_interval_s);
+DECLARE_mInt64(peer_candidate_expiry_s);
+DECLARE_mInt32(peer_rpc_failure_eviction_threshold);
+DECLARE_mInt32(peer_all_miss_cooldown_threshold);
+DECLARE_mInt64(peer_all_miss_cooldown_duration_s);
+
+DECLARE_mBool(enable_cache_read_from_peer);
+
+DECLARE_mBool(enable_peer_s3_race);
+DECLARE_mInt32(max_concurrent_peer_races);
+// When > 0, S3 read is delayed by this many ms after peer bthread launch so peer gets a head
+// start.  Useful in low-latency environments where peer is consistently faster than S3.
+// Default 0 disables the delay (both paths launch simultaneously).
+DECLARE_mInt32(peer_race_hedge_delay_ms);
+DECLARE_mString(peer_cache_fill_compute_group_id);
+DECLARE_mBool(enable_peer_server_cache_fill);
+DECLARE_mInt32(peer_server_cache_fill_timeout_ms);
+DECLARE_mInt32(max_concurrent_peer_server_fills);
 
 // Base compaction output: only write index files to file cache, not data files
 DECLARE_mBool(enable_file_cache_write_base_compaction_index_only);

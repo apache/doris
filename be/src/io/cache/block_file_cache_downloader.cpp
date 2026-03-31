@@ -20,9 +20,6 @@
 
 #include "io/cache/block_file_cache_downloader.h"
 
-#include <bthread/bthread.h>
-#include <bthread/countdown_event.h>
-#include <bthread/unstable.h>
 #include <bvar/bvar.h>
 #include <fmt/core.h>
 #include <gen_cpp/internal_service.pb.h>
@@ -33,7 +30,6 @@
 #include <variant>
 
 #include "cloud/cloud_tablet_mgr.h"
-#include "cloud/cloud_warm_up_manager.h"
 #include "common/config.h"
 #include "common/logging.h"
 #include "cpp/sync_point.h"
@@ -295,6 +291,18 @@ void FileCacheBlockDownloader::download_file_cache_block(
 void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& meta) {
     LOG(INFO) << "download_segment_file: start, path=" << meta.path << ", offset=" << meta.offset
               << ", download_size=" << meta.download_size << ", file_size=" << meta.file_size;
+    DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file.skip_warmup", {
+        if (meta.ctx.is_warmup) {
+            LOG(INFO) << "download_segment_file: skip warmup download by debug point, path="
+                      << meta.path << ", offset=" << meta.offset
+                      << ", download_size=" << meta.download_size;
+            if (meta.download_done) {
+                meta.download_done(Status::OK());
+            }
+            return;
+        }
+    });
+
     FileReaderSPtr file_reader;
     FileReaderOptions opts {
             .cache_type = FileCachePolicy::FILE_BLOCK_CACHE,
@@ -321,11 +329,13 @@ void FileCacheBlockDownloader::download_segment_file(const DownloadFileMeta& met
     std::unique_ptr<char[]> buffer(new char[one_single_task_size]);
 
     DBUG_EXECUTE_IF("FileCacheBlockDownloader::download_segment_file_sleep", {
-        auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
-                "FileCacheBlockDownloader::download_segment_file_sleep", "sleep_time", 3);
-        LOG(INFO) << "FileCacheBlockDownloader::download_segment_file_sleep: sleep_time="
-                  << sleep_time;
-        sleep(sleep_time);
+        if (meta.ctx.is_warmup) {
+            auto sleep_time = DebugPoints::instance()->get_debug_param_or_default<int32_t>(
+                    "FileCacheBlockDownloader::download_segment_file_sleep", "sleep_time", 3);
+            LOG(INFO) << "FileCacheBlockDownloader::download_segment_file_sleep: sleep_time="
+                      << sleep_time;
+            sleep(sleep_time);
+        }
     });
 
     size_t task_offset = 0;

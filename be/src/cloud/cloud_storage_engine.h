@@ -193,6 +193,8 @@ public:
     void set_startup_timepoint(const std::chrono::time_point<std::chrono::system_clock>& tp) {
         _startup_timepoint = tp;
     }
+
+    void set_cloud_warm_up_manager(std::unique_ptr<CloudWarmUpManager> manager);
 #endif
 
 private:

@@ -28,6 +28,10 @@
 #include "util/profile_collector.h"
 #include "util/slice.h"
 
+namespace butil {
+class IOBuf;
+}
+
 namespace doris {
 
 namespace io {
@@ -80,6 +84,8 @@ public:
     /// the caller must ensure that the IOContext exists during the left cycle of read_at()
     Status read_at(size_t offset, Slice result, size_t* bytes_read,
                    const IOContext* io_ctx = nullptr);
+    Status read_at_iobuf(size_t offset, size_t bytes_req, butil::IOBuf* out, size_t* bytes_read,
+                         const IOContext* io_ctx = nullptr);
 
     virtual Status close() = 0;
 
@@ -97,6 +103,10 @@ public:
 protected:
     virtual Status read_at_impl(size_t offset, Slice result, size_t* bytes_read,
                                 const IOContext* io_ctx) = 0;
+    // Default implementation returns NotSupported. Override this in readers that can
+    // fill iobuf directly.
+    virtual Status read_at_iobuf_impl(size_t offset, size_t bytes_req, butil::IOBuf* out,
+                                      size_t* bytes_read, const IOContext* io_ctx);
 };
 
 using FileReaderSPtr = std::shared_ptr<FileReader>;

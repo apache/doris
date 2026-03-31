@@ -293,6 +293,12 @@ bool CloudStorageEngine::stopped() {
     return _stopped;
 }
 
+#ifdef BE_TEST
+void CloudStorageEngine::set_cloud_warm_up_manager(std::unique_ptr<CloudWarmUpManager> manager) {
+    _cloud_warm_up_manager = std::move(manager);
+}
+#endif
+
 Result<BaseTabletSPtr> CloudStorageEngine::get_tablet(int64_t tablet_id,
                                                       SyncRowsetStats* sync_stats,
                                                       bool force_use_only_cached,

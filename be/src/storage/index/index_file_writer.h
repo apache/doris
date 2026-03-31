@@ -110,9 +110,9 @@ private:
     // only once
     bool _closed = false;
     bool _can_use_ram_dir = true;
+    int64_t _tablet_id = -1;
 
     IndexStorageFormatPtr _index_storage_format;
-    int64_t _tablet_id = -1;
 
     friend class IndexStorageFormatV1;
     friend class IndexStorageFormatV2;

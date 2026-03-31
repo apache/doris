@@ -67,6 +67,7 @@ public:
         BaseTabletSPtr tablet;
         int64_t version;
         TabletReadSource read_source;
+        io::FileCacheStatistics initial_file_cache_stats;
         int64_t limit;
         bool aggregation;
         bool read_row_binlog = false;
@@ -120,6 +121,7 @@ public:
     std::vector<ColumnId> _return_columns;
 
     std::unordered_set<uint32_t> _tablet_columns_convert_to_null_set;
+    io::FileCacheStatistics _initial_file_cache_stats;
 
     // This field is copied from OlapScanLocalState.
     std::map<SlotId, VExprContextSPtr> _slot_id_to_virtual_column_expr;

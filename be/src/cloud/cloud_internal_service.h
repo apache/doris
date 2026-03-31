@@ -19,9 +19,19 @@
 
 #include "service/internal_service.h"
 
+namespace brpc {
+class Controller;
+}
+
 namespace doris {
 
 class CloudStorageEngine;
+
+#ifdef BE_TEST
+Status test_handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request,
+                                                 PFetchPeerDataResponse* response,
+                                                 brpc::Controller* cntl);
+#endif
 
 class CloudInternalServiceImpl final : public PInternalService {
 public:

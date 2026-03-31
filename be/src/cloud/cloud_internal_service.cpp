@@ -17,7 +17,9 @@
 
 #include "cloud/cloud_internal_service.h"
 
+#include <brpc/controller.h>
 #include <bthread/countdown_event.h>
+#include <butil/iobuf.h>
 
 #include <algorithm>
 #include <chrono>
@@ -39,6 +41,7 @@
 #include "io/cache/block_file_cache_factory.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
+#include "storage/storage_policy.h"
 #include "util/async_io.h"
 #include "util/bvar_windowed_adder.h"
 #include "util/debug_points.h"
@@ -54,8 +57,52 @@ bvar::LatencyRecorder g_file_cache_get_by_peer_server_latency(
         "file_cache_get_by_peer_server_latency");
 bvar::LatencyRecorder g_file_cache_get_by_peer_read_cache_file_latency(
         "file_cache_get_by_peer_read_cache_file_latency");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_offer_failed_num(
+        "file_cache_get_by_peer_offer_failed_num");
+bvar::LatencyRecorder g_file_cache_get_by_peer_queue_wait_latency(
+        "file_cache_get_by_peer_queue_wait_latency");
+bvar::LatencyRecorder g_file_cache_get_by_peer_handle_cache_block_req_latency(
+        "file_cache_get_by_peer_handle_cache_block_req_latency");
+bvar::LatencyRecorder g_file_cache_get_by_peer_get_cache_latency(
+        "file_cache_get_by_peer_get_cache_latency");
+bvar::LatencyRecorder g_file_cache_get_by_peer_get_or_set_latency(
+        "file_cache_get_by_peer_get_or_set_latency");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_get_or_set_calls(
+        "file_cache_get_by_peer_get_or_set_calls");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_get_or_set_blocks_total(
+        "file_cache_get_by_peer_get_or_set_blocks_total");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_request_blocks_total(
+        "file_cache_get_by_peer_request_blocks_total");
+bvar::LatencyRecorder g_file_cache_get_by_peer_request_blocks_per_rpc(
+        "file_cache_get_by_peer_request_blocks_per_rpc");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_response_blocks_total(
+        "file_cache_get_by_peer_response_blocks_total");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_response_bytes_total(
+        "file_cache_get_by_peer_response_bytes_total");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_not_downloaded_block_num(
+        "file_cache_get_by_peer_not_downloaded_block_num");
+bvar::LatencyRecorder g_file_cache_get_by_peer_read_file_block_total_latency(
+        "file_cache_get_by_peer_read_file_block_total_latency");
+bvar::LatencyRecorder g_file_cache_get_by_peer_set_response_data_latency(
+        "file_cache_get_by_peer_set_response_data_latency");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_attachment_response_num(
+        "file_cache_get_by_peer_attachment_response_num");
+bvar::Adder<uint64_t> g_file_cache_get_by_peer_pb_response_num(
+        "file_cache_get_by_peer_pb_response_num");
+
+bvar::Adder<int64_t> g_peer_server_fill_requested("peer_server_fill_requested");
+bvar::Adder<int64_t> g_peer_server_fill_success("peer_server_fill_success");
+bvar::Adder<int64_t> g_peer_server_fill_timeout("peer_server_fill_timeout");
+bvar::Adder<int64_t> g_peer_server_fill_rejected("peer_server_fill_rejected");
+bvar::LatencyRecorder g_peer_server_fill_latency("peer_server_fill_latency");
 bvar::LatencyRecorder g_cloud_internal_service_get_file_cache_meta_by_tablet_id_latency(
         "cloud_internal_service_get_file_cache_meta_by_tablet_id_latency");
+
+// Concurrency guard for server-side S3 pull-through fills.
+static std::atomic<int32_t> g_active_server_fills {0};
+bvar::PassiveStatus<int32_t> g_peer_active_fills(
+        "peer_active_fills",
+        [](void*) { return g_active_server_fills.load(std::memory_order_relaxed); }, nullptr);
 
 CloudInternalServiceImpl::CloudInternalServiceImpl(CloudStorageEngine& engine, ExecEnv* exec_env)
         : PInternalService(exec_env), _engine(engine) {}
@@ -216,8 +263,30 @@ void CloudInternalServiceImpl::get_file_cache_meta_by_tablet_id(
 
 namespace {
 // Helper functions for fetch_peer_data
+inline int64_t elapsed_us(std::chrono::steady_clock::time_point start) {
+    return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now() -
+                                                                 start)
+            .count();
+}
+
+bool wait_for_file_block_state(const io::FileBlockSPtr& fb, int32_t timeout_ms) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (true) {
+        const auto state = fb->state();
+        if (state == io::FileBlock::State::DOWNLOADED ||
+            state == io::FileBlock::State::SKIP_CACHE || state == io::FileBlock::State::EMPTY) {
+            return true;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            return false;
+        }
+        fb->wait();
+    }
+}
 
 Status handle_peer_file_range_request(const std::string& path, PFetchPeerDataResponse* response) {
+    // Legacy path: PEER_FILE_RANGE still returns payload via protobuf bytes.
+    // Keep this for compatibility until range path is migrated to attachment mode.
     // Read specific range [file_offset, file_offset+file_size) across cached blocks
     auto datas = io::FileCacheFactory::instance()->get_cache_data_by_path(path);
     for (auto& cb : datas) {
@@ -232,8 +301,15 @@ void set_error_response(PFetchPeerDataResponse* response, const std::string& err
 }
 
 Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t file_size,
-                       doris::CacheBlockPB* output) {
-    std::string data;
+                       doris::CacheBlockPB* output, butil::IOBuf* response_attachment) {
+    auto total_start = std::chrono::steady_clock::now();
+    int64_t set_data_us = 0;
+    Defer report {[&]() {
+        g_file_cache_get_by_peer_read_file_block_total_latency << elapsed_us(total_start);
+        if (set_data_us > 0) {
+            g_file_cache_get_by_peer_set_response_data_latency << set_data_us;
+        }
+    }};
     // ATTN: calculate the rightmost boundary value of the block, due to inaccurate current block meta information.
     // see CachedRemoteFileReader::read_at_impl for more details.
     // Ensure file_size >= file_block->offset() to avoid underflow
@@ -244,38 +320,224 @@ Status read_file_block(const std::shared_ptr<io::FileBlock>& file_block, size_t 
     }
     size_t read_size = std::min(static_cast<size_t>(file_size - file_block->offset()),
                                 file_block->range().size());
-    data.resize(read_size);
-
-    auto begin_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                                      std::chrono::steady_clock::now().time_since_epoch())
-                                      .count();
-
-    SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
-    Slice slice(data.data(), data.size());
-    Status read_st = file_block->read(slice, /*read_offset=*/0);
-
-    auto end_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
-                                    std::chrono::steady_clock::now().time_since_epoch())
-                                    .count();
-    g_file_cache_get_by_peer_read_cache_file_latency << (end_read_file_ts - begin_read_file_ts);
-
-    if (read_st.ok()) {
-        output->set_block_offset(static_cast<int64_t>(file_block->offset()));
-        output->set_block_size(static_cast<int64_t>(read_size));
-        output->set_data(std::move(data));
+    output->set_block_offset(static_cast<int64_t>(file_block->offset()));
+    output->set_block_size(static_cast<int64_t>(read_size));
+    if (read_size == 0) {
         return Status::OK();
-    } else {
-        g_file_cache_get_by_peer_failed_num << 1;
-        LOG(WARNING) << "read cache block failed: " << read_st;
-        return read_st;
     }
+
+    Status read_st = Status::OK();
+    // Attachment payload mode: protobuf carries metadata only, payload goes to attachment.
+    // This allows FS cache to use a file-descriptor->IOBuf path directly.
+    if (response_attachment != nullptr) {
+        size_t bytes_read = 0;
+        auto begin_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count();
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+        read_st = file_block->read_to_iobuf(response_attachment, /*read_offset=*/0, read_size,
+                                            &bytes_read);
+        auto end_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now().time_since_epoch())
+                                        .count();
+        g_file_cache_get_by_peer_read_cache_file_latency << (end_read_file_ts - begin_read_file_ts);
+
+        if (read_st.ok()) {
+            if (bytes_read != read_size) {
+                return Status::InternalError<false>(
+                        "peer cache read short data, expected={}, actual={}", read_size,
+                        bytes_read);
+            }
+            g_file_cache_get_by_peer_response_bytes_total << bytes_read;
+            return Status::OK();
+        }
+    } else {
+        std::string data;
+        data.resize(read_size);
+        auto begin_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count();
+        SCOPED_ATTACH_TASK(ExecEnv::GetInstance()->s3_file_buffer_tracker());
+        Slice slice(data.data(), data.size());
+        read_st = file_block->read(slice, /*read_offset=*/0);
+        auto end_read_file_ts = std::chrono::duration_cast<std::chrono::microseconds>(
+                                        std::chrono::steady_clock::now().time_since_epoch())
+                                        .count();
+        g_file_cache_get_by_peer_read_cache_file_latency << (end_read_file_ts - begin_read_file_ts);
+
+        if (read_st.ok()) {
+            auto set_data_start = std::chrono::steady_clock::now();
+            output->set_data(std::move(data));
+            set_data_us = elapsed_us(set_data_start);
+            g_file_cache_get_by_peer_response_bytes_total << read_size;
+            return Status::OK();
+        }
+    }
+
+    g_file_cache_get_by_peer_failed_num << 1;
+    LOG(WARNING) << "read cache block failed: " << read_st;
+    return read_st;
+}
+
+// Trigger S3 -> local cache fill for the given file block.
+// Returns OK when the block is DOWNLOADED after the fill.
+// Returns TOO_MANY_TASKS when the fill slot is exhausted (server healthy but overloaded):
+//   client should not rotate or evict, just fall back to S3 and retry same candidate later.
+// Returns NOT_FOUND for soft misses (tablet not found, fill incomplete, timeout):
+//   client should rotate the candidate to try a different CG next time.
+// fill_tablet_id: tablet id from PFetchPeerDataRequest.fill_tablet_id; used to look up the
+//   tablet and reconstruct the remote path server-side (avoids trusting client-supplied paths).
+// filename: PFetchPeerDataRequest.path(), the cache-key filename used to match the segment.
+Status trigger_peer_server_fill(io::FileBlockSPtr& fb, int64_t fill_tablet_id,
+                                const std::string& filename, int64_t file_size, int64_t offset,
+                                int64_t size, int32_t timeout_ms) {
+    g_peer_server_fill_requested << 1;
+
+    // Concurrency guard: atomically reserve a fill slot.
+    // Excess requests are rejected so the client falls back to its own S3 read.
+    // Return NOT_FOUND so the client rotates the candidate instead of evicting it.
+    if (g_active_server_fills.fetch_add(1, std::memory_order_relaxed) >=
+        config::max_concurrent_peer_server_fills) {
+        g_active_server_fills.fetch_sub(1, std::memory_order_relaxed);
+        g_peer_server_fill_rejected << 1;
+        VLOG_DEBUG << "trigger_peer_server_fill: rejected (concurrency limit "
+                   << config::max_concurrent_peer_server_fills << "), tablet_id=" << fill_tablet_id;
+        // TOO_MANY_TASKS: server is healthy but overloaded. Client must not rotate or evict;
+        // just fall back to S3 for this request and retry the same candidate next time.
+        return Status::Error<ErrorCode::TOO_MANY_TASKS, false>("fill slot exhausted");
+    }
+    // RAII decrement: runs on every return path below.
+    Defer fill_guard {[]() { g_active_server_fills.fetch_sub(1, std::memory_order_relaxed); }};
+
+    auto& cloud_engine = ExecEnv::GetInstance()->storage_engine().to_cloud();
+    auto tablet_res = cloud_engine.tablet_mgr().get_tablet(fill_tablet_id);
+    if (!tablet_res.has_value()) {
+        LOG(WARNING) << "trigger_peer_server_fill: tablet not found, tablet_id=" << fill_tablet_id;
+        g_peer_server_fill_rejected << 1;
+        return Status::NotFound<false>("fill: tablet not found");
+    }
+    auto tablet = tablet_res.value();
+
+    // Iterate rowsets and segments to find the one whose remote path filename matches the
+    // cache-key filename sent by the client. The server reconstructs the full remote path
+    // from its own tablet metadata, keeping path layout authoritative on the server side.
+    io::FileSystemSPtr fs;
+    std::string remote_path;
+    auto rowsets = tablet->get_snapshot_rowset(false);
+    for (const auto& rs : rowsets) {
+        if (!remote_path.empty()) break;
+        auto storage_resource_opt = rs->rowset_meta()->remote_storage_resource();
+        if (!storage_resource_opt.has_value()) continue;
+        const auto& storage_resource = storage_resource_opt.value();
+        for (int seg = 0; seg < rs->num_segments(); ++seg) {
+            std::string candidate = storage_resource->remote_segment_path(*rs->rowset_meta(), seg);
+            if (io::Path(candidate).filename().native() == filename) {
+                remote_path = std::move(candidate);
+                fs = storage_resource->fs;
+                break;
+            }
+        }
+    }
+
+    if (remote_path.empty() || !fs) {
+        LOG(WARNING) << "trigger_peer_server_fill: cannot find remote path for tablet_id="
+                     << fill_tablet_id << ", filename=" << filename;
+        g_peer_server_fill_rejected << 1;
+        return Status::NotFound<false>("fill: remote path not found");
+    }
+
+    const auto initial_state = fb->state();
+    if (initial_state == io::FileBlock::State::DOWNLOADING) {
+        // Another thread already owns the block downloader. Wait up to the request timeout instead
+        // of the shorter per-wait timeout in FileBlock::wait().
+        [[maybe_unused]] const bool completed = wait_for_file_block_state(fb, timeout_ms);
+        return fb->state() == io::FileBlock::State::DOWNLOADED
+                       ? Status::OK()
+                       : Status::NotFound<false>("fill: concurrent download incomplete");
+    }
+    if (initial_state != io::FileBlock::State::EMPTY) {
+        return initial_state == io::FileBlock::State::DOWNLOADED
+                       ? Status::OK()
+                       : Status::NotFound<false>("fill: unexpected initial block state");
+    }
+
+    auto fill_start = std::chrono::steady_clock::now();
+    auto fill_done = std::make_shared<bthread::CountdownEvent>(1);
+    auto fill_status = std::make_shared<Status>(Status::OK());
+    io::DownloadFileMeta download_meta {
+            .path = remote_path,
+            .file_size = file_size,
+            .offset = offset,
+            .download_size = size,
+            .file_system = fs,
+            .ctx = {.is_dryrun = config::enable_reader_dryrun_when_download_file_cache,
+                    .is_warmup = false},
+            .download_done =
+                    [fill_done, fill_status](Status st) {
+                        *fill_status = std::move(st);
+                        fill_done->signal();
+                    },
+            .tablet_id = fill_tablet_id,
+    };
+
+    io::DownloadTask task(std::move(download_meta));
+    cloud_engine.file_cache_block_downloader().submit_download_task(std::move(task));
+
+    const timespec due_time = butil::milliseconds_from_now(timeout_ms);
+    const bool timed_out = fill_done->timed_wait(due_time) != 0;
+
+    int64_t fill_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                              std::chrono::steady_clock::now() - fill_start)
+                              .count();
+    g_peer_server_fill_latency << fill_ms * 1000; // LatencyRecorder takes microseconds
+
+    if (!timed_out && fill_status->ok() && fb->state() == io::FileBlock::State::DOWNLOADING) {
+        const int32_t settle_timeout_ms =
+                std::max<int32_t>(1, timeout_ms - static_cast<int32_t>(fill_ms));
+        [[maybe_unused]] const bool settled = wait_for_file_block_state(fb, settle_timeout_ms);
+    }
+
+    auto final_state = fb->state();
+    if (final_state == io::FileBlock::State::DOWNLOADED) {
+        g_peer_server_fill_success << 1;
+        return Status::OK();
+    }
+    if (timed_out) {
+        LOG(WARNING) << "trigger_peer_server_fill: fill timeout, path=" << remote_path
+                     << ", elapsed_ms=" << fill_ms;
+        g_peer_server_fill_timeout << 1;
+    } else if (!fill_status->ok()) {
+        LOG(WARNING) << "trigger_peer_server_fill: fill failed, path=" << remote_path
+                     << ", elapsed_ms=" << fill_ms << ", status=" << fill_status->to_string();
+    }
+    // Any non-DOWNLOADED outcome is a soft failure: the server is otherwise healthy so the
+    // client should rotate the candidate rather than evict it.
+    return Status::NotFound<false>("fill: block not downloaded");
 }
 
 Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request,
-                                            PFetchPeerDataResponse* response) {
+                                            PFetchPeerDataResponse* response,
+                                            brpc::Controller* cntl) {
+    auto handle_start = std::chrono::steady_clock::now();
+    const uint64_t request_blocks = request->cache_req_size();
+    uint64_t response_blocks = 0;
+    uint64_t get_or_set_calls = 0;
+    uint64_t get_or_set_blocks = 0;
+    int64_t get_cache_us = 0;
+    Defer report {[&]() {
+        g_file_cache_get_by_peer_handle_cache_block_req_latency << elapsed_us(handle_start);
+        g_file_cache_get_by_peer_get_cache_latency << get_cache_us;
+        g_file_cache_get_by_peer_get_or_set_calls << get_or_set_calls;
+        g_file_cache_get_by_peer_get_or_set_blocks_total << get_or_set_blocks;
+        g_file_cache_get_by_peer_request_blocks_total << request_blocks;
+        g_file_cache_get_by_peer_request_blocks_per_rpc << request_blocks;
+        g_file_cache_get_by_peer_response_blocks_total << response_blocks;
+    }};
     const auto& path = request->path();
     auto hash = io::BlockFileCache::hash(path);
+    auto get_cache_start = std::chrono::steady_clock::now();
     auto* cache = io::FileCacheFactory::instance()->get_by_path(hash);
+    get_cache_us = elapsed_us(get_cache_start);
     if (cache == nullptr) {
         g_file_cache_get_by_peer_failed_num << 1;
         set_error_response(response, "can't get file cache instance");
@@ -285,27 +547,114 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
     io::CacheContext ctx {};
     io::ReadStatistics local_stats;
     ctx.stats = &local_stats;
+    const size_t file_size =
+            request->has_file_size()
+                    ? static_cast<size_t>(std::max<int64_t>(0, request->file_size()))
+                    : std::numeric_limits<size_t>::max();
+    // Enable attachment mode only when client advertises support.
+    // This keeps mixed-version rolling upgrades safe.
+    const bool use_attachment =
+            cntl != nullptr && request->has_support_attachment() && request->support_attachment();
+    response->set_data_in_attachment(use_attachment);
+    if (use_attachment) {
+        g_file_cache_get_by_peer_attachment_response_num << 1;
+    } else {
+        g_file_cache_get_by_peer_pb_response_num << 1;
+    }
 
     for (const auto& cb_req : request->cache_req()) {
         size_t offset = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_offset()));
         size_t size = static_cast<size_t>(std::max<int64_t>(0, cb_req.block_size()));
+        if (offset >= file_size) {
+            continue;
+        }
+        // Clip tail requests before get_or_set so peer reads do not synthesize EMPTY blocks past
+        // EOF and then fail the whole RPC.
+        size = std::min(size, file_size - offset);
+        if (size == 0) {
+            continue;
+        }
+        auto get_or_set_start = std::chrono::steady_clock::now();
         auto holder = cache->get_or_set(hash, offset, size, ctx);
+        g_file_cache_get_by_peer_get_or_set_latency << elapsed_us(get_or_set_start);
+        ++get_or_set_calls;
+        get_or_set_blocks += holder.file_blocks.size();
 
         for (auto& fb : holder.file_blocks) {
-            if (fb->state() != io::FileBlock::State::DOWNLOADED) {
+            auto fb_state = fb->state();
+            if (fb_state == io::FileBlock::State::DOWNLOADING) {
+                // Wait for in-progress download to complete.
+                fb_state = fb->wait();
+            }
+            if (fb_state == io::FileBlock::State::EMPTY) {
+                const bool do_fill = request->has_request_cache_fill() &&
+                                     request->request_cache_fill() &&
+                                     config::enable_peer_server_cache_fill;
+                if (!do_fill) {
+                    g_file_cache_get_by_peer_failed_num << 1;
+                    g_file_cache_get_by_peer_not_downloaded_block_num << 1;
+                    // Use NOT_FOUND so the client can distinguish "block not cached"
+                    // from an actual RPC/server error.  On NOT_FOUND the client rotates
+                    // the candidate to the end of its list (trying another CG next time)
+                    // rather than incrementing the RPC-failure eviction counter.
+                    response->mutable_status()->add_error_msgs("cache block not downloaded");
+                    response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
+                    return Status::NotFound<false>("cache block not downloaded");
+                }
+                // Server-side fill: look up tablet by fill_tablet_id to reconstruct the
+                // remote path, then download from S3.
+                auto fill_st = trigger_peer_server_fill(
+                        fb, request->fill_tablet_id(), path,
+                        request->has_file_size() ? request->file_size() : -1,
+                        static_cast<int64_t>(fb->range().left),
+                        static_cast<int64_t>(fb->range().size()),
+                        config::peer_server_cache_fill_timeout_ms);
+                if (!fill_st.ok()) {
+                    g_file_cache_get_by_peer_failed_num << 1;
+                    g_file_cache_get_by_peer_not_downloaded_block_num << 1;
+                    if (fill_st.is<ErrorCode::TOO_MANY_TASKS>()) {
+                        // Server slot exhausted: healthy but overloaded. Client must not rotate
+                        // or evict — just fall back to S3 and retry same candidate next time.
+                        response->mutable_status()->add_error_msgs(std::string(fill_st.msg()));
+                        response->mutable_status()->set_status_code(TStatusCode::TOO_MANY_TASKS);
+                    } else if (fill_st.is<ErrorCode::NOT_FOUND>()) {
+                        // Soft miss (fill incomplete, timeout, unexpected state) — client rotates,
+                        // not evicts.
+                        response->mutable_status()->add_error_msgs(std::string(fill_st.msg()));
+                        response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
+                    } else {
+                        LOG(WARNING) << "cache block fill failed: " << fill_st;
+                        set_error_response(response, "cache block not ready");
+                    }
+                    return fill_st;
+                }
+                fb_state = io::FileBlock::State::DOWNLOADED;
+            }
+            if (fb_state != io::FileBlock::State::DOWNLOADED) {
+                // A concurrent download was in progress (DOWNLOADING at request time) but its
+                // wait() returned a non-DOWNLOADED state (e.g., timed-out while still
+                // DOWNLOADING, or some other non-EMPTY intermediate state).  The server is
+                // healthy; the block just isn't available yet.  Return NOT_FOUND so the client
+                // rotates the candidate instead of evicting it.
                 g_file_cache_get_by_peer_failed_num << 1;
-                LOG(WARNING) << "read cache block failed, state=" << fb->state();
-                set_error_response(response, "read cache file error");
-                return Status::InternalError<false>("cache block not downloaded");
+                g_file_cache_get_by_peer_not_downloaded_block_num << 1;
+                LOG(WARNING) << "cache block not ready after wait, state=" << fb_state;
+                response->mutable_status()->add_error_msgs("cache block not ready after wait");
+                response->mutable_status()->set_status_code(TStatusCode::NOT_FOUND);
+                return Status::NotFound<false>("cache block not ready after wait");
             }
 
             g_file_cache_get_by_peer_blocks_num << 1;
             doris::CacheBlockPB* out = response->add_datas();
-            Status read_status = read_file_block(fb, request->file_size(), out);
+            // In attachment mode, metadata order must match attachment append order because the
+            // client consumes attachment payload sequentially using resp.datas() order.
+            Status read_status = read_file_block(
+                    fb, file_size, out, use_attachment ? &cntl->response_attachment() : nullptr);
             if (!read_status.ok()) {
                 set_error_response(response, "read cache file error");
                 return read_status;
             }
+            ++response_blocks;
         }
     }
 
@@ -313,14 +662,27 @@ Status handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request
 }
 } // namespace
 
-void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* controller
-                                               [[maybe_unused]],
+#ifdef BE_TEST
+Status test_handle_peer_file_cache_block_request(const PFetchPeerDataRequest* request,
+                                                 PFetchPeerDataResponse* response,
+                                                 brpc::Controller* cntl) {
+    return handle_peer_file_cache_block_request(request, response, cntl);
+}
+#endif
+
+void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* controller,
                                                const PFetchPeerDataRequest* request,
                                                PFetchPeerDataResponse* response,
                                                google::protobuf::Closure* done) {
-    bool ret = _heavy_work_pool.try_offer([request, response, done]() {
+    auto enqueue_ts = std::chrono::steady_clock::now();
+    // Lifetime: cntl is owned by brpc framework and valid until done->Run() is called.
+    // The ClosureGuard inside the lambda ensures done->Run() happens after all cntl usage,
+    // so capturing the raw pointer by value is safe.
+    auto* cntl = static_cast<brpc::Controller*>(controller);
+    bool ret = _heavy_work_pool.try_offer([request, response, done, enqueue_ts, cntl]() {
         brpc::ClosureGuard closure_guard(done);
         g_file_cache_get_by_peer_num << 1;
+        g_file_cache_get_by_peer_queue_wait_latency << elapsed_us(enqueue_ts);
 
         if (!config::enable_file_cache) {
             LOG_WARNING("try to access file cache data, but file cache not enabled");
@@ -339,12 +701,17 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
         if (type == PFetchPeerDataRequest_Type_PEER_FILE_RANGE) {
             status = handle_peer_file_range_request(path, response);
         } else if (type == PFetchPeerDataRequest_Type_PEER_FILE_CACHE_BLOCK) {
-            status = handle_peer_file_cache_block_request(request, response);
+            status = handle_peer_file_cache_block_request(request, response, cntl);
         }
 
         if (!status.ok()) {
             LOG(WARNING) << "fetch peer data failed: " << status.to_string();
-            set_error_response(response, status.to_string());
+            auto* resp_status = response->mutable_status();
+            if (resp_status->status_code() == TStatusCode::OK) {
+                set_error_response(response, status.to_string());
+            } else if (resp_status->error_msgs().empty()) {
+                resp_status->add_error_msgs(status.to_string());
+            }
         }
 
         DBUG_EXECUTE_IF("CloudInternalServiceImpl::fetch_peer_data_slower", {
@@ -364,6 +731,7 @@ void CloudInternalServiceImpl::fetch_peer_data(google::protobuf::RpcController* 
     });
 
     if (!ret) {
+        g_file_cache_get_by_peer_offer_failed_num << 1;
         brpc::ClosureGuard closure_guard(done);
         LOG(WARNING) << "fail to offer fetch peer data request to the work pool, pool="
                      << _heavy_work_pool.get_info();

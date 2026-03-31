@@ -103,7 +103,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .condition_cache_digest = parent->get_condition_cache_digest(),
                                  .binlog_scan_type = params.binlog_scan_type}),
           _start_tso(params.start_tso),
-          _end_tso(params.end_tso) {
+          _end_tso(params.end_tso),
+          _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
@@ -305,6 +306,7 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
                    ", backend=" + BackendOptions::get_localhost());
         return res;
     }
+    _tablet_reader->mutable_stats()->file_cache_stats.merge_from(_initial_file_cache_stats);
 
     // Do not hold rs_splits any more to release memory.
     _tablet_reader_params.rs_splits.clear();

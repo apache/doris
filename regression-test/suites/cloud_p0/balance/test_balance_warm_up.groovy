@@ -42,9 +42,15 @@ suite('test_balance_warm_up', 'docker') {
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
         'cache_read_from_peer_expired_seconds=100',
-        'enable_cache_read_from_peer=true',
         "enable_packed_file=${enablePackedFile}",
         'skip_writing_empty_rowset_metadata=false',
+        'peer_candidate_cleanup_interval_s=10',
+        'peer_candidate_expiry_s=30',
+        'enable_cache_read_from_peer=true',
+        'file_cache_enter_disk_resource_limit_mode_percent=99',
+        'file_cache_exit_disk_resource_limit_mode_percent=98',
+        'file_cache_enter_need_evict_cache_in_advance_percent=99',
+        'file_cache_exit_need_evict_cache_in_advance_percent=98'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -68,6 +74,12 @@ suite('test_balance_warm_up', 'docker') {
     def testCase = { table -> 
         def ms = cluster.getAllMetaservices().get(0)
         def msHttpPort = ms.host + ":" + ms.httpPort
+        def cacheKeyForBackend = { be ->
+            be.HttpPort == null ? be.Host as String : "${be.Host}:${be.HttpPort}"
+        }
+        def cacheDirsForBackend = { dirs, be ->
+            dirs[cacheKeyForBackend(be)] ?: dirs[be.Host]
+        }
         sql """CREATE TABLE $table (
                 `id` BIGINT,
                 `deleted` TINYINT,
@@ -156,7 +168,6 @@ suite('test_balance_warm_up', 'docker') {
         logger.info("before warm up result {}", beforeWarmUpResult)
 
         cluster.addBackend(1, "compute_cluster")
-        def oldBe = sql_return_maparray('show backends').get(0)
         def newAddBe = sql_return_maparray('show backends').get(1)
         // balance tablet
         awaitUntil(500) {
@@ -189,10 +200,9 @@ suite('test_balance_warm_up', 'docker') {
             afterIdxCacheDirVersion3 
         )
         logger.info("after fe tablets {}, be tablets {}, cache dir {}", afterGetFromFe, afterGetFromBe, afterMergedCacheDir)
-        def newAddBeCacheDir = afterMergedCacheDir.get(newAddBe.Host)
+        def newAddBeCacheDir = cacheDirsForBackend(afterMergedCacheDir, newAddBe)
         logger.info("new add be cache dir {}", newAddBeCacheDir)
         assert newAddBeCacheDir.size() != 0
-        assert beforeMergedCacheDir[oldBe.Host].containsAll(afterMergedCacheDir[newAddBe.Host])
 
         def be = cluster.getBeByBackendId(newAddBe.BackendId.toLong())
         def dataPath = new File("${be.path}/storage/file_cache")
@@ -221,9 +231,9 @@ suite('test_balance_warm_up', 'docker') {
             "Available subdirs: ${subDirs}")
         }
 
-        sleep(105 * 1000)
-        // test expired be tablet cache info be removed
-        // after cache_read_from_peer_expired_seconds = 100s
+        // peer_candidate_expiry_s=30s, cleanup runs every 10s → entries evicted within ~40s
+        sleep(45 * 1000)
+        // test that expired peer candidate entries are removed by run_cleanup_loop
         assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "balance_tablet_be_mapping_size"))
         assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"))
         assert(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"))

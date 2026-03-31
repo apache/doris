@@ -471,6 +471,7 @@ DECLARE_String(storage_page_cache_limit);
 // Shard size for page cache, the value must be power of two.
 // It's recommended to set it to a value close to the number of BE cores in order to reduce lock contentions.
 DECLARE_Int32(storage_page_cache_shard_size);
+DECLARE_mInt32(file_cache_mem_storage_shard_num);
 // Percentage for index page cache
 // all storage page cache will be divided into data_page_cache and index_page_cache
 DECLARE_Int32(index_page_cache_percentage);
@@ -1148,6 +1149,11 @@ DECLARE_mInt32(cold_data_compaction_score_threshold);
 
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
+
+// Thread pool for S3 reads in cross-CG peer winner race.
+// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+DECLARE_Int32(min_peer_race_s3_thread_num);
+DECLARE_Int32(max_peer_race_s3_thread_num);
 
 DECLARE_Bool(enable_time_lut);
 

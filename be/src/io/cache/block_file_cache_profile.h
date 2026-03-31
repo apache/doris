@@ -108,6 +108,15 @@ struct FileCacheProfileReporter {
     RuntimeProfile::Counter* segment_footer_index_remote_io_timer = nullptr;
     RuntimeProfile::Counter* segment_footer_index_peer_io_timer = nullptr;
 
+    // Cross-CG peer read counters
+    RuntimeProfile::Counter* num_cross_cg_peer_io_total = nullptr;
+    RuntimeProfile::Counter* bytes_scanned_from_cross_cg_peer = nullptr;
+    RuntimeProfile::Counter* cross_cg_peer_io_timer = nullptr;
+    RuntimeProfile::Counter* num_peer_race_peer_win = nullptr;
+    RuntimeProfile::Counter* num_peer_race_s3_win = nullptr;
+    RuntimeProfile::Counter* num_peer_lazy_fetch = nullptr;
+    RuntimeProfile::Counter* peer_lazy_fetch_timer = nullptr;
+
     FileCacheProfileReporter(RuntimeProfile* profile);
     void update(const FileCacheStatistics* statistics) const;
 };

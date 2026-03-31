@@ -375,6 +375,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         output_rowset_meta->rowset_id().to_string(), seg_ptr->id(),
                         output_rowset_schema->get_inverted_index_storage_format(),
                         std::move(file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
+
                 RETURN_IF_ERROR(index_file_writer->initialize(dirs));
                 // create inverted index writer
                 for (auto& index_meta : _dropped_inverted_indexes) {
@@ -446,6 +447,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
                         fs, index_path_prefix, output_rowset_meta->rowset_id().to_string(),
                         seg_ptr->id(), output_rowset_schema->get_inverted_index_storage_format(),
                         std::move(file_writer), true /* can_use_ram_dir */, _tablet->tablet_id());
+
                 RETURN_IF_ERROR(index_file_writer->initialize(dirs));
             } else {
                 index_file_writer = std::make_unique<IndexFileWriter>(

@@ -44,6 +44,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
@@ -537,6 +538,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     public void clearClusterToBe(String cluster) {
         primaryClusterToBackend.remove(cluster);
         secondaryClusterToBackends.remove(cluster);
+    }
+
+    /**
+     * Returns the set of compute group IDs that have primary backends for this replica.
+     * Used by lazy fetch path to also collect secondary backends per compute group.
+     */
+    public Set<String> getPrimaryComputeGroupIds() {
+        return primaryClusterToBackend.keySet();
     }
 
     // ATTN: This func is only used by redundant tablet report clean in bes.
