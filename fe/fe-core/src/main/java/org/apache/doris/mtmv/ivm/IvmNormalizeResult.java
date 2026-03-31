@@ -32,7 +32,7 @@ import java.util.Map;
  *   - non-deterministic (false): DUP_KEYS table — row-id = random 128-bit per insert
  *
  * normalizedPlan: the plan tree after IvmNormalizeMtmv has injected row-id columns.
- *   Stored here so that IVMRefreshManager can retrieve it for external delta rewriting.
+ *   Stored here so that IvmRefreshManager can retrieve it for external delta rewriting.
  */
 public class IvmNormalizeResult {
     // insertion-ordered so row-ids appear in scan order
