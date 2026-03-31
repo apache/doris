@@ -66,9 +66,14 @@ PaimonJniReader::PaimonJniReader(const std::vector<SlotDescriptor*>& file_slot_d
         _remaining_table_level_row_count = -1;
     }
 
-    // Used to create paimon option
-    for (const auto& kv : paimon_params.paimon_options) {
-        params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+    if (range_params->__isset.paimon_options && !range_params->paimon_options.empty()) {
+        for (const auto& kv : range_params->paimon_options) {
+            params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+        }
+    } else if (paimon_params.__isset.paimon_options) {
+        for (const auto& kv : paimon_params.paimon_options) {
+            params[PAIMON_OPTION_PREFIX + kv.first] = kv.second;
+        }
     }
     // Prefer hadoop conf from scan node level (range_params->properties) over split level
     // to avoid redundant configuration in each split
