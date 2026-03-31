@@ -38,7 +38,7 @@ public class FileSystemProviderImpl implements LegacyFileSystemProviderFactory {
     @Override
     public LegacyFileSystemApi get(SessionContext ctx) {
         return new SwitchingFileSystem(
-                key -> extMetaCacheMgr.getFsCache().getRemoteFileSystem(key),
+                key -> FileSystemFactory.get(key.getProperties()),
                 storagePropertiesMap);
     }
 }

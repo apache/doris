@@ -45,13 +45,13 @@ import org.apache.doris.datasource.metacache.AbstractExternalMetaCache;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.metacache.MetaCacheEntry;
 import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
+import org.apache.doris.filesystem.spi.FileSystem;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemDirectoryLister;
 import org.apache.doris.fs.FileSystemIOException;
 import org.apache.doris.fs.RemoteIterator;
 import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 
@@ -395,8 +395,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
 
         FileSystemCache.FileSystemCacheKey fileSystemCacheKey = new FileSystemCache.FileSystemCacheKey(
                 path.getFsIdentifier(), path.getStorageProperties());
-        RemoteFileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
-                .getRemoteFileSystem(fileSystemCacheKey);
+        FileSystem fs = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
+                .getFileSystem(fileSystemCacheKey);
         result.setSplittable(HiveUtil.isSplittable(fs, inputFormat, path.getNormalizedLocation()));
 
         boolean isRecursiveDirectories = Boolean.valueOf(
@@ -816,8 +816,8 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 HMSExternalCatalog catalog = hmsCatalog(partition.getNameMapping().getCtlId());
                 LocationPath locationPath = LocationPath.of(partition.getPath(),
                         catalog.getCatalogProperty().getStoragePropertiesMap());
-                RemoteFileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
-                        .getRemoteFileSystem(new FileSystemCache.FileSystemCacheKey(
+                FileSystem fileSystem = Env.getCurrentEnv().getExtMetaCacheMgr().getFsCache()
+                        .getFileSystem(new FileSystemCache.FileSystemCacheKey(
                                 locationPath.getNormalizedLocation(),
                                 locationPath.getStorageProperties()));
                 AuthenticationConfig authenticationConfig = AuthenticationConfig

@@ -136,7 +136,7 @@ public class TransactionScopeCachingDirectoryListerTest {
         }
 
         @Override
-        public RemoteIterator<RemoteFile> listFiles(LegacyFileSystemApi fs, boolean recursive,
+        public RemoteIterator<RemoteFile> listFiles(org.apache.doris.filesystem.spi.FileSystem fs, boolean recursive,
                 TableIf table, String location)
                 throws FileSystemIOException {
             // No specific recursive files-only listing implementation

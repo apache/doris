@@ -17,12 +17,14 @@
 
 package org.apache.doris.datasource.hive;
 
-import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.LegacyFileSystemApi;
+import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.fs.FileSystemTransferUtil;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import lombok.EqualsAndHashCode;
@@ -132,37 +134,17 @@ public class AcidUtil {
     }
 
 
-    private static boolean isValidMetaDataFile(LegacyFileSystemApi fileSystem, String baseDir)
+    private static boolean isValidMetaDataFile(FileSystem fileSystem, String baseDir)
             throws IOException {
         String fileLocation = baseDir + "_metadata_acid";
-        Status status = fileSystem.exists(fileLocation);
-        if (status != Status.OK) {
+        try {
+            return fileSystem.exists(Location.of(fileLocation));
+        } catch (IOException e) {
             return false;
         }
-        //In order to save the cost of reading the file content, we only check whether the file exists.
-        // File Contents: {"thisFileVersion":"0","dataFormat":"compacted"}
-        //
-        // Map<String, String> metadata;
-        // try (var in = read(fileLocation)) {
-        //     metadata = new ObjectMapper().readValue(in, new TypeReference<>() {});
-        // }
-        // catch (IOException e) {
-        //     throw new IOException(String.format("Failed to read %s: %s", fileLocation, e.getMessage()), e);
-        // }
-        //
-        // String version = metadata.get("thisFileVersion");
-        // if (!"0".equals(version)) {
-        //     throw new IOException("Unexpected ACID metadata version: " + version);
-        // }
-        //
-        // String format = metadata.get("dataFormat");
-        // if (!"compacted".equals(format)) {
-        //     throw new IOException("Unexpected value for ACID dataFormat: " + format);
-        // }
-        return true;
     }
 
-    private static boolean isValidBase(LegacyFileSystemApi fileSystem, String baseDir,
+    private static boolean isValidBase(FileSystem fileSystem, String baseDir,
             ParsedBase base, ValidWriteIdList writeIdList) throws IOException {
         if (base.writeId == Long.MIN_VALUE) {
             //Ref: https://issues.apache.org/jira/browse/HIVE-13369
@@ -239,7 +221,7 @@ public class AcidUtil {
     //Since the hive3 library cannot read the hive4 transaction table normally, and there are many problems
     // when using the Hive 4 library directly, this method is implemented.
     //Ref: hive/ql/src/java/org/apache/hadoop/hive/ql/io/AcidUtils.java#getAcidState
-    public static FileCacheValue getAcidState(LegacyFileSystemApi fileSystem, HivePartition partition,
+    public static FileCacheValue getAcidState(FileSystem fileSystem, HivePartition partition,
             Map<String, String> txnValidIds, Map<StorageProperties.Type, StorageProperties> storagePropertiesMap,
                                               boolean isFullAcid) throws Exception {
 
@@ -270,14 +252,9 @@ public class AcidUtil {
         String partitionPath = partition.getPath();
         //hdfs://xxxxx/user/hive/warehouse/username/data_id=200103
 
-        List<RemoteFile> lsPartitionPath = new ArrayList<>();
-        Status status = fileSystem.globList(partitionPath + "/*", lsPartitionPath);
+        List<RemoteFile> lsPartitionPath = toRemoteFiles(
+                FileSystemTransferUtil.globList(fileSystem, partitionPath + "/*", false));
         // List all files and folders, without recursion.
-        // FileStatus[] lsPartitionPath = null;
-        // fileSystem.listFileStatuses(partitionPath,lsPartitionPath);
-        if (status != Status.OK) {
-            throw new IOException(status.toString());
-        }
 
         String oldestBase = null;
         long oldestBaseWriteId = Long.MAX_VALUE;
@@ -411,38 +388,30 @@ public class AcidUtil {
         for (ParsedDelta delta : deltas) {
             String location = delta.getPath();
 
-            List<RemoteFile> remoteFiles = new ArrayList<>();
-            status = fileSystem.listFiles(location, false, remoteFiles);
-            if (status.ok()) {
-                if (delta.isDeleteDelta()) {
-                    List<String> deleteDeltaFileNames = remoteFiles.stream()
-                            .map(RemoteFile::getName).filter(fileFilter::accept)
-                            .collect(Collectors.toList());
-                    deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
-                    continue;
-                }
-                remoteFiles.stream().filter(f -> fileFilter.accept(f.getName())).forEach(file -> {
-                    LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
-                    fileCacheValue.addFile(file, path);
-                });
-            } else {
-                throw new RuntimeException(status.getErrMsg());
+            List<RemoteFile> remoteFiles = toRemoteFiles(
+                    FileSystemTransferUtil.globList(fileSystem, location, false));
+            if (delta.isDeleteDelta()) {
+                List<String> deleteDeltaFileNames = remoteFiles.stream()
+                        .map(RemoteFile::getName).filter(fileFilter::accept)
+                        .collect(Collectors.toList());
+                deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
+                continue;
             }
+            remoteFiles.stream().filter(f -> fileFilter.accept(f.getName())).forEach(file -> {
+                LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
+                fileCacheValue.addFile(file, path);
+            });
         }
 
         // base
         if (bestBasePath != null) {
-            List<RemoteFile> remoteFiles = new ArrayList<>();
-            status = fileSystem.listFiles(bestBasePath, false, remoteFiles);
-            if (status.ok()) {
-                remoteFiles.stream().filter(f -> fileFilter.accept(f.getName()))
-                        .forEach(file -> {
-                            LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
-                            fileCacheValue.addFile(file, path);
-                        });
-            } else {
-                throw new RuntimeException(status.getErrMsg());
-            }
+            List<RemoteFile> remoteFiles = toRemoteFiles(
+                    FileSystemTransferUtil.globList(fileSystem, bestBasePath, false));
+            remoteFiles.stream().filter(f -> fileFilter.accept(f.getName()))
+                    .forEach(file -> {
+                        LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
+                        fileCacheValue.addFile(file, path);
+                    });
         }
 
         if (isFullAcid) {
@@ -451,5 +420,14 @@ public class AcidUtil {
             throw new RuntimeException("No Hive Full Acid Table have delete_delta_* Dir.");
         }
         return fileCacheValue;
+    }
+
+    private static List<RemoteFile> toRemoteFiles(List<FileEntry> entries) {
+        List<RemoteFile> result = new ArrayList<>(entries.size());
+        for (FileEntry e : entries) {
+            org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(e.location().uri());
+            result.add(new RemoteFile(hadoopPath, e.isDirectory(), e.length(), -1L, 0L, null));
+        }
+        return result;
     }
 }

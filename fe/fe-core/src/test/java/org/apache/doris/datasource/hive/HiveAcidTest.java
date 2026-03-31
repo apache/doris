@@ -21,6 +21,7 @@ import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.local.LocalFileSystem;
 import org.apache.doris.fs.LocalDfsFileSystem;
 
 import com.google.common.collect.ImmutableMap;
@@ -45,6 +46,8 @@ public class HiveAcidTest {
     private static final Map<StorageProperties.Type, StorageProperties> storagePropertiesMap = ImmutableMap.of(
             StorageProperties.Type.LOCAL, new LocalProperties(new HashMap<>())
     );
+
+    private static final LocalFileSystem SPI_LOCAL_FS = new LocalFileSystem(new HashMap<>());
 
     @Test
     public void testOriginalDeltas() throws Exception {
@@ -74,7 +77,7 @@ public class HiveAcidTest {
                 false, "", "file://" + tempPath.toAbsolutePath() + "",
                 new ArrayList<>(), new HashMap<>());
         try {
-            AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, new HashMap<>(), true);
+            AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, new HashMap<>(), true);
         } catch (UnsupportedOperationException e) {
             Assert.assertTrue(e.getMessage().contains("For no acid table convert to acid, please COMPACT 'major'."));
         }
@@ -106,7 +109,7 @@ public class HiveAcidTest {
                 new ArrayList<>(),
                 new HashMap<>());
         try {
-            AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+            AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
         } catch (UnsupportedOperationException e) {
             Assert.assertTrue(e.getMessage().contains("For no acid table convert to acid, please COMPACT 'major'."));
         }
@@ -143,7 +146,7 @@ public class HiveAcidTest {
                 new HashMap<>());
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
         List<String> readFile =
                 fileCacheValue.getFiles().stream().map(x -> x.path.getNormalizedLocation()).collect(Collectors.toList());
@@ -194,7 +197,7 @@ public class HiveAcidTest {
                 new HashMap<>());
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
 
         List<String> readFile =
@@ -242,7 +245,7 @@ public class HiveAcidTest {
 
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
 
         List<String> readFile =
@@ -288,7 +291,7 @@ public class HiveAcidTest {
                 new HashMap<>());
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
 
         List<String> readFile =
@@ -341,7 +344,7 @@ public class HiveAcidTest {
                 new HashMap<>());
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
 
         List<String> readFile =
@@ -411,7 +414,7 @@ public class HiveAcidTest {
                 tableProps);
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
 
 
@@ -477,7 +480,7 @@ public class HiveAcidTest {
                 tableProps);
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
         List<String> readFile =
                 fileCacheValue.getFiles().stream().map(x -> x.path.getNormalizedLocation()).collect(Collectors.toList());
@@ -523,7 +526,7 @@ public class HiveAcidTest {
                 tableProps);
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
 
         List<String> readFile =
@@ -586,7 +589,7 @@ public class HiveAcidTest {
                 tableProps);
 
         FileCacheValue fileCacheValue =
-                AcidUtil.getAcidState(localDFSFileSystem, partition, txnValidIds, storagePropertiesMap, true);
+                AcidUtil.getAcidState(SPI_LOCAL_FS, partition, txnValidIds, storagePropertiesMap, true);
 
         List<String> readFile =
                 fileCacheValue.getFiles().stream().map(x -> x.path.getNormalizedLocation()).collect(Collectors.toList());
