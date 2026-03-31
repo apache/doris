@@ -365,12 +365,20 @@ Status IndexChannel::close_wait(
                 for (auto& it : unfinished_node_channel_ids) {
                     unfinished_node_channel_host_str << _node_channels[it]->host() << ",";
                     _node_channels[it]->cancel("timeout");
+                    mark_as_failed(_node_channels[it].get(),
+                                   "cancelled due to close_wait timeout", -1);
                 }
                 LOG(WARNING) << "reach max wait time, max_wait_time_ms: " << max_wait_time_ms
                              << ", cancel unfinished node channel and finish close"
                              << ", load id: " << print_id(_parent->_load_id)
                              << ", txn_id: " << _parent->_txn_id << ", unfinished node channel: "
                              << unfinished_node_channel_host_str.str();
+                Status intolerable_st = check_intolerable_failure();
+                if (!intolerable_st.ok()) {
+                    status = std::move(intolerable_st);
+                } else {
+                    set_error_tablet_in_state(_parent->_state);
+                }
                 break;
             }
             bthread_usleep(1000 * 10);
