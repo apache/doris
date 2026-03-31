@@ -60,7 +60,7 @@ public class DropMaterializedViewCommand extends Command implements ForwardWithS
      */
     @VisibleForTesting
     public void validate(ConnectContext ctx) throws AnalysisException {
-        tableName.analyze(ctx);
+        tableName.analyze(ctx.getNameSpaceContext());
         // disallow external catalog
         Util.prohibitExternalCatalog(tableName.getCtl(), this.getClass().getSimpleName());
         // check access

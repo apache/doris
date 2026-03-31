@@ -21,23 +21,14 @@ import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.CaseSensibility;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.gson.GsonPostProcessable;
-import org.apache.doris.proto.OlapFile;
-import org.apache.doris.proto.OlapFile.PatternTypePB;
-import org.apache.doris.thrift.TAggregationType;
-import org.apache.doris.thrift.TColumn;
-import org.apache.doris.thrift.TColumnType;
-import org.apache.doris.thrift.TPatternType;
-import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
-import com.google.protobuf.ByteString;
 import org.apache.commons.collections4.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -153,7 +144,7 @@ public class Column implements GsonPostProcessable {
 
     // used for variant sub-field pattern type
     @SerializedName(value = "fpt")
-    private TPatternType fieldPatternType;
+    private PatternType fieldPatternType;
 
     // used for saving some extra information, such as timezone info of datetime column
     // Maybe deprecated if we implement real timestamp with timezone type.
@@ -545,6 +536,10 @@ public class Column implements GsonPostProcessable {
         return this.defaultValue;
     }
 
+    public String getRealDefaultValue() {
+        return realDefaultValue;
+    }
+
     public String getDefaultValueSql() {
         if (defaultValue == null) {
             return null;
@@ -592,292 +587,8 @@ public class Column implements GsonPostProcessable {
         return onUpdateDefaultValueExprDef.getSql();
     }
 
-    public TColumn toThrift() {
-        TColumn tColumn = new TColumn();
-        tColumn.setColumnName(removeNamePrefix(this.name));
-
-        TColumnType tColumnType = new TColumnType();
-        tColumnType.setType(this.getDataType().toThrift());
-        tColumnType.setLen(this.getStrLen());
-        tColumnType.setPrecision(this.getPrecision());
-        tColumnType.setScale(this.getScale());
-        tColumnType.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
-        tColumnType.setVariantEnableDocMode(this.getVariantEnableDocMode());
-
-        tColumnType.setIndexLen(this.getOlapColumnIndexSize());
-
-        tColumn.setColumnType(tColumnType);
-        if (null != this.aggregationType) {
-            tColumn.setAggregationType(this.aggregationType.toThrift());
-        } else {
-            tColumn.setAggregationType(TAggregationType.NONE);
-        }
-
-        tColumn.setIsKey(this.isKey);
-        tColumn.setIsAllowNull(this.isAllowNull);
-        tColumn.setIsAutoIncrement(this.isAutoInc);
-        tColumn.setIsOnUpdateCurrentTimestamp(this.hasOnUpdateDefaultValue);
-        // keep compatibility
-        tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
-        tColumn.setVisible(visible);
-        toChildrenThrift(this, tColumn);
-
-        tColumn.setColUniqueId(uniqueId);
-
-        if (type.isAggStateType()) {
-            AggStateType aggState = (AggStateType) type;
-            tColumn.setAggregation(aggState.getFunctionName());
-            tColumn.setResultIsNullable(aggState.getResultIsNullable());
-            if (children != null) {
-                for (Column column : children) {
-                    tColumn.addToChildrenColumn(column.toThrift());
-                }
-            }
-            tColumn.setBeExecVersion(Config.be_exec_version);
-        }
-        tColumn.setClusterKeyId(this.clusterKeyId);
-        tColumn.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
-        tColumn.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
-        tColumn.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
-        tColumn.setVariantEnableDocMode(this.getVariantEnableDocMode());
-        tColumn.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
-        tColumn.setVariantDocHashShardCount(this.getVariantDocShardCount());
-        tColumn.setVariantEnableNestedGroup(this.getVariantEnableNestedGroup());
-        // ATTN:
-        // Currently, this `toThrift()` method is only used from CreateReplicaTask.
-        // And CreateReplicaTask does not need `defineExpr` field.
-        // The `defineExpr` is only used when creating `TAlterMaterializedViewParam`, which is in `AlterReplicaTask`.
-        // And when creating `TAlterMaterializedViewParam`, the `defineExpr` is certainly analyzed.
-        // If we need to use `defineExpr` and call defineExpr.treeToThrift(),
-        // make sure it is analyzed, or NPE will thrown.
-        return tColumn;
-    }
-
-    private void setChildrenTColumn(Column children, TColumn tColumn) {
-        TColumn childrenTColumn = new TColumn();
-        childrenTColumn.setColumnName(children.name);
-
-        TColumnType childrenTColumnType = new TColumnType();
-        childrenTColumnType.setType(children.getDataType().toThrift());
-        childrenTColumnType.setLen(children.getStrLen());
-        childrenTColumnType.setPrecision(children.getPrecision());
-        childrenTColumnType.setScale(children.getScale());
-        childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
-
-        childrenTColumn.setColumnType(childrenTColumnType);
-        childrenTColumn.setIsAllowNull(children.isAllowNull());
-        // TODO: If we don't set the aggregate type for children, the type will be
-        //  considered as TAggregationType::SUM after deserializing in BE.
-        //  For now, we make children inherit the aggregate type from their parent.
-        if (tColumn.getAggregationType() != null) {
-            childrenTColumn.setAggregationType(tColumn.getAggregationType());
-        }
-        if (children.fieldPatternType != null) {
-            childrenTColumn.setPatternType(children.fieldPatternType);
-        }
-        childrenTColumn.setClusterKeyId(children.clusterKeyId);
-
-        tColumn.children_column.add(childrenTColumn);
-        toChildrenThrift(children, childrenTColumn);
-    }
-
-    private void addChildren(Column column, TColumn tColumn) {
-        if (column.getChildren() != null) {
-            List<Column> childrenColumns = column.getChildren();
-            tColumn.setChildrenColumn(new ArrayList<>());
-            for (Column c : childrenColumns) {
-                setChildrenTColumn(c, tColumn);
-            }
-        }
-    }
-
-    private void addChildren(OlapFile.ColumnPB.Builder builder) throws DdlException {
-        if (this.getChildren() != null) {
-            List<Column> childrenColumns = this.getChildren();
-            for (Column c : childrenColumns) {
-                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
-            }
-        }
-    }
-
-    private void toChildrenThrift(Column column, TColumn tColumn) {
-        if (column.type.isArrayType()) {
-            Column children = column.getChildren().get(0);
-            tColumn.setChildrenColumn(new ArrayList<>());
-            setChildrenTColumn(children, tColumn);
-        } else if (column.type.isMapType()) {
-            Column k = column.getChildren().get(0);
-            Column v = column.getChildren().get(1);
-            tColumn.setChildrenColumn(new ArrayList<>());
-            setChildrenTColumn(k, tColumn);
-            setChildrenTColumn(v, tColumn);
-        } else if (column.type.isStructType()) {
-            List<Column> childrenColumns = column.getChildren();
-            tColumn.setChildrenColumn(new ArrayList<>());
-            for (Column children : childrenColumns) {
-                setChildrenTColumn(children, tColumn);
-            }
-        } else if (column.type.isVariantType()) {
-            // variant may contain predefined structured fields
-            addChildren(column, tColumn);
-        }
-    }
-
     // CLOUD_CODE_BEGIN
-    public int getFieldLengthByType(TPrimitiveType type, int stringLength) throws DdlException {
-        switch (type) {
-            case TINYINT:
-            case BOOLEAN:
-                return 1;
-            case SMALLINT:
-                return 2;
-            case INT:
-                return 4;
-            case BIGINT:
-                return 8;
-            case LARGEINT:
-                return 16;
-            case DATE:
-                return 3;
-            case DATEV2:
-                return 4;
-            case DATETIME:
-                return 8;
-            case DATETIMEV2:
-            case TIMESTAMPTZ:
-                return 8;
-            case FLOAT:
-                return 4;
-            case DOUBLE:
-                return 8;
-            case QUANTILE_STATE:
-            case BITMAP:
-                return 16;
-            case CHAR:
-                return stringLength;
-            case VARCHAR:
-            case HLL:
-            case AGG_STATE:
-                return stringLength + 2; // sizeof(OLAP_VARCHAR_MAX_LENGTH)
-            case STRING:
-                return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
-            case JSONB:
-                return stringLength + 4; // sizeof(OLAP_JSONB_MAX_LENGTH)
-            case ARRAY:
-                return 65535; // OLAP_ARRAY_MAX_LENGTH
-            case DECIMAL32:
-                return 4;
-            case DECIMAL64:
-                return 8;
-            case DECIMAL128I:
-                return 16;
-            case DECIMAL256:
-                return 32;
-            case DECIMALV2:
-                return 12; // use 12 bytes in olap engine.
-            case STRUCT:
-                return 65535;
-            case MAP:
-                return 65535;
-            case IPV4:
-                return 4;
-            case IPV6:
-                return 16;
-            case VARIANT:
-                return stringLength + 4; // sizeof(OLAP_STRING_MAX_LENGTH)
-            default:
-                LOG.warn("unknown field type. [type= << {} << ]", type);
-                throw new DdlException("unknown field type. type: " + type);
-        }
-    }
 
-    public OlapFile.ColumnPB toPb(Set<String> bfColumns, List<Index> indexes) throws DdlException {
-        OlapFile.ColumnPB.Builder builder = OlapFile.ColumnPB.newBuilder();
-
-        // when doing schema change, some modified column has a prefix in name.
-        // this prefix is only used in FE, not visible to BE, so we should remove this prefix.
-        builder.setName(name.startsWith(SHADOW_NAME_PREFIX)
-                ? name.substring(SHADOW_NAME_PREFIX.length()) : name);
-
-        builder.setUniqueId(uniqueId);
-        builder.setType(this.getDataType().toThrift().name());
-        builder.setIsKey(this.isKey);
-        if (fieldPatternType != null) {
-            if (fieldPatternType == TPatternType.MATCH_NAME) {
-                builder.setPatternType(PatternTypePB.MATCH_NAME);
-            } else {
-                builder.setPatternType(PatternTypePB.MATCH_NAME_GLOB);
-            }
-        }
-        if (null != this.aggregationType) {
-            if (type.isAggStateType()) {
-                AggStateType aggState = (AggStateType) type;
-                builder.setAggregation(aggState.getFunctionName());
-                builder.setResultIsNullable(aggState.getResultIsNullable());
-                builder.setBeExecVersion(Config.be_exec_version);
-                if (children != null) {
-                    for (Column column : children) {
-                        builder.addChildrenColumns(column.toPb(Sets.newHashSet(), Lists.newArrayList()));
-                    }
-                }
-            } else {
-                builder.setAggregation(this.aggregationType.toString());
-            }
-        } else {
-            builder.setAggregation("NONE");
-        }
-        builder.setIsNullable(this.isAllowNull);
-        if (this.defaultValue != null) {
-            builder.setDefaultValue(ByteString.copyFrom(this.defaultValue.getBytes()));
-        }
-        builder.setPrecision(this.getPrecision());
-        builder.setFrac(this.getScale());
-
-        int length = getFieldLengthByType(this.getDataType().toThrift(), this.getStrLen());
-
-        builder.setLength(length);
-        builder.setIndexLength(length);
-        if (this.getDataType().toThrift() == TPrimitiveType.VARCHAR
-                || this.getDataType().toThrift() == TPrimitiveType.STRING) {
-            builder.setIndexLength(this.getOlapColumnIndexSize());
-        }
-
-        if (bfColumns != null && bfColumns.contains(this.name)) {
-            builder.setIsBfColumn(true);
-        } else {
-            builder.setIsBfColumn(false);
-        }
-        builder.setVisible(visible);
-
-        if (this.type.isArrayType()) {
-            Column child = this.getChildren().get(0);
-            builder.addChildrenColumns(child.toPb(Sets.newHashSet(), Lists.newArrayList()));
-        } else if (this.type.isMapType()) {
-            Column k = this.getChildren().get(0);
-            builder.addChildrenColumns(k.toPb(Sets.newHashSet(), Lists.newArrayList()));
-            Column v = this.getChildren().get(1);
-            builder.addChildrenColumns(v.toPb(Sets.newHashSet(), Lists.newArrayList()));
-        } else if (this.type.isStructType()) {
-            List<Column> childrenColumns = this.getChildren();
-            for (Column c : childrenColumns) {
-                builder.addChildrenColumns(c.toPb(Sets.newHashSet(), Lists.newArrayList()));
-            }
-        } else if (this.type.isVariantType()) {
-            builder.setVariantMaxSubcolumnsCount(this.getVariantMaxSubcolumnsCount());
-            builder.setVariantEnableTypedPathsToSparse(this.getVariantEnableTypedPathsToSparse());
-            builder.setVariantMaxSparseColumnStatisticsSize(this.getVariantMaxSparseColumnStatisticsSize());
-            builder.setVariantSparseHashShardCount(this.getVariantSparseHashShardCount());
-            builder.setVariantEnableDocMode(this.getVariantEnableDocMode());
-            builder.setVariantDocMaterializationMinRows(this.getvariantDocMaterializationMinRows());
-            builder.setVariantDocHashShardCount(this.getVariantDocShardCount());
-            builder.setVariantEnableNestedGroup(this.getVariantEnableNestedGroup());
-            // variant may contain predefined structured fields
-            addChildren(builder);
-        }
-
-        OlapFile.ColumnPB col = builder.build();
-        return col;
-    }
     // CLOUD_CODE_END
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
@@ -1217,13 +928,6 @@ public class Column implements GsonPostProcessable {
         return this.autoIncInitValue;
     }
 
-    public void setIndexFlag(TColumn tColumn, OlapTable olapTable) {
-        Set<String> bfColumns = olapTable.getCopiedBfColumns();
-        if (bfColumns != null && bfColumns.contains(tColumn.getColumnName())) {
-            tColumn.setIsBloomFilterColumn(true);
-        }
-    }
-
     public boolean isCompoundKey() {
         return isCompoundKey;
     }
@@ -1325,11 +1029,11 @@ public class Column implements GsonPostProcessable {
         return type.isVariantType() ? ((ScalarType) type).getVariantEnableNestedGroup() : false;
     }
 
-    public void setFieldPatternType(TPatternType type) {
+    public void setFieldPatternType(PatternType type) {
         fieldPatternType = type;
     }
 
-    public TPatternType getFieldPatternType() {
+    public PatternType getFieldPatternType() {
         return fieldPatternType;
     }
 

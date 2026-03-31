@@ -39,8 +39,4 @@ public class VirtualSlotRef extends SlotRef {
         return new VirtualSlotRef(this);
     }
 
-    @Override
-    public String getExprName() {
-        return super.getExprName();
-    }
 }

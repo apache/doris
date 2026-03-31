@@ -17,10 +17,6 @@
 
 package org.apache.doris.analysis;
 
-import org.apache.doris.common.NameFormatUtils;
-
-import java.util.Optional;
-
 public class ColumnRefExpr extends Expr {
     private String columnName;
     private int columnId;
@@ -42,14 +38,6 @@ public class ColumnRefExpr extends Expr {
 
     public int getColumnId() {
         return columnId;
-    }
-
-    @Override
-    public String getExprName() {
-        if (!this.exprName.isPresent()) {
-            this.exprName = Optional.of(NameFormatUtils.normalizeName(getName(), DEFAULT_EXPR_NAME));
-        }
-        return this.exprName.get();
     }
 
     public void setName(String name) {

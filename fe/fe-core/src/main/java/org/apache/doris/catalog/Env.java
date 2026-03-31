@@ -123,6 +123,7 @@ import org.apache.doris.httpv2.meta.MetaBaseAction;
 import org.apache.doris.httpv2.rest.RestApiStatusCode;
 import org.apache.doris.indexpolicy.IndexPolicyMgr;
 import org.apache.doris.info.TableNameInfo;
+import org.apache.doris.info.TableNameInfoUtils;
 import org.apache.doris.insertoverwrite.InsertOverwriteManager;
 import org.apache.doris.job.base.AbstractJob;
 import org.apache.doris.job.extensions.mtmv.MTMVTask;
@@ -5554,7 +5555,7 @@ public class Env {
                 }
 
                 String oldTableName = table.getName();
-                if (Env.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
+                if (GlobalVariable.isStoredTableNamesLowerCase() && !Strings.isNullOrEmpty(newTableName)) {
                     newTableName = newTableName.toLowerCase();
                 }
                 if (oldTableName.equals(newTableName)) {
@@ -5589,10 +5590,8 @@ public class Env {
                         newTableName);
                 editLog.logTableRename(tableInfo);
                 constraintManager.renameTable(
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), oldTableName),
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), newTableName));
+                        TableNameInfoUtils.fromDb(db, oldTableName),
+                        TableNameInfoUtils.fromDb(db, newTableName));
                 LOG.info("rename table[{}] to {}", oldTableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -5625,10 +5624,8 @@ public class Env {
                 table.setName(newTableName);
                 db.registerTable(table);
                 constraintManager.renameTable(
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), tableName),
-                        new TableNameInfo(InternalCatalog.INTERNAL_CATALOG_NAME,
-                                db.getFullName(), newTableName));
+                        TableNameInfoUtils.fromDb(db, tableName),
+                        TableNameInfoUtils.fromDb(db, newTableName));
                 LOG.info("replay rename table[{}] to {}", tableName, newTableName);
             } finally {
                 table.writeUnlock();
@@ -7188,18 +7185,6 @@ public class Env {
             olapTable.writeUnlock();
         }
         return result;
-    }
-
-    public static boolean isStoredTableNamesLowerCase() {
-        return GlobalVariable.lowerCaseTableNames == 1;
-    }
-
-    public static boolean isTableNamesCaseInsensitive() {
-        return GlobalVariable.lowerCaseTableNames == 2;
-    }
-
-    public static boolean isTableNamesCaseSensitive() {
-        return GlobalVariable.lowerCaseTableNames == 0;
     }
 
     public static int getLowerCaseTableNames(String catalogName) {

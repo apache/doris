@@ -21,6 +21,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.ExprToThriftVisitor;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.computegroup.ComputeGroup;
 import org.apache.doris.system.Backend;
@@ -189,7 +190,7 @@ public class MaterializationNode extends PlanNode {
         for (List<Column> cols : lazyColumns) {
             List<TColumn> array = new ArrayList<>();
             for (Column col : cols) {
-                array.add(col.toThrift());
+                array.add(ColumnToThrift.toThrift(col));
             }
             thriftCols.add(array);
         }

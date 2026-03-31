@@ -26,6 +26,7 @@ import org.apache.doris.analysis.Predicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.ColumnToThrift;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
@@ -318,7 +319,7 @@ public class DeleteJob extends AbstractTxnStateChangeCallback implements DeleteJ
                 List<Column> columns = indexMeta.getSchema(true);
                 // using to update schema of the rowset, so full columns should be included
                 for (Column column : columns) {
-                    TColumn tCol = column.toThrift();
+                    TColumn tCol = ColumnToThrift.toThrift(column);
                     columnsDesc.add(tCol);
                     String colName = column.tryGetBaseColumnName();
                     colNameToColDesc.put(colName, tCol);
