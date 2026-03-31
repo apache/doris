@@ -17,6 +17,10 @@
 
 #pragma once
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+
 #include "exprs/function/ai/ai_functions.h"
 
 namespace doris {
@@ -38,6 +42,51 @@ public:
         return std::make_shared<DataTypeBool>();
     }
 
+    Status execute_with_adapter(FunctionContext* context, Block& block,
+                                const ColumnNumbers& arguments, uint32_t result,
+                                size_t input_rows_count, const TAIResource& config,
+                                std::shared_ptr<AIAdapter>& adapter) const {
+        auto col_result = ColumnUInt8::create();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            std::string prompt;
+            RETURN_IF_ERROR(build_prompt(block, arguments, i, prompt));
+
+            std::string string_result;
+            RETURN_IF_ERROR(
+                    execute_single_request(prompt, string_result, config, adapter, context));
+
+#ifdef BE_TEST
+            const char* test_result = std::getenv("AI_TEST_RESULT");
+            if (test_result != nullptr) {
+                string_result = test_result;
+            } else {
+                string_result = "0";
+            }
+#endif
+
+            _trim_string(string_result);
+            if (string_result != "1" && string_result != "0") {
+                return Status::RuntimeError("Failed to parse boolean value: " + string_result);
+            }
+
+            col_result->insert_value(static_cast<UInt8>(string_result == "1"));
+        }
+
+        block.replace_by_position(result, std::move(col_result));
+        return Status::OK();
+    }
+
     static FunctionPtr create() { return std::make_shared<FunctionAIFilter>(); }
+
+private:
+    static void _trim_string(std::string& str) {
+        str.erase(str.begin(), std::find_if(str.begin(), str.end(),
+                                            [](unsigned char ch) { return !std::isspace(ch); }));
+        str.erase(std::find_if(str.rbegin(), str.rend(),
+                               [](unsigned char ch) { return !std::isspace(ch); })
+                          .base(),
+                  str.end());
+    }
 };
 } // namespace doris

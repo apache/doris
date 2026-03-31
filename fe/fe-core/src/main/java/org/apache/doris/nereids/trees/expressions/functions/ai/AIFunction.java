@@ -61,6 +61,7 @@ public abstract class AIFunction extends ScalarFunction
             if (!(resource instanceof AIResource)) {
                 throw new AnalysisException("AI resource '" + resourceName + "' does not exist");
             }
+            registerUsedAIResource(resourceName);
         }
     }
 
@@ -78,6 +79,13 @@ public abstract class AIFunction extends ScalarFunction
                     + "or session variable.");
         }
         return resourceName;
+    }
+
+    private static void registerUsedAIResource(String resourceName) {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null && ctx.getStatementContext() != null) {
+            ctx.getStatementContext().registerUsedAIResourceName(resourceName);
+        }
     }
 
     @Override
