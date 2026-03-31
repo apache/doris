@@ -60,9 +60,9 @@ enum PrimitiveType : PrimitiveNative {
     TYPE_DECIMAL64,           /* 29 */
     TYPE_DECIMAL128I,         /* 30, v3 128bit */
     TYPE_JSONB,               /* 31 */
-    TYPE_VARIANT,             /* 32 */
-    TYPE_LAMBDA_FUNCTION,     /* 33 */
-    TYPE_AGG_STATE,           /* 34 */
+    TYPE_VARIANT,                          /* 32 */
+    TYPE_LAMBDA_FUNCTION [[deprecated]],     /* 33 */
+    TYPE_AGG_STATE,                          /* 34 */
     TYPE_DECIMAL256,          /* 35 */
     TYPE_IPV4,                /* 36 */
     TYPE_IPV6,                /* 37 */
