@@ -52,19 +52,23 @@ suite("test_ignore_not_found_segment", "nonConcurrent") {
     qt_baseline "SELECT count(*) FROM ${tableName}"
 
     // Test 1: With ignore_not_found_segment=true (default), injecting NOT_FOUND
-    // should return partial results (0 rows since all segments fail to load)
+    // should return 0 rows since all segments fail to load and are skipped.
+    // Disable segment cache so the debug point is hit on every segment load.
     try {
         set_be_config.call("ignore_not_found_segment", "true")
+        set_be_config.call("disable_segment_cache", "true")
         GetDebugPoint().enableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
 
         qt_ignore_enabled "SELECT count(*) FROM ${tableName}"
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
+        set_be_config.call("disable_segment_cache", "false")
     }
 
     // Test 2: With ignore_not_found_segment=false, injecting NOT_FOUND should cause query failure
     try {
         set_be_config.call("ignore_not_found_segment", "false")
+        set_be_config.call("disable_segment_cache", "true")
         GetDebugPoint().enableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
 
         test {
@@ -73,6 +77,7 @@ suite("test_ignore_not_found_segment", "nonConcurrent") {
         }
     } finally {
         GetDebugPoint().disableDebugPointForAllBEs("BetaRowset::load_segment.return_not_found")
+        set_be_config.call("disable_segment_cache", "false")
         set_be_config.call("ignore_not_found_segment", "true")
     }
 
