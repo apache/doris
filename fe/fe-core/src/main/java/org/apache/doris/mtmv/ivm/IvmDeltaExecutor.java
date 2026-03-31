@@ -26,16 +26,16 @@ import java.util.List;
 /**
  * Executes IVM delta command bundles against the MV target table.
  */
-public class IVMDeltaExecutor {
+public class IvmDeltaExecutor {
 
-    public void execute(IVMRefreshContext context, List<DeltaCommandBundle> bundles)
+    public void execute(IvmRefreshContext context, List<DeltaCommandBundle> bundles)
             throws AnalysisException {
         for (DeltaCommandBundle bundle : bundles) {
             executeBundle(context, bundle);
         }
     }
 
-    private void executeBundle(IVMRefreshContext context, DeltaCommandBundle bundle)
+    private void executeBundle(IvmRefreshContext context, DeltaCommandBundle bundle)
             throws AnalysisException {
         StatementContext stmtCtx = new StatementContext();
         String auditStmt = String.format("IVM delta refresh, mvName: %s, baseTable: %s",

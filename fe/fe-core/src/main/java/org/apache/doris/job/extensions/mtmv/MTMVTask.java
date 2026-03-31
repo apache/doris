@@ -57,8 +57,8 @@ import org.apache.doris.mtmv.MTMVRefreshPartitionSnapshot;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
 import org.apache.doris.mtmv.MTMVRelation;
 import org.apache.doris.mtmv.MTMVUtil;
-import org.apache.doris.mtmv.ivm.IVMRefreshManager;
-import org.apache.doris.mtmv.ivm.IVMRefreshResult;
+import org.apache.doris.mtmv.ivm.IvmRefreshManager;
+import org.apache.doris.mtmv.ivm.IvmRefreshResult;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.trees.plans.commands.UpdateMvByPartitionCommand;
 import org.apache.doris.qe.ConnectContext;
@@ -244,8 +244,8 @@ public class MTMVTask extends AbstractTask {
             }
             // Attempt IVM refresh for incremental MVs and fall back when the plan is unsupported.
             if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.INCREMENTAL) {
-                IVMRefreshManager ivmRefreshManager = new IVMRefreshManager();
-                IVMRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
+                IvmRefreshManager ivmRefreshManager = new IvmRefreshManager();
+                IvmRefreshResult ivmResult = ivmRefreshManager.doRefresh(mtmv);
                 if (ivmResult.isSuccess()) {
                     LOG.info("IVM incremental refresh succeeded for mv={}, taskId={}",
                             mtmv.getName(), getTaskId());

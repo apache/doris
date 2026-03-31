@@ -27,14 +27,14 @@ import java.util.Map;
 /**
  * Thin persistent IVM metadata stored on MTMV.
  */
-public class IVMInfo {
+public class IvmInfo {
     @SerializedName("bb")
     private boolean binlogBroken = false;
 
     @SerializedName("bs")
-    private Map<BaseTableInfo, IVMStreamRef> baseTableStreams;
+    private Map<BaseTableInfo, IvmStreamRef> baseTableStreams;
 
-    public IVMInfo() {
+    public IvmInfo() {
         this.baseTableStreams = Maps.newHashMap();
     }
 
@@ -46,17 +46,17 @@ public class IVMInfo {
         this.binlogBroken = binlogBroken;
     }
 
-    public Map<BaseTableInfo, IVMStreamRef> getBaseTableStreams() {
+    public Map<BaseTableInfo, IvmStreamRef> getBaseTableStreams() {
         return baseTableStreams;
     }
 
-    public void setBaseTableStreams(Map<BaseTableInfo, IVMStreamRef> baseTableStreams) {
+    public void setBaseTableStreams(Map<BaseTableInfo, IvmStreamRef> baseTableStreams) {
         this.baseTableStreams = baseTableStreams;
     }
 
     @Override
     public String toString() {
-        return "IVMInfo{"
+        return "IvmInfo{"
                 + "binlogBroken=" + binlogBroken
                 + ", baseTableStreams=" + baseTableStreams
                 + '}';

@@ -42,31 +42,31 @@ import java.util.Set;
 /**
  * Minimal orchestration entry point for incremental refresh.
  */
-public class IVMRefreshManager {
-    private static final Logger LOG = LogManager.getLogger(IVMRefreshManager.class);
-    private final IVMDeltaExecutor deltaExecutor;
+public class IvmRefreshManager {
+    private static final Logger LOG = LogManager.getLogger(IvmRefreshManager.class);
+    private final IvmDeltaExecutor deltaExecutor;
 
-    public IVMRefreshManager() {
-        this(new IVMDeltaExecutor());
+    public IvmRefreshManager() {
+        this(new IvmDeltaExecutor());
     }
 
     @VisibleForTesting
-    IVMRefreshManager(IVMDeltaExecutor deltaExecutor) {
+    IvmRefreshManager(IvmDeltaExecutor deltaExecutor) {
         this.deltaExecutor = Objects.requireNonNull(deltaExecutor, "deltaExecutor can not be null");
     }
 
-    public IVMRefreshResult doRefresh(MTMV mtmv) {
+    public IvmRefreshResult doRefresh(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
-        IVMRefreshResult precheckResult = precheck(mtmv);
+        IvmRefreshResult precheckResult = precheck(mtmv);
         if (!precheckResult.isSuccess()) {
             LOG.warn("IVM precheck failed for mv={}, result={}", mtmv.getName(), precheckResult);
             return precheckResult;
         }
-        final IVMRefreshContext context;
+        final IvmRefreshContext context;
         try {
             context = buildRefreshContext(mtmv);
         } catch (Exception e) {
-            IVMRefreshResult result = IVMRefreshResult.fallback(
+            IvmRefreshResult result = IvmRefreshResult.fallback(
                     FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, e.getMessage());
             LOG.warn("IVM context build failed for mv={}, result={}", mtmv.getName(), result);
             return result;
@@ -75,26 +75,26 @@ public class IVMRefreshManager {
     }
 
     @VisibleForTesting
-    IVMRefreshResult precheck(MTMV mtmv) {
+    IvmRefreshResult precheck(MTMV mtmv) {
         Objects.requireNonNull(mtmv, "mtmv can not be null");
         if (mtmv.getIvmInfo().isBinlogBroken()) {
-            return IVMRefreshResult.fallback(FallbackReason.BINLOG_BROKEN,
+            return IvmRefreshResult.fallback(FallbackReason.BINLOG_BROKEN,
                     "Stream binlog is marked as broken");
         }
         // return checkStreamSupport(mtmv);
-        return IVMRefreshResult.success();
+        return IvmRefreshResult.success();
     }
 
     @VisibleForTesting
-    IVMRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
+    IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
         ConnectContext connectContext = MTMVPlanUtil.createMTMVContext(mtmv,
                 MTMVPlanUtil.DISABLE_RULES_WHEN_RUN_MTMV_TASK);
         MTMVRefreshContext mtmvRefreshContext = MTMVRefreshContext.buildContext(mtmv);
-        return new IVMRefreshContext(mtmv, connectContext, mtmvRefreshContext);
+        return new IvmRefreshContext(mtmv, connectContext, mtmvRefreshContext);
     }
 
     @VisibleForTesting
-    List<DeltaCommandBundle> analyzeDeltaCommandBundles(IVMRefreshContext context) throws Exception {
+    List<DeltaCommandBundle> analyzeDeltaCommandBundles(IvmRefreshContext context) throws Exception {
         MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQueryWithSql(
                 context.getMtmv(), context.getConnectContext(), true);
         Plan normalizedPlan = queryInfo.getIvmNormalizedPlan();
@@ -106,7 +106,7 @@ public class IVMRefreshManager {
         return new IvmDeltaRewriter().rewrite(normalizedPlan, rewriteCtx);
     }
 
-    private IVMRefreshResult doRefreshInternal(IVMRefreshContext context) {
+    private IvmRefreshResult doRefreshInternal(IvmRefreshContext context) {
         Objects.requireNonNull(context, "context can not be null");
 
         // Run Nereids with IVM rewrite enabled — per-pattern delta rules write bundles to CascadesContext
@@ -114,14 +114,14 @@ public class IVMRefreshManager {
         try {
             bundles = analyzeDeltaCommandBundles(context);
         } catch (Exception e) {
-            IVMRefreshResult result = IVMRefreshResult.fallback(
+            IvmRefreshResult result = IvmRefreshResult.fallback(
                     FallbackReason.PLAN_PATTERN_UNSUPPORTED, e.getMessage());
             LOG.warn("IVM plan analysis failed for mv={}, result={}", context.getMtmv().getName(), result);
             return result;
         }
 
         if (bundles == null || bundles.isEmpty()) {
-            IVMRefreshResult result = IVMRefreshResult.fallback(
+            IvmRefreshResult result = IvmRefreshResult.fallback(
                     FallbackReason.PLAN_PATTERN_UNSUPPORTED, "No IVM delta rule matched the MV define plan");
             LOG.warn("IVM no delta command bundles for mv={}, result={}", context.getMtmv().getName(), result);
             return result;
@@ -129,54 +129,54 @@ public class IVMRefreshManager {
 
         try {
             deltaExecutor.execute(context, bundles);
-            return IVMRefreshResult.success();
+            return IvmRefreshResult.success();
         } catch (Exception e) {
-            IVMRefreshResult result = IVMRefreshResult.fallback(
+            IvmRefreshResult result = IvmRefreshResult.fallback(
                     FallbackReason.INCREMENTAL_EXECUTION_FAILED, e.getMessage());
             LOG.warn("IVM execution failed for mv={}, result={}", context.getMtmv().getName(), result, e);
             return result;
         }
     }
 
-    private IVMRefreshResult checkStreamSupport(MTMV mtmv) {
+    private IvmRefreshResult checkStreamSupport(MTMV mtmv) {
         MTMVRelation relation = mtmv.getRelation();
         if (relation == null) {
-            return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+            return IvmRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
                     "No base table relation found for incremental refresh");
         }
         Set<BaseTableInfo> baseTables = relation.getBaseTablesOneLevelAndFromView();
         if (baseTables == null || baseTables.isEmpty()) {
-            return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+            return IvmRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
                     "No base tables found for incremental refresh");
         }
-        Map<BaseTableInfo, IVMStreamRef> baseTableStreams = mtmv.getIvmInfo().getBaseTableStreams();
+        Map<BaseTableInfo, IvmStreamRef> baseTableStreams = mtmv.getIvmInfo().getBaseTableStreams();
         if (baseTableStreams == null || baseTableStreams.isEmpty()) {
-            return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+            return IvmRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
                     "No stream bindings are registered for this materialized view");
         }
         for (BaseTableInfo baseTableInfo : baseTables) {
-            IVMStreamRef streamRef = baseTableStreams.get(baseTableInfo);
+            IvmStreamRef streamRef = baseTableStreams.get(baseTableInfo);
             if (streamRef == null) {
-                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                return IvmRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
                         "No stream binding found for base table: " + baseTableInfo);
             }
             if (streamRef.getStreamType() != StreamType.OLAP) {
-                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                return IvmRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
                         "Only OLAP base table streams are supported for incremental refresh: " + baseTableInfo);
             }
             final TableIf table;
             try {
                 table = MTMVUtil.getTable(baseTableInfo);
             } catch (Exception e) {
-                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                return IvmRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
                         "Failed to resolve base table metadata for incremental refresh: "
                                 + baseTableInfo + ", reason=" + e.getMessage());
             }
             if (!(table instanceof OlapTable)) {
-                return IVMRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
+                return IvmRefreshResult.fallback(FallbackReason.STREAM_UNSUPPORTED,
                         "Only OLAP base tables are supported for incremental refresh: " + baseTableInfo);
             }
         }
-        return IVMRefreshResult.success();
+        return IvmRefreshResult.success();
     }
 }

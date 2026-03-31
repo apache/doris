@@ -39,7 +39,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 
-public class IVMRefreshManagerTest {
+public class IvmRefreshManagerTest {
 
     @Test
     public void testRefreshContextRejectsNulls(@Mocked MTMV mtmv) {
@@ -47,26 +47,26 @@ public class IVMRefreshManagerTest {
         org.apache.doris.mtmv.MTMVRefreshContext mtmvRefreshContext = new org.apache.doris.mtmv.MTMVRefreshContext(mtmv);
 
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshContext(null, connectContext, mtmvRefreshContext));
+                () -> new IvmRefreshContext(null, connectContext, mtmvRefreshContext));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshContext(mtmv, null, mtmvRefreshContext));
+                () -> new IvmRefreshContext(mtmv, null, mtmvRefreshContext));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshContext(mtmv, connectContext, null));
+                () -> new IvmRefreshContext(mtmv, connectContext, null));
     }
 
     @Test
     public void testManagerRejectsNulls() {
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(null));
+                () -> new IvmRefreshManager(null));
     }
 
     @Test
     public void testManagerReturnsNoBundlesFallback(@Mocked MTMV mtmv) {
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
 
-        IVMRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
@@ -77,9 +77,9 @@ public class IVMRefreshManagerTest {
     public void testManagerExecutesBundles(@Mocked MTMV mtmv, @Mocked Command deltaWriteCommand) {
         TestDeltaExecutor executor = new TestDeltaExecutor();
         List<DeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor, newContext(mtmv), bundles);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), bundles);
 
-        IVMRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertTrue(executor.executeCalled);
@@ -91,10 +91,10 @@ public class IVMRefreshManagerTest {
             @Mocked Command deltaWriteCommand) {
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), makeBundles(deltaWriteCommand, mtmv));
 
-        IVMRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.INCREMENTAL_EXECUTION_FAILED, result.getFallbackReason());
@@ -104,10 +104,10 @@ public class IVMRefreshManagerTest {
     @Test
     public void testManagerReturnsSnapshotFallbackWhenBuildContextFails(@Mocked MTMV mtmv) {
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor, null, Collections.emptyList());
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, null, Collections.emptyList());
         manager.throwOnBuild = true;
 
-        IVMRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFallbackReason());
@@ -116,7 +116,7 @@ public class IVMRefreshManagerTest {
 
     @Test
     public void testManagerReturnsBinlogBrokenBeforeNereidsFlow(@Mocked MTMV mtmv) {
-        IVMInfo ivmInfo = new IVMInfo();
+        IvmInfo ivmInfo = new IvmInfo();
         ivmInfo.setBinlogBroken(true);
         new Expectations() {
             {
@@ -126,11 +126,11 @@ public class IVMRefreshManagerTest {
         };
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
         manager.useSuperPrecheck = true;
 
-        IVMRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.BINLOG_BROKEN, result.getFallbackReason());
@@ -140,7 +140,7 @@ public class IVMRefreshManagerTest {
     @Test
     public void testManagerReturnsStreamUnsupportedWithoutBinding(@Mocked MTMV mtmv,
             @Mocked MTMVRelation relation, @Mocked OlapTable olapTable) {
-        IVMInfo ivmInfo = new IVMInfo();
+        IvmInfo ivmInfo = new IvmInfo();
         BaseTableInfo baseTableInfo = new BaseTableInfo(olapTable, 2L);
         new Expectations() {
             {
@@ -155,11 +155,11 @@ public class IVMRefreshManagerTest {
         };
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
         manager.useSuperPrecheck = true;
 
-        IVMRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
@@ -169,7 +169,7 @@ public class IVMRefreshManagerTest {
     @Test
     public void testManagerPassesHealthyPrecheckAndExecutes(@Mocked MTMV mtmv,
             @Mocked MTMVRelation relation, @Mocked OlapTable olapTable, @Mocked Command deltaWriteCommand) {
-        IVMInfo ivmInfo = new IVMInfo();
+        IvmInfo ivmInfo = new IvmInfo();
         new Expectations() {
             {
                 olapTable.getId();
@@ -182,7 +182,7 @@ public class IVMRefreshManagerTest {
         };
         BaseTableInfo baseTableInfo = new BaseTableInfo(olapTable, 2L);
         ivmInfo.setBaseTableStreams(new HashMap<>());
-        ivmInfo.getBaseTableStreams().put(baseTableInfo, new IVMStreamRef(StreamType.OLAP, null, null));
+        ivmInfo.getBaseTableStreams().put(baseTableInfo, new IvmStreamRef(StreamType.OLAP, null, null));
         new MockUp<MTMVUtil>() {
             @Mock
             public TableIf getTable(BaseTableInfo input) {
@@ -203,30 +203,30 @@ public class IVMRefreshManagerTest {
 
         TestDeltaExecutor executor = new TestDeltaExecutor();
         List<DeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor, newContext(mtmv), bundles);
+        TestIvmRefreshManager manager = new TestIvmRefreshManager(executor, newContext(mtmv), bundles);
         manager.useSuperPrecheck = true;
 
-        IVMRefreshResult result = manager.doRefresh(mtmv);
+        IvmRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertTrue(result.isSuccess());
         Assertions.assertTrue(executor.executeCalled);
     }
 
-    private static IVMRefreshContext newContext(MTMV mtmv) {
-        return new IVMRefreshContext(mtmv, new ConnectContext(), new org.apache.doris.mtmv.MTMVRefreshContext(mtmv));
+    private static IvmRefreshContext newContext(MTMV mtmv) {
+        return new IvmRefreshContext(mtmv, new ConnectContext(), new org.apache.doris.mtmv.MTMVRefreshContext(mtmv));
     }
 
     private static List<DeltaCommandBundle> makeBundles(Command deltaWriteCommand, MTMV mtmv) {
         return Collections.singletonList(new DeltaCommandBundle(new BaseTableInfo(mtmv, 0L), deltaWriteCommand));
     }
 
-    private static class TestDeltaExecutor extends IVMDeltaExecutor {
+    private static class TestDeltaExecutor extends IvmDeltaExecutor {
         private boolean executeCalled;
         private boolean throwOnExecute;
         private List<DeltaCommandBundle> lastBundles;
 
         @Override
-        public void execute(IVMRefreshContext context, List<DeltaCommandBundle> bundles) throws AnalysisException {
+        public void execute(IvmRefreshContext context, List<DeltaCommandBundle> bundles) throws AnalysisException {
             executeCalled = true;
             lastBundles = bundles;
             if (throwOnExecute) {
@@ -235,29 +235,29 @@ public class IVMRefreshManagerTest {
         }
     }
 
-    private static class TestIVMRefreshManager extends IVMRefreshManager {
-        private final IVMRefreshContext context;
+    private static class TestIvmRefreshManager extends IvmRefreshManager {
+        private final IvmRefreshContext context;
         private final List<DeltaCommandBundle> bundles;
         private boolean throwOnBuild;
         private boolean useSuperPrecheck;
 
-        private TestIVMRefreshManager(IVMDeltaExecutor deltaExecutor,
-                IVMRefreshContext context, List<DeltaCommandBundle> bundles) {
+        private TestIvmRefreshManager(IvmDeltaExecutor deltaExecutor,
+                IvmRefreshContext context, List<DeltaCommandBundle> bundles) {
             super(deltaExecutor);
             this.context = context;
             this.bundles = bundles;
         }
 
         @Override
-        IVMRefreshResult precheck(MTMV mtmv) {
+        IvmRefreshResult precheck(MTMV mtmv) {
             if (useSuperPrecheck) {
                 return super.precheck(mtmv);
             }
-            return IVMRefreshResult.success();
+            return IvmRefreshResult.success();
         }
 
         @Override
-        IVMRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
+        IvmRefreshContext buildRefreshContext(MTMV mtmv) throws Exception {
             if (throwOnBuild) {
                 throw new AnalysisException("build context failed");
             }
@@ -265,7 +265,7 @@ public class IVMRefreshManagerTest {
         }
 
         @Override
-        List<DeltaCommandBundle> analyzeDeltaCommandBundles(IVMRefreshContext ctx) {
+        List<DeltaCommandBundle> analyzeDeltaCommandBundles(IvmRefreshContext ctx) {
             return bundles;
         }
     }
