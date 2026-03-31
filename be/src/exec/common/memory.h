@@ -20,7 +20,13 @@
 #include <fmt/format.h>
 #include <gen_cpp/Types_types.h>
 
+#include <atomic>
 #include <string>
+
+#include "common/cast_set.h"
+#include "common/factory_creator.h"
+#include "common/logging.h"
+#include "util/uid_util.h"
 
 namespace doris {
 static constexpr int64_t DEFAULT_SCANNER_MEM_BYTES = 64 * 1024 * 1024; // 64MB default
