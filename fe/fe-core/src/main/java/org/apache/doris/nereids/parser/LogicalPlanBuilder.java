@@ -1624,7 +1624,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 && ctx.HASH() == null && ctx.RANDOM() == null && ctx.BUCKETS() == null) {
             return visitCreateSyncMvCommand(ctx);
         }
-
         List<String> nameParts = visitMultipartIdentifier(ctx.mvName);
         BuildMode buildMode = visitBuildMode(ctx.buildMode());
         RefreshMethod refreshMethod = visitRefreshMethod(ctx.refreshMethod());

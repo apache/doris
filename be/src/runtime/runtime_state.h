@@ -22,6 +22,7 @@
 
 #include <gen_cpp/PaloInternalService_types.h>
 #include <gen_cpp/Types_types.h>
+#include <gen_cpp/DataSinks_types.h>
 #include <gen_cpp/segment_v2.pb.h>
 #include <stdint.h>
 
@@ -548,6 +549,17 @@ public:
         _mc_commit_datas.emplace_back(mc_commit_data);
     }
 
+    std::vector<TCommitMessage> paimon_commit_messages() const {
+        std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
+        return _paimon_commit_messages;
+    }
+
+    void add_paimon_commit_messages(const std::vector<TCommitMessage>& commit_messages) {
+        std::lock_guard<std::mutex> lock(_paimon_commit_messages_mutex);
+        _paimon_commit_messages.insert(_paimon_commit_messages.end(), commit_messages.begin(),
+                                       commit_messages.end());
+    }
+
     // local runtime filter mgr, the runtime filter do not have remote target or
     // not need local merge should regist here. the instance exec finish, the local
     // runtime filter mgr can release the memory of local runtime filter
@@ -964,6 +976,9 @@ private:
 
     mutable std::mutex _mc_commit_datas_mutex;
     std::vector<TMCCommitData> _mc_commit_datas;
+
+    mutable std::mutex _paimon_commit_messages_mutex;
+    std::vector<TCommitMessage> _paimon_commit_messages;
 
     std::vector<std::unique_ptr<doris::PipelineXLocalStateBase>> _op_id_to_local_state;
 
