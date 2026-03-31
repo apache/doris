@@ -61,6 +61,63 @@ under the License.
             <artifactId>paimon-format</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-avro</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-column</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-common</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
+            <version>${doris.hive.catalog.shade.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-bundle</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-hive-connector-3.1</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-hive-connector-common</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-hive-catalog</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.paimon</groupId>
+                    <artifactId>paimon-hive-common</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-memory-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.arrow</groupId>
+            <artifactId>arrow-vector</artifactId>
+        </dependency>
     </dependencies>
 
     <build>

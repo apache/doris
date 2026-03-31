@@ -78,6 +78,7 @@ option(GLIBC_COMPATIBILITY "Enable compatibility with older glibc libraries." ON
 option(USE_LIBCPP "Use libc++" OFF)
 option(USE_UNWIND "Use libunwind" ON)
 option(USE_JEMALLOC "Use jemalloc" ON)
+option(ENABLE_PAIMON "Enable Paimon sink (via paimon-cpp). Placeholder, off by default." OFF)
 if (OS_MACOSX)
     set(GLIBC_COMPATIBILITY OFF)
     set(USE_LIBCPP ON)
@@ -163,6 +164,9 @@ if (DEFINED ENV{ENABLE_PAIMON_CPP})
 endif()
 if (DEFINED ENV{PAIMON_HOME} AND NOT PAIMON_HOME)
     set(PAIMON_HOME "$ENV{PAIMON_HOME}" CACHE PATH "" FORCE)
+endif()
+if (ENABLE_PAIMON_CPP)
+    add_definitions(-DWITH_PAIMON_CPP)
 endif()
 
 set(CMAKE_SKIP_RPATH TRUE)
@@ -571,7 +575,10 @@ set(COMMON_THIRDPARTY
 )
 
 if (ENABLE_PAIMON_CPP)
-    message(STATUS "Paimon C++ enabled: legacy thirdparty static linkage mode")
+    set(COMMON_THIRDPARTY
+        ${COMMON_THIRDPARTY}
+        paimon
+    )
 endif()
 
 if ((ARCH_AMD64 OR ARCH_AARCH64) AND OS_LINUX)
