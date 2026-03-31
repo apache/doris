@@ -55,69 +55,33 @@ public class IVMRefreshManagerTest {
     }
 
     @Test
-    public void testCapabilityResultFactories() {
-        IVMCapabilityResult ok = IVMCapabilityResult.ok();
-        IVMCapabilityResult unsupported = IVMCapabilityResult.unsupported(FallbackReason.STREAM_UNSUPPORTED,
-                "stream is unsupported");
-
-        Assertions.assertTrue(ok.isIncremental());
-        Assertions.assertNull(ok.getFallbackReason());
-        Assertions.assertFalse(unsupported.isIncremental());
-        Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, unsupported.getFallbackReason());
-        Assertions.assertEquals("stream is unsupported", unsupported.getDetailMessage());
-        Assertions.assertTrue(unsupported.toString().contains("STREAM_UNSUPPORTED"));
-    }
-
-    @Test
     public void testManagerRejectsNulls() {
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(null, new IVMDeltaExecutor()));
-        Assertions.assertThrows(NullPointerException.class,
-                () -> new IVMRefreshManager(new IVMCapabilityChecker(), null));
+                () -> new IVMRefreshManager(null));
     }
 
     @Test
     public void testManagerReturnsNoBundlesFallback(@Mocked MTMV mtmv) {
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
 
         IVMRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.PLAN_PATTERN_UNSUPPORTED, result.getFallbackReason());
-        Assertions.assertEquals(0, checker.callCount);
-        Assertions.assertFalse(executor.executeCalled);
-    }
-
-    @Test
-    public void testManagerReturnsCapabilityFallback(@Mocked MTMV mtmv, @Mocked Command deltaWriteCommand) {
-        TestCapabilityChecker checker = new TestCapabilityChecker(
-                IVMCapabilityResult.unsupported(FallbackReason.STREAM_UNSUPPORTED, "unsupported"));
-        TestDeltaExecutor executor = new TestDeltaExecutor();
-        List<DeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, newContext(mtmv), bundles);
-
-        IVMRefreshResult result = manager.doRefresh(mtmv);
-
-        Assertions.assertFalse(result.isSuccess());
-        Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
-        Assertions.assertEquals(1, checker.callCount);
         Assertions.assertFalse(executor.executeCalled);
     }
 
     @Test
     public void testManagerExecutesBundles(@Mocked MTMV mtmv, @Mocked Command deltaWriteCommand) {
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
         TestDeltaExecutor executor = new TestDeltaExecutor();
         List<DeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, newContext(mtmv), bundles);
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor, newContext(mtmv), bundles);
 
         IVMRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertTrue(result.isSuccess());
-        Assertions.assertEquals(1, checker.callCount);
         Assertions.assertTrue(executor.executeCalled);
         Assertions.assertEquals(bundles, executor.lastBundles);
     }
@@ -125,10 +89,9 @@ public class IVMRefreshManagerTest {
     @Test
     public void testManagerReturnsExecutionFallbackOnExecutorFailure(@Mocked MTMV mtmv,
             @Mocked Command deltaWriteCommand) {
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
         TestDeltaExecutor executor = new TestDeltaExecutor();
         executor.throwOnExecute = true;
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
                 newContext(mtmv), makeBundles(deltaWriteCommand, mtmv));
 
         IVMRefreshResult result = manager.doRefresh(mtmv);
@@ -140,16 +103,14 @@ public class IVMRefreshManagerTest {
 
     @Test
     public void testManagerReturnsSnapshotFallbackWhenBuildContextFails(@Mocked MTMV mtmv) {
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, null, Collections.emptyList());
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor, null, Collections.emptyList());
         manager.throwOnBuild = true;
 
         IVMRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.SNAPSHOT_ALIGNMENT_UNSUPPORTED, result.getFallbackReason());
-        Assertions.assertEquals(0, checker.callCount);
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -164,9 +125,8 @@ public class IVMRefreshManagerTest {
             }
         };
 
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
         manager.useSuperPrecheck = true;
 
@@ -174,7 +134,6 @@ public class IVMRefreshManagerTest {
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.BINLOG_BROKEN, result.getFallbackReason());
-        Assertions.assertEquals(0, checker.callCount);
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -195,9 +154,8 @@ public class IVMRefreshManagerTest {
             }
         };
 
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
         TestDeltaExecutor executor = new TestDeltaExecutor();
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor,
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor,
                 newContext(mtmv), Collections.emptyList());
         manager.useSuperPrecheck = true;
 
@@ -205,7 +163,6 @@ public class IVMRefreshManagerTest {
 
         Assertions.assertFalse(result.isSuccess());
         Assertions.assertEquals(FallbackReason.STREAM_UNSUPPORTED, result.getFallbackReason());
-        Assertions.assertEquals(0, checker.callCount);
         Assertions.assertFalse(executor.executeCalled);
     }
 
@@ -244,16 +201,14 @@ public class IVMRefreshManagerTest {
             }
         };
 
-        TestCapabilityChecker checker = new TestCapabilityChecker(IVMCapabilityResult.ok());
         TestDeltaExecutor executor = new TestDeltaExecutor();
         List<DeltaCommandBundle> bundles = makeBundles(deltaWriteCommand, mtmv);
-        TestIVMRefreshManager manager = new TestIVMRefreshManager(checker, executor, newContext(mtmv), bundles);
+        TestIVMRefreshManager manager = new TestIVMRefreshManager(executor, newContext(mtmv), bundles);
         manager.useSuperPrecheck = true;
 
         IVMRefreshResult result = manager.doRefresh(mtmv);
 
         Assertions.assertTrue(result.isSuccess());
-        Assertions.assertEquals(1, checker.callCount);
         Assertions.assertTrue(executor.executeCalled);
     }
 
@@ -263,21 +218,6 @@ public class IVMRefreshManagerTest {
 
     private static List<DeltaCommandBundle> makeBundles(Command deltaWriteCommand, MTMV mtmv) {
         return Collections.singletonList(new DeltaCommandBundle(new BaseTableInfo(mtmv, 0L), deltaWriteCommand));
-    }
-
-    private static class TestCapabilityChecker extends IVMCapabilityChecker {
-        private final IVMCapabilityResult result;
-        private int callCount;
-
-        private TestCapabilityChecker(IVMCapabilityResult result) {
-            this.result = result;
-        }
-
-        @Override
-        public IVMCapabilityResult check(IVMRefreshContext context, List<DeltaCommandBundle> bundles) {
-            callCount++;
-            return result;
-        }
     }
 
     private static class TestDeltaExecutor extends IVMDeltaExecutor {
@@ -301,9 +241,9 @@ public class IVMRefreshManagerTest {
         private boolean throwOnBuild;
         private boolean useSuperPrecheck;
 
-        private TestIVMRefreshManager(IVMCapabilityChecker capabilityChecker, IVMDeltaExecutor deltaExecutor,
+        private TestIVMRefreshManager(IVMDeltaExecutor deltaExecutor,
                 IVMRefreshContext context, List<DeltaCommandBundle> bundles) {
-            super(capabilityChecker, deltaExecutor);
+            super(deltaExecutor);
             this.context = context;
             this.bundles = bundles;
         }

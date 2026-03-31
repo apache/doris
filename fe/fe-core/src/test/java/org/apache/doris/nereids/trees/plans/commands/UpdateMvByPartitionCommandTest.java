@@ -194,6 +194,61 @@ class UpdateMvByPartitionCommandTest extends TestWithFeService {
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableMaterializedViewRewrite());
         Assertions.assertFalse(executor.getContext().getSessionVariable().isEnableDmlMaterializedViewRewrite());
         Assertions.assertTrue(executor.getContext().getSessionVariable().isEnableIvmNormalRewrite());
+        Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
+        Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
+    }
+
+    @Test
+    void testExecuteCommandRebindsTaskStatementContextToExecutionContext() throws Exception {
+        MTMV mtmv = getMtmv("ivm_mv");
+        StatementContext statementContext = new StatementContext();
+        UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
+                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
+        org.apache.doris.qe.StmtExecutor executor = MTMVPlanUtil.executeCommand(
+                mtmv, command, statementContext, "refresh materialized view test.ivm_mv", true);
+
+        Assertions.assertSame(executor.getContext(), statementContext.getConnectContext());
+        Assertions.assertSame(statementContext, executor.getContext().getStatementContext());
+    }
+
+    @Test
+    void testRefreshCompleteMtmvWithOneRowRelation() throws Exception {
+        createTable("create table test.one_row_orders (\n"
+                + "  o_orderkey int not null,\n"
+                + "  o_custkey int not null,\n"
+                + "  o_orderstatus char(1) not null,\n"
+                + "  o_totalprice decimalv3(15,2) not null,\n"
+                + "  o_orderdate date not null,\n"
+                + "  o_orderpriority char(15) not null,\n"
+                + "  o_clerk char(15) not null,\n"
+                + "  o_shippriority int not null,\n"
+                + "  o_comment varchar(79) not null\n"
+                + ") duplicate key(o_orderkey, o_custkey)\n"
+                + "partition by range(o_orderdate) (\n"
+                + "  partition day_2 values less than ('2023-12-9'),\n"
+                + "  partition day_3 values less than ('2023-12-11'),\n"
+                + "  partition day_4 values less than ('2023-12-30')\n"
+                + ")\n"
+                + "distributed by hash(o_orderkey) buckets 1\n"
+                + "properties('replication_num' = '1');");
+        executeSql("insert into test.one_row_orders values\n"
+                + "(1, 1, 'o', 10.5, '2023-12-08', 'a', 'b', 1, 'yy'),\n"
+                + "(3, 1, 'o', 12.5, '2023-12-10', 'a', 'b', 1, 'yy');");
+        createMvByNereids("create materialized view test.one_row_mv\n"
+                + "build deferred refresh complete on manual\n"
+                + "distributed by random buckets 1\n"
+                + "properties('replication_num' = '1')\n"
+                + "as select * from\n"
+                + "(select 1 as l_orderkey, '2023-12-10' as l_shipdate) as c_lineitem\n"
+                + "left join test.one_row_orders orders on c_lineitem.l_orderkey = orders.o_orderkey\n"
+                + " and c_lineitem.l_shipdate = o_orderdate;");
+
+        MTMV mtmv = getMtmv("one_row_mv");
+        StatementContext statementContext = createStatementCtx("refresh materialized view test.one_row_mv");
+        UpdateMvByPartitionCommand command = UpdateMvByPartitionCommand.from(
+                mtmv, Sets.newHashSet(), ImmutableMap.of(), statementContext);
+        MTMVPlanUtil.executeCommand(mtmv, command, statementContext,
+                "refresh materialized view test.one_row_mv", false);
     }
 
     private UpdateMvByPartitionCommand newRefreshCommand(MTMV mtmv) throws Exception {
