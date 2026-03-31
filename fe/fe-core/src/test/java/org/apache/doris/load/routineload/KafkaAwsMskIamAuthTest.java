@@ -47,7 +47,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyMskRole");
+        dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::123456789012:role/MyMskRole");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -151,7 +151,7 @@ public class KafkaAwsMskIamAuthTest {
         // Test with role ARN but missing region - should fail
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
-        dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyMskRole");
+        dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::123456789012:role/MyMskRole");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -171,8 +171,8 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyMskRole");
-        dataSourceProperties.put("property.aws.profile.name", "default");
+        dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::123456789012:role/MyMskRole");
+        dataSourceProperties.put("property.aws.profile_name", "default");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -277,7 +277,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.credentials.provider", "INSTANCE_PROFILE");
+        dataSourceProperties.put("property.aws.credentials_provider", "INSTANCE_PROFILE");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -293,7 +293,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.profile.name", "default");
+        dataSourceProperties.put("property.aws.profile_name", "default");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -311,7 +311,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.aws.region", "us-east-1");
         dataSourceProperties.put("property.aws.access_key", "AKIAIOSFODNN7EXAMPLE");
         dataSourceProperties.put("property.aws.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
-        dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::111111111111:role/AccountAMskRole");
+        dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::111111111111:role/AccountAMskRole");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -374,7 +374,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.profile.name", "default");
+        dataSourceProperties.put("property.aws.profile_name", "default");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -397,7 +397,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.credentials.provider", "ENV");
+        dataSourceProperties.put("property.aws.credentials_provider", "ENV");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -420,8 +420,8 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.aws.region", "us-east-1");
         dataSourceProperties.put("property.aws.access_key", "AKIAIOSFODNN7EXAMPLE");
         dataSourceProperties.put("property.aws.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
-        dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyRole");
-        dataSourceProperties.put("property.aws.profile.name", "default");
+        dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::123456789012:role/MyRole");
+        dataSourceProperties.put("property.aws.profile_name", "default");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
