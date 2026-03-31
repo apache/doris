@@ -458,7 +458,7 @@ public abstract class ExternalCatalog
      * @throws RuntimeException if there are conflicting database names under case-insensitive conditions.
      */
     @NotNull
-    private List<Pair<String, String>> getFilteredDatabaseNames() {
+    protected List<Pair<String, String>> getFilteredDatabaseNames() {
         List<String> allDatabases = Lists.newArrayList(listDatabaseNames());
         allDatabases.remove(InfoSchemaDb.DATABASE_NAME);
         allDatabases.add(InfoSchemaDb.DATABASE_NAME);

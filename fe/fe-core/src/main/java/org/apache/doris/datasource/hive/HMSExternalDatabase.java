@@ -19,6 +19,7 @@ package org.apache.doris.datasource.hive;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -27,6 +28,10 @@ import org.apache.doris.qe.ConnectContext;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Hive metastore external database.
@@ -95,5 +100,11 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> {
         }
 
         return buildTableInternal(remoteTableName, localTableName, tblId, catalog, db);
+    }
+
+    @Override
+    public Set<String> getTableNamesWithLock() {
+        makeSureInitialized();
+        return Objects.requireNonNull(listTableNames()).stream().map(Pair::value).collect(Collectors.toSet());
     }
 }

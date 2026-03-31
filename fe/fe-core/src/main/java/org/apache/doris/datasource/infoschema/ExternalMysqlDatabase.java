@@ -39,7 +39,7 @@ public class ExternalMysqlDatabase extends ExternalDatabase {
         super(extCatalog, dbId, MysqlDb.DATABASE_NAME, MysqlDb.DATABASE_NAME, Type.INFO_SCHEMA_DB);
     }
 
-    public static List<String> listTableNames() {
+    public static List<String> listMysqlTableNames() {
         return Lists.newArrayList(MysqlDBTable.TABLE_MAP.keySet());
     }
 

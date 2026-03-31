@@ -20,6 +20,7 @@ package org.apache.doris.datasource.hive;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
@@ -47,6 +48,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.stream.Collectors;
 
 /**
  * External catalog for hive metastore compatible data sources.
@@ -240,6 +242,13 @@ public class HMSExternalCatalog extends ExternalCatalog {
             icebergMetadataOps = ExternalMetadataOperations.newIcebergMetadataOps(this, icebergHiveCatalog);
         }
         return icebergMetadataOps;
+    }
+
+    @Override
+    public List<String> getDbNames() {
+        makeSureInitialized();
+        return Objects.requireNonNull(getFilteredDatabaseNames()).stream().map(Pair::value).collect(
+                Collectors.toList());
     }
 }
 

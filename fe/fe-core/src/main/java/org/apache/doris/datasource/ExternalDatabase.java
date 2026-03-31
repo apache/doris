@@ -177,18 +177,18 @@ public abstract class ExternalDatabase<T extends ExternalTable>
         }
     }
 
-    private List<Pair<String, String>> listTableNames() {
+    protected List<Pair<String, String>> listTableNames() {
         List<Pair<String, String>> tableNames;
         lowerCaseToTableName.clear();
         if (name.equals(InfoSchemaDb.DATABASE_NAME)) {
-            tableNames = ExternalInfoSchemaDatabase.listTableNames().stream()
+            tableNames = ExternalInfoSchemaDatabase.listSchemaTableNames().stream()
                     .map(tableName -> {
                         lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                         return Pair.of(tableName, tableName);
                     })
                     .collect(Collectors.toList());
         } else if (name.equals(MysqlDb.DATABASE_NAME)) {
-            tableNames = ExternalMysqlDatabase.listTableNames().stream()
+            tableNames = ExternalMysqlDatabase.listMysqlTableNames().stream()
                     .map(tableName -> {
                         lowerCaseToTableName.put(tableName.toLowerCase(), tableName);
                         return Pair.of(tableName, tableName);

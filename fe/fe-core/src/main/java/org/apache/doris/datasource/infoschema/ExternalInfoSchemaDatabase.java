@@ -39,7 +39,7 @@ public class ExternalInfoSchemaDatabase extends ExternalDatabase {
         super(extCatalog, dbId, InfoSchemaDb.DATABASE_NAME, InfoSchemaDb.DATABASE_NAME, Type.INFO_SCHEMA_DB);
     }
 
-    public static List<String> listTableNames() {
+    public static List<String> listSchemaTableNames() {
         return Lists.newArrayList(SchemaTable.TABLE_MAP.keySet());
     }
 
