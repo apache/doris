@@ -296,7 +296,7 @@ Status DeleteHandler::parse_condition(const DeleteSubPredicatePB& sub_cond, TCon
         condition->column_unique_id = sub_cond.column_unique_id();
     }
     condition->column_name = sub_cond.column_name();
-    condition->condition_op = sub_cond.op();
+    condition->condition_op = trans_op(sub_cond.op());
     condition->condition_values.push_back(sub_cond.cond_value());
     return Status::OK();
 }
