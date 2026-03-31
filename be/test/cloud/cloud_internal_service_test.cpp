@@ -27,6 +27,8 @@
 #include "cloud/cloud_tablet_mgr.h"
 #include "cpp/sync_point.h"
 #include "gen_cpp/Status_types.h"
+#include "load/channel/load_stream_mgr.h"
+#include "runtime/exec_env.h"
 #include "storage/tablet/tablet_meta.h"
 #include "util/uid_util.h"
 
@@ -60,6 +62,8 @@ protected:
     static constexpr int64_t kUncachedTabletId = 90003;
 
     void SetUp() override {
+        _exec_env._load_stream_mgr = std::make_unique<LoadStreamMgr>(1);
+
         auto sp = SyncPoint::get_instance();
         sp->clear_all_call_backs();
         sp->enable_processing();
@@ -111,6 +115,7 @@ protected:
         return tablet_meta;
     }
 
+    ExecEnv _exec_env;
     CloudStorageEngine _engine;
     std::unordered_map<int64_t, int> _tablet_meta_call_count;
 };
@@ -126,7 +131,7 @@ TEST_F(CloudInternalServiceTest, TestSyncTabletMetaCountsSyncedSkippedAndFailedT
     ASSERT_EQ("size_based", cached_synced_tablet->tablet_meta()->compaction_policy());
     ASSERT_EQ("size_based", cached_failed_tablet->tablet_meta()->compaction_policy());
 
-    CloudInternalServiceImpl service(_engine, nullptr);
+    CloudInternalServiceImpl service(_engine, &_exec_env);
     PSyncTabletMetaRequest request;
     request.add_tablet_ids(kSyncedTabletId);
     request.add_tablet_ids(kUncachedTabletId);
