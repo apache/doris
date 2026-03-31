@@ -109,7 +109,7 @@ Status VariantStreamingCompactionWriter::_append_input_from_raw(const uint8_t** 
 Status VariantStreamingCompactionWriter::_append_input(const ColumnVariant& src, size_t row_pos,
                                                        size_t num_rows,
                                                        const uint8_t* outer_null_map) {
-    auto chunk_variant = ColumnVariant::create(0);
+    auto chunk_variant = ColumnVariant::create(0, src.enable_doc_mode());
     chunk_variant->insert_range_from(src, row_pos, num_rows);
     RETURN_IF_ERROR(chunk_variant->sanitize());
     chunk_variant->finalize();

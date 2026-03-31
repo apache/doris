@@ -946,11 +946,12 @@ Status Segment::seek_and_read_by_rowid(const TabletSchema& schema, SlotDescripto
         // if segment cache miss, column reader will be created to make sure the variant column result not coredump
         RETURN_IF_ERROR(_create_column_meta_once(storage_read_options.stats));
 
+        const auto& dt_variant =
+                assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
         TabletColumn column = TabletColumn::create_materialized_variant_column(
                 schema.column_by_uid(slot->col_unique_id()).name_lower_case(), slot->column_paths(),
-                slot->col_unique_id(),
-                assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()))
-                        .variant_max_subcolumns_count());
+                slot->col_unique_id(), dt_variant.variant_max_subcolumns_count(),
+                dt_variant.enable_doc_mode());
         auto storage_type = get_data_type_of(column, storage_read_options);
         MutableColumnPtr file_storage_column = storage_type->create_column();
         DCHECK(storage_type != nullptr);

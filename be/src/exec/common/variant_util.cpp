@@ -307,7 +307,8 @@ Status cast_column(const ColumnWithTypeAndName& arg, const DataTypePtr& type, Co
         CHECK(arg.column->is_nullable());
         auto to_type = remove_nullable(type);
         const auto& data_type_object = assert_cast<const DataTypeVariant&>(*to_type);
-        auto variant = ColumnVariant::create(data_type_object.variant_max_subcolumns_count());
+        auto variant = ColumnVariant::create(data_type_object.variant_max_subcolumns_count(),
+                                             data_type_object.enable_doc_mode());
 
         variant->create_root(arg.type, arg.column->assume_mutable());
         ColumnPtr nullable = ColumnNullable::create(
@@ -381,8 +382,9 @@ void get_column_by_type(const DataTypePtr& data_type, const std::string& name, T
         return;
     }
     if (data_type->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
-        column.set_variant_max_subcolumns_count(assert_cast<const DataTypeVariant*>(data_type.get())
-                                                        ->variant_max_subcolumns_count());
+        const auto* dt_variant = assert_cast<const DataTypeVariant*>(data_type.get());
+        column.set_variant_max_subcolumns_count(dt_variant->variant_max_subcolumns_count());
+        column.set_variant_enable_doc_mode(dt_variant->enable_doc_mode());
         return;
     }
     // size is not fixed when type is string or json
@@ -1145,6 +1147,7 @@ void VariantCompactionUtil::get_compaction_subcolumns_from_subpaths(
             subcolumn.set_aggregation_method(parent_column->aggregation());
             subcolumn.set_variant_max_subcolumns_count(
                     parent_column->variant_max_subcolumns_count());
+            subcolumn.set_variant_enable_doc_mode(parent_column->variant_enable_doc_mode());
             subcolumn.set_is_nullable(true);
             output_schema->append_column(subcolumn);
             VLOG_DEBUG << "append sub column " << subpath << " data type "
@@ -1253,6 +1256,7 @@ Status VariantCompactionUtil::get_extended_compaction_schema(
                 TabletColumn doc_value_bucket_column = create_doc_value_column(*column, b);
                 doc_value_bucket_column.set_type(FieldType::OLAP_FIELD_TYPE_VARIANT);
                 doc_value_bucket_column.set_is_nullable(false);
+                doc_value_bucket_column.set_variant_enable_doc_mode(true);
                 output_schema->append_column(doc_value_bucket_column);
             }
             continue;
@@ -1937,6 +1941,7 @@ void parse_json_to_variant_impl(IColumn& column, const char* src, size_t length,
         }
         break;
     case ParseConfig::ParseTo::OnlyDocValueColumn: {
+        CHECK(column_variant.enable_doc_mode()) << "OnlyDocValueColumn requires doc mode enabled";
         std::vector<size_t> doc_item_indexes;
         doc_item_indexes.reserve(paths.size());
         phmap::flat_hash_set<StringRef, StringRefHash> seen_paths;
@@ -2130,7 +2135,7 @@ Status _parse_and_materialize_variant_columns(Block& block,
         }
 
         if (scalar_root_column->is_column_string()) {
-            variant_column = ColumnVariant::create(0);
+            variant_column = ColumnVariant::create(0, var.enable_doc_mode());
             parse_json_to_variant(*variant_column.get(),
                                   assert_cast<const ColumnString&>(*scalar_root_column),
                                   configs[i]);

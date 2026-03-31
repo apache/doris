@@ -104,7 +104,8 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
         }
         nested = std::make_shared<DataTypeStruct>(dataTypes, names);
     } else if (col_desc.type() == FieldType::OLAP_FIELD_TYPE_VARIANT) {
-        nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count());
+        nested = std::make_shared<DataTypeVariant>(col_desc.variant_max_subcolumns_count(),
+                                                   col_desc.variant_enable_doc_mode());
     } else {
         nested = _create_primitive_data_type(col_desc.type(), col_desc.precision(), col_desc.frac(),
                                              col_desc.length());
@@ -175,7 +176,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<DataTypeString>(-1, TYPE_STRING);
         break;
     case FieldType::OLAP_FIELD_TYPE_VARIANT:
-        result = std::make_shared<DataTypeVariant>(0);
+        result = std::make_shared<DataTypeVariant>(0, false);
         break;
     case FieldType::OLAP_FIELD_TYPE_JSONB:
         result = std::make_shared<DataTypeJsonb>();
@@ -242,7 +243,8 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
         nested = std::make_shared<DataTypeString>();
         break;
     case PGenericType::VARIANT:
-        nested = std::make_shared<DataTypeVariant>(pcolumn.variant_max_subcolumns_count());
+        nested = std::make_shared<DataTypeVariant>(pcolumn.variant_max_subcolumns_count(),
+                                                   pcolumn.variant_enable_doc_mode());
         break;
     case PGenericType::JSONB:
         nested = std::make_shared<DataTypeJsonb>();
@@ -447,7 +449,7 @@ DataTypePtr DataTypeFactory::create_data_type(const PrimitiveType primitive_type
         nested = std::make_shared<DataTypeFloat64>();
         break;
     case TYPE_VARIANT:
-        nested = std::make_shared<DataTypeVariant>(0);
+        nested = std::make_shared<DataTypeVariant>(0, false);
         break;
     case TYPE_STRING:
     case TYPE_CHAR:
@@ -522,10 +524,12 @@ DataTypePtr DataTypeFactory::create_data_type(const std::vector<TTypeNode>& type
         if (scalar_type.type == TPrimitiveType::VARIANT) {
             DCHECK(scalar_type.variant_max_subcolumns_count >= 0)
                     << "count is: " << scalar_type.variant_max_subcolumns_count;
-            return is_nullable ? make_nullable(std::make_shared<DataTypeVariant>(
-                                         scalar_type.variant_max_subcolumns_count))
-                               : std::make_shared<DataTypeVariant>(
-                                         scalar_type.variant_max_subcolumns_count);
+            bool doc_mode = scalar_type.__isset.variant_enable_doc_mode
+                                    ? scalar_type.variant_enable_doc_mode
+                                    : false;
+            auto dt = std::make_shared<DataTypeVariant>(scalar_type.variant_max_subcolumns_count,
+                                                        doc_mode);
+            return is_nullable ? make_nullable(dt) : dt;
         }
         return create_data_type(thrift_to_type(scalar_type.type), is_nullable,
                                 scalar_type.__isset.precision ? scalar_type.precision : 0,
@@ -628,7 +632,8 @@ DataTypePtr DataTypeFactory::create_data_type(
             // Do nothing
             nested = std::make_shared<DataTypeAggState>();
         } else if (primitive_type == TYPE_VARIANT) {
-            nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count());
+            nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count(),
+                                                       node.variant_enable_doc_mode());
         } else {
             return create_data_type(primitive_type, is_nullable,
                                     scalar_type.has_precision() ? scalar_type.precision() : 0,
@@ -669,7 +674,8 @@ DataTypePtr DataTypeFactory::create_data_type(
         break;
     }
     case TTypeNodeType::VARIANT: {
-        nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count());
+        nested = std::make_shared<DataTypeVariant>(node.variant_max_subcolumns_count(),
+                                                   node.variant_enable_doc_mode());
         break;
     }
     default:
