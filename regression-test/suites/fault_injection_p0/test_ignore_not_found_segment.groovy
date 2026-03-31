@@ -48,12 +48,13 @@ suite("test_ignore_not_found_segment", "nonConcurrent") {
     sql "INSERT INTO ${tableName} VALUES (3, 'ccc'), (4, 'ddd');"
     sql "INSERT INTO ${tableName} VALUES (5, 'eee'), (6, 'fff');"
 
-    // Verify baseline: all 6 rows are visible
-    qt_baseline "SELECT count(*) FROM ${tableName}"
+    // NOTE: Do NOT query the table before fault injection tests.
+    // Any query would populate the segment LRU cache, and disable_segment_cache
+    // only prevents new insertions — it does not block lookups from existing cache.
 
     // Test 1: With ignore_not_found_segment=true (default), injecting NOT_FOUND
     // should return 0 rows since all segments fail to load and are skipped.
-    // Disable segment cache so the debug point is hit on every segment load.
+    // Disable segment cache so the debug point result is not cached for next test.
     try {
         set_be_config.call("ignore_not_found_segment", "true")
         set_be_config.call("disable_segment_cache", "true")
