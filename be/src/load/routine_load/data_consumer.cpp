@@ -694,17 +694,29 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
         aws_config.endpointOverride = _endpoint;
     }
 
+    auto parse_timeout_ms = [](const std::string& timeout_value, const std::string& property_name,
+                               int* timeout_ms) -> Status {
+        try {
+            *timeout_ms = std::stoi(timeout_value);
+        } catch (const std::exception&) {
+            return Status::InternalError("Invalid value for {}: {}", property_name, timeout_value);
+        }
+        return Status::OK();
+    };
+
     // Set timeouts from properties or use defaults
     auto it_request_timeout = _custom_properties.find("aws.request.timeout.ms");
     if (it_request_timeout != _custom_properties.end()) {
-        aws_config.requestTimeoutMs = std::stoi(it_request_timeout->second);
+        RETURN_IF_ERROR(parse_timeout_ms(it_request_timeout->second, "aws.request.timeout.ms",
+                                         &aws_config.requestTimeoutMs));
     } else {
         aws_config.requestTimeoutMs = 30000; // 30s default
     }
 
     auto it_conn_timeout = _custom_properties.find("aws.connection.timeout.ms");
     if (it_conn_timeout != _custom_properties.end()) {
-        aws_config.connectTimeoutMs = std::stoi(it_conn_timeout->second);
+        RETURN_IF_ERROR(parse_timeout_ms(it_conn_timeout->second, "aws.connection.timeout.ms",
+                                         &aws_config.connectTimeoutMs));
     }
 
     // Get credentials provider (reuses S3 infrastructure)
