@@ -35,6 +35,7 @@ import org.apache.doris.thrift.TPrimitiveType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
 import com.google.protobuf.ByteString;
@@ -1254,6 +1255,9 @@ public class Column implements GsonPostProcessable {
         }
         if (CollectionUtils.isEmpty(children)) {
             children = null;
+        }
+        if (sessionVariables == null) {
+            sessionVariables = Maps.newHashMap();
         }
     }
 
