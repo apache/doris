@@ -25,7 +25,7 @@ import java.util.Map;
 /**
  * Thin persistent binding between one base table and its stream.
  */
-public class IVMStreamRef {
+public class IvmStreamRef {
     @SerializedName("st")
     private StreamType streamType;
 
@@ -35,11 +35,11 @@ public class IVMStreamRef {
     @SerializedName("p")
     private Map<String, String> properties;
 
-    public IVMStreamRef() {
+    public IvmStreamRef() {
         this.properties = Maps.newHashMap();
     }
 
-    public IVMStreamRef(StreamType streamType, String consumerId, Map<String, String> properties) {
+    public IvmStreamRef(StreamType streamType, String consumerId, Map<String, String> properties) {
         this.streamType = streamType;
         this.consumerId = consumerId;
         this.properties = properties != null ? properties : Maps.newHashMap();
@@ -67,7 +67,7 @@ public class IVMStreamRef {
 
     @Override
     public String toString() {
-        return "IVMStreamRef{"
+        return "IvmStreamRef{"
                 + "streamType=" + streamType
                 + ", consumerId='" + consumerId + '\''
                 + ", properties=" + properties
