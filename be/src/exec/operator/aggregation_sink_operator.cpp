@@ -58,39 +58,23 @@ Status AggSinkLocalState::init(RuntimeState* state, LocalSinkStateInfo& info) {
     RETURN_IF_ERROR(Base::init(state, info));
     SCOPED_TIMER(Base::exec_time_counter());
     SCOPED_TIMER(Base::_init_timer);
-    return Status::OK();
-}
 
-Status AggSinkLocalState::open(RuntimeState* state) {
-    SCOPED_TIMER(Base::exec_time_counter());
-    SCOPED_TIMER(Base::_open_timer);
-    RETURN_IF_ERROR(Base::open(state));
     auto& p = Base::_parent->template cast<AggSinkOperatorX>();
     Base::_shared_state->make_nullable_keys = p._make_nullable_keys;
 
     if (p._probe_expr_ctxs.empty()) {
-        // ── Without GROUP BY → create UngroupByAggContext ──
-        std::vector<AggFnEvaluator*> evaluators;
-        for (auto& evaluator : p._aggregate_evaluators) {
-            evaluators.push_back(evaluator->clone(state, p._pool));
-        }
-        auto ctx = std::make_unique<UngroupByAggContext>(
-                std::move(evaluators), p._offsets_of_aggregate_states,
-                p._total_size_of_aggregate_states, p._align_aggregate_states);
+        // ── Without GROUP BY → create UngroupByAggContext (phase-1) ──
+        auto ctx = std::make_unique<UngroupByAggContext>(p._offsets_of_aggregate_states,
+                                                         p._total_size_of_aggregate_states,
+                                                         p._align_aggregate_states);
         ctx->init_profile(custom_profile());
-        for (auto& evaluator : ctx->agg_evaluators()) {
-            evaluator->set_timer(ctx->merge_timer(), nullptr);
-        }
         Base::_shared_state->agg_ctx = std::move(ctx);
     } else {
-        // ── With GROUP BY → create GroupByAggContext or InlineCountAggContext ──
-        VExprContextSPtrs probe_expr_ctxs(p._probe_expr_ctxs.size());
-        for (size_t i = 0; i < probe_expr_ctxs.size(); i++) {
-            RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, probe_expr_ctxs[i]));
-        }
-        std::vector<AggFnEvaluator*> evaluators;
-        for (auto& evaluator : p._aggregate_evaluators) {
-            evaluators.push_back(evaluator->clone(state, p._pool));
+        // ── With GROUP BY → create GroupByAggContext or InlineCountAggContext (phase-1) ──
+        DataTypes key_data_types;
+        key_data_types.reserve(p._probe_expr_ctxs.size());
+        for (const auto& expr_ctx : p._probe_expr_ctxs) {
+            key_data_types.push_back(expr_ctx->root()->data_type());
         }
 
         bool should_limit_output =
@@ -108,14 +92,14 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         std::unique_ptr<GroupByAggContext> ctx;
         if (use_simple_count) {
             ctx = std::make_unique<InlineCountAggContext>(
-                    std::move(evaluators), std::move(probe_expr_ctxs),
-                    p._offsets_of_aggregate_states, p._total_size_of_aggregate_states,
-                    p._align_aggregate_states, p._is_first_phase);
+                    std::move(key_data_types), p._offsets_of_aggregate_states,
+                    p._total_size_of_aggregate_states, p._align_aggregate_states,
+                    p._is_first_phase);
         } else {
-            ctx = std::make_unique<GroupByAggContext>(
-                    std::move(evaluators), std::move(probe_expr_ctxs),
-                    p._offsets_of_aggregate_states, p._total_size_of_aggregate_states,
-                    p._align_aggregate_states, p._is_first_phase);
+            ctx = std::make_unique<GroupByAggContext>(std::move(key_data_types),
+                                                      p._offsets_of_aggregate_states,
+                                                      p._total_size_of_aggregate_states,
+                                                      p._align_aggregate_states, p._is_first_phase);
         }
 
         ctx->limit = p._limit;
@@ -129,11 +113,47 @@ Status AggSinkLocalState::open(RuntimeState* state) {
         ctx->init_hash_method();
         ctx->init_agg_data_container();
         ctx->init_sink_profile(custom_profile());
-        for (auto& evaluator : ctx->agg_evaluators()) {
-            evaluator->set_timer(ctx->merge_timer(), ctx->expr_timer());
-        }
 
         Base::_shared_state->agg_ctx = std::move(ctx);
+    }
+    return Status::OK();
+}
+
+Status AggSinkLocalState::open(RuntimeState* state) {
+    SCOPED_TIMER(Base::exec_time_counter());
+    SCOPED_TIMER(Base::_open_timer);
+    RETURN_IF_ERROR(Base::open(state));
+    auto& p = Base::_parent->template cast<AggSinkOperatorX>();
+    auto* ctx = Base::_shared_state->agg_ctx.get();
+    DCHECK(ctx);
+
+    if (p._probe_expr_ctxs.empty()) {
+        // ── UngroupBy path: clone evaluators ──
+        std::vector<AggFnEvaluator*> evaluators;
+        for (auto& evaluator : p._aggregate_evaluators) {
+            evaluators.push_back(evaluator->clone(state, p._pool));
+        }
+        ctx->set_evaluators(std::move(evaluators));
+        for (auto& evaluator : ctx->agg_evaluators()) {
+            evaluator->set_timer(ctx->merge_timer(), nullptr);
+        }
+    } else {
+        // ── GroupBy path: clone exprs and evaluators ──
+        VExprContextSPtrs probe_expr_ctxs(p._probe_expr_ctxs.size());
+        for (size_t i = 0; i < probe_expr_ctxs.size(); i++) {
+            RETURN_IF_ERROR(p._probe_expr_ctxs[i]->clone(state, probe_expr_ctxs[i]));
+        }
+        std::vector<AggFnEvaluator*> evaluators;
+        for (auto& evaluator : p._aggregate_evaluators) {
+            evaluators.push_back(evaluator->clone(state, p._pool));
+        }
+
+        auto* groupby_ctx = static_cast<GroupByAggContext*>(ctx);
+        groupby_ctx->set_groupby_expr_ctxs(std::move(probe_expr_ctxs));
+        ctx->set_evaluators(std::move(evaluators));
+        for (auto& evaluator : ctx->agg_evaluators()) {
+            evaluator->set_timer(groupby_ctx->merge_timer(), groupby_ctx->expr_timer());
+        }
     }
     return Status::OK();
 }

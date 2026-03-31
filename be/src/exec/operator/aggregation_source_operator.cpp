@@ -51,6 +51,16 @@ Status AggLocalState::open(RuntimeState* state) {
     RETURN_IF_ERROR(Base::open(state));
     SCOPED_TIMER(exec_time_counter());
     SCOPED_TIMER(_open_timer);
+
+    // Source open is guaranteed to run after sink execution (dependency mechanism),
+    // so agg_ctx created in sink init is available here.
+    auto* ctx = _shared_state->agg_ctx.get();
+    DCHECK(ctx);
+    ctx->init_source_profile(custom_profile());
+    auto& p = _parent->template cast<AggSourceOperatorX>();
+    if (p._needs_finalize) {
+        ctx->set_finalize_output(p.row_descriptor());
+    }
     return Status::OK();
 }
 
@@ -64,7 +74,6 @@ Status AggSourceOperatorX::get_block(RuntimeState* state, Block* block, bool* eo
     auto& local_state = get_local_state(state);
     SCOPED_TIMER(local_state.exec_time_counter());
     SCOPED_PEAK_MEM(&local_state._estimate_memory_usage);
-    local_state._ensure_agg_source_ready();
     auto* ctx = local_state._shared_state->agg_ctx.get();
     if (_needs_finalize) {
         RETURN_IF_ERROR(ctx->finalize(state, block, eos));
@@ -97,27 +106,9 @@ void AggLocalState::make_nullable_output_key(Block* block) {
 }
 
 Status AggLocalState::merge_with_serialized_key_helper(Block* block) {
-    _ensure_agg_source_ready();
     auto* ctx = _shared_state->agg_ctx.get();
     DCHECK(ctx);
     return ctx->merge_for_spill(block);
-}
-
-void AggLocalState::_ensure_agg_source_ready() {
-    if (_agg_source_ready) {
-        return;
-    }
-    auto* ctx = _shared_state->agg_ctx.get();
-    if (!ctx) {
-        // agg_ctx not yet created by sink — will retry on next call.
-        return;
-    }
-    _agg_source_ready = true;
-    ctx->init_source_profile(custom_profile());
-    auto& p = _parent->template cast<AggSourceOperatorX>();
-    if (p._needs_finalize) {
-        ctx->set_finalize_output(p.row_descriptor());
-    }
 }
 
 Status AggSourceOperatorX::merge_with_serialized_key_helper(RuntimeState* state, Block* block) {

@@ -45,8 +45,6 @@ public:
 
 protected:
     friend class AggSourceOperatorX;
-    void _ensure_agg_source_ready();
-    bool _agg_source_ready = false;
 };
 
 class AggSourceOperatorX : public OperatorX<AggLocalState> {

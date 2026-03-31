@@ -42,11 +42,20 @@ using VExprContextSPtrs = std::vector<VExprContextSPtr>;
 /// instead of a full aggregate state).
 class GroupByAggContext : public AggContext {
 public:
+    /// Full constructor (used by StreamingAgg where evaluators/exprs are immediately available).
     GroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators,
                       VExprContextSPtrs groupby_expr_ctxs, Sizes agg_state_offsets,
                       size_t total_agg_state_size, size_t agg_state_alignment, bool is_first_phase);
 
+    /// Phase-1 constructor (used by AggSinkLocalState::init): creates with key DataTypes
+    /// for hash method initialization. Evaluators and expr_ctxs are set later in open()
+    /// via set_evaluators() and set_groupby_expr_ctxs().
+    GroupByAggContext(DataTypes key_data_types, Sizes agg_state_offsets,
+                      size_t total_agg_state_size, size_t agg_state_alignment, bool is_first_phase);
+
     virtual ~GroupByAggContext();
+
+    void set_groupby_expr_ctxs(VExprContextSPtrs ctxs) { _groupby_expr_ctxs = std::move(ctxs); }
 
     // ==================== Aggregation execution (Sink side) ====================
 
@@ -228,6 +237,7 @@ protected:
     std::unique_ptr<AggregateDataContainer> _agg_data_container;
 
     // GroupBy-specific metadata
+    DataTypes _key_data_types;
     VExprContextSPtrs _groupby_expr_ctxs;
     bool _is_first_phase;
 
