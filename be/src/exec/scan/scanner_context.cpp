@@ -108,6 +108,8 @@ ScannerContext::ScannerContext(RuntimeState* state, ScanLocalStateBase* local_st
         limit = -1;
     }
     _dependency = dependency;
+    // Initialize adaptive processor
+    _adaptive_processor = ScannerAdaptiveProcessor::create_shared();
     DorisMetrics::instance()->scanner_ctx_cnt->increment(1);
 }
 
@@ -130,9 +132,6 @@ int64_t ScannerContext::acquire_limit_quota(int64_t desired) {
         }
         // CAS failed, `remaining` is updated to current value, retry.
     }
-
-    // Initialize adaptive processor
-    _adaptive_processor = ScannerAdaptiveProcessor::create_shared();
 }
 
 void ScannerContext::_adjust_scan_mem_limit(int64_t old_value, int64_t new_value) {
