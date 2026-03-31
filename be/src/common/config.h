@@ -1704,9 +1704,9 @@ DECLARE_mBool(enable_parquet_page_index);
 // Default is true, if set to false, the not found file will result in query failure.
 DECLARE_mBool(ignore_not_found_file_in_external_table);
 
-// Whether to ignore not found segment files in native olap tables.
-// Default is true. When a segment file is missing (e.g., removed by gc or external cause),
-// the query/load will skip the missing segment instead of failing with IO error.
+// Whether to ignore IO errors (NOT_FOUND, EIO) when loading segment files in native olap tables.
+// Default is true. When a segment file is missing or has IO errors,
+// the query/load will skip the failing segment instead of reporting error to users.
 DECLARE_mBool(ignore_not_found_segment);
 
 DECLARE_mBool(enable_hdfs_mem_limiter);

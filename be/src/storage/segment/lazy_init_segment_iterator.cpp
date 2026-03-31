@@ -43,9 +43,10 @@ Status LazyInitSegmentIterator::init(const StorageReadOptions& opts) {
         SegmentCacheHandle segment_cache_handle;
         auto st = SegmentLoader::instance()->load_segment(
                 _rowset, _segment_id, &segment_cache_handle, _should_use_cache, false, opts.stats);
-        if (st.is<ErrorCode::NOT_FOUND>() && config::ignore_not_found_segment) {
-            LOG(WARNING) << "segment not found, skip it. rowset_id=" << _rowset->rowset_id()
-                         << ", seg_id=" << _segment_id;
+        if ((st.is<ErrorCode::NOT_FOUND>() || st.is<ErrorCode::IO_ERROR>()) &&
+            config::ignore_not_found_segment) {
+            LOG(WARNING) << "segment io error, skip it. rowset_id=" << _rowset->rowset_id()
+                         << ", seg_id=" << _segment_id << ", status=" << st;
             // _inner_iterator remains nullptr, next_batch() will return EOF
             return Status::OK();
         }

@@ -45,6 +45,7 @@ protected:
 
     void TearDown() override {
         DebugPoints::instance()->remove("BetaRowset::load_segment.return_not_found");
+        DebugPoints::instance()->remove("BetaRowset::load_segment.return_io_error");
         config::ignore_not_found_segment = _saved_ignore;
         config::enable_debug_points = _saved_debug_points;
 
@@ -238,6 +239,70 @@ TEST_F(IgnoreNotFoundSegmentTest, LazyInitIteratorNextBatchLazyPath) {
     // Don't call init() explicitly - let next_batch trigger lazy init
     Block block;
     auto st = iter->next_batch(&block);
+    ASSERT_TRUE(st.is<ErrorCode::END_OF_FILE>()) << st;
+}
+
+// ==================== IO_ERROR tests ====================
+
+// Test: BetaRowset::load_segments skips IO_ERROR segments when config enabled
+TEST_F(IgnoreNotFoundSegmentTest, BetaRowsetLoadSegmentsSkipsIOError) {
+    config::ignore_not_found_segment = true;
+    auto rowset = create_rowset(3);
+
+    DebugPoints::instance()->add("BetaRowset::load_segment.return_io_error");
+
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    auto st = rowset->load_segments(&segments);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(0, segments.size());
+}
+
+// Test: BetaRowset::load_segments fails on IO_ERROR when config disabled
+TEST_F(IgnoreNotFoundSegmentTest, BetaRowsetLoadSegmentsFailsIOErrorWhenConfigDisabled) {
+    config::ignore_not_found_segment = false;
+    auto rowset = create_rowset(3);
+
+    DebugPoints::instance()->add("BetaRowset::load_segment.return_io_error");
+
+    std::vector<segment_v2::SegmentSharedPtr> segments;
+    auto st = rowset->load_segments(&segments);
+    ASSERT_TRUE(st.is<ErrorCode::IO_ERROR>()) << st;
+}
+
+// Test: SegmentLoader::load_segments skips IO_ERROR segments
+TEST_F(IgnoreNotFoundSegmentTest, SegmentLoaderLoadSegmentsSkipsIOError) {
+    config::ignore_not_found_segment = true;
+    auto rowset = create_rowset(3);
+
+    DebugPoints::instance()->add("BetaRowset::load_segment.return_io_error");
+
+    SegmentLoader loader(1024 * 1024, 100);
+    SegmentCacheHandle handle;
+    auto st = loader.load_segments(rowset, &handle, false);
+    ASSERT_TRUE(st.ok()) << st;
+    ASSERT_EQ(0, handle.get_segments().size());
+    ASSERT_TRUE(handle.is_inited());
+}
+
+// Test: LazyInitSegmentIterator returns EOF on IO_ERROR
+TEST_F(IgnoreNotFoundSegmentTest, LazyInitIteratorReturnsEofOnIOError) {
+    config::ignore_not_found_segment = true;
+    auto rowset = create_rowset(1);
+
+    DebugPoints::instance()->add("BetaRowset::load_segment.return_io_error");
+
+    auto schema = std::make_shared<Schema>(rowset->tablet_schema());
+    StorageReadOptions opts;
+    opts.tablet_schema = rowset->tablet_schema();
+
+    auto iter =
+            std::make_unique<segment_v2::LazyInitSegmentIterator>(rowset, 0, false, schema, opts);
+
+    auto st = iter->init(opts);
+    ASSERT_TRUE(st.ok()) << st;
+
+    Block block;
+    st = iter->next_batch(&block);
     ASSERT_TRUE(st.is<ErrorCode::END_OF_FILE>()) << st;
 }
 
