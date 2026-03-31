@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_routine_load_iam_aksk") {
+suite("test_routine_load_msk_public_access") {
     def topicName = "routineload-test"
     def tableName = "test_routine_load_iam_aksk_table"
     def jobName = "test_routine_load_iam_aksk_job"
@@ -23,7 +23,9 @@ suite("test_routine_load_iam_aksk") {
     def ak = context.config.awsAccessKey
     def sk = context.config.awsSecretKey
     def region = context.config.awsRegion
-    def bootstrapBrokers = context.config.kafkaBrokerList
+    def bootstrapBrokers = context.config.mskBrokerList
+    def role = context.config.awsRole
+    def sslCaLocation = context.config.sslCaLocation
     
     if (!ak || !sk || !region || !bootstrapBrokers) {
         logger.info("skip ${name} case, AWS credentials or MSK endpoint not configured")
@@ -44,7 +46,6 @@ suite("test_routine_load_iam_aksk") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1")
     """
-    logger.info("Created table: ${tableName}")
 
     sql """
         CREATE ROUTINE LOAD ${jobName} ON ${tableName}
@@ -59,7 +60,7 @@ suite("test_routine_load_iam_aksk") {
             "property.kafka_default_offsets" = "OFFSET_BEGINNING",
             "property.security.protocol" = "SASL_SSL",
             "property.sasl.mechanism" = "OAUTHBEARER",
-            "property.ssl.ca.location" = "/etc/pki/tls/certs/ca-bundle.crt"
+            "property.ssl.ca.location" = "${sslCaLocation}"
         )
     """
     logger.info("Created routine load job: ${jobName}")
@@ -100,5 +101,74 @@ suite("test_routine_load_iam_aksk") {
     logger.info("Sample data: ${sampleData}")
 
     sql """ STOP ROUTINE LOAD FOR ${jobName} """
-    logger.info("Stopped routine load job")
+
+    // Test with role arn if configured
+    if (role) {
+        def roleTableName = "test_routine_load_iam_role_table"
+        def roleJobName = "test_routine_load_iam_role_job"
+
+        logger.info("Testing with AWS Role ARN: ${role}")
+
+        sql """ DROP TABLE IF EXISTS ${roleTableName} """
+        sql """
+            CREATE TABLE ${roleTableName} (
+                id INT,
+                name VARCHAR(50)
+            )
+            DUPLICATE KEY(id)
+            DISTRIBUTED BY HASH(id) BUCKETS 1
+            PROPERTIES ("replication_num" = "1")
+        """
+
+        sql """
+            CREATE ROUTINE LOAD ${roleJobName} ON ${roleTableName}
+            COLUMNS TERMINATED BY ",",
+            COLUMNS(id, name)
+            FROM KAFKA (
+                "kafka_broker_list" = "${bootstrapBrokers}",
+                "kafka_topic" = "${topicName}",
+                "aws.region" = "${region}",
+                "aws.role_arn" = "${role}",
+                "property.kafka_default_offsets" = "OFFSET_BEGINNING",
+                "property.security.protocol" = "SASL_SSL",
+                "property.sasl.mechanism" = "OAUTHBEARER",
+                "property.ssl.ca.location" = "${sslCaLocation}"
+            )
+        """
+        logger.info("Created routine load job with role: ${roleJobName}")
+
+        retryCount = 0
+        jobState = ""
+
+        while (retryCount < maxRetries) {
+            Thread.sleep(5000)
+
+            def jobStatus = sql """ SHOW ROUTINE LOAD FOR ${roleJobName} """
+            if (jobStatus.size() > 0) {
+                jobState = jobStatus[0][8]
+                logger.info("Role job state: ${jobState}, retry: ${retryCount}")
+
+                if (jobState == "RUNNING") {
+                    def roleResult = sql """ SELECT COUNT(*) FROM ${roleTableName} """
+                    if (roleResult[0][0] > 0) {
+                        logger.info("Data loaded with role successfully: ${roleResult[0][0]} rows")
+                        break
+                    }
+                } else if (jobState == "PAUSED" || jobState == "CANCELLED") {
+                    logger.error("Role job failed with state: ${jobState}")
+                    logger.error("Job status: ${jobStatus[0]}")
+                    break
+                }
+            }
+            retryCount++
+        }
+
+        def roleResult = sql """ SELECT COUNT(*) FROM ${roleTableName} """
+        logger.info("Role job final row count: ${roleResult[0][0]}")
+
+        assertTrue(roleResult[0][0] > 0, "No data loaded with role ARN. Job state: ${jobState}")
+
+        sql """ STOP ROUTINE LOAD FOR ${roleJobName} """
+        logger.info("Role ARN test completed successfully")
+    }
 }
