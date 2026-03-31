@@ -1234,4 +1234,23 @@ TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
 }
 // clang-format on
 
+TEST_F(TestDeleteHandler, TestParseDeleteSubPredicateV2OperatorCompatibility) {
+    auto test = [](const std::string& op, const std::string& expected_op) {
+        DeleteSubPredicatePB sub_cond;
+        sub_cond.set_column_name("k1");
+        sub_cond.set_op(op);
+        sub_cond.set_cond_value("1");
+
+        TCondition parsed_cond;
+        auto st = DeleteHandler::parse_condition(sub_cond, &parsed_cond);
+        EXPECT_TRUE(st.ok()) << st;
+        EXPECT_EQ(expected_op, parsed_cond.condition_op);
+    };
+
+    test(">", ">>");
+    test("<", "<<");
+    test("*=", "=");
+    test("!*=", "!=");
+}
+
 } // namespace doris
