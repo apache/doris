@@ -928,16 +928,24 @@ public class GsonUtils {
 
             return new TypeAdapter<T>() {
                 public void write(JsonWriter out, T value) throws IOException {
-                    boolean preProcessed = false;
                     if (value instanceof GsonPreProcessable) {
                         ((GsonPreProcessable) value).gsonPreProcess();
-                        preProcessed = true;
                     }
+                    IOException writeException = null;
                     try {
                         delegate.write(out, value);
+                    } catch (IOException e) {
+                        writeException = e;
+                        throw e;
                     } finally {
-                        if (preProcessed) {
-                            ((GsonPreProcessable) value).gsonPostSerialize();
+                        if (value instanceof GsonPreProcessable) {
+                            try {
+                                ((GsonPreProcessable) value).gsonPostSerialize();
+                            } catch (Exception e) {
+                                if (writeException != null) {
+                                    writeException.addSuppressed(e);
+                                }
+                            }
                         }
                     }
                 }
