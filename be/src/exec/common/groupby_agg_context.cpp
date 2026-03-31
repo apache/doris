@@ -614,37 +614,36 @@ bool GroupByAggContext::should_expand_preagg_hash_table(int64_t input_rows, int6
         return false;
     }
 
-    return agg_context_utils::visit_agg_method<bool>(
-            *_hash_table_data, [&](auto& agg_method) -> bool {
-                auto& hash_tbl = *agg_method.hash_table;
-                auto [ht_mem, ht_rows] =
-                        std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
+    return agg_context_utils::visit_agg_method<
+            bool>(*_hash_table_data, [&](auto& agg_method) -> bool {
+        auto& hash_tbl = *agg_method.hash_table;
+        auto [ht_mem, ht_rows] = std::pair {hash_tbl.get_buffer_size_in_bytes(), hash_tbl.size()};
 
-                if (ht_rows == 0) {
-                    return true;
-                }
+        if (ht_rows == 0) {
+            return true;
+        }
 
-                const auto* reduction = is_single_backend ? SINGLE_BE_STREAMING_HT_MIN_REDUCTION
-                                                          : STREAMING_HT_MIN_REDUCTION;
+        const auto* reduction = is_single_backend ? SINGLE_BE_STREAMING_HT_MIN_REDUCTION
+                                                  : STREAMING_HT_MIN_REDUCTION;
 
-                int cache_level = 0;
-                while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
-                       ht_mem >= reduction[cache_level + 1].min_ht_mem) {
-                    ++cache_level;
-                }
+        int cache_level = 0;
+        while (cache_level + 1 < STREAMING_HT_MIN_REDUCTION_SIZE &&
+               ht_mem >= reduction[cache_level + 1].min_ht_mem) {
+            ++cache_level;
+        }
 
-                const int64_t aggregated_input_rows = input_rows - returned_rows;
-                double current_reduction =
-                        static_cast<double>(aggregated_input_rows) / static_cast<double>(ht_rows);
+        const int64_t aggregated_input_rows = input_rows - returned_rows;
+        double current_reduction =
+                static_cast<double>(aggregated_input_rows) / static_cast<double>(ht_rows);
 
-                if (aggregated_input_rows <= 0) {
-                    return true;
-                }
+        if (aggregated_input_rows <= 0) {
+            return true;
+        }
 
-                double min_reduction = reduction[cache_level].streaming_ht_min_reduction;
-                _should_expand_hash_table = current_reduction > min_reduction;
-                return _should_expand_hash_table;
-            });
+        double min_reduction = reduction[cache_level].streaming_ht_min_reduction;
+        _should_expand_hash_table = current_reduction > min_reduction;
+        return _should_expand_hash_table;
+    });
 }
 
 bool GroupByAggContext::should_skip_preagg(size_t rows, size_t mem_limit, int64_t input_rows,
