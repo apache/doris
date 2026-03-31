@@ -239,8 +239,8 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.access.key", "AKIAIOSFODNN7EXAMPLE");
-        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        dataSourceProperties.put("property.aws.access_key", "AKIAIOSFODNN7EXAMPLE");
+        dataSourceProperties.put("property.aws.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -248,7 +248,7 @@ public class KafkaAwsMskIamAuthTest {
 
         Assert.assertNotNull(props.getCustomKafkaProperties());
         Assert.assertEquals("us-east-1", props.getCustomKafkaProperties().get("aws.region"));
-        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", props.getCustomKafkaProperties().get("aws.access.key"));
+        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", props.getCustomKafkaProperties().get("aws.access_key"));
     }
 
     @Test
@@ -309,8 +309,8 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.access.key", "AKIAIOSFODNN7EXAMPLE");
-        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        dataSourceProperties.put("property.aws.access_key", "AKIAIOSFODNN7EXAMPLE");
+        dataSourceProperties.put("property.aws.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
         dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::111111111111:role/AccountAMskRole");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
@@ -318,7 +318,7 @@ public class KafkaAwsMskIamAuthTest {
         props.analyze();
 
         Map<String, String> customProps = props.getCustomKafkaProperties();
-        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access.key"));
+        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
         Assert.assertEquals("arn:aws:iam::111111111111:role/AccountAMskRole", customProps.get("aws.msk.iam.role.arn"));
     }
 
@@ -329,7 +329,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        dataSourceProperties.put("property.aws.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -338,8 +338,8 @@ public class KafkaAwsMskIamAuthTest {
             props.analyze();
             Assert.fail("Should throw AnalysisException for missing access key");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access.key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret.key"));
+            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
             Assert.assertTrue(e.getMessage().contains("together"));
         }
     }
@@ -351,7 +351,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.access.key", "AKIAIOSFODNN7EXAMPLE");
+        dataSourceProperties.put("property.aws.access_key", "AKIAIOSFODNN7EXAMPLE");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
         props.setTimezone("UTC");
@@ -360,8 +360,8 @@ public class KafkaAwsMskIamAuthTest {
             props.analyze();
             Assert.fail("Should throw AnalysisException for missing secret key");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access.key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret.key"));
+            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
             Assert.assertTrue(e.getMessage().contains("together"));
         }
     }
@@ -383,8 +383,8 @@ public class KafkaAwsMskIamAuthTest {
             props.analyze();
             Assert.fail("Should throw AnalysisException for public access without explicit credentials");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access.key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret.key"));
+            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
             Assert.assertTrue(e.getMessage().contains("together"));
         }
     }
@@ -406,8 +406,8 @@ public class KafkaAwsMskIamAuthTest {
             props.analyze();
             Assert.fail("Should throw AnalysisException for public access without explicit credentials");
         } catch (UserException e) {
-            Assert.assertTrue(e.getMessage().contains("aws.access.key"));
-            Assert.assertTrue(e.getMessage().contains("aws.secret.key"));
+            Assert.assertTrue(e.getMessage().contains("aws.access_key"));
+            Assert.assertTrue(e.getMessage().contains("aws.secret_key"));
             Assert.assertTrue(e.getMessage().contains("together"));
         }
     }
@@ -418,8 +418,8 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
         dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
         dataSourceProperties.put("property.aws.region", "us-east-1");
-        dataSourceProperties.put("property.aws.access.key", "AKIAIOSFODNN7EXAMPLE");
-        dataSourceProperties.put("property.aws.secret.key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        dataSourceProperties.put("property.aws.access_key", "AKIAIOSFODNN7EXAMPLE");
+        dataSourceProperties.put("property.aws.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
         dataSourceProperties.put("property.aws.msk.iam.role.arn", "arn:aws:iam::123456789012:role/MyRole");
         dataSourceProperties.put("property.aws.profile.name", "default");
 
@@ -429,7 +429,7 @@ public class KafkaAwsMskIamAuthTest {
 
         // All properties should be preserved (BE will use them in priority order)
         Map<String, String> customProps = props.getCustomKafkaProperties();
-        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access.key"));
+        Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
         Assert.assertEquals("arn:aws:iam::123456789012:role/MyRole", customProps.get("aws.msk.iam.role.arn"));
         Assert.assertEquals("default", customProps.get("aws.profile.name"));
     }

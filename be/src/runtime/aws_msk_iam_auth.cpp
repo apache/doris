@@ -243,7 +243,7 @@ Status AwsMskIamAuth::generate_token(const std::string& broker_hostname, std::st
     // Token lifetime in milliseconds
     *token_lifetime_ms = TOKEN_EXPIRY_SECONDS * 1000;
 
-    LOG(INFO) << "Generated AWS MSK IAM token, presigned URL: " << signed_url;
+    VLOG_DEBUG << "Generated AWS MSK IAM token for region: " << _config.region;
     return Status::OK();
 }
 
@@ -324,11 +324,11 @@ std::string AwsMskIamAuth::_calculate_signing_key(const std::string& secret_key,
 }
 
 std::string AwsMskIamAuth::_hmac_sha256(const std::string& key, const std::string& data) {
-    unsigned char* digest;
-    digest = HMAC(EVP_sha256(), key.c_str(), static_cast<int>(key.length()),
-                  reinterpret_cast<const unsigned char*>(data.c_str()), data.length(), nullptr,
-                  nullptr);
-    return {reinterpret_cast<char*>(digest), SHA256_DIGEST_LENGTH};
+    unsigned char digest[EVP_MAX_MD_SIZE];
+    unsigned int digest_len = 0;
+    HMAC(EVP_sha256(), key.c_str(), static_cast<int>(key.length()),
+         reinterpret_cast<const unsigned char*>(data.c_str()), data.length(), digest, &digest_len);
+    return {reinterpret_cast<char*>(digest), digest_len};
 }
 
 std::string AwsMskIamAuth::_sha256(const std::string& data) {
@@ -365,11 +365,11 @@ namespace {
 constexpr const char* PROP_SECURITY_PROTOCOL = "security.protocol";
 constexpr const char* PROP_SASL_MECHANISM = "sasl.mechanism";
 constexpr const char* PROP_AWS_REGION = "aws.region";
-constexpr const char* PROP_AWS_ACCESS_KEY = "aws.access.key";
-constexpr const char* PROP_AWS_SECRET_KEY = "aws.secret.key";
-constexpr const char* PROP_AWS_ROLE_ARN = "aws.msk.iam.role.arn";
-constexpr const char* PROP_AWS_PROFILE_NAME = "aws.profile.name";
-constexpr const char* PROP_AWS_CREDENTIALS_PROVIDER = "aws.credentials.provider";
+constexpr const char* PROP_AWS_ACCESS_KEY = "aws.access_key";
+constexpr const char* PROP_AWS_SECRET_KEY = "aws.secret_key";
+constexpr const char* PROP_AWS_ROLE_ARN = "aws.role_arn";
+constexpr const char* PROP_AWS_PROFILE_NAME = "aws.profile_name";
+constexpr const char* PROP_AWS_CREDENTIALS_PROVIDER = "aws.credentials_provider";
 } // namespace
 
 std::unique_ptr<AwsMskIamOAuthCallback> AwsMskIamOAuthCallback::create_from_properties(
@@ -457,50 +457,39 @@ AwsMskIamOAuthCallback::AwsMskIamOAuthCallback(std::shared_ptr<AwsMskIamAuth> au
                                                std::string broker_hostname)
         : _auth(std::move(auth)), _broker_hostname(std::move(broker_hostname)) {}
 
-void AwsMskIamOAuthCallback::oauthbearer_token_refresh_cb(
-        RdKafka::Handle* handle, const std::string& /*oauthbearer_config*/) {
+Status AwsMskIamOAuthCallback::refresh_now(RdKafka::Handle* handle) {
     std::string token;
-    int64_t token_lifetime_ms;
+    int64_t token_lifetime_ms = 0;
 
-    Status status = _auth->generate_token(_broker_hostname, &token, &token_lifetime_ms);
+    RETURN_IF_ERROR(_auth->generate_token(_broker_hostname, &token, &token_lifetime_ms));
 
-    if (!status.ok()) {
-        LOG(WARNING) << "Failed to generate AWS MSK IAM token: " << status.to_string();
-        std::string errstr = "Failed to generate AWS MSK IAM token: " + status.to_string();
-        handle->oauthbearer_set_token_failure(errstr);
-        return;
-    }
-
-    // Set the token in librdkafka
-    // The principal name is not used by AWS MSK but required by the API
     std::string principal = "doris-consumer";
-
-    // Extensions (optional additional fields)
     std::list<std::string> extensions;
+    std::string errstr;
 
-    // Error string for oauthbearer_set_token
-    std::string set_token_errstr;
-
-    // Calculate absolute expiry time (Unix timestamp in milliseconds)
-    // librdkafka expects an absolute expiry timestamp, not a relative lifetime
     auto now = std::chrono::system_clock::now();
     auto now_ms =
             std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
     int64_t token_expiry_ms = now_ms + token_lifetime_ms;
 
-    RdKafka::ErrorCode err = handle->oauthbearer_set_token(token, token_expiry_ms, principal,
-                                                           extensions, set_token_errstr);
-
+    auto err = handle->oauthbearer_set_token(token, token_expiry_ms, principal, extensions, errstr);
     if (err != RdKafka::ERR_NO_ERROR) {
-        LOG(WARNING) << "Failed to set OAuth token: " << RdKafka::err2str(err)
-                     << ", detail: " << set_token_errstr;
-        handle->oauthbearer_set_token_failure(set_token_errstr.empty() ? RdKafka::err2str(err)
-                                                                       : set_token_errstr);
-        return;
+        return Status::InternalError("Failed to set OAuth token: {}, detail: {}",
+                                     RdKafka::err2str(err), errstr);
     }
 
     LOG(INFO) << "Successfully set AWS MSK IAM OAuth token, lifetime: " << token_lifetime_ms
               << "ms";
+    return Status::OK();
+}
+
+void AwsMskIamOAuthCallback::oauthbearer_token_refresh_cb(
+        RdKafka::Handle* handle, const std::string& /*oauthbearer_config*/) {
+    Status st = refresh_now(handle);
+    if (!st.ok()) {
+        LOG(WARNING) << st;
+        handle->oauthbearer_set_token_failure(st.to_string());
+    }
 }
 
 } // namespace doris

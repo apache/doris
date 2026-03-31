@@ -104,7 +104,7 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
 
         // AWS properties (aws.*) are Doris-specific for MSK IAM authentication
         // and should not be passed to librdkafka
-        if (starts_with(item.second, "AWS:")) {
+        if (starts_with(item.first, "aws.")) {
             LOG(INFO) << "Skipping AWS property for librdkafka: " << item.first;
             continue;
         }
@@ -153,6 +153,12 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     _aws_msk_oauth_callback = AwsMskIamOAuthCallback::create_from_properties(
             _custom_properties, ctx->kafka_info->brokers);
     if (_aws_msk_oauth_callback) {
+        // Enable SASL queue to support background callbacks
+        if (conf->enable_sasl_queue(true, errstr) != RdKafka::Conf::CONF_OK) {
+            LOG(WARNING) << "PAUSE: failed to enable SASL queue: " << errstr;
+            return Status::InternalError("PAUSE: failed to enable SASL queue: " + errstr);
+        }
+
         if (conf->set("oauthbearer_token_refresh_cb", _aws_msk_oauth_callback.get(), errstr) !=
             RdKafka::Conf::CONF_OK) {
             LOG(WARNING) << "PAUSE: failed to set OAuth callback: " << errstr;
@@ -166,6 +172,18 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
     if (!_k_consumer) {
         LOG(WARNING) << "PAUSE: failed to create kafka consumer: " << errstr;
         return Status::InternalError("PAUSE: failed to create kafka consumer: " + errstr);
+    }
+
+    // If AWS MSK IAM auth is enabled, inject initial token and enable background refresh
+    if (_aws_msk_oauth_callback) {
+        RETURN_IF_ERROR(_aws_msk_oauth_callback->refresh_now(_k_consumer));
+
+        std::unique_ptr<RdKafka::Error> bg_err(_k_consumer->sasl_background_callbacks_enable());
+        if (bg_err) {
+            return Status::InternalError("Failed to enable SASL background callbacks: " +
+                                         bg_err->str());
+        }
+        LOG(INFO) << "AWS MSK IAM: initial token set, background refresh enabled";
     }
 
     VLOG_NOTICE << "finished to init kafka consumer. " << ctx->brief();
@@ -336,20 +354,6 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
 }
 
 Status KafkaDataConsumer::get_partition_meta(std::vector<int32_t>* partition_ids) {
-    if (_aws_msk_oauth_callback) {
-        // Trigger OAuth token refresh by polling the event loop
-        // librdkafka's OAUTHBEARER callback is only triggered through consume()/poll()
-        // Without this, metadata() will fail because broker is waiting for OAuth token
-        LOG(INFO) << "Polling to trigger OAuth token refresh before metadata request";
-        int max_poll_attempts = 10; // 10 × 500ms = 5 seconds max
-        for (int i = 0; i < max_poll_attempts; i++) {
-            RdKafka::Message* msg = _k_consumer->consume(500);
-            if (msg) {
-                delete msg; // We don't expect messages before partition assignment
-            }
-        }
-    }
-
     // create topic conf
     RdKafka::Conf* tconf = RdKafka::Conf::create(RdKafka::Conf::CONF_TOPIC);
     Defer delete_conf {[tconf]() { delete tconf; }};

@@ -140,8 +140,17 @@ public:
                                     std::string broker_hostname);
 
     /**
+     * Synchronously refresh and set OAuth token.
+     * Can be called directly during initialization or by the callback.
+     *
+     * @param handle The Kafka handle (consumer or producer)
+     * @return Status indicating success or failure
+     */
+    Status refresh_now(RdKafka::Handle* handle);
+
+    /**
      * Callback invoked by librdkafka to refresh OAuth token.
-     * 
+     *
      * @param handle The Kafka handle (consumer or producer)
      * @param oauthbearer_config Configuration string from 'sasl.oauthbearer.config'
      */
