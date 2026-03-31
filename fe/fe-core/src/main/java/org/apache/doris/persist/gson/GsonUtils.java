@@ -931,22 +931,9 @@ public class GsonUtils {
                     if (value instanceof GsonPreProcessable) {
                         ((GsonPreProcessable) value).gsonPreProcess();
                     }
-                    IOException writeException = null;
-                    try {
-                        delegate.write(out, value);
-                    } catch (IOException e) {
-                        writeException = e;
-                        throw e;
-                    } finally {
-                        if (value instanceof GsonPreProcessable) {
-                            try {
-                                ((GsonPreProcessable) value).gsonPostSerialize();
-                            } catch (Exception e) {
-                                if (writeException != null) {
-                                    writeException.addSuppressed(e);
-                                }
-                            }
-                        }
+                    delegate.write(out, value);
+                    if (value instanceof GsonPreProcessable) {
+                        ((GsonPreProcessable) value).gsonPostSerialize();
                     }
                 }
 

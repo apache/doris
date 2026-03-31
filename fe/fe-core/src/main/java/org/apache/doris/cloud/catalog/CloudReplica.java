@@ -638,7 +638,6 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
     }
 
     @Override
-    @Override
     public void gsonPreProcess() throws IOException {
         CloudTabletInvertedIndex idx = getCloudInvertedIndex();
         if (idx == null) {
