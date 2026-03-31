@@ -371,7 +371,7 @@ under the License.
         <maxcompute.version>0.53.2-public</maxcompute.version>
         <!-- Arrow 19.0.1 will MacOS compile error and decimal type error when convert to Parquet
          https://github.com/apache/doris/pull/51217-->
-        <arrow.version>18.3.0</arrow.version>
+        <arrow.version>17.0.0</arrow.version>
         <presto.hadoop.version>2.7.4-11</presto.hadoop.version>
         <presto.hive.version>3.0.0-8</presto.hive.version>
         <!-- lakesoul -->
