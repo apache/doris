@@ -20,6 +20,7 @@ package org.apache.doris.cloud.catalog;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.foundation.util.ConcurrentLong2LongHashMap;
+import org.apache.doris.foundation.util.ConcurrentLong2ObjectHashMap;
 
 import com.google.common.base.Preconditions;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
@@ -43,9 +44,8 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
     // Outer key: clusterId (typically 1-3 clusters). Inner key: replicaId. Value: beId or timestamp.
     private final ConcurrentHashMap<String, ConcurrentLong2LongHashMap> clusterPrimaryBeMap
             = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ConcurrentLong2LongHashMap> clusterSecondaryBeMap
-            = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<String, ConcurrentLong2LongHashMap> clusterSecondaryTsMap
+    // Stores [beId, timestamp] atomically per replicaId to avoid TOCTOU races between separate maps.
+    private final ConcurrentHashMap<String, ConcurrentLong2ObjectHashMap<long[]>> clusterSecondaryMap
             = new ConcurrentHashMap<>();
 
     public CloudTabletInvertedIndex() {
@@ -150,8 +150,7 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
     protected void innerClear() {
         replicaMetaMap.clear();
         clusterPrimaryBeMap.clear();
-        clusterSecondaryBeMap.clear();
-        clusterSecondaryTsMap.clear();
+        clusterSecondaryMap.clear();
     }
 
     // ---- Central cluster-to-BE mapping accessors ----
@@ -199,45 +198,44 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
         return result;
     }
 
-    // -- Secondary BE --
+    // -- Secondary BE (beId + timestamp stored atomically as long[2]) --
+
+    private ConcurrentLong2ObjectHashMap<long[]> getOrCreateSecondaryMap(String clusterId) {
+        return clusterSecondaryMap.computeIfAbsent(clusterId, k -> new ConcurrentLong2ObjectHashMap<>());
+    }
+
+    /** Returns [beId, timestamp] or null if no secondary BE is set. */
+    public long[] getSecondaryBe(String clusterId, long replicaId) {
+        ConcurrentLong2ObjectHashMap<long[]> inner = clusterSecondaryMap.get(clusterId);
+        if (inner == null) {
+            return null;
+        }
+        return inner.get(replicaId);
+    }
 
     public long getSecondaryBeId(String clusterId, long replicaId) {
-        ConcurrentLong2LongHashMap inner = clusterSecondaryBeMap.get(clusterId);
-        if (inner == null) {
-            return -1L;
-        }
-        return inner.getOrDefault(replicaId, -1L);
+        long[] pair = getSecondaryBe(clusterId, replicaId);
+        return pair != null ? pair[0] : -1L;
     }
 
     public long getSecondaryTimestamp(String clusterId, long replicaId) {
-        ConcurrentLong2LongHashMap inner = clusterSecondaryTsMap.get(clusterId);
-        if (inner == null) {
-            return -1L;
-        }
-        return inner.getOrDefault(replicaId, -1L);
+        long[] pair = getSecondaryBe(clusterId, replicaId);
+        return pair != null ? pair[1] : -1L;
     }
 
     public void setSecondaryBe(String clusterId, long replicaId, long beId, long timestamp) {
-        getOrCreateClusterMap(clusterSecondaryBeMap, clusterId).put(replicaId, beId);
-        getOrCreateClusterMap(clusterSecondaryTsMap, clusterId).put(replicaId, timestamp);
+        getOrCreateSecondaryMap(clusterId).put(replicaId, new long[]{beId, timestamp});
     }
 
     public void removeSecondaryBe(String clusterId, long replicaId) {
-        ConcurrentLong2LongHashMap beMap = clusterSecondaryBeMap.get(clusterId);
-        if (beMap != null) {
-            beMap.remove(replicaId);
-        }
-        ConcurrentLong2LongHashMap tsMap = clusterSecondaryTsMap.get(clusterId);
-        if (tsMap != null) {
-            tsMap.remove(replicaId);
+        ConcurrentLong2ObjectHashMap<long[]> inner = clusterSecondaryMap.get(clusterId);
+        if (inner != null) {
+            inner.remove(replicaId);
         }
     }
 
     public void clearSecondaryBeForReplica(long replicaId) {
-        for (ConcurrentLong2LongHashMap inner : clusterSecondaryBeMap.values()) {
-            inner.remove(replicaId);
-        }
-        for (ConcurrentLong2LongHashMap inner : clusterSecondaryTsMap.values()) {
+        for (ConcurrentLong2ObjectHashMap<long[]> inner : clusterSecondaryMap.values()) {
             inner.remove(replicaId);
         }
     }

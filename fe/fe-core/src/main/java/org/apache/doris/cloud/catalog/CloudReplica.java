@@ -410,14 +410,14 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
     }
 
     public Backend getSecondaryBackend(String clusterId) {
-        CloudTabletInvertedIndex idx = getCloudInvertedIndex();
-        long beId = idx.getSecondaryBeId(clusterId, getId());
-        if (beId == -1L) {
+        long[] pair = getCloudInvertedIndex().getSecondaryBe(clusterId, getId());
+        if (pair == null) {
             return null;
         }
-        long changeTimestamp = idx.getSecondaryTimestamp(clusterId, getId());
+        long beId = pair[0];
+        long changeTimestamp = pair[1];
         if (LOG.isDebugEnabled()) {
-            LOG.debug("in secondaryClusterToBackends clusterId {}, beId {}, changeTimestamp {}, replica info {}",
+            LOG.debug("secondary backend clusterId {}, beId {}, changeTimestamp {}, replica info {}",
                     clusterId, beId, changeTimestamp, this);
         }
         return Env.getCurrentSystemInfo().getBackend(beId);
@@ -614,17 +614,17 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
     // so just only need to clean up secondaryClusterToBackends on the master node.
     public void checkAndClearSecondaryClusterToBe(String clusterId, long expireTimestamp) {
         CloudTabletInvertedIndex idx = getCloudInvertedIndex();
-        long beId = idx.getSecondaryBeId(clusterId, getId());
-        if (beId == -1L) {
+        long[] pair = idx.getSecondaryBe(clusterId, getId());
+        if (pair == null) {
             return;
         }
-        long changeTimestamp = idx.getSecondaryTimestamp(clusterId, getId());
+        long beId = pair[0];
+        long changeTimestamp = pair[1];
 
         if (changeTimestamp < expireTimestamp) {
             LOG.debug("remove clusterId {} secondary beId {} changeTimestamp {} expireTimestamp {} replica info {}",
                     clusterId, beId, changeTimestamp, expireTimestamp, this);
             idx.removeSecondaryBe(clusterId, getId());
-            return;
         }
     }
 
