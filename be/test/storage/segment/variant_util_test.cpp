@@ -49,7 +49,7 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
             R"({"a":3})",         //
     };
 
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
 
     ParseConfig cfg;
@@ -101,7 +101,7 @@ TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
             R"({"b":false,"arr":[4],"s":"y"})",
     };
 
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
 
     ParseConfig cfg;
@@ -185,14 +185,14 @@ TEST(VariantUtilTest, ParseVariantColumns_ScalarJsonStringToSubcolumns) {
     TabletSchema tablet_schema;
     tablet_schema.init_from_pb(schema_pb);
 
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, false);
     doris::VariantUtil::insert_root_scalar_field(
             *variant, Field::create_field<TYPE_STRING>(String(R"({"a":1})")));
     doris::VariantUtil::insert_root_scalar_field(
             *variant, Field::create_field<TYPE_STRING>(String(R"({"a":2})")));
 
     Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, false), "v"});
 
     const std::vector<uint32_t> column_pos {0};
     Status st = parse_and_materialize_variant_columns(block, tablet_schema, column_pos);
@@ -219,7 +219,7 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     };
 
     // Build a doc-mode ColumnVariant: Only root in subcolumns, others stored in doc snapshot column.
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
     ParseConfig cfg;
     cfg.deprecated_enable_flatten_nested = false;
@@ -228,7 +228,7 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
     ASSERT_TRUE(variant->is_doc_mode());
 
     Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 
     ParseConfig parse_cfg;
     parse_cfg.deprecated_enable_flatten_nested = false;
@@ -271,7 +271,7 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeBinaryToSubcolumns) {
 
 TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     const std::vector<std::string_view> jsons = {R"({"a":1})"};
-    auto variant = ColumnVariant::create(0);
+    auto variant = ColumnVariant::create(0, true);
     auto json_col = _make_json_column(jsons);
 
     ParseConfig cfg;
@@ -281,7 +281,7 @@ TEST(VariantUtilTest, ParseVariantColumns_DocModeRejectOnlySubcolumnsConfig) {
     ASSERT_TRUE(variant->is_doc_mode());
 
     Block block;
-    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0), "v"});
+    block.insert({variant->get_ptr(), std::make_shared<DataTypeVariant>(0, true), "v"});
 
     ParseConfig parse_cfg;
     parse_cfg.deprecated_enable_flatten_nested = false;

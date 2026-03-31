@@ -554,11 +554,12 @@ Status OlapScanner::_init_variant_columns() {
         if (slot->type()->get_primitive_type() == PrimitiveType::TYPE_VARIANT) {
             // Such columns are not exist in frontend schema info, so we need to
             // add them into tablet_schema for later column indexing.
+            const auto& dt_variant =
+                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()));
             TabletColumn subcol = TabletColumn::create_materialized_variant_column(
                     tablet_schema->column_by_uid(slot->col_unique_id()).name_lower_case(),
                     slot->column_paths(), slot->col_unique_id(),
-                    assert_cast<const DataTypeVariant&>(*remove_nullable(slot->type()))
-                            .variant_max_subcolumns_count());
+                    dt_variant.variant_max_subcolumns_count(), dt_variant.enable_doc_mode());
             if (tablet_schema->field_index(*subcol.path_info_ptr()) < 0) {
                 tablet_schema->append_column(subcol, TabletSchema::ColumnType::VARIANT);
             }

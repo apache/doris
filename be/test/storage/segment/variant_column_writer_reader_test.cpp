@@ -230,8 +230,8 @@ protected:
         for (const auto& batch : batches) {
             Block block = _tablet_schema->create_block();
             auto columns = block.mutate_columns();
-            auto variant_col =
-                    ColumnVariant::create(_tablet_schema->column(0).variant_max_subcolumns_count());
+            auto variant_col = ColumnVariant::create(
+                    _tablet_schema->column(0).variant_max_subcolumns_count(), false);
             auto json_col = ColumnString::create();
             for (const auto& json : batch) {
                 json_col->insert_data(json.data(), json.size());
@@ -271,8 +271,8 @@ protected:
 
         Block block = _tablet_schema->create_block();
         auto columns = block.mutate_columns();
-        auto variant_col =
-                ColumnVariant::create(_tablet_schema->column(0).variant_max_subcolumns_count());
+        auto variant_col = ColumnVariant::create(
+                _tablet_schema->column(0).variant_max_subcolumns_count(), false);
         auto json_col = ColumnString::create();
         for (const auto& json : jsons) {
             json_col->insert_data(json.data(), json.size());
@@ -432,7 +432,7 @@ static std::set<std::string> collect_regular_paths(
 
 static std::vector<std::string> normalize_json_rows(const std::vector<std::string>& jsons,
                                                     int variant_max_subcolumns_count) {
-    auto variant_col = ColumnVariant::create(variant_max_subcolumns_count);
+    auto variant_col = ColumnVariant::create(variant_max_subcolumns_count, false);
     auto json_col = ColumnString::create();
     for (const auto& json : jsons) {
         json_col->insert_data(json.data(), json.size());
@@ -685,7 +685,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     }
 
     auto read_to_column_object = [&](ColumnIteratorUPtr& it) {
-        new_column_object = ColumnVariant::create(3);
+        new_column_object = ColumnVariant::create(3, false);
         nrows = 1000;
         st = it->seek_to_ordinal(0);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -872,7 +872,8 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
     // test VariantRootColumnIterator for next_batch and read_by_rowids
     {
         auto iter = assert_cast<VariantRootColumnIterator*>(it3.get());
-        auto nullable_dt = std::make_shared<DataTypeNullable>(std::make_shared<DataTypeVariant>(3));
+        auto nullable_dt =
+                std::make_shared<DataTypeNullable>(std::make_shared<DataTypeVariant>(3, false));
         MutableColumnPtr root_column_object = nullable_dt->create_column();
         nrows = 1000;
         st = iter->seek_to_ordinal(0);
@@ -981,19 +982,19 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_normal) {
         for (int i = 0; i < 1000; ++i) {
             row_ids1.push_back(i);
         }
-        MutableColumnPtr sparse_dst1 = ColumnVariant::create(3);
+        MutableColumnPtr sparse_dst1 = ColumnVariant::create(3, false);
         st = iter->read_by_rowids(row_ids1.data(), row_ids1.size(), sparse_dst1);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(sparse_dst1->size() == row_ids1.size());
         // test to nullable column object
         std::cout << "test 2 " << std::endl;
         MutableColumnPtr sparse_dst2 =
-                ColumnNullable::create(ColumnVariant::create(3), ColumnUInt8::create());
+                ColumnNullable::create(ColumnVariant::create(3, false), ColumnUInt8::create());
         st = iter->read_by_rowids(row_ids1.data(), row_ids1.size(), sparse_dst2);
         EXPECT_TRUE(st.ok()) << st.msg();
         EXPECT_TRUE(sparse_dst2->size() == row_ids1.size());
         std::cout << "test 3" << std::endl;
-        MutableColumnPtr sparse_dst3 = ColumnVariant::create(3);
+        MutableColumnPtr sparse_dst3 = ColumnVariant::create(3, false);
         size_t rs = 1000;
         bool has_null = false;
         st = iter->seek_to_ordinal(0);
@@ -1528,11 +1529,11 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_compact_writer_and_read_doc
     config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
 
     MutableColumnPtr root_variant =
-            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), true);
     variant_util::parse_json_to_variant(*root_variant, *full_strings, config);
 
     MutableColumnPtr bucket_variant =
-            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), true);
     variant_util::parse_json_to_variant(*bucket_variant, *bucket_strings, config);
 
     // 6. append and write
@@ -1703,7 +1704,7 @@ TEST_F(VariantColumnWriterReaderTest, test_doc_compact_sparse_write_array_gap) {
     parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
 
     MutableColumnPtr bucket_variant =
-            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), true);
     variant_util::parse_json_to_variant(*bucket_variant, *strings, parse_cfg);
 
     auto bucket_data = std::make_unique<VariantColumnData>();
@@ -1804,7 +1805,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_doc_sparse_write_array_gap_and_
     parse_cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
 
     MutableColumnPtr variant_column =
-            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+            ColumnVariant::create(parent_column.variant_max_subcolumns_count(), true);
     variant_util::parse_json_to_variant(*variant_column, *strings, parse_cfg);
 
     auto variant_data = std::make_unique<VariantColumnData>();
@@ -2012,7 +2013,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     st = it->init(column_iter_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
 
-    MutableColumnPtr new_column_object = ColumnVariant::create(3);
+    MutableColumnPtr new_column_object = ColumnVariant::create(3, false);
     size_t nrows = 1000;
     st = it->seek_to_ordinal(0);
     EXPECT_TRUE(st.ok()) << st.msg();
@@ -2031,7 +2032,7 @@ TEST_F(VariantColumnWriterReaderTest, test_write_data_advanced) {
     }
 
     auto read_to_column_object = [&](ColumnIteratorUPtr& it) {
-        new_column_object = ColumnVariant::create(10);
+        new_column_object = ColumnVariant::create(10, false);
         nrows = 1000;
         st = it->seek_to_ordinal(0);
         EXPECT_TRUE(st.ok()) << st.msg();
@@ -3301,7 +3302,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     st = nested_iter->init(column_iter_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
     // fill with nullable ColumnVariant target
-    MutableColumnPtr new_column_object1 = ColumnVariant::create(3);
+    MutableColumnPtr new_column_object1 = ColumnVariant::create(3, false);
     MutableColumnPtr null_object =
             ColumnNullable::create(new_column_object1->assume_mutable(), ColumnUInt8::create());
     size_t n = 1000;
@@ -3313,7 +3314,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
     EXPECT_TRUE(stats.bytes_read > 0);
     {
         // fill with nullable ColumnVariant target
-        MutableColumnPtr new_column_object12 = ColumnVariant::create(3);
+        MutableColumnPtr new_column_object12 = ColumnVariant::create(3, false);
         MutableColumnPtr null_object12 = ColumnNullable::create(
                 new_column_object12->assume_mutable(), ColumnUInt8::create());
         st = nested_iter->seek_to_ordinal(0);
@@ -3345,7 +3346,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
         st = nested_iter2->init(column_iter_opts);
         EXPECT_TRUE(st.ok()) << st.msg();
         // fill with nullable ColumnVariant target
-        MutableColumnPtr new_column_object2 = ColumnVariant::create(3);
+        MutableColumnPtr new_column_object2 = ColumnVariant::create(3, false);
         MutableColumnPtr null_object2 =
                 ColumnNullable::create(new_column_object2->assume_mutable(), ColumnUInt8::create());
         size_t nrows = 1000;
@@ -3393,7 +3394,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter) {
         nested_subcolumns[parent_path].emplace_back(second);
         // test _process_with_nested_column with different type
         // init container which is ColumnVariant
-        MutableColumnPtr nested_column_object = ColumnVariant::create(3);
+        MutableColumnPtr nested_column_object = ColumnVariant::create(3, false);
         auto& container_variant = assert_cast<ColumnVariant&>(*nested_column_object);
         st = nested_iter2->_process_nested_columns(container_variant, nested_subcolumns, n);
         std::cout << st.msg() << std::endl;
@@ -3455,7 +3456,7 @@ TEST_F(VariantColumnWriterReaderTest, test_nested_iter_nullable) {
     st = nested_iter->init(column_iter_opts);
     EXPECT_TRUE(st.ok()) << st.msg();
     // fill with nullable ColumnVariant target
-    MutableColumnPtr new_column_object1 = ColumnVariant::create(3);
+    MutableColumnPtr new_column_object1 = ColumnVariant::create(3, false);
     MutableColumnPtr null_object =
             ColumnNullable::create(new_column_object1->assume_mutable(), ColumnUInt8::create());
     size_t nrows = 1000;

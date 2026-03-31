@@ -56,6 +56,7 @@ Status VExplodeV2TableFunction::_process_init_variant(Block* block, int value_co
     auto& variant_column = assert_cast<ColumnVariant&>(*(column->assume_mutable()));
     variant_column.finalize();
     _multi_detail[children_column_idx].output_as_variant = true;
+    _multi_detail[children_column_idx].variant_enable_doc_mode = variant_column.enable_doc_mode();
     if (!variant_column.is_null_root()) {
         _array_columns[children_column_idx] = variant_column.get_root();
         // We need to wrap the output nested column within a variant column.

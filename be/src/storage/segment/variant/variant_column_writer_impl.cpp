@@ -84,6 +84,7 @@ void _init_column_meta(ColumnMetaPB* meta, uint32_t column_id, const TabletColum
     }
     if (column.is_variant_type()) {
         meta->set_variant_max_subcolumns_count(column.variant_max_subcolumns_count());
+        meta->set_variant_enable_doc_mode(column.variant_enable_doc_mode());
     }
 }
 
@@ -1167,7 +1168,7 @@ Status VariantColumnWriterImpl::init() {
     if (_opts.rowset_ctx->write_type == DataWriteType::TYPE_DIRECT) {
         count = 0;
     }
-    _column = ColumnVariant::create(count);
+    _column = ColumnVariant::create(count, _tablet_column->variant_enable_doc_mode());
     return Status::OK();
 }
 
@@ -1589,7 +1590,7 @@ VariantSubcolumnWriter::VariantSubcolumnWriter(const ColumnWriterOptions& opts,
         : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
     _tablet_column = column;
     _opts = opts;
-    _column = ColumnVariant::create(0);
+    _column = ColumnVariant::create(0, false);
 }
 
 Status VariantSubcolumnWriter::init() {
@@ -1715,7 +1716,7 @@ VariantDocCompactWriter::VariantDocCompactWriter(const ColumnWriterOptions& opts
         : ColumnWriter(std::move(field), opts.meta->is_nullable(), opts.meta) {
     _opts = opts;
     _tablet_column = column;
-    _column = ColumnVariant::create(0);
+    _column = ColumnVariant::create(0, false);
 }
 
 Status VariantDocCompactWriter::init() {
