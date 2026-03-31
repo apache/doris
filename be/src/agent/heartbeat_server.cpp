@@ -300,10 +300,16 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
         LOG(INFO) << "set config cloud_unique_id " << master_info.cloud_unique_id << " " << st;
     }
 
-    if (master_info.__isset.cloud_cluster_info &&
-        master_info.cloud_cluster_info.__isset.isStandby) {
+    if (master_info.__isset.cloud_cluster_info) {
         auto* cloud_cluster_info = static_cast<CloudClusterInfo*>(_cluster_info);
-        cloud_cluster_info->set_is_in_standby(master_info.cloud_cluster_info.isStandby);
+        if (master_info.cloud_cluster_info.__isset.isStandby) {
+            cloud_cluster_info->set_is_in_standby(master_info.cloud_cluster_info.isStandby);
+        }
+        if (master_info.cloud_cluster_info.__isset.cloud_compute_group_id &&
+            !master_info.cloud_cluster_info.cloud_compute_group_id.empty()) {
+            cloud_cluster_info->set_cloud_compute_group_id(
+                    master_info.cloud_cluster_info.cloud_compute_group_id);
+        }
     }
 
     if (master_info.__isset.tablet_report_inactive_duration_ms) {

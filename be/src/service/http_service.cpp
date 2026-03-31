@@ -524,6 +524,7 @@ void HttpService::register_cloud_handler(CloudStorageEngine& engine) {
             _pool.add(new CheckEncryptionAction(_env, TPrivilegeHier::GLOBAL, TPrivilegeType::ALL));
     _ev_http_server->register_handler(HttpMethod::GET, "/api/check_tablet_encryption",
                                       check_encryption_action);
+
 }
 // NOLINTEND(readability-function-size)
 

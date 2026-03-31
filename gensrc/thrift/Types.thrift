@@ -687,6 +687,7 @@ struct TReplicaInfo {
     5: required TReplicaId replica_id
     6: optional bool is_alive
     7: optional i64 backend_id
+    8: optional string cloud_compute_group_id
 }
 
 struct TResourceInfo {

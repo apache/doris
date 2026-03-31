@@ -1133,6 +1133,11 @@ DECLARE_mInt32(cold_data_compaction_score_threshold);
 DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
+// Thread pool for S3 reads in cross-CG peer winner race.
+// Max should match max_concurrent_peer_races so the pool never fills up under normal operation.
+DECLARE_Int32(min_peer_race_s3_thread_num);
+DECLARE_Int32(max_peer_race_s3_thread_num);
+
 DECLARE_Bool(enable_time_lut);
 
 DECLARE_mBool(enable_query_like_bloom_filter);

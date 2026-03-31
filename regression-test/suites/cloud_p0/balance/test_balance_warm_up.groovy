@@ -44,6 +44,12 @@ suite('test_balance_warm_up', 'docker') {
         'cache_read_from_peer_expired_seconds=100',
         'enable_cache_read_from_peer=true',
         "enable_packed_file=${enablePackedFile}",
+        'peer_candidate_cleanup_interval_s=10',
+        'peer_candidate_expiry_s=30',
+        'file_cache_enter_disk_resource_limit_mode_percent=99',
+        'file_cache_exit_disk_resource_limit_mode_percent=98',
+        'file_cache_enter_need_evict_cache_in_advance_percent=99',
+        'file_cache_exit_need_evict_cache_in_advance_percent=98'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -220,9 +226,9 @@ suite('test_balance_warm_up', 'docker') {
             "Available subdirs: ${subDirs}")
         }
 
-        sleep(105 * 1000)
-        // test expired be tablet cache info be removed
-        // after cache_read_from_peer_expired_seconds = 100s
+        // peer_candidate_expiry_s=30s, cleanup runs every 10s → entries evicted within ~40s
+        sleep(45 * 1000)
+        // test that expired peer candidate entries are removed by run_cleanup_loop
         assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "balance_tablet_be_mapping_size"))
         assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"))
         assert(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"))

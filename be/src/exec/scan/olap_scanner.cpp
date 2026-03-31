@@ -95,7 +95,8 @@ OlapScanner::OlapScanner(ScanLocalStateBase* parent, OlapScanner::Params&& param
                                  .score_runtime {},
                                  .collection_statistics {},
                                  .ann_topn_runtime {},
-                                 .condition_cache_digest = parent->get_condition_cache_digest()}) {
+                                 .condition_cache_digest = parent->get_condition_cache_digest()}),
+          _initial_file_cache_stats(std::move(params.initial_file_cache_stats)) {
     _tablet_reader_params.set_read_source(std::move(params.read_source),
                                           _state->skip_delete_bitmap());
     _has_prepared = false;
@@ -273,6 +274,7 @@ Status OlapScanner::_open_impl(RuntimeState* state) {
                    ", backend=" + BackendOptions::get_localhost());
         return res;
     }
+    _tablet_reader->mutable_stats()->file_cache_stats.merge_from(_initial_file_cache_stats);
 
     // Do not hold rs_splits any more to release memory.
     _tablet_reader_params.rs_splits.clear();
@@ -831,6 +833,11 @@ void OlapScanner::_collect_profile_before_close() {
     InvertedIndexProfileReporter inverted_index_profile;
     inverted_index_profile.update(local_state->_index_filter_profile.get(),
                                   &stats.inverted_index_stats);
+
+    if (config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(local_state->_segment_profile.get());
+        cache_profile.update(&stats.file_cache_stats);
+    }
 
     // only cloud deploy mode will use file cache.
     if (config::is_cloud_mode() && config::enable_file_cache) {

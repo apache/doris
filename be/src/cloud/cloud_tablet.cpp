@@ -396,6 +396,7 @@ void CloudTablet::add_rowsets(std::vector<RowsetSharedPtr> to_add, bool version_
 
     VLOG_DEBUG << "add_rowsets tablet_id=" << tablet_id() << " stack: " << get_stack_trace();
 
+
     if (!version_overlap) {
         _add_rowsets_directly(to_add, warmup_delta_data);
         return;

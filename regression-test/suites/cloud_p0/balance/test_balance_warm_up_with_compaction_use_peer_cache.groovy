@@ -38,6 +38,7 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         'cloud_pre_heating_time_limit_sec=30',
         // disable Auto Analysis Job Executor
         'auto_check_statistics_in_minutes=60',
+        'JAVA_TOOL_OPTIONS=-Djava.io.tmpdir=$LOG_DIR/tmp',
     ]
     options.beConfigs += [
         'report_tablet_interval_seconds=1',
@@ -47,7 +48,7 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
         'cumulative_compaction_min_deltas=5',
         'cache_read_from_peer_expired_seconds=100',
         'enable_cache_read_from_peer=true',
-        "enable_packed_file=${enablePackedFile}",
+        "enable_packed_file=${enablePackedFile}"
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -203,6 +204,9 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
             "Available subdirs: ${subDirs}")
         }
 
+        def peerReadBeforeQuery = getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read")
+        def crossCgReadBeforeQuery = getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "peer_cross_compute_group_read")
+
         // The query triggers reading the file cache from the peer
         profile("test_balance_warm_up_with_compaction_use_peer_cache_profile") {
             sql """ set enable_profile = true;"""
@@ -221,7 +225,14 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
                     total += matcher.group(1).toInteger()
                     logger.info("InvertedIndexNumPeerIOTotal: {}", matcher.group(1))
                 }
+                def remoteMatcher = (profileString =~ /-  InvertedIndexNumRemoteIOTotal:\s+(\d+)/)
+                def remoteTotal = 0
+                while (remoteMatcher.find()) {
+                    remoteTotal += remoteMatcher.group(1).toInteger()
+                    logger.info("InvertedIndexNumRemoteIOTotal: {}", remoteMatcher.group(1))
+                }
                 assertTrue(total > 0)
+                assertEquals(0, remoteTotal)
             } 
         }
         subDirs.clear()
@@ -233,8 +244,10 @@ suite('test_balance_warm_up_with_compaction_use_peer_cache', 'docker') {
             "Expected cache file pattern ${hashFile} should found in BE ${newAddBe.Host}'s file_cache directory. " + 
             "Available subdirs: ${subDirs}")
         }
-        assert(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"))
-        assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"))
+        assert(getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read") > peerReadBeforeQuery)
+        assert crossCgReadBeforeQuery == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort,
+                "peer_cross_compute_group_read") :
+               "same-CG peer read must not increase peer_cross_compute_group_read"
     }
 
     docker(options) {

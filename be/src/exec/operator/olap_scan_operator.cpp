@@ -612,6 +612,7 @@ Status OlapScanLocalState::_init_scanners(std::list<ScannerSPtr>* scanners) {
                                                              _tablets[scan_range_idx].tablet,
                                                              version,
                                                              _read_sources[scan_range_idx],
+                                                             {},
                                                              p._limit,
                                                              p._olap_scan_node.is_preaggregation,
                                                      });

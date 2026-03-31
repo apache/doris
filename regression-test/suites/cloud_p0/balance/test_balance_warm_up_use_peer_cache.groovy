@@ -44,9 +44,12 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
         'schedule_sync_tablets_interval_s=18000',
         'disable_auto_compaction=true',
         'sys_log_verbose_modules=*',
-        'cache_read_from_peer_expired_seconds=100',
         'enable_cache_read_from_peer=true',
         "enable_packed_file=${enablePackedFile}",
+        'file_cache_enter_disk_resource_limit_mode_percent=99',
+        'file_cache_exit_disk_resource_limit_mode_percent=98',
+        'file_cache_enter_need_evict_cache_in_advance_percent=99',
+        'file_cache_exit_need_evict_cache_in_advance_percent=98'
     ]
     options.setFeNum(1)
     options.setBeNum(1)
@@ -191,6 +194,9 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
             "Available subdirs: ${subDirs}")
         }
 
+        def peerReadBeforeQuery = getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read")
+        def crossCgReadBeforeQuery = getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "peer_cross_compute_group_read")
+
         // The query triggers reading the file cache from the peer
         profile("test_balance_warm_up_use_peer_cache_profile") {
             sql """ set enable_profile = true;"""
@@ -209,7 +215,14 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
                     total += matcher.group(1).toInteger()
                     logger.info("NumPeerIOTotal: {}", matcher.group(1))
                 }
+                def remoteMatcher = (profileString =~ /-  NumRemoteIOTotal:\s+(\d+)/)
+                def remoteTotal = 0
+                while (remoteMatcher.find()) {
+                    remoteTotal += remoteMatcher.group(1).toInteger()
+                    logger.info("NumRemoteIOTotal: {}", remoteMatcher.group(1))
+                }
                 assertTrue(total > 0)
+                assertEquals(0, remoteTotal)
             } 
         }
 
@@ -222,8 +235,12 @@ suite('test_balance_warm_up_use_peer_cache', 'docker') {
             "Expected cache file pattern ${hashFile} should found in BE ${newAddBe.Host}'s file_cache directory. " + 
             "Available subdirs: ${subDirs}")
         }
-        assert(0 != getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read"))
-        assert(0 == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_s3_read"))
+        assert(getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort, "cached_remote_reader_peer_read") > peerReadBeforeQuery)
+
+        // regression: same-CG rebalance warm-up must not be counted as cross-CG peer read.
+        assert crossCgReadBeforeQuery == getBrpcMetrics(newAddBe.Host, newAddBe.BrpcPort,
+                "peer_cross_compute_group_read") :
+               "same-CG peer read must not increase peer_cross_compute_group_read"
     }
 
     docker(options) {
