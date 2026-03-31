@@ -205,7 +205,7 @@ public class CloudTabletInvertedIndex extends TabletInvertedIndex {
     }
 
     /** Returns [beId, timestamp] or null if no secondary BE is set. */
-    public long[] getSecondaryBe(String clusterId, long replicaId) {
+    long[] getSecondaryBe(String clusterId, long replicaId) {
         ConcurrentLong2ObjectHashMap<long[]> inner = clusterSecondaryMap.get(clusterId);
         if (inner == null) {
             return null;

@@ -631,10 +631,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
     public List<Backend> getAllPrimaryBes() {
         List<Backend> result = new ArrayList<Backend>();
         getCloudInvertedIndex().getAllPrimaryClusterBeIds(getId()).forEach((clusterId, beId) -> {
-            if (beId != -1L) {
-                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                result.add(backend);
-            }
+            Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+            result.add(backend);
         });
         return result;
     }
