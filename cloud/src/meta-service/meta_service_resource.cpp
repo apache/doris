@@ -26,7 +26,6 @@
 #include <chrono>
 #include <numeric>
 #include <queue>
-#include <ranges>
 #include <regex>
 #include <string>
 #include <tuple>
@@ -2167,9 +2166,6 @@ static std::pair<MetaServiceCode, std::string> get_instance_info(Transaction* tx
 
 // Traverses the predecessor chain of the given instance, populating `predecessors` with the
 // instance info of each predecessor.
-//
-// The order of instances in `predecessors` is from closest predecessor to furthest predecessor (i.e. reverse
-// chronological order).
 static std::pair<MetaServiceCode, std::string> get_predecessor_instances(
         Transaction* txn, const InstanceInfoPB& instance,
         std::vector<InstanceInfoPB>* predecessors) {
@@ -2273,7 +2269,7 @@ static std::pair<MetaServiceCode, std::string> drop_instance_chain(
         Versionstamp vs;
         if (SnapshotManager::parse_snapshot_versionstamp(instance.source_snapshot_id(), &vs)) {
             txn->remove(versioned::snapshot_reference_key(
-                    {tail_instance->source_instance_id(), vs, tail_instance_id}));
+                    {instance.source_instance_id(), vs, instance.instance_id()}));
         }
     };
     remove_snapshot_reference_key(*tail_instance);
