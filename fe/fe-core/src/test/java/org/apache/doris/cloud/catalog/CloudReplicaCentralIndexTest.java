@@ -242,7 +242,7 @@ public class CloudReplicaCentralIndexTest {
         besField.setAccessible(true);
         java.util.concurrent.ConcurrentHashMap<String, java.util.List<Long>> besMap
                 = new java.util.concurrent.ConcurrentHashMap<>();
-        besMap.put("cluster1", java.util.List.of(2001L, 2002L));
+        besMap.put("cluster1", java.util.Arrays.asList(2001L, 2002L));
         besField.set(replica, besMap);
 
         replica.gsonPostProcess();
