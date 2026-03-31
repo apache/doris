@@ -1153,7 +1153,8 @@ TEST_F(ScannerContextTest, scanner_context_with_adaptive_memory) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, arbitrator, limiter, 0, true, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
+            parallel_tasks);
 
     limiter->update_open_tasks_count(1);
     ASSERT_TRUE(scanner_context->_enable_adaptive_scanners);
@@ -1193,7 +1194,8 @@ TEST_F(ScannerContextTest, scanner_context_adjust_scan_mem_limit) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, arbitrator, limiter, 0, true, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
+            parallel_tasks);
 
     int64_t old_mem = 100 * 1024 * 1024;
     int64_t new_mem = 200 * 1024 * 1024;
@@ -1235,7 +1237,8 @@ TEST_F(ScannerContextTest, scanner_context_reestimated_block_mem_bytes) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, arbitrator, limiter, 0, true, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
+            parallel_tasks);
 
     scanner_context->reestimated_block_mem_bytes(150 * 1024 * 1024);
     ASSERT_GT(limiter->get_estimated_block_mem_bytes(), 0);
@@ -1275,7 +1278,8 @@ TEST_F(ScannerContextTest, scanner_context_update_peak_running_scanner) {
 
     std::shared_ptr<ScannerContext> scanner_context = ScannerContext::create_shared(
             state.get(), olap_scan_local_state.get(), output_tuple_desc, output_row_descriptor,
-            scanners, limit, scan_dependency, arbitrator, limiter, 0, true, parallel_tasks);
+            scanners, limit, scan_dependency, &shared_limit, arbitrator, limiter, 0, true,
+            parallel_tasks);
 
     scanner_context->update_peak_running_scanner(3);
     ASSERT_EQ(limiter->update_running_tasks_count(0), 3);
