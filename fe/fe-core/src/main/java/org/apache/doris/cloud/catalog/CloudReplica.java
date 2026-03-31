@@ -85,6 +85,9 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
     @SerializedName(value = "sii")
     int statsIntervalIndex = 0;
 
+    private Map<String, List<Long>> memClusterToBackends = null;
+
+
     private static final Random rand = new Random();
 
     public CloudReplica() {
@@ -318,8 +321,16 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
             int coldReadRand = rand.nextInt(100);
             boolean allowColdRead = coldReadRand < Config.cloud_cold_read_percent;
 
+            initMemClusterToBackends();
+            boolean replicaEnough = memClusterToBackends.get(clusterId) != null
+                    && memClusterToBackends.get(clusterId).size() > indexRand;
+
             long backendId = -1;
-            if (!allowColdRead) {
+            if (replicaEnough) {
+                backendId = memClusterToBackends.get(clusterId).get(indexRand);
+            }
+
+            if (!replicaEnough && !allowColdRead) {
                 long primaryBe = getCloudInvertedIndex().getPrimaryBeId(clusterId, getId());
                 if (primaryBe != -1L) {
                     backendId = primaryBe;
@@ -473,6 +484,17 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
         return (hashValue % beNum + beNum) % beNum;
     }
 
+    private void initMemClusterToBackends() {
+        // the enable_cloud_multi_replica is not used now
+        if (memClusterToBackends == null) {
+            synchronized (this) {
+                if (memClusterToBackends == null) {
+                    memClusterToBackends = new ConcurrentHashMap<>();
+                }
+            }
+        }
+    }
+
     private List<Long> hashReplicaToBes(String clusterId, boolean isBackGround, int replicaNum)
             throws ComputeGroupException {
         // TODO(luwei) list should be sorted
@@ -532,8 +554,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
             LOG.info("picked beId {}, replicaId {}, partId {}, beNum {}, replicaIdx {}, picked Index {}, hashVal {}",
                     pickedBeId, getId(), partitionId, availableBes.size(), idx, index,
                     hashCode == null ? -1 : hashCode.asLong());
+            // save to memClusterToBackends map
             bes.add(pickedBeId);
         }
+
+        memClusterToBackends.put(clusterId, bes);
 
         return bes;
     }
@@ -623,6 +648,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable, GsonPr
         }
         Map<String, Long> snapshot = idx.getAllPrimaryClusterBeIds(getId());
         this.primaryClusterToBackend = snapshot.isEmpty() ? null : new HashMap<>(snapshot);
+    }
+
+    @Override
+    public void gsonPostSerialize() throws IOException {
+        this.primaryClusterToBackend = null;
     }
 
     @Override

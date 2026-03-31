@@ -21,4 +21,7 @@ import java.io.IOException;
 
 public interface GsonPreProcessable {
     public void gsonPreProcess() throws IOException;
+
+    /** Called after serialization completes, to clean up any transient state set by gsonPreProcess(). */
+    default void gsonPostSerialize() throws IOException {}
 }
