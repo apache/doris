@@ -25,10 +25,8 @@ import org.apache.doris.cloud.proto.Cloud.CopyJobPB;
 import org.apache.doris.cloud.proto.Cloud.CopyJobPB.JobStatus;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.stage.StageUtil;
-import org.apache.doris.cloud.storage.ListObjectsResult;
-import org.apache.doris.cloud.storage.ObjectFile;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
@@ -36,6 +34,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.obj.ListObjectsResult;
+import org.apache.doris.fs.obj.ObjectFile;
+import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo.FileGroupAggKey;
 import org.apache.doris.load.loadv2.BrokerLoadPendingTask;
@@ -258,7 +261,8 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
         matchedFileNum = 0;
         loadedFileNum = 0;
         reachLimitStr = "";
-        RemoteBase remote = RemoteBase.newInstance(objectInfo);
+        StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
         Set<String> loadedFileSet = copiedFiles.stream().map(f -> StageUtil.getFileInfoUniqueId(f))
                 .collect(Collectors.toSet());
         try {
@@ -268,7 +272,8 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
             String continuationToken = null;
             boolean finish = false;
             while (!finish) {
-                ListObjectsResult listObjectsResult = remote.listObjects(continuationToken);
+                ListObjectsResult listObjectsResult = fs.listObjectsWithPrefix(
+                        objectInfo.getPrefix(), "", continuationToken);
                 listFileNum += listObjectsResult.getObjectInfoList().size();
                 long costSeconds = (System.currentTimeMillis() - startTimestamp) / 1000;
                 if (costSeconds >= 3600 || listFileNum >= 1000000) {
@@ -321,7 +326,7 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
                 continuationToken = listObjectsResult.getContinuationToken();
             }
         } finally {
-            remote.close();
+            // ObjFileSystem has no close/cleanup to perform
         }
     }
 
@@ -337,12 +342,13 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
             throw new DdlException("Copy job is not in loading status, status=" + copyJobPB.getJobStatus());
         }
         isBeginCopyDone = true;
-        RemoteBase remote = null;
         try {
-            remote = RemoteBase.newInstance(objectInfo);
+            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
             List<Pair<TBrokerFileStatus, ObjectFilePB>> fileStatuses = Lists.newArrayList();
             for (ObjectFilePB objectFile : copyJobPB.getObjectFilesList()) {
-                List<ObjectFile> files = remote.headObject(objectFile.getRelativePath()).getObjectInfoList();
+                List<ObjectFile> files = fs.headObjectWithMeta(
+                        objectInfo.getPrefix(), objectFile.getRelativePath()).getObjectInfoList();
                 TBrokerFileStatus brokerFileStatus = null;
                 for (ObjectFile file : files) {
                     if (file.getRelativePath().equals(objectFile.getRelativePath()) && file.getEtag()
@@ -360,8 +366,6 @@ public class CopyLoadPendingTask extends BrokerLoadPendingTask {
             return fileStatuses;
         } catch (Exception e) {
             throw new DdlException(e.getMessage());
-        } finally {
-            remote.close();
         }
     }
 }

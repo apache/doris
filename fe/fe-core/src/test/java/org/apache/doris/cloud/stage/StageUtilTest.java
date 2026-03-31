@@ -19,14 +19,14 @@ package org.apache.doris.cloud.stage;
 
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.proto.Cloud.ObjectStoreInfoPB.Provider;
-import org.apache.doris.cloud.storage.ListObjectsResult;
-import org.apache.doris.cloud.storage.ObjectFile;
-import org.apache.doris.cloud.storage.OssRemote;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.fs.obj.ListObjectsResult;
+import org.apache.doris.fs.obj.ObjectFile;
+import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import mockit.Mock;
@@ -39,6 +39,7 @@ import org.junit.Ignore;
 import org.junit.Test;
 
 import java.io.BufferedReader;
+import java.io.IOException;
 import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
@@ -79,14 +80,15 @@ public class StageUtilTest {
             }
         };
 
-        new MockUp<OssRemote>(OssRemote.class) {
+        new MockUp<ObjFileSystem>() {
             @Mock
-            public ListObjectsResult listObjects(String prefix, String continuationToken) throws DdlException {
+            public ListObjectsResult listObjectsWithPrefix(String prefix, String subPrefix, String continuationToken)
+                    throws IOException {
                 List<ObjectFile> objectFiles = new ArrayList<>();
                 for (String key : keys) {
                     objectFiles.add(new ObjectFile(key, key, "7741995E5B849F911ADF926A4C5747D3-3", 100));
                 }
-                return new ListObjectsResult(objectFiles, false, "");
+                return new ListObjectsResult(objectFiles, false, null);
             }
         };
 

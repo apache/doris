@@ -115,4 +115,46 @@ public interface ObjStorage<C> extends AutoCloseable {
         }
         return key.substring(expectedPrefix.length());
     }
+
+    // ==================== New cloud.storage methods (default, opt-in) ====================
+
+    /**
+     * Generates a presigned PUT URL for direct client upload.
+     * Subclasses override this for supported providers; default throws {@link UnsupportedOperationException}.
+     *
+     * @param objectKey object key (without bucket)
+     * @return presigned URL string
+     */
+    default String getPresignedUrl(String objectKey) throws IOException {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support presigned URL");
+    }
+
+    /**
+     * Lists objects by prefix with pagination, replacing the cloud.storage
+     * {@code listObjects(prefix, subPrefix, token)} semantics.
+     *
+     * @param prefix            main prefix (stage prefix, normalized to end with '/')
+     * @param subPrefix         sub-prefix appended after {@code prefix}; may be empty
+     * @param continuationToken pagination token; pass {@code null} or empty on first call
+     * @return {@link ListObjectsResult} containing file list, truncation flag, and next token
+     */
+    default ListObjectsResult listObjectsWithPrefix(
+            String prefix, String subPrefix, String continuationToken) throws IOException {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support listObjectsWithPrefix");
+    }
+
+    /**
+     * Retrieves metadata for a single object (HEAD), replacing cloud.storage
+     * {@code headObject(subKey)} semantics.
+     *
+     * @param prefix main prefix (used to compute relativePath)
+     * @param subKey sub-key appended after {@code prefix}
+     * @return {@link ListObjectsResult} containing 1 entry if found, empty list if not found
+     */
+    default ListObjectsResult headObjectWithMeta(String prefix, String subKey) throws IOException {
+        throw new UnsupportedOperationException(
+                getClass().getSimpleName() + " does not support headObjectWithMeta");
+    }
 }

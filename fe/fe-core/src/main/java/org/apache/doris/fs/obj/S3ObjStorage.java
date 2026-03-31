@@ -18,6 +18,7 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -35,7 +36,10 @@ import org.apache.http.HttpStatus;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
+import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.sync.RequestBody;
+import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CommonPrefix;
@@ -66,15 +70,25 @@ import software.amazon.awssdk.services.s3.model.S3Exception;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.UploadPartRequest;
 import software.amazon.awssdk.services.s3.model.UploadPartResponse;
+import software.amazon.awssdk.services.s3.presigner.S3Presigner;
+import software.amazon.awssdk.services.s3.presigner.model.PresignedPutObjectRequest;
+import software.amazon.awssdk.services.s3.presigner.model.PutObjectPresignRequest;
+import software.amazon.awssdk.services.sts.StsClient;
+import software.amazon.awssdk.services.sts.model.AssumeRoleRequest;
+import software.amazon.awssdk.services.sts.model.AssumeRoleResponse;
+import software.amazon.awssdk.services.sts.model.Credentials;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
+import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -246,7 +260,32 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public Triple<String, String, String> getStsToken() throws DdlException {
-        return null;
+        String roleArn    = s3Properties.getOrigProps().get(ObjectInfoAdapter.STS_ROLE_ARN_KEY);
+        String externalId = s3Properties.getOrigProps().get(ObjectInfoAdapter.STS_EXTERNAL_ID_KEY);
+        if (roleArn == null || roleArn.isEmpty()) {
+            throw new DdlException("STS role ARN is not configured for S3ObjStorage");
+        }
+        try {
+            AwsBasicCredentials basicCred = AwsBasicCredentials.create(
+                    s3Properties.getAccessKey(), s3Properties.getSecretKey());
+            StsClient stsClient = StsClient.builder()
+                    .credentialsProvider(StaticCredentialsProvider.create(basicCred))
+                    .region(Region.of(s3Properties.getRegion()))
+                    .build();
+            AssumeRoleRequest.Builder reqBuilder = AssumeRoleRequest.builder()
+                    .roleArn(roleArn)
+                    .durationSeconds(ObjectInfoAdapter.getDurationSeconds())
+                    .roleSessionName(ObjectInfoAdapter.getNewRoleSessionName());
+            if (externalId != null && !externalId.isEmpty()) {
+                reqBuilder.externalId(externalId);
+            }
+            AssumeRoleResponse resp = stsClient.assumeRole(reqBuilder.build());
+            Credentials cred = resp.credentials();
+            return Triple.of(cred.accessKeyId(), cred.secretAccessKey(), cred.sessionToken());
+        } catch (Throwable e) {
+            LOG.warn("Failed to get S3 STS token, roleArn={}", roleArn, e);
+            throw new DdlException("Failed to get S3 STS token: " + e.getMessage());
+        }
     }
 
     @Override
@@ -846,6 +885,110 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             return true;
         }
         return false;
+    }
+
+    // ----------------------------------------------------------------
+    // New cloud-storage API: Presigned URL, listObjectsWithPrefix, headObjectWithMeta
+    // ----------------------------------------------------------------
+
+    @Override
+    public String getPresignedUrl(String objectKey) throws IOException {
+        try {
+            PutObjectRequest putReq = PutObjectRequest.builder()
+                    .bucket(s3Properties.getBucket())
+                    .key(objectKey)
+                    .build();
+            PutObjectPresignRequest presignReq = PutObjectPresignRequest.builder()
+                    .signatureDuration(Duration.ofSeconds(ObjectInfoAdapter.SESSION_EXPIRE_SECOND))
+                    .putObjectRequest(putReq)
+                    .build();
+            AwsBasicCredentials cred = AwsBasicCredentials.create(
+                    s3Properties.getAccessKey(), s3Properties.getSecretKey());
+            try (S3Presigner presigner = S3Presigner.builder()
+                    .region(Region.of(s3Properties.getRegion()))
+                    .credentialsProvider(StaticCredentialsProvider.create(cred))
+                    .build()) {
+                PresignedPutObjectRequest presigned = presigner.presignPutObject(presignReq);
+                LOG.info("Generated S3 presigned URL for key={}", objectKey);
+                return presigned.url().toString();
+            }
+        } catch (S3Exception e) {
+            LOG.warn("Failed to generate S3 presigned URL for key={}", objectKey, e);
+            throw new IOException("Failed to generate S3 presigned URL: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public ListObjectsResult listObjectsWithPrefix(
+            String prefix, String subPrefix, String continuationToken) throws IOException {
+        String fullPrefix = normalizeAndCombinePrefix(prefix, subPrefix);
+        try {
+            Builder reqBuilder = ListObjectsV2Request.builder()
+                    .bucket(s3Properties.getBucket())
+                    .prefix(fullPrefix);
+            if (!StringUtils.isEmpty(continuationToken)) {
+                reqBuilder.continuationToken(continuationToken);
+            }
+            ListObjectsV2Response resp = getClient().listObjectsV2(reqBuilder.build());
+            List<ObjectFile> files = resp.contents().stream()
+                    .map(s3Obj -> new ObjectFile(
+                            s3Obj.key(),
+                            getRelativePathSafe(prefix, s3Obj.key()),
+                            s3Obj.eTag(),
+                            s3Obj.size()))
+                    .collect(Collectors.toList());
+            return new ListObjectsResult(files, resp.isTruncated(),
+                    resp.isTruncated() ? resp.nextContinuationToken() : null);
+        } catch (S3Exception e) {
+            LOG.warn("Failed to listObjectsWithPrefix, fullPrefix={}", fullPrefix, e);
+            throw new IOException("Failed to listObjectsWithPrefix: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public ListObjectsResult headObjectWithMeta(String prefix, String subKey) throws IOException {
+        String fullKey = normalizeAndCombinePrefix(prefix, subKey);
+        try {
+            HeadObjectResponse resp = getClient().headObject(
+                    HeadObjectRequest.builder()
+                            .bucket(s3Properties.getBucket())
+                            .key(fullKey)
+                            .build());
+            ObjectFile of = new ObjectFile(
+                    fullKey, getRelativePathSafe(prefix, fullKey), resp.eTag(), resp.contentLength());
+            return new ListObjectsResult(Collections.singletonList(of), false, null);
+        } catch (NoSuchKeyException e) {
+            LOG.warn("Key not found in headObjectWithMeta, key={}", fullKey);
+            return new ListObjectsResult(Collections.emptyList(), false, null);
+        } catch (S3Exception e) {
+            LOG.warn("Failed to headObjectWithMeta, key={}", fullKey, e);
+            throw new IOException("Failed to headObjectWithMeta: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Merges {@code prefix} and {@code subPrefix} with correct '/' handling.
+     * Accessible to subclasses (OssObjStorage, CosObjStorage, etc.).
+     */
+    protected String normalizeAndCombinePrefix(String prefix, String subPrefix) {
+        String normalized = normalizePrefix(prefix);
+        if (StringUtils.isEmpty(subPrefix)) {
+            return normalized;
+        }
+        return normalized.isEmpty() ? subPrefix : normalized + subPrefix;
+    }
+
+    /**
+     * Returns the path relative to {@code prefix}, logging a warning if the key
+     * does not start with the expected prefix (rather than throwing).
+     */
+    protected String getRelativePathSafe(String prefix, String key) {
+        String normalized = normalizePrefix(prefix);
+        if (!key.startsWith(normalized)) {
+            LOG.warn("Key '{}' does not start with prefix '{}'", key, normalized);
+            return key;
+        }
+        return key.substring(normalized.length());
     }
 
     @Override

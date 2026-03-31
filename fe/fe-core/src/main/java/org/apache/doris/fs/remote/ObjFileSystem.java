@@ -18,7 +18,9 @@
 package org.apache.doris.fs.remote;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.foundation.fs.FsStorageType;
+import org.apache.doris.fs.obj.ListObjectsResult;
 import org.apache.doris.fs.obj.ObjStorage;
 
 import org.apache.logging.log4j.LogManager;
@@ -35,6 +37,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.List;
 
 public abstract class ObjFileSystem extends RemoteFileSystem {
     private static final Logger LOG = LogManager.getLogger(ObjFileSystem.class);
@@ -162,6 +165,37 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
     @Override
     public Status deleteDirectory(String absolutePath) {
         return objStorage.deleteObjects(absolutePath);
+    }
+
+    public org.apache.commons.lang3.tuple.Triple<String, String, String> getStsToken() throws DdlException {
+        return objStorage.getStsToken();
+    }
+
+    public String getPresignedUrl(String objectKey) throws java.io.IOException {
+        return objStorage.getPresignedUrl(objectKey);
+    }
+
+    public ListObjectsResult listObjectsWithPrefix(
+            String prefix, String subPrefix, String continuationToken) throws java.io.IOException {
+        return objStorage.listObjectsWithPrefix(prefix, subPrefix, continuationToken);
+    }
+
+    public ListObjectsResult headObjectWithMeta(String prefix, String subKey) throws java.io.IOException {
+        return objStorage.headObjectWithMeta(prefix, subKey);
+    }
+
+    /**
+     * Deletes the given object keys from the specified bucket.
+     * Keys should be bare paths without any scheme or bucket prefix.
+     */
+    public void deleteObjectsByKeys(String bucket, List<String> keys) throws DdlException {
+        for (String key : keys) {
+            String fullPath = "s3://" + bucket + "/" + key;
+            Status st = objStorage.deleteObject(fullPath);
+            if (!st.ok()) {
+                throw new DdlException("Failed to delete key: " + key + ", error: " + st.getErrMsg());
+            }
+        }
     }
 
 }

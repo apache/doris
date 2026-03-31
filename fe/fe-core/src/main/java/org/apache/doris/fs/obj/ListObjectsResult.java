@@ -15,30 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.storage;
+package org.apache.doris.fs.obj;
 
 import lombok.Getter;
 
-public class ObjectFile {
-    @Getter
-    private String key;
-    @Getter
-    private String relativePath;
-    @Getter
-    private String etag;
-    @Getter
-    private long size;
+import java.util.List;
 
-    public ObjectFile(String key, String relativePath, String etag, long size) {
-        this.key = key;
-        this.relativePath = relativePath;
-        this.etag = etag;
-        this.size = size;
+/**
+ * Result of a paginated object listing operation.
+ * Replaces {@code org.apache.doris.cloud.storage.ListObjectsResult}.
+ */
+public class ListObjectsResult {
+    @Getter
+    private final List<ObjectFile> objectInfoList;
+    @Getter
+    private final boolean isTruncated;
+    @Getter
+    private final String continuationToken;
+
+    public ListObjectsResult(List<ObjectFile> objectInfoList, boolean isTruncated, String continuationToken) {
+        this.objectInfoList = objectInfoList;
+        this.isTruncated = isTruncated;
+        this.continuationToken = continuationToken;
     }
 
     @Override
     public String toString() {
-        return "ObjectFile{key='" + key + "', relativePath='" + relativePath + "', etag='" + etag
-                + "', size=" + size + '}';
+        return "ListObjectsResult{objectInfoList=" + objectInfoList
+                + ", isTruncated=" + isTruncated
+                + ", continuationToken='" + continuationToken + "'}";
     }
 }

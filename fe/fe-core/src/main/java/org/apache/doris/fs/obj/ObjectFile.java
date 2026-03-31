@@ -15,31 +15,34 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cloud.storage;
+package org.apache.doris.fs.obj;
 
 import lombok.Getter;
 
-import java.util.List;
-
-public class ListObjectsResult {
+/**
+ * Immutable descriptor of a single object in an object storage.
+ * Replaces {@code org.apache.doris.cloud.storage.ObjectFile}.
+ */
+public class ObjectFile {
     @Getter
-    private List<ObjectFile> objectInfoList;
-
+    private final String key;
     @Getter
-    private boolean isTruncated;
-
+    private final String relativePath;
     @Getter
-    private String continuationToken;
+    private final String etag;
+    @Getter
+    private final long size;
 
-    public ListObjectsResult(List<ObjectFile> objectInfoList, boolean isTruncated, String continuationToken) {
-        this.objectInfoList = objectInfoList;
-        this.isTruncated = isTruncated;
-        this.continuationToken = continuationToken;
+    public ObjectFile(String key, String relativePath, String etag, long size) {
+        this.key = key;
+        this.relativePath = relativePath;
+        this.etag = etag;
+        this.size = size;
     }
 
     @Override
     public String toString() {
-        return "ListObjectsResult{objectInfoList=" + objectInfoList + ", isTruncated=" + isTruncated
-                + ", continuationToken='" + continuationToken + "'}";
+        return "ObjectFile{key='" + key + "', relativePath='" + relativePath
+                + "', etag='" + etag + "', size=" + size + '}';
     }
 }

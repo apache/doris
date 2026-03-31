@@ -52,6 +52,13 @@ public class S3FileSystem extends ObjFileSystem implements MultipartUploadCapabl
         initFsProperties();
     }
 
+    /** Constructor that accepts a pre-built ObjStorage (used for OSS/OBS/COS subclass dispatch). */
+    public S3FileSystem(AbstractS3CompatibleProperties s3Properties, S3ObjStorage objStorage) {
+        super(FsStorageType.S3.name(), FsStorageType.S3, objStorage);
+        this.s3Properties = s3Properties;
+        initFsProperties();
+    }
+
     @Override
     public StorageProperties getStorageProperties() {
         return s3Properties;

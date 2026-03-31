@@ -24,15 +24,18 @@ import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.ObjectFilePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
-import org.apache.doris.cloud.storage.ListObjectsResult;
-import org.apache.doris.cloud.storage.ObjectFile;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.obj.ListObjectsResult;
+import org.apache.doris.fs.obj.ObjectFile;
+import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -149,7 +152,8 @@ public class StageUtil {
         int matchedFileNum = 0;
         int loadedFileNum = 0;
         String reachLimitStr = "";
-        RemoteBase remote = RemoteBase.newInstance(objectInfo);
+        StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+        ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
 
         List<Pair<String, Boolean>> globs = analyzeGlob(copyId, pattern);
         LOG.info("Input copy into glob={}, analyzed={}", pattern, globs);
@@ -164,10 +168,11 @@ public class StageUtil {
                     ListObjectsResult listObjectsResult;
                     if (glob.second) {
                         // list objects with sub prefix
-                        listObjectsResult = remote.listObjects(glob.first, continuationToken);
+                        listObjectsResult = fs.listObjectsWithPrefix(objectInfo.getPrefix(), glob.first,
+                                continuationToken);
                     } else {
                         // head object
-                        listObjectsResult = remote.headObject(glob.first);
+                        listObjectsResult = fs.headObjectWithMeta(objectInfo.getPrefix(), glob.first);
                     }
                     listFileNum += listObjectsResult.getObjectInfoList().size();
                     long costSeconds = (System.currentTimeMillis() - startTimestamp) / 1000;
@@ -210,7 +215,7 @@ public class StageUtil {
                 matchPatternFiles.clear();
             }
         } finally {
-            remote.close();
+            // ObjFileSystem has no close/cleanup to perform
         }
         return Triple.of(matchedFileNum, loadedFileNum, reachLimitStr);
     }
@@ -447,8 +452,8 @@ public class StageUtil {
     }
 
     public static List<String> parseLoadFiles(List<String> loadFiles, String bucket, String stagePrefix) {
-        if (!Config.cloud_delete_loaded_internal_stage_files || loadFiles == null || !RemoteBase.checkStagePrefix(
-                stagePrefix)) {
+        if (!Config.cloud_delete_loaded_internal_stage_files || loadFiles == null
+                || !ObjectInfoAdapter.checkStagePrefix(stagePrefix)) {
             return null;
         }
         String prefix = "s3://" + bucket + "/";

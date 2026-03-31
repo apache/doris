@@ -22,9 +22,12 @@ import org.apache.doris.cloud.datasource.CloudInternalCatalog;
 import org.apache.doris.cloud.proto.Cloud.FinishCopyRequest.Action;
 import org.apache.doris.cloud.proto.Cloud.StagePB;
 import org.apache.doris.cloud.proto.Cloud.StagePB.StageType;
-import org.apache.doris.cloud.storage.RemoteBase;
-import org.apache.doris.cloud.storage.RemoteBase.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfo;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.remote.ObjFileSystem;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -33,7 +36,7 @@ import java.util.List;
 
 public class CleanCopyJobTask {
     private static final Logger LOG = LogManager.getLogger(CleanCopyJobTask.class);
-    private RemoteBase.ObjectInfo objectInfo;
+    private ObjectInfo objectInfo;
     private String stageId;
     private StagePB.StageType stageType;
     private long tableId;
@@ -54,19 +57,16 @@ public class CleanCopyJobTask {
         if (!Config.cloud_delete_loaded_internal_stage_files) {
             return;
         }
-        RemoteBase remote = null;
         try {
-            remote = RemoteBase.newInstance(objectInfo);
-            remote.deleteObjects(loadFiles);
+            StorageProperties storageProps = ObjectInfoAdapter.toStorageProperties(objectInfo);
+            ObjFileSystem fs = (ObjFileSystem) FileSystemFactory.get(storageProps);
+            fs.deleteObjectsByKeys(objectInfo.getBucket(), loadFiles);
             ((CloudInternalCatalog) Env.getCurrentInternalCatalog())
                     .finishCopy(stageId, stageType, tableId, copyId, 0, Action.REMOVE);
         } catch (Throwable e) {
             LOG.warn("Failed delete internal stage files={}", loadFiles, e);
         } finally {
             loadFiles = null;
-            if (remote != null) {
-                remote.close();
-            }
         }
     }
 }

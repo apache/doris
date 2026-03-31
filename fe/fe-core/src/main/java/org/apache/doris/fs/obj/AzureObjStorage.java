@@ -18,6 +18,7 @@
 package org.apache.doris.fs.obj;
 
 import org.apache.doris.backup.Status;
+import org.apache.doris.cloud.storage.ObjectInfoAdapter;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
@@ -34,6 +35,7 @@ import com.azure.core.util.Context;
 import com.azure.core.util.IterableStream;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.batch.BlobBatch;
@@ -45,8 +47,14 @@ import com.azure.storage.blob.models.BlobItemProperties;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.blob.models.UserDelegationKey;
+import com.azure.storage.blob.sas.BlobContainerSasPermission;
+import com.azure.storage.blob.sas.BlobSasPermission;
+import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
+import com.azure.storage.common.sas.SasProtocol;
+import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.commons.lang3.tuple.Triple;
 import org.apache.http.HttpStatus;
@@ -56,12 +64,14 @@ import org.jetbrains.annotations.Nullable;
 
 import java.io.ByteArrayInputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.file.FileSystems;
 import java.nio.file.PathMatcher;
 import java.nio.file.Paths;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashSet;
@@ -116,7 +126,103 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     @Override
     public Triple<String, String, String> getStsToken() throws DdlException {
-        return null;
+        try {
+            BlobContainerClient containerClient = buildContainerClientWithSharedKey(
+                    azureProperties.getContainer());
+            BlobServiceClient blobServiceClient = containerClient.getServiceClient();
+            OffsetDateTime keyStart = OffsetDateTime.now();
+            OffsetDateTime keyExpiry = keyStart.plusSeconds(ObjectInfoAdapter.SESSION_EXPIRE_SECOND);
+            UserDelegationKey userDelegationKey = blobServiceClient.getUserDelegationKey(keyStart, keyExpiry);
+            OffsetDateTime expiryTime = OffsetDateTime.now().plusSeconds(ObjectInfoAdapter.SESSION_EXPIRE_SECOND);
+            BlobContainerSasPermission permission = new BlobContainerSasPermission()
+                    .setReadPermission(true)
+                    .setWritePermission(true)
+                    .setListPermission(true);
+            BlobServiceSasSignatureValues sasValues = new BlobServiceSasSignatureValues(expiryTime, permission)
+                    .setProtocol(SasProtocol.HTTPS_ONLY)
+                    .setStartTime(OffsetDateTime.now());
+            String sasToken = containerClient.generateUserDelegationSas(sasValues, userDelegationKey);
+            return Triple.of(azureProperties.getAccountName(), azureProperties.getAccountKey(), sasToken);
+        } catch (Throwable e) {
+            LOG.warn("Failed to get Azure STS token", e);
+            throw new DdlException("Failed to get Azure STS token: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public String getPresignedUrl(String objectKey) throws IOException {
+        try {
+            BlobContainerClient containerClient = buildContainerClientWithSharedKey(
+                    azureProperties.getContainer());
+            BlobClient blobClient = containerClient.getBlobClient(objectKey);
+            OffsetDateTime expiryTime = OffsetDateTime.now().plusSeconds(ObjectInfoAdapter.SESSION_EXPIRE_SECOND);
+            BlobSasPermission permission = new BlobSasPermission()
+                    .setReadPermission(true)
+                    .setWritePermission(true)
+                    .setDeletePermission(true);
+            BlobServiceSasSignatureValues sasValues = new BlobServiceSasSignatureValues(expiryTime, permission)
+                    .setProtocol(SasProtocol.HTTPS_ONLY)
+                    .setStartTime(OffsetDateTime.now());
+            String sasToken = blobClient.generateSas(sasValues);
+            return blobClient.getBlobUrl() + "?" + sasToken;
+        } catch (Exception e) {
+            throw new IOException("Failed to generate Azure presigned URL: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public ListObjectsResult listObjectsWithPrefix(
+            String prefix, String subPrefix, String continuationToken) throws IOException {
+        String fullPrefix = prefix.endsWith("/") ? prefix + subPrefix : prefix + "/" + subPrefix;
+        try {
+            BlobContainerClient containerClient = buildContainerClientWithSharedKey(
+                    azureProperties.getContainer());
+            ListBlobsOptions options = new ListBlobsOptions().setPrefix(fullPrefix);
+            PagedIterable<BlobItem> pagedBlobs = containerClient.listBlobs(options, continuationToken, null);
+            PagedResponse<BlobItem> pagedResponse = pagedBlobs.iterableByPage().iterator().next();
+            List<ObjectFile> files = new ArrayList<>();
+            for (BlobItem item : pagedResponse.getElements()) {
+                BlobItemProperties p = item.getProperties();
+                String relPath = item.getName().startsWith(prefix)
+                        ? item.getName().substring(prefix.length()) : item.getName();
+                files.add(new ObjectFile(item.getName(), relPath, p.getETag(), p.getContentLength()));
+            }
+            String nextToken = pagedResponse.getContinuationToken();
+            return new ListObjectsResult(files, nextToken != null, nextToken);
+        } catch (BlobStorageException e) {
+            throw new IOException("Failed to list Azure objects with prefix=" + fullPrefix
+                    + ": " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public ListObjectsResult headObjectWithMeta(String prefix, String subKey) throws IOException {
+        String fullKey = prefix.endsWith("/") ? prefix + subKey : prefix + "/" + subKey;
+        try {
+            BlobContainerClient containerClient = buildContainerClientWithSharedKey(
+                    azureProperties.getContainer());
+            BlobClient blobClient = containerClient.getBlobClient(fullKey);
+            BlobProperties p = blobClient.getProperties();
+            String relPath = fullKey.startsWith(prefix) ? fullKey.substring(prefix.length()) : fullKey;
+            ObjectFile of = new ObjectFile(fullKey, relPath, p.getETag(), p.getBlobSize());
+            return new ListObjectsResult(ImmutableList.of(of), false, null);
+        } catch (BlobStorageException e) {
+            if (e.getStatusCode() == org.apache.http.HttpStatus.SC_NOT_FOUND) {
+                LOG.warn("Key not found in Azure headObjectWithMeta, key={}", fullKey);
+                return new ListObjectsResult(ImmutableList.of(), false, null);
+            }
+            throw new IOException("Failed to head Azure object: " + e.getMessage(), e);
+        }
+    }
+
+    private BlobContainerClient buildContainerClientWithSharedKey(String containerName) {
+        StorageSharedKeyCredential cred = new StorageSharedKeyCredential(
+                azureProperties.getAccountName(), azureProperties.getAccountKey());
+        String containerEndpoint = azureProperties.getEndpoint() + "/" + containerName;
+        return new BlobContainerClientBuilder()
+                .credential(cred)
+                .endpoint(containerEndpoint)
+                .buildClient();
     }
 
     @Override
