@@ -170,23 +170,24 @@ private:
         return matched_indices;
     }
 
-    template <typename ColumnType>
+    template <typename ColumnType, typename IndexColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map,
                               const UInt8* idx_null_map, bool is_const_index) const {
         const auto& nested_data = reinterpret_cast<const ColumnType&>(nested_column).get_data();
-        const auto& index_data = reinterpret_cast<const ColumnInt64&>(indices).get_data();
+        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         auto dst_column = nested_column.clone_empty();
         auto& dst_data = reinterpret_cast<ColumnType&>(*dst_column).get_data();
         dst_data.resize(offsets.size());
 
         for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
+            size_t off = row == 0 ? 0 : offsets[row - 1];
             size_t len = offsets[row] - off;
             size_t idx = index_check_const(row, is_const_index);
-            auto index = (idx_null_map && idx_null_map[idx]) ? 0 : index_data[idx];
+            auto index =
+                    (idx_null_map && idx_null_map[idx]) ? 0 : static_cast<Int64>(index_data[idx]);
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
@@ -204,6 +205,7 @@ private:
         return dst_column;
     }
 
+    template <typename IndexColumnType>
     ColumnPtr _execute_string(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map,
@@ -212,7 +214,7 @@ private:
                 reinterpret_cast<const ColumnString&>(nested_column).get_offsets();
         const auto& src_str_chars =
                 reinterpret_cast<const ColumnString&>(nested_column).get_chars();
-        const auto& index_data = reinterpret_cast<const ColumnInt64&>(indices).get_data();
+        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         // prepare return data
         auto dst_column = ColumnString::create();
@@ -222,10 +224,11 @@ private:
         dst_str_chars.reserve(src_str_chars.size());
 
         for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
+            size_t off = row == 0 ? 0 : offsets[row - 1];
             size_t len = offsets[row] - off;
             size_t idx = index_check_const(row, is_const_index);
-            auto index = (idx_null_map && idx_null_map[idx]) ? 0 : index_data[idx];
+            auto index =
+                    (idx_null_map && idx_null_map[idx]) ? 0 : static_cast<Int64>(index_data[idx]);
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
@@ -240,15 +243,15 @@ private:
             if (!null_flag) {
                 dst_null_map[row] = false;
                 auto element_size = src_str_offs[index] - src_str_offs[index - 1];
-                dst_str_offs[row] = dst_str_offs[row - 1] + element_size;
+                dst_str_offs[row] = (row == 0 ? 0 : dst_str_offs[row - 1]) + element_size;
                 auto src_string_pos = src_str_offs[index - 1];
-                auto dst_string_pos = dst_str_offs[row - 1];
+                auto dst_string_pos = row == 0 ? 0 : dst_str_offs[row - 1];
                 dst_str_chars.resize(dst_string_pos + element_size);
                 memcpy(&dst_str_chars[dst_string_pos], &src_str_chars[src_string_pos],
                        element_size);
             } else {
                 dst_null_map[row] = true;
-                dst_str_offs[row] = dst_str_offs[row - 1];
+                dst_str_offs[row] = row == 0 ? 0 : dst_str_offs[row - 1];
             }
         }
         return dst_column;
@@ -278,20 +281,22 @@ private:
         return _execute_nullable(args, input_rows_count, src_null_map, dst_null_map);
     }
 
+    template <typename IndexColumnType>
     ColumnPtr _execute_common(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
                               const UInt8* arr_null_map, const IColumn& indices,
                               const UInt8* nested_null_map, UInt8* dst_null_map,
                               const UInt8* idx_null_map, bool is_const_index) const {
-        const auto& index_data = reinterpret_cast<const ColumnInt64&>(indices).get_data();
+        const auto& index_data = assert_cast<const IndexColumnType&>(indices).get_data();
 
         auto dst_column = nested_column.clone_empty();
         dst_column->reserve(offsets.size());
 
         for (size_t row = 0; row < offsets.size(); ++row) {
-            size_t off = offsets[row - 1];
+            size_t off = row == 0 ? 0 : offsets[row - 1];
             size_t len = offsets[row] - off;
             size_t idx = index_check_const(row, is_const_index);
-            auto index = (idx_null_map && idx_null_map[idx]) ? 0 : index_data[idx];
+            auto index =
+                    (idx_null_map && idx_null_map[idx]) ? 0 : static_cast<Int64>(index_data[idx]);
             bool null_flag = bool(arr_null_map && arr_null_map[row]);
             if (!null_flag && index > 0 && index <= len) {
                 index += off - 1;
@@ -343,25 +348,40 @@ private:
                     reinterpret_cast<const ColumnNullable&>(*idx_col_with_const.first);
             idx_null_map = idx_null_column.get_null_map_column().get_data().data();
         }
-        const auto& idx_col = remove_nullable(idx_col_with_const.first);
+        auto idx_col_raw = remove_nullable(idx_col_with_const.first);
         bool is_const_index = idx_col_with_const.second;
-        // we should dispatch branch according to data type rather than column type
 
-        auto call = [&](const auto& type) -> bool {
-            using DispatchType = std::decay_t<decltype(type)>;
-            res = _execute_number<typename DispatchType::ColumnType>(
-                    offsets, *nested_column, src_null_map, *idx_col, nested_null_map, dst_null_map,
-                    idx_null_map, is_const_index);
+        PrimitiveType idx_ptype = remove_nullable(arguments[1].type)->get_primitive_type();
+
+        // Outer dispatch on index column type (Int8/Int16/Int32/Int64),
+        // inner dispatch on nested data column type.
+        auto idx_dispatch = [&](const auto& idx_type) -> bool {
+            using IdxDispatchType = std::decay_t<decltype(idx_type)>;
+            using IndexColumnType = typename IdxDispatchType::ColumnType;
+
+            auto data_call = [&](const auto& data_type) -> bool {
+                using DataDispatchType = std::decay_t<decltype(data_type)>;
+                res = _execute_number<typename DataDispatchType::ColumnType, IndexColumnType>(
+                        offsets, *nested_column, src_null_map, *idx_col_raw, nested_null_map,
+                        dst_null_map, idx_null_map, is_const_index);
+                return true;
+            };
+
+            if (is_string_type(left_element_type->get_primitive_type())) {
+                res = _execute_string<IndexColumnType>(offsets, *nested_column, src_null_map,
+                                                       *idx_col_raw, nested_null_map, dst_null_map,
+                                                       idx_null_map, is_const_index);
+            } else if (!dispatch_switch_scalar(left_element_type->get_primitive_type(),
+                                               data_call)) {
+                res = _execute_common<IndexColumnType>(offsets, *nested_column, src_null_map,
+                                                       *idx_col_raw, nested_null_map, dst_null_map,
+                                                       idx_null_map, is_const_index);
+            }
             return true;
         };
 
-        if (is_string_type(left_element_type->get_primitive_type())) {
-            res = _execute_string(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map, idx_null_map, is_const_index);
-        } else if (!dispatch_switch_scalar(left_element_type->get_primitive_type(), call)) {
-            res = _execute_common(offsets, *nested_column, src_null_map, *idx_col, nested_null_map,
-                                  dst_null_map, idx_null_map, is_const_index);
-        }
+        bool dispatched = dispatch_switch_int(idx_ptype, idx_dispatch);
+        DCHECK(dispatched) << "Unsupported index column type for element_at: " << idx_ptype;
         return res;
     }
 };
