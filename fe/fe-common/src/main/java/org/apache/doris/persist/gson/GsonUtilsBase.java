@@ -337,6 +337,9 @@ public class GsonUtilsBase {
                         ((GsonPreProcessable) value).gsonPreProcess();
                     }
                     delegate.write(out, value);
+                    if (value instanceof GsonPreProcessable) {
+                        ((GsonPreProcessable) value).gsonPostSerialize();
+                    }
                 }
 
                 public T read(JsonReader reader) throws IOException {
