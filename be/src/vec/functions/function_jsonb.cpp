@@ -3255,6 +3255,197 @@ private:
     }
 };
 
+// Spark-compatible json_extract function
+// Key differences from standard json_extract:
+// 1. Returns NULL for paths containing $** (recursive descent not supported in Spark)
+// 2. Returns NULL for paths with negative array indices (not supported in Spark)
+// 3. JSON null values return SQL NULL (not string "null")
+// 4. Strictly 2 arguments (no multi-path support)
+class FunctionJsonExtractSpark : public IFunction {
+public:
+    static constexpr auto name = "json_extract_spark";
+    String get_name() const override { return name; }
+    static FunctionPtr create() { return std::make_shared<FunctionJsonExtractSpark>(); }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return make_nullable(std::make_shared<DataTypeString>());
+    }
+
+    DataTypes get_variadic_argument_types_impl() const override {
+        return {std::make_shared<DataTypeString>(), std::make_shared<DataTypeString>()};
+    }
+
+    size_t get_number_of_arguments() const override { return 2; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        ColumnPtr json_data_column;
+        bool json_data_const = false;
+        std::tie(json_data_column, json_data_const) =
+                unpack_if_const(block.get_by_position(arguments[0]).column);
+
+        const NullMap* json_null_map = nullptr;
+        if (json_data_column->is_nullable()) {
+            const auto* nullable = check_and_get_column<ColumnNullable>(json_data_column.get());
+            json_data_column = nullable->get_nested_column_ptr();
+            json_null_map = &nullable->get_null_map_data();
+        }
+        const auto* json_col = check_and_get_column<ColumnString>(json_data_column.get());
+        if (!json_col) {
+            return Status::InternalError("First argument must be a string column");
+        }
+
+        ColumnPtr path_column;
+        bool path_const = false;
+        std::tie(path_column, path_const) =
+                unpack_if_const(block.get_by_position(arguments[1]).column);
+
+        const NullMap* path_null_map = nullptr;
+        if (path_column->is_nullable()) {
+            const auto* nullable = check_and_get_column<ColumnNullable>(path_column.get());
+            path_column = nullable->get_nested_column_ptr();
+            path_null_map = &nullable->get_null_map_data();
+        }
+        const auto* path_col = check_and_get_column<ColumnString>(path_column.get());
+        if (!path_col) {
+            return Status::InternalError("Second argument must be a string column");
+        }
+
+        auto result_column = ColumnString::create();
+        auto null_map = ColumnUInt8::create(input_rows_count, 0);
+        auto& res_data = result_column->get_chars();
+        auto& res_offsets = result_column->get_offsets();
+        res_offsets.resize(input_rows_count);
+        NullMap& res_null_map = null_map->get_data();
+
+        // Parse const path once if applicable
+        JsonbPath const_parsed_path;
+        bool const_path_has_super_wildcard = false;
+        if (path_const) {
+            StringRef path_ref = path_col->get_data_at(0);
+            const_parsed_path.seek(path_ref.data, path_ref.size);
+            const_path_has_super_wildcard = const_parsed_path.is_supper_wildcard();
+        }
+
+        auto writer = std::make_unique<JsonbWriter>();
+
+        for (size_t i = 0; i < input_rows_count; ++i) {
+            size_t json_idx = json_data_const ? 0 : i;
+            size_t path_idx = path_const ? 0 : i;
+
+            // Check for null inputs
+            if ((json_null_map && (*json_null_map)[json_idx]) ||
+                (path_null_map && (*path_null_map)[path_idx])) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            StringRef json_ref = json_col->get_data_at(json_idx);
+            if (json_ref.size == 0) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            // Parse path if not const
+            JsonbPath* path_ptr = &const_parsed_path;
+            JsonbPath row_path;
+            bool has_super_wildcard = const_path_has_super_wildcard;
+            if (!path_const) {
+                StringRef path_ref = path_col->get_data_at(path_idx);
+                row_path.seek(path_ref.data, path_ref.size);
+                path_ptr = &row_path;
+                has_super_wildcard = row_path.is_supper_wildcard();
+            }
+
+            // Spark does not support $** (super wildcard), return NULL
+            if (has_super_wildcard) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            // Spark does not support negative array indices, return NULL
+            if (_has_negative_array_index(*path_ptr)) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            // Parse JSON string to JSONB binary format first
+            JsonBinaryValue jsonb_binary;
+            auto parse_st = jsonb_binary.from_json_string(json_ref.data, json_ref.size);
+            if (!parse_st.ok()) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            // Create JSONB document from binary
+            const JsonbDocument* doc = nullptr;
+            auto st = JsonbDocument::checkAndCreateDocument(jsonb_binary.value(),
+                                                            jsonb_binary.size(), &doc);
+            if (!st.ok() || !doc || !doc->getValue()) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            auto find_result = doc->getValue()->findValue(*path_ptr);
+            if (!find_result.value) {
+                StringOP::push_null_string(i, res_data, res_offsets, res_null_map);
+                continue;
+            }
+
+            // Convert value to string with Spark semantics
+            _write_spark_value_to_column(find_result.value, writer.get(), i, res_data, res_offsets,
+                                         res_null_map);
+        }
+
+        block.replace_by_position(
+                result, ColumnNullable::create(std::move(result_column), std::move(null_map)));
+        return Status::OK();
+    }
+
+private:
+    // Check if path contains negative array indices (not supported in Spark)
+    static bool _has_negative_array_index(const JsonbPath& path) {
+        for (size_t i = 0; i < path.get_leg_vector_size(); ++i) {
+            const auto* leg = path.get_leg_from_leg_vector(i);
+            // Check if this is an array access (type == 1) with negative index
+            if (leg->type == 1 && leg->array_index < 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static void _write_spark_value_to_column(const JsonbValue* value, JsonbWriter* writer,
+                                             size_t row_idx, ColumnString::Chars& res_data,
+                                             ColumnString::Offsets& res_offsets,
+                                             NullMap& null_map) {
+        // Spark: JSON null -> SQL NULL (not string "null")
+        if (value->isNull()) {
+            StringOP::push_null_string(row_idx, res_data, res_offsets, null_map);
+            return;
+        }
+
+        // For strings, return unquoted value (JSONB blob stores raw string without quotes)
+        if (value->isString()) {
+            const auto* str_value = value->unpack<JsonbStringVal>();
+            StringOP::push_value_string(
+                    std::string_view(str_value->getBlob(), str_value->getBlobLen()), row_idx,
+                    res_data, res_offsets);
+            return;
+        }
+
+        // For other types (numbers, booleans, objects, arrays), convert to JSON text string
+        // using JsonbToJson which produces human-readable JSON output
+        writer->reset();
+        writer->writeValue(value);
+        auto json_str = JsonbToJson::jsonb_to_json_string(writer->getOutput()->getBuffer(),
+                                                          writer->getOutput()->getSize());
+        StringOP::push_value_string(std::string_view(json_str), row_idx, res_data, res_offsets);
+    }
+};
+
 void register_function_jsonb(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionJsonbParse>(FunctionJsonbParse::name);
     factory.register_alias(FunctionJsonbParse::name, FunctionJsonbParse::alias);
@@ -3309,6 +3500,7 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionStripNullValue>();
     factory.register_function<FunctionJsonExtractStringFromVarchar>();
+    factory.register_function<FunctionJsonExtractSpark>();
 }
 
 } // namespace doris::vectorized

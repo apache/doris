@@ -283,6 +283,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArrayIgnoreNull;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonContains;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractNoQuotes;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonExtractSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonInsert;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonKeys;
@@ -869,6 +870,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(JsonbExtractIsnull.class, "json_extract_isnull"),
             scalar(JsonbExtractIsnull.class, "jsonb_extract_isnull"),
             scalar(JsonbExtractString.class, "jsonb_extract_string", "json_extract_string", "get_json_string"),
+            scalar(JsonExtractSpark.class, "json_extract_spark"),
             scalar(JsonbParse.class, "jsonb_parse", "json_parse"),
             scalar(JsonbParseErrorToNull.class, "jsonb_parse_error_to_null", "json_parse_error_to_null"),
             scalar(JsonbParseErrorToValue.class, "jsonb_parse_error_to_value", "json_parse_error_to_value"),
