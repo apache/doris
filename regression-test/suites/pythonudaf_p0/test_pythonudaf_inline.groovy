@@ -317,9 +317,168 @@ class SumUDAF:
         qt_test_global2 """ SELECT category,
                             udaf_sum_global(value) as sum_val,
                             sum(value) as native_sum
-                            FROM test_pythonudaf_inline_table 
-                            GROUP BY category 
+                            FROM test_pythonudaf_inline_table
+                            GROUP BY category
                             ORDER BY category; """
+
+        // Empty input with high pipeline parallelism should still succeed.
+        qt_test_empty_parallel """ SELECT /*+SET_VAR(parallel_pipeline_task_num=8)*/
+                                  udaf_sum_inline(value) as total
+                                  FROM test_pythonudaf_inline_table
+                                  WHERE id < 0; """
+        qt_test_global_empty_parallel """ SELECT /*+SET_VAR(parallel_pipeline_task_num=8)*/
+                                         udaf_sum_global(value) as total
+                                         FROM test_pythonudaf_inline_table
+                                         WHERE id < 0; """
+
+        // ========================================
+        // Test 9: LARGEINT Sum UDAF (Inline)
+        // ========================================
+        sql """ DROP TABLE IF EXISTS test_pythonudaf_convert_type_table """
+        sql """
+        CREATE TABLE IF NOT EXISTS test_pythonudaf_convert_type_table (
+            `id`       INT NOT NULL,
+            `val`      LARGEINT,
+            `category` VARCHAR(10) NOT NULL,
+            `ip_v4`    IPV4,
+            `ip_v6`    IPV6
+            )
+            DISTRIBUTED BY HASH(id) PROPERTIES("replication_num" = "1");
+        """
+
+        sql """ INSERT INTO test_pythonudaf_convert_type_table VALUES
+                (1, 100, 'A', '192.168.1.1', '2001:db8::1'),
+                (2, 200, 'A', '10.0.0.1', '::1'),
+                (3, 300, 'B', '8.8.8.8', '2001:4860:4860::8888'),
+                (4, 400, 'B', '172.16.0.1', 'fe80::1'),
+                (5, NULL, 'A', NULL, NULL);
+            """
+
+        sql """ DROP FUNCTION IF EXISTS udaf_sum_largeint_inline(LARGEINT); """
+
+        sql """
+        CREATE AGGREGATE FUNCTION udaf_sum_largeint_inline(LARGEINT)
+        RETURNS LARGEINT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "SumLargeIntUDAF",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+class SumLargeIntUDAF:
+    def __init__(self):
+        self.sum = 0
+
+    def accumulate(self, value):
+        if value is not None:
+            self.sum += value
+
+    def merge(self, other_state):
+        if other_state is not None:
+            self.sum += other_state
+
+    def finish(self):
+        return self.sum
+
+    @property
+    def aggregate_state(self):
+        return self.sum
+\$\$;
+        """
+
+        qt_test_largeint1 """ SELECT udaf_sum_largeint_inline(val) as total FROM test_pythonudaf_convert_type_table; """
+
+        qt_test_largeint2 """ SELECT category,
+                     udaf_sum_largeint_inline(val) as sum_val
+                     FROM test_pythonudaf_convert_type_table
+                     GROUP BY category
+                     ORDER BY category; """
+
+        // ========================================
+        // Test 10: IPv4 UDAF input type conversion
+        // ========================================
+        sql """ DROP FUNCTION IF EXISTS udaf_count_private_ipv4_inline(IPV4); """
+
+        sql """
+        CREATE AGGREGATE FUNCTION udaf_count_private_ipv4_inline(IPV4)
+        RETURNS BIGINT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "CountPrivateIPv4UDAF",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+class CountPrivateIPv4UDAF:
+    def __init__(self):
+        self.count = 0
+
+    def accumulate(self, value):
+        if value is not None and value.is_private:
+            self.count += 1
+
+    def merge(self, other_state):
+        if other_state is not None:
+            self.count += other_state
+
+    def finish(self):
+        return self.count
+
+    @property
+    def aggregate_state(self):
+        return self.count
+\$\$;
+        """
+
+        qt_test_ipv4_udaf1 """ SELECT udaf_count_private_ipv4_inline(ip_v4) as private_ipv4_count
+                               FROM test_pythonudaf_convert_type_table; """
+        qt_test_ipv4_udaf2 """ SELECT category,
+                                      udaf_count_private_ipv4_inline(ip_v4) as private_ipv4_count
+                               FROM test_pythonudaf_convert_type_table
+                               GROUP BY category
+                               ORDER BY category; """
+
+        // ========================================
+        // Test 11: IPv6 UDAF input type conversion
+        // ========================================
+        sql """ DROP FUNCTION IF EXISTS udaf_count_loopback_ipv6_inline(IPV6); """
+
+        sql """
+        CREATE AGGREGATE FUNCTION udaf_count_loopback_ipv6_inline(IPV6)
+        RETURNS BIGINT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "CountLoopbackIPv6UDAF",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+class CountLoopbackIPv6UDAF:
+    def __init__(self):
+        self.count = 0
+
+    def accumulate(self, value):
+        if value is not None and value.is_loopback:
+            self.count += 1
+
+    def merge(self, other_state):
+        if other_state is not None:
+            self.count += other_state
+
+    def finish(self):
+        return self.count
+
+    @property
+    def aggregate_state(self):
+        return self.count
+\$\$;
+        """
+
+        qt_test_ipv6_udaf1 """ SELECT udaf_count_loopback_ipv6_inline(ip_v6) as loopback_ipv6_count
+                               FROM test_pythonudaf_convert_type_table; """
+        qt_test_ipv6_udaf2 """ SELECT category,
+                                      udaf_count_loopback_ipv6_inline(ip_v6) as loopback_ipv6_count
+                               FROM test_pythonudaf_convert_type_table
+                               GROUP BY category
+                               ORDER BY category; """
 
     } finally {
         try_sql("DROP GLOBAL FUNCTION IF EXISTS udaf_sum_global(INT);")
@@ -327,6 +486,10 @@ class SumUDAF:
         try_sql("DROP FUNCTION IF EXISTS udaf_avg_inline(DOUBLE);")
         try_sql("DROP FUNCTION IF EXISTS udaf_count_inline(INT);")
         try_sql("DROP FUNCTION IF EXISTS udaf_max_inline(INT);")
+        try_sql("DROP FUNCTION IF EXISTS udaf_sum_largeint_inline(LARGEINT);")
+        try_sql("DROP FUNCTION IF EXISTS udaf_count_private_ipv4_inline(IPV4);")
+        try_sql("DROP FUNCTION IF EXISTS udaf_count_loopback_ipv6_inline(IPV6);")
         try_sql("DROP TABLE IF EXISTS test_pythonudaf_inline_table")
+        try_sql("DROP TABLE IF EXISTS test_pythonudaf_convert_type_table")
     }
 }

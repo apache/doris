@@ -1201,6 +1201,35 @@ def parse_csv_udtf(csv_line):
             ORDER BY order_id, item;
         """
 
+        // ========================================
+        // Test: LARGEINT UDTF
+        // Expand LARGEINT value into multiple rows
+        // ========================================
+        sql """ DROP FUNCTION IF EXISTS py_largeint_expand(LARGEINT); """
+        sql """
+        CREATE TABLES FUNCTION py_largeint_expand(LARGEINT)
+        RETURNS ARRAY<LARGEINT>
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "largeint_expand_udtf",
+            "runtime_version" = "3.8.10"
+        )
+        AS \$\$
+def largeint_expand_udtf(val):
+    '''Expand LARGEINT into two rows: val and val+1'''
+    if val is not None:
+        yield (val,)
+        yield (val + 1,)
+\$\$;
+        """
+
+        qt_largeint_expand """
+            SELECT tmp.result
+            FROM (SELECT CAST(100 AS LARGEINT) AS val) t
+            LATERAL VIEW py_largeint_expand(val) tmp AS result
+            ORDER BY tmp.result;
+        """
+
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_split_string(STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_generate_series(INT, INT);")
@@ -1224,6 +1253,7 @@ def parse_csv_udtf(csv_line):
         try_sql("DROP FUNCTION IF EXISTS py_split_words(STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_expand_range(INT);")
         try_sql("DROP FUNCTION IF EXISTS py_parse_csv(STRING);")
+        try_sql("DROP FUNCTION IF EXISTS py_largeint_expand(LARGEINT);")
         try_sql("DROP TABLE IF EXISTS temp_input;")
         try_sql("DROP TABLE IF EXISTS numbers_table;")
         try_sql("DROP TABLE IF EXISTS ranked_data;")

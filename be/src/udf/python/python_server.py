@@ -288,6 +288,18 @@ def convert_arrow_field_to_python(field, column_metadata=None):
                         )
                         return value
                 return None
+        elif doris_type in (b'LARGEINT', 'LARGEINT'):
+            if pa.types.is_string(field.type) or pa.types.is_large_string(field.type):
+                value = field.as_py()
+                if value is not None:
+                    try:
+                        return int(value)
+                    except (ValueError, TypeError) as e:
+                        logging.warning(
+                            "Failed to convert string '%s' to int for LARGEINT: %s", value, e
+                        )
+                        return value
+                return None
     
     return field.as_py()
 
@@ -314,16 +326,9 @@ def convert_python_to_arrow_value(value, output_type=None):
     if value is None:
         return None
 
-    is_ipv4_output = False
-    is_ipv6_output = False
-
-    if output_type is not None and hasattr(output_type, 'metadata') and output_type.metadata:
-        # Arrow metadata keys can be either bytes or str depending on how they were created
-        doris_type = output_type.metadata.get(b'doris_type') or output_type.metadata.get('doris_type')
-        if doris_type in (b'IPV4', 'IPV4'):
-            is_ipv4_output = True
-        elif doris_type in (b'IPV6', 'IPV6'):
-            is_ipv6_output = True
+    if output_type and pa.types.is_string(output_type) and isinstance(value, int):
+        # If output type is string but value is int, convert to string (for LARGEINT)
+        return str(value)
 
     # Convert IPv4Address back to int
     if isinstance(value, ipaddress.IPv4Address):
@@ -333,20 +338,6 @@ def convert_python_to_arrow_value(value, output_type=None):
     if isinstance(value, ipaddress.IPv6Address):
         return str(value)
 
-    # IPv4 output must return IPv4Address objects
-    if is_ipv4_output and isinstance(value, int):
-        raise TypeError(
-            f"IPv4 UDF must return ipaddress.IPv4Address object, got int ({value}). "
-            f"Use: return ipaddress.IPv4Address({value})"
-        )
-
-    # IPv6 output must return IPv6Address objects
-    if is_ipv6_output and isinstance(value, str):
-        raise TypeError(
-            f"IPv6 UDF must return ipaddress.IPv6Address object, got str ('{value}'). "
-            f"Use: return ipaddress.IPv6Address('{value}')"
-        )
-
     # Handle list of values (but not tuples that might be struct data)
     if isinstance(value, list):
         # For list types, recursively convert elements
@@ -355,7 +346,8 @@ def convert_python_to_arrow_value(value, output_type=None):
             return [convert_python_to_arrow_value(v, element_type) for v in value]
         else:
             # No type info, just recurse without type
-            return [convert_python_to_arrow_value(v, None) for v in value]
+            # Keep output_type here because UDTF row outputs are nested Python lists whose elements still need the outer element type.
+            return [convert_python_to_arrow_value(v, output_type) for v in value]
 
     # Handle tuple values (could be struct data)
     if isinstance(value, tuple):
@@ -2183,6 +2175,9 @@ class FlightServer(flight.FlightServerBase):
                     rows_processed = result_batch_accumulate.column(0)[0].as_py()
                     result_batch = self._create_unified_response(
                         success=(rows_processed > 0),
+                        # Processing zero rows is valid for empty fragments/slices.
+                        # Only exceptions should mark ACCUMULATE as failed.
+                        # success=True,
                         rows_processed=rows_processed,
                         data=b"",
                     )

@@ -178,6 +178,66 @@ def evaluate(s):
         qt_select_length_normal """ SELECT py_safe_length('hello') AS result; """
         qt_select_length_empty """ SELECT py_safe_length('') AS result; """
         qt_select_length_null """ SELECT py_safe_length(NULL) AS result; """
+
+        // Test 7: Invalid inline symbol definitions that currently create successfully
+        sql """ DROP FUNCTION IF EXISTS py_no_func_name(INT); """
+        sql """
+        CREATE FUNCTION py_no_func_name(INT)
+        RETURNS INT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "module_only",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+    def module_only(): pass
+\$\$;
+        """ 
+        test {
+            sql "SELECT py_no_func_name(1)"
+            exception "unexpected indent"
+        }
+
+        sql """ DROP FUNCTION IF EXISTS py_empty_sym(INT); """
+        sql """
+        CREATE FUNCTION py_empty_sym(INT)
+        RETURNS INT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = ".evaluate",
+            "runtime_version" = "${runtime_version}"
+        )
+        AS \$\$
+def evaluate(x):
+    return x
+\$\$;
+        """
+        test {
+            sql "SELECT py_empty_sym(1);"
+            exception "Function '.evaluate' not found"
+        }
+
+        // Test 8: Bad symbol should fail at execution time without crashing BE.
+        sql """ DROP FUNCTION IF EXISTS py_bad_symbol(INT); """
+        sql """
+        CREATE FUNCTION py_bad_symbol(INT)
+        RETURNS INT
+        PROPERTIES (
+            "type" = "PYTHON_UDF",
+            "symbol" = "nonexistent_func",
+            "runtime_version" = "${runtime_version}",
+            "always_nullable" = "true"
+        )
+        AS \$\$
+def evaluate(x):
+    return x
+\$\$;
+        """
+
+        test {
+            sql """ SELECT py_bad_symbol(1) AS result; """
+            exception "Function 'nonexistent_func' not found"
+        }
         
     } finally {
         try_sql("DROP FUNCTION IF EXISTS py_safe_divide(DOUBLE, DOUBLE);")
@@ -185,6 +245,9 @@ def evaluate(s):
         try_sql("DROP FUNCTION IF EXISTS py_safe_int_parse(STRING);")
         try_sql("DROP FUNCTION IF EXISTS py_safe_array_get(ARRAY<INT>, INT);")
         try_sql("DROP FUNCTION IF EXISTS py_safe_length(STRING);")
+        try_sql("DROP FUNCTION IF EXISTS py_no_func_name(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_empty_sym(INT);")
+        try_sql("DROP FUNCTION IF EXISTS py_bad_symbol(INT);")
         try_sql("DROP TABLE IF EXISTS error_handling_test_table;")
     }
 }
