@@ -537,14 +537,6 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
-    // Extract Kinesis metrics before returning consumers to pool,
-    // because reset() in return_consumer() clears internal state.
-    if (ctx->load_src_type == TLoadSourceType::KINESIS && !consumer_grp->consumers().empty()) {
-        auto kinesis_consumer =
-                std::static_pointer_cast<KinesisDataConsumer>(consumer_grp->consumers()[0]);
-        ctx->kinesis_info->millis_behind_latest = kinesis_consumer->get_millis_behind_latest();
-    }
-
     // return the consumer back to pool
     // call this before commit txn, in case the next task can come very fast
     consumer_pool->return_consumers(consumer_grp.get());
@@ -590,7 +582,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         break;
     }
     case TLoadSourceType::KINESIS: {
-        // millis_behind_latest already extracted before return_consumers above
+        // kinesis metrics/progress are aggregated in KinesisDataConsumerGroup::start_all()
         LOG(INFO) << "Kinesis routine load task completed. Committed sequence numbers for "
                   << ctx->kinesis_info->cmt_sequence_number.size()
                   << " shards. Task: " << ctx->brief();

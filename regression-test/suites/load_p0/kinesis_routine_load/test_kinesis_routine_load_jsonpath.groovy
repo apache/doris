@@ -90,7 +90,7 @@ suite("test_kinesis_routine_load_jsonpath") {
             COLUMNS(id, name, age)
             PROPERTIES (
                 "format" = "json",
-                "jsonpaths" = "[\\"\\$.data.id\\", \\"\\$.data.info.name\\", \\"\\$.data.info.age\\"]"
+                "jsonpaths" = '[\"\$.data.id\", \"\$.data.info.name\", \"\$.data.info.age\"]'
             )
             FROM KINESIS (
                 "aws.region" = "${awsRegion}",

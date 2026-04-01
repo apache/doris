@@ -23,18 +23,11 @@ import com.amazonaws.services.kinesis.model.*
 import java.nio.ByteBuffer
 
 suite("test_kinesis_routine_load") {
+    def ak = context.config.awsAccessKey
+    def sk = context.config.awsSecretKey
+    def region = context.config.awsRegion
 
-    String enabled = context.config.otherConfigs.get("enableKinesisTest")
-    String awsRegion = context.config.otherConfigs.get("awsRegion")
-    String awsAccessKey = context.config.otherConfigs.get("awsAccessKey")
-    String awsSecretKey = context.config.otherConfigs.get("awsSecretKey")
-
-    if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("Skip ${name} case, Kinesis test not enabled")
-        return
-    }
-
-    if (!awsRegion || !awsAccessKey || !awsSecretKey) {
+    if (!region || !ak || !sk) {
         logger.info("Skip ${name} case, AWS config not provided")
         return
     }
@@ -44,9 +37,9 @@ suite("test_kinesis_routine_load") {
     def jobName = "kinesis_routine_load_job"
 
     // Create Kinesis client
-    def credentials = new BasicAWSCredentials(awsAccessKey, awsSecretKey)
+    def credentials = new BasicAWSCredentials(ak, sk)
     def kinesisClient = AmazonKinesisClientBuilder.standard()
-        .withRegion(awsRegion)
+        .withRegion(region)
         .withCredentials(new AWSStaticCredentialsProvider(credentials))
         .build()
 
@@ -58,20 +51,25 @@ suite("test_kinesis_routine_load") {
             .withShardCount(1)
         kinesisClient.createStream(createRequest)
 
-        // Wait for stream to be active
+        // Wait for stream to be active and shard metadata to be available.
         logger.info("Waiting for stream to be active...")
         def describeRequest = new DescribeStreamRequest().withStreamName(streamName)
-        def streamActive = false
-        for (int i = 0; i < 30; i++) {
-            def result = kinesisClient.describeStream(describeRequest)
-            if (result.getStreamDescription().getStreamStatus() == "ACTIVE") {
-                streamActive = true
-                break
+        def streamReady = false
+        for (int i = 0; i < 60; i++) {
+            try {
+                def result = kinesisClient.describeStream(describeRequest)
+                def streamDescription = result.getStreamDescription()
+                if (streamDescription.getStreamStatus() == "ACTIVE" && !streamDescription.getShards().isEmpty()) {
+                    streamReady = true
+                    break
+                }
+            } catch (ResourceNotFoundException e) {
+                // Stream metadata may not be visible immediately after create.
             }
-            Thread.sleep(2000)
+            Thread.sleep(1000)
         }
-        assertTrue(streamActive, "Stream failed to become active")
-        logger.info("Stream is active")
+        assertTrue(streamReady, "Stream failed to become ready")
+        logger.info("Stream is ready")
 
         // Write test data
         logger.info("Writing test data to Kinesis...")
@@ -81,7 +79,17 @@ suite("test_kinesis_routine_load") {
                 .withStreamName(streamName)
                 .withPartitionKey("key_${i}")
                 .withData(ByteBuffer.wrap(data.getBytes("UTF-8")))
-            kinesisClient.putRecord(putRequest)
+            for (int retry = 0; retry < 20; retry++) {
+                try {
+                    kinesisClient.putRecord(putRequest)
+                    break
+                } catch (ResourceNotFoundException e) {
+                    if (retry == 19) {
+                        throw e
+                    }
+                    Thread.sleep(500)
+                }
+            }
         }
         logger.info("Test data written successfully")
 
@@ -103,9 +111,9 @@ suite("test_kinesis_routine_load") {
             CREATE ROUTINE LOAD ${jobName} ON ${tableName}
             PROPERTIES ("format" = "json", "desired_concurrent_number" = "1")
             FROM KINESIS (
-                "aws.region" = "${awsRegion}",
-                "aws.access_key" = "${awsAccessKey}",
-                "aws.secret_key" = "${awsSecretKey}",
+                "aws.region" = "${region}",
+                "aws.access_key" = "${ak}",
+                "aws.secret_key" = "${sk}",
                 "kinesis_stream" = "${streamName}",
                 "property.kinesis_default_pos" = "TRIM_HORIZON"
             )

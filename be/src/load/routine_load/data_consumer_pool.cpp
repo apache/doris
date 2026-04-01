@@ -99,8 +99,7 @@ Status DataConsumerPool::get_consumer_grp(std::shared_ptr<StreamLoadContext> ctx
             return Status::InternalError(
                     "PAUSE: The size of begin_sequence_number of task should not be 0.");
         }
-        // Kinesis uses a single consumer to handle all shards
-        consumer_num = 1;
+        consumer_num = std::min(consumer_num, ctx->kinesis_info->begin_sequence_number.size());
         grp = std::make_shared<KinesisDataConsumerGroup>(consumer_num);
         break;
     }

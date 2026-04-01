@@ -699,9 +699,9 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     }
 
     auto parse_timeout_ms = [](const std::string& timeout_value, const std::string& property_name,
-                               int* timeout_ms) -> Status {
+                               long* timeout_ms) -> Status {
         try {
-            *timeout_ms = std::stoi(timeout_value);
+            *timeout_ms = std::stol(timeout_value);
         } catch (const std::exception&) {
             return Status::InternalError("Invalid value for {}: {}", property_name, timeout_value);
         }
@@ -854,9 +854,12 @@ Status KinesisDataConsumer::group_consume(
             auto outcome = _kinesis_client->GetRecords(request);
             consumer_watch.stop();
 
-            // Track metrics (reuse Kafka metrics, they're generic)
+            // Track generic routine load metrics and Kinesis-specific metrics.
             DorisMetrics::instance()->routine_load_get_msg_count->increment(1);
             DorisMetrics::instance()->routine_load_get_msg_latency->increment(
+                    consumer_watch.elapsed_time() / 1000 / 1000);
+            DorisMetrics::instance()->routine_load_kinesis_get_records_count->increment(1);
+            DorisMetrics::instance()->routine_load_kinesis_get_records_latency->increment(
                     consumer_watch.elapsed_time() / 1000 / 1000);
 
             if (!outcome.IsSuccess()) {
@@ -866,6 +869,7 @@ Status KinesisDataConsumer::group_consume(
                 if (error.GetErrorType() ==
                     Aws::Kinesis::KinesisErrors::PROVISIONED_THROUGHPUT_EXCEEDED) {
                     throttle_count++;
+                    DorisMetrics::instance()->routine_load_kinesis_throttle_count->increment(1);
                     // Exponential backoff: 1s, 2s, 4s, 8s, max 10s
                     int backoff_ms = std::min(
                             RATE_LIMIT_BACKOFF_MS * (1 << std::min(throttle_count - 1, 3)), 10000);
@@ -879,6 +883,8 @@ Status KinesisDataConsumer::group_consume(
 
                 // Handle retriable errors
                 if (_is_retriable_error(error)) {
+                    DorisMetrics::instance()->routine_load_kinesis_retriable_error_count->increment(
+                            1);
                     LOG(INFO) << "Kinesis retriable error for shard " << shard_id << ": "
                               << error.GetMessage() << ", retry times: " << retry_times++;
                     if (retry_times <= MAX_RETRY_TIMES_FOR_TRANSPORT_FAILURE) {
@@ -916,6 +922,7 @@ Status KinesisDataConsumer::group_consume(
             if (next_iterator.empty()) {
                 // Shard is closed (split/merge), mark as closed and remove from active set
                 LOG(INFO) << "Shard closed: " << shard_id << " (split/merge detected)";
+                DorisMetrics::instance()->routine_load_kinesis_closed_shard_count->increment(1);
                 _closed_shard_ids.insert(shard_id);
                 _shard_iterators.erase(shard_id);
                 it = _consuming_shard_ids.erase(it);

@@ -435,6 +435,22 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     @Override
     public String getStatistic() {
         Map<String, Object> summary = this.jobStatistic.summary();
+        readLock();
+        try {
+            summary.put("openShardNum", openKinesisShards.size());
+            summary.put("closedShardNum", closedKinesisShards.size());
+            summary.put("trackedShardNum", ((KinesisProgress) progress).getShardIdToSequenceNumber().size());
+            summary.put("cachedMillisBehindLatestShardNum", cachedShardWithMillsBehindLatest.size());
+            summary.put("totalMillisBehindLatest", totalLag());
+            long maxMillisBehindLatest = cachedShardWithMillsBehindLatest.values().stream()
+                    .filter(lag -> lag >= 0)
+                    .mapToLong(v -> v)
+                    .max()
+                    .orElse(-1L);
+            summary.put("maxMillisBehindLatest", maxMillisBehindLatest);
+        } finally {
+            readUnlock();
+        }
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(summary);
     }

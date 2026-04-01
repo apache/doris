@@ -167,6 +167,14 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_get_msg_latency, MetricUnit::M
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_get_msg_count, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_consume_rows, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_consume_bytes, MetricUnit::BYTES);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_kinesis_get_records_latency,
+                                     MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_kinesis_get_records_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_kinesis_throttle_count, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_kinesis_retriable_error_count,
+                                     MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(routine_load_kinesis_closed_shard_count,
+                                     MetricUnit::NOUNIT);
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_total, MetricUnit::OPERATIONS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(memtable_flush_duration_us, MetricUnit::MICROSECONDS);
@@ -347,6 +355,12 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_get_msg_count);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_consume_bytes);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_consume_rows);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_kinesis_get_records_latency);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_kinesis_get_records_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_kinesis_throttle_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity,
+                                routine_load_kinesis_retriable_error_count);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, routine_load_kinesis_closed_shard_count);
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_total);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, memtable_flush_duration_us);

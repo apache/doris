@@ -104,7 +104,8 @@ suite("test_kinesis_routine_load_shard_split") {
 
         // Split shard
         logger.info("Splitting shard")
-        def shards = kinesisClient.listShards(new ListShardsRequest().withStreamName(streamName)).getShards()
+        def streamDesc = kinesisClient.describeStream(new DescribeStreamRequest().withStreamName(streamName))
+        def shards = streamDesc.getStreamDescription().getShards()
         def openShard = shards.find { it.getSequenceNumberRange().getEndingSequenceNumber() == null }
 
         if (openShard != null) {

@@ -216,10 +216,22 @@ Status KinesisDataConsumerGroup::assign_stream_shards(std::shared_ptr<StreamLoad
     DCHECK(ctx->kinesis_info);
     DCHECK(_consumers.size() >= 1);
 
-    // For Kinesis, we use a single consumer to handle all shards
-    RETURN_IF_ERROR(std::static_pointer_cast<KinesisDataConsumer>(_consumers[0])
-                            ->assign_shards(ctx->kinesis_info->begin_sequence_number,
-                                            ctx->kinesis_info->stream, ctx));
+    // divide shards
+    int consumer_size = doris::cast_set<int>(_consumers.size());
+    std::vector<std::map<std::string, std::string>> divide_shards(consumer_size);
+    int i = 0;
+    for (auto& kv : ctx->kinesis_info->begin_sequence_number) {
+        int idx = i % consumer_size;
+        divide_shards[idx].emplace(kv.first, kv.second);
+        i++;
+    }
+
+    // assign shards to consumers equally
+    for (int j = 0; j < consumer_size; ++j) {
+        RETURN_IF_ERROR(
+                std::static_pointer_cast<KinesisDataConsumer>(_consumers[j])
+                        ->assign_shards(divide_shards[j], ctx->kinesis_info->stream, ctx));
+    }
 
     return Status::OK();
 }
@@ -328,6 +340,14 @@ Status KinesisDataConsumerGroup::start_all(std::shared_ptr<StreamLoadContext> ct
                 for (auto& [shard_id, seq_num] :
                      kinesis_consumer->get_committed_sequence_numbers()) {
                     ctx->kinesis_info->cmt_sequence_number[shard_id] = seq_num;
+                }
+                for (auto& [shard_id, millis_behind_latest] :
+                     kinesis_consumer->get_millis_behind_latest()) {
+                    auto [it, inserted] = ctx->kinesis_info->millis_behind_latest.emplace(
+                            shard_id, millis_behind_latest);
+                    if (!inserted && it->second < millis_behind_latest) {
+                        it->second = millis_behind_latest;
+                    }
                 }
                 // Collect closed shards to notify FE
                 for (auto& shard_id : kinesis_consumer->get_closed_shard_ids()) {
