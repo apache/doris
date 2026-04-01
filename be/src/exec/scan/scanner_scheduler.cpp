@@ -232,6 +232,11 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     eos = true;
                     break;
                 }
+                // If shared limit quota is exhausted, stop scanning.
+                if (ctx->remaining_limit() == 0) {
+                    eos = true;
+                    break;
+                }
                 if (max_run_time_watch.elapsed_time() >
                     config::doris_scanner_max_run_time_ms * 1e6) {
                     break;
@@ -268,6 +273,23 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                 // Check column type only after block is read successfully.
                 // Or it may cause a crash when the block is not normal.
                 _make_sure_virtual_col_is_materialized(scanner, free_block.get());
+
+                // Shared limit quota: acquire rows from the context's shared pool.
+                // Discard or truncate the block if quota is exhausted.
+                if (free_block->rows() > 0) {
+                    int64_t block_rows = free_block->rows();
+                    int64_t granted = ctx->acquire_limit_quota(block_rows);
+                    if (granted == 0) {
+                        // No quota remaining, discard this block and mark eos.
+                        ctx->return_free_block(std::move(free_block));
+                        eos = true;
+                        break;
+                    } else if (granted < block_rows) {
+                        // Partial quota: truncate block to granted rows and mark eos.
+                        free_block->set_num_rows(granted);
+                        eos = true;
+                    }
+                }
                 // Projection will truncate useless columns, makes block size change.
                 auto free_block_bytes = free_block->allocated_bytes();
                 raw_bytes_read += free_block_bytes;
@@ -298,15 +320,9 @@ void ScannerScheduler::_scanner_scan(std::shared_ptr<ScannerContext> ctx,
                     scan_task->cached_blocks.emplace_back(std::move(free_block), free_block_bytes);
                 }
 
+                // Per-scanner small-limit optimization: if limit is small (< batch_size),
+                // return immediately instead of accumulating to raw_bytes_threshold.
                 if (limit > 0 && limit < ctx->batch_size()) {
-                    // If this scanner has limit, and less than batch size,
-                    // return immediately and no need to wait raw_bytes_threshold.
-                    // This can save time that each scanner may only return a small number of rows,
-                    // but rows are enough from all scanners.
-                    // If not break, the query like "select * from tbl where id=1 limit 10"
-                    // may scan a lot data when the "id=1"'s filter ratio is high.
-                    // If limit is larger than batch size, this rule is skipped,
-                    // to avoid user specify a large limit and causing too much small blocks.
                     break;
                 }
 
