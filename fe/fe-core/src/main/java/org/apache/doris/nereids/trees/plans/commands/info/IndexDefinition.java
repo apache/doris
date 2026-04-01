@@ -158,8 +158,8 @@ public class IndexDefinition {
             if (!itemType.isFloatType()) {
                 throw new AnalysisException("ANN index column item type must be float type, invalid index: " + name);
             }
-            if (keysType != KeysType.DUP_KEYS) {
-                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            if (keysType != KeysType.DUP_KEYS && keysType != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("ANN index can only be used in DUP_KEYS or UNIQUE_KEYS table");
             }
             return;
         }
@@ -255,8 +255,8 @@ public class IndexDefinition {
             if (!itemType.isFloatingPointType()) {
                 throw new AnalysisException("ANN index column item type must be float type");
             }
-            if (keysType != KeysType.DUP_KEYS) {
-                throw new AnalysisException("ANN index can only be used in DUP_KEYS table");
+            if (keysType != KeysType.DUP_KEYS && keysType != KeysType.UNIQUE_KEYS) {
+                throw new AnalysisException("ANN index can only be used in DUP_KEYS or UNIQUE_KEYS table");
             }
             if (invertedIndexFileStorageFormat == TInvertedIndexFileStorageFormat.V1) {
                 throw new AnalysisException("ANN index is not supported in index format V1");
