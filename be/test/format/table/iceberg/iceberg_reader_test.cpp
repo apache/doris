@@ -563,6 +563,26 @@ TEST_F(IcebergReaderTest, rejects_mixed_dictionary_and_plain_parquet_column) {
     EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
 }
 
+TEST_F(IcebergReaderTest, rejects_mixed_dictionary_and_plain_parquet_v2_column) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page;
+    dict_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    dict_page.encoding = tparquet::Encoding::RLE_DICTIONARY;
+    dict_page.count = 2;
+
+    tparquet::PageEncodingStats plain_page;
+    plain_page.page_type = tparquet::PageType::DATA_PAGE_V2;
+    plain_page.encoding = tparquet::Encoding::PLAIN;
+    plain_page.count = 1;
+
+    column_metadata.encoding_stats = {dict_page, plain_page};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
 TEST_F(IcebergReaderTest, rejects_non_dictionary_encoding_without_encoding_stats) {
     tparquet::ColumnMetaData column_metadata;
     column_metadata.type = tparquet::Type::BYTE_ARRAY;

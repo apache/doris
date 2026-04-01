@@ -113,7 +113,8 @@ bool IcebergTableReader::_is_fully_dictionary_encoded(
     // Only treat it as dictionary-coded when all data pages are dictionary encoded.
     if (column_metadata.__isset.encoding_stats) {
         for (const tparquet::PageEncodingStats& enc_stat : column_metadata.encoding_stats) {
-            if (enc_stat.page_type == tparquet::PageType::DATA_PAGE &&
+            if ((enc_stat.page_type == tparquet::PageType::DATA_PAGE ||
+                 enc_stat.page_type == tparquet::PageType::DATA_PAGE_V2) &&
                 (enc_stat.encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
                  enc_stat.encoding != tparquet::Encoding::RLE_DICTIONARY) &&
                 enc_stat.count > 0) {
