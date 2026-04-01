@@ -1894,6 +1894,7 @@ primitiveColType
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=FILE
     | type=VARBINARY
     | type=VARIANT
     | type=ALL

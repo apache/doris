@@ -30,6 +30,7 @@
 #include <filesystem>
 #include <fstream> // IWYU pragma: keep
 #include <future>
+#include <unordered_set>
 #include <memory>
 
 #include "common/config.h"
@@ -292,10 +293,14 @@ Status S3FileSystem::file_size_impl(const Path& file, int64_t* file_size) const 
     return Status::OK();
 }
 
+// Fold S3's flat object list into Doris' single-level directory listing contract.
+// We keep direct files and synthesize direct child directories from the first path
+// segment under `prefix`. Recursive traversal is owned by higher-level callers.
 Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<FileInfo>* files,
                                bool* exists) {
-    // For object storage, this path is always not exist.
-    // So we ignore this property and set exists to true.
+    // Doris treats `FileSystem::list` as a single-level directory listing.
+    // `only_file=true` filters out directory markers, but it does not change
+    // the listing depth. Fileset recursion is built on top of this contract.
     *exists = true;
     auto client = _client->get();
     CHECK_S3_CLIENT(client);
@@ -304,16 +309,47 @@ Status S3FileSystem::list_impl(const Path& dir, bool only_file, std::vector<File
         prefix.push_back('/');
     }
 
-    // clang-format off
-    auto resp = client->list_objects( {.bucket = _bucket, .prefix = prefix,}, files);
-    // clang-format on
-    if (resp.status.code == ErrorCode::OK) {
-        for (auto&& file : *files) {
-            file.file_name.erase(0, prefix.size());
-        }
+    std::vector<FileInfo> listed_files;
+    auto resp = client->list_objects({.bucket = _bucket, .prefix = prefix}, &listed_files);
+    if (resp.status.code != ErrorCode::OK) {
+        files->clear();
+        return {resp.status.code, std::move(resp.status.msg)};
     }
 
-    return {resp.status.code, std::move(resp.status.msg)};
+    std::unordered_set<std::string> directory_names;
+    for (const auto& file : listed_files) {
+        if (file.file_name == prefix || file.file_name.size() < prefix.size()) {
+            continue;
+        }
+        std::string relative_name = file.file_name.substr(prefix.size());
+        if (relative_name.empty()) {
+            continue;
+        }
+        size_t separator = relative_name.find('/');
+        if (separator == std::string::npos) {
+            FileInfo file_info;
+            file_info.file_name = std::move(relative_name);
+            file_info.file_size = file.file_size;
+            file_info.is_file = true;
+            files->push_back(std::move(file_info));
+            continue;
+        }
+        if (only_file) {
+            continue;
+        }
+        std::string directory_name = relative_name.substr(0, separator);
+        if (directory_name.empty() || directory_names.find(directory_name) != directory_names.end()) {
+            continue;
+        }
+        directory_names.insert(directory_name);
+        FileInfo directory_info;
+        directory_info.file_name = std::move(directory_name);
+        directory_info.file_size = 0;
+        directory_info.is_file = false;
+        files->push_back(std::move(directory_info));
+    }
+
+    return Status::OK();
 }
 
 Status S3FileSystem::rename_impl(const Path& orig_name, const Path& new_name) {

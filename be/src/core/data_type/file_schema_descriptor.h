@@ -29,10 +29,30 @@ struct FileFieldDesc {
     DataTypePtr type;
 };
 
+inline constexpr std::string_view FILE_FIELD_OBJECT_URI = "object_uri";
+inline constexpr std::string_view FILE_FIELD_FILE_NAME = "file_name";
+inline constexpr std::string_view FILE_FIELD_FILE_EXTENSION = "file_extension";
+inline constexpr std::string_view FILE_FIELD_SIZE = "size";
+inline constexpr std::string_view FILE_FIELD_ETAG = "etag";
+inline constexpr std::string_view FILE_FIELD_LAST_MODIFIED_AT = "last_modified_at";
+
 class FileSchemaDescriptor final {
 public:
+    enum class Field : uint8_t {
+        OBJECT_URI = 0,
+        FILE_NAME = 1,
+        FILE_EXTENSION = 2,
+        SIZE = 3,
+        ETAG = 4,
+        LAST_MODIFIED_AT = 5,
+    };
+
     static const FileSchemaDescriptor& instance();
     const FileFieldDesc& field(size_t idx) const { return _fields[idx]; }
+    const FileFieldDesc& field(Field field_id) const {
+        return _fields[static_cast<size_t>(field_id)];
+    }
+    std::string_view field_name(Field field_id) const { return field(field_id).name; }
     std::optional<size_t> try_get_position(std::string_view name) const;
 
 private:

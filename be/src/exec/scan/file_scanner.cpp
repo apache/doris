@@ -70,6 +70,7 @@
 #include "format/table/iceberg_reader.h"
 #include "format/table/iceberg_sys_table_jni_reader.h"
 #include "format/table/jdbc_jni_reader.h"
+#include "format/table/fileset_reader.h"
 #include "format/table/max_compute_jni_reader.h"
 #include "format/table/paimon_cpp_reader.h"
 #include "format/table/paimon_jni_reader.h"
@@ -1033,6 +1034,22 @@ Status FileScanner::_get_next_reader() {
                 }
             }
             break;
+        }
+        case TFileFormatType::FORMAT_MULTIDATA: {
+            if (range.__isset.table_format_params &&
+                range.table_format_params.table_format_type == "fileset") {
+                std::map<std::string, std::string> fileset_params(
+                        range.table_format_params.fileset_params.begin(),
+                        range.table_format_params.fileset_params.end());
+                _cur_reader = FilesetReader::create_unique(_file_slot_descs, _state, _profile,
+                                                           fileset_params);
+                init_status = ((FilesetReader*)(_cur_reader.get()))->init_reader();
+                break;
+            }
+            return Status::InternalError("unsupported multidata table format: {}",
+                                         range.__isset.table_format_params
+                                                 ? range.table_format_params.table_format_type
+                                                 : "unknown");
         }
         case TFileFormatType::FORMAT_PARQUET: {
             auto file_meta_cache_ptr = _should_enable_file_meta_cache()

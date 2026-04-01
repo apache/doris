@@ -112,7 +112,8 @@ enum TFileFormatType {
     FORMAT_WAL = 15,
     FORMAT_ARROW = 16,
     FORMAT_TEXT = 17,
-    FORMAT_NATIVE = 18
+    FORMAT_NATIVE = 18,
+    FORMAT_MULTIDATA = 19
 }
 
 // In previous versions, the data compression format and file format were stored together, as TFileFormatType,
@@ -439,6 +440,7 @@ struct TTableFormatFileDesc {
     10: optional TRemoteDorisFileDesc remote_doris_params
     // JDBC connection parameters (used when table_format_type == "jdbc")
     11: optional map<string, string> jdbc_params
+    12: optional map<string, string> fileset_params
 }
 
 // Deprecated, hive text talbe is a special format, not a serde type

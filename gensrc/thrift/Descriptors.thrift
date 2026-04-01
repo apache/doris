@@ -449,6 +449,12 @@ struct TJdbcTable {
   14: optional i64 catalog_id
 }
 
+struct TFilesetTable {
+  1: optional string table_path
+  2: optional Types.TFileType file_type
+  3: optional map<string, string> properties
+}
+
 struct TMCTable {
   1: optional string region // deprecated
   2: optional string project
@@ -511,6 +517,7 @@ struct TTableDescriptor {
   23: optional TLakeSoulTable lakesoulTable
   24: optional TDictionaryTable dictionaryTable
   25: optional TRemoteDorisTable remoteDorisTable
+  26: optional TFilesetTable filesetTable
 }
 
 struct TDescriptorTable {

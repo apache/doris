@@ -24,17 +24,6 @@
 
 namespace doris {
 
-namespace {
-
-constexpr auto OBJECT_URI = "object_uri";             // s3://bucket/path/to/file.txt
-constexpr auto FILE_NAME = "file_name";               // file.txt
-constexpr auto FILE_EXTENSION = "file_extension";     // .txt
-constexpr auto SIZE = "size";                         // 12345
-constexpr auto ETAG = "etag";                         // abc123
-constexpr auto LAST_MODIFIED_AT = "last_modified_at"; // 2022-01-01T00:00:00Z
-
-} // namespace
-
 const FileSchemaDescriptor& FileSchemaDescriptor::instance() {
     static const FileSchemaDescriptor descriptor;
     return descriptor;
@@ -48,12 +37,12 @@ FileSchemaDescriptor::FileSchemaDescriptor() {
         });
     };
 
-    add_field(OBJECT_URI, std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
-    add_field(FILE_NAME, std::make_shared<DataTypeString>(512, TYPE_VARCHAR));
-    add_field(FILE_EXTENSION, std::make_shared<DataTypeString>(64, TYPE_VARCHAR));
-    add_field(SIZE, std::make_shared<DataTypeInt64>());
-    add_field(ETAG, make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
-    add_field(LAST_MODIFIED_AT, std::make_shared<DataTypeDateTimeV2>(3));
+    add_field(FILE_FIELD_OBJECT_URI.data(), std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
+    add_field(FILE_FIELD_FILE_NAME.data(), std::make_shared<DataTypeString>(512, TYPE_VARCHAR));
+    add_field(FILE_FIELD_FILE_EXTENSION.data(), std::make_shared<DataTypeString>(64, TYPE_VARCHAR));
+    add_field(FILE_FIELD_SIZE.data(), std::make_shared<DataTypeInt64>());
+    add_field(FILE_FIELD_ETAG.data(), make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field(FILE_FIELD_LAST_MODIFIED_AT.data(), std::make_shared<DataTypeDateTimeV2>(3));
 }
 
 std::optional<size_t> FileSchemaDescriptor::try_get_position(std::string_view name) const {

@@ -401,6 +401,17 @@ std::string JdbcTableDescriptor::debug_string() const {
     return fmt::to_string(buf);
 }
 
+FilesetTableDescriptor::FilesetTableDescriptor(const TTableDescriptor& tdesc)
+        : TableDescriptor(tdesc),
+          _table_path(tdesc.filesetTable.table_path),
+          _file_type(tdesc.filesetTable.file_type),
+          _properties(tdesc.filesetTable.properties) {}
+
+std::string FilesetTableDescriptor::debug_string() const {
+    return fmt::format("FilesetTable({} table_path={}, file_type={})",
+                       TableDescriptor::debug_string(), _table_path, static_cast<int>(_file_type));
+}
+
 RemoteDorisTableDescriptor::RemoteDorisTableDescriptor(const TTableDescriptor& tdesc)
         : TableDescriptor(tdesc) {}
 
@@ -649,6 +660,9 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
             break;
         case TTableType::JDBC_TABLE:
             desc = pool->add(new JdbcTableDescriptor(tdesc));
+            break;
+        case TTableType::FILESET_TABLE:
+            desc = pool->add(new FilesetTableDescriptor(tdesc));
             break;
         case TTableType::MAX_COMPUTE_TABLE:
             desc = pool->add(new MaxComputeTableDescriptor(tdesc));

@@ -100,6 +100,9 @@ public:
     Status batch_delete(const std::vector<Path>& files);
     Status exists(const Path& path, bool* res) const;
     Status file_size(const Path& file, int64_t* file_size) const;
+    // List one directory level under `dir`.
+    // `only_file=true` filters out directory entries from that single-level listing.
+    // Callers that need recursive traversal must walk child directories themselves.
     Status list(const Path& dir, bool only_file, std::vector<FileInfo>* files, bool* exists);
     Status rename(const Path& orig_name, const Path& new_name);
 

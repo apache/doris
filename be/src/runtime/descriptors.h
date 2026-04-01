@@ -336,6 +336,20 @@ private:
     bool _connection_pool_keep_alive;
 };
 
+class FilesetTableDescriptor : public TableDescriptor {
+public:
+    FilesetTableDescriptor(const TTableDescriptor& tdesc);
+    std::string debug_string() const override;
+    const std::string& table_path() const { return _table_path; }
+    TFileType::type file_type() const { return _file_type; }
+    const std::map<std::string, std::string>& properties() const { return _properties; }
+
+private:
+    std::string _table_path;
+    TFileType::type _file_type;
+    std::map<std::string, std::string> _properties;
+};
+
 class RemoteDorisTableDescriptor : public TableDescriptor {
 public:
     RemoteDorisTableDescriptor(const TTableDescriptor& tdesc);
