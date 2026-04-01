@@ -78,4 +78,8 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <finalName>doris-fe-filesystem-broker</finalName>
+    </build>
 </project>

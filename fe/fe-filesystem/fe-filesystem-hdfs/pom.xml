@@ -72,4 +72,8 @@ under the License.
             <scope>test</scope>
         </dependency>
     </dependencies>
+
+    <build>
+        <finalName>doris-fe-filesystem-hdfs</finalName>
+    </build>
 </project>

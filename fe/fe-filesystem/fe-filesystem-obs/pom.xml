@@ -41,4 +41,8 @@ under the License.
             <version>${revision}</version>
         </dependency>
     </dependencies>
+
+    <build>
+        <finalName>doris-fe-filesystem-obs</finalName>
+    </build>
 </project>
