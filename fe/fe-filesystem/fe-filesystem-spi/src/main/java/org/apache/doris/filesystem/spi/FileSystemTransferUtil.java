@@ -15,14 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs;
-
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileIterator;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.Location;
+package org.apache.doris.filesystem.spi;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -145,7 +138,7 @@ public final class FileSystemTransferUtil {
     }
 
     /** Converts a glob pattern (with * and ?) to a java.util.regex.Pattern. */
-    static Pattern globToRegex(String glob) {
+    public static Pattern globToRegex(String glob) {
         StringBuilder sb = new StringBuilder("^");
         for (char c : glob.toCharArray()) {
             switch (c) {

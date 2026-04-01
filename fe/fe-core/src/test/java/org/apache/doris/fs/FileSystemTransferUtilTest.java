@@ -20,6 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.filesystem.local.LocalFileSystemProvider;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.FileSystemTransferUtil;
 import org.apache.doris.filesystem.spi.Location;
 
 import org.junit.jupiter.api.AfterEach;

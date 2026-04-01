@@ -14,39 +14,14 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/RemoteIterator.java
+// and modified by Doris
 
-package org.apache.doris.fs.io;
+package org.apache.doris.filesystem.spi;
 
-import org.apache.doris.fs.Location;
+public interface RemoteIterator<T> {
+    boolean hasNext() throws FileSystemIOException;
 
-import org.apache.hadoop.fs.Path;
-
-/**
- * This is a temporary class to isolate the path parsing logic from the rest of the codebase.
- *
- * @deprecated use {@link Location} instead
- */
-@Deprecated
-public class ParsedPath {
-    private String origPath;
-
-    public ParsedPath(String path) {
-        this.origPath = path;
-    }
-
-    @Override
-    public String toString() {
-        return this.origPath;
-    }
-
-    public Path toHadoopPath() {
-        return new Path(origPath);
-    }
-
-    /**
-     * Converts this ParsedPath to the new {@link Location} value type.
-     */
-    public Location toLocation() {
-        return Location.of(origPath);
-    }
+    T next() throws FileSystemIOException;
 }

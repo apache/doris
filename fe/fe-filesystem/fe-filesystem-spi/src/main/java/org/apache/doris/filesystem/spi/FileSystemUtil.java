@@ -15,12 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs;
-
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.Location;
-
-import org.apache.hadoop.fs.Path;
+package org.apache.doris.filesystem.spi;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
@@ -37,14 +32,14 @@ public class FileSystemUtil {
                                         String destFilePath,
                                         List<String> fileNames) {
         for (String fileName : fileNames) {
-            Path source = new Path(origFilePath, fileName);
-            Path target = new Path(destFilePath, fileName);
+            String source = joinPath(origFilePath, fileName);
+            String target = joinPath(destFilePath, fileName);
             renameFileFutures.add(CompletableFuture.runAsync(() -> {
                 if (cancelled.get()) {
                     return;
                 }
                 try {
-                    fs.rename(Location.of(source.toString()), Location.of(target.toString()));
+                    fs.rename(Location.of(source), Location.of(target));
                 } catch (java.io.IOException e) {
                     throw new RuntimeException(e.getMessage(), e);
                 }
@@ -70,5 +65,8 @@ public class FileSystemUtil {
             }
         }, executor));
     }
-}
 
+    private static String joinPath(String parent, String child) {
+        return parent.endsWith("/") ? parent + child : parent + "/" + child;
+    }
+}

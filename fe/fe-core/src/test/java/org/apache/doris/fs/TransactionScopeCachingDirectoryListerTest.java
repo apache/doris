@@ -22,7 +22,9 @@ package org.apache.doris.fs;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileSystemIOException;
 import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.spi.RemoteIterator;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

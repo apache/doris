@@ -25,8 +25,8 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
-import org.apache.doris.fs.obj.ListObjectsResult;
-import org.apache.doris.fs.obj.ObjectFile;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import mockit.Mock;
@@ -69,10 +69,10 @@ public class StageUtilTest {
         Assert.assertEquals(4956, keys.size());
         new MockUp<InternalCatalog>(InternalCatalog.class) {
             @Mock
-            public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<ObjectFile> objectFiles)
+            public List<ObjectFilePB> filterCopyFiles(String stageId, long tableId, List<RemoteObject> objectFiles)
                     throws DdlException {
                 List<ObjectFilePB> objectFilePbs = new ArrayList<ObjectFilePB>();
-                for (ObjectFile objectFile : objectFiles) {
+                for (RemoteObject objectFile : objectFiles) {
                     objectFilePbs.add(ObjectFilePB.newBuilder().setRelativePath(objectFile.getRelativePath())
                             .setEtag(objectFile.getEtag()).setSize(objectFile.getSize()).build());
                 }
@@ -82,13 +82,13 @@ public class StageUtilTest {
 
         new MockUp<ObjFileSystem>() {
             @Mock
-            public ListObjectsResult listObjectsWithPrefix(String prefix, String subPrefix, String continuationToken)
+            public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix, String continuationToken)
                     throws IOException {
-                List<ObjectFile> objectFiles = new ArrayList<>();
+                List<RemoteObject> objectFiles = new ArrayList<>();
                 for (String key : keys) {
-                    objectFiles.add(new ObjectFile(key, key, "7741995E5B849F911ADF926A4C5747D3-3", 100));
+                    objectFiles.add(new RemoteObject(key, key, "7741995E5B849F911ADF926A4C5747D3-3", 100, 0));
                 }
-                return new ListObjectsResult(objectFiles, false, null);
+                return new RemoteObjects(objectFiles, false, null);
             }
         };
 

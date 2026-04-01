@@ -17,51 +17,55 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.fs.io.DorisInput;
-import org.apache.doris.fs.io.DorisInputFile;
-import org.apache.doris.fs.io.DorisInputStream;
-import org.apache.doris.fs.io.DorisOutputFile;
+import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.spi.DorisInputStream;
+import org.apache.doris.filesystem.spi.DorisOutputFile;
+import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileIterator;
+import org.apache.doris.filesystem.spi.Location;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * In-memory {@link FileSystem} implementation for unit testing.
+ * In-memory {@link org.apache.doris.filesystem.spi.FileSystem} implementation for unit testing.
  * <p>
  * File data is stored in a {@link ConcurrentHashMap}. Directories are implicit
  * (any Location whose path ends with "/" is treated as a directory).
  * Thread-safe for concurrent read/write operations.
  */
-public class MemoryFileSystem implements FileSystem {
+public class MemoryFileSystem implements org.apache.doris.filesystem.spi.FileSystem {
 
     // Maps location string → file bytes (null entry = directory marker)
     private final ConcurrentHashMap<String, byte[]> store = new ConcurrentHashMap<>();
 
     @Override
-    public DorisInputFile newInputFile(Location location) {
+    public DorisInputFile newInputFile(Location location) throws IOException {
         return newInputFile(location, -1L);
     }
 
     @Override
-    public DorisInputFile newInputFile(Location location, long length) {
+    public DorisInputFile newInputFile(Location location, long length) throws IOException {
         return new MemoryInputFile(location, length);
     }
 
     @Override
-    public DorisOutputFile newOutputFile(Location location) {
+    public DorisOutputFile newOutputFile(Location location) throws IOException {
         return new MemoryOutputFile(location);
     }
 
     @Override
-    public boolean exists(Location location) {
+    public boolean exists(Location location) throws IOException {
         String key = location.toString();
         if (store.containsKey(key)) {
             return true;
@@ -71,80 +75,97 @@ public class MemoryFileSystem implements FileSystem {
     }
 
     @Override
-    public void deleteFile(Location location) throws IOException {
+    public void delete(Location location, boolean recursive) throws IOException {
         String key = location.toString();
-        if (store.remove(key) == null) {
-            throw new IOException("File not found: " + location);
+        if (recursive) {
+            String withSlash = key.endsWith("/") ? key : key + "/";
+            store.keySet().removeIf(k -> k.equals(key) || k.startsWith(withSlash));
+        } else {
+            if (store.remove(key) == null) {
+                throw new IOException("File not found: " + location);
+            }
         }
     }
 
     @Override
-    public void renameFile(Location source, Location target) throws IOException {
-        byte[] data = store.remove(source.toString());
+    public void rename(Location source, Location target) throws IOException {
+        String srcPrefix = source.toString();
+        String dstPrefix = target.toString();
+        // Check if this is a directory rename (multiple entries share the prefix)
+        Map<String, byte[]> toMove = store.entrySet().stream()
+                .filter(e -> e.getKey().equals(srcPrefix) || e.getKey().startsWith(srcPrefix + "/"))
+                .collect(Collectors.toMap(
+                        e -> dstPrefix + e.getKey().substring(srcPrefix.length()),
+                        Map.Entry::getValue));
+        if (!toMove.isEmpty()) {
+            store.keySet().removeIf(k -> k.equals(srcPrefix) || k.startsWith(srcPrefix + "/"));
+            store.putAll(toMove);
+            return;
+        }
+        // Single file rename
+        byte[] data = store.remove(srcPrefix);
         if (data == null) {
             throw new IOException("Source not found: " + source);
         }
-        store.put(target.toString(), data);
+        store.put(dstPrefix, data);
     }
 
     @Override
-    public void deleteDirectory(Location location) throws IOException {
-        String prefix = location.toString();
-        String withSlash = prefix.endsWith("/") ? prefix : prefix + "/";
-        store.keySet().removeIf(k -> k.equals(prefix) || k.startsWith(withSlash));
-    }
-
-    @Override
-    public void createDirectory(Location location) {
+    public void mkdirs(Location location) throws IOException {
         store.putIfAbsent(location.toString() + "/", new byte[0]);
     }
 
     @Override
-    public void renameDirectory(Location source, Location target) throws IOException {
-        String srcPrefix = source.toString();
-        String dstPrefix = target.toString();
-        Map<String, byte[]> toMove = store.entrySet().stream()
-                .filter(e -> e.getKey().startsWith(srcPrefix))
-                .collect(Collectors.toMap(
-                        e -> dstPrefix + e.getKey().substring(srcPrefix.length()),
-                        Map.Entry::getValue));
-        if (toMove.isEmpty()) {
-            throw new IOException("Source directory not found: " + source);
-        }
-        store.keySet().removeIf(k -> k.startsWith(srcPrefix));
-        store.putAll(toMove);
-    }
-
-    @Override
-    public FileIterator listFiles(Location location, boolean recursive) {
+    public FileIterator list(Location location) throws IOException {
         String prefix = location.toString();
         String withSlash = prefix.endsWith("/") ? prefix : prefix + "/";
         List<FileEntry> entries = store.keySet().stream()
                 .filter(k -> k.startsWith(withSlash) && !k.equals(withSlash))
                 .filter(k -> {
-                    if (recursive) {
-                        return true;
-                    }
+                    // Only direct children: no extra '/' beyond the prefix
                     String relative = k.substring(withSlash.length());
                     return !relative.contains("/") || relative.endsWith("/");
                 })
                 .map(k -> {
                     Location loc = Location.of(k);
                     byte[] data = store.get(k);
-                    return FileEntry.builder(loc)
-                            .directory(k.endsWith("/"))
-                            .length(data == null ? 0 : data.length)
-                            .build();
+                    return new FileEntry(loc, data == null ? 0L : data.length,
+                            k.endsWith("/"), 0L, null);
                 })
                 .collect(Collectors.toList());
-        return FileIterator.ofList(entries);
+        return iteratorOf(entries);
     }
 
+    /**
+     * Overrides the SPI default to support MemoryFileSystem's implicit directory model:
+     * directories are not stored as explicit entries, so the SPI default (which relies on
+     * list() returning directory FileEntry objects) would return empty results.
+     */
     @Override
-    public Set<Location> listDirectories(Location location) {
+    public List<FileEntry> listFilesRecursive(Location dir) throws IOException {
+        String prefix = dir.toString();
+        String withSlash = prefix.endsWith("/") ? prefix : prefix + "/";
+        List<FileEntry> result = new ArrayList<>();
+        for (Map.Entry<String, byte[]> entry : store.entrySet()) {
+            String k = entry.getKey();
+            if (k.startsWith(withSlash) && !k.equals(withSlash) && !k.endsWith("/")) {
+                result.add(new FileEntry(Location.of(k),
+                        entry.getValue() == null ? 0L : entry.getValue().length,
+                        false, 0L, null));
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Overrides the SPI default to support MemoryFileSystem's implicit directory model:
+     * directories are inferred from stored file paths rather than being explicit entries.
+     */
+    @Override
+    public Set<String> listDirectories(Location location) throws IOException {
         String prefix = location.toString();
         String withSlash = prefix.endsWith("/") ? prefix : prefix + "/";
-        Set<Location> dirs = new HashSet<>();
+        Set<String> dirs = new HashSet<>();
         for (String key : store.keySet()) {
             if (!key.startsWith(withSlash)) {
                 continue;
@@ -152,7 +173,7 @@ public class MemoryFileSystem implements FileSystem {
             String relative = key.substring(withSlash.length());
             int slash = relative.indexOf('/');
             if (slash >= 0) {
-                dirs.add(Location.of(withSlash + relative.substring(0, slash + 1)));
+                dirs.add(withSlash + relative.substring(0, slash + 1));
             }
         }
         return Collections.unmodifiableSet(dirs);
@@ -171,6 +192,29 @@ public class MemoryFileSystem implements FileSystem {
     /** Reads raw bytes from this filesystem (test helper). */
     public byte[] get(Location location) {
         return store.get(location.toString());
+    }
+
+    private static FileIterator iteratorOf(List<FileEntry> entries) {
+        return new FileIterator() {
+            private int index = 0;
+
+            @Override
+            public boolean hasNext() {
+                return index < entries.size();
+            }
+
+            @Override
+            public FileEntry next() throws IOException {
+                if (!hasNext()) {
+                    throw new NoSuchElementException();
+                }
+                return entries.get(index++);
+            }
+
+            @Override
+            public void close() {
+            }
+        };
     }
 
     private class MemoryInputFile implements DorisInputFile {
@@ -210,11 +254,6 @@ public class MemoryFileSystem implements FileSystem {
         }
 
         @Override
-        public DorisInput newInput() throws IOException {
-            throw new UnsupportedOperationException("Use newStream() for MemoryFileSystem");
-        }
-
-        @Override
         public DorisInputStream newStream() throws IOException {
             byte[] data = store.get(location.toString());
             if (data == null) {
@@ -235,7 +274,7 @@ public class MemoryFileSystem implements FileSystem {
         }
 
         @Override
-        public long getPosition() throws IOException {
+        public long getPos() throws IOException {
             return position;
         }
 

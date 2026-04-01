@@ -23,8 +23,8 @@ import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.FileSystemTransferUtil;
 import org.apache.doris.filesystem.spi.Location;
-import org.apache.doris.fs.FileSystemTransferUtil;
 
 import lombok.EqualsAndHashCode;
 import lombok.Getter;

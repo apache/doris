@@ -23,6 +23,8 @@ package org.apache.doris.fs;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.FileSystemIOException;
+import org.apache.doris.filesystem.spi.RemoteIterator;
 
 public interface DirectoryLister {
     RemoteIterator<FileEntry> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)

@@ -18,7 +18,6 @@
 package org.apache.doris.datasource.hive;
 
 import org.apache.doris.analysis.PartitionValue;
-import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
@@ -48,11 +47,11 @@ import org.apache.doris.datasource.metacache.MetaCacheEntryDef;
 import org.apache.doris.filesystem.spi.BlockInfo;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.FileSystemIOException;
+import org.apache.doris.filesystem.spi.RemoteIterator;
 import org.apache.doris.fs.DirectoryLister;
 import org.apache.doris.fs.FileSystemCache;
 import org.apache.doris.fs.FileSystemDirectoryLister;
-import org.apache.doris.fs.FileSystemIOException;
-import org.apache.doris.fs.RemoteIterator;
 import org.apache.doris.nereids.rules.expression.rules.SortedPartitionRanges;
 import org.apache.doris.planner.ListPartitionPrunerV2;
 
@@ -411,15 +410,7 @@ public class HiveExternalMetaCache extends AbstractExternalMetaCache {
                 result.addFile(entry, locationPath);
             }
         } catch (FileSystemIOException e) {
-            if (e.getErrorCode().isPresent() && e.getErrorCode().get().equals(ErrCode.NOT_FOUND)) {
-                LOG.warn("File {} not exist.", path.getNormalizedLocation());
-                if (!Boolean.valueOf(catalog.getProperties()
-                        .getOrDefault("hive.ignore_absent_partitions", "true"))) {
-                    throw new UserException("Partition location does not exist: " + path.getNormalizedLocation());
-                }
-            } else {
-                throw new RuntimeException(e);
-            }
+            throw new RuntimeException(e);
         }
 
         result.setPartitionValues(Lists.newArrayList(partitionValues));

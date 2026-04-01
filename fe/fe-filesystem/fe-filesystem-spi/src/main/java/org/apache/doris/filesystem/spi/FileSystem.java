@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.spi;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -34,6 +35,17 @@ public interface FileSystem extends AutoCloseable {
     void mkdirs(Location location) throws IOException;
 
     void delete(Location location, boolean recursive) throws IOException;
+
+    /**
+     * Deletes multiple files. The default implementation calls
+     * {@link #delete(Location, boolean)} with {@code recursive=false} for each location.
+     * Implementations may override for batch efficiency.
+     */
+    default void deleteFiles(Collection<Location> locations) throws IOException {
+        for (Location location : locations) {
+            delete(location, false);
+        }
+    }
 
     void rename(Location src, Location dst) throws IOException;
 

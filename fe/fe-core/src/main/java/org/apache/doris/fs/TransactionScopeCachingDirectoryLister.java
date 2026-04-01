@@ -22,6 +22,9 @@ package org.apache.doris.fs;
 
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileSystemIOException;
+import org.apache.doris.filesystem.spi.RemoteIterator;
+import org.apache.doris.filesystem.spi.SimpleRemoteIterator;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;

@@ -59,4 +59,20 @@ public final class FileEntry {
     public List<BlockInfo> blocks() {
         return blocks;
     }
+
+    public boolean isFile() {
+        return !isDirectory;
+    }
+
+    /**
+     * Returns the last path component of this entry's location (file or directory name).
+     * For directory entries whose URI ends with '/', the trailing slash is stripped before
+     * extracting the name.
+     */
+    public String name() {
+        String uri = location.uri();
+        int end = uri.endsWith("/") ? uri.length() - 1 : uri.length();
+        int start = uri.lastIndexOf('/', end - 1);
+        return uri.substring(start + 1, end);
+    }
 }

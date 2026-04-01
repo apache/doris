@@ -15,34 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.obj;
+package org.apache.doris.filesystem.spi;
 
-import lombok.Getter;
+import java.io.IOException;
 
-/**
- * Immutable descriptor of a single object in an object storage.
- * Replaces {@code org.apache.doris.cloud.storage.ObjectFile}.
- */
-public class ObjectFile {
-    @Getter
-    private final String key;
-    @Getter
-    private final String relativePath;
-    @Getter
-    private final String etag;
-    @Getter
-    private final long size;
+public class FileSystemIOException extends IOException {
 
-    public ObjectFile(String key, String relativePath, String etag, long size) {
-        this.key = key;
-        this.relativePath = relativePath;
-        this.etag = etag;
-        this.size = size;
+    public FileSystemIOException(String message) {
+        super(message);
     }
 
-    @Override
-    public String toString() {
-        return "ObjectFile{key='" + key + "', relativePath='" + relativePath
-                + "', etag='" + etag + "', size=" + size + '}';
+    public FileSystemIOException(String message, Throwable cause) {
+        super(message, cause);
     }
 }

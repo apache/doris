@@ -14,19 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-
-
-package org.apache.doris.fs;
-
-import org.apache.doris.filesystem.spi.FileEntry;
-
-import java.util.Iterator;
-import java.util.Objects;
 // This file is copied from
 // https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/SimpleRemoteIterator.java
 // and modified by Doris
 
-class SimpleRemoteIterator implements RemoteIterator<FileEntry> {
+package org.apache.doris.filesystem.spi;
+
+import java.util.Iterator;
+import java.util.Objects;
+
+public class SimpleRemoteIterator implements RemoteIterator<FileEntry> {
     private final Iterator<FileEntry> iterator;
 
     public SimpleRemoteIterator(Iterator<FileEntry> iterator) {
