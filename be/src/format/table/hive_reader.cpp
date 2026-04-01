@@ -27,17 +27,17 @@
 
 namespace doris {
 
-Status HiveOrcReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    // Call parent to run _prepare_fill_columns (partition extraction) and classify UNSET→REGULAR
-    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
-            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
-            col_name_to_block_idx));
+Status HiveOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    for (auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            ctx->column_names.push_back(desc.name);
+        }
+    }
 
     // Get file type (available because _create_file_reader() runs before this hook)
     const orc::Type* orc_type_ptr = nullptr;
@@ -46,46 +46,46 @@ Status HiveOrcReader::on_before_init_reader(
 
     // Build table_info_node based on config
     if (get_state()->query_options().hive_orc_use_column_names && !is_hive_col_name) {
-        RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(get_tuple_descriptor(), orc_type_ptr,
-                                                        table_info_node, _is_file_slot));
+        RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(ctx->tuple_descriptor, orc_type_ptr,
+                                                        ctx->table_info_node, _is_file_slot));
     } else {
-        table_info_node = std::make_shared<StructNode>();
+        ctx->table_info_node = std::make_shared<StructNode>();
         std::map<std::string, const SlotDescriptor*> slot_map;
-        for (const auto& slot : get_tuple_descriptor()->slots()) {
+        for (const auto& slot : ctx->tuple_descriptor->slots()) {
             slot_map.emplace(slot->col_name_lower_case(), slot);
         }
 
         for (size_t idx = 0; idx < get_scan_params().column_idxs.size(); idx++) {
-            auto table_column_name = column_names[idx];
+            auto table_column_name = ctx->column_names[idx];
             auto file_index = get_scan_params().column_idxs[idx];
 
             if (file_index >= orc_type_ptr->getSubtypeCount()) {
-                table_info_node->add_not_exist_children(table_column_name);
+                ctx->table_info_node->add_not_exist_children(table_column_name);
             } else {
                 auto field_node = std::make_shared<Node>();
                 RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(
                         slot_map[table_column_name]->type(), orc_type_ptr->getSubtype(file_index),
                         field_node));
-                table_info_node->add_children(table_column_name,
-                                              orc_type_ptr->getFieldName(file_index), field_node);
+                ctx->table_info_node->add_children(
+                        table_column_name, orc_type_ptr->getFieldName(file_index), field_node);
             }
             slot_map.erase(table_column_name);
         }
         for (const auto& [partition_col_name, _] : slot_map) {
-            table_info_node->add_not_exist_children(partition_col_name);
+            ctx->table_info_node->add_not_exist_children(partition_col_name);
         }
     }
 
     // Compute column_ids
     auto column_id_result = ColumnIdResult();
     if (get_state()->query_options().hive_orc_use_column_names && !is_hive_col_name) {
-        column_id_result = _create_column_ids(orc_type_ptr, get_tuple_descriptor());
+        column_id_result = _create_column_ids(orc_type_ptr, ctx->tuple_descriptor);
     } else {
         column_id_result =
-                _create_column_ids_by_top_level_col_index(orc_type_ptr, get_tuple_descriptor());
+                _create_column_ids_by_top_level_col_index(orc_type_ptr, ctx->tuple_descriptor);
     }
-    column_ids = std::move(column_id_result.column_ids);
-    filter_column_ids = std::move(column_id_result.filter_column_ids);
+    ctx->column_ids = std::move(column_id_result.column_ids);
+    ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
     // _is_acid is false by default, no need to set explicitly
     return Status::OK();
@@ -204,17 +204,17 @@ ColumnIdResult HiveOrcReader::_create_column_ids_by_top_level_col_index(
     return ColumnIdResult(std::move(column_ids), std::move(filter_column_ids));
 }
 
-Status HiveParquetReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    // Call parent to run _prepare_fill_columns (partition extraction) and classify UNSET→REGULAR
-    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
-            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
-            col_name_to_block_idx));
+Status HiveParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    for (auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            ctx->column_names.push_back(desc.name);
+        }
+    }
 
     // Get file metadata schema (available because _open_file() runs before this hook)
     const FieldDescriptor* field_desc = nullptr;
@@ -223,47 +223,46 @@ Status HiveParquetReader::on_before_init_reader(
 
     // Build table_info_node based on config
     if (get_state()->query_options().hive_parquet_use_column_names) {
-        RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(get_tuple_descriptor(), *field_desc,
-                                                            table_info_node, _is_file_slot));
+        RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(ctx->tuple_descriptor, *field_desc,
+                                                            ctx->table_info_node, _is_file_slot));
     } else {
-        table_info_node = std::make_shared<StructNode>();
+        ctx->table_info_node = std::make_shared<StructNode>();
         std::map<std::string, const SlotDescriptor*> slot_map;
-        for (const auto& slot : get_tuple_descriptor()->slots()) {
+        for (const auto& slot : ctx->tuple_descriptor->slots()) {
             slot_map.emplace(slot->col_name_lower_case(), slot);
         }
 
         auto parquet_fields_schema = field_desc->get_fields_schema();
         for (size_t idx = 0; idx < get_scan_params().column_idxs.size(); idx++) {
-            auto table_column_name = column_names[idx];
+            auto table_column_name = ctx->column_names[idx];
             auto file_index = get_scan_params().column_idxs[idx];
 
             if (file_index >= parquet_fields_schema.size()) {
-                table_info_node->add_not_exist_children(table_column_name);
+                ctx->table_info_node->add_not_exist_children(table_column_name);
             } else {
                 auto field_node = std::make_shared<Node>();
                 RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(
                         slot_map[table_column_name]->type(), parquet_fields_schema[file_index],
                         field_node));
-                table_info_node->add_children(table_column_name,
+                ctx->table_info_node->add_children(table_column_name,
                                               parquet_fields_schema[file_index].name, field_node);
             }
             slot_map.erase(table_column_name);
         }
         for (const auto& [partition_col_name, _] : slot_map) {
-            table_info_node->add_not_exist_children(partition_col_name);
+            ctx->table_info_node->add_not_exist_children(partition_col_name);
         }
     }
 
     // Compute column_ids for lazy materialization
     auto column_id_result = ColumnIdResult();
     if (get_state()->query_options().hive_parquet_use_column_names) {
-        column_id_result = _create_column_ids(field_desc, get_tuple_descriptor());
+        column_id_result = _create_column_ids(field_desc, ctx->tuple_descriptor);
     } else {
-        column_id_result =
-                _create_column_ids_by_top_level_col_index(field_desc, get_tuple_descriptor());
+        column_id_result = _create_column_ids_by_top_level_col_index(field_desc, ctx->tuple_descriptor);
     }
-    column_ids = std::move(column_id_result.column_ids);
-    filter_column_ids = std::move(column_id_result.filter_column_ids);
+    ctx->column_ids = std::move(column_id_result.column_ids);
+    ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
     _filter_groups = true;
     return Status::OK();

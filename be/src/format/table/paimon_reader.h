@@ -46,18 +46,9 @@ public:
     ~PaimonOrcReader() final = default;
 
 protected:
-    Status on_before_init_reader(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
-    Status on_after_init_reader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                                const TupleDescriptor* tuple_descriptor,
-                                const RowDescriptor* row_descriptor, RuntimeState* state) override;
+    Status on_after_init_reader(ReaderInitContext* /*ctx*/) override;
 
 private:
     void _init_paimon_profile();
@@ -90,18 +81,9 @@ public:
     ~PaimonParquetReader() final = default;
 
 protected:
-    Status on_before_init_reader(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
-    Status on_after_init_reader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                                const TupleDescriptor* tuple_descriptor,
-                                const RowDescriptor* row_descriptor, RuntimeState* state) override;
+    Status on_after_init_reader(ReaderInitContext* /*ctx*/) override;
 
 private:
     void _init_paimon_profile();

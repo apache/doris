@@ -54,22 +54,23 @@ TransactionalHiveReader::TransactionalHiveReader(RuntimeProfile* profile, Runtim
 // ============================================================================
 // on_before_init_reader: ACID schema mapping
 // ============================================================================
-Status TransactionalHiveReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& /*column_ids*/, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    // Set essential fields and prepare partition values using common hook.
-    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
-            column_descs, _col_names, params, range, tuple_descriptor, row_descriptor, state,
-            col_name_to_block_idx));
+Status TransactionalHiveReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    for (auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            _col_names.push_back(desc.name);
+        }
+    }
+
     _is_acid = true;
     // Add ACID column names (originalTransaction, bucket, rowId, etc.)
     _col_names.insert(_col_names.end(), TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
                       TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.end());
-    column_names = _col_names;
+    ctx->column_names = _col_names;
 
     // Get ORC file type
     const orc::Type* orc_type_ptr = nullptr;
@@ -94,7 +95,7 @@ Status TransactionalHiveReader::on_before_init_reader(
     }
 
     // Match table columns to file columns by name
-    for (const auto& slot : get_tuple_descriptor()->slots()) {
+    for (const auto& slot : ctx->tuple_descriptor->slots()) {
         const auto& slot_name = slot->col_name();
 
         if (std::count(TransactionalHive::READ_ROW_COLUMN_NAMES_LOWER_CASE.begin(),
@@ -114,18 +115,14 @@ Status TransactionalHiveReader::on_before_init_reader(
             table_info_node_ptr->add_not_exist_children(slot_name);
         }
     }
-    table_info_node = table_info_node_ptr;
+    ctx->table_info_node = table_info_node_ptr;
     return Status::OK();
 }
 
 // ============================================================================
 // on_after_init_reader: read delete delta files
 // ============================================================================
-Status TransactionalHiveReader::on_after_init_reader(const TFileScanRangeParams& params,
-                                                     const TFileRangeDesc& range,
-                                                     const TupleDescriptor* tuple_descriptor,
-                                                     const RowDescriptor* row_descriptor,
-                                                     RuntimeState* state) {
+Status TransactionalHiveReader::on_after_init_reader(ReaderInitContext* /*ctx*/) {
     std::string data_file_path = get_scan_range().path;
     // the path in _range has the namenode prefix removed,
     // and the file_path in delete file is full path, so we should add it back.

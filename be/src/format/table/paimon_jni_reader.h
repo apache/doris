@@ -57,6 +57,9 @@ public:
 
     Status init_reader();
 
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
+
 private:
     int64_t _remaining_table_level_row_count;
 };

@@ -62,6 +62,9 @@ public:
         _col_name_to_block_idx = col_name_to_block_idx;
     }
 
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
+
 private:
     arrow::Status init_stream();
     const TFileRangeDesc& _range;

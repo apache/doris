@@ -40,37 +40,27 @@ void PaimonOrcReader::_init_paimon_profile() {
             ADD_CHILD_TIMER(get_profile(), "ParseDeletionVectorTime", paimon_profile);
 }
 
-Status PaimonOrcReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& /*column_ids*/, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    _column_descs = &column_descs;
-    _fill_col_name_to_block_idx = col_name_to_block_idx;
+Status PaimonOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
     const orc::Type* orc_type_ptr = nullptr;
     RETURN_IF_ERROR(get_file_type(&orc_type_ptr));
 
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
             get_scan_params(), get_scan_range().table_format_params.paimon_params.schema_id,
             get_tuple_descriptor(), orc_type_ptr));
-    table_info_node = table_info_node_ptr;
+    ctx->table_info_node = table_info_node_ptr;
 
-    for (const auto& desc : column_descs) {
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
-            column_names.push_back(desc.name);
+            ctx->column_names.push_back(desc.name);
         }
     }
     return Status::OK();
 }
 
-Status PaimonOrcReader::on_after_init_reader(const TFileScanRangeParams& params,
-                                             const TFileRangeDesc& range,
-                                             const TupleDescriptor* tuple_descriptor,
-                                             const RowDescriptor* row_descriptor,
-                                             RuntimeState* state) {
+Status PaimonOrcReader::on_after_init_reader(ReaderInitContext* /*ctx*/) {
     return _init_deletion_vector();
 }
 
@@ -184,15 +174,9 @@ void PaimonParquetReader::_init_paimon_profile() {
             ADD_CHILD_TIMER(get_profile(), "ParseDeletionVectorTime", paimon_profile);
 }
 
-Status PaimonParquetReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& /*column_ids*/, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    _column_descs = &column_descs;
-    _fill_col_name_to_block_idx = col_name_to_block_idx;
+Status PaimonParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
     const FieldDescriptor* field_desc = nullptr;
     RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
     DCHECK(field_desc != nullptr);
@@ -200,22 +184,18 @@ Status PaimonParquetReader::on_before_init_reader(
     RETURN_IF_ERROR(gen_table_info_node_by_field_id(
             get_scan_params(), get_scan_range().table_format_params.paimon_params.schema_id,
             get_tuple_descriptor(), *field_desc));
-    table_info_node = table_info_node_ptr;
+    ctx->table_info_node = table_info_node_ptr;
 
-    for (const auto& desc : column_descs) {
+    for (const auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
-            column_names.push_back(desc.name);
+            ctx->column_names.push_back(desc.name);
         }
     }
     return Status::OK();
 }
 
-Status PaimonParquetReader::on_after_init_reader(const TFileScanRangeParams& params,
-                                                 const TFileRangeDesc& range,
-                                                 const TupleDescriptor* tuple_descriptor,
-                                                 const RowDescriptor* row_descriptor,
-                                                 RuntimeState* state) {
+Status PaimonParquetReader::on_after_init_reader(ReaderInitContext* /*ctx*/) {
     return _init_deletion_vector();
 }
 

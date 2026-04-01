@@ -39,6 +39,21 @@ Status WalReader::init_reader(const TupleDescriptor* tuple_descriptor) {
     return Status::OK();
 }
 
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
+
+Status WalReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
+    RETURN_IF_ERROR(_state->exec_env()->wal_mgr()->get_wal_path(_wal_id, _wal_path));
+    _wal_reader = std::make_shared<doris::WalFileReader>(_wal_path);
+    RETURN_IF_ERROR(_wal_reader->init());
+    return Status::OK();
+}
+
+Status WalReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<WalInitContext>(base_ctx);
+    _tuple_descriptor = ctx->output_tuple_descriptor;
+    return Status::OK();
+}
+
 Status WalReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     //read src block
     PBlock pblock;

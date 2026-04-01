@@ -71,6 +71,7 @@ public:
 
 protected:
     void _collect_profile_before_close() override {}
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
 
 private:
     RuntimeProfile* _profile = nullptr;

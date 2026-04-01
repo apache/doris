@@ -68,6 +68,19 @@ struct RowLineageColumns;
 } // namespace doris
 
 namespace doris {
+#include "common/compile_check_begin.h"
+
+/// Parquet-specific initialization context.
+/// Extends ReaderInitContext with predicate pushdown fields.
+struct ParquetInitContext final : public ReaderInitContext {
+    const VExprContextSPtrs* conjuncts = nullptr;
+    phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>*
+            slot_id_to_predicates = nullptr;
+    const std::unordered_map<std::string, int>* colname_to_slot_id = nullptr;
+    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
+    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
+};
+
 class ParquetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(ParquetReader);
 
@@ -125,26 +138,7 @@ public:
     // Override to build table_info_node from Parquet file metadata using by_parquet_name.
     // Subclasses (HiveParquetReader, etc.) call GenericReader::on_before_init_reader directly,
     // so this override only applies to plain ParquetReader (TVF, load).
-    Status on_before_init_reader(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
-
-    // Template method: calls on_before_init_reader → _do_init_reader → on_after_init_reader
-    Status init_reader(
-            std::vector<ColumnDescriptor>& column_descs,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts,
-            phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                    slot_id_to_predicates,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            const std::unordered_map<std::string, int>* colname_to_slot_id,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
     // Low-level init_reader — used by standalone reader instances (tvf, load, push_handler,
     // Iceberg delete file readers) that don't go through subclass hooks.
@@ -163,6 +157,12 @@ public:
             const std::set<uint64_t>& column_ids = {},
             const std::set<uint64_t>& filter_column_ids = {});
 
+protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
+
+public:
     // Template method: calls on_before_read_block → _do_get_next_block → on_after_read_block
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 
@@ -442,5 +442,6 @@ private:
     std::vector<std::unique_ptr<MutilColumnBlockPredicate>> _push_down_predicates;
     Arena _arena;
 };
+#include "common/compile_check_end.h"
 
 } // namespace doris

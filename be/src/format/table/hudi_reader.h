@@ -38,14 +38,7 @@ public:
     ~HudiParquetReader() final = default;
 
 protected:
-    Status on_before_init_reader(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 };
 
 // HudiOrcReader: directly inherits OrcReader (no composition wrapping).
@@ -61,14 +54,7 @@ public:
     ~HudiOrcReader() final = default;
 
 protected:
-    Status on_before_init_reader(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 };
 
 #include "common/compile_check_end.h"

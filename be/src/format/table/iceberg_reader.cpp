@@ -128,15 +128,9 @@ bool IcebergTableReader::_is_fully_dictionary_encoded(
 // ============================================================================
 // IcebergParquetReader: on_before_init_reader (Parquet-specific schema matching)
 // ============================================================================
-Status IcebergParquetReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    _column_descs = &column_descs;
-    _fill_col_name_to_block_idx = col_name_to_block_idx;
+Status IcebergParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
     _file_format = Fileformat::PARQUET;
 
     // Get file metadata schema first (available because _open_file() already ran)
@@ -149,28 +143,28 @@ Status IcebergParquetReader::on_before_init_reader(
     // to check if a column exists in the file (by field ID, not name).
     if (!get_scan_params().__isset.history_schema_info ||
         get_scan_params().history_schema_info.empty()) [[unlikely]] {
-        RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(get_tuple_descriptor(), *field_desc,
-                                                            table_info_node));
+        RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(ctx->tuple_descriptor, *field_desc,
+                                                            ctx->table_info_node));
     } else {
         bool exist_field_id = true;
         RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_field_id(
                 get_scan_params().history_schema_info.front().root_field, *field_desc,
-                table_info_node, exist_field_id));
+                ctx->table_info_node, exist_field_id));
         if (!exist_field_id) {
-            RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(get_tuple_descriptor(), *field_desc,
-                                                                table_info_node));
+            RETURN_IF_ERROR(BuildTableInfoUtil::by_parquet_name(ctx->tuple_descriptor, *field_desc,
+                                                                ctx->table_info_node));
         }
     }
 
     std::unordered_set<std::string> partition_col_names;
-    if (range.__isset.columns_from_path_keys) {
-        partition_col_names.insert(range.columns_from_path_keys.begin(),
-                                   range.columns_from_path_keys.end());
+    if (ctx->range->__isset.columns_from_path_keys) {
+        partition_col_names.insert(ctx->range->columns_from_path_keys.begin(),
+                                   ctx->range->columns_from_path_keys.end());
     }
 
     // Single pass: classify columns, detect $row_id, handle partition fallback.
     bool has_partition_from_path = false;
-    for (auto& desc : column_descs) {
+    for (auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::SYNTHESIZED &&
             desc.name == BeConsts::ICEBERG_ROWID_COL) {
             _need_row_id_column = true;
@@ -184,34 +178,35 @@ Status IcebergParquetReader::on_before_init_reader(
             // Partition fallback: if column is a partition key and NOT in the file
             // (checked via field ID matching in table_info_node), read from path instead.
             if (partition_col_names.contains(desc.name) &&
-                !table_info_node->children_column_exists(desc.name)) {
+                !ctx->table_info_node->children_column_exists(desc.name)) {
                 if (config::enable_iceberg_partition_column_fallback) {
                     desc.category = ColumnCategory::PARTITION_KEY;
                     has_partition_from_path = true;
                     continue;
                 }
             }
-            column_names.push_back(desc.name);
+            ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
-            column_names.push_back(desc.name);
+            ctx->column_names.push_back(desc.name);
         }
     }
 
     // Set up partition value extraction if any partition columns need filling from path
     if (has_partition_from_path) {
-        RETURN_IF_ERROR(_extract_partition_values(range, tuple_descriptor, _fill_partition_values));
+        RETURN_IF_ERROR(
+                _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
     }
 
-    _all_required_col_names = column_names;
+    _all_required_col_names = ctx->column_names;
 
     // Create column IDs from field descriptor
-    auto column_id_result = _create_column_ids(field_desc, get_tuple_descriptor());
-    column_ids = std::move(column_id_result.column_ids);
-    filter_column_ids = std::move(column_id_result.filter_column_ids);
+    auto column_id_result = _create_column_ids(field_desc, ctx->tuple_descriptor);
+    ctx->column_ids = std::move(column_id_result.column_ids);
+    ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
     // Build field_id -> block_column_name mapping for equality delete filtering.
     // This was previously done in init_reader() column matching (pre-CRTP refactoring).
-    for (const auto* slot : get_tuple_descriptor()->slots()) {
+    for (const auto* slot : ctx->tuple_descriptor->slots()) {
         _id_to_block_column_name.emplace(slot->col_unique_id(), slot->col_name());
     }
 
@@ -270,15 +265,15 @@ Status IcebergParquetReader::on_before_init_reader(
             for (int j = 0; j < field_desc->size(); ++j) {
                 auto field_schema = field_desc->get_column(j);
                 if (field_schema && field_schema->field_id == field_id) {
-                    column_ids.insert(field_schema->get_column_id());
+                    ctx->column_ids.insert(field_schema->get_column_id());
                     break;
                 }
             }
         }
 
         // Register in table_info_node: table_col_name → file_col_name
-        column_names.push_back(table_col_name);
-        table_info_node->add_children(table_col_name, file_col_name,
+        ctx->column_names.push_back(table_col_name);
+        ctx->table_info_node->add_children(table_col_name, file_col_name,
                                       TableSchemaChangeHelper::ConstNode::get_instance());
     }
     _expand_col_names = std::move(new_expand_col_names);
@@ -406,15 +401,9 @@ Status IcebergParquetReader::_read_position_delete_file(const TFileRangeDesc* de
 // ============================================================================
 // IcebergOrcReader: on_before_init_reader (ORC-specific schema matching)
 // ============================================================================
-Status IcebergOrcReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    _column_descs = &column_descs;
-    _fill_col_name_to_block_idx = col_name_to_block_idx;
+Status IcebergOrcReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
     _file_format = Fileformat::ORC;
 
     // Get ORC file type first (available because _create_file_reader() already ran)
@@ -426,28 +415,28 @@ Status IcebergOrcReader::on_before_init_reader(
     // to check if a column exists in the file (by field ID, not name).
     if (!get_scan_params().__isset.history_schema_info ||
         get_scan_params().history_schema_info.empty()) [[unlikely]] {
-        RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(get_tuple_descriptor(), orc_type_ptr,
-                                                        table_info_node));
+        RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(ctx->tuple_descriptor, orc_type_ptr,
+                                                        ctx->table_info_node));
     } else {
         bool exist_field_id = true;
         RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_field_id(
                 get_scan_params().history_schema_info.front().root_field, orc_type_ptr,
-                ICEBERG_ORC_ATTRIBUTE, table_info_node, exist_field_id));
+                ICEBERG_ORC_ATTRIBUTE, ctx->table_info_node, exist_field_id));
         if (!exist_field_id) {
-            RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(get_tuple_descriptor(), orc_type_ptr,
-                                                            table_info_node));
+            RETURN_IF_ERROR(BuildTableInfoUtil::by_orc_name(ctx->tuple_descriptor, orc_type_ptr,
+                                                            ctx->table_info_node));
         }
     }
 
     std::unordered_set<std::string> partition_col_names;
-    if (range.__isset.columns_from_path_keys) {
-        partition_col_names.insert(range.columns_from_path_keys.begin(),
-                                   range.columns_from_path_keys.end());
+    if (ctx->range->__isset.columns_from_path_keys) {
+        partition_col_names.insert(ctx->range->columns_from_path_keys.begin(),
+                                   ctx->range->columns_from_path_keys.end());
     }
 
     // Single pass: classify columns, detect $row_id, handle partition fallback.
     bool has_partition_from_path = false;
-    for (auto& desc : column_descs) {
+    for (auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::SYNTHESIZED &&
             desc.name == BeConsts::ICEBERG_ROWID_COL) {
             _need_row_id_column = true;
@@ -461,32 +450,33 @@ Status IcebergOrcReader::on_before_init_reader(
             // Partition fallback: if column is a partition key and NOT in the file
             // (checked via field ID matching in table_info_node), read from path instead.
             if (partition_col_names.contains(desc.name) &&
-                !table_info_node->children_column_exists(desc.name)) {
+                !ctx->table_info_node->children_column_exists(desc.name)) {
                 if (config::enable_iceberg_partition_column_fallback) {
                     desc.category = ColumnCategory::PARTITION_KEY;
                     has_partition_from_path = true;
                     continue;
                 }
             }
-            column_names.push_back(desc.name);
+            ctx->column_names.push_back(desc.name);
         } else if (desc.category == ColumnCategory::GENERATED) {
-            column_names.push_back(desc.name);
+            ctx->column_names.push_back(desc.name);
         }
     }
 
     if (has_partition_from_path) {
-        RETURN_IF_ERROR(_extract_partition_values(range, tuple_descriptor, _fill_partition_values));
+        RETURN_IF_ERROR(
+                _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
     }
 
-    _all_required_col_names = column_names;
+    _all_required_col_names = ctx->column_names;
 
     // Create column IDs from ORC type
-    auto column_id_result = _create_column_ids(orc_type_ptr, get_tuple_descriptor());
-    column_ids = std::move(column_id_result.column_ids);
-    filter_column_ids = std::move(column_id_result.filter_column_ids);
+    auto column_id_result = _create_column_ids(orc_type_ptr, ctx->tuple_descriptor);
+    ctx->column_ids = std::move(column_id_result.column_ids);
+    ctx->filter_column_ids = std::move(column_id_result.filter_column_ids);
 
     // Build field_id -> block_column_name mapping for equality delete filtering.
-    for (const auto* slot : get_tuple_descriptor()->slots()) {
+    for (const auto* slot : ctx->tuple_descriptor->slots()) {
         _id_to_block_column_name.emplace(slot->col_unique_id(), slot->col_name());
     }
 
@@ -538,14 +528,14 @@ Status IcebergOrcReader::on_before_init_reader(
             for (uint64_t j = 0; j < orc_type_ptr->getSubtypeCount(); ++j) {
                 const orc::Type* sub_type = orc_type_ptr->getSubtype(j);
                 if (orc_type_ptr->getFieldName(j) == file_col_name) {
-                    column_ids.insert(sub_type->getColumnId());
+                    ctx->column_ids.insert(sub_type->getColumnId());
                     break;
                 }
             }
         }
 
-        column_names.push_back(table_col_name);
-        table_info_node->add_children(table_col_name, file_col_name,
+        ctx->column_names.push_back(table_col_name);
+        ctx->table_info_node->add_children(table_col_name, file_col_name,
                                       TableSchemaChangeHelper::ConstNode::get_instance());
     }
     _expand_col_names = std::move(new_expand_col_names);

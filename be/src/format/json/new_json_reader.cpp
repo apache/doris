@@ -196,6 +196,52 @@ Status NewJsonReader::init_reader(
     return Status::OK();
 }
 
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
+
+Status NewJsonReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
+    RETURN_IF_ERROR(_get_range_params());
+    RETURN_IF_ERROR(_open_file_reader(false));
+    return Status::OK();
+}
+
+Status NewJsonReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<JsonInitContext>(base_ctx);
+    _is_load = ctx->is_load;
+
+    RETURN_IF_ERROR(_get_column_default_value(_file_slot_descs, *ctx->col_default_value_ctx));
+    for (auto* slot_desc : _file_slot_descs) {
+        _serdes.emplace_back(slot_desc->get_data_type_ptr()->get_serde());
+    }
+
+    // Create decompressor (needed by line reader below)
+    RETURN_IF_ERROR(Decompressor::create_decompressor(_file_compress_type, &_decompressor));
+
+    if (LIKELY(_read_json_by_line)) {
+        RETURN_IF_ERROR(_open_line_reader());
+    }
+    RETURN_IF_ERROR(_parse_jsonpath_and_json_root());
+
+    if (_parsed_jsonpaths.empty()) {
+        _vhandle_json_callback = &NewJsonReader::_simdjson_handle_simple_json;
+    } else {
+        if (_strip_outer_array) {
+            _vhandle_json_callback = &NewJsonReader::_simdjson_handle_flat_array_complex_json;
+        } else {
+            _vhandle_json_callback = &NewJsonReader::_simdjson_handle_nested_complex_json;
+        }
+    }
+    _ondemand_json_parser = std::make_unique<simdjson::ondemand::parser>();
+    for (int i = 0; i < _file_slot_descs.size(); ++i) {
+        _slot_desc_index[StringRef {_file_slot_descs[i]->col_name()}] = i;
+        if (_file_slot_descs[i]->is_skip_bitmap_col()) {
+            skip_bitmap_col_idx = i;
+        }
+    }
+    _simdjson_ondemand_padding_buffer.resize(_padded_size);
+    _simdjson_ondemand_unscape_padding_buffer.resize(_padded_size);
+    return Status::OK();
+}
+
 Status NewJsonReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_reader_eof) {
         *eof = true;

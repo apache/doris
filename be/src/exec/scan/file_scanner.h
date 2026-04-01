@@ -109,6 +109,9 @@ protected:
 
     Status _get_next_reader();
 
+    // Build a ReaderInitContext with shared fields from FileScanner members.
+    void _fill_base_init_context(ReaderInitContext* ctx);
+
     // TODO: cast input block columns type to string.
     Status _cast_src_block(Block* block) { return Status::OK(); }
 

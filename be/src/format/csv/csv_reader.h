@@ -51,6 +51,11 @@ struct IOContext;
 struct ScannerCounter;
 class Block;
 
+/// CSV/Text-specific initialization context.
+struct CsvInitContext final : public ReaderInitContext {
+    bool is_load = false;
+};
+
 class LineFieldSplitterIf {
 public:
     virtual ~LineFieldSplitterIf() = default;
@@ -191,6 +196,10 @@ public:
     Status close() override;
 
 protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
+
     // init options for type serde
     virtual Status _init_options();
     virtual Status _create_line_reader();

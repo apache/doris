@@ -61,6 +61,40 @@ struct ConditionCacheContext {
     static constexpr int GRANULE_SIZE = 2048;
 };
 
+/// Base context for the unified init_reader(ReaderInitContext*) template method.
+/// Contains fields shared by ALL reader types. Format-specific readers define
+/// subclasses (ParquetInitContext, OrcInitContext, etc.) with extra fields.
+/// FileScanner allocates the appropriate subclass and populates the shared fields
+/// before calling init_reader().
+struct ReaderInitContext {
+    virtual ~ReaderInitContext() = default;
+
+    // ---- Owned by FileScanner, shared by all readers ----
+    std::vector<ColumnDescriptor>* column_descs = nullptr;
+    std::unordered_map<std::string, uint32_t>* col_name_to_block_idx = nullptr;
+    RuntimeState* state = nullptr;
+    const TupleDescriptor* tuple_descriptor = nullptr;
+    const RowDescriptor* row_descriptor = nullptr;
+    const TFileScanRangeParams* params = nullptr;
+    const TFileRangeDesc* range = nullptr;
+    TPushAggOp::type push_down_agg_type = TPushAggOp::type::NONE;
+
+    // ---- Output slots (filled by on_before_init_reader) ----
+    std::vector<std::string> column_names;
+    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node;
+    std::set<uint64_t> column_ids;
+    std::set<uint64_t> filter_column_ids;
+};
+
+/// Safe downcast for ReaderInitContext subclasses.
+/// Uses dynamic_cast + DORIS_CHECK: crashes on type mismatch (per Doris coding standards).
+template <typename To, typename From>
+To* checked_context_cast(From* ptr) {
+    auto* result = dynamic_cast<To*>(ptr);
+    DORIS_CHECK(result != nullptr);
+    return result;
+}
+
 /// Base reader interface for all file readers.
 /// A GenericReader is responsible for reading a file and returning
 /// a set of blocks with specified schema.
@@ -135,17 +169,37 @@ public:
     /// Returns true if on_before_init_reader has already set _column_descs.
     bool has_column_descs() const { return _column_descs != nullptr; }
 
+    /// Unified initialization entry point (NVI pattern).
+    /// Enforces the template method sequence for ALL readers:
+    ///   _open_file_reader → on_before_init_reader → _do_init_reader → on_after_init_reader
+    /// Subclasses implement _open_file_reader and _do_init_reader(ReaderInitContext*).
+    /// FileScanner constructs the appropriate ReaderInitContext subclass and calls this.
+    ///
+    /// NOTE: During migration, readers not yet ported to this API still use their
+    /// format-specific init_reader(...) methods. This method is non-virtual so it
+    /// cannot be accidentally overridden.
+    Status init_reader(ReaderInitContext* ctx) {
+        // Apply push_down_agg_type early so _open_file_reader and _do_init_reader
+        // can use it (e.g., PaimonCppReader skips full init on COUNT pushdown).
+        // on_after_init_reader may reset this (e.g., Iceberg with equality deletes).
+        set_push_down_agg_type(ctx->push_down_agg_type);
+
+        RETURN_IF_ERROR(_open_file_reader(ctx));
+
+        RETURN_IF_ERROR(on_before_init_reader(ctx));
+
+        RETURN_IF_ERROR(_do_init_reader(ctx));
+
+        RETURN_IF_ERROR(on_after_init_reader(ctx));
+
+        return Status::OK();
+    }
+
     /// Hook called before core init. Sets up _column_descs, _fill_col_name_to_block_idx,
     /// partition values, and builds column_names for file reading.
     /// Subclasses override to customize schema mapping.
     /// Also called by FileScanner for simple readers that don't have their own init_reader.
-    virtual Status on_before_init_reader(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx);
+    virtual Status on_before_init_reader(ReaderInitContext* ctx);
 
     /// Get missing columns computed by get_columns().
     const std::unordered_set<std::string>& missing_cols() const { return _fill_missing_cols; }
@@ -281,16 +335,30 @@ public:
     }
 
 protected:
-    // ---- Init-time hooks ----
+    // ---- Init-time hooks (Template Method for init_reader) ----
+
+    /// Opens the file and prepares I/O resources before hooks run. Override in
+    /// subclasses to open files, read metadata, set up decompressors, etc.
+    /// For Parquet/ORC, opens the file and reads footer metadata.
+    /// For CSV/JSON, opens the file, creates decompressors, and sets up line readers.
+    /// Default is no-op (for JNI, Native, Arrow readers).
+    virtual Status _open_file_reader(ReaderInitContext* /*ctx*/) { return Status::OK(); }
+
+    /// Core initialization (format-specific). Subclasses override to perform
+    /// their actual parsing engine setup. The context should be downcast to
+    /// the appropriate subclass using checked_context_cast<T>.
+    /// Default returns NotSupported — readers not yet migrated to the unified
+    /// init_reader(ReaderInitContext*) API still use their old init methods.
+    virtual Status _do_init_reader(ReaderInitContext* /*ctx*/) {
+        return Status::NotSupported(
+                "_do_init_reader(ReaderInitContext*) not yet implemented for this reader");
+    }
+
+    // ---- Existing init-time hooks ----
 
     /// Called after core init completes. Subclasses override to process
     /// delete files, deletion vectors, etc.
-    virtual Status on_after_init_reader(const TFileScanRangeParams& params,
-                                        const TFileRangeDesc& range,
-                                        const TupleDescriptor* tuple_descriptor,
-                                        const RowDescriptor* row_descriptor, RuntimeState* state) {
-        return Status::OK();
-    }
+    virtual Status on_after_init_reader(ReaderInitContext* /*ctx*/) { return Status::OK(); }
 
     // ---- Read-time hooks ----
 
@@ -306,20 +374,12 @@ protected:
         return Status::NotSupported("read_by_rows is not implemented for this reader.");
     }
 
-    /// Phase 1: Prepare partition/missing column data from range/params.
-    /// Stores results in _prepared_partition_col_descs and _prepared_missing_col_descs.
-    /// Call early (before on_before_init_reader) so hooks can access this data.
-    /// Prerequisites: file is opened (get_columns() callable).
-    Status _init_common_reader_states(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx);
-
-    Status _prepare_fill_columns(const std::vector<ColumnDescriptor>& column_descs,
-                                 const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                                 const TupleDescriptor* tuple_descriptor,
-                                 const RowDescriptor* row_descriptor, RuntimeState* state);
+    /// Extracts partition key→value pairs from the file range into partition_values.
+    /// Static utility called by on_before_init_reader implementations.
+    static Status _extract_partition_values(
+            const TFileRangeDesc& range, const TupleDescriptor* tuple_descriptor,
+            std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                    partition_values);
 
     const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
 
@@ -355,7 +415,7 @@ protected:
     // ---- Column descriptors (set by init_reader, owned by FileScanner) ----
     const std::vector<ColumnDescriptor>* _column_descs = nullptr;
 
-    // ---- Fill column data (set by _prepare_fill_columns / set_fill_column_data) ----
+    // ---- Fill column data (set by _extract_partition_values / set_fill_column_data) ----
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             _fill_partition_values;
     std::unordered_map<std::string, VExprContextSPtr> _fill_missing_defaults;

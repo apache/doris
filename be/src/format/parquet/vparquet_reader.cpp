@@ -393,67 +393,40 @@ void ParquetReader::_init_file_description() {
     }
 }
 
-Status ParquetReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
-            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
-            col_name_to_block_idx));
+Status ParquetReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    for (auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            ctx->column_names.push_back(desc.name);
+        }
+    }
 
     // Build table_info_node from Parquet file metadata with case-insensitive recursive matching.
     // File is already opened by init_reader before this hook, so metadata is available.
     const FieldDescriptor* field_desc = nullptr;
     RETURN_IF_ERROR(get_file_metadata_schema(&field_desc));
     RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_parquet_name(
-            tuple_descriptor, *field_desc, table_info_node));
+            ctx->tuple_descriptor, *field_desc, ctx->table_info_node));
     return Status::OK();
 }
 
-Status ParquetReader::init_reader(
-        std::vector<ColumnDescriptor>& column_descs,
-        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const VExprContextSPtrs& conjuncts,
-        phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        const std::unordered_map<std::string, int>* colname_to_slot_id,
-        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-    // Store essential params early so hooks can access them
-    _tuple_descriptor = tuple_descriptor;
-    _row_descriptor = row_descriptor;
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
 
-    // Open file first so hooks can access file metadata
-    RETURN_IF_ERROR(_open_file());
+Status ParquetReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
+    return _open_file();
+}
 
-    // Hook: let subclasses customize column selection and schema mapping
-    // Base implementation also calls _prepare_fill_columns.
-    std::vector<std::string> column_names;
-    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node =
-            TableSchemaChangeHelper::ConstNode::get_instance();
-    std::set<uint64_t> column_ids;
-    std::set<uint64_t> filter_column_ids;
-
-    RETURN_IF_ERROR(on_before_init_reader(column_descs, column_names, table_info_node, column_ids,
-                                          filter_column_ids, _scan_params, _scan_range,
-                                          _tuple_descriptor, _row_descriptor, _state,
-                                          col_name_to_block_idx));
-
-    // Core init
-    RETURN_IF_ERROR(_do_init_reader(
-            column_names, col_name_to_block_idx, conjuncts, slot_id_to_predicates, tuple_descriptor,
-            row_descriptor, colname_to_slot_id, not_single_slot_filter_conjuncts,
-            slot_id_to_filter_conjuncts, table_info_node, column_ids, filter_column_ids));
-
-    // Hook: let subclasses do post-init work (e.g. read delete files)
-    RETURN_IF_ERROR(on_after_init_reader(_scan_params, _scan_range, _tuple_descriptor,
-                                         _row_descriptor, _state));
-
-    return Status::OK();
+Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<ParquetInitContext>(base_ctx);
+    return _do_init_reader(base_ctx->column_names, base_ctx->col_name_to_block_idx, *ctx->conjuncts,
+                           *ctx->slot_id_to_predicates, ctx->tuple_descriptor, ctx->row_descriptor,
+                           ctx->colname_to_slot_id, ctx->not_single_slot_filter_conjuncts,
+                           ctx->slot_id_to_filter_conjuncts, base_ctx->table_info_node,
+                           base_ctx->column_ids, base_ctx->filter_column_ids);
 }
 
 Status ParquetReader::_do_init_reader(
@@ -503,11 +476,8 @@ Status ParquetReader::_do_init_reader(
         if (_table_info_node_ptr->children_column_exists(table_column_name)) {
             auto file_col = _table_info_node_ptr->children_file_column_name(table_column_name);
             required_file_columns.emplace(file_col, table_column_name);
-            LOG(INFO) << "[DEBUG _do_init] table_col=" << table_column_name
-                      << " EXISTS, file_col=" << file_col;
         } else {
             _missing_cols.emplace_back(table_column_name);
-            LOG(INFO) << "[DEBUG _do_init] table_col=" << table_column_name << " MISSING";
         }
     }
     for (int i = 0; i < schema_desc.size(); ++i) {
@@ -516,10 +486,6 @@ Status ParquetReader::_do_init_reader(
             _read_file_columns.emplace_back(name);
             _read_table_columns.emplace_back(required_file_columns[name]);
             _read_table_columns_set.insert(required_file_columns[name]);
-            LOG(INFO) << "[DEBUG _do_init] schema[" << i << "]=" << name
-                      << " MATCHED -> table_col=" << required_file_columns[name];
-        } else {
-            LOG(INFO) << "[DEBUG _do_init] schema[" << i << "]=" << name << " NOT in required";
         }
     }
 

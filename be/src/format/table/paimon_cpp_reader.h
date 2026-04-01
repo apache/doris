@@ -65,6 +65,9 @@ public:
         _predicate = std::move(predicate);
     }
 
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
+
 private:
     Status _init_paimon_reader();
     Status _decode_split(std::shared_ptr<paimon::Split>* split);

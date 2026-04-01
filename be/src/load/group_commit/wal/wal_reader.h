@@ -22,6 +22,13 @@
 
 namespace doris {
 struct ScannerCounter;
+
+/// WAL-specific initialization context.
+/// Extends ReaderInitContext with output tuple descriptor (unique to WAL reader).
+struct WalInitContext final : public ReaderInitContext {
+    const TupleDescriptor* output_tuple_descriptor = nullptr;
+};
+
 class WalReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(WalReader);
 
@@ -38,6 +45,11 @@ public:
         }
         return Status::OK();
     }
+
+protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
 
 private:
     RuntimeState* _state = nullptr;

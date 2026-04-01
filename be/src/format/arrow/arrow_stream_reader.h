@@ -57,6 +57,9 @@ public:
 
     Status _get_columns_impl(std::unordered_map<std::string, DataTypePtr>* name_to_type) override;
 
+protected:
+    Status _do_init_reader(ReaderInitContext* /*ctx*/) override { return init_reader(); }
+
 private:
     RuntimeState* _state;
     const TFileRangeDesc& _range;

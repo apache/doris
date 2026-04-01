@@ -25,14 +25,12 @@
 
 namespace doris {
 
-Status GenericReader::_prepare_fill_columns(const std::vector<ColumnDescriptor>& column_descs,
-                                            const TFileScanRangeParams& params,
-                                            const TFileRangeDesc& range,
-                                            const TupleDescriptor* tuple_descriptor,
-                                            const RowDescriptor* row_descriptor,
-                                            RuntimeState* state) {
-    // 1. Extract partition values from range
-    _fill_partition_values.clear();
+/* static */
+Status GenericReader::_extract_partition_values(
+        const TFileRangeDesc& range, const TupleDescriptor* tuple_descriptor,
+        std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>&
+                partition_values) {
+    partition_values.clear();
     if (range.__isset.columns_from_path_keys) {
         std::unordered_map<std::string, const SlotDescriptor*> name_to_slot;
         for (auto* slot : tuple_descriptor->slots()) {
@@ -43,48 +41,29 @@ Status GenericReader::_prepare_fill_columns(const std::vector<ColumnDescriptor>&
             const auto& value = range.columns_from_path[i];
             auto slot_it = name_to_slot.find(key);
             if (slot_it != name_to_slot.end()) {
-                _fill_partition_values.emplace(key, std::make_tuple(value, slot_it->second));
+                partition_values.emplace(key, std::make_tuple(value, slot_it->second));
             }
         }
     }
-
     return Status::OK();
 }
 
-Status GenericReader::_init_common_reader_states(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    _column_descs = &column_descs;
-    _fill_col_name_to_block_idx = col_name_to_block_idx;
-    RETURN_IF_ERROR(_prepare_fill_columns(column_descs, params, range, tuple_descriptor,
-                                          row_descriptor, state));
+Status GenericReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
 
-    // Extract column names for reading: REGULAR + GENERATED columns need file reading
-    for (auto& desc : column_descs) {
+    for (auto& desc : *ctx->column_descs) {
         if (desc.category == ColumnCategory::REGULAR ||
             desc.category == ColumnCategory::GENERATED) {
-            column_names.push_back(desc.name);
+            ctx->column_names.push_back(desc.name);
         }
     }
-    return Status::OK();
-}
-
-Status GenericReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    RETURN_IF_ERROR(_init_common_reader_states(column_descs, column_names, params, range,
-                                               tuple_descriptor, row_descriptor, state,
-                                               col_name_to_block_idx));
 
     // Build default table_info_node from file column names (case-insensitive matching).
     // Subclasses (OrcReader, ParquetReader, Hive, Iceberg, etc.) override on_before_init_reader
-    // and build their own table_info_node AFTER calling this base method.
+    // and build their own table_info_node AFTER calling _extract_partition_values.
     // For simple readers (CSV, JSON, etc.) that do NOT override, we build it here.
     std::unordered_map<std::string, DataTypePtr> file_columns;
     RETURN_IF_ERROR(get_columns(&file_columns));
@@ -115,7 +94,7 @@ Status GenericReader::on_before_init_reader(
     }
 
     auto info_node = std::make_shared<TableSchemaChangeHelper::StructNode>();
-    for (const auto* slot : tuple_descriptor->slots()) {
+    for (const auto* slot : ctx->tuple_descriptor->slots()) {
         auto it = lower_to_native.find(slot->col_name_lower_case());
         if (it != lower_to_native.end()) {
             info_node->add_children(slot->col_name(), it->second,
@@ -124,7 +103,7 @@ Status GenericReader::on_before_init_reader(
             info_node->add_not_exist_children(slot->col_name());
         }
     }
-    table_info_node = info_node;
+    ctx->table_info_node = info_node;
 
     return Status::OK();
 }

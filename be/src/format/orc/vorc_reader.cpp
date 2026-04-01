@@ -461,76 +461,42 @@ Status OrcReader::_create_file_reader() {
     return Status::OK();
 }
 
-Status OrcReader::init_reader(
-        std::vector<ColumnDescriptor>& column_descs,
-        std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-        const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-        const RowDescriptor* row_descriptor,
-        const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-        const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts) {
-    // Store essential params early so hooks can access them
-    _tuple_descriptor = tuple_descriptor;
-    _row_descriptor = row_descriptor;
+// ---- Unified init_reader(ReaderInitContext*) overrides ----
 
+Status OrcReader::_open_file_reader(ReaderInitContext* /*ctx*/) {
     if (_state != nullptr) {
         _orc_tiny_stripe_threshold_bytes = _state->query_options().orc_tiny_stripe_threshold_bytes;
         _orc_once_max_read_bytes = _state->query_options().orc_once_max_read_bytes;
         _orc_max_merge_distance_bytes = _state->query_options().orc_max_merge_distance_bytes;
     }
-
-    // Open file first so hooks can access file type/metadata
-    RETURN_IF_ERROR(_create_file_reader());
-
-    // Hook: let subclasses customize column selection and schema mapping
-    // Base implementation also calls _prepare_fill_columns.
-    std::vector<std::string> column_names;
-    std::shared_ptr<TableSchemaChangeHelper::Node> table_info_node =
-            TableSchemaChangeHelper::ConstNode::get_instance();
-    std::set<uint64_t> column_ids;
-    std::set<uint64_t> filter_column_ids;
-
-    RETURN_IF_ERROR(on_before_init_reader(column_descs, column_names, table_info_node, column_ids,
-                                          filter_column_ids, _scan_params, _scan_range,
-                                          _tuple_descriptor, _row_descriptor, _state,
-                                          col_name_to_block_idx));
-
-    // Core init
-    RETURN_IF_ERROR(_do_init_reader(&column_names, col_name_to_block_idx, conjuncts,
-                                    tuple_descriptor, row_descriptor,
-                                    not_single_slot_filter_conjuncts, slot_id_to_filter_conjuncts,
-                                    table_info_node, column_ids, filter_column_ids));
-
-    // Hook: let subclasses do post-init work (e.g. read delete files)
-    RETURN_IF_ERROR(on_after_init_reader(_scan_params, _scan_range, _tuple_descriptor,
-                                         _row_descriptor, _state));
-
-    return Status::OK();
+    return _create_file_reader();
 }
 
-Status OrcReader::on_before_init_reader(
-        std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-        std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-        std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-        const TFileScanRangeParams& params, const TFileRangeDesc& range,
-        const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-        RuntimeState* state, std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) {
-    RETURN_IF_ERROR(GenericReader::_init_common_reader_states(
-            column_descs, column_names, params, range, tuple_descriptor, row_descriptor, state,
-            col_name_to_block_idx));
+Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
+    auto* ctx = checked_context_cast<OrcInitContext>(base_ctx);
+    return _do_init_reader(&base_ctx->column_names, base_ctx->col_name_to_block_idx,
+                           *ctx->conjuncts, ctx->tuple_descriptor, ctx->row_descriptor,
+                           ctx->not_single_slot_filter_conjuncts, ctx->slot_id_to_filter_conjuncts,
+                           base_ctx->table_info_node, base_ctx->column_ids,
+                           base_ctx->filter_column_ids);
+}
+
+Status OrcReader::on_before_init_reader(ReaderInitContext* ctx) {
+    _column_descs = ctx->column_descs;
+    _fill_col_name_to_block_idx = ctx->col_name_to_block_idx;
+    RETURN_IF_ERROR(
+            _extract_partition_values(*ctx->range, ctx->tuple_descriptor, _fill_partition_values));
+    for (auto& desc : *ctx->column_descs) {
+        if (desc.category == ColumnCategory::REGULAR ||
+            desc.category == ColumnCategory::GENERATED) {
+            ctx->column_names.push_back(desc.name);
+        }
+    }
 
     // Build table_info_node from ORC file type with case-insensitive recursive matching.
     // _reader is available here because init_reader calls _create_file_reader() before this hook.
     RETURN_IF_ERROR(TableSchemaChangeHelper::BuildTableInfoUtil::by_orc_name(
-            tuple_descriptor, &_reader->getType(), table_info_node));
-    LOG(INFO) << "[DEBUG OrcReader::on_before_init_reader] by_orc_name built table_info_node";
-    for (const auto& col_name : column_names) {
-        LOG(INFO) << "[DEBUG OrcReader::on_before_init_reader]   column_name='" << col_name
-                  << "' exists_in_node=" << table_info_node->children_column_exists(col_name)
-                  << (table_info_node->children_column_exists(col_name)
-                              ? (" file_name='" +
-                                 table_info_node->children_file_column_name(col_name) + "'")
-                              : "");
-    }
+            ctx->tuple_descriptor, &_reader->getType(), ctx->table_info_node));
     return Status::OK();
 }
 
@@ -573,31 +539,6 @@ Status OrcReader::_do_init_reader(
     }
     RETURN_IF_ERROR(_init_read_columns());
 
-    // Log _init_read_columns results
-    {
-        std::stringstream ss_read, ss_miss;
-        for (const auto& c : _read_table_cols) {
-            ss_read << c << ", ";
-        }
-        for (const auto& c : _missing_cols) {
-            ss_miss << c << ", ";
-        }
-        std::stringstream ss_file;
-        for (const auto& c : _read_file_cols) {
-            ss_file << c << ", ";
-        }
-        LOG(INFO) << "[DEBUG _do_init_reader] _read_table_cols=[" << ss_read.str() << "]";
-        LOG(INFO) << "[DEBUG _do_init_reader] _read_file_cols=[" << ss_file.str() << "]";
-        LOG(INFO) << "[DEBUG _do_init_reader] _missing_cols=[" << ss_miss.str() << "]";
-        LOG(INFO) << "[DEBUG _do_init_reader] _fill_missing_defaults.size="
-                  << _fill_missing_defaults.size();
-        LOG(INFO) << "[DEBUG _do_init_reader] _fill_partition_values.size="
-                  << _fill_partition_values.size();
-        LOG(INFO) << "[DEBUG _do_init_reader] _row_id_column_iterator_pair.first="
-                  << (_row_id_column_iterator_pair.first != nullptr)
-                  << " .second=" << _row_id_column_iterator_pair.second;
-    }
-
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
     SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
 
@@ -607,12 +548,6 @@ Status OrcReader::_do_init_reader(
     // 1. Collect predicate columns from conjuncts for lazy materialization
     std::unordered_map<std::string, std::pair<uint32_t, int>> predicate_table_columns;
     _collect_predicate_columns_from_conjuncts(predicate_table_columns);
-    LOG(INFO) << "[DEBUG _do_init_reader] predicate_table_columns.size="
-              << predicate_table_columns.size();
-    for (const auto& [name, pair] : predicate_table_columns) {
-        LOG(INFO) << "[DEBUG _do_init_reader]   predicate_col='" << name
-                  << "' col_id=" << pair.first << " slot_id=" << pair.second;
-    }
 
     // 2. Classify read/partition/missing/synthesized columns into lazy vs predicate groups
     _classify_columns_for_lazy_read(predicate_table_columns, _fill_partition_values,
@@ -636,46 +571,8 @@ Status OrcReader::_do_init_reader(
         }
     }
 
-    // Log lazy read classification results
-    {
-        std::stringstream ss_all, ss_lazy, ss_pred;
-        for (const auto& c : _lazy_read_ctx.all_read_columns) {
-            ss_all << c << ", ";
-        }
-        for (const auto& c : _lazy_read_ctx.lazy_read_columns) {
-            ss_lazy << c << ", ";
-        }
-        for (const auto& c : _lazy_read_ctx.predicate_columns.first) {
-            ss_pred << c << ", ";
-        }
-        LOG(INFO) << "[DEBUG _do_init_reader] can_lazy_read=" << _lazy_read_ctx.can_lazy_read;
-        LOG(INFO) << "[DEBUG _do_init_reader] all_read=[" << ss_all.str() << "]";
-        LOG(INFO) << "[DEBUG _do_init_reader] lazy_read=[" << ss_lazy.str() << "]";
-        LOG(INFO) << "[DEBUG _do_init_reader] predicate_columns=[" << ss_pred.str() << "]";
-        LOG(INFO) << "[DEBUG _do_init_reader] partition_columns.size="
-                  << _lazy_read_ctx.partition_columns.size()
-                  << " missing_columns.size=" << _lazy_read_ctx.missing_columns.size();
-        std::stringstream ss_pred_orc;
-        for (const auto& c : _lazy_read_ctx.predicate_orc_columns) {
-            ss_pred_orc << c << ", ";
-        }
-        LOG(INFO) << "[DEBUG _do_init_reader] predicate_orc_columns=[" << ss_pred_orc.str() << "]";
-    }
-
     // 4. Create ORC row reader (includes tiny stripe optimization and type map)
     RETURN_IF_ERROR(_init_orc_row_reader());
-
-    // Log _init_orc_row_reader results
-    {
-        LOG(INFO) << "[DEBUG _do_init_reader] after _init_orc_row_reader:";
-        for (const auto& [name, idx] : _colname_to_idx) {
-            LOG(INFO) << "[DEBUG _do_init_reader]   _colname_to_idx['" << name << "']=" << idx;
-        }
-        for (const auto& [name, type] : _type_map) {
-            LOG(INFO) << "[DEBUG _do_init_reader]   _type_map['" << name << "']=kind"
-                      << static_cast<int>(type->getKind());
-        }
-    }
 
     // 5. Build filter conjuncts from not_single_slot and predicate_partition_columns
     if (!_not_single_slot_filter_conjuncts.empty()) {

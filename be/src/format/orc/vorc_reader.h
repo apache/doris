@@ -83,6 +83,15 @@ class DataBuffer;
 namespace doris {
 class ORCFileInputStream;
 
+/// ORC-specific initialization context.
+/// Extends ReaderInitContext with conjuncts and filter fields.
+/// Note: ORC does NOT use slot_id_to_predicates (unlike Parquet).
+struct OrcInitContext final : public ReaderInitContext {
+    const VExprContextSPtrs* conjuncts = nullptr;
+    const VExprContextSPtrs* not_single_slot_filter_conjuncts = nullptr;
+    const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts = nullptr;
+};
+
 struct LazyReadContext {
     VExprContextSPtrs conjuncts;
     bool can_lazy_read = false;
@@ -163,23 +172,7 @@ public:
     // Override to build table_info_node from ORC file type using by_orc_name.
     // Subclasses (HiveOrcReader, IcebergOrcReader) call GenericReader::on_before_init_reader
     // directly, so this OrcReader-level override only applies to plain OrcReader (TVF, load).
-    Status on_before_init_reader(
-            std::vector<ColumnDescriptor>& column_descs, std::vector<std::string>& column_names,
-            std::shared_ptr<TableSchemaChangeHelper::Node>& table_info_node,
-            std::set<uint64_t>& column_ids, std::set<uint64_t>& filter_column_ids,
-            const TFileScanRangeParams& params, const TFileRangeDesc& range,
-            const TupleDescriptor* tuple_descriptor, const RowDescriptor* row_descriptor,
-            RuntimeState* state,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx) override;
-
-    // Template method: calls on_before_init_reader → _do_init_reader → on_after_init_reader
-    Status init_reader(
-            std::vector<ColumnDescriptor>& column_descs,
-            std::unordered_map<std::string, uint32_t>* col_name_to_block_idx,
-            const VExprContextSPtrs& conjuncts, const TupleDescriptor* tuple_descriptor,
-            const RowDescriptor* row_descriptor,
-            const VExprContextSPtrs* not_single_slot_filter_conjuncts,
-            const std::unordered_map<int, VExprContextSPtrs>* slot_id_to_filter_conjuncts);
+    Status on_before_init_reader(ReaderInitContext* ctx) override;
 
     // Low-level init_reader — used by standalone reader instances (tvf, load, push_handler,
     // Iceberg delete file readers) that don't go through subclass hooks.
@@ -195,6 +188,12 @@ public:
             const std::set<uint64_t>& column_ids = {},
             const std::set<uint64_t>& filter_column_ids = {});
 
+protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
+
+public:
     // Template method: calls on_before_read_block → _do_get_next_block → on_after_read_block
     Status get_next_block(Block* block, size_t* read_rows, bool* eof) override;
 

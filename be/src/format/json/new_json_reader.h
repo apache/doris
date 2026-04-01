@@ -62,6 +62,13 @@ struct ScannerCounter;
 class Block;
 class IColumn;
 
+/// JSON-specific initialization context.
+/// Extends ReaderInitContext with default value context (unique to JSON reader).
+struct JsonInitContext final : public ReaderInitContext {
+    const std::unordered_map<std::string, VExprContextSPtr>* col_default_value_ctx = nullptr;
+    bool is_load = false;
+};
+
 class NewJsonReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(NewJsonReader);
 
@@ -86,6 +93,10 @@ public:
                              std::vector<DataTypePtr>* col_types) override;
 
 protected:
+    // ---- Unified init_reader(ReaderInitContext*) overrides ----
+    Status _open_file_reader(ReaderInitContext* ctx) override;
+    Status _do_init_reader(ReaderInitContext* ctx) override;
+
     void _collect_profile_before_close() override;
 
 private:
