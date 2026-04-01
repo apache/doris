@@ -914,13 +914,13 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         if [ ! -d "${fs_module_dir}" ]; then
             continue
         fi
-        mkdir -p "${fs_plugin_target}/lib"
+        mkdir -p "${fs_plugin_target}"
         # Copy main JAR
         cp -f "${fs_module_dir}/target/doris-fe-filesystem-${fs_module}"*.jar "${fs_plugin_target}/" 2>/dev/null || true
-        # Copy transitive dependencies, excluding spi JARs already on FE classpath
+        # Copy transitive dependencies flat into the same directory, excluding spi JARs already on FE classpath
         (cd "${DORIS_HOME}/fe" && "${MVN_CMD}" dependency:copy-dependencies \
             -pl "fe-filesystem/fe-filesystem-${fs_module}" \
-            -DoutputDirectory="${fs_plugin_target}/lib" \
+            -DoutputDirectory="${fs_plugin_target}" \
             -DexcludeArtifactIds="fe-filesystem-spi,fe-extension-spi" \
             --no-transfer-progress -q 2>/dev/null) || true
     done
