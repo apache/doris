@@ -626,7 +626,19 @@ TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
     const auto& file_path_meta = file_meta_data->row_groups[0].columns[0].meta_data;
     EXPECT_TRUE(file_meta_data->row_groups[0].columns[0].__isset.meta_data);
     EXPECT_TRUE(has_dict_page(file_path_meta));
-    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(file_path_meta));
+    bool has_plain_encoding = false;
+    bool has_dictionary_encoding = false;
+    for (const auto encoding : file_path_meta.encodings) {
+        if (encoding == tparquet::Encoding::PLAIN) {
+            has_plain_encoding = true;
+        }
+        if (encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
+            encoding == tparquet::Encoding::RLE_DICTIONARY) {
+            has_dictionary_encoding = true;
+        }
+    }
+    EXPECT_TRUE(has_plain_encoding);
+    EXPECT_TRUE(has_dictionary_encoding);
 }
 
 // Test reading real Iceberg Parquet file using IcebergTableReader
