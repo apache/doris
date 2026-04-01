@@ -3555,7 +3555,7 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, description = {"Version of getting tablet stats in cloud mode. "
             + "Version 1: get all tablets; Version 2: get active and interval expired tablets"})
-    public static int cloud_get_tablet_stats_version = 2;
+    public static int cloud_get_tablet_stats_version = 1;
 
     @ConfField(description = {"Maximum concurrent number of get tablet stat jobs."})
     public static int cloud_sync_tablet_stats_task_threads_num = 4;
