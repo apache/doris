@@ -435,6 +435,7 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.QuartersSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Quote;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Radians;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.RandSpark;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Random;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RandomBytes;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.RegexpCount;
@@ -2165,6 +2166,10 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitRandom(Random random, C context) {
         return visitScalarFunction(random, context);
+    }
+
+    default R visitRandSpark(RandSpark randSpark, C context) {
+        return visitScalarFunction(randSpark, context);
     }
 
     default R visitRegexp(Regexp regexp, C context) {

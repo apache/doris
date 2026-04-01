@@ -160,9 +160,90 @@ private:
     }
 };
 
+class RandSpark : public IFunction {
+public:
+    static constexpr auto name = "rand_spark";
+
+    static FunctionPtr create() { return std::make_shared<RandSpark>(); }
+
+    String get_name() const override { return name; }
+
+    bool use_default_implementation_for_constants() const override { return false; }
+
+    bool use_default_implementation_for_nulls() const override { return false; }
+
+    size_t get_number_of_arguments() const override { return 0; }
+
+    bool is_variadic() const override { return true; }
+
+    DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
+        return std::make_shared<DataTypeFloat64>();
+    }
+
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+        std::shared_ptr<std::mt19937_64> generator(new std::mt19937_64());
+        context->set_function_state(scope, generator);
+        if (scope == FunctionContext::THREAD_LOCAL) {
+            if (context->get_num_args() == 1) {
+                // Validate that the argument is a constant (literal or constant expression)
+                // Column references are not allowed
+                if (!context->is_col_constant(0)) {
+                    return Status::InvalidArgument(
+                            "The param of rand_spark function must be a constant expression, "
+                            "column references are not allowed");
+                }
+
+                // Spark compatibility: rand(null) behaves the same as rand(0)
+                uint32_t seed = 0;
+                auto* const_col = context->get_constant_col(0);
+                if (const_col && const_col->column_ptr) {
+                    if (!const_col->column_ptr->is_null_at(0)) {
+                        seed = (uint32_t)(*const_col->column_ptr)[0].get<TYPE_BIGINT>();
+                    }
+                }
+                generator->seed(seed);
+            } else { // zero args
+                generator->seed(std::random_device()());
+            }
+        }
+        return Status::OK();
+    }
+
+    Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
+                        uint32_t result, size_t input_rows_count) const override {
+        return _execute_float(context, block, arguments, result, input_rows_count);
+    }
+
+private:
+    static Status _execute_float(FunctionContext* context, Block& block,
+                                 const ColumnNumbers& arguments, uint32_t result,
+                                 size_t input_rows_count) {
+        static const double min = 0.0;
+        static const double max = 1.0;
+        auto res_column = ColumnFloat64::create(input_rows_count);
+        auto& res_data = static_cast<ColumnFloat64&>(*res_column).get_data();
+
+        auto* generator = reinterpret_cast<std::mt19937_64*>(
+                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        DCHECK(generator != nullptr);
+
+        std::uniform_real_distribution<double> distribution(min, max);
+        for (size_t i = 0; i < input_rows_count; i++) {
+            res_data[i] = distribution(*generator);
+        }
+
+        block.replace_by_position(result, std::move(res_column));
+        return Status::OK();
+    }
+};
+
 void register_function_random(SimpleFunctionFactory& factory) {
     factory.register_function<Random>();
     factory.register_alias(Random::name, "rand");
+}
+
+void register_function_rand_spark(SimpleFunctionFactory& factory) {
+    factory.register_function<RandSpark>();
 }
 #include "common/compile_check_end.h"
 } // namespace doris::vectorized
