@@ -46,5 +46,6 @@ under the License.
         <module>fe-filesystem-local</module>
         <module>fe-filesystem-azure</module>
         <module>fe-filesystem-hdfs</module>
+        <module>fe-filesystem-broker</module>
     </modules>
 </project>

@@ -18,7 +18,6 @@
 package org.apache.doris.common.util;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
@@ -27,9 +26,11 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
+import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.spi.Location;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.remote.RemoteFile;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
 import org.apache.doris.thrift.TBrokerFD;
@@ -52,7 +53,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -68,37 +68,48 @@ public class BrokerUtil {
      */
     public static void parseFile(String path, BrokerDesc brokerDesc, List<TBrokerFileStatus> fileStatuses)
             throws UserException {
-        List<RemoteFile> rfiles = new ArrayList<>();
-        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
-            Status st = fileSystem.globList(path, rfiles, false);
-            if (!st.ok()) {
-                throw new UserException(st.getErrMsg());
+        BrokerProperties brokerProps = (BrokerProperties) brokerDesc.getStorageProperties();
+        try {
+            String localIP = FrontendOptions.getLocalHostAddress();
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerProps.getBrokerName(), localIP);
+            String clientId = NetUtils.getHostPortInAccessibleFormat(localIP, Config.edit_log_port);
+            try (FileSystem fs = FileSystemFactory.getBrokerFileSystem(
+                    broker.host, broker.port, clientId, brokerProps.getBrokerParams())) {
+                List<FileEntry> entries = fs.listFiles(Location.of(path));
+                for (FileEntry e : entries) {
+                    TBrokerFileStatus status = new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory());
+                    fileStatuses.add(status);
+                }
             }
+        } catch (AnalysisException e) {
+            LOG.warn("{} list path exception, path={}", brokerDesc.getName(), path, e);
+            throw new UserException(brokerDesc.getName() + " list path exception. path="
+                    + path + ", err: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn("{} list path exception, path={}", brokerDesc.getName(), path, e);
-            throw new UserException(brokerDesc.getName() +  " list path exception. path="
+            throw new UserException(brokerDesc.getName() + " list path exception. path="
                     + path + ", err: " + e.getMessage());
-        }
-        for (RemoteFile r : rfiles) {
-            if (r.isFile()) {
-                TBrokerFileStatus status = new TBrokerFileStatus(r.getName(), !r.isFile(), r.getSize(), r.isFile());
-                status.setBlockSize(r.getBlockSize());
-                status.setModificationTime(r.getModificationTime());
-                fileStatuses.add(status);
-            }
         }
     }
 
     public static void deleteDirectoryWithFileSystem(String path, BrokerDesc brokerDesc) throws UserException {
-        try (RemoteFileSystem fileSystem = FileSystemFactory.get(brokerDesc.getStorageProperties())) {
-            Status st = fileSystem.deleteDirectory(path);
-            if (!st.ok()) {
-                throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
-                        + path + ", err: " + st.getErrMsg());
+        BrokerProperties brokerProps = (BrokerProperties) brokerDesc.getStorageProperties();
+        try {
+            String localIP = FrontendOptions.getLocalHostAddress();
+            FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(brokerProps.getBrokerName(), localIP);
+            String clientId = NetUtils.getHostPortInAccessibleFormat(localIP, Config.edit_log_port);
+            try (FileSystem fs = FileSystemFactory.getBrokerFileSystem(
+                    broker.host, broker.port, clientId, brokerProps.getBrokerParams())) {
+                fs.delete(Location.of(path), true);
             }
+        } catch (AnalysisException e) {
+            LOG.warn("{} delete directory exception, path={}", brokerDesc.getName(), path, e);
+            throw new UserException(brokerDesc.getName() + " delete directory exception. path="
+                    + path + ", err: " + e.getMessage());
         } catch (Exception e) {
             LOG.warn("{} delete directory exception, path={}", brokerDesc.getName(), path, e);
-            throw new UserException(brokerDesc.getName() +  " delete directory exception. path="
+            throw new UserException(brokerDesc.getName() + " delete directory exception. path="
                     + path + ", err: " + e.getMessage());
         }
     }

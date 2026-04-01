@@ -27,6 +27,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.ServiceLoader;
@@ -180,5 +181,30 @@ public final class FileSystemFactory {
     static void clearProviderCache() {
         cachedProviders = null;
         pluginManager = null;
+    }
+
+    /**
+     * Creates a broker-backed {@link org.apache.doris.filesystem.spi.FileSystem} using a
+     * pre-resolved broker endpoint.
+     *
+     * <p>The caller is responsible for resolving the broker name to a live host:port via
+     * {@code BrokerMgr.getBroker()} before calling this method. This keeps {@code BrokerMgr}
+     * coupling in fe-core only; the {@code fe-filesystem-broker} module has zero fe-core dependency.
+     *
+     * @param host        live broker host (already resolved from BrokerMgr)
+     * @param port        live broker Thrift port
+     * @param clientId    FE identifier sent to broker for logging (e.g. "host:editLogPort")
+     * @param brokerParams broker-specific params (username, password, hadoop config, ...)
+     * @return initialized {@code org.apache.doris.filesystem.spi.FileSystem}
+     * @throws IOException if the broker filesystem provider is not found or creation fails
+     */
+    public static org.apache.doris.filesystem.spi.FileSystem getBrokerFileSystem(
+            String host, int port, String clientId, Map<String, String> brokerParams) throws IOException {
+        Map<String, String> props = new HashMap<>(brokerParams);
+        props.put("_STORAGE_TYPE_", "BROKER");
+        props.put("BROKER_HOST", host);
+        props.put("BROKER_PORT", String.valueOf(port));
+        props.put("BROKER_CLIENT_ID", clientId);
+        return getFileSystem(props);
     }
 }
