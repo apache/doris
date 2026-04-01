@@ -473,16 +473,13 @@ Status PipelineTask::execute(bool* done) {
                 delta_cpu_time);
 
         // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
+        // Note: the task may still be in BLOCKED state here (e.g., _is_blocked() returned true
+        // right before another thread called make_all_runnable which set _wake_up_early).
+        // We do NOT transition BLOCKED→RUNNABLE here because _blocked_dep is shared with
+        // Dependency::set_ready()/wake_up() under _task_lock, and writing it outside that lock
+        // would be a data race. Instead, _state_transition() allows BLOCKED→FINISHED when
+        // _wake_up_early is true, and wake_up() safely ignores tasks no longer in BLOCKED state.
         if (_wake_up_early) {
-            // If the task is in BLOCKED state (e.g., _is_blocked() returned true right before
-            // another thread called make_all_runnable), we must transition back to RUNNABLE first.
-            // This ensures close() sees a legal RUNNABLE→FINISHED transition, and also races with
-            // Dependency::set_ready()'s delayed wake_up() call: wake_up() will see the task is
-            // already RUNNABLE and be handled safely (see wake_up() below).
-            if (_exec_state == State::BLOCKED) {
-                _blocked_dep = nullptr;
-                THROW_IF_ERROR(_state_transition(State::RUNNABLE));
-            }
             _eos = true;
             *done = true;
         } else if (_eos && !_spilling &&
@@ -1056,11 +1053,15 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
 Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
     // call by dependency
     //
-    // Race with execute()'s running_defer when _wake_up_early is set:
-    // Thread A (worker) may have already transitioned this task from BLOCKED to RUNNABLE (and
-    // cleared _blocked_dep) in running_defer, then proceeded to close/finalize the task.
-    // Meanwhile, Thread B (Dependency::set_ready) still holds a reference from _blocked_task and
-    // calls wake_up() here. In that case the task is no longer BLOCKED — just ignore the wake-up.
+    // Race with make_all_runnable() + execute()'s running_defer:
+    // make_all_runnable() calls set_wake_up_early() then unblock_all_dependencies(). Inside
+    // unblock_all_dependencies(), each dep's set_always_ready() → set_ready() swaps _blocked_task
+    // out under _task_lock, then iterates the list **outside** the lock to call wake_up().
+    // Between the swap and the actual wake_up() call, the worker thread may observe
+    // _wake_up_early, set done=true, and close/finalize the task — transitioning _exec_state
+    // from BLOCKED to FINISHED to FINALIZED. When the delayed wake_up() finally runs here,
+    // the task is no longer BLOCKED. Since _exec_state is std::atomic, reading it is safe;
+    // we simply ignore the stale wake-up.
     if (_exec_state != State::BLOCKED) {
         return Status::OK();
     }
@@ -1081,7 +1082,20 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     _task_profile->add_info_string("TaskState", _to_string(new_state));
     _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
-    if (!LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state)) {
+    bool legal = LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state);
+    // When _wake_up_early is set by make_all_runnable(), the worker thread's execute() sets
+    // done=true directly from running_defer without going through the normal wake_up() path.
+    // The task may still be in BLOCKED state because Dependency::set_ready()'s wake_up() call
+    // hasn't fired yet (there is a gap between set_wake_up_early and the actual wake_up in
+    // set_ready's lock-free loop). We cannot transition BLOCKED→RUNNABLE in running_defer
+    // because _blocked_dep is shared with wake_up() under _task_lock and writing it outside
+    // that lock would be a data race. So we allow BLOCKED→FINISHED here directly.
+    // The corresponding delayed wake_up() from Dependency::set_ready() is handled safely
+    // because wake_up() checks _exec_state != BLOCKED and returns early.
+    if (!legal && _wake_up_early && _exec_state == State::BLOCKED && new_state == State::FINISHED) {
+        legal = true;
+    }
+    if (!legal) {
         return Status::InternalError(
                 "Task state transition from {} to {} is not allowed! Task info: {}",
                 _to_string(_exec_state), _to_string(new_state), debug_string());

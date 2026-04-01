@@ -284,6 +284,8 @@ private:
          *                   ^                             |                  |
          *                   |                             |                  |
          *                   +----------- BLOCKED <--------+------------------+
+         *                                   |  (_wake_up_early)
+         *                                   +----> FINISHED (see _state_transition)
          */
     enum class State : int {
         INITED,

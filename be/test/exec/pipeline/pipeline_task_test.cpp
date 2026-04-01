@@ -488,36 +488,36 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         }
     }
 
+    // Test that BLOCKED→FINISHED is allowed when _wake_up_early is true.
+    // This covers the race where make_all_runnable() sets _wake_up_early, but
+    // Dependency::set_ready()'s wake_up() hasn't fired yet, so the task is still BLOCKED
+    // when close() calls _state_transition(FINISHED).
+    task->_wake_up_early = true;
+    task->_exec_state = PipelineTask::State::BLOCKED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::FINISHED).ok());
+
+    // Other illegal transitions should remain illegal even with _wake_up_early = true.
+    task->_exec_state = PipelineTask::State::INITED;
+    EXPECT_FALSE(task->_state_transition(PipelineTask::State::FINISHED).ok());
+    task->_wake_up_early = false;
+
     // Test that wake_up() safely ignores tasks that are no longer BLOCKED.
-    // This simulates the race where running_defer already transitioned BLOCKED→RUNNABLE
-    // (due to _wake_up_early), and then Dependency::set_ready()'s delayed wake_up() fires.
+    // This simulates the race where close()/finalize() already transitioned the task past
+    // BLOCKED (via BLOCKED→FINISHED with _wake_up_early), and then Dependency::set_ready()'s
+    // delayed wake_up() fires.
     {
         std::mutex mtx;
-        // Simulate: task was BLOCKED, running_defer transitioned it to RUNNABLE
-        task->_exec_state = PipelineTask::State::RUNNABLE;
-        auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
-        std::unique_lock<std::mutex> lc(mtx);
-        // wake_up should be a no-op because task is not BLOCKED
-        EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
-        EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
-    }
-    {
-        std::mutex mtx;
-        // Simulate: task already FINISHED
         task->_exec_state = PipelineTask::State::FINISHED;
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
         std::unique_lock<std::mutex> lc(mtx);
-        // wake_up should be a no-op because task is FINISHED
         EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
     }
     {
         std::mutex mtx;
-        // Simulate: task already FINALIZED
         task->_exec_state = PipelineTask::State::FINALIZED;
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
         std::unique_lock<std::mutex> lc(mtx);
-        // wake_up should be a no-op because task is FINALIZED
         EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
     }
