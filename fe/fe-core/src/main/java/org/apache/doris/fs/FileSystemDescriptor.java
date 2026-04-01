@@ -29,11 +29,6 @@ import java.util.Map;
 /**
  * A lightweight POJO that describes a persistent file system configuration.
  *
- * <p>This class replaces direct serialization of concrete {@link PersistentFileSystem}
- * subclasses (S3FileSystem, DFSFileSystem, etc.) in the backup/restore metadata.
- * By separating the description (type + properties) from the live object,
- * {@code GsonUtils} no longer needs compile-time references to concrete implementation classes.
- *
  * <p>Serialized format (JSON):
  * <pre>{@code
  * {
@@ -86,11 +81,6 @@ public class FileSystemDescriptor {
      */
     public Map<String, String> getBackendConfigProperties() {
         return StorageProperties.createPrimary(properties).getBackendConfigProperties();
-    }
-
-    /** Creates a FileSystemDescriptor from an existing PersistentFileSystem (migration helper). */
-    public static FileSystemDescriptor fromPersistentFileSystem(PersistentFileSystem fs) {
-        return new FileSystemDescriptor(fs.getStorageType(), fs.getName(), fs.getProperties());
     }
 
     /**

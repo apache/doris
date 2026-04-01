@@ -22,7 +22,6 @@ import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.LocalProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.local.LocalFileSystem;
-import org.apache.doris.fs.LocalDfsFileSystem;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.hadoop.hive.common.ValidReadTxnList;
@@ -49,21 +48,28 @@ public class HiveAcidTest {
 
     private static final LocalFileSystem SPI_LOCAL_FS = new LocalFileSystem(new HashMap<>());
 
+    private static void createFile(String fileUri) throws Exception {
+        Path path = java.nio.file.Paths.get(fileUri.substring("file://".length()));
+        Files.createDirectories(path.getParent());
+        if (!Files.exists(path)) {
+            Files.createFile(path);
+        }
+    }
+
     @Test
     public void testOriginalDeltas() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/000000_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/000001_1");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/000002_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/random");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/_done");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/subdir/000000_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_025");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_029_029");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_030");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_050_100");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_101_101");
+        createFile("file://" + tempPath.toAbsolutePath() + "/000000_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/000001_1");
+        createFile("file://" + tempPath.toAbsolutePath() + "/000002_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/random");
+        createFile("file://" + tempPath.toAbsolutePath() + "/_done");
+        createFile("file://" + tempPath.toAbsolutePath() + "/subdir/000000_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_025");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_029_029");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_030");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_050_100");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_101_101");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(
@@ -86,12 +92,11 @@ public class HiveAcidTest {
 
     @Test
     public void testObsoleteOriginals() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_10/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_5/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/000000_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/000001_1");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_10/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_5/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/000000_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/000001_1");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(
@@ -118,16 +123,15 @@ public class HiveAcidTest {
 
     @Test
     public void testOverlapingDelta() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_052_55/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_052_55/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(
@@ -165,20 +169,19 @@ public class HiveAcidTest {
 
     @Test
     public void testOverlapingDelta2() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0000063_63_0/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62_0/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62_3/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_00061_61_0/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60_1/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60_4/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60_7/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_052_55/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_058_58/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0000063_63_0/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62_0/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62_3/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_00061_61_0/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60_4/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60_7/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_052_55/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_058_58/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(
@@ -220,11 +223,10 @@ public class HiveAcidTest {
 
     @Test
     public void deltasWithOpenTxnInRead() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
 
@@ -264,14 +266,13 @@ public class HiveAcidTest {
 
     @Test
     public void deltasWithOpenTxnInRead2() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_1/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_3/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_101_101_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_3/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_101_101_1/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
 
@@ -308,20 +309,19 @@ public class HiveAcidTest {
 
     @Test
     public void testBaseWithDeleteDeltas() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_5/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_10/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_49/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_025/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_029_029/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_029_029/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_030/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_025_030/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_050_105/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_110_110/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_5/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_10/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_49/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_025/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_029_029/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_029_029/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_030/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_025_030/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_050_105/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_110_110/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(
@@ -378,19 +378,18 @@ public class HiveAcidTest {
 
     @Test
     public void testOverlapingDeltaAndDeleteDelta() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_00064_64/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_40_60/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_052_55/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_052_55/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0000063_63/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_000062_62/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_00061_61/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_00064_64/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_40_60/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_0060_60/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_052_55/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_052_55/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_50/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(
@@ -455,12 +454,11 @@ public class HiveAcidTest {
 
     @Test
     public void testMinorCompactedDeltaMakesInBetweenDelteDeltaObsolete() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_50_50/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_40_60/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_50_50/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(
@@ -495,16 +493,15 @@ public class HiveAcidTest {
 
     @Test
     public void deleteDeltasWithOpenTxnInRead() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_2_5/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_3_3/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_1/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_3/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_101_101_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_1_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_2_5/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_2_5/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delete_delta_3_3/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_1/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_4_4_3/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_101_101_1/bucket_0");
 
 
         Map<String, String> txnValidIds = new HashMap<>();
@@ -558,17 +555,16 @@ public class HiveAcidTest {
 
     @Test
     public void testBaseDeltas() throws Exception {
-        LocalDfsFileSystem localDFSFileSystem = new LocalDfsFileSystem();
         Path tempPath = Files.createTempDirectory("tbl");
 
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_5/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_10/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/base_49/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_025/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_029_029/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_030/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0");
-        localDFSFileSystem.createFile("file://" + tempPath.toAbsolutePath() + "/delta_90_120/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_5/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_10/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/base_49/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_025/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_029_029/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_025_030/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_050_105/bucket_0");
+        createFile("file://" + tempPath.toAbsolutePath() + "/delta_90_120/bucket_0");
 
         Map<String, String> txnValidIds = new HashMap<>();
         txnValidIds.put(

@@ -40,7 +40,6 @@ import org.apache.doris.filesystem.spi.Location;
 import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
-import org.apache.doris.fs.PersistentFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.service.FrontendOptions;
@@ -134,11 +133,6 @@ public class Repository implements Writable, GsonPostProcessable {
     @SerializedName("lo")
     private String location;
 
-    /** Legacy field: kept for backward-compatible deserialization of old metadata. */
-    @Deprecated
-    @SerializedName("fs")
-    private PersistentFileSystem legacyFileSystem;
-
     /** New field: lightweight descriptor used for new metadata serialization. */
     @SerializedName("fs_descriptor")
     private FileSystemDescriptor fileSystemDescriptor;
@@ -231,10 +225,6 @@ public class Repository implements Writable, GsonPostProcessable {
         Map<String, String> fsProps;
         if (fileSystemDescriptor != null) {
             fsProps = fileSystemDescriptor.getProperties();
-        } else if (legacyFileSystem != null) {
-            fsProps = legacyFileSystem.properties;
-            // Migrate to new descriptor so the next write uses the new format.
-            fileSystemDescriptor = FileSystemDescriptor.fromPersistentFileSystem(legacyFileSystem);
         } else {
             return;
         }

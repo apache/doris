@@ -26,7 +26,6 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.common.util.S3Util;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.fs.GlobListResult;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import org.apache.commons.lang3.StringUtils;
@@ -1000,6 +999,43 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                 LOG.warn("Failed to close S3 client: {}", e.getMessage(), e);
             }
             client = null;
+        }
+    }
+
+    private static final class GlobListResult {
+        private final Status status;
+        private final String maxFile;
+        private final String bucket;
+        private final String prefix;
+
+        GlobListResult(Status status, String maxFile, String bucket, String prefix) {
+            this.status = status;
+            this.maxFile = maxFile;
+            this.bucket = bucket;
+            this.prefix = prefix;
+        }
+
+        GlobListResult(Status status) {
+            this.status = status;
+            this.maxFile = "";
+            this.bucket = "";
+            this.prefix = "";
+        }
+
+        Status getStatus() {
+            return status;
+        }
+
+        String getMaxFile() {
+            return maxFile;
+        }
+
+        String getBucket() {
+            return bucket;
+        }
+
+        String getPrefix() {
+            return prefix;
         }
     }
 }
