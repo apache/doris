@@ -17,13 +17,20 @@
 
 package org.apache.doris.common.proc;
 
+import org.apache.doris.catalog.ColocateGroupSchema;
 import org.apache.doris.catalog.ColocateTableIndex;
 import org.apache.doris.catalog.ColocateTableIndex.GroupId;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.cloud.catalog.CloudReplica;
+import org.apache.doris.cloud.qe.ComputeGroupException;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.resource.Tag;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 
 import java.util.List;
 import java.util.Map;
@@ -60,7 +67,36 @@ public class ColocationGroupProcDir implements ProcDirInterface {
 
         GroupId groupId = new GroupId(dbId, grpId);
         ColocateTableIndex index = Env.getCurrentColocateIndex();
-        Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+        if (!Config.isCloudMode()) {
+            Map<Tag, List<List<Long>>> beSeqs = index.getBackendsPerBucketSeq(groupId);
+            return new ColocationGroupBackendSeqsProcNode(beSeqs);
+        }
+
+        ColocateGroupSchema groupSchema = index.getGroupSchema(groupId);
+        if (groupSchema == null) {
+            throw new AnalysisException("Group does not exist: " + groupIdStr);
+        }
+
+        List<Long> tableIds = index.getAllTableIds(groupId);
+        if (tableIds.isEmpty()) {
+            throw new AnalysisException("No table in colocate group: " + groupIdStr);
+        }
+
+        int bucketNum = groupSchema.getBucketsNum();
+        List<List<Long>> backendsPerBucketSeq = Lists.newArrayListWithCapacity(bucketNum);
+        long tableId = tableIds.get(0);
+        for (int i = 0; i < bucketNum; i++) {
+            CloudReplica replica = new CloudReplica(-1L, null, Replica.ReplicaState.NORMAL, 0L, 0,
+                    dbId, tableId, 0L, 0L, i);
+            try {
+                backendsPerBucketSeq.add(Lists.newArrayList(replica.getBackendId()));
+            } catch (ComputeGroupException e) {
+                throw new AnalysisException(e.getMessage(), e);
+            }
+        }
+
+        Map<Tag, List<List<Long>>> beSeqs = Maps.newHashMap();
+        beSeqs.put(Tag.DEFAULT_BACKEND_TAG, backendsPerBucketSeq);
         return new ColocationGroupBackendSeqsProcNode(beSeqs);
     }
 
