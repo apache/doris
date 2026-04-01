@@ -136,6 +136,8 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
                     "Job should be RUNNING before first restart, got: ${jobInfoBeforeRestart.get(0).get(0)}"
             assert jobInfoBeforeRestart.get(0).get(1) != null && !jobInfoBeforeRestart.get(0).get(1).isEmpty() :
                     "currentOffset should be non-empty before first restart"
+            def scannedRowsBeforeFirstRestart = (jobInfoBeforeRestart.get(0).get(2) =~ /scannedRows":(\d+)/)[0][1] as long
+            log.info("scannedRows before first restart: " + scannedRowsBeforeFirstRestart)
 
             // ── Phase 4: restart FE (mid-snapshot) ───────────────────────────────────
             cluster.restartFrontends()
@@ -156,9 +158,9 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
 
             def jobInfoAfterRestart1 = sql """select currentOffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'"""
             log.info("job info after first FE restart: " + jobInfoAfterRestart1)
-
-            // After mid-snapshot restart the job resumes and continues making progress,
-            // so currentOffset and loadStatistic will advance — no equality assertion here.
+            def scannedRowsAfterFirstRestart = (jobInfoAfterRestart1.get(0).get(1) =~ /scannedRows":(\d+)/)[0][1] as long
+            assert scannedRowsAfterFirstRestart >= scannedRowsBeforeFirstRestart :
+                    "scannedRows should not reset after first FE restart: before=${scannedRowsBeforeFirstRestart}, after=${scannedRowsAfterFirstRestart}"
 
             // ── Phase 6: wait for full snapshot to complete, then assert no re-processing ─
             // Wait with >= 5 so the await does not time out if a duplicate row briefly
@@ -213,6 +215,10 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
             assert offsetBeforeSecondRestart != null && offsetBeforeSecondRestart.contains("binlog-split") :
                     "currentOffset should be in binlog state before second restart (F1/G1 consumed), got: ${offsetBeforeSecondRestart}"
 
+            // Record scannedRows before restart — snapshot(5) + F1 + G1 = at least 7.
+            def scannedRowsBefore = (jobInfoBeforeSecondRestart.get(0).get(2) =~ /scannedRows":(\d+)/)[0][1] as long
+            log.info("scannedRows before second restart: " + scannedRowsBefore)
+
             cluster.restartFrontends()
             sleep(60000)
             context.reconnectFe()
@@ -260,7 +266,7 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
 
             qt_final_data """ SELECT * FROM ${currentDb}.${dorisTable} ORDER BY name """
 
-            // ── Phase 11: verify no failures ─────────────────────────────────────────
+            // ── Phase 11: verify no failures and scannedRows persisted across restart ──
             def jobInfoFinal = sql """
                 select status, FailedTaskCount, ErrorMsg, currentOffset, loadStatistic
                 from jobs("type"="insert") where Name='${jobName}'
@@ -268,6 +274,12 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
             log.info("job info final: " + jobInfoFinal)
             assert jobInfoFinal.get(0).get(0) == "RUNNING" : "Job should be RUNNING at end"
             assert (jobInfoFinal.get(0).get(1) as int) == 0 : "FailedTaskCount should be 0"
+
+            // Verify scannedRows is not reset to 0 after FE restart (jobStatistic must persist).
+            def scannedRowsAfter = (jobInfoFinal.get(0).get(4) =~ /scannedRows":(\d+)/)[0][1] as long
+            log.info("scannedRows after second restart: " + scannedRowsAfter)
+            assert scannedRowsAfter >= scannedRowsBefore :
+                    "scannedRows should not reset after FE restart: before=${scannedRowsBefore}, after=${scannedRowsAfter}"
 
             sql """DROP JOB IF EXISTS where jobname = '${jobName}'"""
             sql """drop table if exists ${currentDb}.${dorisTable} force"""
