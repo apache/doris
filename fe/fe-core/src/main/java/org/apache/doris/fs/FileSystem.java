@@ -34,7 +34,7 @@ import java.util.Set;
  * Implementations must be thread-safe. Instances may be shared and cached.
  *
  * @see MemoryFileSystem for in-memory testing
- * @see LegacyFileSystemApi for the legacy Status-based interface (deprecated)
+ * @see org.apache.doris.filesystem.spi.FileSystem for the new SPI interface
  */
 public interface FileSystem extends Closeable {
 
