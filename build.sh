@@ -139,6 +139,7 @@ function copy_common_files() {
 }
 
 . "${DORIS_HOME}/docker/thirdparties/juicefs-helpers.sh"
+. "${DORIS_HOME}/docker/thirdparties/jindofs-helpers.sh"
 
 find_juicefs_hadoop_jar() {
     juicefs_find_hadoop_jar_by_globs \
@@ -901,16 +902,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 
     #cp -r -p "${DORIS_HOME}/docs/build/help-resource.zip" "${DORIS_OUTPUT}/fe/lib"/
 
-    # copy jindofs jars, only support for Linux x64 or arm
+    # copy jindofs jars, including common jars and the matching platform jar
     if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
-        if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'x86_64' ]]; then
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "${TARGET_ARCH}" == 'aarch64' ]]; then
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/fe/lib/jindofs"/
-        fi
+        jindofs_copy_jars "${DORIS_THIRDPARTY}/installed/jindofs_libs" "${DORIS_OUTPUT}/fe/lib/jindofs" \
+            "${TARGET_SYSTEM}" "${TARGET_ARCH}"
     fi
 
     # copy juicefs hadoop client jar
@@ -1084,17 +1079,11 @@ EOF
         fi
     done        
 
-    # copy jindofs jars, only support for Linux x64 or arm
+    # copy jindofs jars, including common jars and the matching platform jar
     if [[ "${BUILD_JINDOFS}" == "ON" ]]; then
         install -d "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        if [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'x86_64' ]]; then
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-ubuntu22-x86_64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        elif [[ "${TARGET_SYSTEM}" == 'Linux' ]] && [[ "$TARGET_ARCH" == 'aarch64' ]]; then
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-core-linux-el7-aarch64-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-            cp -r -p "${DORIS_THIRDPARTY}"/installed/jindofs_libs/jindo-sdk-[0-9]*.jar "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs"/
-        fi
+        jindofs_copy_jars "${DORIS_THIRDPARTY}/installed/jindofs_libs" "${DORIS_OUTPUT}/be/lib/java_extensions/jindofs" \
+            "${TARGET_SYSTEM}" "${TARGET_ARCH}"
     fi
     if [[ "${BUILD_JUICEFS}" == "ON" ]]; then
         install -d "${DORIS_OUTPUT}/be/lib/java_extensions/juicefs"/
