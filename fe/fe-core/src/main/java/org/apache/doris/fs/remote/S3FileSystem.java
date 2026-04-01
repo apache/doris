@@ -40,7 +40,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class S3FileSystem extends ObjFileSystem implements MultipartUploadCapable {
+public class S3FileSystem extends ObjFileSystem {
 
     private static final Logger LOG = LogManager.getLogger(S3FileSystem.class);
     private final AbstractS3CompatibleProperties s3Properties;
@@ -129,7 +129,6 @@ public class S3FileSystem extends ObjFileSystem implements MultipartUploadCapabl
         }
     }
 
-    @Override
     public void completeMultipartUpload(String bucket, String key, String uploadId, Map<Integer, String> parts) {
         S3ObjStorage objStorage = (S3ObjStorage) this.objStorage;
         List<CompletedPart> completedParts = new ArrayList<>();

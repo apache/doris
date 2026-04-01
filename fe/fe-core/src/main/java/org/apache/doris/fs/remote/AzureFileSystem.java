@@ -31,7 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-public class AzureFileSystem extends ObjFileSystem implements MultipartUploadCapable {
+public class AzureFileSystem extends ObjFileSystem {
     private static final Logger LOG = LogManager.getLogger(AzureFileSystem.class);
     private final AzureProperties azureProperties;
 
@@ -80,7 +80,6 @@ public class AzureFileSystem extends ObjFileSystem implements MultipartUploadCap
         }
     }
 
-    @Override
     public void completeMultipartUpload(String bucket, String key, String uploadId, Map<Integer, String> parts) {
         AzureObjStorage azureObjStorage = (AzureObjStorage) getObjStorage();
         azureObjStorage.completeMultipartUpload(bucket, key, parts);
