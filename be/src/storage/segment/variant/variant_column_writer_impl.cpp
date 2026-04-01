@@ -190,7 +190,7 @@ struct SubcolumnWriteEntry {
     std::string_view path;
     ColumnVariant::Subcolumn* subcolumn = nullptr;
     // nullptr means dense materialization; otherwise sparse row ids for this path.
-    const std::vector<uint32_t>* rowids = nullptr;
+    std::vector<uint32_t>* rowids = nullptr;
 };
 
 struct SubcolumnWritePlan {
@@ -203,6 +203,8 @@ struct SubcolumnWritePlan {
     DocValuePathStats stats;
 };
 
+constexpr size_t kInitialDocPathReserve = 8192;
+
 // Build per-path non-null counts from the serialized doc-value representation.
 void build_doc_value_stats(const ColumnVariant& variant, DocValuePathStats* stats) {
     auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
@@ -211,7 +213,7 @@ void build_doc_value_stats(const ColumnVariant& variant, DocValuePathStats* stat
     const size_t num_rows = column_offsets.size();
 
     stats->clear();
-    stats->reserve(column_key->size());
+    stats->reserve(std::min<size_t>(column_key->size(), kInitialDocPathReserve));
     for (size_t row = 0; row < num_rows; ++row) {
         const size_t start = column_offsets[row - 1];
         const size_t end = column_offsets[row];
@@ -223,34 +225,34 @@ void build_doc_value_stats(const ColumnVariant& variant, DocValuePathStats* stat
     }
 }
 
-// Materialize sparse subcolumns for each path and build per-path non-null counts.
+// Materialize sparse subcolumns for each path using precomputed per-path non-null counts.
 // For each row, we decode only present (path, value) pairs and append them to the
 // corresponding subcolumn, while recording the row id to allow gap filling later.
-void build_sparse_subcolumns_and_stats(const ColumnVariant& variant,
-                                       DocSparseSubcolumns* subcolumns, DocValuePathStats* stats) {
+void build_sparse_subcolumns(const ColumnVariant& variant, const DocValuePathStats& stats,
+                             DocSparseSubcolumns* subcolumns) {
     auto [column_key, column_value] = variant.get_doc_value_data_paths_and_values();
     const auto& column_offsets = variant.serialized_doc_value_column_offsets();
     const size_t num_rows = column_offsets.size();
 
     subcolumns->clear();
-    stats->clear();
-    subcolumns->reserve(column_key->size());
+    subcolumns->reserve(stats.size());
 
     for (size_t row = 0; row < num_rows; ++row) {
         const size_t start = column_offsets[row - 1];
         const size_t end = column_offsets[row];
         for (size_t i = start; i < end; ++i) {
             const StringRef path = column_key->get_data_at(i);
-            auto& data = subcolumns->try_emplace(path).first->second;
+            auto stat_it = stats.find(path);
+            DCHECK(stat_it != stats.end());
+            auto [data_it, inserted] = subcolumns->try_emplace(path);
+            auto& data = data_it->second;
+            if (inserted) {
+                data.rowids.reserve(stat_it->second);
+            }
             data.rowids.push_back(cast_set<uint32_t>(row));
             data.subcolumn.deserialize_from_binary_column(column_value, i);
             ++data.non_null_count;
         }
-    }
-
-    stats->reserve(subcolumns->size());
-    for (const auto& [path, data] : *subcolumns) {
-        stats->try_emplace(path, data.non_null_count);
     }
 }
 
@@ -263,7 +265,8 @@ SubcolumnWritePlan build_subcolumn_write_plan(const ColumnVariant& variant, size
     }
 
     if (config::enable_variant_doc_sparse_write_subcolumns) {
-        build_sparse_subcolumns_and_stats(variant, &plan.sparse_subcolumns, &plan.stats);
+        build_doc_value_stats(variant, &plan.stats);
+        build_sparse_subcolumns(variant, plan.stats, &plan.sparse_subcolumns);
         plan.entries.reserve(plan.sparse_subcolumns.size());
         for (auto& [path, sparse] : plan.sparse_subcolumns) {
             SubcolumnWriteEntry entry;
@@ -277,7 +280,8 @@ SubcolumnWritePlan build_subcolumn_write_plan(const ColumnVariant& variant, size
     }
 
     build_doc_value_stats(variant, &plan.stats);
-    plan.dense_subcolumns = variant_util::materialize_docs_to_subcolumns_map(variant);
+    plan.dense_subcolumns =
+            variant_util::materialize_docs_to_subcolumns_map(variant, plan.stats.size());
     plan.entries.reserve(plan.dense_subcolumns.size());
     for (auto& [path, subcolumn] : plan.dense_subcolumns) {
         SubcolumnWriteEntry entry;
@@ -295,18 +299,37 @@ Status execute_doc_write_pipeline(const ColumnVariant& variant, size_t num_rows,
                                   WriteMaterializedFn&& write_materialized_fn,
                                   WriteDocValueFn&& write_doc_value_fn,
                                   DocValuePathStats* out_column_stats) {
-    SubcolumnWritePlan plan =
-            build_subcolumn_write_plan(variant, num_rows, variant_doc_materialization_min_rows);
-    *out_column_stats = std::move(plan.stats);
-    if (out_column_stats->empty()) {
-        build_doc_value_stats(variant, out_column_stats);
-    }
+    {
+        SubcolumnWritePlan plan =
+                build_subcolumn_write_plan(variant, num_rows, variant_doc_materialization_min_rows);
+        *out_column_stats = std::move(plan.stats);
+        if (out_column_stats->empty()) {
+            build_doc_value_stats(variant, out_column_stats);
+        }
 
-    for (auto& entry : plan.entries) {
-        RETURN_IF_ERROR(write_materialized_fn(entry, column_id));
+        for (auto& entry : plan.entries) {
+            RETURN_IF_ERROR(write_materialized_fn(entry, column_id));
+        }
     }
     RETURN_IF_ERROR(write_doc_value_fn(column_id));
     return Status::OK();
+}
+
+Status finish_and_write_column_writer(ColumnWriter* writer) {
+    RETURN_IF_ERROR(writer->finish());
+    RETURN_IF_ERROR(writer->write_data());
+    return Status::OK();
+}
+
+void release_processed_subcolumn_write_entry(SubcolumnWriteEntry* entry) {
+    DCHECK(entry != nullptr);
+    DCHECK(entry->subcolumn != nullptr);
+    ColumnVariant::Subcolumn released_subcolumn;
+    std::swap(*entry->subcolumn, released_subcolumn);
+    if (entry->rowids != nullptr) {
+        std::vector<uint32_t> released_rowids;
+        released_rowids.swap(*entry->rowids);
+    }
 }
 
 bool is_invalid_materialized_subcolumn_type(const DataTypePtr& type) {
@@ -1736,6 +1759,9 @@ Status VariantDocCompactWriter::finish() {
     if (!is_finalized()) {
         RETURN_IF_ERROR(finalize());
     }
+    if (_data_written) {
+        return Status::OK();
+    }
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->finish());
     }
@@ -1746,10 +1772,14 @@ Status VariantDocCompactWriter::write_data() {
     if (!is_finalized()) {
         RETURN_IF_ERROR(finalize());
     }
+    if (_data_written) {
+        return Status::OK();
+    }
     for (auto& column_writer : _subcolumn_writers) {
         RETURN_IF_ERROR(column_writer->write_data());
     }
     RETURN_IF_ERROR(_doc_value_column_writer->write_data());
+    _data_written = true;
     return Status::OK();
 }
 Status VariantDocCompactWriter::write_ordinal_index() {
@@ -1854,13 +1884,21 @@ Status VariantDocCompactWriter::finalize() {
             *variant_column, num_rows, variant_doc_materialization_min_rows, column_id,
             [this, &parent_column, num_rows, &converter](SubcolumnWriteEntry& entry,
                                                          int& materialized_column_id) {
-                return _write_materialized_subcolumn(parent_column, entry.path, *entry.subcolumn,
-                                                     num_rows, converter.get(),
-                                                     materialized_column_id, entry.rowids);
+                const size_t prev_writer_count = _subcolumn_writers.size();
+                RETURN_IF_ERROR(_write_materialized_subcolumn(
+                        parent_column, entry.path, *entry.subcolumn, num_rows, converter.get(),
+                        materialized_column_id, entry.rowids));
+                DCHECK_EQ(_subcolumn_writers.size(), prev_writer_count + 1);
+                RETURN_IF_ERROR(finish_and_write_column_writer(_subcolumn_writers.back().get()));
+                release_processed_subcolumn_write_entry(&entry);
+                return Status::OK();
             },
             [this, &parent_column, variant_column, &converter, num_rows](int doc_value_column_id) {
-                return _write_doc_value_column(parent_column, variant_column, converter.get(),
-                                               doc_value_column_id, num_rows);
+                RETURN_IF_ERROR(_write_doc_value_column(parent_column, variant_column,
+                                                        converter.get(), doc_value_column_id,
+                                                        num_rows));
+                RETURN_IF_ERROR(finish_and_write_column_writer(_doc_value_column_writer.get()));
+                return Status::OK();
             },
             &column_stats));
 
@@ -1870,6 +1908,8 @@ Status VariantDocCompactWriter::finalize() {
     for (const auto& [k, cnt] : column_stats) {
         (*doc_value_column_non_null_size)[std::string(k)] = cnt;
     }
+    _column = ColumnVariant::create(0, false);
+    _data_written = true;
     _is_finalized = true;
     return Status::OK();
 }

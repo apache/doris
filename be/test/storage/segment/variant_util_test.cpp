@@ -95,6 +95,67 @@ TEST(VariantUtilTest, ParseDocValueToSubcolumns_FillsDefaultsAndValues) {
     EXPECT_EQ(fb.field.get_type(), PrimitiveType::TYPE_NULL); // missing
 }
 
+TEST(VariantUtilTest, MaterializeDocsToSubcolumnsMap_ExpectedUniquePathsPreservesValues) {
+    const std::vector<std::string_view> jsons = {
+            R"({"a":1,"b":"x"})", //
+            R"({"b":"y","c":2})", //
+            R"({"a":3,"c":4})",   //
+    };
+
+    auto variant = ColumnVariant::create(0, true);
+    auto json_col = _make_json_column(jsons);
+
+    ParseConfig cfg;
+    cfg.deprecated_enable_flatten_nested = false;
+    cfg.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
+    parse_json_to_variant(*variant, *json_col, cfg);
+
+    EXPECT_TRUE(variant->is_doc_mode());
+
+    auto default_subcolumns = materialize_docs_to_subcolumns_map(*variant);
+    auto subcolumns = materialize_docs_to_subcolumns_map(*variant, 3);
+    ASSERT_EQ(subcolumns.size(), default_subcolumns.size());
+    ASSERT_EQ(subcolumns.size(), 3);
+
+    auto& a = subcolumns.at("a");
+    auto& b = subcolumns.at("b");
+    auto& c = subcolumns.at("c");
+    a.finalize();
+    b.finalize();
+    c.finalize();
+    EXPECT_EQ(a.size(), jsons.size());
+    EXPECT_EQ(b.size(), jsons.size());
+    EXPECT_EQ(c.size(), jsons.size());
+
+    FieldWithDataType f;
+    a.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 1);
+    a.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    a.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 3);
+
+    b.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "x");
+    b.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_STRING);
+    EXPECT_EQ(f.field.get<TYPE_STRING>(), "y");
+    b.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+
+    c.get(0, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_NULL);
+    c.get(1, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 2);
+    c.get(2, f);
+    EXPECT_EQ(f.field.get_type(), PrimitiveType::TYPE_BIGINT);
+    EXPECT_EQ(f.field.get<TYPE_BIGINT>(), 4);
+}
+
 TEST(VariantUtilTest, ParseOnlyDocValueColumn_SerializesMixedTypes) {
     const std::vector<std::string_view> jsons = {
             R"({"b":true,"d":1.5,"u":18446744073709551615,"arr":[1,2,3],"arr2":[[1],[2]],"s":"x"})",

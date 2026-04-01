@@ -491,20 +491,41 @@ Status OlapScanner::_init_tablet_reader_params(
             _tablet_reader_params.enable_mor_value_predicate_pushdown = true;
         }
 
-        // order by table keys optimization for topn
-        // will only read head/tail of data file since it's already sorted by keys
-        if (olap_scan_node.__isset.sort_info && !olap_scan_node.sort_info.is_asc_order.empty()) {
-            _limit = _local_state->limit_per_scanner();
-            _tablet_reader_params.read_orderby_key = true;
-            if (!olap_scan_node.sort_info.is_asc_order[0]) {
-                _tablet_reader_params.read_orderby_key_reverse = true;
-            }
-            _tablet_reader_params.read_orderby_key_num_prefix_columns =
-                    olap_scan_node.sort_info.is_asc_order.size();
-            _tablet_reader_params.read_orderby_key_limit = _limit;
+        // Skip topn / general-limit storage-layer optimizations when runtime
+        // filters exist.  Late-arriving filters would re-populate _conjuncts
+        // at the scanner level while the storage layer has already committed
+        // to a row budget counted before those filters, causing the scan to
+        // return fewer rows than the limit requires.
+        if (_total_rf_num == 0) {
+            // order by table keys optimization for topn
+            // will only read head/tail of data file since it's already sorted by keys
+            if (olap_scan_node.__isset.sort_info &&
+                !olap_scan_node.sort_info.is_asc_order.empty()) {
+                _limit = _local_state->limit_per_scanner();
+                _tablet_reader_params.read_orderby_key = true;
+                if (!olap_scan_node.sort_info.is_asc_order[0]) {
+                    _tablet_reader_params.read_orderby_key_reverse = true;
+                }
+                _tablet_reader_params.read_orderby_key_num_prefix_columns =
+                        olap_scan_node.sort_info.is_asc_order.size();
+                _tablet_reader_params.read_orderby_key_limit = _limit;
 
-            if (_tablet_reader_params.read_orderby_key_limit > 0 &&
-                olap_scan_local_state->_storage_no_merge()) {
+                if (_tablet_reader_params.read_orderby_key_limit > 0 &&
+                    olap_scan_local_state->_storage_no_merge()) {
+                    _tablet_reader_params.filter_block_conjuncts = _conjuncts;
+                    _conjuncts.clear();
+                }
+            } else if (_limit > 0 && olap_scan_local_state->_storage_no_merge()) {
+                // General limit pushdown for DUP_KEYS and UNIQUE_KEYS with MOW
+                // (non-merge path). Only when topn optimization is NOT active.
+                // NOTE: _limit is the global query limit (TPlanNode.limit), not a
+                // per-scanner budget. With N scanners each scanner may read up to
+                // _limit rows, so up to N * _limit rows are read in total before
+                // the _shared_scan_limit coordinator stops them. This is
+                // acceptable because _shared_scan_limit guarantees correctness,
+                // and the over-read is bounded by (N-1) * _limit which is small
+                // for typical LIMIT values.
+                _tablet_reader_params.general_read_limit = _limit;
                 _tablet_reader_params.filter_block_conjuncts = _conjuncts;
                 _conjuncts.clear();
             }
@@ -918,6 +939,11 @@ void OlapScanner::_collect_profile_before_close() {
                    stats.rows_ann_index_range_filtered);
     COUNTER_UPDATE(local_state->_ann_topn_filter_counter, stats.rows_ann_index_topn_filtered);
     COUNTER_UPDATE(local_state->_ann_index_load_costs, stats.ann_index_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_load_costs, stats.ann_ivf_on_disk_load_ns);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_hit_cnt,
+                   stats.ann_ivf_on_disk_cache_hit_cnt);
+    COUNTER_UPDATE(local_state->_ann_ivf_on_disk_cache_miss_cnt,
+                   stats.ann_ivf_on_disk_cache_miss_cnt);
     COUNTER_UPDATE(local_state->_ann_range_search_costs, stats.ann_index_range_search_ns);
     COUNTER_UPDATE(local_state->_ann_range_search_cnt, stats.ann_index_range_search_cnt);
     COUNTER_UPDATE(local_state->_ann_range_engine_search_costs, stats.ann_range_engine_search_ns);

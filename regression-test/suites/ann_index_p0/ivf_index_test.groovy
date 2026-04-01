@@ -66,7 +66,7 @@ suite ("ivf_index_test") {
         DISTRIBUTED BY HASH(id) BUCKETS 1
         PROPERTIES ("replication_num" = "1");
         """
-        exception """nlist of ann index must be specified for ivf type"""
+        exception """nlist of ann index must be specified for ivf/ivf_on_disk type"""
     }
 
     sql """
