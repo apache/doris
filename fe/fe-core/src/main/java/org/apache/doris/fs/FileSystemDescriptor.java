@@ -18,6 +18,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.fs.FsStorageType;
 
@@ -91,5 +92,25 @@ public class FileSystemDescriptor {
     /** Creates a FileSystemDescriptor from an existing PersistentFileSystem (migration helper). */
     public static FileSystemDescriptor fromPersistentFileSystem(PersistentFileSystem fs) {
         return new FileSystemDescriptor(fs.getStorageType(), fs.getName(), fs.getProperties());
+    }
+
+    /**
+     * Creates a FileSystemDescriptor from a StorageProperties instance.
+     * The {@code fsName} is the broker name for BROKER type, or empty for others.
+     */
+    public static FileSystemDescriptor fromStorageProperties(StorageProperties storageProperties, String fsName) {
+        FsStorageType storageType = storageNameToFsType(storageProperties.getStorageName());
+        return new FileSystemDescriptor(storageType, fsName, storageProperties.getOrigProps());
+    }
+
+    private static FsStorageType storageNameToFsType(String name) {
+        switch (name) {
+            case "S3":      return FsStorageType.S3;
+            case "HDFS":    return FsStorageType.HDFS;
+            case "BROKER":  return FsStorageType.BROKER;
+            case "AZURE":   return FsStorageType.AZURE;
+            case "OSSHDFS": return FsStorageType.OSS_HDFS;
+            default: throw new IllegalArgumentException("Unsupported storage type name: " + name);
+        }
     }
 }

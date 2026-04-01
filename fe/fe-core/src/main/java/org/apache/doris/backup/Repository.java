@@ -40,7 +40,6 @@ import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.PersistentFileSystem;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.service.FrontendOptions;
@@ -52,7 +51,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.codec.digest.DigestUtils;
-import org.apache.commons.lang3.exception.ExceptionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -144,16 +142,9 @@ public class Repository implements Writable, GsonPostProcessable {
     @SerializedName("fs_descriptor")
     private FileSystemDescriptor fileSystemDescriptor;
 
-    /** Live filesystem instance; transient — rebuilt in {@link #gsonPostProcess()}. */
-    private transient PersistentFileSystem fileSystem;
-
     /** SPI filesystem for I/O operations; transient — rebuilt in {@link #gsonPostProcess()}.
      *  Null for BROKER repositories, which resolve a live broker endpoint per I/O call. */
     private transient org.apache.doris.filesystem.spi.FileSystem spiFs;
-
-    public PersistentFileSystem getFileSystem() {
-        return fileSystem;
-    }
 
     public FileSystemDescriptor getFileSystemDescriptor() {
         return fileSystemDescriptor;
@@ -163,25 +154,27 @@ public class Repository implements Writable, GsonPostProcessable {
         // for persist
     }
 
-    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem) {
+    public Repository(long id, String name, boolean isReadOnly, String location,
+            StorageProperties storageProperties) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
-        this.fileSystem = fileSystem;
-        this.fileSystemDescriptor = FileSystemDescriptor.fromPersistentFileSystem(fileSystem);
+        String fsName = (storageProperties instanceof BrokerProperties)
+                ? ((BrokerProperties) storageProperties).getBrokerName() : "";
+        this.fileSystemDescriptor = FileSystemDescriptor.fromStorageProperties(storageProperties, fsName);
         this.createTime = System.currentTimeMillis();
         // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
-        if (fileSystem.getStorageType() != FsStorageType.BROKER) {
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
             try {
-                this.spiFs = FileSystemFactory.getFileSystem(fileSystem.getStorageProperties());
+                this.spiFs = FileSystemFactory.getFileSystem(storageProperties);
             } catch (IOException e) {
                 LOG.warn("Failed to initialize SPI filesystem for new repository {}: {}", name, e.getMessage());
             }
         }
     }
 
-    // join job info file name with timestamp
+
     // eg: __info_2018-01-01-08-00-00
     private static String jobInfoFileNameWithTimestamp(long createTime) {
         if (createTime == -1) {
@@ -233,33 +226,16 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-        // Determine source of name+properties: prefer new descriptor, fall back to legacy field.
-        String fsName;
+        // Determine source of properties: prefer new descriptor, fall back to legacy field.
         Map<String, String> fsProps;
         if (fileSystemDescriptor != null) {
-            fsName = fileSystemDescriptor.getName();
             fsProps = fileSystemDescriptor.getProperties();
         } else if (legacyFileSystem != null) {
-            fsName = legacyFileSystem.name;
             fsProps = legacyFileSystem.properties;
             // Migrate to new descriptor so the next write uses the new format.
             fileSystemDescriptor = FileSystemDescriptor.fromPersistentFileSystem(legacyFileSystem);
         } else {
             return;
-        }
-        try {
-            StorageProperties storageProperties = StorageProperties.createPrimary(fsProps);
-            this.fileSystem = FileSystemFactory.get(storageProperties);
-        } catch (RuntimeException exception) {
-            LOG.warn("File system initialization failed due to incompatible configuration parameters. "
-                            + "The system has reverted to BrokerFileSystem as a fallback. "
-                            + "However, the current configuration is not supported by this version and"
-                            + " cannot be used as is. "
-                            + "Please review the configuration and update it to match the supported parameter"
-                            + " format. Root cause: {}",
-                    ExceptionUtils.getRootCause(exception), exception);
-            BrokerProperties brokerProperties = BrokerProperties.of(fsName, fsProps);
-            this.fileSystem = FileSystemFactory.get(brokerProperties);
         }
         // Initialize SPI filesystem for I/O; broker resolves a live endpoint per I/O call
         if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
@@ -284,15 +260,13 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     public String getLocation() {
-        if (null == fileSystem) {
+        if (fileSystemDescriptor == null
+                || fileSystemDescriptor.getStorageType() == FsStorageType.BROKER) {
             return location;
         }
         try {
-            if (null == fileSystem.getStorageProperties()) {
-                return location;
-            } else {
-                return fileSystem.getStorageProperties().validateAndNormalizeUri(location);
-            }
+            return StorageProperties.createPrimary(fileSystemDescriptor.getProperties())
+                    .validateAndNormalizeUri(location);
         } catch (UserException e) {
             throw new RuntimeException(e);
         }
@@ -300,10 +274,6 @@ public class Repository implements Writable, GsonPostProcessable {
 
     public String getErrorMsg() {
         return errMsg;
-    }
-
-    public PersistentFileSystem getRemoteFileSystem() {
-        return fileSystem;
     }
 
     /**
@@ -755,7 +725,7 @@ public class Repository implements Writable, GsonPostProcessable {
                     + "failed to send upload snapshot task");
         }
         // only Broker storage backend need to get broker addr, other type return a fake one;
-        if (fileSystem.getStorageType() != FsStorageType.BROKER) {
+        if (fileSystemDescriptor.getStorageType() != FsStorageType.BROKER) {
             brokerAddrs.add(new FsBroker("127.0.0.1", 0));
             return Status.OK;
         }
@@ -763,15 +733,15 @@ public class Repository implements Writable, GsonPostProcessable {
         // get proper broker for this backend
         FsBroker brokerAddr = null;
         try {
-            brokerAddr = env.getBrokerMgr().getBroker(fileSystem.getName(), be.getHost());
+            brokerAddr = env.getBrokerMgr().getBroker(fileSystemDescriptor.getName(), be.getHost());
         } catch (AnalysisException e) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + fileSystem.getName() + " when try to send upload snapshot task: "
+                    + fileSystemDescriptor.getName() + " when try to send upload snapshot task: "
                     + e.getMessage());
         }
         if (brokerAddr == null) {
             return new Status(ErrCode.COMMON_ERROR, "failed to get address of broker "
-                    + fileSystem.getName() + " when try to send upload snapshot task");
+                    + fileSystemDescriptor.getName() + " when try to send upload snapshot task");
         }
         brokerAddrs.add(brokerAddr);
         return Status.OK;
@@ -784,8 +754,9 @@ public class Repository implements Writable, GsonPostProcessable {
         info.add(TimeUtils.longToTimeString(createTime));
         info.add(String.valueOf(isReadOnly));
         info.add(location);
-        info.add(fileSystem.getStorageType() != FsStorageType.BROKER ? "-" : fileSystem.getName());
-        info.add(fileSystem.getStorageType().name());
+        info.add(fileSystemDescriptor.getStorageType() != FsStorageType.BROKER
+                ? "-" : fileSystemDescriptor.getName());
+        info.add(fileSystemDescriptor.getStorageType().name());
         info.add(errMsg == null ? FeConstants.null_string : errMsg);
         return info;
     }
@@ -824,14 +795,14 @@ public class Repository implements Writable, GsonPostProcessable {
         stmtBuilder.append("REPOSITORY ");
         stmtBuilder.append(this.name);
         stmtBuilder.append(" \nWITH ");
-        FsStorageType storageType = this.fileSystem.getStorageType();
+        FsStorageType storageType = fileSystemDescriptor.getStorageType();
         if (storageType == FsStorageType.S3) {
             stmtBuilder.append(" S3 ");
         } else if (storageType == FsStorageType.HDFS) {
             stmtBuilder.append(" HDFS ");
         } else if (storageType == FsStorageType.BROKER) {
             stmtBuilder.append(" BROKER ");
-            stmtBuilder.append(this.fileSystem.getName());
+            stmtBuilder.append(fileSystemDescriptor.getName());
         } else {
             // should never reach here
             throw new UnsupportedOperationException(storageType.toString() + " backend is not implemented");
@@ -842,7 +813,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
         stmtBuilder.append("\nPROPERTIES\n(");
         Map<String, String> properties = new HashMap();
-        properties.putAll(this.getRemoteFileSystem().getProperties());
+        properties.putAll(fileSystemDescriptor.getProperties());
         stmtBuilder.append(new DatasourcePrintableMap<>(properties, " = ", true, true, true));
         stmtBuilder.append("\n)");
         return stmtBuilder.toString();
