@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalView;
+import org.apache.doris.qe.BDPAuthContext;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
@@ -113,7 +114,7 @@ public class CheckPrivileges extends ColumnPruning {
         return super.visitLogicalCTEConsumer(consumer, context);
     }
 
-    private Set<String> computeUsedColumns(Plan plan, RoaringBitmap requiredSlotIds) {
+    protected Set<String> computeUsedColumns(Plan plan, RoaringBitmap requiredSlotIds) {
         List<Slot> outputs = plan.getOutput();
         Map<Integer, Slot> idToSlot = new LinkedHashMap<>(outputs.size());
         for (Slot output : outputs) {
@@ -124,6 +125,10 @@ public class CheckPrivileges extends ColumnPruning {
         for (Integer requiredSlotId : requiredSlotIds) {
             Slot slot = idToSlot.get(requiredSlotId);
             if (slot != null) {
+                if (slot instanceof SlotReference && !((SlotReference) slot).hasPermission()) {
+                    throw new AnalysisException(String.format("%s has no permission on column [%s]",
+                        BDPAuthContext.get().getHadoopUserName(), slot.getName()));
+                }
                 // don't check privilege for hidden column, e.g. __DORIS_DELETE_SIGN__
                 if (slot instanceof SlotReference && ((SlotReference) slot).getOriginalColumn().isPresent()
                         && !((SlotReference) slot).getOriginalColumn().get().isVisible()) {

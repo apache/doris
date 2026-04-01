@@ -21,6 +21,8 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.CatalogIf;
+import org.apache.doris.datasource.hive.HMSExternalDatabase;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.DataMaskPolicy;
 import org.apache.doris.mysql.privilege.RowFilterPolicy;
@@ -150,7 +152,9 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         ConnectContext connectContext = cascadesContext.getConnectContext();
         AccessControllerManager accessManager = connectContext.getEnv().getAccessManager();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
-        if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
+        boolean isHMSPolicy = logicalPlan instanceof CatalogRelation && ((CatalogRelation) logicalPlan).getDatabase()
+                instanceof HMSExternalDatabase;
+        if ((currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) && !isHMSPolicy) {
             return RelatedPolicy.NO_POLICY;
         }
 
@@ -197,8 +201,9 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
             }
         }
 
-        List<? extends RowFilterPolicy> rowPolicies = accessManager.evalRowFilterPolicies(
-                currentUserIdentity, ctlName, dbName, tableName);
+        List<? extends RowFilterPolicy> rowPolicies = isHMSPolicy ? getRowFilterPolicies((CatalogRelation) logicalPlan,
+                currentUserIdentity, accessManager, ctlName, dbName, tableName)
+                : accessManager.evalRowFilterPolicies(currentUserIdentity, ctlName, dbName, tableName);
         if (sqlCacheContext.isPresent()) {
             sqlCacheContext.get().setRowFilterPolicy(ctlName, dbName, tableName, rowPolicies);
         }
@@ -207,6 +212,34 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
                 Optional.ofNullable(CollectionUtils.isEmpty(rowPolicies) ? null : mergeRowPolicy(rowPolicies)),
                 hasDataMask ? Optional.of(dataMasks.build()) : Optional.empty()
         );
+    }
+
+    /**
+     * get row filter policy for logicalRelation.
+     *
+     */
+    public List<? extends RowFilterPolicy> getRowFilterPolicies(CatalogRelation catalogRelation,
+            UserIdentity currentUserIdentity, AccessControllerManager accessManager, String ctlName,
+            String dbName, String tableName) {
+        List<? extends RowFilterPolicy> rowPolicies = accessManager.evalRowFilterPolicies(
+                currentUserIdentity, ctlName, dbName, tableName);
+        if (catalogRelation.getTable() instanceof HMSExternalTable) {
+            HMSExternalTable hmsExternalTable = (HMSExternalTable) catalogRelation.getTable();
+            if (hmsExternalTable.getRowPolicy() != null) {
+                ((List<RowFilterPolicy>) rowPolicies).add(new RowFilterPolicy() {
+                    @Override
+                    public Expression getFilterExpression() {
+                        return hmsExternalTable.getRowPolicy();
+                    }
+
+                    @Override
+                    public String getPolicyIdent() {
+                        return "custom policy: " + hmsExternalTable.getRowPolicy().toSql();
+                    }
+                });
+            }
+        }
+        return rowPolicies;
     }
 
     private RelatedPolicy findPolicyByMvRefresh(Map<TableIf, Set<Expression>> mvRefreshPredicates,

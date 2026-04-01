@@ -42,6 +42,7 @@ import com.google.gson.annotations.SerializedName;
 import com.google.protobuf.ByteString;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.hive.common.util.Constants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -445,6 +446,10 @@ public class Column implements GsonPostProcessable {
 
     public void setIsVisible(boolean isVisible) {
         this.visible = isVisible;
+    }
+
+    public boolean hasPermission() {
+        return StringUtils.isEmpty(comment) || !comment.contains(Constants.JD_SHIELDING_COLUMN);
     }
 
     public boolean isDeleteSignColumn() {

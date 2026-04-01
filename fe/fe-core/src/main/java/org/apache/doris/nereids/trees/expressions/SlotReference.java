@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.Pair;
+import org.apache.doris.datasource.hive.HMSExternalTable;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
@@ -345,7 +346,18 @@ public class SlotReference extends Slot {
     }
 
     public boolean isVisible() {
+        if (originalTable instanceof HMSExternalTable && originalColumn != null) {
+            return originalColumn.isVisible() && originalColumn.hasPermission();
+        }
         return originalColumn == null || originalColumn.isVisible();
+    }
+
+    public boolean hasPermission() {
+        if (originalTable instanceof HMSExternalTable) {
+            return originalColumn != null && originalColumn.hasPermission();
+        } else {
+            return true;
+        }
     }
 
     public List<String> getSubPath() {

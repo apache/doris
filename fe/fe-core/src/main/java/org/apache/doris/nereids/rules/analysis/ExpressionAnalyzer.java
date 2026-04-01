@@ -358,7 +358,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
         List<Slot> scopeSlots = getScope().getAsteriskSlots();
         ImmutableList.Builder<Slot> showSlots = ImmutableList.builderWithExpectedSize(scopeSlots.size());
         for (Slot slot : scopeSlots) {
-            if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible()) || showHidden) {
+            if (!(slot instanceof SlotReference) || (((SlotReference) slot).isVisible())
+                    || showHidden && (((SlotReference) slot).hasPermission())) {
                 showSlots.add(slot);
             }
             if (slot.getDataType() instanceof NestedColumnPrunable) {
