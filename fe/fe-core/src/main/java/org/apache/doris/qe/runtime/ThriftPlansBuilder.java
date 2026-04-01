@@ -411,11 +411,16 @@ public class ThriftPlansBuilder {
             params.setFileScanParams(fileScanRangeParamsMap);
 
             if (fragmentPlan.getFragmentJob() instanceof UnassignedScanBucketOlapTableJob) {
-                int bucketNum = ((UnassignedScanBucketOlapTableJob) fragmentPlan.getFragmentJob())
+                int physicalBucketNum = ((UnassignedScanBucketOlapTableJob) fragmentPlan.getFragmentJob())
                         .getOlapScanNodes()
                         .get(0)
                         .getBucketNum();
-                params.setNumBuckets(bucketNum);
+                // When local shuffle creates more instances than physical buckets,
+                // virtual bucket indexes are assigned beyond the physical range.
+                // Expand num_buckets to cover all virtual buckets so that
+                // hash % num_buckets can route data to every instance.
+                int workerInstanceNum = instancesPerWorker.get(worker).size();
+                params.setNumBuckets(Math.max(physicalBucketNum, workerInstanceNum));
             }
 
             List<AssignedJob> instances = instancesPerWorker.get(worker);

@@ -254,13 +254,18 @@ public class UnassignedScanBucketOlapTableJob extends AbstractUnassignedScanJob 
             }
         }
 
+        // When instanceNum > numBuckets (physical bucket count), extra instances would get
+        // no data through BUCKET_HASH_SHUFFLE local exchange because hash % numBuckets never
+        // maps to them. Fix: assign virtual bucket indexes (beyond physical range) to extra
+        // instances so the expanded bucket space covers all instances evenly.
         int thisWorkerInstanceNum = instances.size() - existsInstanceNum;
+        int numBuckets = fullBucketNum();
         for (int i = thisWorkerInstanceNum; i < instanceNum; ++i) {
+            int virtualBucketIndex = numBuckets + (i - thisWorkerInstanceNum);
             LocalShuffleBucketJoinAssignedJob instance = new LocalShuffleBucketJoinAssignedJob(
                     instances.size(), shareScanId, context.nextInstanceId(),
                     this, worker, emptyShareScanSource,
-                    // these instance not need to join, because no any bucket assign to it
-                    ImmutableSet.of()
+                    ImmutableSet.of(virtualBucketIndex)
             );
             instances.add(instance);
         }
