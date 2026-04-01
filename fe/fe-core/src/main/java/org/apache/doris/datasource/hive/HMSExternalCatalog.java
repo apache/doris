@@ -34,7 +34,6 @@ import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.metastore.AbstractHiveProperties;
 import org.apache.doris.fs.SpiSwitchingFileSystem;
-import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 import org.apache.doris.transaction.TransactionManagerFactory;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -227,7 +226,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         super.setDefaultPropsIfMissing(isReplay);
         if (ifNotSetFallbackToSimpleAuth()) {
             // always allow fallback to simple auth, so to support both kerberos and simple auth
-            catalogProperty.addProperty(DFSFileSystem.PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
+            catalogProperty.addProperty("ipc.client.fallback-to-simple-auth-allowed", "true");
         }
     }
 

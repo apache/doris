@@ -585,7 +585,6 @@ public class GsonUtils {
         // New metadata uses FileSystemDescriptor, which does not require these registrations.
         String[][] subtypes = {
             {"BrokerFileSystem",  "org.apache.doris.fs.remote.BrokerFileSystem"},
-            {"DFSFileSystem",     "org.apache.doris.fs.remote.dfs.DFSFileSystem"},
             {"S3FileSystem",      "org.apache.doris.fs.remote.S3FileSystem"},
             {"AzureFileSystem",   "org.apache.doris.fs.remote.AzureFileSystem"},
         };
