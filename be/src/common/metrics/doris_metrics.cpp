@@ -255,6 +255,12 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_costs_ms, MetricUnit::MILLIS
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_load_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_search_costs_ms, MetricUnit::MILLISECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_search_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_ivf_on_disk_fetch_page_costs_ms, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_ivf_on_disk_fetch_page_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_ivf_on_disk_search_costs_ms, MetricUnit::MILLISECONDS);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_ivf_on_disk_search_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_ivf_on_disk_cache_hit_cnt, MetricUnit::NOUNIT);
+DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_ivf_on_disk_cache_miss_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_in_memory_cnt, MetricUnit::NOUNIT);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_in_memory_rows_cnt, MetricUnit::ROWS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(ann_index_construction, MetricUnit::NOUNIT);
@@ -427,6 +433,12 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_load_cnt);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_search_costs_ms);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_search_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_ivf_on_disk_fetch_page_costs_ms);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_ivf_on_disk_fetch_page_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_ivf_on_disk_search_costs_ms);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_ivf_on_disk_search_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_ivf_on_disk_cache_hit_cnt);
+    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_ivf_on_disk_cache_miss_cnt);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_in_memory_cnt);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_in_memory_rows_cnt);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, ann_index_construction);

@@ -380,6 +380,9 @@ struct OlapReaderStatistics {
     int64_t ann_index_load_ns = 0;
     int64_t ann_topn_search_ns = 0;
     int64_t ann_index_topn_search_cnt = 0;
+    int64_t ann_ivf_on_disk_load_ns = 0;
+    int64_t ann_ivf_on_disk_cache_hit_cnt = 0;
+    int64_t ann_ivf_on_disk_cache_miss_cnt = 0;
 
     // Detailed timing for ANN operations
     int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search

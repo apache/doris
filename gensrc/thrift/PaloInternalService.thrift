@@ -418,7 +418,7 @@ struct TQueryOptions {
   178: optional i64 iceberg_write_target_file_size_bytes = 0;
   180: optional i32 max_file_scanners_concurrency = 0;
   181: optional i32 min_file_scanners_concurrency = 0;
-  182: optional i32 ivf_nprobe = 1;
+  182: optional i32 ivf_nprobe = 32;
 
   179: optional bool enable_parquet_filter_by_bloom_filter = true;
 

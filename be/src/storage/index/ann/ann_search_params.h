@@ -39,6 +39,10 @@
 #include "exec/scan/vector_search_user_params.h"
 #include "runtime/runtime_profile.h"
 
+namespace doris::io {
+struct IOContext;
+} // namespace doris::io
+
 namespace doris::segment_v2 {
 #include "common/compile_check_begin.h"
 
@@ -49,7 +53,12 @@ struct AnnIndexStats {
               engine_search_ns(TUnit::TIME_NS, 0),
               result_process_costs_ns(TUnit::TIME_NS, 0),
               engine_convert_ns(TUnit::TIME_NS, 0),
-              engine_prepare_ns(TUnit::TIME_NS, 0) {}
+              engine_prepare_ns(TUnit::TIME_NS, 0),
+              ivf_on_disk_load_costs_ns(TUnit::TIME_NS, 0),
+              ivf_on_disk_search_costs_ns(TUnit::TIME_NS, 0),
+              ivf_on_disk_search_cnt(TUnit::UNIT, 0),
+              ivf_on_disk_cache_hit_cnt(TUnit::UNIT, 0),
+              ivf_on_disk_cache_miss_cnt(TUnit::UNIT, 0) {}
 
     AnnIndexStats(const AnnIndexStats& other)
             : search_costs_ns(TUnit::TIME_NS, other.search_costs_ns.value()),
@@ -57,7 +66,13 @@ struct AnnIndexStats {
               engine_search_ns(TUnit::TIME_NS, other.engine_search_ns.value()),
               result_process_costs_ns(TUnit::TIME_NS, other.result_process_costs_ns.value()),
               engine_convert_ns(TUnit::TIME_NS, other.engine_convert_ns.value()),
-              engine_prepare_ns(TUnit::TIME_NS, other.engine_prepare_ns.value()) {}
+              engine_prepare_ns(TUnit::TIME_NS, other.engine_prepare_ns.value()),
+              ivf_on_disk_load_costs_ns(TUnit::TIME_NS, other.ivf_on_disk_load_costs_ns.value()),
+              ivf_on_disk_search_costs_ns(TUnit::TIME_NS,
+                                          other.ivf_on_disk_search_costs_ns.value()),
+              ivf_on_disk_search_cnt(TUnit::UNIT, other.ivf_on_disk_search_cnt.value()),
+              ivf_on_disk_cache_hit_cnt(TUnit::UNIT, other.ivf_on_disk_cache_hit_cnt.value()),
+              ivf_on_disk_cache_miss_cnt(TUnit::UNIT, other.ivf_on_disk_cache_miss_cnt.value()) {}
 
     AnnIndexStats& operator=(const AnnIndexStats& other) {
         if (this != &other) {
@@ -67,6 +82,11 @@ struct AnnIndexStats {
             result_process_costs_ns.set(other.result_process_costs_ns.value());
             engine_convert_ns.set(other.engine_convert_ns.value());
             engine_prepare_ns.set(other.engine_prepare_ns.value());
+            ivf_on_disk_load_costs_ns.set(other.ivf_on_disk_load_costs_ns.value());
+            ivf_on_disk_search_costs_ns.set(other.ivf_on_disk_search_costs_ns.value());
+            ivf_on_disk_search_cnt.set(other.ivf_on_disk_search_cnt.value());
+            ivf_on_disk_cache_hit_cnt.set(other.ivf_on_disk_cache_hit_cnt.value());
+            ivf_on_disk_cache_miss_cnt.set(other.ivf_on_disk_cache_miss_cnt.value());
         }
         return *this;
     }
@@ -78,6 +98,11 @@ struct AnnIndexStats {
     RuntimeProfile::Counter engine_convert_ns;       // time cost of engine-side conversions
     RuntimeProfile::Counter
             engine_prepare_ns; // time cost before engine search (allocations, setup)
+    RuntimeProfile::Counter ivf_on_disk_load_costs_ns;   // IVF_ON_DISK index load costs
+    RuntimeProfile::Counter ivf_on_disk_search_costs_ns; // IVF_ON_DISK search costs
+    RuntimeProfile::Counter ivf_on_disk_search_cnt;      // IVF_ON_DISK search count
+    RuntimeProfile::Counter ivf_on_disk_cache_hit_cnt;   // IVF_ON_DISK cache hit count
+    RuntimeProfile::Counter ivf_on_disk_cache_miss_cnt;  // IVF_ON_DISK cache miss count
 };
 
 struct AnnTopNParam {
@@ -128,12 +153,18 @@ struct IndexSearchResult {
     int64_t engine_search_ns = 0;  // time spent in the underlying index search call
     int64_t engine_convert_ns = 0; // time spent building selectors/results inside the engine
     int64_t engine_prepare_ns = 0; // time spent preparing buffers before engine search
+    int64_t ivf_on_disk_cache_hit_cnt = 0;
+    int64_t ivf_on_disk_cache_miss_cnt = 0;
 };
 
 struct IndexSearchParameters {
     roaring::Roaring* roaring = nullptr;
     bool is_le_or_lt = true;
     size_t rows_of_segment = 0;
+    // Caller-owned IOContext, valid for the duration of the search.
+    // Propagated via thread_local to CachedRandomAccessReader so that
+    // file-cache statistics are attributed to the correct query.
+    const io::IOContext* io_ctx = nullptr;
     virtual ~IndexSearchParameters() = default;
 };
 
