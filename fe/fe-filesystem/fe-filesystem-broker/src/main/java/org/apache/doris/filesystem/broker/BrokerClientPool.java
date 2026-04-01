@@ -17,10 +17,11 @@
 
 package org.apache.doris.filesystem.broker;
 
-import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
-import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloBrokerService;
+
+import org.apache.commons.pool2.impl.GenericKeyedObjectPool;
+import org.apache.commons.pool2.impl.GenericKeyedObjectPoolConfig;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -40,9 +41,9 @@ class BrokerClientPool implements Closeable {
 
     private final GenericKeyedObjectPool<TNetworkAddress, TPaloBrokerService.Client> pool;
 
+    @SuppressWarnings("unchecked")
     BrokerClientPool() {
-        GenericKeyedObjectPoolConfig<TPaloBrokerService.Client> config =
-                new GenericKeyedObjectPoolConfig<>();
+        GenericKeyedObjectPoolConfig config = new GenericKeyedObjectPoolConfig();
         config.setMaxIdlePerKey(16);
         config.setMinIdlePerKey(0);
         config.setMaxTotalPerKey(-1);

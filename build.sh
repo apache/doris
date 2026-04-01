@@ -606,6 +606,14 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-extension-spi")
     modules+=("fe-extension-loader")
     modules+=("fe-core")
+    # Filesystem SPI plugin modules (loaded at runtime as plugins)
+    modules+=("fe-filesystem/fe-filesystem-spi")
+    for _fs_mod in s3 oss cos obs azure hdfs local broker; do
+        if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
+            modules+=("fe-filesystem/fe-filesystem-${_fs_mod}")
+        fi
+    done
+    unset _fs_mod
     if [[ "${WITH_TDE_DIR}" != "" ]]; then
         modules+=("fe-${WITH_TDE_DIR}")
     fi

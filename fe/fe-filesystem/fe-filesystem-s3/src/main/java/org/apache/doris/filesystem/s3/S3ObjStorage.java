@@ -535,6 +535,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     @Override
     public Map<String, String> getProperties() {
+        return properties;
+    }
 
     @Override
     public void close() throws IOException {

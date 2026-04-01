@@ -45,8 +45,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
-
- /* S3-backed FileSystem implementation for the Doris FE filesystem SPI.
+/* S3-backed FileSystem implementation for the Doris FE filesystem SPI.
  * Does not depend on fe-core, fe-common, or fe-catalog.
  */
 public class S3FileSystem extends ObjFileSystem {

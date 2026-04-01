@@ -17,11 +17,12 @@
 
 package org.apache.doris.filesystem.broker;
 
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TPaloBrokerService;
+
 import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
 import org.apache.commons.pool2.PooledObject;
 import org.apache.commons.pool2.impl.DefaultPooledObject;
-import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPaloBrokerService;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.protocol.TBinaryProtocol;
@@ -36,13 +37,11 @@ class BrokerClientFactory extends BaseKeyedPooledObjectFactory<TNetworkAddress, 
 
     private static final Logger LOG = LogManager.getLogger(BrokerClientFactory.class);
 
-    private static final int CONNECT_TIMEOUT_MS  = 10_000;
-    private static final int SOCKET_TIMEOUT_MS   = 300_000;
+    private static final int SOCKET_TIMEOUT_MS = 300_000;
 
     @Override
     public TPaloBrokerService.Client create(TNetworkAddress address) throws Exception {
-        TSocket socket = new TSocket(address.getHostname(), address.getPort(),
-                SOCKET_TIMEOUT_MS, CONNECT_TIMEOUT_MS);
+        TSocket socket = new TSocket(address.getHostname(), address.getPort(), SOCKET_TIMEOUT_MS);
         TTransport transport = socket;
         try {
             transport.open();
