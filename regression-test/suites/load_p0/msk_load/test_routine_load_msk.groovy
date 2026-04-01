@@ -26,12 +26,12 @@ suite("test_routine_load_msk_access") {
         return
     }
 
-    def ak = context.config.awsAccessKey
-    def sk = context.config.awsSecretKey
-    def region = context.config.awsRegion
+    String ak = context.config.otherConfigs.get("awsMskAccessKey")
+    String sk = context.config.otherConfigs.get("awsMskSecretKey")
+    String region = context.config.otherConfigs.get("awsMskRegion")
     String bootstrapBrokers = context.config.otherConfigs.get("mskBrokerList")
-    String role = context.config.otherConfigs.get("awsRole")
-    String sslCaLocation = context.config.otherConfigs.get("sslCaLocation")
+    String role = context.config.otherConfigs.get("awsMskRole")
+    String sslCaLocation = context.config.otherConfigs.get("MskSslCaLocation")
 
     logger.info("Using topic: ${topicName}")
     logger.info("Bootstrap brokers: ${bootstrapBrokers}")

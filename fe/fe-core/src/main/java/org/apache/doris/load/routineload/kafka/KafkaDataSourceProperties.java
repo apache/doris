@@ -267,14 +267,21 @@ public class KafkaDataSourceProperties extends AbstractDataSourceProperties {
         boolean hasAccessKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_ACCESS_KEY);
         boolean hasSecretKey = customKafkaProperties.containsKey(KafkaConfiguration.AWS_SECRET_KEY);
         boolean hasRoleArn = customKafkaProperties.containsKey(KafkaConfiguration.AWS_MSK_IAM_ROLE_ARN);
+        boolean hasExternalId = customKafkaProperties.containsKey(KafkaConfiguration.AWS_EXTERNAL_ID);
         boolean hasProfileName = customKafkaProperties.containsKey(KafkaConfiguration.AWS_PROFILE_NAME);
         boolean hasCredentialsProvider = customKafkaProperties.containsKey(KafkaConfiguration.AWS_CREDENTIALS_PROVIDER);
 
         boolean isAwsMskIam = hasAwsRegion || hasAccessKey || hasSecretKey || hasRoleArn
+                || hasExternalId
                 || hasProfileName || hasCredentialsProvider;
 
         // If AWS-related property is set, validate the complete configuration
         if (isAwsMskIam) {
+            if (hasExternalId && !hasRoleArn) {
+                throw new AnalysisException("When using AWS MSK IAM authentication, "
+                        + "'aws.external_id' must be used with 'aws.role_arn'.");
+            }
+
             // aws.region is required for AWS MSK IAM authentication
             if (!hasAwsRegion) {
                 throw new AnalysisException("When using AWS MSK IAM authentication, "

@@ -21,6 +21,7 @@
 
 #include <memory>
 #include <string>
+#include <unordered_map>
 
 #include "common/status.h"
 
@@ -86,6 +87,16 @@ TEST_F(AwsMskIamAuthTest, TestConfigWithRoleArn) {
     ASSERT_TRUE(true);
 }
 
+TEST_F(AwsMskIamAuthTest, TestConfigWithRoleArnAndExternalId) {
+    config.role_arn = "arn:aws:iam::123456789012:role/TestRole";
+    config.external_id = "external-id-123";
+
+    AwsMskIamAuth auth(config);
+
+    // Should create without error even if role doesn't exist
+    ASSERT_TRUE(true);
+}
+
 TEST_F(AwsMskIamAuthTest, TestConfigWithProfile) {
     config.profile_name = "test-profile";
 
@@ -125,6 +136,26 @@ TEST_F(AwsMskIamAuthTest, TestCrossAccountAssumeRole) {
     ASSERT_TRUE(true);
 }
 
+TEST_F(AwsMskIamAuthTest, TestRoleArnWithCredentialsProvider) {
+    config.role_arn = "arn:aws:iam::123456789012:role/TestRole";
+    config.credentials_provider = "ENV";
+
+    AwsMskIamAuth auth(config);
+
+    // Should create without error. ENV provider will be used as AssumeRole base credentials provider.
+    ASSERT_TRUE(true);
+}
+
+TEST_F(AwsMskIamAuthTest, TestRoleArnWithProfileName) {
+    config.role_arn = "arn:aws:iam::123456789012:role/TestRole";
+    config.profile_name = "default";
+
+    AwsMskIamAuth auth(config);
+
+    // Should create without error. Profile provider will be used as AssumeRole base credentials provider.
+    ASSERT_TRUE(true);
+}
+
 TEST_F(AwsMskIamAuthTest, TestMultipleRegions) {
     std::vector<std::string> regions = {"us-east-1", "us-west-2", "eu-west-1", "ap-southeast-1"};
 
@@ -155,6 +186,33 @@ TEST_F(AwsMskIamAuthTest, TestOAuthCallbackCreation) {
 
     // Callback should be created successfully
     ASSERT_TRUE(true);
+}
+
+TEST_F(AwsMskIamAuthTest, TestOAuthCallbackCreationWithExternalIdAndRoleArn) {
+    std::unordered_map<std::string, std::string> properties {
+            {"security.protocol", "SASL_SSL"},
+            {"sasl.mechanism", "OAUTHBEARER"},
+            {"aws.region", "us-east-1"},
+            {"aws.role_arn", "arn:aws:iam::123456789012:role/TestRole"},
+            {"aws.external_id", "external-id-123"},
+    };
+
+    auto callback = AwsMskIamOAuthCallback::create_from_properties(
+            properties, "b-1.test-msk.us-east-1.amazonaws.com:9098");
+    ASSERT_NE(callback, nullptr);
+}
+
+TEST_F(AwsMskIamAuthTest, TestOAuthCallbackCreationWithExternalIdWithoutRoleArn) {
+    std::unordered_map<std::string, std::string> properties {
+            {"security.protocol", "SASL_SSL"},
+            {"sasl.mechanism", "OAUTHBEARER"},
+            {"aws.region", "us-east-1"},
+            {"aws.external_id", "external-id-123"},
+    };
+
+    auto callback = AwsMskIamOAuthCallback::create_from_properties(
+            properties, "b-1.test-msk.us-east-1.amazonaws.com:9098");
+    ASSERT_EQ(callback, nullptr);
 }
 
 // Integration test - only runs if AWS credentials are available

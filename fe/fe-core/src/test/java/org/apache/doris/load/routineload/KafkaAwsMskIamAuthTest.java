@@ -187,6 +187,41 @@ public class KafkaAwsMskIamAuthTest {
     }
 
     @Test
+    public void testExternalIdWithRoleArn() throws UserException {
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::123456789012:role/MyMskRole");
+        dataSourceProperties.put("property.aws.external_id", "external-id-123");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        Map<String, String> customProps = props.getCustomKafkaProperties();
+        Assert.assertEquals("external-id-123", customProps.get("aws.external_id"));
+    }
+
+    @Test
+    public void testExternalIdWithoutRoleArn() {
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.external_id", "external-id-123");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+
+        try {
+            props.analyze();
+            Assert.fail("Should throw AnalysisException for external_id without role_arn");
+        } catch (UserException e) {
+            Assert.assertTrue(e.getMessage().contains("aws.external_id"));
+            Assert.assertTrue(e.getMessage().contains("aws.role_arn"));
+        }
+    }
+
+    @Test
     public void testScramSha256Config() throws UserException {
         // Test SCRAM-SHA-256 configuration (non-IAM SASL)
         dataSourceProperties.put("property.security.protocol", "SASL_SSL");
@@ -285,6 +320,24 @@ public class KafkaAwsMskIamAuthTest {
 
         Assert.assertNotNull(props.getCustomKafkaProperties());
         Assert.assertEquals("INSTANCE_PROFILE", props.getCustomKafkaProperties().get("aws.credentials_provider"));
+    }
+
+    @Test
+    public void testRoleArnWithCredentialsProvider() throws UserException {
+        dataSourceProperties.put("property.security.protocol", "SASL_SSL");
+        dataSourceProperties.put("property.sasl.mechanism", "OAUTHBEARER");
+        dataSourceProperties.put("property.aws.region", "us-east-1");
+        dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::123456789012:role/MyMskRole");
+        dataSourceProperties.put("property.aws.credentials_provider", "ENV");
+
+        KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
+        props.setTimezone("UTC");
+        props.analyze();
+
+        Assert.assertNotNull(props.getCustomKafkaProperties());
+        Assert.assertEquals("arn:aws:iam::123456789012:role/MyMskRole",
+                props.getCustomKafkaProperties().get("aws.role_arn"));
+        Assert.assertEquals("ENV", props.getCustomKafkaProperties().get("aws.credentials_provider"));
     }
 
     @Test
@@ -421,6 +474,7 @@ public class KafkaAwsMskIamAuthTest {
         dataSourceProperties.put("property.aws.access_key", "AKIAIOSFODNN7EXAMPLE");
         dataSourceProperties.put("property.aws.secret_key", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
         dataSourceProperties.put("property.aws.role_arn", "arn:aws:iam::123456789012:role/MyRole");
+        dataSourceProperties.put("property.aws.external_id", "external-id-123");
         dataSourceProperties.put("property.aws.profile_name", "default");
 
         KafkaDataSourceProperties props = new KafkaDataSourceProperties(dataSourceProperties);
@@ -431,6 +485,7 @@ public class KafkaAwsMskIamAuthTest {
         Map<String, String> customProps = props.getCustomKafkaProperties();
         Assert.assertEquals("AKIAIOSFODNN7EXAMPLE", customProps.get("aws.access_key"));
         Assert.assertEquals("arn:aws:iam::123456789012:role/MyRole", customProps.get("aws.role_arn"));
+        Assert.assertEquals("external-id-123", customProps.get("aws.external_id"));
         Assert.assertEquals("default", customProps.get("aws.profile_name"));
     }
 }

@@ -42,6 +42,7 @@ public:
         std::string access_key;   // AWS Access Key ID (optional, for explicit credentials)
         std::string secret_key;   // AWS Secret Access Key (optional, for explicit credentials)
         std::string role_arn;     // IAM role ARN (optional, for assume role)
+        std::string external_id;  // Optional external ID for STS AssumeRole
         std::string profile_name; // AWS profile name (optional, reads from ~/.aws/credentials)
         std::string
                 credentials_provider; // Credentials provider type (optional, e.g., "ENV", "INSTANCE_PROFILE")
@@ -84,6 +85,9 @@ public:
 private:
     // Create AWS credentials provider based on configuration
     std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_credentials_provider();
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_provider_from_type(
+            const std::string& provider_type);
+    std::shared_ptr<Aws::Auth::AWSCredentialsProvider> _create_assume_role_base_provider();
 
     // HMAC-SHA256 returning hex string
     std::string _hmac_sha256_hex(const std::string& key, const std::string& data);
