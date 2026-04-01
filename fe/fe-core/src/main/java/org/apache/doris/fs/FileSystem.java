@@ -33,7 +33,6 @@ import java.util.Set;
  * <p>
  * Implementations must be thread-safe. Instances may be shared and cached.
  *
- * @see LegacyFileSystemAdapter for adapting existing Status-based implementations
  * @see MemoryFileSystem for in-memory testing
  * @see LegacyFileSystemApi for the legacy Status-based interface (deprecated)
  */
