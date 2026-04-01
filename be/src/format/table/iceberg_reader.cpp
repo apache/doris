@@ -109,15 +109,24 @@ const std::string IcebergOrcReader::ICEBERG_ORC_ATTRIBUTE = "iceberg.id";
 
 bool IcebergTableReader::_is_fully_dictionary_encoded(
         const tparquet::ColumnMetaData& column_metadata) {
+    const auto is_dictionary_encoding = [](tparquet::Encoding::type encoding) {
+        return encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
+               encoding == tparquet::Encoding::RLE_DICTIONARY;
+    };
+    const auto is_data_page = [](tparquet::PageType::type page_type) {
+        return page_type == tparquet::PageType::DATA_PAGE ||
+               page_type == tparquet::PageType::DATA_PAGE_V2;
+    };
+    const auto is_level_encoding = [](tparquet::Encoding::type encoding) {
+        return encoding == tparquet::Encoding::RLE || encoding == tparquet::Encoding::BIT_PACKED;
+    };
+
     // A column chunk may have a dictionary page but still contain plain-encoded data pages.
     // Only treat it as dictionary-coded when all data pages are dictionary encoded.
     if (column_metadata.__isset.encoding_stats) {
         for (const tparquet::PageEncodingStats& enc_stat : column_metadata.encoding_stats) {
-            if ((enc_stat.page_type == tparquet::PageType::DATA_PAGE ||
-                 enc_stat.page_type == tparquet::PageType::DATA_PAGE_V2) &&
-                (enc_stat.encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
-                 enc_stat.encoding != tparquet::Encoding::RLE_DICTIONARY) &&
-                enc_stat.count > 0) {
+            if (is_data_page(enc_stat.page_type) && enc_stat.count > 0 &&
+                !is_dictionary_encoding(enc_stat.encoding)) {
                 return false;
             }
         }
@@ -125,14 +134,11 @@ bool IcebergTableReader::_is_fully_dictionary_encoded(
         bool has_dict_encoding = false;
         bool has_nondict_encoding = false;
         for (const tparquet::Encoding::type& encoding : column_metadata.encodings) {
-            if (encoding == tparquet::Encoding::PLAIN_DICTIONARY ||
-                encoding == tparquet::Encoding::RLE_DICTIONARY) {
+            if (is_dictionary_encoding(encoding)) {
                 has_dict_encoding = true;
             }
 
-            if (encoding != tparquet::Encoding::PLAIN_DICTIONARY &&
-                encoding != tparquet::Encoding::RLE_DICTIONARY &&
-                encoding != tparquet::Encoding::RLE && encoding != tparquet::Encoding::BIT_PACKED) {
+            if (!is_dictionary_encoding(encoding) && !is_level_encoding(encoding)) {
                 has_nondict_encoding = true;
                 break;
             }
