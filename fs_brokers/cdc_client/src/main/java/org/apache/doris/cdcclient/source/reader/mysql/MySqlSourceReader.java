@@ -343,7 +343,8 @@ public class MySqlSourceReader extends AbstractCdcSourceReader {
         // This prevents connection leaks when a cancelled task's reader is still active
         // while a new task arrives.
         if (this.binlogReader != null) {
-            LOG.info("Closing previous binlog reader before creating new one for job {}",
+            LOG.info(
+                    "Closing previous binlog reader before creating new one for job {}",
                     baseReq.getJobId());
             this.binlogReader.close();
             this.binlogReader = null;

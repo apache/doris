@@ -356,7 +356,8 @@ public abstract class JdbcIncrementalSourceReader extends AbstractCdcSourceReade
         // before creating a new one. This prevents connection leaks when a cancelled
         // task's reader is still active while a new task arrives.
         if (this.streamReader != null) {
-            LOG.info("Closing previous stream reader before creating new one for job {}",
+            LOG.info(
+                    "Closing previous stream reader before creating new one for job {}",
                     baseReq.getJobId());
             closeReaderInternal(this.streamReader);
             this.streamReader = null;
