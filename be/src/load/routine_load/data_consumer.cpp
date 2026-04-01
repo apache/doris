@@ -656,36 +656,29 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
     s3_conf.region = _region;
     s3_conf.endpoint = _endpoint;
 
-    // Parse AWS credentials from properties
-    auto it_ak = _custom_properties.find("aws.access.key");
-    auto it_sk = _custom_properties.find("aws.secret.key");
-    auto it_token = _custom_properties.find("aws.session.token");
-    auto it_role_arn = _custom_properties.find("aws.iam.role.arn");
-    auto it_external_id = _custom_properties.find("aws.external.id");
-    auto it_provider = _custom_properties.find("aws.credentials.provider");
+    auto get_property = [this](const char* key) -> std::string {
+        auto it = _custom_properties.find(key);
+        if (it != _custom_properties.end() && !it->second.empty()) {
+            return it->second;
+        }
+        return "";
+    };
 
-    if (it_ak != _custom_properties.end()) {
-        s3_conf.ak = it_ak->second;
-    }
-    if (it_sk != _custom_properties.end()) {
-        s3_conf.sk = it_sk->second;
-    }
-    if (it_token != _custom_properties.end()) {
-        s3_conf.token = it_token->second;
-    }
-    if (it_role_arn != _custom_properties.end()) {
-        s3_conf.role_arn = it_role_arn->second;
-    }
-    if (it_external_id != _custom_properties.end()) {
-        s3_conf.external_id = it_external_id->second;
-    }
-    if (it_provider != _custom_properties.end()) {
+    // Keep one naming convention aligned with FE-side Kinesis properties.
+    s3_conf.ak = get_property("aws.access_key");
+    s3_conf.sk = get_property("aws.secret_key");
+    s3_conf.token = get_property("aws.session_key");
+    s3_conf.role_arn = get_property("aws.role_arn");
+    s3_conf.external_id = get_property("aws.external.id");
+
+    const std::string provider = get_property("aws.credentials.provider");
+    if (!provider.empty()) {
         // Map provider type string to enum
-        if (it_provider->second == "instance_profile") {
+        if (provider == "instance_profile") {
             s3_conf.cred_provider_type = CredProviderType::InstanceProfile;
-        } else if (it_provider->second == "env") {
+        } else if (provider == "env") {
             s3_conf.cred_provider_type = CredProviderType::Env;
-        } else if (it_provider->second == "simple") {
+        } else if (provider == "simple") {
             s3_conf.cred_provider_type = CredProviderType::Simple;
         }
     }
@@ -696,6 +689,12 @@ Status KinesisDataConsumer::_create_kinesis_client(std::shared_ptr<StreamLoadCon
 
     if (!_endpoint.empty()) {
         aws_config.endpointOverride = _endpoint;
+    }
+
+    std::string ca_cert_file_path =
+            get_valid_ca_cert_path(doris::split(config::ca_cert_file_paths, ";"));
+    if (!ca_cert_file_path.empty()) {
+        aws_config.caFile = ca_cert_file_path;
     }
 
     auto parse_timeout_ms = [](const std::string& timeout_value, const std::string& property_name,

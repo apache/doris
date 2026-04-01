@@ -228,9 +228,8 @@ Status KinesisDataConsumerGroup::assign_stream_shards(std::shared_ptr<StreamLoad
 
     // assign shards to consumers equally
     for (int j = 0; j < consumer_size; ++j) {
-        RETURN_IF_ERROR(
-                std::static_pointer_cast<KinesisDataConsumer>(_consumers[j])
-                        ->assign_shards(divide_shards[j], ctx->kinesis_info->stream, ctx));
+        RETURN_IF_ERROR(std::static_pointer_cast<KinesisDataConsumer>(_consumers[j])
+                                ->assign_shards(divide_shards[j], ctx->kinesis_info->stream, ctx));
     }
 
     return Status::OK();
