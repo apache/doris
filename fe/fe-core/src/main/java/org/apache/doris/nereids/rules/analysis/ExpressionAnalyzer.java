@@ -239,8 +239,8 @@ public class ExpressionAnalyzer extends SubExprAnalyzer<ExpressionRewriteContext
     @Override
     public Expression visitUnboundAlias(UnboundAlias unboundAlias, ExpressionRewriteContext context) {
         Expression child = unboundAlias.child().accept(this, context);
-        if (unboundAlias.getAlias().isPresent()) {
-            return new Alias(child, unboundAlias.getAlias().get(), unboundAlias.isNameFromChild());
+        if (unboundAlias.getAlias().isPresent() && !unboundAlias.isNameFromChild()) {
+            return new Alias(child, unboundAlias.getAlias().get(), false);
         } else {
             return new Alias(child);
         }
