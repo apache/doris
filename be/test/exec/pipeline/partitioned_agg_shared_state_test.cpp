@@ -194,8 +194,7 @@ TEST_F(PartitionedAggSharedStateTest, AggregateDataContainerMemoryGrowsAfterAppe
 // with monostate variant and null container → 0 bytes from both sources.
 TEST_F(PartitionedAggSharedStateTest, PartitionedAggStateLinkedToAggStateWithDefaultData) {
     AggSharedState agg_state;
-    agg_state.agg_ctx = std::make_unique<GroupByAggContext>(
-            DataTypes {}, Sizes {}, 0, 1, true);
+    agg_state.agg_ctx = std::make_unique<GroupByAggContext>(DataTypes {}, Sizes {}, 0, 1, true);
     PartitionedAggSharedState state;
     state._in_mem_shared_state = &agg_state;
     state._is_spilled = true;
@@ -212,8 +211,7 @@ TEST_F(PartitionedAggSharedStateTest, PartitionedAggStateLinkedToAggStateWithDef
 // Container contribution through AggSharedState: memory_usage reflects arena allocation.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateContainerMemoryUsage) {
     AggSharedState agg_state;
-    agg_state.agg_ctx = std::make_unique<GroupByAggContext>(
-            DataTypes {}, Sizes {}, 0, 1, true);
+    agg_state.agg_ctx = std::make_unique<GroupByAggContext>(DataTypes {}, Sizes {}, 0, 1, true);
     auto* groupby_ctx = static_cast<GroupByAggContext*>(agg_state.agg_ctx.get());
     groupby_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);

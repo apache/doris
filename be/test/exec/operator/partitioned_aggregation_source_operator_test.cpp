@@ -743,8 +743,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeWithAggContaine
     auto agg_sptr = std::make_shared<AggSharedState>();
     shared_state->_in_mem_shared_state_sptr = agg_sptr;
     shared_state->_in_mem_shared_state = agg_sptr.get();
-    agg_sptr->agg_ctx = std::make_unique<GroupByAggContext>(
-            DataTypes {}, Sizes {}, 0, 1, true);
+    agg_sptr->agg_ctx = std::make_unique<GroupByAggContext>(DataTypes {}, Sizes {}, 0, 1, true);
     auto* groupby_ctx = static_cast<GroupByAggContext*>(agg_sptr->agg_ctx.get());
     groupby_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);
