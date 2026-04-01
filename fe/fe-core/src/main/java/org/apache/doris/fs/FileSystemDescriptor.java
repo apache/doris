@@ -18,7 +18,6 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.analysis.StorageBackend;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.fs.FsStorageType;
 

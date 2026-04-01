@@ -172,7 +172,8 @@ public class S3FileSystemTest {
 
     @Test
     public void testRepositoryUpload() throws IOException {
-        Repository repo = new Repository(10000, "repo", false, bucket + basePath, fileSystem);
+        Repository repo = new Repository(10000, "repo", false, bucket + basePath,
+                StorageProperties.createPrimary(properties));
         File localFile = File.createTempFile("s3unittest", ".dat");
         localFile.deleteOnExit();
         String remote = bucket + basePath + "/" + localFile.getName();

@@ -35,6 +35,7 @@ import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.spi.DorisInputFile;
 import org.apache.doris.filesystem.spi.DorisOutputFile;
 import org.apache.doris.filesystem.spi.FileEntry;
+import org.apache.doris.filesystem.spi.FileIterator;
 import org.apache.doris.filesystem.spi.Location;
 import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.FileSystemDescriptor;
@@ -505,17 +506,19 @@ public class Repository implements Writable, GsonPostProcessable {
             return new Status(ErrCode.COMMON_ERROR, "Failed to acquire filesystem: " + e.getMessage());
         }
         try {
-            List<FileEntry> result = fs.listFiles(Location.of(listPath));
-            for (FileEntry entry : result) {
-                if (!entry.isDirectory()) {
-                    if (LOG.isDebugEnabled()) {
-                        LOG.debug("get snapshot path {} which is not a dir", entry.location());
+            try (FileIterator it = fs.list(Location.of(listPath))) {
+                while (it.hasNext()) {
+                    FileEntry entry = it.next();
+                    if (!entry.isDirectory()) {
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("get snapshot path {} which is not a dir", entry.location());
+                        }
+                        continue;
                     }
-                    continue;
+                    String uri = entry.location().uri();
+                    String entryName = uri.substring(uri.lastIndexOf('/') + 1);
+                    snapshotNames.add(disjoinPrefix(PREFIX_SNAPSHOT_DIR, entryName));
                 }
-                String uri = entry.location().uri();
-                String entryName = uri.substring(uri.lastIndexOf('/') + 1);
-                snapshotNames.add(disjoinPrefix(PREFIX_SNAPSHOT_DIR, entryName));
             }
             return Status.OK;
         } catch (IOException e) {
