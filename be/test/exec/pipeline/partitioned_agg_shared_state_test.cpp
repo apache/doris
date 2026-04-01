@@ -159,19 +159,19 @@ TEST_F(PartitionedAggSharedStateTest, InMemSharedStateDefaultsNull) {
 
 // Hash table contribution: GroupByAggContext always creates hash_table_data.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateCreatesNonNullAggData) {
-    GroupByAggContext ctx({}, {}, {}, 0, 1, true);
+    GroupByAggContext ctx(DataTypes {}, Sizes {}, 0, 1, true);
     EXPECT_NE(ctx.hash_table_data(), nullptr);
 }
 
 // Hash table contribution: default method_variant is monostate (index 0) → 0 bytes.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateDefaultVariantIsMonostate) {
-    GroupByAggContext ctx({}, {}, {}, 0, 1, true);
+    GroupByAggContext ctx(DataTypes {}, Sizes {}, 0, 1, true);
     EXPECT_EQ(ctx.hash_table_data()->method_variant.index(), 0);
 }
 
 // Container contribution: agg_data_container defaults to null → 0 bytes.
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateAggContainerDefaultsNull) {
-    GroupByAggContext ctx({}, {}, {}, 0, 1, true);
+    GroupByAggContext ctx(DataTypes {}, Sizes {}, 0, 1, true);
     EXPECT_EQ(ctx.agg_data_container(), nullptr);
 }
 
@@ -195,7 +195,7 @@ TEST_F(PartitionedAggSharedStateTest, AggregateDataContainerMemoryGrowsAfterAppe
 TEST_F(PartitionedAggSharedStateTest, PartitionedAggStateLinkedToAggStateWithDefaultData) {
     AggSharedState agg_state;
     agg_state.agg_ctx = std::make_unique<GroupByAggContext>(
-            std::vector<AggFnEvaluator*> {}, VExprContextSPtrs {}, Sizes {}, 0, 1, true);
+            DataTypes {}, Sizes {}, 0, 1, true);
     PartitionedAggSharedState state;
     state._in_mem_shared_state = &agg_state;
     state._is_spilled = true;
@@ -213,7 +213,7 @@ TEST_F(PartitionedAggSharedStateTest, PartitionedAggStateLinkedToAggStateWithDef
 TEST_F(PartitionedAggSharedStateTest, AggSharedStateContainerMemoryUsage) {
     AggSharedState agg_state;
     agg_state.agg_ctx = std::make_unique<GroupByAggContext>(
-            std::vector<AggFnEvaluator*> {}, VExprContextSPtrs {}, Sizes {}, 0, 1, true);
+            DataTypes {}, Sizes {}, 0, 1, true);
     auto* groupby_ctx = static_cast<GroupByAggContext*>(agg_state.agg_ctx.get());
     groupby_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);

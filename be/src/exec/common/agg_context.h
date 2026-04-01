@@ -39,14 +39,7 @@ using Sizes = std::vector<size_t>;
 ///   - finalize:  aggregate state -> final result  (*_TO_RESULT)
 class AggContext {
 public:
-    AggContext(std::vector<AggFnEvaluator*> agg_evaluators, Sizes agg_state_offsets,
-               size_t total_agg_state_size, size_t agg_state_alignment)
-            : _agg_evaluators(std::move(agg_evaluators)),
-              _agg_state_offsets(std::move(agg_state_offsets)),
-              _total_agg_state_size(total_agg_state_size),
-              _agg_state_alignment(agg_state_alignment) {}
-
-    /// Phase-1 constructor: state layout only, evaluators set later via set_evaluators().
+    /// Constructor: state layout only, evaluators set later via set_evaluators().
     AggContext(Sizes agg_state_offsets, size_t total_agg_state_size, size_t agg_state_alignment)
             : _agg_state_offsets(std::move(agg_state_offsets)),
               _total_agg_state_size(total_agg_state_size),

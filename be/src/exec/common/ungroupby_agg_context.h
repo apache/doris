@@ -38,10 +38,6 @@ using Sizes = std::vector<size_t>;
 /// AggLocalState (source side: serialize/finalize).
 class UngroupByAggContext : public AggContext {
 public:
-    UngroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators, Sizes agg_state_offsets,
-                        size_t total_agg_state_size, size_t agg_state_alignment);
-
-    /// Phase-1 constructor: state layout only, evaluators set later via set_evaluators().
     UngroupByAggContext(Sizes agg_state_offsets, size_t total_agg_state_size,
                         size_t agg_state_alignment);
 

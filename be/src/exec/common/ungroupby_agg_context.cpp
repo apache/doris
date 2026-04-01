@@ -29,12 +29,6 @@ namespace doris {
 
 // ==================== Constructor / Destructor ====================
 
-UngroupByAggContext::UngroupByAggContext(std::vector<AggFnEvaluator*> agg_evaluators,
-                                         Sizes agg_state_offsets, size_t total_agg_state_size,
-                                         size_t agg_state_alignment)
-        : AggContext(std::move(agg_evaluators), std::move(agg_state_offsets), total_agg_state_size,
-                     agg_state_alignment) {}
-
 UngroupByAggContext::UngroupByAggContext(Sizes agg_state_offsets, size_t total_agg_state_size,
                                          size_t agg_state_alignment)
         : AggContext(std::move(agg_state_offsets), total_agg_state_size, agg_state_alignment) {}

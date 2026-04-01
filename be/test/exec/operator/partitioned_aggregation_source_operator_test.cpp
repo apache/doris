@@ -59,12 +59,30 @@ TEST_F(PartitionedAggregationSourceOperatorTest, Init) {
     st = source_operator->prepare(_helper.runtime_state.get());
     ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
 
-    std::shared_ptr<MockPartitionedAggSharedState> shared_state =
-            MockPartitionedAggSharedState::create_shared();
+    st = sink_operator->init(tnode, _helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "init failed: " << st.to_string();
 
-    shared_state->_in_mem_shared_state_sptr = std::make_shared<AggSharedState>();
-    shared_state->_in_mem_shared_state =
-            reinterpret_cast<AggSharedState*>(shared_state->_in_mem_shared_state_sptr.get());
+    st = sink_operator->prepare(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "prepare failed: " << st.to_string();
+
+    auto shared_state = sink_operator->create_shared_state();
+    shared_state->create_source_dependency(source_operator->operator_id(),
+                                           source_operator->node_id(), "PartitionedAggSinkTestDep");
+
+    LocalSinkStateInfo sink_info {.task_idx = 0,
+                                  .parent_profile = _helper.operator_profile.get(),
+                                  .sender_id = 0,
+                                  .shared_state = shared_state.get(),
+                                  .shared_state_map = {},
+                                  .tsink = TDataSink()};
+    st = sink_operator->setup_local_state(_helper.runtime_state.get(), sink_info);
+    ASSERT_TRUE(st.ok()) << "setup_local_state failed: " << st.to_string();
+
+    auto* sink_local_state = _helper.runtime_state->get_sink_local_state();
+    ASSERT_TRUE(sink_local_state != nullptr);
+
+    st = sink_local_state->open(_helper.runtime_state.get());
+    ASSERT_TRUE(st.ok()) << "open failed: " << st.to_string();
 
     LocalStateInfo info {
             .parent_profile = _helper.operator_profile.get(),
@@ -726,7 +744,7 @@ TEST_F(PartitionedAggregationSourceOperatorTest, RevocableMemSizeWithAggContaine
     shared_state->_in_mem_shared_state_sptr = agg_sptr;
     shared_state->_in_mem_shared_state = agg_sptr.get();
     agg_sptr->agg_ctx = std::make_unique<GroupByAggContext>(
-            std::vector<AggFnEvaluator*> {}, VExprContextSPtrs {}, Sizes {}, 0, 1, true);
+            DataTypes {}, Sizes {}, 0, 1, true);
     auto* groupby_ctx = static_cast<GroupByAggContext*>(agg_sptr->agg_ctx.get());
     groupby_ctx->_agg_data_container =
             std::make_unique<AggregateDataContainer>(sizeof(uint32_t), 8);
