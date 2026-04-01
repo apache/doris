@@ -98,7 +98,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
         ADD_TIMER(profile, "AddTablet");
     }
     Status res = Status::OK();
-    VLOG_NOTICE << "begin to add tablet to TabletManager. "
+    VLOG_NOTICE << "Start adding tablet to TabletManager. "
                 << "tablet_id=" << tablet_id << ", force=" << force;
 
     TabletSharedPtr existed_tablet = nullptr;
@@ -253,7 +253,7 @@ Status TabletManager::create_tablet(const TCreateTabletReq& request, std::vector
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
 
     int64_t tablet_id = request.tablet_id;
-    LOG(INFO) << "begin to create tablet. tablet_id=" << tablet_id
+    LOG(INFO) << "Start creating tablet. tablet_id=" << tablet_id
               << ", table_id=" << request.table_id << ", partition_id=" << request.partition_id
               << ", replica_id=" << request.replica_id << ", stores.size=" << stores.size()
               << ", first store=" << stores[0]->path();
@@ -520,7 +520,7 @@ Status TabletManager::drop_tablet(TTabletId tablet_id, TReplicaId replica_id,
 // Drop specified tablet.
 Status TabletManager::_drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool keep_files,
                                    bool is_drop_table_or_partition, bool had_held_shard_lock) {
-    LOG(INFO) << "begin drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
+    LOG(INFO) << "Begin to drop tablet. tablet_id=" << tablet_id << ", replica_id=" << replica_id
               << ", is_drop_table_or_partition=" << is_drop_table_or_partition
               << ", keep_files=" << keep_files;
     DorisMetrics::instance()->drop_tablet_requests_total->increment(1);
@@ -969,7 +969,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                                            SchemaHash schema_hash, const string& schema_hash_path,
                                            bool force, bool restore) {
-    LOG(INFO) << "begin to load tablet from dir. "
+    LOG(INFO) << "Start loading tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
     // not add lock here, because load_tablet_from_meta already add lock
@@ -1065,7 +1065,7 @@ Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
 }
 
 Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
-    LOG(INFO) << "begin to process report tablet info."
+    LOG(INFO) << "Start processing report tablet info."
               << "tablet_id=" << tablet_info->tablet_id;
 
     Status res = Status::OK();
@@ -1082,7 +1082,7 @@ Status TabletManager::report_tablet_info(TTabletInfo* tablet_info) {
 
 void TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info) {
     DCHECK(tablets_info != nullptr);
-    VLOG_NOTICE << "begin to build all report tablets info";
+    VLOG_NOTICE << "Start building all report tablets info";
 
     // build the expired txn map first, outside the tablet map lock
     std::map<TabletInfo, std::vector<int64_t>> expire_txn_map;
@@ -1162,7 +1162,7 @@ Status TabletManager::start_trash_sweep() {
         g_max_rowsets_with_useless_delete_bitmap.set_value(max_useless_rowset_count);
         g_max_rowsets_with_useless_delete_bitmap_version.set_value(
                 max_useless_rowset_version_count);
-        LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+        LOG(INFO) << "Finished check_agg_delete_bitmap_for_stale_rowsetsing, cost(us)="
                   << watch.get_elapse_time_us()
                   << ". max useless rowset count=" << max_useless_rowset_count
                   << ", tablet_id=" << tablet_id_with_max_useless_rowset_count
@@ -1297,7 +1297,7 @@ bool TabletManager::_move_tablet_to_trash(const TabletSharedPtr& tablet) {
                 return false;
             }
             int64_t now = MonotonicMicros();
-            LOG(INFO) << "start to move tablet to trash. " << tablet_path
+            LOG(INFO) << "Start moving tablet to trash. " << tablet_path
                       << ". rocksdb get meta cost " << (save_meta_ts - get_meta_ts)
                       << " us, rocksdb save meta cost " << (now - save_meta_ts) << " us";
             Status rm_st = tablet->data_dir()->move_to_trash(tablet_path);
@@ -1443,7 +1443,7 @@ void TabletManager::try_delete_unused_tablet_path(DataDir* data_dir, TTabletId t
     bool exists = false;
     Status exists_st = io::global_local_filesystem()->exists(schema_hash_path, &exists);
     if (exists_st && exists) {
-        LOG(INFO) << "start to move tablet to trash. tablet_path = " << schema_hash_path;
+        LOG(INFO) << "Start moving tablet to trash. tablet_path = " << schema_hash_path;
         Status rm_st = data_dir->move_to_trash(schema_hash_path);
         if (!rm_st.ok()) {
             LOG(WARNING) << "fail to move dir to trash. dir=" << schema_hash_path;
@@ -1517,7 +1517,7 @@ void TabletManager::do_tablet_meta_checkpoint(DataDir* data_dir) {
         }
     }
     int64_t cost = watch.elapsed_time() / 1000 / 1000;
-    LOG(INFO) << "finish to do meta checkpoint on dir: " << data_dir->path()
+    LOG(INFO) << "Finished doing meta checkpoint on dir: " << data_dir->path()
               << ", number: " << counter << ", cost(ms): " << cost;
 }
 
@@ -1576,7 +1576,7 @@ Status TabletManager::_create_tablet_meta_unlocked(const TCreateTabletReq& reque
 }
 
 TabletSharedPtr TabletManager::_get_tablet_unlocked(TTabletId tablet_id) {
-    VLOG_NOTICE << "begin to get tablet. tablet_id=" << tablet_id;
+    VLOG_NOTICE << "Start getting tablet. tablet_id=" << tablet_id;
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     const auto& iter = tablet_map.find(tablet_id);
     if (iter != tablet_map.end()) {

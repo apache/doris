@@ -419,7 +419,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 implements GsonPostProcessable
     @Override
     protected void runPendingJob() throws Exception {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
-        LOG.info("begin to send create replica tasks. job: {}", jobId);
+        LOG.info("Begin to send create replica tasks. job: {}", jobId);
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
 

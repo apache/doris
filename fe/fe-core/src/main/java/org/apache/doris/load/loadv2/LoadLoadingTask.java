@@ -144,7 +144,7 @@ public class LoadLoadingTask extends LoadTask {
 
     @Override
     protected void executeTask() throws Exception {
-        LOG.info("begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
+        LOG.info("Begin to execute loading task. load id: {} job id: {}. db: {}, tbl: {}. left retry: {}",
                 DebugUtil.printId(loadId), callback.getCallbackId(), db.getFullName(), table.getName(), retryTime);
 
         retryTime--;
@@ -202,7 +202,7 @@ public class LoadLoadingTask extends LoadTask {
             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, callback.getCallbackId())
                     .add("task_id", signature)
                     .add("query_id", DebugUtil.printId(curCoordinator.getQueryId()))
-                    .add("msg", "begin to execute plan")
+                    .add("msg", "Begin to execute plan")
                     .build());
         }
         curCoordinator.exec();

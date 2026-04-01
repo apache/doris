@@ -328,7 +328,8 @@ void CacheLRUDumper::do_dump_queue(LRUQueue& queue, const std::string& queue_nam
                 fmt::format("{}/lru_dump_{}.tail", _mgr->_cache_base_path, queue_name);
         std::ofstream out(tmp_filename, std::ios::binary);
         if (out) {
-            LOG(INFO) << "begin dump " << queue_name << " with " << elements.size() << " elements";
+            LOG(INFO) << "Begin to dump " << queue_name << " with " << elements.size()
+                      << " elements";
             for (const auto& [hash, offset, size] : elements) {
                 RETURN_IF_STATUS_ERROR(st,
                                        dump_one_lru_entry(out, tmp_filename, hash, offset, size));
@@ -492,7 +493,7 @@ void CacheLRUDumper::restore_queue(LRUQueue& queue, const std::string& queue_nam
         }
         in.close();
     } else {
-        LOG(INFO) << "no lru dump file is founded for " << queue_name;
+        LOG(INFO) << "No LRU dump file found for " << queue_name;
     }
     LOG(INFO) << "lru restore time costs: " << (duration_ns / 1000) << "us.";
 };

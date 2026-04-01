@@ -124,7 +124,7 @@ public class HDFSFileOperations implements FileOperations {
             try {
                 fsDataOutputStream.flush();
                 fsDataOutputStream.close();
-                LOG.info("finished to close writer");
+                LOG.info("Finished closing writer");
             } catch (IOException e) {
                 LOG.error("errors while close file output stream", e);
                 return new Status(Status.ErrCode.COMMON_ERROR, "failed to close writer, msg:" + e.getMessage());

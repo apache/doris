@@ -85,7 +85,7 @@ using namespace ErrorCode;
 Status PushHandler::process_streaming_ingestion(TabletSharedPtr tablet, const TPushReq& request,
                                                 PushType push_type,
                                                 std::vector<TTabletInfo>* tablet_info_vec) {
-    LOG(INFO) << "begin to realtime push. tablet=" << tablet->tablet_id()
+    LOG(INFO) << "Start realtimeing push. tablet=" << tablet->tablet_id()
               << ", transaction_id=" << request.transaction_id;
 
     Status res = Status::OK();
@@ -228,7 +228,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
     load_id.set_lo(0);
 
     do {
-        VLOG_NOTICE << "start to convert delta file.";
+        VLOG_NOTICE << "Start converting delta file.";
 
         // 1. init RowsetBuilder of cur_tablet for current push
         VLOG_NOTICE << "init rowset builder. tablet=" << cur_tablet->tablet_id()
@@ -271,7 +271,7 @@ Status PushHandler::_convert_v2(TabletSharedPtr cur_tablet, RowsetSharedPtr* cur
             Block block;
 
             // 4. Read data from broker and write into cur_tablet
-            VLOG_NOTICE << "start to convert etl file to delta.";
+            VLOG_NOTICE << "Start converting etl file to delta.";
             while (!reader->eof()) {
                 st = reader->next(&block);
                 if (!st.ok()) {

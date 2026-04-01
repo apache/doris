@@ -282,7 +282,7 @@ bool SingleReplicaCompaction::_find_rowset_to_fetch(const std::vector<Version>& 
 
 Status SingleReplicaCompaction::_fetch_rowset(const TReplicaInfo& addr, const std::string& token,
                                               const Version& rowset_version) {
-    LOG(INFO) << "begin to fetch compaction result, tablet_id=" << _tablet->tablet_id()
+    LOG(INFO) << "Start fetching compaction result, tablet_id=" << _tablet->tablet_id()
               << ", addr=" << addr.host << ", version=" << rowset_version;
     std::shared_lock migration_rlock(tablet()->get_migration_lock(), std::try_to_lock);
     if (!migration_rlock.owns_lock()) {
@@ -581,7 +581,7 @@ Status SingleReplicaCompaction::_finish_clone(const std::string& clone_dir,
         LOG(WARNING) << "failed to remove=" << clone_dir_path << " msg=" << ec.message();
         return Status::IOError("failed to remove {}, due to {}", clone_dir, ec.message());
     }
-    LOG(INFO) << "finish to clone data, clear downloaded data. res=" << res
+    LOG(INFO) << "Finished cloning data, clear downloaded data. res=" << res
               << ", tablet=" << _tablet->tablet_id() << ", clone_dir=" << clone_dir;
     return res;
 }

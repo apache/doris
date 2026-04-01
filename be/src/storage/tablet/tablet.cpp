@@ -281,7 +281,7 @@ bool Tablet::set_tablet_schema_into_rowset_meta() {
 
 Status Tablet::_init_once_action() {
     Status res = Status::OK();
-    VLOG_NOTICE << "begin to load tablet. tablet=" << tablet_id()
+    VLOG_NOTICE << "Start loading tablet. tablet=" << tablet_id()
                 << ", version_size=" << _tablet_meta->version_count();
 
 #ifdef BE_TEST
@@ -344,7 +344,7 @@ void Tablet::save_meta() {
 Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
                                   const std::vector<RowsetSharedPtr>& to_delete,
                                   bool is_incremental_clone) {
-    LOG(INFO) << "begin to revise tablet. tablet_id=" << tablet_id();
+    LOG(INFO) << "Start revising tablet. tablet_id=" << tablet_id();
     // 1. for incremental clone, we have to add the rowsets first to make it easy to compute
     //    all the delete bitmaps, and it's easy to delete them if we end up with a failure
     // 2. for full clone, we can calculate delete bitmaps on the cloned rowsets directly.
@@ -476,7 +476,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
     _tablet_meta->clear_stale_rowset();
     save_meta();
 
-    LOG(INFO) << "finish to revise tablet. tablet_id=" << tablet_id();
+    LOG(INFO) << "Finished revising tablet. tablet_id=" << tablet_id();
     return Status::OK();
 }
 
@@ -722,7 +722,7 @@ void Tablet::_delete_stale_rowset_by_version(const Version& version) {
 
 void Tablet::delete_expired_stale_rowset() {
     if (config::enable_mow_verbose_log) {
-        LOG_INFO("begin delete_expired_stale_rowset for tablet={}", tablet_id());
+        LOG_INFO("Begin to delete_expired_stale_rowset for tablet={}", tablet_id());
     }
     int64_t now = UnixSeconds();
     std::vector<std::pair<Version, std::vector<RowsetId>>> deleted_stale_rowsets;
@@ -915,7 +915,7 @@ void Tablet::delete_expired_stale_rowset() {
     }
 #endif
     if (config::enable_mow_verbose_log) {
-        LOG_INFO("finish delete_expired_stale_rowset for tablet={}", tablet_id());
+        LOG_INFO("Finished deleting_expired_stale_rowset for tablet={}", tablet_id());
     }
     DBUG_EXECUTE_IF("Tablet.delete_expired_stale_rowset.start_delete_unused_rowset", {
         _engine.start_delete_unused_rowset();
@@ -1503,7 +1503,7 @@ bool Tablet::do_tablet_meta_checkpoint() {
                   << ", tablet=" << tablet_id();
         return false;
     }
-    VLOG_NOTICE << "start to do tablet meta checkpoint, tablet=" << tablet_id();
+    VLOG_NOTICE << "Start doing tablet meta checkpoint, tablet=" << tablet_id();
     save_meta();
     // if save meta successfully, then should remove the rowset meta existing in tablet
     // meta from rowset meta store

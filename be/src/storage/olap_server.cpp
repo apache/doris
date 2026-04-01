@@ -493,7 +493,7 @@ void StorageEngine::_tablet_checkpoint_callback(const std::vector<DataDir*>& dat
     int64_t interval = config::generate_tablet_meta_checkpoint_tasks_interval_secs;
     do {
         for (auto data_dir : data_dirs) {
-            LOG(INFO) << "begin to produce tablet meta checkpoint tasks, data_dir="
+            LOG(INFO) << "Start producing tablet meta checkpoint tasks, data_dir="
                       << data_dir->path();
             auto st = _tablet_meta_checkpoint_thread_pool->submit_func(
                     [data_dir, this]() { _tablet_manager->do_tablet_meta_checkpoint(data_dir); });
@@ -527,7 +527,7 @@ void StorageEngine::_tablet_path_check_callback() {
             continue;
         }
 
-        LOG(INFO) << "start to check tablet path";
+        LOG(INFO) << "Start checking tablet path";
 
         auto all_tablets = _tablet_manager->get_all_tablet(
                 [](Tablet* t) { return t->is_used() && t->tablet_state() == TABLET_RUNNING; });
@@ -762,7 +762,7 @@ void StorageEngine::_update_replica_infos_callback() {
 #ifdef GOOGLE_PROFILER
     ProfilerRegisterThread();
 #endif
-    LOG(INFO) << "start to update replica infos!";
+    LOG(INFO) << "Start updating replica infos!";
 
     int64_t interval = config::update_replica_infos_interval_seconds;
     do {
@@ -1056,7 +1056,7 @@ Status StorageEngine::_submit_compaction_task(TabletSharedPtr tablet,
                                               CompactionType compaction_type, bool force) {
     if (tablet->tablet_meta()->tablet_schema()->enable_single_replica_compaction() &&
         should_fetch_from_peer(tablet->tablet_id())) {
-        VLOG_CRITICAL << "start to submit single replica compaction task for tablet: "
+        VLOG_CRITICAL << "Start submitting single replica compaction task for tablet: "
                       << tablet->tablet_id();
         Status st = _submit_single_replica_compaction_task(tablet, compaction_type);
         if (!st.ok()) {
@@ -1363,7 +1363,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
 void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
-        LOG(INFO) << "begin to remove unused remote files";
+        LOG(INFO) << "Start removing unused remote files";
         do_remove_unused_remote_files();
     }
 }
@@ -1450,7 +1450,7 @@ static void confirm_and_remove_unused_remote_files(
         std::unordered_map<int64_t, std::pair<StorageResource, std::vector<io::FileInfo>>>& buffer,
         const int64_t num_files_in_buffer) {
     TConfirmUnusedRemoteFilesResult result;
-    LOG(INFO) << "begin to confirm unused remote files. num_tablets=" << buffer.size()
+    LOG(INFO) << "Start confirming unused remote files. num_tablets=" << buffer.size()
               << " num_files=" << num_files_in_buffer;
     auto st = MasterServerClient::instance()->confirm_unused_remote_files(req, &result);
     if (!st.ok()) {

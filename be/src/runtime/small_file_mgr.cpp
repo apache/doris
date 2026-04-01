@@ -228,7 +228,7 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
 
     *file_path = real_file_path;
 
-    LOG(INFO) << "finished to download file: " << file_path;
+    LOG(INFO) << "Finished downloading file: " << file_path;
     return Status::OK();
 }
 

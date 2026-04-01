@@ -182,7 +182,7 @@ Status FlushToken::_try_reserve_memory(const std::shared_ptr<ResourceContext>& r
 }
 
 Status FlushToken::_do_flush_memtable(MemTable* memtable, int32_t segment_id, int64_t* flush_size) {
-    VLOG_CRITICAL << "begin to flush memtable for tablet: " << memtable->tablet_id()
+    VLOG_CRITICAL << "Start flushing memtable for tablet: " << memtable->tablet_id()
                   << ", memsize: " << PrettyPrinter::print_bytes(memtable->memory_usage())
                   << ", rows: " << memtable->stat().raw_rows;
     memtable->update_mem_type(MemType::FLUSH);

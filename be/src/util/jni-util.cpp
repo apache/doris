@@ -107,7 +107,7 @@ const std::string GetKerb5ConfPath() {
     libhdfs_opts += fmt::format(" -Djdk.lang.processReaperUseDefaultStackSize={}",
                                 config::jdk_process_reaper_use_default_stack_size);
     setenv("LIBHDFS_OPTS", libhdfs_opts.c_str(), 1);
-    LOG(INFO) << "set final LIBHDFS_OPTS: " << libhdfs_opts;
+    LOG(INFO) << "Set final LIBHDFS_OPTS: " << libhdfs_opts;
 }
 
 // Only used on non-x86 platform

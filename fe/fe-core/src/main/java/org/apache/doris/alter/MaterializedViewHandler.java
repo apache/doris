@@ -251,7 +251,7 @@ public class MaterializedViewHandler extends AlterHandler {
             olapTable.setState(OlapTableState.ROLLUP);
 
             Env.getCurrentEnv().getEditLog().logAlterJob(rollupJobV2);
-            LOG.info("finished to create materialized view job: {}", rollupJobV2.getJobId());
+            LOG.info("Finished creating materialized view job: {}", rollupJobV2.getJobId());
         } finally {
             if (olapTable.getState() != OlapTableState.ROLLUP) {
                 // state is not ROLLUP, means encountered some exception before jobs submitted,
@@ -352,7 +352,7 @@ public class MaterializedViewHandler extends AlterHandler {
 
             BatchAlterJobPersistInfo batchAlterJobV2 = new BatchAlterJobPersistInfo(rollupJobV2List);
             Env.getCurrentEnv().getEditLog().logBatchAlterJob(batchAlterJobV2);
-            LOG.info("finished to create materialized view job: {}", logJobIdSet);
+            LOG.info("Finished creating materialized view job: {}", logJobIdSet);
 
         } catch (Exception e) {
             // remove tablet which has already inserted into TabletInvertedIndex
@@ -513,7 +513,7 @@ public class MaterializedViewHandler extends AlterHandler {
             }
         } // end for partitions
 
-        LOG.info("finished to create materialized view job: {}", mvJob.getJobId());
+        LOG.info("Finished creating materialized view job: {}", mvJob.getJobId());
         return mvJob;
     }
 
@@ -986,7 +986,7 @@ public class MaterializedViewHandler extends AlterHandler {
             String tableName = olapTable.getName();
             editLog.logBatchDropRollup(new BatchDropInfo(dbId, tableId, tableName, rollupNameMap));
             deleteIndexList = rollupNameMap.keySet().stream().collect(Collectors.toList());
-            LOG.info("finished drop rollup index[{}] in table[{}]",
+            LOG.info("Finished dropping rollup index[{}] in table[{}]",
                     String.join("", rollupNameMap.values()), olapTable.getName());
         } finally {
             olapTable.writeUnlock();
@@ -1010,7 +1010,7 @@ public class MaterializedViewHandler extends AlterHandler {
             editLog.logDropRollup(new DropInfo(db.getId(), olapTable.getId(), olapTable.getName(),
                     mvIndexId, mvName, false, false, 0));
             deleteIndexList.add(mvIndexId);
-            LOG.info("finished drop materialized view [{}] in table [{}]", mvName, olapTable.getName());
+            LOG.info("Finished dropping materialized view [{}] in table [{}]", mvName, olapTable.getName());
         } catch (MetaNotFoundException e) {
             if (dropMaterializedViewCommand.isIfExists()) {
                 LOG.info(e.getMessage());

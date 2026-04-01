@@ -720,7 +720,7 @@ public class CacheHotspotManager extends MasterDaemon {
         Map<Long, List<Tablet>> beToWarmUpTablets = new HashMap<>();
         Long totalFileCache = getFileCacheCapacity(dstClusterName);
         Long warmUpTotalFileCache = 0L;
-        LOG.info("Start warm up job {}, cluster {}, total cache size: {}",
+        LOG.info("Start warming up job {}, cluster {}, total cache size: {}",
                 jobId, dstClusterName, totalFileCache);
         List<Backend> backends = getBackendsFromCluster(dstClusterName);
         LOG.info("Got {} backends for cluster {}", backends.size(), dstClusterName);
@@ -835,7 +835,7 @@ public class CacheHotspotManager extends MasterDaemon {
         addCloudWarmUpJob(warmUpJob);
 
         Env.getCurrentEnv().getEditLog().logModifyCloudWarmUpJob(warmUpJob);
-        LOG.info("finished to create cloud warm up job: {}", warmUpJob.getJobId());
+        LOG.info("Finished creating cloud warm up job: {}", warmUpJob.getJobId());
 
         return jobId;
     }

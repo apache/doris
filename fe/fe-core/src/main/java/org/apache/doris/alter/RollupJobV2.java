@@ -339,7 +339,7 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
     protected void runPendingJob() throws Exception {
         Preconditions.checkState(jobState == JobState.PENDING, jobState);
 
-        LOG.info("begin to send create rollup replica tasks. job: {}", jobId);
+        LOG.info("Begin to send create rollup replica tasks. job: {}", jobId);
         Database db = Env.getCurrentInternalCatalog()
                 .getDbOrException(dbId, s -> new AlterCancelException("Database " + s + " does not exist"));
         if (!checkTableStable(db)) {

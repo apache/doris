@@ -233,7 +233,7 @@ public class CloudRestoreJob extends RestoreJob {
             return;
         }
         if (LOG.isDebugEnabled()) {
-            LOG.debug("finished to create all restored replicas. {}", this);
+            LOG.debug("Finished creating all restored replicas. {}", this);
         }
         allReplicasCreated();
     }
@@ -242,12 +242,12 @@ public class CloudRestoreJob extends RestoreJob {
         snapshotFinishedTime = System.currentTimeMillis();
         state = RestoreJobState.DOWNLOAD;
         env.getEditLog().logRestoreJob(this);
-        LOG.info("finished making snapshots. {}", this);
+        LOG.info("Finished making snapshots. {}", this);
     }
 
     @Override
     protected void prepareAndSendSnapshotTaskForOlapTable(Database db) {
-        LOG.info("begin to make snapshot. {} when restore content is ALL", this);
+        LOG.info("Begin to make snapshot. {} when restore content is ALL", this);
         unfinishedSignatureToId.clear();
         taskProgress.clear();
         taskErrMsg.clear();
@@ -281,7 +281,7 @@ public class CloudRestoreJob extends RestoreJob {
         } finally {
             db.readUnlock();
         }
-        LOG.info("finished to send snapshot tasks, num: {}. {}", 0, this);
+        LOG.info("Finished sending snapshot tasks, num: {}. {}", 0, this);
     }
 
     @Override

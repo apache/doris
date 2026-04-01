@@ -786,7 +786,7 @@ void StorageEngine::clear_transaction_task(const TTransactionId transaction_id) 
 
 void StorageEngine::clear_transaction_task(const TTransactionId transaction_id,
                                            const std::vector<TPartitionId>& partition_ids) {
-    LOG(INFO) << "begin to clear transaction task. transaction_id=" << transaction_id;
+    LOG(INFO) << "Starting to clear transaction task. transaction_id=" << transaction_id;
 
     for (const TPartitionId& partition_id : partition_ids) {
         std::map<TabletInfo, RowsetSharedPtr> tablet_infos;
@@ -851,7 +851,7 @@ Status StorageEngine::start_trash_sweep(double* usage, bool ignore_guard) {
 
     double tmp_usage = 0.0;
     for (DataDirInfo& info : data_dir_infos) {
-        LOG(INFO) << "Start to sweep path " << info.path;
+        LOG(INFO) << "Start sweeping path " << info.path;
         if (!info.is_used) {
             continue;
         }
@@ -1116,7 +1116,7 @@ void StorageEngine::_clean_unused_partial_update_info() {
 
 void StorageEngine::gc_binlogs(const std::unordered_map<int64_t, int64_t>& gc_tablet_infos) {
     for (auto [tablet_id, version] : gc_tablet_infos) {
-        LOG(INFO) << fmt::format("start to gc binlogs for tablet_id: {}, version: {}", tablet_id,
+        LOG(INFO) << fmt::format("Start gcing binlogs for tablet_id: {}, version: {}", tablet_id,
                                  version);
 
         TabletSharedPtr tablet = _tablet_manager->get_tablet(tablet_id);
@@ -1228,7 +1228,7 @@ void StorageEngine::_parse_default_rowset_type() {
 
 void StorageEngine::start_delete_unused_rowset() {
     DBUG_EXECUTE_IF("StorageEngine::start_delete_unused_rowset.block", DBUG_BLOCK);
-    LOG(INFO) << "start to delete unused rowset, size: " << _unused_rowsets.size()
+    LOG(INFO) << "Start deleting unused rowset, size: " << _unused_rowsets.size()
               << ", unused delete bitmap size: " << _unused_delete_bitmap.size();
     std::vector<RowsetSharedPtr> unused_rowsets_copy;
     unused_rowsets_copy.reserve(_unused_rowsets.size());
@@ -1292,8 +1292,7 @@ void StorageEngine::start_delete_unused_rowset() {
               << due_to_delayed_expired_ts << " rowsets due to delayed expired timestamp. left "
               << _unused_delete_bitmap.size() << " unused delete bitmap.";
     for (auto&& rs : unused_rowsets_copy) {
-        VLOG_NOTICE << "start to remove rowset:" << rs->rowset_id()
-                    << ", version:" << rs->version();
+        VLOG_NOTICE << "Start removing rowset:" << rs->rowset_id() << ", version:" << rs->version();
         // delete delete_bitmap of unused rowsets
         if (auto tablet = _tablet_manager->get_tablet(rs->rowset_meta()->tablet_id());
             tablet && tablet->enable_unique_key_merge_on_write()) {
@@ -1383,7 +1382,7 @@ Status StorageEngine::get_tablet_meta(int64_t tablet_id, TabletMetaSharedPtr* ta
 Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int64_t path_hash,
                                         std::string* shard_path, DataDir** store,
                                         int64_t partition_id) {
-    LOG(INFO) << "begin to process obtain root path. storage_medium=" << storage_medium;
+    LOG(INFO) << "Start processing obtain root path. storage_medium=" << storage_medium;
 
     if (shard_path == nullptr) {
         return Status::Error<CE_CMD_PARAMS_ERROR>(
@@ -1421,7 +1420,7 @@ Status StorageEngine::obtain_shard_path(TStorageMedium::type storage_medium, int
 
 Status StorageEngine::load_header(const string& shard_path, const TCloneReq& request,
                                   bool restore) {
-    LOG(INFO) << "begin to process load headers."
+    LOG(INFO) << "Start processing load headers."
               << "tablet_id=" << request.tablet_id << ", schema_hash=" << request.schema_hash;
     Status res = Status::OK();
 
@@ -1551,7 +1550,7 @@ bool StorageEngine::get_peers_replica_backends(int64_t tablet_id, std::vector<TB
                 .tag("cur time", cur_time);
         return false;
     }
-    LOG_INFO("start get peers replica backends info.").tag("tablet id", tablet_id);
+    LOG_INFO("Start getting peers replica backends info.").tag("tablet id", tablet_id);
     ClusterInfo* cluster_info = ExecEnv::GetInstance()->cluster_info();
     if (cluster_info == nullptr) {
         LOG(WARNING) << "Have not get FE Master heartbeat yet";

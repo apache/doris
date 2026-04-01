@@ -319,7 +319,7 @@ public class CloudBrokerLoadJob extends BrokerLoadJob {
         try {
             LOG.debug(new LogBuilder(LogKey.LOAD_JOB, id)
                     .add("label", label)
-                    .add("msg", "begin to abort txn")
+                    .add("msg", "Begin to abort txn")
                     .build());
             Env.getCurrentGlobalTransactionMgr().abortTransaction(dbId, label, failMsg.getMsg());
         } catch (UserException e) {

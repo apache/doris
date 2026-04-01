@@ -96,7 +96,7 @@ public class CloudClusterChecker extends MasterDaemon {
         toAddClusterIds.forEach(
                 addId -> {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("begin to add clusterId: {}", addId);
+                    LOG.debug("Begin to add clusterId: {}", addId);
                 }
                 // Attach tag to BEs
                 String clusterName = remoteClusterIdToPB.get(addId).getClusterName();
@@ -144,7 +144,7 @@ public class CloudClusterChecker extends MasterDaemon {
         toDelClusterIds.forEach(
                 delId -> {
                 if (LOG.isDebugEnabled()) {
-                    LOG.debug("begin to drop clusterId: {}", delId);
+                    LOG.debug("Begin to drop clusterId: {}", delId);
                 }
                 List<Backend> toDel =
                         new ArrayList<>(finalClusterIdToBackend.getOrDefault(delId, new ArrayList<>()));
@@ -385,7 +385,7 @@ public class CloudClusterChecker extends MasterDaemon {
 
     private void checkFeNodesMapValid() {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin checkFeNodesMapValid");
+            LOG.debug("Begin to checkfenodesmapvalid");
         }
         Map<String, List<Backend>> clusterIdToBackend = cloudSystemInfoService.getCloudClusterIdToBackend(false);
         Set<String> clusterIds = new HashSet<>();

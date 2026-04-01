@@ -440,9 +440,9 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
                         repo.getRemoteFileSystem().getStorageProperties().getBackendConfigProperties());
                 AgentTaskQueue.updateTask(beId, TTaskType.UPLOAD, signature, task);
             }
-            LOG.info("finished to update upload job properties. {}", this);
+            LOG.info("Finished updating upload job properties. {}", this);
         }
-        LOG.info("finished to update repo of job. {}", this);
+        LOG.info("Finished updating repo of job. {}", this);
         return Status.OK;
     }
 
@@ -621,7 +621,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         // DO NOT write log here, state will be reset to PENDING after FE restart. Then all snapshot tasks
         // will be re-generated and be sent again
-        LOG.info("finished to send snapshot tasks to backend. {}", this);
+        LOG.info("Finished sending snapshot tasks to backend. {}", this);
     }
 
     private void checkOlapTable(OlapTable olapTable, TableRefInfo backupTableRef) {
@@ -764,7 +764,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
             // log
             env.getEditLog().logBackupJob(this);
-            LOG.info("finished to make snapshots. {}", this);
+            LOG.info("Finished making snapshots. {}", this);
             return;
         }
 
@@ -837,7 +837,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
         state = BackupJobState.UPLOADING;
 
         // DO NOT write log here, upload tasks will be resend after FE crashed.
-        LOG.info("finished to send upload tasks. {}", this);
+        LOG.info("Finished sending upload tasks. {}", this);
     }
 
     private void waitingAllUploadingFinished() {
@@ -847,7 +847,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
             // log
             env.getEditLog().logBackupJob(this);
-            LOG.info("finished uploading snapshots. {}", this);
+            LOG.info("Finished uploading snapshots. {}", this);
             return;
         }
 
@@ -993,7 +993,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         // log
         env.getEditLog().logBackupJob(this);
-        LOG.info("finished to save meta the backup job info file to local.[{}], [{}] {}",
+        LOG.info("Finished saving meta backup job info file to local.[{}], [{}] {}",
                  localMetaInfoFilePath, localJobInfoFilePath, this);
     }
 
@@ -1124,7 +1124,7 @@ public class BackupJob extends AbstractJob implements GsonPostProcessable {
 
         // log
         env.getEditLog().logBackupJob(this);
-        LOG.info("finished to cancel backup job. current state: {}. {}", curState.name(), this);
+        LOG.info("Finished cancelling backup job. current state: {}. {}", curState.name(), this);
     }
 
     public boolean isLocalSnapshot() {

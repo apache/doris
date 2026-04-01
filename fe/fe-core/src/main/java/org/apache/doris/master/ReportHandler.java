@@ -691,7 +691,7 @@ public class ReportHandler extends Daemon {
         }
 
         long end = System.currentTimeMillis();
-        LOG.info("finished to handle tablet report from backend[{}] cost: {} ms", backendId, (end - start));
+        LOG.info("Finished handling tablet report from backend[{}] cost: {} ms", backendId, (end - start));
     }
 
     private static void debugBlock() {
@@ -712,7 +712,7 @@ public class ReportHandler extends Daemon {
             long numRunningTasks) {
         debugBlock();
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to handle task report from backend {}", backendId);
+            LOG.debug("Begin to handle task report from backend {}", backendId);
         }
         long start = System.currentTimeMillis();
 
@@ -759,7 +759,7 @@ public class ReportHandler extends Daemon {
             AgentTaskExecutor.submit(batchTask);
         }
 
-        LOG.info("finished to handle task report from backend {}-{}, "
+        LOG.info("Finished handling task report from backend {}-{}, "
                 + "diff task num: {}, publishTaskSize: {}, runningTasks: {}, cost: {} ms.",
                 backendId, be != null ? be.getHost() : "",
                 batchTask.getTaskNum(), publishTaskSize, runningTasks.entrySet().stream()
@@ -769,7 +769,7 @@ public class ReportHandler extends Daemon {
     }
 
     private static void diskReport(long backendId, Map<String, TDisk> backendDisks) {
-        LOG.info("begin to handle disk report from backend {}", backendId);
+        LOG.info("Begin to handle disk report from backend {}", backendId);
         long start = System.currentTimeMillis();
         Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
         if (backend == null) {
@@ -780,12 +780,12 @@ public class ReportHandler extends Daemon {
                 .map(disk -> "path=" + disk.getRootPath() + ", path hash=" + disk.getPathHash())
                 .collect(Collectors.toList());
         backend.updateDisks(backendDisks);
-        LOG.info("finished to handle disk report from backend: {}, disk size: {}, bad disk: {}, cost: {} ms",
+        LOG.info("Finished handling disk report from backend: {}, disk size: {}, bad disk: {}, cost: {} ms",
                 backendId, backendDisks.size(), badDisks, (System.currentTimeMillis() - start));
     }
 
     private static void cpuReport(long backendId, int cpuCores, int pipelineExecutorSize) {
-        LOG.info("begin to handle cpu report from backend {}", backendId);
+        LOG.info("Begin to handle cpu report from backend {}", backendId);
         long start = System.currentTimeMillis();
         Backend backend = Env.getCurrentSystemInfo().getBackend(backendId);
         if (backend == null) {
@@ -799,7 +799,7 @@ public class ReportHandler extends Daemon {
             // log change
             Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
         }
-        LOG.info("finished to handle cpu report from backend {}, cost: {} ms",
+        LOG.info("Finished handling cpu report from backend {}, cost: {} ms",
                 backendId, (System.currentTimeMillis() - start));
     }
 

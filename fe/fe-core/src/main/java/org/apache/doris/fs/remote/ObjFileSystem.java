@@ -91,7 +91,7 @@ public abstract class ObjFileSystem extends RemoteFileSystem {
         }
         if (localFile.length() == fileSize) {
             LOG.info(
-                    "finished to get file from {} to {} with size: {}. cost {} ms",
+                    "Finished getting file from {} to {} with size: {}. cost {} ms",
                     remoteFilePath,
                     localFile.toPath(),
                     fileSize,

@@ -82,7 +82,7 @@ public class LocalFileDeployManager extends DeployManager {
     public List<SystemInfoService.HostInfo> getGroupHostInfos(NodeType nodeType) {
         String groupName = nodeTypeAttrMap.get(nodeType).getServiceName();
         List<SystemInfoService.HostInfo> result = Lists.newArrayList();
-        LOG.info("begin to get group: {} from file: {}", groupName, clusterInfoFile);
+        LOG.info("Begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
         FileChannel channel = null;
         FileLock lock = null;

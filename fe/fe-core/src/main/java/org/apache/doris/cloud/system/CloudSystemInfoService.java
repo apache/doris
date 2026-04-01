@@ -1078,7 +1078,7 @@ public class CloudSystemInfoService extends SystemInfoService {
             wlock.unlock();
         }
 
-        LOG.info("begin to get cloud cluster from remote, clusterName={}, userName={}", clusterName, userName);
+        LOG.info("Begin to get cloud cluster from remote, clusterName={}, userName={}", clusterName, userName);
 
         // Get cloud cluster info from resource manager
         Cloud.GetClusterResponse response = getCloudCluster(clusterName, "", userName);

@@ -776,7 +776,7 @@ public class LoadManager implements Writable {
             LOG.warn("Exception:", e);
         }
 
-        LOG.info("finished to clean {} labels on db {} with label '{}' in load mgr. is replay: {}",
+        LOG.info("Finished cleaning {} labels on db {} with label '{}' in load mgr. is replay: {}",
                 counter, dbId, label, isReplay);
     }
 

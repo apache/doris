@@ -228,7 +228,7 @@ Status HdfsFileSystem::rename_impl(const Path& orig_name, const Path& new_name) 
     Path normal_new_name = convert_path(new_name, _fs_name);
     int ret = hdfsRename(_fs_handler->hdfs_fs, normal_orig_name.c_str(), normal_new_name.c_str());
     if (ret == 0) {
-        LOG(INFO) << "finished to rename file. orig: " << normal_orig_name
+        LOG(INFO) << "Finished renaming file. orig: " << normal_orig_name
                   << ", new: " << normal_new_name;
         return Status::OK();
     } else {

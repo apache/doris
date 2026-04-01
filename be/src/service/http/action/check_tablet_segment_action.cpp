@@ -58,9 +58,9 @@ void CheckTabletSegmentAction::handle(HttpRequest* req) {
         return;
     }
 
-    LOG(INFO) << "start to check tablet segment.";
+    LOG(INFO) << "Start checking tablet segment.";
     std::set<int64_t> bad_tablets = _engine.tablet_manager()->check_all_tablet_segment(repair);
-    LOG(INFO) << "finish to check tablet segment.";
+    LOG(INFO) << "Finished checking tablet segment.";
 
     EasyJson result_ej;
     result_ej["status"] = "Success";

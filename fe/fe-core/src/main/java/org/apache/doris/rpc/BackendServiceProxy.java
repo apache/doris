@@ -103,7 +103,7 @@ public class BackendServiceProxy {
     }
 
     public void removeProxy(TNetworkAddress address) {
-        LOG.warn("begin to remove proxy: {}", address);
+        LOG.warn("Begin to remove proxy: {}", address);
         BackendServiceClientExtIp serviceClientExtIp;
         lock.lock();
         try {

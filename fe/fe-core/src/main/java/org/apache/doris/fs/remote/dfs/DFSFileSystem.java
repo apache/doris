@@ -200,7 +200,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             return st;
         }
         FSDataInputStream fsDataInputStream = hdfsOpParams.fsDataInputStream();
-        LOG.info("finished to open reader. download {} to {}.", remoteFilePath, localFilePath);
+        LOG.info("Finished opening reader. download {} to {}.", remoteFilePath, localFilePath);
 
         // delete local file if exist
         File localFile = new File(localFilePath);
@@ -266,7 +266,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             }
         }
 
-        LOG.info("finished to download from {} to {} with size: {}. cost {} ms", remoteFilePath, localFilePath,
+        LOG.info("Finished downloading from {} to {} with size: {}. cost {} ms", remoteFilePath, localFilePath,
                 fileSize, (System.currentTimeMillis() - start));
         return status;
     }
@@ -370,7 +370,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             return wst;
         }
         FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
-        LOG.info("finished to open writer. directly upload to remote path {}.", remoteFile);
+        LOG.info("Finished opening writer. directly upload to remote path {}.", remoteFile);
 
         Status status = Status.OK;
         try {
@@ -402,7 +402,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             return wst;
         }
         FSDataOutputStream fsDataOutputStream = hdfsOpParams.fsDataOutputStream();
-        LOG.info("finished to open writer. directly upload to remote path {}.", remotePath);
+        LOG.info("Finished opening writer. directly upload to remote path {}.", remotePath);
         // read local file and write remote
         File localFile = new File(localPath);
         long fileLength = localFile.length();
@@ -447,7 +447,7 @@ public class DFSFileSystem extends RemoteFileSystem {
         }
 
         if (status.ok()) {
-            LOG.info("finished to upload {} to remote path {}. cost: {} ms", localPath, remotePath,
+            LOG.info("Finished uploading {} to remote path {}. cost: {} ms", localPath, remotePath,
                     (System.currentTimeMillis() - start));
         }
         return status;
@@ -477,7 +477,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR,
                     "failed to rename remote " + srcPath + " to " + destPath + ", msg: " + e.getMessage());
         }
-        LOG.info("finished to rename {} to  {}. cost: {} ms", srcPath, destPath, (System.currentTimeMillis() - start));
+        LOG.info("Finished renaming {} to {}. cost: {} ms", srcPath, destPath, (System.currentTimeMillis() - start));
         return Status.OK;
     }
 
@@ -495,7 +495,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             return new Status(Status.ErrCode.COMMON_ERROR,
                     "failed to delete remote path: " + remotePath + ", msg: " + e.getMessage());
         }
-        LOG.info("finished to delete remote path {}.", remotePath);
+        LOG.info("Finished deleting remote path {}.", remotePath);
         return Status.OK;
     }
 
@@ -532,7 +532,7 @@ public class DFSFileSystem extends RemoteFileSystem {
             LOG.warn("errors while get file status ", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "errors while get file status " + e.getMessage());
         }
-        LOG.info("finish list path {}", remotePath);
+        LOG.info("Finished listing path {}", remotePath);
         return Status.OK;
     }
 

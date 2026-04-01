@@ -56,7 +56,7 @@ WalManager::WalManager(ExecEnv* exec_env, const std::string& wal_dir_list)
 }
 
 WalManager::~WalManager() {
-    LOG(INFO) << "WalManager is destoried";
+    LOG(INFO) << "WalManager is destroyed";
 }
 
 bool WalManager::is_running() {
@@ -377,7 +377,7 @@ Status WalManager::_scan_wals(const std::string& wal_path, std::vector<ScanWalIn
             }
         }
     }
-    LOG(INFO) << "Finish list wal_dir=" << wal_path
+    LOG(INFO) << "Finished listing wal_dir=" << wal_path
               << ", wal count=" << std::to_string(res.size() - last_total_size);
     return Status::OK();
 }
@@ -543,7 +543,7 @@ Status WalManager::wait_replay_wal_finish(int64_t wal_id) {
     auto st = get_lock_and_cv(wal_id, lock, cv);
     if (st.ok()) {
         std::unique_lock l(*(lock));
-        LOG(INFO) << "start wait " << wal_id;
+        LOG(INFO) << "Start waiting " << wal_id;
         if (cv->wait_for(l, std::chrono::seconds(180)) == std::cv_status::timeout) {
             LOG(WARNING) << "wait for " << wal_id << " is time out";
         }

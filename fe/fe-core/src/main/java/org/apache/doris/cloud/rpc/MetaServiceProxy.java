@@ -124,7 +124,7 @@ public class MetaServiceProxy {
     }
 
     public void removeProxy(String address) {
-        LOG.warn("begin to remove proxy: {}", address);
+        LOG.warn("Begin to remove proxy: {}", address);
         MetaServiceClient service;
         lock.lock();
         try {

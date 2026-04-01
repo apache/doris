@@ -110,7 +110,7 @@ public class StreamingInsertTask extends AbstractStreamingTask {
             log.info("task has been canceled, task id is {}", getTaskId());
             return;
         }
-        log.info("start to run streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
+        log.info("Start running streaming insert task, label {}, offset is {}", labelName, runningOffset.toString());
         String errMsg = null;
         try {
             taskCommand.run(ctx, stmtExecutor);

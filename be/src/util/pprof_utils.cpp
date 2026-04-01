@@ -113,7 +113,7 @@ Status PprofUtils::get_readable_profile(const std::string& file_or_content, bool
     std::string cmd_output;
     std::string final_cmd = pprof_cmd + absl::Substitute(" --text $0 $1", self_cmdline, final_file);
     AgentUtils util;
-    LOG(INFO) << "begin to run command: " << final_cmd;
+    LOG(INFO) << "Start running command: " << final_cmd;
     bool rc = util.exec_cmd(final_cmd, &cmd_output, false);
 
     // delete raw file
@@ -158,7 +158,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
 
     AgentUtils util;
     std::string cmd_output;
-    LOG(INFO) << "begin to run command: " << cmd.str();
+    LOG(INFO) << "Start running command: " << cmd.str();
     bool rc = util.exec_cmd(cmd.str(), &cmd_output);
     if (!rc) {
         static_cast<void>(io::global_local_filesystem()->delete_file(tmp_file.str()));
@@ -175,7 +175,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         std::stringstream gen_cmd;
         gen_cmd << perf_cmd << " script -i " << tmp_file.str() << " | " << stackcollapse_perf_pl
                 << " | " << flamegraph_pl << " > " << graph_file.str();
-        LOG(INFO) << "begin to run command: " << gen_cmd.str();
+        LOG(INFO) << "Start running command: " << gen_cmd.str();
         rc = util.exec_cmd(gen_cmd.str(), &res_content);
         if (!rc) {
             static_cast<void>(io::global_local_filesystem()->delete_file(tmp_file.str()));
@@ -187,7 +187,7 @@ Status PprofUtils::generate_flamegraph(int32_t sample_seconds,
         std::stringstream gen_cmd;
         gen_cmd << perf_cmd << " script -i " << tmp_file.str() << " | " << stackcollapse_perf_pl
                 << " | " << flamegraph_pl;
-        LOG(INFO) << "begin to run command: " << gen_cmd.str();
+        LOG(INFO) << "Start running command: " << gen_cmd.str();
         rc = util.exec_cmd(gen_cmd.str(), &res_content, false);
         if (!rc) {
             static_cast<void>(io::global_local_filesystem()->delete_file(tmp_file.str()));

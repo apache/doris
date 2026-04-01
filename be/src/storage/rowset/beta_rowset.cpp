@@ -301,7 +301,7 @@ Status BetaRowset::remove() {
     }
 
     // TODO should we close and remove all segment reader first?
-    VLOG_NOTICE << "begin to remove files in rowset " << rowset_id()
+    VLOG_NOTICE << "Start removing files in rowset " << rowset_id()
                 << ", version:" << start_version() << "-" << end_version()
                 << ", tabletid:" << _rowset_meta->tablet_id();
     // If the rowset was removed, it need to remove the fds in segment cache directly

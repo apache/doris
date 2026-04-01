@@ -124,7 +124,7 @@ Status FunctionMatchBase::execute_impl(FunctionContext* context, Block& block,
 
     auto match_query_str = type_ptr->to_string(*column_ptr, 0, format_options);
     std::string column_name = block.get_by_position(arguments[0]).name;
-    VLOG_DEBUG << "begin to execute match directly, column_name=" << column_name
+    VLOG_DEBUG << "Start executing match directly, column_name=" << column_name
                << ", match_query_str=" << match_query_str;
     auto* analyzer_ctx = get_match_analyzer_ctx(context);
     const ColumnPtr source_col =
@@ -198,7 +198,7 @@ std::vector<TermInfo> FunctionMatchBase::analyse_query_str_token(
         return query_tokens;
     }
 
-    VLOG_DEBUG << "begin to run " << get_name() << ", parser_type: "
+    VLOG_DEBUG << "Start running " << get_name() << ", parser_type: "
                << inverted_index_parser_type_to_string(analyzer_ctx->parser_type);
 
     // Decision is based on parser_type (from index properties):
@@ -500,7 +500,7 @@ Status FunctionMatchRegexp::execute_match(FunctionContext* context, const std::s
                                           ColumnUInt8::Container& result) const {
     RETURN_IF_ERROR(check(context, name));
 
-    VLOG_DEBUG << "begin to run FunctionMatchRegexp::execute_match, parser_type: "
+    VLOG_DEBUG << "Start running FunctionMatchRegexp::execute_match, parser_type: "
                << (analyzer_ctx ? inverted_index_parser_type_to_string(analyzer_ctx->parser_type)
                                 : "unknown");
 

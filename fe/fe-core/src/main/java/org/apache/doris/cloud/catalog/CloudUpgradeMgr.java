@@ -150,6 +150,6 @@ public class CloudUpgradeMgr extends MasterDaemon {
         }
         be.setActive(false); /* now user can get BE inactive status from `show backends;` */
         Env.getCurrentEnv().getEditLog().logModifyBackend(be);
-        LOG.info("finished to modify backend {} ", be);
+        LOG.info("Finished modifying backend {} ", be);
     }
 }

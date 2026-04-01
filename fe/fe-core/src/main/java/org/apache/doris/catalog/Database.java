@@ -841,7 +841,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
         if (FunctionUtil.dropFunctionImpl(function, ifExists, name2Function)) {
             Env.getCurrentEnv().getEditLog().logDropFunction(function);
             FunctionUtil.dropFromNereids(this.getFullName(), function);
-            LOG.info("finished to drop function {}", function.getName().getFunction());
+            LOG.info("Finished dropping function {}", function.getName().getFunction());
         }
     }
 
@@ -854,7 +854,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table>,
                         functionSearchDesc.getName().getFunction());
             }
             FunctionUtil.dropFromNereids(this.getFullName(), functionSearchDesc);
-            LOG.info("finished to replay drop function {}", functionSearchDesc.getName().getFunction());
+            LOG.info("Finished replaying drop function {}", functionSearchDesc.getName().getFunction());
         } catch (UserException e) {
             throw new RuntimeException(e);
         }

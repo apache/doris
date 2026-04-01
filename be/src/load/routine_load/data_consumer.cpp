@@ -147,7 +147,7 @@ Status KafkaDataConsumer::init(std::shared_ptr<StreamLoadContext> ctx) {
         return Status::InternalError("PAUSE: failed to create kafka consumer: " + errstr);
     }
 
-    VLOG_NOTICE << "finished to init kafka consumer. " << ctx->brief();
+    VLOG_NOTICE << "Finished initing kafka consumer. " << ctx->brief();
 
     _init = true;
     return Status::OK();

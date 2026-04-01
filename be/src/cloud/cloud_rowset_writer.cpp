@@ -82,7 +82,7 @@ Status CloudRowsetWriter::init(const RowsetWriterContext& rowset_writer_context)
 }
 
 Status CloudRowsetWriter::_build_rowset_meta(RowsetMeta* rowset_meta, bool check_segment_num) {
-    VLOG_NOTICE << "start to build rowset meta. tablet_id=" << rowset_meta->tablet_id()
+    VLOG_NOTICE << "Start building rowset meta. tablet_id=" << rowset_meta->tablet_id()
                 << ", rowset_id=" << rowset_meta->rowset_id()
                 << ", check_segment_num=" << check_segment_num;
     // Call base class implementation
@@ -162,7 +162,7 @@ Status CloudRowsetWriter::build(RowsetSharedPtr& rowset) {
 }
 
 Status CloudRowsetWriter::_collect_all_packed_slice_locations(RowsetMeta* rowset_meta) {
-    VLOG_NOTICE << "start to collect packed slice locations for rowset meta. tablet_id="
+    VLOG_NOTICE << "Start collecting packed slice locations for rowset meta. tablet_id="
                 << rowset_meta->tablet_id() << ", rowset_id=" << rowset_meta->rowset_id();
     if (!_context.packed_file_active) {
         return Status::OK();

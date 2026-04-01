@@ -285,7 +285,7 @@ Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, std::vector<
             return Status::IOError("failed to list dir {}: {}", dir.native(),
                                    error_msg(list_rep.opStatus.message));
         }
-        LOG(INFO) << "finished to list files from remote path. file num: " << list_rep.files.size();
+        LOG(INFO) << "Finished listing files from remote path. file num: " << list_rep.files.size();
         *exists = true;
 
         // split file name and checksum
@@ -301,7 +301,7 @@ Status BrokerFileSystem::list_impl(const Path& dir, bool only_file, std::vector<
             files->emplace_back(std::move(file_info));
         }
 
-        LOG(INFO) << "finished to split files. valid file num: " << files->size();
+        LOG(INFO) << "Finished splitting files. valid file num: " << files->size();
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;
         ss << "failed to list files in remote path: " << dir << ", msg: " << e.what();
@@ -336,7 +336,7 @@ Status BrokerFileSystem::rename_impl(const Path& orig_name, const Path& new_name
                                 new_name.native(), error_msg(e.what()));
     }
 
-    LOG(INFO) << "finished to rename file. orig: " << orig_name << ", new: " << new_name;
+    LOG(INFO) << "Finished renaming file. orig: " << orig_name << ", new: " << new_name;
     return Status::OK();
 }
 
@@ -373,7 +373,7 @@ Status BrokerFileSystem::upload_impl(const Path& local_file, const Path& remote_
 
     // close manually, because we need to check its close status
     RETURN_IF_ERROR(broker_writer->close());
-    LOG(INFO) << "finished to write file via broker. file: " << local_file
+    LOG(INFO) << "Finished writing file via broker. file: " << local_file
               << ", length: " << file_len;
     return Status::OK();
 }

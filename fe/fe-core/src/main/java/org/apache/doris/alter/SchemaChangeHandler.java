@@ -1938,7 +1938,7 @@ public class SchemaChangeHandler extends AlterHandler {
 
         // 3. write edit log
         Env.getCurrentEnv().getEditLog().logAlterJob(schemaChangeJob);
-        LOG.info("finished to create schema change job: {}", schemaChangeJob.getJobId());
+        LOG.info("Finished creating schema change job: {}", schemaChangeJob.getJobId());
     }
 
     @Override
@@ -3270,8 +3270,8 @@ public class SchemaChangeHandler extends AlterHandler {
                 }
             }
 
-            LOG.info("finished modify table's meta for add or drop inverted index. table: {}, job: {}, is replay: {}",
-                    olapTable.getName(), jobId, isReplay);
+            LOG.info("Finished modifying table's meta for add or drop inverted index. "
+                    + "table: {}, job: {}, is replay: {}", olapTable.getName(), jobId, isReplay);
         } else {
             if (!isReplay) {
                 Map<String, Long> indexNameToId = new HashMap<>(olapTable.getIndexNameToId());
@@ -3288,7 +3288,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     Env.getCurrentEnv().getAnalysisManager().dropStats(olapTable, null);
                 }
             }
-            LOG.info("finished modify table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
+            LOG.info("Finished modifying table's add or drop or modify columns. table: {}, job: {}, is replay: {}",
                     olapTable.getName(), jobId, isReplay);
         }
         // for bloom filter, rebuild bloom filter info by table schema in replay
@@ -3507,7 +3507,7 @@ public class SchemaChangeHandler extends AlterHandler {
     public void buildOrDeleteTableInvertedIndices(Database db, OlapTable olapTable,
             Map<Long, LinkedList<Column>> indexSchemaMap, List<Index> alterIndexes,
             Map<Long, Set<String>> invertedIndexOnPartitions, boolean isDropOp) throws UserException {
-        LOG.info("begin to build table's inverted index. table: {}", olapTable.getName());
+        LOG.info("Begin to build table's inverted index. table: {}", olapTable.getName());
 
         // for now table's state can only be NORMAL
         Preconditions.checkState(olapTable.getState() == OlapTableState.NORMAL, olapTable.getState().name());
@@ -3579,7 +3579,7 @@ public class SchemaChangeHandler extends AlterHandler {
                     if (!FeConstants.runningUnitTest) {
                         Env.getCurrentEnv().getEditLog().logIndexChangeJob(indexChangeJob);
                     }
-                    LOG.info("finish create table's inverted index job. table: {}, partition: {}, job: {}",
+                    LOG.info("Finished creating table's inverted index job. table: {}, partition: {}, job: {}",
                             olapTable.getName(), partitionName, jobId);
                 } // end for partition
             } // end for index
@@ -3704,7 +3704,7 @@ public class SchemaChangeHandler extends AlterHandler {
             throw new DdlException("db binlog is enable, but table binlog is disable");
         }
 
-        LOG.info("begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
+        LOG.info("Begin to update table's binlog config. table: {}, old binlog: {}, new binlog: {}",
                 olapTable.getName(), oldBinlogConfig, newBinlogConfig);
 
 

@@ -349,7 +349,7 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                 }
             }
         }
-        LOG.info("finished to pull stream load records of all backends. record size: {}, cost: {} ms",
+        LOG.info("Finished pulling stream load records of all backends. record size: {}, cost: {} ms",
                                                         pullRecordSize, (System.currentTimeMillis() - start));
         if (pullRecordSize > 0) {
             FetchStreamLoadRecord fetchStreamLoadRecord = new FetchStreamLoadRecord(beIdToLastStreamLoad);

@@ -181,7 +181,7 @@ public class SmallFileMgr {
 
             Env.getCurrentEnv().getEditLog().logCreateSmallFile(smallFile);
 
-            LOG.info("finished to add file {} from url {}. current file number: {}", fileName, downloadUrl,
+            LOG.info("Finished adding file {} from url {}. current file number: {}", fileName, downloadUrl,
                     idToFiles.size());
         }
     }
@@ -217,7 +217,7 @@ public class SmallFileMgr {
                     Env.getCurrentEnv().getEditLog().logDropSmallFile(smallFile);
                 }
 
-                LOG.info("finished to remove file {}. current file number: {}. is replay: {}",
+                LOG.info("Finished removing file {}. current file number: {}. is replay: {}",
                         fileName, idToFiles.size(), isReplay);
             } else {
                 throw new DdlException("No such file: " + fileName);

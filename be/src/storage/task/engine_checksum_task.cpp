@@ -60,7 +60,7 @@ Status EngineChecksumTask::execute() {
 } // execute
 
 Status EngineChecksumTask::_compute_checksum() {
-    LOG(INFO) << "begin to process compute checksum."
+    LOG(INFO) << "Start processing compute checksum."
               << "tablet_id=" << _tablet_id << ", schema_hash=" << _schema_hash
               << ", version=" << _version;
     OlapStopWatch watch;

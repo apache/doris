@@ -297,7 +297,7 @@ Status FullTextIndexReader::query(const IndexQueryContextPtr& context,
     SCOPED_RAW_TIMER(&context->stats->inverted_index_query_timer);
 
     std::string search_str = *reinterpret_cast<const std::string*>(query_value);
-    VLOG_DEBUG << column_name << " begin to search the fulltext index from clucene, query_str ["
+    VLOG_DEBUG << column_name << " Begin to search the fulltext index from clucene, query_str ["
                << search_str << "]";
 
     const auto& queryOptions = context->runtime_state->query_options();
@@ -427,7 +427,7 @@ Status StringTypeInvertedIndexReader::query(const IndexQueryContextPtr& context,
                 "query value is too long, evaluate skipped.");
     }
 
-    VLOG_DEBUG << "begin to query the inverted index from clucene"
+    VLOG_DEBUG << "Start querying the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     try {
         auto index_file_key = _index_file_reader->get_index_file_cache_key(&_index_meta);

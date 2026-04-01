@@ -31,7 +31,7 @@ namespace doris {
 using namespace ErrorCode;
 
 Status CloudDeleteTask::execute(CloudStorageEngine& engine, const TPushReq& request) {
-    VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
+    VLOG_DEBUG << "Start processing delete data. request=" << ThriftDebugString(request);
 
     if (!request.__isset.transaction_id) {
         return Status::InvalidArgument("transaction_id is not set");

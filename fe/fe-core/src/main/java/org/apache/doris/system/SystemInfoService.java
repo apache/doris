@@ -225,7 +225,7 @@ public class SystemInfoService {
 
         // log
         Env.getCurrentEnv().getEditLog().logAddBackend(newBackend);
-        LOG.info("finished to add {} ", newBackend);
+        LOG.info("Finished adding {} ", newBackend);
 
         // backends is changed, regenerated tablet number metrics
         MetricRepo.generateBackendsTabletMetrics();
@@ -284,7 +284,7 @@ public class SystemInfoService {
 
         // log
         Env.getCurrentEnv().getEditLog().logDropBackend(droppedBackend);
-        LOG.info("finished to drop {}", droppedBackend);
+        LOG.info("Finished dropping {}", droppedBackend);
 
         // backends is changed, regenerated tablet number metrics
         MetricRepo.generateBackendsTabletMetrics();
@@ -1016,7 +1016,7 @@ public class SystemInfoService {
 
             if (shouldModify) {
                 Env.getCurrentEnv().getEditLog().logModifyBackend(be);
-                LOG.info("finished to modify backend {} ", be);
+                LOG.info("Finished modifying backend {} ", be);
             }
         }
     }

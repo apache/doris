@@ -565,7 +565,7 @@ public class Repository implements Writable, GsonPostProcessable {
             }
         }
 
-        LOG.info("finished to upload local file {} to remote file: {}", localFilePath, finalRemotePath);
+        LOG.info("Finished uploading local file {} to remote file: {}", localFilePath, finalRemotePath);
         return st;
     }
 

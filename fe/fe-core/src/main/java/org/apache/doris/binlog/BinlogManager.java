@@ -651,7 +651,7 @@ public class BinlogManager {
     }
 
     public List<BinlogTombstone> gc() {
-        LOG.info("begin gc binlog");
+        LOG.info("Begin to gc binlog");
 
         lock.writeLock().lock();
         Map<Long, DBBinlog> gcDbBinlogMap;
@@ -662,7 +662,7 @@ public class BinlogManager {
         }
 
         if (gcDbBinlogMap.isEmpty()) {
-            LOG.info("gc binlog, dbBinlogMap is null");
+            LOG.info("GC binlog, dbBinlogMap is null");
             return null;
         }
 

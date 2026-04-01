@@ -64,7 +64,7 @@ Status IndexBuilder::init() {
 
 Status IndexBuilder::update_inverted_index_info() {
     // just do link files
-    LOG(INFO) << "begin to update_inverted_index_info, tablet=" << _tablet->tablet_id()
+    LOG(INFO) << "Start updating_inverted_index_info, tablet=" << _tablet->tablet_id()
               << ", is_drop_op=" << _is_drop_op;
     // index ids that will not be linked
     std::set<int64_t> without_index_uids;
@@ -664,7 +664,7 @@ Status IndexBuilder::handle_single_rowset(RowsetMetaSharedPtr output_rowset_meta
 
 Status IndexBuilder::_write_inverted_index_data(TabletSchemaSPtr tablet_schema, int64_t segment_idx,
                                                 Block* block) {
-    VLOG_DEBUG << "begin to write inverted/ann index";
+    VLOG_DEBUG << "Start writing inverted/ann index";
     // converter block data
     _olap_data_convertor->set_source_content(block, 0, block->rows());
     for (auto i = 0; i < _alter_inverted_indexes.size(); ++i) {
@@ -811,7 +811,7 @@ Status IndexBuilder::_add_data(const std::string& column_name,
 }
 
 Status IndexBuilder::handle_inverted_index_data() {
-    LOG(INFO) << "begin to handle_inverted_index_data";
+    LOG(INFO) << "Start handling_inverted_index_data";
     DCHECK(_input_rowsets.size() == _output_rowsets.size());
     for (auto& _output_rowset : _output_rowsets) {
         SegmentCacheHandle segment_cache_handle;
@@ -825,7 +825,7 @@ Status IndexBuilder::handle_inverted_index_data() {
 }
 
 Status IndexBuilder::do_build_inverted_index() {
-    LOG(INFO) << "begin to do_build_inverted_index, tablet=" << _tablet->tablet_id()
+    LOG(INFO) << "Start doing_build_inverted_index, tablet=" << _tablet->tablet_id()
               << ", is_drop_op=" << _is_drop_op;
     DBUG_EXECUTE_IF("IndexBuilder::do_build_inverted_index_alter_inverted_indexes_empty",
                     { _alter_inverted_indexes.clear(); })

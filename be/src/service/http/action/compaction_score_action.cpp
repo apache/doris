@@ -102,7 +102,7 @@ struct CloudCompactionScoresAccessor final : CompactionScoresAccessor {
 
     Status sync_meta() {
         auto tablets = get_all_tablets();
-        LOG(INFO) << "start to sync meta from ms";
+        LOG(INFO) << "Start syncing meta from ms";
 
         MonotonicStopWatch stopwatch;
         stopwatch.start();

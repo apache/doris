@@ -97,7 +97,7 @@ public class BrokerFileOperations implements FileOperations {
                                 + " for fd: " + fd);
             }
 
-            LOG.info("finished to close reader. fd: {}.", fd);
+            LOG.info("Finished closing reader. fd: {}.", fd);
         } catch (TException e) {
             return new Status(Status.ErrCode.BAD_CONNECTION,
                     "failed to close reader on broker "
@@ -126,7 +126,7 @@ public class BrokerFileOperations implements FileOperations {
 
             fd.setHigh(rep.getFd().getHigh());
             fd.setLow(rep.getFd().getLow());
-            LOG.info("finished to open writer. fd: {}. directly upload to remote path {}.", fd, remoteFile);
+            LOG.info("Finished opening writer. fd: {}. directly upload to remote path {}.", fd, remoteFile);
         } catch (TException e) {
             return new Status(Status.ErrCode.BAD_CONNECTION,
                     "failed to open writer on broker "
@@ -150,7 +150,7 @@ public class BrokerFileOperations implements FileOperations {
                                 + " for fd: " + fd);
             }
 
-            LOG.info("finished to close writer. fd: {}.", fd);
+            LOG.info("Finished closing writer. fd: {}.", fd);
         } catch (TException e) {
             return new Status(Status.ErrCode.BAD_CONNECTION,
                     "failed to close writer on broker "

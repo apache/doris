@@ -116,7 +116,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
 
         try {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
+                LOG.debug("Begin to do tablet diff with backend[{}]. num: {}", backendId, backendTablets.size());
             }
 
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
@@ -478,7 +478,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
         long toPublishTransactionsPartitions = transactionsToPublish.values().stream()
                 .mapToLong(m -> m.values().size()).sum();
 
-        LOG.info("finished to do tablet diff with backend[{}]. fe tablet num: {}, backend tablet num: {}. "
+        LOG.info("Finished doing tablet diff with backend[{}]. fe tablet num: {}, backend tablet num: {}. "
                         + "sync: {}, metaDel: {}, foundInMeta: {}, migration: {}, "
                         + "backend partition num: {}, backend need update: {}, "
                         + "found invalid transactions {}(partitions: {}), "

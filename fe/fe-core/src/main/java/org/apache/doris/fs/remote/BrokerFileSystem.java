@@ -175,7 +175,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
         if (!opStatus.ok()) {
             return opStatus;
         }
-        LOG.info("finished to open reader. fd: {}. download {} to {}.",
+        LOG.info("Finished opening reader. fd: {}. download {} to {}.",
                 fd, remoteFilePath, localFilePath);
         Preconditions.checkNotNull(fd);
         // 3. delete local file if exist
@@ -313,7 +313,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
             }
         }
 
-        LOG.info("finished to download from {} to {} with size: {}. cost {} ms",
+        LOG.info("Finished downloading from {} to {} with size: {}. cost {} ms",
                 remoteFilePath, localFilePath, fileSize, (System.currentTimeMillis() - start));
         return status;
     }
@@ -481,7 +481,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
         }
 
         if (status.ok()) {
-            LOG.info("finished to upload {} to remote path {}. cost: {} ms",
+            LOG.info("Finished uploading {} to remote path {}. cost: {} ms",
                     localPath, remotePath, (System.currentTimeMillis() - start));
         }
         return status;
@@ -522,7 +522,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
             }
         }
 
-        LOG.info("finished to rename {} to  {}. cost: {} ms",
+        LOG.info("Finished renaming {} to {}. cost: {} ms",
                 origFilePath, destFilePath, (System.currentTimeMillis() - start));
         return Status.OK;
     }
@@ -549,7 +549,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                                 + ", broker: " + BrokerUtil.printBroker(name, address));
             }
 
-            LOG.info("finished to delete remote path {}.", remotePath);
+            LOG.info("Finished deleting remote path {}.", remotePath);
         } catch (TException e) {
             needReturn = false;
             return new Status(Status.ErrCode.COMMON_ERROR,
@@ -596,7 +596,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                         tFile.getBlockSize(), tFile.getModificationTime(), null /* blockLocations is null*/);
                 result.add(file);
             }
-            LOG.info("finished to listLocatedFiles, remote path {}. get files: {}", remotePath, result);
+            LOG.info("Finished listing located files, remote path {}. get files: {}", remotePath, result);
             return Status.OK;
         } catch (TException e) {
             needReturn = false;
@@ -632,7 +632,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                     + operationStatus.getMessage() + ", broker: " + BrokerUtil.printBroker(name, address));
             }
             boolean result = response.isSplittable();
-            LOG.info("finished to get path isSplittable, remote path {} with format {}, isSplittable: {}",
+            LOG.info("Finished getting path isSplittable, remote path {} with format {}, isSplittable: {}",
                     remotePath, inputFormat, result);
             return result;
         } catch (TException e) {
@@ -678,7 +678,7 @@ public class BrokerFileSystem extends RemoteFileSystem {
                 RemoteFile file = new RemoteFile(tFile.path, !tFile.isDir, tFile.size, 0, tFile.getModificationTime());
                 result.add(file);
             }
-            LOG.info("finished to list remote path {}. get files: {}", remotePath, result);
+            LOG.info("Finished listing remote path {}. get files: {}", remotePath, result);
         } catch (TException e) {
             needReturn = false;
             return new Status(Status.ErrCode.COMMON_ERROR,

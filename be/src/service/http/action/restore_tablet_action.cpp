@@ -104,7 +104,7 @@ Status RestoreTabletAction::_handle(HttpRequest* req) {
         } else {
             // set key in map and initialize value as ""
             _tablet_path_map[key] = "";
-            LOG(INFO) << "start to restore tablet_id:" << tablet_id
+            LOG(INFO) << "Start restoring tablet_id:" << tablet_id
                       << " schema_hash:" << schema_hash;
         }
     }

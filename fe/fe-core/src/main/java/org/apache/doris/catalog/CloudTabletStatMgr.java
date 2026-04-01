@@ -220,7 +220,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
             LOG.error("Error waiting for get tablet stats tasks to complete", e);
         }
 
-        LOG.info("finished to get tablet stats. getStatsTabletNum: {}, cost: {} ms",
+        LOG.info("Finished getting tablet stats. getStatsTabletNum: {}, cost: {} ms",
                 getStatsTabletNum, (System.currentTimeMillis() - start));
         return dbIds;
     }
@@ -258,7 +258,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
         } catch (InterruptedException | ExecutionException e) {
             LOG.error("Error waiting for get tablet stats tasks to complete", e);
         }
-        LOG.info("finished to get {} active tablets stats, cost {}ms", activeTabletNum,
+        LOG.info("Finished getting {} active tablets stats, cost {}ms", activeTabletNum,
                 System.currentTimeMillis() - start);
     }
 
@@ -436,7 +436,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                             tableReplicaCount, tableRowCount, tableRowsetCount, tableSegmentCount,
                             tableTotalLocalIndexSize, tableTotalLocalSegmentSize, 0L, 0L);
                     olapTable.setStatistics(tableStats);
-                    LOG.debug("finished to set row num for table: {} in database: {}",
+                    LOG.debug("Finished setting row num for table: {} in database: {}",
                             table.getName(), db.getFullName());
                 } finally {
                     table.readUnlock();
@@ -488,7 +488,7 @@ public class CloudTabletStatMgr extends MasterDaemon {
                     + ", avg table byte size=" + avgTableSize);
         }
 
-        LOG.info("finished to update index row num of all databases. cost: {} ms",
+        LOG.info("Finished updating index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
     }
 

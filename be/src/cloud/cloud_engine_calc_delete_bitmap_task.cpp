@@ -67,7 +67,7 @@ void CloudEngineCalcDeleteBitmapTask::add_succ_tablet_id(int64_t tablet_id) {
 Status CloudEngineCalcDeleteBitmapTask::execute() {
     int64_t transaction_id = _cal_delete_bitmap_req.transaction_id;
     OlapStopWatch watch;
-    VLOG_NOTICE << "begin to calculate delete bitmap. transaction_id=" << transaction_id;
+    VLOG_NOTICE << "Start calculating delete bitmap. transaction_id=" << transaction_id;
     std::unique_ptr<ThreadPoolToken> token =
             _engine.calc_tablet_delete_bitmap_task_thread_pool().new_token(
                     ThreadPool::ExecutionMode::CONCURRENT);
@@ -113,7 +113,7 @@ Status CloudEngineCalcDeleteBitmapTask::execute() {
     // wait for all finished
     token->wait();
 
-    LOG(INFO) << "finish to calculate delete bitmap on transaction."
+    LOG(INFO) << "Finished calculating delete bitmap on transaction."
               << "transaction_id=" << transaction_id << ", cost(us): " << watch.get_elapse_time_us()
               << ", error_tablet_size=" << _error_tablet_ids->size()
               << ", res=" << _res.to_string();
@@ -145,7 +145,7 @@ void CloudTabletCalcDeleteBitmapTask::set_tablet_state(int64_t tablet_state) {
 }
 
 Status CloudTabletCalcDeleteBitmapTask::handle() const {
-    VLOG_DEBUG << "start calculate delete bitmap on tablet " << _tablet_id
+    VLOG_DEBUG << "Start calculating delete bitmap on tablet " << _tablet_id
                << ", txn_id=" << _transaction_id;
     SCOPED_ATTACH_TASK(_mem_tracker);
     int64_t t1 = MonotonicMicros();
@@ -236,8 +236,8 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         for (const auto& sub_txn_id : _sub_txn_ids) {
             ss << sub_txn_id << ", ";
         }
-        LOG(INFO) << "start calc delete bitmap for txn_id=" << _transaction_id << ", sub_txn_ids=["
-                  << ss.str() << "], table_id=" << tablet->table_id()
+        LOG(INFO) << "Start calculating delete bitmap for txn_id=" << _transaction_id
+                  << ", sub_txn_ids=[" << ss.str() << "], table_id=" << tablet->table_id()
                   << ", partition_id=" << tablet->partition_id() << ", tablet_id=" << _tablet_id
                   << ", start_version=" << _version;
         std::vector<RowsetSharedPtr> invisible_rowsets;
@@ -255,7 +255,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
                 empty_rowset_count++;
                 continue;
             }
-            LOG(INFO) << "start calc delete bitmap for txn_id=" << _transaction_id
+            LOG(INFO) << "Start calculating delete bitmap for txn_id=" << _transaction_id
                       << ", sub_txn_id=" << sub_txn_id << ", table_id=" << tablet->table_id()
                       << ", partition_id=" << tablet->partition_id() << ", tablet_id=" << _tablet_id
                       << ", start_version=" << _version << ", cur_version=" << version;
@@ -283,7 +283,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
         }
     });
     auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
-    LOG(INFO) << "finish calculate delete bitmap on tablet"
+    LOG(INFO) << "Finished calculating delete bitmap on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id
               << ", tablet_id=" << tablet->tablet_id()
               << ", get_tablet_time_us=" << get_tablet_time_us

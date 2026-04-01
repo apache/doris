@@ -551,7 +551,7 @@ public class Auth implements Writable {
                         roleName, passwordOptions, comment, userId);
                 Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
-            LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
+            LOG.info("Finished creating user: {}, is replay: {}", userIdent, isReplay);
         } finally {
             writeUnlock();
         }
@@ -601,7 +601,7 @@ public class Auth implements Writable {
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logNewDropUser(userIdent);
             }
-            LOG.info("finished to drop user: {}, is replay: {}", userIdent.getQualifiedUser(), isReplay);
+            LOG.info("Finished dropping user: {}, is replay: {}", userIdent.getQualifiedUser(), isReplay);
         } finally {
             writeUnlock();
         }
@@ -709,7 +709,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role, colPrivileges);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
-            LOG.info("finished to grant privilege. is replay: {}", isReplay);
+            LOG.info("Finished granting privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -761,7 +761,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
-            LOG.info("finished to grant resource privilege. is replay: {}", isReplay);
+            LOG.info("Finished granting resource privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -792,7 +792,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, workloadGroupPattern, privs, null, role);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
-            LOG.info("finished to grant workload group privilege. is replay: {}", isReplay);
+            LOG.info("Finished granting workload group privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -816,7 +816,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, roles);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
             }
-            LOG.info("finished to grant role privilege. is replay: {}", isReplay);
+            LOG.info("Finished granting role privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -907,7 +907,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role, colPrivileges);
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
-            LOG.info("finished to revoke privilege. is replay: {}", isReplay);
+            LOG.info("Finished revoking privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -928,7 +928,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
-            LOG.info("finished to revoke privilege. is replay: {}", isReplay);
+            LOG.info("Finished revoking privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -949,7 +949,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, workloadGroupPattern, privs, null, role);
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
-            LOG.info("finished to revoke privilege. is replay: {}", isReplay);
+            LOG.info("Finished revoking privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -973,7 +973,7 @@ public class Auth implements Writable {
                 PrivInfo info = new PrivInfo(userIdent, roles);
                 Env.getCurrentEnv().getEditLog().logRevokePriv(info);
             }
-            LOG.info("finished to revoke role privilege. is replay: {}", isReplay);
+            LOG.info("Finished revoking role privilege. is replay: {}", isReplay);
         } finally {
             writeUnlock();
         }
@@ -1017,19 +1017,19 @@ public class Auth implements Writable {
         } finally {
             writeUnlock();
         }
-        LOG.info("finished to set password for {}. is replay: {}", userIdent, isReplay);
+        LOG.info("Finished setting password for {}. is replay: {}", userIdent, isReplay);
     }
 
     public void setLdapPassword(String ldapPassword) {
         ldapInfo = new LdapInfo(ldapPassword);
         Env.getCurrentEnv().getEditLog().logSetLdapPassword(ldapInfo);
-        LOG.info("finished to set ldap password.");
+        LOG.info("Finished setting LDAP password.");
     }
 
     public void replaySetLdapPassword(LdapInfo info) {
         ldapInfo = info;
         if (LOG.isDebugEnabled()) {
-            LOG.debug("finish replaying ldap admin password.");
+            LOG.debug("Finished replaying ldap admin password.");
         }
     }
 
@@ -1092,7 +1092,7 @@ public class Auth implements Writable {
         } finally {
             writeUnlock();
         }
-        LOG.info("finished to create role: {}, is replay: {}", role, isReplay);
+        LOG.info("Finished creating role: {}, is replay: {}", role, isReplay);
     }
 
     public void dropRole(String role, boolean ignoreIfNonExists) throws DdlException {
@@ -1124,7 +1124,7 @@ public class Auth implements Writable {
         } finally {
             writeUnlock();
         }
-        LOG.info("finished to drop role: {}, is replay: {}", role, isReplay);
+        LOG.info("Finished dropping role: {}, is replay: {}", role, isReplay);
     }
 
     public Set<UserIdentity> getRoleUsers(String roleName) {
@@ -1153,7 +1153,7 @@ public class Auth implements Writable {
                 UserPropertyInfo propertyInfo = new UserPropertyInfo(user, properties);
                 Env.getCurrentEnv().getEditLog().logUpdateUserProperty(propertyInfo);
             }
-            LOG.info("finished to set properties for user: {}", user);
+            LOG.info("Finished setting properties for user: {}", user);
         } catch (DdlException e) {
             if (isReplay && e.getMessage().contains("Unknown user property")) {
                 LOG.warn("ReplayUpdateUserProperty failed, maybe FE rolled back version, " + e.getMessage());

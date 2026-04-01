@@ -363,7 +363,7 @@ public class TabletScheduler extends MasterDaemon {
 
         stat.counterTabletScheduleRound.incrementAndGet();
         // Add a log message to indicate that this thread is operating normally.
-        LOG.info("finished to tablet scheduler. cost: {} ms",
+        LOG.info("Finished tablet scheduling. cost: {} ms",
                 System.currentTimeMillis() - start);
     }
 

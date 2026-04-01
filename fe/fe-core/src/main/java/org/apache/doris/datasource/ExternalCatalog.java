@@ -351,7 +351,7 @@ public abstract class ExternalCatalog
      */
     public final synchronized void makeSureInitialized() {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("start to init catalog {}:{}", name, id);
+            LOG.debug("Start initing catalog {}:{}", name, id);
         }
         if (isInitializing) {
             if (LOG.isDebugEnabled()) {
@@ -379,7 +379,7 @@ public abstract class ExternalCatalog
     protected final void initLocalObjects() {
         if (!objectCreated) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("start to init local objects of catalog {}:{}", getName(), id, new Exception());
+                LOG.debug("Start initing local objects of catalog {}:{}", getName(), id, new Exception());
             }
             initLocalObjectsImpl();
             objectCreated = true;
@@ -1032,7 +1032,7 @@ public abstract class ExternalCatalog
                         createTableInfo.getDbName(),
                         createTableInfo.getTableName());
                 Env.getCurrentEnv().getEditLog().logCreateTable(info);
-                LOG.info("finished to create table {}.{}.{}", getName(), createTableInfo.getDbName(),
+                LOG.info("Finished creating table {}.{}.{}", getName(), createTableInfo.getDbName(),
                         createTableInfo.getTableName());
             }
             return res;

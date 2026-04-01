@@ -348,7 +348,7 @@ public class TabletChecker extends MasterDaemon {
         tabletCountByStatus.get("not_ready").set(counter.tabletNotReady);
         tabletCountByStatus.get("exceed_limit").set(counter.tabletExceedLimit);
 
-        LOG.info("finished to check tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: {}/{}/{}/{}/{}/{},"
+        LOG.info("Finished checking tablets. unhealth/total/added/in_sched/not_ready/exceed_limit: {}/{}/{}/{}/{}/{},"
                 + "cost: {} ms",
                 counter.unhealthyTabletNum, counter.totalTabletNum, counter.addToSchedulerTabletNum,
                 counter.tabletInScheduler, counter.tabletNotReady, counter.tabletExceedLimit, cost);

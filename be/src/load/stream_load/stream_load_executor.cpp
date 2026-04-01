@@ -80,7 +80,7 @@ Status StreamLoadExecutor::execute_plan_fragment(
 #ifndef BE_TEST
     ctx->put_result.pipeline_params.query_options.__set_enable_strict_cast(false);
     ctx->start_write_data_nanos = MonotonicNanos();
-    LOG(INFO) << "begin to execute stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
+    LOG(INFO) << "Start executing stream load. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << ctx->id;
     Status st;
     std::shared_ptr<bool> is_prepare_success = std::make_shared<bool>(false);

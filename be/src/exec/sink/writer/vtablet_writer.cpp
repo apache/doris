@@ -1980,7 +1980,7 @@ Status VTabletWriter::close(Status exec_status) {
 
             // print log of add batch time of all node, for tracing load performance easily
             std::stringstream ss;
-            ss << "finished to close olap table sink. load_id=" << print_id(_load_id)
+            ss << "Finished closing olap table sink. load_id=" << print_id(_load_id)
                << ", txn_id=" << _txn_id
                << ", node add batch time(ms)/wait execution time(ms)/close time(ms)/num: ";
             for (auto const& pair : node_add_batch_counter_map) {

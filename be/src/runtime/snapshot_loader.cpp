@@ -683,7 +683,7 @@ Status SnapshotHttpDownloader::_delete_orphan_files() {
 
         // delete
         std::string full_local_file = _local_path + "/" + local_file;
-        LOG(INFO) << "begin to delete local snapshot file: " << full_local_file
+        LOG(INFO) << "Start deleting local snapshot file: " << full_local_file
                   << ", it does not exist in remote";
         if (remove(full_local_file.c_str()) != 0) {
             LOG(WARNING) << "failed to delete unknown local file: " << full_local_file
@@ -787,7 +787,7 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
     if (!_remote_fs) {
         return Status::InternalError("Storage backend not initialized.");
     }
-    LOG(INFO) << "begin to upload snapshot files. num: " << src_to_dest_path.size()
+    LOG(INFO) << "Start uploading snapshot files. num: " << src_to_dest_path.size()
               << ", broker addr: " << _broker_addr << ", job: " << _job_id << ", task" << _task_id;
 
     // check if job has already been cancelled
@@ -869,11 +869,11 @@ Status SnapshotLoader::upload(const std::map<std::string, std::string>& src_to_d
 
         tablet_files->emplace(tablet_id, local_files_with_checksum);
         finished_num++;
-        LOG(INFO) << "finished to write tablet to remote. local path: " << src_path
+        LOG(INFO) << "Finished writing tablet to remote. local path: " << src_path
                   << ", remote path: " << dest_path;
     } // end for each tablet path
 
-    LOG(INFO) << "finished to upload snapshots. job: " << _job_id << ", task id: " << _task_id;
+    LOG(INFO) << "Finished uploading snapshots. job: " << _job_id << ", task id: " << _task_id;
     return status;
 }
 
@@ -887,7 +887,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
     if (!_remote_fs) {
         return Status::InternalError("Storage backend not initialized.");
     }
-    LOG(INFO) << "begin to download snapshot files. num: " << src_to_dest_path.size()
+    LOG(INFO) << "Start downloading snapshot files. num: " << src_to_dest_path.size()
               << ", broker addr: " << _broker_addr << ", job: " << _job_id
               << ", task id: " << _task_id;
 
@@ -994,7 +994,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
             // we need to replace the tablet_id in remote file name with local tablet id
             RETURN_IF_ERROR(_replace_tablet_id(remote_file, local_tablet_id, &local_file_name));
             std::string full_local_file = local_path + "/" + local_file_name;
-            LOG(INFO) << "begin to download from " << full_remote_file << " to " << full_local_file;
+            LOG(INFO) << "Start downloading from " << full_remote_file << " to " << full_local_file;
             size_t file_len = file_stat.size;
 
             // check disk capacity
@@ -1026,7 +1026,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
             // local_files always keep the updated local files
             local_files.push_back(local_file_name);
-            LOG(INFO) << "finished to download file via broker. file: " << full_local_file
+            LOG(INFO) << "Finished downloading file via broker. file: " << full_local_file
                       << ", length: " << file_len;
         } // end for all remote files
 
@@ -1049,7 +1049,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
 
             // delete
             std::string full_local_file = local_path + "/" + local_file;
-            VLOG_CRITICAL << "begin to delete local snapshot file: " << full_local_file
+            VLOG_CRITICAL << "Start deleting local snapshot file: " << full_local_file
                           << ", it does not exist in remote";
             if (remove(full_local_file.c_str()) != 0) {
                 LOG(WARNING) << "failed to delete unknown local file: " << full_local_file
@@ -1060,7 +1060,7 @@ Status SnapshotLoader::download(const std::map<std::string, std::string>& src_to
         finished_num++;
     } // end for src_to_dest_path
 
-    LOG(INFO) << "finished to download snapshots. job: " << _job_id << ", task id: " << _task_id;
+    LOG(INFO) << "Finished downloading snapshots. job: " << _job_id << ", task id: " << _task_id;
     return status;
 }
 
@@ -1115,7 +1115,7 @@ Status SnapshotLoader::remote_http_download(
 #endif
     }
 
-    LOG(INFO) << "finished to download snapshots. job: " << _job_id << ", task id: " << _task_id;
+    LOG(INFO) << "Finished downloading snapshots. job: " << _job_id << ", task id: " << _task_id;
     return status;
 }
 
@@ -1132,7 +1132,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
 
     auto tablet_path = tablet->tablet_path();
     auto store_path = tablet->data_dir()->path();
-    LOG(INFO) << "begin to move snapshot files. from: " << snapshot_path << ", to: " << tablet_path
+    LOG(INFO) << "Start moving snapshot files. from: " << snapshot_path << ", to: " << tablet_path
               << ", store: " << store_path << ", job: " << _job_id << ", task id: " << _task_id;
 
     Status status = Status::OK();
@@ -1278,7 +1278,7 @@ Status SnapshotLoader::move(const std::string& snapshot_path, TabletSharedPtr ta
     // mark the snapshot path as loaded
     RETURN_IF_ERROR(write_loaded_tag(snapshot_path, tablet_id));
 
-    LOG(INFO) << "finished to reload header of tablet: " << tablet_id;
+    LOG(INFO) << "Finished reloading header of tablet: " << tablet_id;
 
     return status;
 }
@@ -1373,7 +1373,7 @@ Status SnapshotLoader::_get_existing_files_from_local(const std::string& local_p
     for (auto& file : files) {
         local_files->push_back(file.file_name);
     }
-    LOG(INFO) << "finished to list files in local path: " << local_path
+    LOG(INFO) << "Finished listing files in local path: " << local_path
               << ", file num: " << local_files->size();
     return Status::OK();
 }

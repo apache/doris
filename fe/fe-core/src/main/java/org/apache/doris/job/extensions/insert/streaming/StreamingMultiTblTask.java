@@ -124,7 +124,7 @@ public class StreamingMultiTblTask extends AbstractStreamingTask {
 
     private void sendWriteRequest() throws JobException {
         Backend backend = StreamingJobUtils.selectBackend();
-        log.info("start to run streaming multi task {} in backend {}/{}, offset is {}",
+        log.info("Start running streaming multi task {} in backend {}/{}, offset is {}",
                 taskId, backend.getId(), backend.getHost(), runningOffset.toString());
         this.runningBackendId = backend.getId();
         WriteRecordRequest params = buildRequestParams();

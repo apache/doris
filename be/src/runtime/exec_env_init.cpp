@@ -470,7 +470,7 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths,
 // when user not sepcify a workload group in FE, then query could
 // use dummy workload group.
 Status ExecEnv::_create_internal_workload_group() {
-    LOG(INFO) << "begin create internal workload group.";
+    LOG(INFO) << "Begin to create internal workload group.";
 
     RETURN_IF_ERROR(_workload_group_manager->create_internal_wg());
     return Status::OK();
@@ -829,7 +829,7 @@ void ExecEnv::destroy() {
     SAFE_STOP(_external_scan_context_mgr);
     SAFE_STOP(_fragment_mgr);
     SAFE_STOP(_runtime_filter_timer_queue);
-    // NewLoadStreamMgr should be destoried before storage_engine & after fragment_mgr stopped.
+    // NewLoadStreamMgr should be destroyed before storage_engine & after fragment_mgr stopped.
     _load_stream_mgr.reset();
     _new_load_stream_mgr.reset();
     _stream_load_executor.reset();
@@ -838,7 +838,7 @@ void ExecEnv::destroy() {
     _load_stream_map_pool.reset();
     SAFE_STOP(_write_cooldown_meta_executors);
 
-    // _id_manager must be destoried before tablet schema cache
+    // _id_manager must be destroyed before tablet schema cache
     SAFE_DELETE(_id_manager);
 
     // Stop cluster info background worker before storage engine is destroyed
@@ -846,7 +846,7 @@ void ExecEnv::destroy() {
         static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
     }
 
-    // StorageEngine must be destoried before _cache_manager destory
+    // StorageEngine must be destroyed before _cache_manager destory
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
@@ -882,7 +882,7 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_tablet_schema_cache);
     SAFE_DELETE(_tablet_column_object_pool);
 
-    // _storage_page_cache must be destoried before _cache_manager
+    // _storage_page_cache must be destroyed before _cache_manager
     SAFE_DELETE(_storage_page_cache);
 
     SAFE_DELETE(_small_file_mgr);
@@ -931,12 +931,12 @@ void ExecEnv::destroy() {
     SAFE_DELETE(_external_scan_context_mgr);
     SAFE_DELETE(_user_function_cache);
 
-    // cache_manager must be destoried after all cache.
+    // cache_manager must be destroyed after all cache.
     // https://github.com/apache/doris/issues/24082#issuecomment-1712544039
     SAFE_DELETE(_cache_manager);
     _file_cache_open_fd_cache.reset(nullptr);
 
-    // _heartbeat_flags must be destoried after staroge engine
+    // _heartbeat_flags must be destroyed after staroge engine
     SAFE_DELETE(_heartbeat_flags);
 
     // Master Info is a thrift object, it could be the last one to deconstruct.
@@ -973,7 +973,7 @@ void ExecEnv::destroy() {
 
     clear_storage_resource();
     PythonServerManager::instance().shutdown();
-    LOG(INFO) << "Doris exec envorinment is destoried.";
+    LOG(INFO) << "Doris exec environment is destroyed.";
 }
 
 } // namespace doris

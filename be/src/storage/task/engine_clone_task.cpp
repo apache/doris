@@ -336,7 +336,7 @@ Status EngineCloneTask::_set_tablet_info() {
             // we need to check if this cloned table's version is what we expect.
             // if not, maybe this is a stale remaining table which is waiting for drop.
             // we drop it.
-            LOG(WARNING) << "begin to drop the stale tablet. tablet_id:" << _clone_req.tablet_id
+            LOG(WARNING) << "Start dropping the stale tablet. tablet_id:" << _clone_req.tablet_id
                          << ", replica_id:" << _clone_req.replica_id
                          << ", schema_hash:" << _clone_req.schema_hash
                          << ", signature:" << _signature << ", version:" << tablet_info.version
@@ -886,7 +886,7 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
 Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   const TabletMetaSharedPtr& cloned_tablet_meta,
                                                   int64_t version) {
-    LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->tablet_id()
+    LOG(INFO) << "Start finishing incremental clone. tablet=" << tablet->tablet_id()
               << ", visible_version=" << version
               << ", cloned_tablet_replica_id=" << cloned_tablet_meta->replica_id();
 
@@ -922,7 +922,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
 Status EngineCloneTask::_finish_full_clone(Tablet* tablet,
                                            const TabletMetaSharedPtr& cloned_tablet_meta) {
     Version cloned_max_version = cloned_tablet_meta->max_version();
-    LOG(INFO) << "begin to finish full clone. tablet=" << tablet->tablet_id()
+    LOG(INFO) << "Start finishing full clone. tablet=" << tablet->tablet_id()
               << ", cloned_max_version=" << cloned_max_version;
 
     // Compare the version of local tablet and cloned tablet.

@@ -295,7 +295,7 @@ void CloudTabletMgr::erase_tablet(int64_t tablet_id) {
 }
 
 void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
-    LOG_INFO("begin to vacuum stale rowsets");
+    LOG_INFO("Start vacuuming stale rowsets");
     std::vector<std::shared_ptr<CloudTablet>> tablets_to_vacuum;
     tablets_to_vacuum.reserve(_tablet_map->size());
     _tablet_map->traverse([&tablets_to_vacuum](auto&& t) {
@@ -311,12 +311,12 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
 
         num_vacuumed += t->delete_expired_stale_rowsets();
     }
-    LOG_INFO("finish vacuum stale rowsets")
+    LOG_INFO("Finished vacuuming stale rowsets")
             .tag("num_vacuumed", num_vacuumed)
             .tag("num_tablets", tablets_to_vacuum.size());
 
     {
-        LOG_INFO("begin to remove unused rowsets");
+        LOG_INFO("Start removing unused rowsets");
         std::vector<std::shared_ptr<CloudTablet>> tablets_to_remove_unused_rowsets;
         tablets_to_remove_unused_rowsets.reserve(_tablet_map->size());
         _tablet_map->traverse([&tablets_to_remove_unused_rowsets](auto&& t) {
@@ -327,7 +327,7 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
         for (auto& t : tablets_to_remove_unused_rowsets) {
             t->remove_unused_rowsets();
         }
-        LOG_INFO("finish remove unused rowsets")
+        LOG_INFO("Finished removing unused rowsets")
                 .tag("num_tablets", tablets_to_remove_unused_rowsets.size());
         if (config::enable_check_agg_and_remove_pre_rowsets_delete_bitmap) {
             int64_t max_useless_rowset_count = 0;
@@ -352,7 +352,7 @@ void CloudTabletMgr::vacuum_stale_rowsets(const CountDownLatch& stop_latch) {
             g_max_rowsets_with_useless_delete_bitmap.set_value(max_useless_rowset_count);
             g_max_rowsets_with_useless_delete_bitmap_version.set_value(
                     max_useless_rowset_version_count);
-            LOG(INFO) << "finish check_agg_delete_bitmap_for_stale_rowsets, cost(us)="
+            LOG(INFO) << "Finished check_agg_delete_bitmap_for_stale_rowsetsing, cost(us)="
                       << watch.get_elapse_time_us()
                       << ". max useless rowset count=" << max_useless_rowset_count
                       << ", tablet_id=" << tablet_id_with_max_useless_rowset_count
@@ -374,7 +374,7 @@ std::vector<std::weak_ptr<CloudTablet>> CloudTabletMgr::get_weak_tablets() {
 }
 
 void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
-    LOG_INFO("begin to sync tablets");
+    LOG_INFO("Start syncing tablets");
     int64_t last_sync_time_bound = ::time(nullptr) - config::tablet_sync_interval_s;
 
     auto weak_tablets = get_weak_tablets();
@@ -421,7 +421,7 @@ void CloudTabletMgr::sync_tablets(const CountDownLatch& stop_latch) {
             }
         }
     }
-    LOG_INFO("finish sync tablets").tag("num_sync", num_sync);
+    LOG_INFO("Finished syncing tablets").tag("num_sync", num_sync);
 }
 
 Status CloudTabletMgr::get_topn_tablets_to_compact(
@@ -523,7 +523,7 @@ Status CloudTabletMgr::get_topn_tablets_to_compact(
 void CloudTabletMgr::build_all_report_tablets_info(std::map<TTabletId, TTablet>* tablets_info,
                                                    uint64_t* tablet_num) {
     DCHECK(tablets_info != nullptr);
-    VLOG_NOTICE << "begin to build all report cloud tablets info";
+    VLOG_NOTICE << "Start building all report cloud tablets info";
 
     HistogramStat tablet_version_num_hist;
 

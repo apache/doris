@@ -203,7 +203,7 @@ bool EngineStorageMigrationTask::_is_rowsets_size_less_than_threshold(
 
 Status EngineStorageMigrationTask::_migrate() {
     int64_t tablet_id = _tablet->tablet_id();
-    LOG(INFO) << "begin to process tablet migrate. "
+    LOG(INFO) << "Start processing tablet migrate. "
               << "tablet_id=" << tablet_id << ", dest_store=" << _dest_store->path();
 
     RETURN_IF_ERROR(_engine.tablet_manager()->register_transition_tablet(_tablet->tablet_id(),

@@ -325,11 +325,11 @@ public class BDBEnvironment {
                 index++;
             }
             if (targetDbName != null) {
-                LOG.info("begin to remove database {} from openedDatabases", targetDbName);
+                LOG.info("Begin to remove database {} from openedDatabases", targetDbName);
                 openedDatabases.remove(index);
             }
             try {
-                LOG.info("begin to remove database {} from replicatedEnvironment", dbName);
+                LOG.info("Begin to remove database {} from replicatedEnvironment", dbName);
                 // the first parameter null means auto-commit
                 replicatedEnvironment.removeDatabase(null, dbName);
             } catch (DatabaseNotFoundException e) {

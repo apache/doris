@@ -76,7 +76,7 @@ public class KafkaUtil {
             Map<String, String> convertedCustomProperties, List<Pair<Integer, Long>> timestampOffsets)
             throws LoadException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
+            LOG.debug("Begin to get offsets for times of topic: {}, {}", topic, timestampOffsets);
         }
         try {
             InternalService.PKafkaMetaProxyRequest.Builder metaRequestBuilder =
@@ -108,7 +108,7 @@ public class KafkaUtil {
                 partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
             }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("finish to get offsets for times of topic: {}, {}", topic, partitionOffsets);
+                LOG.debug("Finished getting offsets for times of topic: {}, {}", topic, partitionOffsets);
             }
             return partitionOffsets;
         } catch (Exception e) {
@@ -122,7 +122,7 @@ public class KafkaUtil {
                                                              Map<String, String> convertedCustomProperties,
                                                              List<Integer> partitionIds) throws LoadException {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
+            LOG.debug("Begin to get latest offsets for partitions {} in topic: {}, task {}, job {}",
                     partitionIds, topic, taskId, jobId);
         }
         try {
@@ -153,7 +153,7 @@ public class KafkaUtil {
                 partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
             }
             if (LOG.isDebugEnabled()) {
-                LOG.debug("finish to get latest offsets for partitions {} in topic: {}, task {}, job {}",
+                LOG.debug("Finished getting latest offsets for partitions {} in topic: {}, task {}, job {}",
                         partitionOffsets, topic, taskId, jobId);
             }
             return partitionOffsets;
@@ -213,7 +213,7 @@ public class KafkaUtil {
                 partitionOffsets.add(Pair.of(pair.getKey(), pair.getVal()));
             }
             realOffsets.addAll(partitionOffsets);
-            LOG.info("finish to get real offsets for partitions {} in topic: {}", realOffsets, topic);
+            LOG.info("Finished getting real offsets for partitions {} in topic: {}", realOffsets, topic);
             return realOffsets;
         } catch (Exception e) {
             LOG.warn("failed to get real offsets.", e);

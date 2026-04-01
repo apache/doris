@@ -246,7 +246,7 @@ public abstract class JdbcClient {
             stmt = conn.createStatement();
             int effectedRows = stmt.executeUpdate(origStmt);
             if (LOG.isDebugEnabled()) {
-                LOG.debug("finished to execute dml stmt: {}, effected rows: {}", origStmt, effectedRows);
+                LOG.debug("Finished executing DML stmt: {}, affected rows: {}", origStmt, effectedRows);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("Failed to execute stmt. error: " + e.getMessage(), e);

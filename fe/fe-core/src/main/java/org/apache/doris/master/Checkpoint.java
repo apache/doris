@@ -152,7 +152,7 @@ public class Checkpoint extends MasterDaemon {
 
         // generate new image file
         long replayedJournalId = -1;
-        LOG.info("begin to generate new image: image.{}", checkPointVersion);
+        LOG.info("Begin to generate new image: image.{}", checkPointVersion);
         env = Env.getCurrentEnv();
         env.setEditLog(editLog);
         createStaticFieldForCkpt();

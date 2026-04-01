@@ -231,9 +231,9 @@ struct GetRowsetsCntl : std::enable_shared_from_this<GetRowsetsCntl> {
             bthread_attr_t attr = BTHREAD_ATTR_NORMAL;
 
             bool succ = call_bthread(tid, &attr, [self = shared_from_this(), &ip, port]() {
-                LOG(INFO) << "start to get tablet rowsets from peer BE, ip=" << ip;
+                LOG(INFO) << "Start getting tablet rowsets from peer BE, ip=" << ip;
                 Defer defer_log {[&ip, port]() {
-                    LOG(INFO) << "finish to get rowsets from peer BE, ip=" << ip
+                    LOG(INFO) << "Finished getting rowsets from peer BE, ip=" << ip
                               << ", port=" << port;
                 }};
 

@@ -542,7 +542,7 @@ public class CloudTabletRebalancer extends MasterDaemon {
             sleepSeconds = 1L;
         }
         setInterval(sleepSeconds * 1000L);
-        LOG.info("finished to rebalancer. cost: {} ms, rebalancer sche interval {} s",
+        LOG.info("Finished rebalancing. cost: {} ms, rebalancer schedule interval {} s",
                 (System.currentTimeMillis() - start), sleepSeconds);
     }
 

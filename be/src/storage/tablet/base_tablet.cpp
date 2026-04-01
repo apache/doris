@@ -1621,7 +1621,7 @@ void BaseTablet::calc_compaction_output_rowset_delete_bitmap(
                     VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
                                << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
                                << " src location: |" << src.rowset_id << "|" << src.segment_id
-                               << "|" << src.row_id << " start version: " << start_version
+                               << "|" << src.row_id << " Start versioning: " << start_version
                                << "end version" << end_version;
                     if (location_map) {
                         (*location_map)[rowset].emplace_back(src, dst);

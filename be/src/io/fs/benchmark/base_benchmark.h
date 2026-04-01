@@ -106,7 +106,7 @@ public:
     }
 
     Status read(benchmark::State& state, FileReaderSPtr reader) {
-        bm_log("begin to read {}, thread: {}", _name, state.thread_index());
+        bm_log("Start reading {}, thread: {}", _name, state.thread_index());
         size_t buffer_size =
                 _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
         std::vector<char> buffer;
@@ -150,13 +150,13 @@ public:
         if (status.ok() && reader != nullptr) {
             status = reader->close();
         }
-        bm_log("finish to read {}, thread: {}, size {}, seconds: {}, status: {}", _name,
+        bm_log("Finished reading {}, thread: {}, size {}, seconds: {}, status: {}", _name,
                state.thread_index(), read_size, elapsed_seconds.count(), status);
         return status;
     }
 
     Status write(benchmark::State& state, FileWriter* writer) {
-        bm_log("begin to write {}, thread: {}, size: {}", _name, state.thread_index(), _file_size);
+        bm_log("Start writing {}, thread: {}, size: {}", _name, state.thread_index(), _file_size);
         size_t write_size = _file_size;
         size_t buffer_size =
                 _conf_map.contains("buffer_size") ? std::stol(_conf_map["buffer_size"]) : 1000000L;
@@ -190,7 +190,7 @@ public:
         state.counters["WriteTotal(B)"] = write_size;
         state.counters["WriteTime(S)"] = elapsed_seconds.count();
 
-        bm_log("finish to write {}, thread: {}, size: {}, seconds: {}, status: {}", _name,
+        bm_log("Finished writing {}, thread: {}, size: {}, seconds: {}, status: {}", _name,
                state.thread_index(), write_size, elapsed_seconds.count(), status);
         return status;
     }

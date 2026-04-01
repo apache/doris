@@ -120,7 +120,7 @@ Status CloudCompactionAction::_handle_show_compaction(HttpRequest* req, std::str
         return Status::InternalError("check param failed: missing tablet_id");
     }
 
-    LOG(INFO) << "begin to handle show compaction, tablet id: " << tablet_id;
+    LOG(INFO) << "Start handling show compaction, tablet id: " << tablet_id;
 
     //TabletSharedPtr tablet = _engine.tablet_manager()->get_tablet(tablet_id);
     CloudTabletSPtr tablet = DORIS_TRY(_engine.tablet_mgr().get_tablet(tablet_id));
@@ -129,7 +129,7 @@ Status CloudCompactionAction::_handle_show_compaction(HttpRequest* req, std::str
     }
 
     tablet->get_compaction_status(json_result);
-    LOG(INFO) << "finished to handle show compaction, tablet id: " << tablet_id;
+    LOG(INFO) << "Finished handling show compaction, tablet id: " << tablet_id;
     return Status::OK();
 }
 
@@ -139,7 +139,7 @@ Status CloudCompactionAction::_handle_run_compaction(HttpRequest* req, std::stri
     uint64_t tablet_id = 0;
     uint64_t table_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, &table_id), "check param failed");
-    LOG(INFO) << "begin to handle run compaction, tablet id: " << tablet_id
+    LOG(INFO) << "Start handling run compaction, tablet id: " << tablet_id
               << " table id: " << table_id;
 
     // check compaction_type equals 'base' or 'cumulative'
@@ -186,7 +186,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
     uint64_t tablet_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(req, &tablet_id, TABLET_ID_KEY),
                                    "check param failed");
-    LOG(INFO) << "begin to handle run status compaction, tablet id: " << tablet_id;
+    LOG(INFO) << "Start handling run status compaction, tablet id: " << tablet_id;
 
     if (tablet_id == 0) {
         // overall compaction status
@@ -233,7 +233,7 @@ Status CloudCompactionAction::_handle_run_status_compaction(HttpRequest* req,
         // not running any compaction
         *json_result = absl::Substitute(json_template, run_status, msg, tablet_id, compaction_type);
     }
-    LOG(INFO) << "finished to handle run status compaction, tablet id: " << tablet_id;
+    LOG(INFO) << "Finished handling run status compaction, tablet id: " << tablet_id;
     return Status::OK();
 }
 

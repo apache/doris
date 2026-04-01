@@ -779,7 +779,7 @@ Status OlapScanLocalState::prepare(RuntimeState* state) {
         }
         if (config::enable_mow_verbose_log &&
             _tablets[i].tablet->enable_unique_key_merge_on_write()) {
-            LOG_INFO("finish capture_rs_readers for tablet={}, query_id={}",
+            LOG_INFO("Finished capturing_rs_readers for tablet={}, query_id={}",
                      _tablets[i].tablet->tablet_id(),
                      print_id(PipelineXLocalState<>::_state->query_id()));
         }

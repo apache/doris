@@ -46,7 +46,7 @@ public class DefaultTaskExecutorHandler<T extends AbstractTask> implements WorkH
                 log.info("task is canceled, ignore. task id is {}", task.getTaskId());
                 return;
             }
-            log.info("start to execute task, task id is {}", task.getTaskId());
+            log.info("Start executing task, task id is {}", task.getTaskId());
             task.runTask();
         } catch (Exception e) {
             log.error("execute task error, task id is {}", executeTaskEvent.getTask().getTaskId(), e);

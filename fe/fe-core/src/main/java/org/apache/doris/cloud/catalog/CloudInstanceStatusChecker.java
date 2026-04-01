@@ -69,7 +69,7 @@ public class CloudInstanceStatusChecker extends MasterDaemon {
             syncStorageVault(instance);
             processVirtualClusters(instance.getClustersList());
             // Add a log message to indicate that this thread is operating normally.
-            LOG.info("finished to cloud instance checker. cost: {} ms",
+            LOG.info("Finished cloud instance checking. cost: {} ms",
                     System.currentTimeMillis() - start);
         } catch (Exception e) {
             LOG.warn("get instance from ms exception", e);

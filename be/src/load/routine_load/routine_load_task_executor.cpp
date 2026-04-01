@@ -389,7 +389,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
         }                                                                  \
     } while (false);
 
-    LOG(INFO) << "begin to execute routine load task: " << ctx->brief();
+    LOG(INFO) << "Start executing routine load task: " << ctx->brief();
 
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;

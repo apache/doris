@@ -1045,7 +1045,7 @@ void update_tablet_meta_callback(StorageEngine& engine, const TAgentTaskRequest&
         }
     }
 
-    LOG(INFO) << "finish update tablet meta task. signature=" << req.signature;
+    LOG(INFO) << "Finished updating tablet meta task. signature=" << req.signature;
     if (req.signature != -1) {
         TFinishTaskRequest finish_task_request;
         finish_task_request.__set_task_status(status.to_thrift());
@@ -1782,7 +1782,7 @@ void create_tablet_callback(StorageEngine& engine, const TAgentTaskRequest& req)
         }
     };
     DorisMetrics::instance()->create_tablet_requests_total->increment(1);
-    VLOG_NOTICE << "start to create tablet " << create_tablet_req.tablet_id;
+    VLOG_NOTICE << "Start creating tablet " << create_tablet_req.tablet_id;
 
     std::vector<TTabletInfo> finish_tablet_infos;
     VLOG_NOTICE << "create tablet: " << create_tablet_req;
@@ -2410,7 +2410,7 @@ void calc_delete_bitmap_callback(CloudStorageEngine& engine, const TAgentTaskReq
     SCOPED_ATTACH_TASK(engine_task.mem_tracker());
     if (req.signature != calc_delete_bitmap_req.transaction_id) {
         // transaction_id may not be the same as req.signature, so add a log here
-        LOG_INFO("begin to execute calc delete bitmap task")
+        LOG_INFO("Start executing calc delete bitmap task")
                 .tag("signature", req.signature)
                 .tag("transaction_id", calc_delete_bitmap_req.transaction_id);
     }
@@ -2443,7 +2443,7 @@ void make_cloud_committed_rs_visible_callback(CloudStorageEngine& engine,
     if (!config::enable_cloud_make_rs_visible_on_be) {
         return;
     }
-    LOG(INFO) << "begin to make cloud tmp rs visible, txn_id="
+    LOG(INFO) << "Start making cloud tmp rs visible, txn_id="
               << req.make_cloud_tmp_rs_visible_req.txn_id
               << ", tablet_count=" << req.make_cloud_tmp_rs_visible_req.tablet_ids.size();
 

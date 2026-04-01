@@ -62,7 +62,7 @@ public class DomainResolver extends MasterDaemon {
         Map<String, Set<String>> resolvedIPsMap = Maps.newHashMap();
         for (String domain : allDomains) {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("begin to resolve domain: {}", domain);
+                LOG.debug("Begin to resolve domain: {}", domain);
             }
             Set<String> resolvedIPs = Sets.newHashSet();
             if (!resolveWithBNS(domain, resolvedIPs) && !resolveWithDNS(domain, resolvedIPs)) {

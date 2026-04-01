@@ -1902,7 +1902,7 @@ public class DatabaseTransactionMgr {
     }
 
     public void abortTransaction2PC(long transactionId) throws UserException {
-        LOG.info("begin to abort txn {}", transactionId);
+        LOG.info("Begin to abort txn {}", transactionId);
         if (transactionId < 0) {
             LOG.info("transaction id is {}, less than 0, maybe this is an old type load job,"
                     + " ignore abort operation", transactionId);

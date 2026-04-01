@@ -821,7 +821,7 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
                                               request.new_tablet_id);
     }
 
-    LOG(INFO) << "begin to do request alter tablet: base_tablet_id=" << request.base_tablet_id
+    LOG(INFO) << "Start doing request alter tablet: base_tablet_id=" << request.base_tablet_id
               << ", new_tablet_id=" << request.new_tablet_id
               << ", alter_version=" << request.alter_version;
 
@@ -838,7 +838,7 @@ Status SchemaChangeJob::process_alter_tablet(const TAlterTabletReqV2& request) {
     }
 
     Status res = _do_process_alter_tablet(request);
-    LOG(INFO) << "finished alter tablet process, res=" << res;
+    LOG(INFO) << "Finished altering tablet process, res=" << res;
     DBUG_EXECUTE_IF("SchemaChangeJob::process_alter_tablet.leave.sleep", { sleep(5); });
     return res;
 }
@@ -890,7 +890,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
         }
     });
 
-    LOG(INFO) << "finish to validate alter tablet request. begin to convert data from base tablet "
+    LOG(INFO) << "Finished validating alter tablet request. begin to convert data from base tablet "
                  "to new tablet"
               << " base_tablet=" << _base_tablet->tablet_id()
               << " new_tablet=" << _new_tablet->tablet_id();
@@ -987,7 +987,7 @@ Status SchemaChangeJob::_do_process_alter_tablet(const TAlterTabletReqV2& reques
             }
             // before calculating version_to_be_changed,
             // remove all data from new tablet, prevent to rewrite data(those double pushed when wait)
-            LOG(INFO) << "begin to remove all data before end version from new tablet to prevent "
+            LOG(INFO) << "Start removing all data before end version from new tablet to prevent "
                          "rewrite."
                       << " new_tablet=" << _new_tablet->tablet_id()
                       << ", end_version=" << max_rowset->end_version();
@@ -1203,7 +1203,7 @@ Status SchemaChangeJob::_get_versions_to_be_changed(std::vector<Version>* versio
 // converted from a base tablet, only used for the mow table now.
 Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc_params,
                                                     int64_t* real_alter_version) {
-    LOG(INFO) << "begin to convert historical rowsets for new_tablet from base_tablet."
+    LOG(INFO) << "Start converting historical rowsets for new_tablet from base_tablet."
               << " base_tablet=" << _base_tablet->tablet_id()
               << ", new_tablet=" << _new_tablet->tablet_id() << ", job_id=" << _job_id;
 
@@ -1241,7 +1241,7 @@ Status SchemaChangeJob::_convert_historical_rowsets(const SchemaChangeParams& sc
             res = _new_tablet->check_version_integrity(test_version);
         }
 
-        LOG(INFO) << "finish converting rowsets for new_tablet from base_tablet. "
+        LOG(INFO) << "Finished converting rowsets for new_tablet from base_tablet. "
                   << "base_tablet=" << _base_tablet->tablet_id()
                   << ", new_tablet=" << _new_tablet->tablet_id();
         return res;

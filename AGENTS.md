@@ -16,6 +16,36 @@ When adding code, strictly follow existing similar code in similar contexts, inc
 
 After adding code, you must first conduct self-review and refactoring attempts to ensure good abstraction and reuse as much as possible.
 
+## Logging Standards
+
+All log messages in FE (Java) must follow these rules. Code review must check new/modified log statements against these standards.
+
+### Log Level Guidelines
+
+- **ERROR**: System/component-level failures requiring human intervention. Must include exception stack traces and context.
+- **WARN**: Recoverable abnormal situations that may affect users. Must NOT be used for messages that repeat continuously under normal conditions.
+- **INFO**: Key business events, state changes, important operation completions. Must NOT be used for per-second periodic reports or per-request tracing.
+- **DEBUG**: Detailed operational/debugging info such as per-RPC calls, per-tablet scheduling, per-file-system operations.
+
+### Grammar and Style Rules
+
+1. **Use correct English grammar** — avoid Chinglish patterns:
+   - ✅ `"Finished checking tablets"` / ❌ `"finished to check tablets"`
+   - ✅ `"Begin to schedule tablets"` / ❌ `"beginning to tablet scheduler"`
+   - ✅ `"Start saving image"` / ❌ `"start to save image"`
+2. **Capitalize the first letter** of log messages.
+3. **Keep acronyms uppercase**: `GC`, `RPC`, `IO`, `SQL`, `JDBC`, `LDAP`, `HDFS`.
+4. **Include sufficient context**: Log messages must contain the object identifier (table name, DB name, ID, etc.) to make the log actionable.
+   - ✅ `"Failed to create table: db={}, table={}, reason={}"` / ❌ `"Failed to create a table."`
+5. **Use consistent key=value format**: Use `key=value` with camelCase keys and no spaces around `=`.
+
+### Output Rules
+
+1. **No logging on idle cycles**: Periodic daemons must NOT log at INFO when there is zero work. Use DEBUG or skip.
+2. **Aggregate high-frequency logs**: For operations that fire every second, produce periodic summaries (e.g., every 5 minutes) instead of per-event logs.
+3. **Do not serialize full Thrift/Protobuf objects**: Extract and log only key fields (ID, status, names). Single INFO log lines should not exceed 200 characters.
+4. **Suppress third-party library noise**: Configure log4j2 to set third-party loggers (Kerberos, Hive MetaStore client, Airlift, Hadoop security) to WARN or OFF.
+
 ## Code Review
 
 When conducting code review (including self-review and review tasks), it is necessary to complete the key checkpoints according to our `code-review` skill and provide conclusions for each key checkpoint (if applicable) as part of the final written description. Other content does not require individual responses; just check them during the review process.

@@ -751,7 +751,7 @@ Status VTabletWriterV2::close(Status exec_status) {
             _row_distribution.output_profile_info(_operator_profile);
         }
 
-        LOG(INFO) << "finished to close olap table sink. load_id=" << print_id(_load_id)
+        LOG(INFO) << "Finished closing olap table sink. load_id=" << print_id(_load_id)
                   << ", txn_id=" << _txn_id;
     } else {
         _cancel(status);

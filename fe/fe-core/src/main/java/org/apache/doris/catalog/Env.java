@@ -1486,7 +1486,7 @@ public class Env {
         }
 
         Preconditions.checkState(helperNodes.size() == 1);
-        LOG.info("finished to get cluster id: {}, isElectable: {}, role: {} and node name: {}",
+        LOG.info("Finished getting cluster id: {}, isElectable: {}, role: {} and node name: {}",
                 clusterId, isElectable, role.name(), nodeName);
     }
 
@@ -1701,7 +1701,7 @@ public class Env {
             // replay journals. -1 means replay all the journals larger than current journal id.
             replayJournal(-1);
             long replayEndTime = System.currentTimeMillis();
-            LOG.info("finish replay in " + (replayEndTime - replayStartTime) + " msec");
+            LOG.info("Finished replaying in " + (replayEndTime - replayStartTime) + " msec");
 
             removeDroppedFrontends(removedFrontends);
 
@@ -2098,7 +2098,7 @@ public class Env {
             LOG.error("Initialization of lower_case_table_names failed.", e);
             System.exit(-1);
         }
-        LOG.info("Finish initializing lower_case_table_names, value is {}", GlobalVariable.lowerCaseTableNames);
+        LOG.info("Finished initializing lower_case_table_names, value is {}", GlobalVariable.lowerCaseTableNames);
     }
 
     // After the cluster initialization is complete, 'lower_case_table_names' can not be modified during the cluster
@@ -2279,7 +2279,7 @@ public class Env {
         // just read and skip it.
         dis.readBoolean();
 
-        LOG.info("finished replay header from image");
+        LOG.info("Finished replaying header from image");
         return newChecksum;
     }
 
@@ -2288,7 +2288,7 @@ public class Env {
         long newChecksum = checksum ^ masterInfo.getRpcPort();
         newChecksum ^= masterInfo.getHttpPort();
 
-        LOG.info("finished replay masterInfo from image");
+        LOG.info("Finished replaying masterInfo from image");
         return newChecksum;
     }
 
@@ -2305,17 +2305,17 @@ public class Env {
         for (int i = 0; i < size; i++) {
             removedFrontends.add(Text.readString(dis));
         }
-        LOG.info("finished replay frontends from image");
+        LOG.info("Finished replaying frontends from image");
         return newChecksum;
     }
 
     public long loadBackends(DataInputStream dis, long checksum) throws IOException {
-        LOG.info("start loading backends from image");
+        LOG.info("Start loading backends from image");
         return systemInfo.loadBackends(dis, checksum);
     }
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
-        LOG.info("start loading db from image");
+        LOG.info("Start loading db from image");
         return getInternalCatalog().loadDb(dis, checksum);
     }
 
@@ -2333,7 +2333,7 @@ public class Env {
                 exportMgr.unprotectAddJob(job);
             }
         }
-        LOG.info("finished replay exportJob from image");
+        LOG.info("Finished replaying exportJob from image");
         return newChecksum;
     }
 
@@ -2343,7 +2343,7 @@ public class Env {
         for (JobType type : JobType.values()) {
             newChecksum = loadAlterJob(dis, newChecksum, type);
         }
-        LOG.info("finished replay alterJob from image");
+        LOG.info("Finished replaying alterJob from image");
         return newChecksum;
     }
 
@@ -2399,20 +2399,20 @@ public class Env {
     public long loadBackupHandler(DataInputStream dis, long checksum) throws IOException {
         getBackupHandler().readFields(dis);
         getBackupHandler().setEnv(this);
-        LOG.info("finished replay backupHandler from image");
+        LOG.info("Finished replaying backupHandler from image");
         return checksum;
     }
 
     public long loadDeleteHandler(DataInputStream dis, long checksum) throws IOException {
         this.deleteHandler = DeleteHandler.read(dis);
-        LOG.info("finished replay deleteHandler from image");
+        LOG.info("Finished replaying deleteHandler from image");
         return checksum;
     }
 
     public long loadAuth(DataInputStream dis, long checksum) throws IOException {
         // CAN NOT use Auth.read(), cause this auth instance is already passed to DomainResolver
         auth.readFields(dis);
-        LOG.info("finished replay auth from image");
+        LOG.info("Finished replaying auth from image");
         return checksum;
     }
 
@@ -2420,7 +2420,7 @@ public class Env {
         int size = dis.readInt();
         long newChecksum = checksum ^ size;
         globalTransactionMgr.readFields(dis);
-        LOG.info("finished replay transactionState from image");
+        LOG.info("Finished replaying transactionState from image");
         return newChecksum;
     }
 
@@ -2433,87 +2433,87 @@ public class Env {
         for (Long dbId : recycleBin.getAllDbIds()) {
             globalTransactionMgr.addDatabaseTransactionMgr(dbId);
         }
-        LOG.info("finished replay recycleBin from image");
+        LOG.info("Finished replaying recycleBin from image");
         return checksum;
     }
 
     // global variable persistence
     public long loadGlobalVariable(DataInputStream in, long checksum) throws IOException, DdlException {
         VariableMgr.read(in);
-        LOG.info("finished replay globalVariable from image");
+        LOG.info("Finished replaying globalVariable from image");
         return checksum;
     }
 
     // load binlogs
     public long loadBinlogs(DataInputStream dis, long checksum) throws IOException {
         binlogManager.read(dis, checksum);
-        LOG.info("finished replay binlogMgr from image");
+        LOG.info("Finished replaying binlogMgr from image");
         return checksum;
     }
 
     public long loadColocateTableIndex(DataInputStream dis, long checksum) throws IOException {
         Env.getCurrentColocateIndex().readFields(dis);
-        LOG.info("finished replay colocateTableIndex from image");
+        LOG.info("Finished replaying colocateTableIndex from image");
         return checksum;
     }
 
     public long loadRoutineLoadJobs(DataInputStream dis, long checksum) throws IOException {
         Env.getCurrentEnv().getRoutineLoadManager().readFields(dis);
-        LOG.info("finished replay routineLoadJobs from image");
+        LOG.info("Finished replaying routineLoadJobs from image");
         return checksum;
     }
 
     public long loadLoadJobsV2(DataInputStream in, long checksum) throws IOException {
         loadManager.readFields(in);
-        LOG.info("finished replay loadJobsV2 from image");
+        LOG.info("Finished replaying loadJobsV2 from image");
         return checksum;
     }
 
     public long loadAsyncJobManager(DataInputStream in, long checksum) throws IOException {
         jobManager.readFields(in);
-        LOG.info("finished replay asyncJobMgr from image");
+        LOG.info("Finished replaying asyncJobMgr from image");
         return checksum;
     }
 
     public long saveAsyncJobManager(CountingDataOutputStream out, long checksum) throws IOException {
         jobManager.write(out);
-        LOG.info("finished save analysisMgr to image");
+        LOG.info("Finished saving analysisMgr to image");
         return checksum;
     }
 
     public long loadResources(DataInputStream in, long checksum) throws IOException {
         resourceMgr = ResourceMgr.read(in);
-        LOG.info("finished replay resources from image");
+        LOG.info("Finished replaying resources from image");
         return checksum;
     }
 
     public long loadWorkloadGroups(DataInputStream in, long checksum) throws IOException {
         workloadGroupMgr = WorkloadGroupMgr.read(in);
-        LOG.info("finished replay workload groups from image");
+        LOG.info("Finished replaying workload groups from image");
         return checksum;
     }
 
     public long loadWorkloadSchedPolicy(DataInputStream in, long checksum) throws IOException {
         workloadSchedPolicyMgr = WorkloadSchedPolicyMgr.read(in);
-        LOG.info("finished replay workload sched policy from image");
+        LOG.info("Finished replaying workload sched policy from image");
         return checksum;
     }
 
     public long loadPlsqlProcedure(DataInputStream in, long checksum) throws IOException {
         Text.readString(in);
-        LOG.info("finished replay plsql procedure from image");
+        LOG.info("Finished replaying plsql procedure from image");
         return checksum;
     }
 
     public long loadSmallFiles(DataInputStream in, long checksum) throws IOException {
         smallFileMgr.readFields(in);
-        LOG.info("finished replay smallFiles from image");
+        LOG.info("Finished replaying smallFiles from image");
         return checksum;
     }
 
     public long loadSqlBlockRule(DataInputStream in, long checksum) throws IOException {
         sqlBlockRuleMgr = SqlBlockRuleMgr.read(in);
-        LOG.info("finished replay sqlBlockRule from image");
+        LOG.info("Finished replaying sqlBlockRule from image");
         return checksum;
     }
 
@@ -2533,13 +2533,13 @@ public class Env {
      **/
     public long loadPolicy(DataInputStream in, long checksum) throws IOException {
         policyMgr = PolicyMgr.read(in);
-        LOG.info("finished replay policy from image");
+        LOG.info("Finished replaying policy from image");
         return checksum;
     }
 
     public long loadIndexPolicy(DataInputStream in, long checksum) throws IOException {
         indexPolicyMgr = IndexPolicyMgr.read(in);
-        LOG.info("finished replay index policy from image");
+        LOG.info("Finished replaying index policy from image");
         return checksum;
     }
 
@@ -2547,14 +2547,14 @@ public class Env {
      * Load catalogs through file.
      **/
     public long loadCatalog(DataInputStream in, long checksum) throws IOException {
-        LOG.info("start loading catalog from image");
+        LOG.info("Start loading catalog from image");
         CatalogMgr mgr = CatalogMgr.read(in);
         // When enable the multi catalog in the first time, the "mgr" will be a null value.
         // So ignore it to use default catalog manager.
         if (mgr != null) {
             this.catalogMgr = mgr;
         }
-        LOG.info("finished replay catalog from image");
+        LOG.info("Finished replaying catalog from image");
         return checksum;
     }
 
@@ -2563,43 +2563,43 @@ public class Env {
      **/
     public long loadGlobalFunction(DataInputStream in, long checksum) throws IOException {
         this.globalFunctionMgr = GlobalFunctionMgr.read(in);
-        LOG.info("finished replay global function from image");
+        LOG.info("Finished replaying global function from image");
         return checksum;
     }
 
     public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
         this.analysisManager = AnalysisManager.readFields(in);
-        LOG.info("finished replay AnalysisMgr from image");
+        LOG.info("Finished replaying AnalysisMgr from image");
         return checksum;
     }
 
     public long loadInsertOverwrite(DataInputStream in, long checksum) throws IOException {
         this.insertOverwriteManager = InsertOverwriteManager.read(in);
-        LOG.info("finished replay iot from image");
+        LOG.info("Finished replaying iot from image");
         return checksum;
     }
 
     public long loadKeyManagerStore(DataInputStream in, long checksum) throws IOException {
         this.keyManagerStore = KeyManagerStore.read(in);
-        LOG.info("finished replay KeyManagerStore from image");
+        LOG.info("Finished replaying KeyManagerStore from image");
         return checksum;
     }
 
     public long saveInsertOverwrite(CountingDataOutputStream out, long checksum) throws IOException {
         this.insertOverwriteManager.write(out);
-        LOG.info("finished save iot to image");
+        LOG.info("Finished saving iot to image");
         return checksum;
     }
 
     public long loadDictionaryManager(DataInputStream in, long checksum) throws IOException {
         this.dictionaryManager = DictionaryManager.read(in);
-        LOG.info("finished replay dictMgr from image");
+        LOG.info("Finished replaying dictMgr from image");
         return checksum;
     }
 
     public long saveDictionaryManager(CountingDataOutputStream out, long checksum) throws IOException {
         this.dictionaryManager.write(out);
-        LOG.info("finished save dictMgr to image");
+        LOG.info("Finished saving dictMgr to image");
         return checksum;
     }
 
@@ -2901,19 +2901,19 @@ public class Env {
 
     public long saveKeyManagerStore(CountingDataOutputStream out, long checksum) throws IOException {
         this.keyManagerStore.write(out);
-        LOG.info("finished save KeyManager to image");
+        LOG.info("Finished saving KeyManager to image");
         return checksum;
     }
 
     public long saveConstraintManager(CountingDataOutputStream out, long checksum) throws IOException {
         constraintManager.write(out);
-        LOG.info("finished save ConstraintManager to image");
+        LOG.info("Finished saving ConstraintManager to image");
         return checksum;
     }
 
     public long loadConstraintManager(DataInputStream in, long checksum) throws IOException {
         this.constraintManager = ConstraintManager.read(in);
-        LOG.info("finished replay ConstraintManager from image");
+        LOG.info("Finished replaying ConstraintManager from image");
         return checksum;
     }
 
@@ -3106,7 +3106,7 @@ public class Env {
                         System.exit(-1);
                     }
                     Preconditions.checkNotNull(newType);
-                    LOG.info("begin to transfer FE type from {} to {}", feType, newType);
+                    LOG.info("Begin to transfer FE type from {} to {}", feType, newType);
                     if (feType == newType) {
                         return;
                     }
@@ -3193,7 +3193,7 @@ public class Env {
                     } // end switch formerFeType
 
                     feType = newType;
-                    LOG.info("finished to transfer FE type to {}", feType);
+                    LOG.info("Finished transferring FE type to {}", feType);
                 }
             } // end runOneCycle
         };
@@ -4955,7 +4955,7 @@ public class Env {
                      * 1. first, add a FE as OBSERVER.
                      * 2. This OBSERVER is restarted with ROLE and VERSION file being DELETED.
                      *    In this case, this OBSERVER will be started as a FOLLOWER, and add itself to the frontends.
-                     * 3. this "FOLLOWER" begin to load image or replay journal,
+                     * 3. this "FOLLOWER" Begin to load image or replay journal,
                      *    then find the origin OBSERVER in image or journal.
                      * This will cause UNDEFINED behavior, so it is better to exit and fix it manually.
                      */
@@ -5721,7 +5721,7 @@ public class Env {
             TablePropertyInfo info = new TablePropertyInfo(db.getId(), table.getId(), groupId, properties);
             editLog.logModifyTableColocate(info);
         }
-        LOG.info("finished modify table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
+        LOG.info("Finished modifying table's colocation property. table: {}, is replay: {}", table.getName(), isReplay);
     }
 
     public void replayModifyTableColocate(TablePropertyInfo info) throws MetaNotFoundException {
@@ -6522,12 +6522,12 @@ public class Env {
             }
             brokerMgr.replayAddBrokers(brokerName, addrs);
         }
-        LOG.info("finished replay brokerMgr from image");
+        LOG.info("Finished replaying brokerMgr from image");
         return checksum;
     }
 
     public String dumpImage() {
-        LOG.info("begin to dump meta data");
+        LOG.info("Begin to dump meta data");
         String dumpFilePath;
         List<Database> databases = Lists.newArrayList();
         List<List<Table>> tableLists = Lists.newArrayList();
@@ -6559,7 +6559,7 @@ public class Env {
             }
             dumpFilePath = dumpFile.getAbsolutePath();
             try {
-                LOG.info("begin to dump {}", dumpFilePath);
+                LOG.info("Begin to dump {}", dumpFilePath);
                 saveImage(dumpFile, journalId);
             } catch (IOException e) {
                 LOG.error("failed to dump image to {}", dumpFilePath, e);
@@ -6574,7 +6574,7 @@ public class Env {
             unlock();
         }
 
-        LOG.info("finished dumping image to {}", dumpFilePath);
+        LOG.info("Finished dumping image to {}", dumpFilePath);
         return dumpFilePath;
     }
 
@@ -6812,7 +6812,7 @@ public class Env {
             }
             TableInfo tableInfo = TableInfo.createForModifyDistribution(db.getId(), tbl.getId());
             editLog.logModifyDistributionType(tableInfo);
-            LOG.info("finished to modify distribution type of table from hash to random : " + tbl.getName());
+            LOG.info("Finished modifying distribution type of table from hash to random: " + tbl.getName());
         } finally {
             tbl.writeUnlock();
         }
@@ -6889,7 +6889,7 @@ public class Env {
                 versionTime,
                 isForceDropOld);
         editLog.logReplaceTempPartition(info);
-        LOG.info("finished to replace partitions {} with temp partitions {} from table: {}",
+        LOG.info("Finished replacing partitions {} with temp partitions {} from table: {}",
                 replacePartitionOp.getPartitionNames(),
                 replacePartitionOp.getTempPartitionNames(), olapTable.getName());
     }
@@ -6933,7 +6933,7 @@ public class Env {
 
     public long loadPlugins(DataInputStream dis, long checksum) throws IOException {
         Env.getCurrentPluginMgr().readFields(dis);
-        LOG.info("finished replay plugins from image");
+        LOG.info("Finished replaying plugins from image");
         return checksum;
     }
 

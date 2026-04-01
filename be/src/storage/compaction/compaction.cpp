@@ -360,7 +360,7 @@ Status CompactionMixin::do_compact_ordered_rowsets() {
     RowsetWriterContext ctx;
     RETURN_IF_ERROR(construct_output_rowset_writer(ctx));
 
-    LOG(INFO) << "start to do ordered data compaction, tablet=" << _tablet->tablet_id()
+    LOG(INFO) << "Start doing ordered data compaction, tablet=" << _tablet->tablet_id()
               << ", output_version=" << _output_version;
     // link data to new rowset
     auto seg_id = 0;
@@ -1171,7 +1171,7 @@ Status CompactionMixin::update_delete_bitmap() {
         }
         rowsets.push_back(rowset);
     }
-    LOG(INFO) << "finish update delete bitmap for tablet: " << _tablet->tablet_id()
+    LOG(INFO) << "Finished updating delete bitmap for tablet: " << _tablet->tablet_id()
               << ", rowsets: " << _input_rowsets.size() << ", cost: " << watch.get_elapse_time_us()
               << "(us)";
     return Status::OK();
@@ -1197,7 +1197,7 @@ Status CloudCompactionMixin::update_delete_bitmap() {
         }
         rowsets.push_back(rowset);
     }
-    LOG(INFO) << "finish update delete bitmap for tablet: " << _tablet->tablet_id()
+    LOG(INFO) << "Finished updating delete bitmap for tablet: " << _tablet->tablet_id()
               << ", rowsets: " << _input_rowsets.size() << ", cost: " << watch.get_elapse_time_us()
               << "(us)";
     return Status::OK();

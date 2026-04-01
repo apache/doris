@@ -112,7 +112,7 @@ public class TabletStatMgr extends MasterDaemon {
         waitForTabletStatUpdate();
 
         if (LOG.isDebugEnabled()) {
-            LOG.debug("finished to get tablet stat of all backends. cost: {} ms",
+            LOG.debug("Finished getting tablet stats of all backends. cost: {} ms",
                     (System.currentTimeMillis() - start));
         }
 
@@ -285,7 +285,7 @@ public class TabletStatMgr extends MasterDaemon {
                             tableTotalRemoteIndexSize, tableTotalRemoteSegmentSize));
 
                     if (LOG.isDebugEnabled()) {
-                        LOG.debug("finished to set row num for table: {} in database: {}",
+                        LOG.debug("Finished setting row num for table: {} in database: {}",
                                  table.getName(), db.getFullName());
                     }
                 } finally {
@@ -334,7 +334,7 @@ public class TabletStatMgr extends MasterDaemon {
                     + ", avg table byte size=" + avgTableSize);
         }
 
-        LOG.info("finished to update index row num of all databases. cost: {} ms",
+        LOG.info("Finished updating index row num of all databases. cost: {} ms",
                 (System.currentTimeMillis() - start));
     }
 

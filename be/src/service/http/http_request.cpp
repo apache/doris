@@ -186,7 +186,7 @@ void HttpRequest::wait_finish_send_reply() {
         _handler->free_handler_ctx(_handler_ctx);
     }
 
-    VLOG_NOTICE << "start to wait send reply, infos=" << infos;
+    VLOG_NOTICE << "Start waiting send reply, infos=" << infos;
     auto status = _http_reply_future.wait_for(std::chrono::seconds(config::async_reply_timeout_s));
     // if request is timeout and can't cancel fragment in time, it will cause some new request block
     // so we will free cancelled request in time.

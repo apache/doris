@@ -321,7 +321,7 @@ Status download_files_v2(const std::string& address, const std::string& token,
         estimate_timeout = config::download_low_speed_time;
     }
 
-    LOG(INFO) << "begin to download files from " << remote_url << " to " << local_dir
+    LOG(INFO) << "Start downloading files from " << remote_url << " to " << local_dir
               << ", file count: " << file_info_list.size() << ", total size: " << batch_file_size
               << ", timeout: " << estimate_timeout;
 

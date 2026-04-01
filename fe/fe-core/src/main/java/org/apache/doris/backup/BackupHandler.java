@@ -573,7 +573,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), backupJob);
 
-        LOG.info("finished to submit backup job: {}", backupJob);
+        LOG.info("Finished submitting backup job: {}", backupJob);
     }
 
     public void restore(Repository repository, Database db, RestoreCommand command) throws DdlException {
@@ -651,7 +651,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
 
         // must put to dbIdToBackupOrRestoreJob after edit log, otherwise the state of job may be changed.
         addBackupOrRestoreJob(db.getId(), restoreJob);
-        LOG.info("finished to submit restore job: {}", restoreJob);
+        LOG.info("Finished submitting restore job: {}", restoreJob);
     }
 
     private void addBackupOrRestoreJob(long dbId, AbstractJob job) {
@@ -818,7 +818,7 @@ public class BackupHandler extends MasterDaemon implements Writable {
             ErrorReport.reportDdlException(ErrorCode.ERR_COMMON_ERROR, "Failed to cancel job: " + status.getErrMsg());
         }
 
-        LOG.info("finished to cancel {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
+        LOG.info("Finished cancelling {} job: {}", (command.isRestore() ? "restore" : "backup"), job);
     }
 
     public boolean handleFinishedSnapshotTask(SnapshotTask task, TFinishTaskRequest request) {

@@ -87,7 +87,7 @@ public class AgentBoundedBatchTask extends AgentBatchTask {
     @Override
     public void run() {
         int taskNum = getTaskNum();
-        LOG.info("begin to submit tasks to BE. total {} tasks, be task concurrency: {}", taskNum, taskConcurrency);
+        LOG.info("Begin to submit tasks to BE. total {} tasks, be task concurrency: {}", taskNum, taskConcurrency);
         boolean submitFinished = false;
         while (getSubmitTaskNum() < taskNum && !submitFinished) {
             for (Long backendId : backendIdToTasks.keySet()) {

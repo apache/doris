@@ -95,7 +95,7 @@ public class MetaWriter {
 
     public static void write(File imageFile, Env env) throws IOException {
         // save image does not need any lock. because only checkpoint thread will call this method.
-        LOG.info("start to save image to {}. is ckpt: {}",
+        LOG.info("Start saving image to {}. is ckpt: {}",
                 imageFile.getAbsolutePath(), Env.isCheckpointThread());
         final Reference<Long> checksum = new Reference<>(0L);
         long saveImageStartTime = System.currentTimeMillis();
@@ -130,7 +130,7 @@ public class MetaWriter {
         MetaFooter.write(imageFile, metaIndices, checksum.getRef());
 
         long saveImageEndTime = System.currentTimeMillis();
-        LOG.info("finished save image {} in {} ms. checksum is {}, size is {}", imageFile.getAbsolutePath(),
+        LOG.info("Finished saving image {} in {} ms. checksum is {}, size is {}", imageFile.getAbsolutePath(),
                 (saveImageEndTime - saveImageStartTime), checksum.getRef(), imageFile.length());
     }
 

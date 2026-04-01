@@ -345,7 +345,7 @@ Status DataDir::_check_incompatible_old_format_tablet() {
 
 // TODO(ygl): deal with rowsets and tablets when load failed
 Status DataDir::load() {
-    LOG(INFO) << "start to load tablets from " << _path;
+    LOG(INFO) << "Start loading tablets from " << _path;
 
     // load rowset meta from meta env and create rowset
     // COMMITTED: add to txn manager
@@ -356,7 +356,7 @@ Status DataDir::load() {
     RETURN_IF_ERROR(_check_incompatible_old_format_tablet());
 
     std::vector<RowsetMetaSharedPtr> dir_rowset_metas;
-    LOG(INFO) << "begin loading rowset from meta";
+    LOG(INFO) << "Begin to load rowset from meta";
     auto load_rowset_func = [&dir_rowset_metas, this](TabletUid tablet_uid, RowsetId rowset_id,
                                                       std::string_view meta_str) -> bool {
         RowsetMetaSharedPtr rowset_meta(new RowsetMeta());
@@ -418,7 +418,7 @@ Status DataDir::load() {
 
     // load tablet
     // create tablet from tablet meta and add it to tablet mgr
-    LOG(INFO) << "begin loading tablet from meta";
+    LOG(INFO) << "Begin to load tablet from meta";
     std::set<int64_t> tablet_ids;
     std::set<int64_t> failed_tablet_ids;
     auto load_tablet_func = [this, &tablet_ids, &failed_tablet_ids](
@@ -661,7 +661,7 @@ Status DataDir::load() {
     // At startup, we only count these invalid rowset, but do not actually delete it.
     // The actual delete operation is in StorageEngine::_clean_unused_rowset_metas,
     // which is cleaned up uniformly by the background cleanup thread.
-    LOG(INFO) << "finish to load tablets from " << _path
+    LOG(INFO) << "Finished loading tablets from " << _path
               << ", total rowset meta: " << dir_rowset_metas.size()
               << ", invalid rowset num: " << invalid_rowset_counter
               << ", visible/stale rowsets' delete bitmap count: " << dbm_cnt
@@ -814,7 +814,7 @@ void DataDir::perform_path_gc() {
         return;
     }
 
-    LOG(INFO) << "start to gc data dir " << _path;
+    LOG(INFO) << "Start gcing data dir " << _path;
     auto data_path = fmt::format("{}/{}", _path, DATA_PREFIX);
     std::vector<io::FileInfo> shards;
     bool exists = true;

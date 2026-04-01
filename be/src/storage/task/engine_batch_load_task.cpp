@@ -125,7 +125,7 @@ Status EngineBatchLoadTask::_init() {
 
     // Check remote path
     _remote_file_path = _push_req.http_file_path;
-    LOG(INFO) << "start get file. remote_file_path: " << _remote_file_path;
+    LOG(INFO) << "Start getting file. remote_file_path: " << _remote_file_path;
     // Set download param
     string tmp_file_dir;
     string root_path = tablet->data_dir()->path();
@@ -267,7 +267,7 @@ Status EngineBatchLoadTask::_process() {
 Status EngineBatchLoadTask::_push(const TPushReq& request,
                                   std::vector<TTabletInfo>* tablet_info_vec) {
     Status res = Status::OK();
-    LOG(INFO) << "begin to process push. "
+    LOG(INFO) << "Start processing push. "
               << " transaction_id=" << request.transaction_id << " tablet_id=" << request.tablet_id
               << ", version=" << request.version;
 
@@ -312,7 +312,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
 
 Status EngineBatchLoadTask::_delete_data(const TPushReq& request,
                                          std::vector<TTabletInfo>* tablet_info_vec) {
-    VLOG_DEBUG << "begin to process delete data. request=" << ThriftDebugString(request);
+    VLOG_DEBUG << "Start processing delete data. request=" << ThriftDebugString(request);
     DorisMetrics::instance()->delete_requests_total->increment(1);
 
     Status res = Status::OK();

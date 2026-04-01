@@ -99,7 +99,7 @@ Status EnginePublishVersionTask::execute() {
     Status res = Status::OK();
     int64_t transaction_id = _publish_version_req.transaction_id;
     OlapStopWatch watch;
-    VLOG_NOTICE << "begin to process publish version. transaction_id=" << transaction_id;
+    VLOG_NOTICE << "Start processing publish version. transaction_id=" << transaction_id;
     DBUG_EXECUTE_IF("EnginePublishVersionTask.finish.random", {
         if (rand() % 100 < (100 * dp->param("percent", 0.5))) {
             LOG_WARNING("EnginePublishVersionTask.finish.random random failed")
@@ -169,7 +169,7 @@ Status EnginePublishVersionTask::execute() {
         for (auto& tablet_rs : tablet_related_rs) {
             TabletInfo tablet_info = tablet_rs.first;
             RowsetSharedPtr rowset = tablet_rs.second;
-            VLOG_CRITICAL << "begin to publish version on tablet. "
+            VLOG_CRITICAL << "Start publishing version on tablet. "
                           << "tablet_id=" << tablet_info.tablet_id << ", version=" << version.first
                           << ", transaction_id=" << transaction_id;
             // if rowset is null, it means this be received write task, but failed during write
@@ -254,7 +254,7 @@ Status EnginePublishVersionTask::execute() {
 #ifndef NDEBUG
             LOG(INFO) << "transaction_id: " << transaction_id << ", partition id: " << partition_id
                       << ", version: " << version.second
-                      << " start to publish version on tablet: " << tablet_info.tablet_id
+                      << " Start publishing version on tablet: " << tablet_info.tablet_id
                       << ", submit status: " << submit_st.code();
 #endif
             CHECK(submit_st.ok()) << submit_st;
@@ -316,7 +316,7 @@ Status EnginePublishVersionTask::execute() {
     _calculate_tbl_num_delta_rows(tablet_id_to_num_delta_rows);
 
     if (!res.is<PUBLISH_VERSION_NOT_CONTINUOUS>()) {
-        LOG(INFO) << "finish to publish version on transaction."
+        LOG(INFO) << "Finished publishing version on transaction."
                   << "transaction_id=" << transaction_id
                   << ", cost(us): " << watch.get_elapse_time_us()
                   << ", error_tablet_size=" << _error_tablet_ids->size()

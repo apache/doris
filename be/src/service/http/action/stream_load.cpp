@@ -214,7 +214,7 @@ void StreamLoadAction::_send_reply(std::shared_ptr<StreamLoadContext> ctx, HttpR
 
     HttpChannel::send_reply(req, str);
 
-    LOG(INFO) << "finished to execute stream load. label=" << ctx->label
+    LOG(INFO) << "Finished executing stream load. label=" << ctx->label
               << ", txn_id=" << ctx->txn_id << ", query_id=" << ctx->id
               << ", load_cost_ms=" << ctx->load_cost_millis << ", receive_data_cost_ms="
               << (ctx->receive_and_read_data_cost_nanos - ctx->read_data_cost_nanos) / 1000000
@@ -263,7 +263,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
 
     if (st.ok()) {
         st = _on_header(req, ctx);
-        LOG(INFO) << "finished to handle HTTP header, " << ctx->brief();
+        LOG(INFO) << "Finished handling HTTP header, " << ctx->brief();
     }
     if (!st.ok()) {
         ctx->status = std::move(st);

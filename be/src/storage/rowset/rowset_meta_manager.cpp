@@ -466,7 +466,7 @@ Status RowsetMetaManager::_get_all_rowset_binlog_metas(OlapMeta* meta, const Tab
 
 Status RowsetMetaManager::remove(OlapMeta* meta, TabletUid tablet_uid, const RowsetId& rowset_id) {
     std::string key = ROWSET_PREFIX + tablet_uid.to_string() + "_" + rowset_id.to_string();
-    VLOG_NOTICE << "start to remove rowset, key:" << key;
+    VLOG_NOTICE << "Start removing rowset, key:" << key;
     Status status = meta->remove(META_COLUMN_FAMILY_INDEX, key);
     VLOG_NOTICE << "remove rowset key:" << key << " finished";
     return status;

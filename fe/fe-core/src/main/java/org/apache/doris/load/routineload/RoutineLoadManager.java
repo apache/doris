@@ -773,7 +773,7 @@ public class RoutineLoadManager implements Writable {
     // Cancelled and stopped job will be removed after Configure.label_keep_max_second seconds
     public void cleanOldRoutineLoadJobs() {
         if (LOG.isDebugEnabled()) {
-            LOG.debug("begin to clean old routine load jobs ");
+            LOG.debug("Begin to clean old routine load jobs ");
         }
         clearRoutineLoadJobIf(RoutineLoadJob::isExpired);
     }
@@ -791,7 +791,7 @@ public class RoutineLoadManager implements Writable {
         writeLock();
         try {
             if (LOG.isDebugEnabled()) {
-                LOG.debug("begin to clean routine load jobs");
+                LOG.debug("Begin to clean routine load jobs");
             }
             Deque<RoutineLoadJob> finishedJobs = idToRoutineLoadJob
                     .values()

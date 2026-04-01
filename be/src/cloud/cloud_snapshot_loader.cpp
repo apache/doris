@@ -78,7 +78,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
         return Status::InternalError("Storage backend not initialized.");
     }
 
-    LOG(INFO) << "begin to transfer snapshot files. num: " << src_to_dest_path.size()
+    LOG(INFO) << "Start transferring snapshot files. num: " << src_to_dest_path.size()
               << ", broker addr: " << _broker_addr << ", job: " << _job_id
               << ", task id: " << _task_id;
 
@@ -187,7 +187,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
         RETURN_IF_ERROR(_engine.cloud_snapshot_mgr().make_snapshot(
                 target_tablet_id, *_storage_resource, file_mapping, true, &hdr_slice));
 
-        LOG(INFO) << "finish to make snapshot for tablet: " << target_tablet_id;
+        LOG(INFO) << "Finished making snapshot for tablet: " << target_tablet_id;
 
         // 1.5. download files
         for (auto& nested_iter : remote_files) {
@@ -202,7 +202,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
             std::string target_file = find->second;
             std::string full_remote_file = remote_path + "/" + remote_file + "." + file_stat.md5;
             std::string full_target_file = target_path + "/" + target_file;
-            LOG(INFO) << "begin to download from " << full_remote_file << " to "
+            LOG(INFO) << "Start downloading from " << full_remote_file << " to "
                       << full_target_file;
             io::FileReaderOptions nested_reader_options {
                     .cache_type = io::FileCachePolicy::NO_CACHE,
@@ -239,7 +239,7 @@ Status CloudSnapshotLoader::download(const std::map<std::string, std::string>& s
         // (TODO) Add bvar metrics to track download time
     } // end for src_to_dest_path
 
-    LOG(INFO) << "finished to download snapshots. job: " << _job_id << ", task id: " << _task_id;
+    LOG(INFO) << "Finished downloading snapshots. job: " << _job_id << ", task id: " << _task_id;
     return status;
 }
 

@@ -69,7 +69,7 @@ public class MetaReader {
     private static final Logger LOG = LogManager.getLogger(MetaReader.class);
 
     public static void read(File imageFile, Env env) throws IOException, DdlException {
-        LOG.info("start load image from {}. is ckpt: {}", imageFile.getAbsolutePath(), Env.isCheckpointThread());
+        LOG.info("Start loading image from {}. is ckpt: {}", imageFile.getAbsolutePath(), Env.isCheckpointThread());
         long loadImageStartTime = System.currentTimeMillis();
         MetaHeader metaHeader = MetaHeader.read(imageFile);
         MetaFooter metaFooter = MetaFooter.read(imageFile);
@@ -133,6 +133,6 @@ public class MetaReader {
         Preconditions.checkState(remoteChecksum == checksum, remoteChecksum + " vs. " + checksum);
 
         long loadImageEndTime = System.currentTimeMillis();
-        LOG.info("finished to load image in " + (loadImageEndTime - loadImageStartTime) + " ms");
+        LOG.info("Finished loading image in " + (loadImageEndTime - loadImageStartTime) + " ms");
     }
 }
