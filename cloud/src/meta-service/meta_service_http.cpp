@@ -728,7 +728,14 @@ static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
 
 static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
     ListSnapshotRequest req;
-    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    } else {
+        req.set_instance_id(instance_id);
+    }
+
     ListSnapshotResponse resp;
     service->list_snapshot(ctrl, &req, &resp, nullptr);
     return http_json_reply_message(resp.status(), resp);
