@@ -27,6 +27,7 @@ suite("test_streaming_job_restart_fe", "docker") {
 
     def options = new ClusterOptions()
     options.setFeNum(1)
+    options.cloudMode = null
     
     docker(options) {
         sql """drop table if exists `${tableName}` force"""
