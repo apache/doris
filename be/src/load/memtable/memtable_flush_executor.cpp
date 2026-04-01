@@ -345,7 +345,6 @@ void MemTableFlushExecutor::update_memtable_flush_threads() {
     static_cast<void>(_high_prio_flush_pool->set_min_threads(hi_min));
 }
 
-
 // NOTE: we use SERIAL mode here to ensure all mem-tables from one tablet are flushed in order.
 Status MemTableFlushExecutor::create_flush_token(std::shared_ptr<FlushToken>& flush_token,
                                                  std::shared_ptr<RowsetWriter> rowset_writer,
