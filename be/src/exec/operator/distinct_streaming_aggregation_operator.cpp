@@ -153,18 +153,14 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
 
     size_t key_size = _probe_expr_ctxs.size();
     ColumnRawPtrs key_columns(key_size);
-    std::vector<int> result_idxs(key_size);
+    Columns key_column_ptrs(key_size);
     {
         SCOPED_TIMER(_expr_timer);
         for (size_t i = 0; i < key_size; ++i) {
-            int result_column_id = -1;
-            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, &result_column_id));
-            in_block->get_by_position(result_column_id).column =
-                    in_block->get_by_position(result_column_id)
-                            .column->convert_to_full_column_if_const();
-            key_columns[i] = in_block->get_by_position(result_column_id).column.get();
+            RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(in_block, key_column_ptrs[i]));
+            key_column_ptrs[i] = key_column_ptrs[i]->convert_to_full_column_if_const();
+            key_columns[i] = key_column_ptrs[i].get();
             key_columns[i]->assume_mutable()->replace_float_special_values();
-            result_idxs[i] = result_column_id;
         }
     }
 
@@ -198,12 +194,9 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         }
         DCHECK_EQ(out_block->columns(), key_size);
         if (_stop_emplace_flag && _distinct_row.empty()) {
-            // If _stop_emplace_flag is true and _distinct_row is also empty, it means it is in streaming mode, outputting what is input
-            // swap the column directly, to solve Check failed: d.column->use_count() == 1 (2 vs. 1)
+            // Streaming mode: move key columns directly into output block
             for (int i = 0; i < key_size; ++i) {
-                auto output_column = out_block->get_by_position(i).column;
-                out_block->replace_by_position(i, key_columns[i]->assume_mutable());
-                in_block->replace_by_position(result_idxs[i], output_column);
+                out_block->replace_by_position(i, std::move(key_column_ptrs[i]));
             }
         } else {
             DCHECK_EQ(_cache_block.rows(), 0);
@@ -231,7 +224,7 @@ Status DistinctStreamingAggLocalState::_distinct_pre_agg_with_serialized_key(
         ColumnsWithTypeAndName columns_with_schema;
         for (int i = 0; i < key_size; ++i) {
             if (_stop_emplace_flag) {
-                columns_with_schema.emplace_back(key_columns[i]->assume_mutable(),
+                columns_with_schema.emplace_back(std::move(key_column_ptrs[i]),
                                                  _probe_expr_ctxs[i]->root()->data_type(),
                                                  _probe_expr_ctxs[i]->root()->expr_name());
             } else {

@@ -189,13 +189,15 @@ Status Scanner::_do_projections(Block* origin_block, Block* output_block) {
     }
     Block input_block = *origin_block;
 
-    std::vector<int> result_column_ids;
     for (auto& projections : _intermediate_projections) {
-        result_column_ids.resize(projections.size());
+        ColumnsWithTypeAndName columns_with_schema;
+        columns_with_schema.reserve(projections.size());
         for (int i = 0; i < projections.size(); i++) {
-            RETURN_IF_ERROR(projections[i]->execute(&input_block, &result_column_ids[i]));
+            ColumnWithTypeAndName result_data;
+            RETURN_IF_ERROR(projections[i]->execute(&input_block, result_data));
+            columns_with_schema.emplace_back(std::move(result_data));
         }
-        input_block.shuffle_columns(result_column_ids);
+        input_block = Block(std::move(columns_with_schema));
     }
 
     DCHECK_EQ(rows, input_block.rows());

@@ -54,8 +54,8 @@ private:
 
     int64_t _estimate_memory_usage = 0;
 
-    //record insert column id during probe
-    std::vector<uint16_t> _probe_column_inserted_id;
+    // Holds ColumnPtr references to keep _probe_columns raw pointers valid
+    std::vector<ColumnPtr> _probe_column_holders;
     ColumnRawPtrs _probe_columns;
     // every child has its result expr list
     VExprContextSPtrs _child_exprs;

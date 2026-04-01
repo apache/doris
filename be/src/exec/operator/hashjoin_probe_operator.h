@@ -69,9 +69,9 @@ public:
 
 private:
     void _prepare_probe_block();
-    bool _need_probe_null_map(Block& block, const std::vector<int>& res_col_ids);
+    bool _need_probe_null_map(const std::vector<ColumnPtr>& res_columns);
     std::vector<uint16_t> _convert_block_to_null(Block& block);
-    Status _extract_join_column(Block& block, const std::vector<int>& res_col_ids);
+    Status _extract_join_column(Block& block, const std::vector<ColumnPtr>& res_columns);
     friend class HashJoinProbeOperatorX;
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;
@@ -182,7 +182,7 @@ public:
 private:
     Status _do_evaluate(Block& block, VExprContextSPtrs& exprs,
                         RuntimeProfile::Counter& expr_call_timer,
-                        std::vector<int>& res_col_ids) const;
+                        std::vector<ColumnPtr>& res_columns) const;
     friend class HashJoinProbeLocalState;
     template <int JoinOpType>
     friend struct ProcessHashTableProbe;

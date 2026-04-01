@@ -135,10 +135,9 @@ Status HashJoinProbeLocalState::close(RuntimeState* state) {
     return JoinProbeLocalState<HashJoinSharedState, HashJoinProbeLocalState>::close(state);
 }
 
-bool HashJoinProbeLocalState::_need_probe_null_map(Block& block,
-                                                   const std::vector<int>& res_col_ids) {
+bool HashJoinProbeLocalState::_need_probe_null_map(const std::vector<ColumnPtr>& res_columns) {
     for (size_t i = 0; i < _probe_expr_ctxs.size(); ++i) {
-        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
+        const auto* column = res_columns[i].get();
         if (column->is_nullable() &&
             !_parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
             return true;
@@ -329,7 +328,7 @@ std::string HashJoinProbeLocalState::debug_string(int indentation_level) const {
 }
 
 Status HashJoinProbeLocalState::_extract_join_column(Block& block,
-                                                     const std::vector<int>& res_col_ids) {
+                                                     const std::vector<ColumnPtr>& res_columns) {
     if (empty_right_table_shortcut()) {
         return Status::OK();
     }
@@ -338,7 +337,7 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
 
     if (!_has_set_need_null_map_for_probe) {
         _has_set_need_null_map_for_probe = true;
-        _need_null_map_for_probe = _need_probe_null_map(block, res_col_ids);
+        _need_null_map_for_probe = _need_probe_null_map(res_columns);
     }
     if (_need_null_map_for_probe) {
         if (!_null_map_column) {
@@ -349,11 +348,10 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
 
     auto& shared_state = *_shared_state;
     for (size_t i = 0; i < shared_state.build_exprs_size; ++i) {
-        const auto* column = block.get_by_position(res_col_ids[i]).column.get();
+        const auto* column = res_columns[i].get();
         if (!column->is_nullable() &&
             _parent->cast<HashJoinProbeOperatorX>()._serialize_null_into_key[i]) {
-            _key_columns_holder.emplace_back(
-                    make_nullable(block.get_by_position(res_col_ids[i]).column));
+            _key_columns_holder.emplace_back(make_nullable(res_columns[i]));
             _probe_columns[i] = _key_columns_holder.back().get();
         } else if (const auto* nullable = check_and_get_column<ColumnNullable>(*column);
                    nullable &&
@@ -363,8 +361,11 @@ Status HashJoinProbeLocalState::_extract_join_column(Block& block,
             const auto& col_nullmap = nullable->get_null_map_data();
             DCHECK(_null_map_column);
             VectorizedUtils::update_null_map(_null_map_column->get_data(), col_nullmap);
+            // Hold the column to keep nested column pointer alive
+            _key_columns_holder.emplace_back(res_columns[i]);
             _probe_columns[i] = &col_nested;
         } else {
+            _key_columns_holder.emplace_back(res_columns[i]);
             _probe_columns[i] = column;
         }
     }
@@ -411,19 +412,16 @@ bool HashJoinProbeOperatorX::need_more_input_data(RuntimeState* state) const {
 
 Status HashJoinProbeOperatorX::_do_evaluate(Block& block, VExprContextSPtrs& exprs,
                                             RuntimeProfile::Counter& expr_call_timer,
-                                            std::vector<int>& res_col_ids) const {
+                                            std::vector<ColumnPtr>& res_columns) const {
     for (size_t i = 0; i < exprs.size(); ++i) {
-        int result_col_id = -1;
-        // execute build column
+        // execute probe column
         {
             SCOPED_TIMER(&expr_call_timer);
-            RETURN_IF_ERROR(exprs[i]->execute(&block, &result_col_id));
+            RETURN_IF_ERROR(exprs[i]->execute(&block, res_columns[i]));
         }
 
         // TODO: opt the column is const
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        res_col_ids[i] = result_col_id;
+        res_columns[i] = res_columns[i]->convert_to_full_column_if_const();
     }
     return Status::OK();
 }
@@ -438,15 +436,17 @@ Status HashJoinProbeOperatorX::push(RuntimeState* state, Block* input_block, boo
 
     if (rows > 0) {
         COUNTER_UPDATE(local_state._probe_rows_counter, rows);
-        std::vector<int> res_col_ids(local_state._probe_expr_ctxs.size());
+        std::vector<ColumnPtr> res_columns(local_state._probe_expr_ctxs.size());
         RETURN_IF_ERROR(_do_evaluate(*input_block, local_state._probe_expr_ctxs,
-                                     *local_state._probe_expr_call_timer, res_col_ids));
+                                     *local_state._probe_expr_call_timer, res_columns));
         if (_join_op == TJoinOp::RIGHT_OUTER_JOIN || _join_op == TJoinOp::FULL_OUTER_JOIN) {
             local_state._probe_column_convert_to_null =
                     local_state._convert_block_to_null(*input_block);
         }
 
-        RETURN_IF_ERROR(local_state._extract_join_column(*input_block, res_col_ids));
+        RETURN_IF_ERROR(local_state._extract_join_column(*input_block, res_columns));
+        // Release ColumnPtrs to restore reference counts on block columns
+        res_columns.clear();
 
         local_state._estimate_memory_usage += (input_block->allocated_bytes() - origin_size);
 

@@ -142,15 +142,13 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
     auto& build_not_ignore_null = local_state._shared_state->build_not_ignore_null;
 
     auto& child_exprs = local_state._child_exprs;
+    local_state._probe_column_holders.resize(child_exprs.size());
     for (size_t i = 0; i < child_exprs.size(); ++i) {
-        int result_col_id = -1;
-        RETURN_IF_ERROR(child_exprs[i]->execute(&block, &result_col_id));
+        ColumnPtr result_column;
+        RETURN_IF_ERROR(child_exprs[i]->execute(&block, result_column));
+        result_column = result_column->convert_to_full_column_if_const();
 
-        block.get_by_position(result_col_id).column =
-                block.get_by_position(result_col_id).column->convert_to_full_column_if_const();
-        const auto* column = block.get_by_position(result_col_id).column.get();
-
-        if (const auto* nullable = check_and_get_column<ColumnNullable>(*column)) {
+        if (const auto* nullable = check_and_get_column<ColumnNullable>(*result_column)) {
             if (!build_not_ignore_null[i]) {
                 return Status::InternalError(
                         "SET operator expects a nullable : {} column in column {}, but the "
@@ -160,16 +158,13 @@ Status SetProbeSinkOperatorX<is_intersect>::_extract_probe_column(
                         nullable->get_nested_column_ptr()->is_nullable());
             }
             raw_ptrs[i] = nullable;
+            local_state._probe_column_holders[i] = std::move(result_column);
         } else {
             if (build_not_ignore_null[i]) {
-                auto column_ptr = make_nullable(block.get_by_position(result_col_id).column, false);
-                local_state._probe_column_inserted_id.emplace_back(block.columns());
-                block.insert(
-                        {column_ptr, make_nullable(block.get_by_position(result_col_id).type), ""});
-                column = column_ptr.get();
+                result_column = make_nullable(result_column, false);
             }
-
-            raw_ptrs[i] = column;
+            raw_ptrs[i] = result_column.get();
+            local_state._probe_column_holders[i] = std::move(result_column);
         }
     }
     return Status::OK();
