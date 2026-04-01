@@ -845,7 +845,7 @@ void ExecEnv::destroy() {
         static_cast<CloudClusterInfo*>(_cluster_info)->stop_bg_worker();
     }
 
-    // StorageEngine must be destoried before _cache_manager destory
+    // StorageEngine must be destoried before _cache_manager destory.
     SAFE_STOP(_storage_engine);
     _storage_engine.reset();
 
