@@ -184,7 +184,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             s3Obj.key(),
                             getRelativePath(uri.key(), s3Obj.key()),
                             s3Obj.eTag(),
-                            s3Obj.size()))
+                            s3Obj.size(),
+                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
                     .collect(Collectors.toList());
             return new RemoteObjects(objects, response.isTruncated(),
                     response.nextContinuationToken());
@@ -204,7 +205,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             HeadObjectResponse response = getClient().headObject(
                     HeadObjectRequest.builder().bucket(uri.bucket()).key(uri.key()).build());
             return new org.apache.doris.filesystem.spi.RemoteObject(
-                    uri.key(), uri.key(), response.eTag(), response.contentLength());
+                    uri.key(), uri.key(), response.eTag(), response.contentLength(),
+                    response.lastModified() != null ? response.lastModified().toEpochMilli() : 0L);
         } catch (NoSuchKeyException e) {
             throw new FileNotFoundException("Object not found: " + remotePath);
         } catch (S3Exception e) {
@@ -426,7 +428,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             s3Obj.key(),
                             getRelativePathSafe(prefix, s3Obj.key()),
                             s3Obj.eTag(),
-                            s3Obj.size()))
+                            s3Obj.size(),
+                            s3Obj.lastModified() != null ? s3Obj.lastModified().toEpochMilli() : 0L))
                     .collect(Collectors.toList());
             return new RemoteObjects(files, resp.isTruncated(),
                     resp.isTruncated() ? resp.nextContinuationToken() : null);
@@ -447,7 +450,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
                             .key(fullKey)
                             .build());
             RemoteObject obj = new RemoteObject(
-                    fullKey, getRelativePathSafe(prefix, fullKey), resp.eTag(), resp.contentLength());
+                    fullKey, getRelativePathSafe(prefix, fullKey), resp.eTag(), resp.contentLength(),
+                    resp.lastModified() != null ? resp.lastModified().toEpochMilli() : 0L);
             return new RemoteObjects(Collections.singletonList(obj), false, null);
         } catch (NoSuchKeyException e) {
             LOG.warn("Key not found in headObjectWithMeta, key={}", fullKey);

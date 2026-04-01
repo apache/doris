@@ -103,7 +103,8 @@ public class LocalFileSystem implements FileSystem {
             for (Path child : stream) {
                 boolean isDir = Files.isDirectory(child);
                 long length = isDir ? 0L : Files.size(child);
-                entries.add(new FileEntry(Location.of(child.toUri().toString()), length, isDir, null));
+                entries.add(new FileEntry(Location.of(child.toUri().toString()), length, isDir,
+                        Files.getLastModifiedTime(child).toMillis(), null));
             }
         }
         Iterator<FileEntry> it = entries.iterator();

@@ -20,26 +20,17 @@ package org.apache.doris.fs;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
-
-import org.apache.hadoop.fs.Path;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.List;
 
 public class FileSystemDirectoryLister implements DirectoryLister {
-    public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive,
+    public RemoteIterator<FileEntry> listFiles(FileSystem fs, boolean recursive,
             TableIf table, String location)
             throws FileSystemIOException {
         try {
             List<FileEntry> entries = FileSystemTransferUtil.globList(fs, location, recursive);
-            List<RemoteFile> result = new ArrayList<>(entries.size());
-            for (FileEntry e : entries) {
-                Path hadoopPath = new Path(e.location().uri());
-                result.add(new RemoteFile(hadoopPath, e.isDirectory(), e.length(), -1L, 0L, null));
-            }
-            return new RemoteFileRemoteIterator(result);
+            return new SimpleRemoteIterator(entries.iterator());
         } catch (IOException ex) {
             throw new FileSystemIOException(ex.getMessage(), ex);
         }

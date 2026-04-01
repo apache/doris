@@ -21,7 +21,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.filesystem.spi.FileEntry;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -68,13 +68,13 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     @Override
-    public RemoteIterator<RemoteFile> listFiles(org.apache.doris.filesystem.spi.FileSystem fs, boolean recursive,
+    public RemoteIterator<FileEntry> listFiles(org.apache.doris.filesystem.spi.FileSystem fs, boolean recursive,
             TableIf table, String location)
             throws FileSystemIOException {
         return listInternal(fs, recursive, table, new TransactionDirectoryListingCacheKey(transactionId, location));
     }
 
-    private RemoteIterator<RemoteFile> listInternal(org.apache.doris.filesystem.spi.FileSystem fs,
+    private RemoteIterator<FileEntry> listInternal(org.apache.doris.filesystem.spi.FileSystem fs,
                                                     boolean recursive, TableIf table,
                                                     TransactionDirectoryListingCacheKey cacheKey)
             throws FileSystemIOException {
@@ -96,7 +96,7 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
         return cachingRemoteIterator(cachedValueHolder, cacheKey);
     }
 
-    private RemoteIterator<RemoteFile> createListingRemoteIterator(
+    private RemoteIterator<FileEntry> createListingRemoteIterator(
                                                                    org.apache.doris.filesystem.spi.FileSystem fs,
                                                                    boolean recursive,
                                                                    TableIf table,
@@ -106,9 +106,9 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
 
-    private RemoteIterator<RemoteFile> cachingRemoteIterator(FetchingValueHolder cachedValueHolder,
+    private RemoteIterator<FileEntry> cachingRemoteIterator(FetchingValueHolder cachedValueHolder,
                                                              TransactionDirectoryListingCacheKey cacheKey) {
-        return new RemoteIterator<RemoteFile>() {
+        return new RemoteIterator<FileEntry>() {
             private int fileIndex;
 
             @Override
@@ -130,7 +130,7 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
             }
 
             @Override
-            public RemoteFile next()
+            public FileEntry next()
                     throws FileSystemIOException {
                 // force cache entry weight update in case next file is cached
                 Preconditions.checkState(hasNext());
@@ -152,16 +152,16 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
 
     static class FetchingValueHolder {
 
-        private final List<RemoteFile> cachedFiles = ListUtils.synchronizedList(new ArrayList<RemoteFile>());
+        private final List<FileEntry> cachedFiles = ListUtils.synchronizedList(new ArrayList<FileEntry>());
 
         @GuardedBy("this")
         @Nullable
-        private RemoteIterator<RemoteFile> fileIterator;
+        private RemoteIterator<FileEntry> fileIterator;
         @GuardedBy("this")
         @Nullable
         private Exception exception;
 
-        public FetchingValueHolder(RemoteIterator<RemoteFile> fileIterator) {
+        public FetchingValueHolder(RemoteIterator<FileEntry> fileIterator) {
             this.fileIterator = Objects.requireNonNull(fileIterator, "fileIterator is null");
         }
 
@@ -173,12 +173,12 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
             return cachedFiles.size();
         }
 
-        public Iterator<RemoteFile> getCachedFiles() {
+        public Iterator<FileEntry> getCachedFiles() {
             Preconditions.checkState(isFullyCached());
             return cachedFiles.iterator();
         }
 
-        public Optional<RemoteFile> getCachedFile(int index)
+        public Optional<FileEntry> getCachedFile(int index)
                 throws FileSystemIOException {
             int filesSize = cachedFiles.size();
             Preconditions.checkArgument(index >= 0 && index <= filesSize,
@@ -192,7 +192,7 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
             return fetchNextCachedFile(index);
         }
 
-        private synchronized Optional<RemoteFile> fetchNextCachedFile(int index)
+        private synchronized Optional<FileEntry> fetchNextCachedFile(int index)
                 throws FileSystemIOException {
             if (exception != null) {
                 throw new FileSystemIOException("Exception while listing directory", exception);
@@ -210,7 +210,7 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
                     return Optional.empty();
                 }
 
-                RemoteFile fileStatus = fileIterator.next();
+                FileEntry fileStatus = fileIterator.next();
                 cachedFiles.add(fileStatus);
                 return Optional.of(fileStatus);
             } catch (Exception exception) {

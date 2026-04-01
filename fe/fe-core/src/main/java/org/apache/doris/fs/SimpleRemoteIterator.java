@@ -18,7 +18,7 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.filesystem.spi.FileEntry;
 
 import java.util.Iterator;
 import java.util.Objects;
@@ -26,10 +26,10 @@ import java.util.Objects;
 // https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/SimpleRemoteIterator.java
 // and modified by Doris
 
-class SimpleRemoteIterator implements RemoteIterator<RemoteFile> {
-    private final Iterator<RemoteFile> iterator;
+class SimpleRemoteIterator implements RemoteIterator<FileEntry> {
+    private final Iterator<FileEntry> iterator;
 
-    public SimpleRemoteIterator(Iterator<RemoteFile> iterator) {
+    public SimpleRemoteIterator(Iterator<FileEntry> iterator) {
         this.iterator = Objects.requireNonNull(iterator, "iterator is null");
     }
 
@@ -39,7 +39,7 @@ class SimpleRemoteIterator implements RemoteIterator<RemoteFile> {
     }
 
     @Override
-    public RemoteFile next() throws FileSystemIOException {
+    public FileEntry next() throws FileSystemIOException {
         return iterator.next();
     }
 }

@@ -221,10 +221,10 @@ public class RepositoryTest {
                                 new FileEntry(
                                         Location.of(location + "/__palo_repository_repo/"
                                                 + Repository.PREFIX_SNAPSHOT_DIR + "a"),
-                                        100, true, null),
+                                        100, true, 0L, null),
                                 new FileEntry(
                                         Location.of(location + "/__palo_repository_repo/_ss_b"),
-                                        100, false, null));
+                                        100, false, 0L, null));
                         return new FileIterator() {
                             private int idx = 0;
 
@@ -320,7 +320,7 @@ public class RepositoryTest {
                                 new FileEntry(
                                         Location.of(location + "/remote_file"
                                                 + ".0cc175b9c0f1b6a831c399e269772661"),
-                                        1, false, null));
+                                        1, false, 0L, null));
 
                         mockFs.newInputFile((Location) any);
                         minTimes = 0;
@@ -381,11 +381,11 @@ public class RepositoryTest {
                                     new FileEntry(
                                             Location.of(location + "/__palo_repository_repo/"
                                                     + Repository.PREFIX_SNAPSHOT_DIR + "s1"),
-                                            100, true, null),
+                                            100, true, 0L, null),
                                     new FileEntry(
                                             Location.of(location + "/__palo_repository_repo/"
                                                     + Repository.PREFIX_SNAPSHOT_DIR + "s2"),
-                                            100, true, null));
+                                            100, true, 0L, null));
                             return new FileIterator() {
                                 private int idx = 0;
 
@@ -414,7 +414,7 @@ public class RepositoryTest {
                                     Location.of(location + "/__palo_repository_repo/__ss_s1/"
                                             + "__info_2018-04-18-20-11-00"
                                             + ".12345678123456781234567812345678"),
-                                    100, false, null));
+                                    100, false, 0L, null));
                 } catch (IOException e) {
                     throw new RuntimeException(e);
                 }

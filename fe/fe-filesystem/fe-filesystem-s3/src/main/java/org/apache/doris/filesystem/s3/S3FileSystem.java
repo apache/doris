@@ -169,7 +169,7 @@ public class S3FileSystem extends ObjFileSystem {
             bufferIdx = 0;
             for (RemoteObject obj : page.getObjectList()) {
                 Location loc = Location.of(reconstructUri(prefix, obj.getKey()));
-                buffer.add(new FileEntry(loc, obj.getSize(), false, List.of()));
+                buffer.add(new FileEntry(loc, obj.getSize(), false, obj.modificationTime(), List.of()));
             }
             if (page.isTruncated()) {
                 continuationToken = page.getContinuationToken();
@@ -425,6 +425,7 @@ public class S3FileSystem extends ObjFileSystem {
                             Location.of("s3://" + bucket + "/" + obj.key()),
                             obj.size(),
                             false,
+                            obj.lastModified() != null ? obj.lastModified().toEpochMilli() : 0L,
                             null));
                     totalSize += obj.size();
                     lastMatchedKey = obj.key();

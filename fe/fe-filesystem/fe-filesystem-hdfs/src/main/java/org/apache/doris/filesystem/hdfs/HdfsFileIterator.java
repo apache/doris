@@ -46,7 +46,8 @@ class HdfsFileIterator implements FileIterator {
     public FileEntry next() throws IOException {
         FileStatus status = statuses[index++];
         Location loc = Location.of(status.getPath().toString());
-        return new FileEntry(loc, status.getLen(), status.isDirectory(), null);
+        return new FileEntry(loc, status.getLen(), status.isDirectory(),
+                status.getModificationTime(), null);
     }
 
     @Override

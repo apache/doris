@@ -26,12 +26,14 @@ public final class RemoteObject {
     private final String relativePath;
     private final String etag;
     private final long size;
+    private final long modificationTime;
 
-    public RemoteObject(String key, String relativePath, String etag, long size) {
+    public RemoteObject(String key, String relativePath, String etag, long size, long modificationTime) {
         this.key = key;
         this.relativePath = relativePath;
         this.etag = etag;
         this.size = size;
+        this.modificationTime = modificationTime;
     }
 
     public String getKey() {
@@ -48,5 +50,10 @@ public final class RemoteObject {
 
     public long getSize() {
         return size;
+    }
+
+    /** Last-modified time in milliseconds since epoch. 0 if not available. */
+    public long modificationTime() {
+        return modificationTime;
     }
 }

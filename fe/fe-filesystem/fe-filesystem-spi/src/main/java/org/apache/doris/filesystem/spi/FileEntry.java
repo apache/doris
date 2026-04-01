@@ -27,12 +27,15 @@ public final class FileEntry {
     private final Location location;
     private final long length;
     private final boolean isDirectory;
+    private final long modificationTime;
     private final List<BlockInfo> blocks;
 
-    public FileEntry(Location location, long length, boolean isDirectory, List<BlockInfo> blocks) {
+    public FileEntry(Location location, long length, boolean isDirectory,
+            long modificationTime, List<BlockInfo> blocks) {
         this.location = location;
         this.length = length;
         this.isDirectory = isDirectory;
+        this.modificationTime = modificationTime;
         this.blocks = blocks == null ? List.of() : List.copyOf(blocks);
     }
 
@@ -46,6 +49,11 @@ public final class FileEntry {
 
     public boolean isDirectory() {
         return isDirectory;
+    }
+
+    /** Last-modified time in milliseconds since epoch. 0 if not available. */
+    public long modificationTime() {
+        return modificationTime;
     }
 
     public List<BlockInfo> blocks() {

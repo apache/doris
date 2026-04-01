@@ -157,7 +157,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
                 String etag = "";
                 RemoteObject objectFile = new RemoteObject(
                         STORAGE_PREFIX + (STORAGE_PREFIX.isEmpty() ? "" : "/") + relativePath, relativePath, etag,
-                        (j + 1) * 10);
+                        (j + 1) * 10, 0L);
                 objectStore.put(objectFile.getKey(), objectFile);
                 System.out.println(
                         "object file=" + objectFile.getKey() + ", " + objectFile.getRelativePath() + ", size: "
@@ -246,7 +246,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
                         + ".csv";
                 String etag = "";
                 RemoteObject objectFile = new RemoteObject(prefix + (prefix.isEmpty() ? "" : "/") + relativePath,
-                        relativePath, etag, (j + 1) * 10);
+                        relativePath, etag, (j + 1) * 10, 0L);
                 objectFiles.add(objectFile);
                 System.out.println(
                         "object file=" + objectFile.getKey() + ", " + objectFile.getRelativePath() + ", size: "
@@ -294,7 +294,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
             for (int j = 0; j < 10; j++) {
                 String relativePath = subPrefix + (subPrefix.isEmpty() ? "" : "/") + "file" + j + ".csv";
                 RemoteObject objectFile = new RemoteObject(STORAGE_PREFIX + "/" + relativePath, relativePath, "",
-                        (j + 1) * 10);
+                        (j + 1) * 10, 0L);
                 objectStore.put(objectFile.getKey(), objectFile);
                 System.out.println("Add " + objectFile);
             }
@@ -303,7 +303,7 @@ public class CopyLoadPendingTaskTest extends TestWithFeService {
         List<String> specialNames = Lists.newArrayList("sf,csv", "sd/sf,csv", "sf?csv", "sd/sf?csv", "sf*csv", "sf-csv",
                 "sf[csv", "sf]csv", "sf{csv", "sf}csv");
         for (String specialName : specialNames) {
-            RemoteObject objectFile = new RemoteObject(STORAGE_PREFIX + "/" + specialName, specialName, "", 1);
+            RemoteObject objectFile = new RemoteObject(STORAGE_PREFIX + "/" + specialName, specialName, "", 1, 0L);
             objectStore.put(objectFile.getKey(), objectFile);
         }
         setupObjFsMock();

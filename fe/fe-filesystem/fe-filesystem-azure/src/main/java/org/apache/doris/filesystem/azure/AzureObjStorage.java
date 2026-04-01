@@ -185,7 +185,9 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
                         item.getName().startsWith(uri.key()) ? item.getName().substring(uri.key().length()) : "",
                         item.getProperties().getETag(),
                         item.getProperties().getContentLength() != null
-                                ? item.getProperties().getContentLength() : 0L));
+                                ? item.getProperties().getContentLength() : 0L,
+                        item.getProperties().getLastModified() != null
+                                ? item.getProperties().getLastModified().toInstant().toEpochMilli() : 0L));
             }
             String nextToken = page.getContinuationToken();
             return new RemoteObjects(objects, nextToken != null && !nextToken.isEmpty(), nextToken);
@@ -201,7 +203,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             BlobClient blobClient = getClient().getBlobContainerClient(uri.container())
                     .getBlobClient(uri.key());
             BlobProperties props = blobClient.getProperties();
-            return new RemoteObject(uri.key(), "", props.getETag(), props.getBlobSize());
+            return new RemoteObject(uri.key(), "", props.getETag(), props.getBlobSize(),
+                    props.getLastModified() != null ? props.getLastModified().toInstant().toEpochMilli() : 0L);
         } catch (BlobStorageException e) {
             if (e.getStatusCode() == HTTP_NOT_FOUND) {
                 throw new FileNotFoundException("404: Object not found: " + remotePath);

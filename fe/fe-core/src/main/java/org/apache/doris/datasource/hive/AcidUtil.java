@@ -25,7 +25,6 @@ import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileSystem;
 import org.apache.doris.filesystem.spi.Location;
 import org.apache.doris.fs.FileSystemTransferUtil;
-import org.apache.doris.fs.remote.RemoteFile;
 
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -252,8 +251,8 @@ public class AcidUtil {
         String partitionPath = partition.getPath();
         //hdfs://xxxxx/user/hive/warehouse/username/data_id=200103
 
-        List<RemoteFile> lsPartitionPath = toRemoteFiles(
-                FileSystemTransferUtil.globList(fileSystem, partitionPath + "/*", false));
+        List<FileEntry> lsPartitionPath =
+                FileSystemTransferUtil.globList(fileSystem, partitionPath + "/*", false);
         // List all files and folders, without recursion.
 
         String oldestBase = null;
@@ -263,9 +262,9 @@ public class AcidUtil {
         boolean haveOriginalFiles = false;
         List<ParsedDelta> workingDeltas = new ArrayList<>();
 
-        for (RemoteFile remotePath : lsPartitionPath) {
-            if (remotePath.isDirectory()) {
-                String dirName = remotePath.getName(); //dirName: base_xxx,delta_xxx,...
+        for (FileEntry entry : lsPartitionPath) {
+            if (entry.isDirectory()) {
+                String dirName = locationName(entry.location()); //dirName: base_xxx,delta_xxx,...
                 String dirPath = partitionPath + "/" + dirName;
 
                 if (dirName.startsWith("base_")) {
@@ -388,29 +387,27 @@ public class AcidUtil {
         for (ParsedDelta delta : deltas) {
             String location = delta.getPath();
 
-            List<RemoteFile> remoteFiles = toRemoteFiles(
-                    FileSystemTransferUtil.globList(fileSystem, location, false));
+            List<FileEntry> entries = FileSystemTransferUtil.globList(fileSystem, location, false);
             if (delta.isDeleteDelta()) {
-                List<String> deleteDeltaFileNames = remoteFiles.stream()
-                        .map(RemoteFile::getName).filter(fileFilter::accept)
+                List<String> deleteDeltaFileNames = entries.stream()
+                        .map(e -> locationName(e.location())).filter(fileFilter::accept)
                         .collect(Collectors.toList());
                 deleteDeltas.add(new DeleteDeltaInfo(location, deleteDeltaFileNames));
                 continue;
             }
-            remoteFiles.stream().filter(f -> fileFilter.accept(f.getName())).forEach(file -> {
-                LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
-                fileCacheValue.addFile(file, path);
+            entries.stream().filter(e -> fileFilter.accept(locationName(e.location()))).forEach(entry -> {
+                LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                fileCacheValue.addFile(entry, path);
             });
         }
 
         // base
         if (bestBasePath != null) {
-            List<RemoteFile> remoteFiles = toRemoteFiles(
-                    FileSystemTransferUtil.globList(fileSystem, bestBasePath, false));
-            remoteFiles.stream().filter(f -> fileFilter.accept(f.getName()))
-                    .forEach(file -> {
-                        LocationPath path = LocationPath.of(file.getPath().toString(), storagePropertiesMap);
-                        fileCacheValue.addFile(file, path);
+            List<FileEntry> entries = FileSystemTransferUtil.globList(fileSystem, bestBasePath, false);
+            entries.stream().filter(e -> fileFilter.accept(locationName(e.location())))
+                    .forEach(entry -> {
+                        LocationPath path = LocationPath.of(entry.location().uri(), storagePropertiesMap);
+                        fileCacheValue.addFile(entry, path);
                     });
         }
 
@@ -422,12 +419,9 @@ public class AcidUtil {
         return fileCacheValue;
     }
 
-    private static List<RemoteFile> toRemoteFiles(List<FileEntry> entries) {
-        List<RemoteFile> result = new ArrayList<>(entries.size());
-        for (FileEntry e : entries) {
-            org.apache.hadoop.fs.Path hadoopPath = new org.apache.hadoop.fs.Path(e.location().uri());
-            result.add(new RemoteFile(hadoopPath, e.isDirectory(), e.length(), -1L, 0L, null));
-        }
-        return result;
+    private static String locationName(org.apache.doris.filesystem.spi.Location location) {
+        String uri = location.uri();
+        int idx = uri.lastIndexOf('/');
+        return idx >= 0 ? uri.substring(idx + 1) : uri;
     }
 }

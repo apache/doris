@@ -176,7 +176,7 @@ public class AzureFileSystem extends ObjFileSystem {
             bufferIdx = 0;
             for (RemoteObject obj : page.getObjectList()) {
                 Location loc = Location.of(rebuildUri(prefix, obj.getKey()));
-                buffer.add(new FileEntry(loc, obj.getSize(), false, List.of()));
+                buffer.add(new FileEntry(loc, obj.getSize(), false, obj.modificationTime(), List.of()));
             }
             if (page.isTruncated()) {
                 continuationToken = page.getContinuationToken();

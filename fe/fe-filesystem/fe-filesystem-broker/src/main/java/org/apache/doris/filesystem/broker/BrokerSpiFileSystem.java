@@ -165,6 +165,7 @@ public class BrokerSpiFileSystem implements FileSystem {
                     Location.of(s.getPath()),
                     s.getSize(),
                     s.isIsDir(),
+                    s.getModificationTime(),
                     null));
         }
         Iterator<FileEntry> it = entries.iterator();
