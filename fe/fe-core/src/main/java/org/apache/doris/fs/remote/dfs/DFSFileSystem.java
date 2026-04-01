@@ -25,12 +25,6 @@ import org.apache.doris.common.util.URI;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.foundation.fs.FsStorageType;
-import org.apache.doris.fs.Location;
-import org.apache.doris.fs.io.DorisInputFile;
-import org.apache.doris.fs.io.DorisOutputFile;
-import org.apache.doris.fs.io.ParsedPath;
-import org.apache.doris.fs.io.hdfs.HdfsInputFile;
-import org.apache.doris.fs.io.hdfs.HdfsOutputFile;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
@@ -584,15 +578,5 @@ public class DFSFileSystem extends RemoteFileSystem {
     public FSDataOutputStream createFile(Path path, boolean overwrite) throws IOException {
         FileSystem fileSystem = nativeFileSystem(path);
         return hdfsProperties.getHadoopAuthenticator().doAs(() -> fileSystem.create(path, overwrite));
-    }
-
-    @Override
-    public DorisOutputFile newOutputFile(ParsedPath path) {
-        return new HdfsOutputFile(Location.of(path.toString()), this);
-    }
-
-    @Override
-    public DorisInputFile newInputFile(ParsedPath path, long length) {
-        return new HdfsInputFile(Location.of(path.toString()), length, this);
     }
 }
