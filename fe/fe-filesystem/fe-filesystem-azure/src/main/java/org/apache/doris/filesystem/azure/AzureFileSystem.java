@@ -17,12 +17,12 @@
 
 package org.apache.doris.filesystem.azure;
 
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisInputStream;
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileIterator;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputStream;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
@@ -40,7 +40,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Azure Blob Storage-backed {@link org.apache.doris.filesystem.spi.FileSystem} implementation.
+ * Azure Blob Storage-backed {@link org.apache.doris.filesystem.FileSystem} implementation.
  *
  * <p>Does not depend on fe-core, fe-common, or fe-catalog.
  * Azure does not support atomic directory renames; {@link #rename} is limited to single blobs.

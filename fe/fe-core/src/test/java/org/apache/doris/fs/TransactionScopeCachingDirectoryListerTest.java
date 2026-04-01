@@ -21,10 +21,10 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileSystemIOException;
-import org.apache.doris.filesystem.spi.Location;
-import org.apache.doris.filesystem.spi.RemoteIterator;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystemIOException;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.filesystem.RemoteIterator;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -143,7 +143,7 @@ public class TransactionScopeCachingDirectoryListerTest {
         }
 
         @Override
-        public RemoteIterator<FileEntry> listFiles(org.apache.doris.filesystem.spi.FileSystem fs, boolean recursive,
+        public RemoteIterator<FileEntry> listFiles(org.apache.doris.filesystem.FileSystem fs, boolean recursive,
                 TableIf table, String location)
                 throws FileSystemIOException {
             // No specific recursive files-only listing implementation

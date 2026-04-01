@@ -15,32 +15,19 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.filesystem.spi;
+package org.apache.doris.filesystem;
+
+import java.io.IOException;
+import java.io.OutputStream;
 
 /**
- * Represents a block location within a file (e.g., HDFS block).
+ * Represents a writable file in the filesystem.
  */
-public final class BlockInfo {
+public interface DorisOutputFile {
 
-    private final long offset;
-    private final long length;
-    private final String[] hosts;
+    Location location();
 
-    public BlockInfo(long offset, long length, String[] hosts) {
-        this.offset = offset;
-        this.length = length;
-        this.hosts = hosts == null ? new String[0] : hosts.clone();
-    }
+    OutputStream create() throws IOException;
 
-    public long offset() {
-        return offset;
-    }
-
-    public long length() {
-        return length;
-    }
-
-    public String[] hosts() {
-        return hosts.clone();
-    }
+    OutputStream createOrOverwrite() throws IOException;
 }

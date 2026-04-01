@@ -25,7 +25,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
@@ -192,7 +192,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
         fsCopyProps.remove("compress_type");
 
         StorageProperties storageProps = StorageProperties.createPrimary(fsCopyProps);
-        try (org.apache.doris.filesystem.spi.FileSystem fs = FileSystemFactory.getFileSystem(storageProps)) {
+        try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(storageProps)) {
             fs.delete(Location.of(parentDir), true);
         } catch (java.io.IOException e) {
             throw new UserException("Failed to delete existing files in " + parentDir + ": " + e.getMessage());

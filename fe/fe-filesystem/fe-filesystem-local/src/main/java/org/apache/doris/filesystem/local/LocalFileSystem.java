@@ -17,13 +17,13 @@
 
 package org.apache.doris.filesystem.local;
 
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisInputStream;
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileIterator;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputStream;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 
 import java.io.IOException;
 import java.io.OutputStream;

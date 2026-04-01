@@ -19,10 +19,10 @@ package org.apache.doris.job.offset.s3;
 
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.GlobListing;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.GlobListing;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.job.extensions.insert.streaming.StreamingJobProperties;
 import org.apache.doris.job.offset.Offset;

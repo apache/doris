@@ -18,8 +18,8 @@
 package org.apache.doris.datasource.iceberg.fileio;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 
 import org.apache.iceberg.DataFile;

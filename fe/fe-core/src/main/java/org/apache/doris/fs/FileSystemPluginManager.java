@@ -22,8 +22,8 @@ import org.apache.doris.extension.loader.DirectoryPluginRuntimeManager;
 import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;

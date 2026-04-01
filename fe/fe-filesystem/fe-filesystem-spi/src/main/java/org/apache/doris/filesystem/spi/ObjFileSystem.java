@@ -17,6 +17,9 @@
 
 package org.apache.doris.filesystem.spi;
 
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+
 import java.io.IOException;
 import java.util.Comparator;
 import java.util.List;

@@ -17,10 +17,10 @@
 
 package org.apache.doris.filesystem.obs;
 
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProvider;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.s3.S3ObjStorage;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -29,7 +29,7 @@ import java.util.Map;
 /**
  * SPI provider for Huawei Cloud OBS.
  *
- * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
+ * <p>Registered via META-INF/services/org.apache.doris.filesystem.FileSystemProvider.
  *
  * <p>Identified by an endpoint containing {@code myhuaweicloud.com}. Translates OBS-specific
  * property keys to S3-compatible keys and delegates to {@link S3FileSystem}.

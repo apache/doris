@@ -24,29 +24,36 @@ under the License.
 
     <parent>
         <groupId>org.apache.doris</groupId>
-        <artifactId>fe</artifactId>
+        <artifactId>fe-filesystem</artifactId>
         <version>${revision}</version>
         <relativePath>../pom.xml</relativePath>
     </parent>
 
-    <artifactId>fe-filesystem</artifactId>
-    <packaging>pom</packaging>
-    <name>Doris FE Filesystem (Aggregator)</name>
+    <artifactId>fe-filesystem-api</artifactId>
+    <packaging>jar</packaging>
+    <name>Doris FE Filesystem API</name>
     <description>
-        Aggregator POM for all Doris FE filesystem modules.
-        Contains NO Java code; only lists sub-modules.
+        Consumer-facing API for the Doris FE filesystem abstraction layer.
+        Contains the core FileSystem interface, value types (Location, FileEntry, BlockInfo),
+        streaming types (FileIterator, DorisInputFile, DorisOutputStream), utility helpers,
+        and the FileSystemProvider discovery interface.
+
+        Zero third-party external dependencies — only JDK and the Doris plugin registration
+        interface (fe-extension-spi). Both fe-core callers and filesystem provider
+        implementations depend on this artifact.
     </description>
 
-    <modules>
-        <module>fe-filesystem-api</module>
-        <module>fe-filesystem-spi</module>
-        <module>fe-filesystem-s3</module>
-        <module>fe-filesystem-oss</module>
-        <module>fe-filesystem-cos</module>
-        <module>fe-filesystem-obs</module>
-        <module>fe-filesystem-local</module>
-        <module>fe-filesystem-azure</module>
-        <module>fe-filesystem-hdfs</module>
-        <module>fe-filesystem-broker</module>
-    </modules>
+    <dependencies>
+        <!-- fe-extension-spi: pure Java interfaces required by FileSystemProvider,
+             which extends PluginFactory to enable ServiceLoader-based plugin discovery. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-extension-spi</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>doris-fe-filesystem-api</finalName>
+    </build>
 </project>

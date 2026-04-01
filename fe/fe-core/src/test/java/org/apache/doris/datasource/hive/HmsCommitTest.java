@@ -364,7 +364,7 @@ public class HmsCommitTest {
         });
 
         if (mode != TUpdateMode.NEW) {
-            fs.mkdirs(org.apache.doris.filesystem.spi.Location.of(targetPath));
+            fs.mkdirs(org.apache.doris.filesystem.Location.of(targetPath));
         }
 
         java.nio.file.Path writeDir = java.nio.file.Paths.get(
@@ -398,7 +398,7 @@ public class HmsCommitTest {
 
     private boolean fsExists(String path) {
         try {
-            return fs.exists(org.apache.doris.filesystem.spi.Location.of(path));
+            return fs.exists(org.apache.doris.filesystem.Location.of(path));
         } catch (java.io.IOException e) {
             return false;
         }

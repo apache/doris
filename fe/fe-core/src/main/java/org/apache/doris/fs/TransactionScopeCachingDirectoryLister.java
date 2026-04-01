@@ -21,10 +21,10 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileSystemIOException;
-import org.apache.doris.filesystem.spi.RemoteIterator;
-import org.apache.doris.filesystem.spi.SimpleRemoteIterator;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystemIOException;
+import org.apache.doris.filesystem.RemoteIterator;
+import org.apache.doris.filesystem.SimpleRemoteIterator;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
@@ -71,13 +71,13 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     @Override
-    public RemoteIterator<FileEntry> listFiles(org.apache.doris.filesystem.spi.FileSystem fs, boolean recursive,
+    public RemoteIterator<FileEntry> listFiles(org.apache.doris.filesystem.FileSystem fs, boolean recursive,
             TableIf table, String location)
             throws FileSystemIOException {
         return listInternal(fs, recursive, table, new TransactionDirectoryListingCacheKey(transactionId, location));
     }
 
-    private RemoteIterator<FileEntry> listInternal(org.apache.doris.filesystem.spi.FileSystem fs,
+    private RemoteIterator<FileEntry> listInternal(org.apache.doris.filesystem.FileSystem fs,
                                                     boolean recursive, TableIf table,
                                                     TransactionDirectoryListingCacheKey cacheKey)
             throws FileSystemIOException {
@@ -100,7 +100,7 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     private RemoteIterator<FileEntry> createListingRemoteIterator(
-                                                                   org.apache.doris.filesystem.spi.FileSystem fs,
+                                                                   org.apache.doris.filesystem.FileSystem fs,
                                                                    boolean recursive,
                                                                    TableIf table,
                                                                    TransactionDirectoryListingCacheKey cacheKey)

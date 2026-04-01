@@ -134,7 +134,7 @@ public class S3Resource extends Resource {
         Arrays.fill(contentData, (byte) 'A');
 
         try {
-            org.apache.doris.filesystem.spi.FileSystem fileSystem =
+            org.apache.doris.filesystem.FileSystem fileSystem =
                     FileSystemFactory.getFileSystem(newProperties);
             Preconditions.checkState(fileSystem instanceof ObjFileSystem,
                     "Expected object-storage filesystem for S3 resource");

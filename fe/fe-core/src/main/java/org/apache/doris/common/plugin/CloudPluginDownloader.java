@@ -19,8 +19,8 @@ package org.apache.doris.common.plugin;
 
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.service.FrontendOptions;
 
@@ -133,7 +133,7 @@ public class CloudPluginDownloader {
 
         // Download via SPI FileSystem
         Map<String, String> properties = buildProperties(objInfo);
-        org.apache.doris.filesystem.spi.FileSystem fileSystem =
+        org.apache.doris.filesystem.FileSystem fileSystem =
                 FileSystemFactory.getFileSystem(properties);
         DorisInputFile inputFile = fileSystem.newInputFile(Location.of(remotePath));
         try (InputStream in = inputFile.newStream()) {

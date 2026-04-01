@@ -18,7 +18,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.FileSystemProvider;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -70,10 +70,10 @@ public final class FileSystemFactory {
      * Otherwise falls back to ServiceLoader discovery (unit-test / migration path).
      *
      * @param properties key-value storage configuration
-     * @return initialized {@code org.apache.doris.filesystem.spi.FileSystem}
+     * @return initialized {@code org.apache.doris.filesystem.FileSystem}
      * @throws IOException if no provider matches or creation fails
      */
-    public static org.apache.doris.filesystem.spi.FileSystem getFileSystem(Map<String, String> properties)
+    public static org.apache.doris.filesystem.FileSystem getFileSystem(Map<String, String> properties)
             throws IOException {
         FileSystemPluginManager mgr = pluginManager;
         if (mgr != null) {
@@ -101,7 +101,7 @@ public final class FileSystemFactory {
      * Converts via {@link StoragePropertiesConverter} then delegates to
      * {@link #getFileSystem(Map)}.
      */
-    public static org.apache.doris.filesystem.spi.FileSystem getFileSystem(StorageProperties storageProperties)
+    public static org.apache.doris.filesystem.FileSystem getFileSystem(StorageProperties storageProperties)
             throws IOException {
         return getFileSystem(StoragePropertiesConverter.toMap(storageProperties));
     }
@@ -140,7 +140,7 @@ public final class FileSystemFactory {
     }
 
     /**
-     * Creates a broker-backed {@link org.apache.doris.filesystem.spi.FileSystem} using a
+     * Creates a broker-backed {@link org.apache.doris.filesystem.FileSystem} using a
      * pre-resolved broker endpoint.
      *
      * <p>The caller is responsible for resolving the broker name to a live host:port via
@@ -151,10 +151,10 @@ public final class FileSystemFactory {
      * @param port        live broker Thrift port
      * @param clientId    FE identifier sent to broker for logging (e.g. "host:editLogPort")
      * @param brokerParams broker-specific params (username, password, hadoop config, ...)
-     * @return initialized {@code org.apache.doris.filesystem.spi.FileSystem}
+     * @return initialized {@code org.apache.doris.filesystem.FileSystem}
      * @throws IOException if the broker filesystem provider is not found or creation fails
      */
-    public static org.apache.doris.filesystem.spi.FileSystem getBrokerFileSystem(
+    public static org.apache.doris.filesystem.FileSystem getBrokerFileSystem(
             String host, int port, String clientId, Map<String, String> brokerParams) throws IOException {
         Map<String, String> props = new HashMap<>(brokerParams);
         props.put("_STORAGE_TYPE_", "BROKER");

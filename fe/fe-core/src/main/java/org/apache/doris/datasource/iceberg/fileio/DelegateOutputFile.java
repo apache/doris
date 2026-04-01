@@ -17,9 +17,9 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
 
 import com.google.common.io.CountingOutputStream;
 import org.apache.iceberg.io.InputFile;

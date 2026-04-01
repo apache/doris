@@ -17,7 +17,7 @@
 
 package org.apache.doris.filesystem.hdfs;
 
-import org.apache.doris.filesystem.spi.DorisInputStream;
+import org.apache.doris.filesystem.DorisInputStream;
 
 import org.apache.hadoop.fs.FSDataInputStream;
 

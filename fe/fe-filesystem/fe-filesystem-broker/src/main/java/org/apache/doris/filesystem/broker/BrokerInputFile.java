@@ -17,9 +17,9 @@
 
 package org.apache.doris.filesystem.broker;
 
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisInputStream;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputStream;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerOpenReaderRequest;
 import org.apache.doris.thrift.TBrokerOpenReaderResponse;

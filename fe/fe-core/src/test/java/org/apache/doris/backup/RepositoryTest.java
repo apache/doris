@@ -25,12 +25,12 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisInputStream;
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileIterator;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputStream;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.service.FrontendOptions;
 
@@ -72,7 +72,7 @@ public class RepositoryTest {
     private SnapshotInfo info;
 
     @Mocked
-    private org.apache.doris.filesystem.spi.FileSystem mockFs;
+    private org.apache.doris.filesystem.FileSystem mockFs;
     @Mocked
     private DorisOutputFile mockOutputFile;
     @Mocked
@@ -103,13 +103,13 @@ public class RepositoryTest {
         // acquireSpiFs() (broker path) returns the mock without a real connection.
         new MockUp<FileSystemFactory>() {
             @Mock
-            public org.apache.doris.filesystem.spi.FileSystem getFileSystem(
+            public org.apache.doris.filesystem.FileSystem getFileSystem(
                     Map<String, String> properties) throws IOException {
                 return mockFs;
             }
 
             @Mock
-            public org.apache.doris.filesystem.spi.FileSystem getFileSystem(
+            public org.apache.doris.filesystem.FileSystem getFileSystem(
                     StorageProperties storageProperties) throws IOException {
                 return mockFs;
             }

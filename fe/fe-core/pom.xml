@@ -69,7 +69,14 @@ under the License.
             <artifactId>fe-common</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- fe-filesystem-spi: compile-time SPI interfaces for FileSystemFactory -->
+        <!-- fe-filesystem-api: consumer-facing filesystem API (FileSystem, Location, FileEntry, etc.) -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- fe-filesystem-spi: provider contracts (ObjFileSystem, ObjStorage, etc.) —
+             needed by S3Resource which directly invokes ObjStorage for connectivity validation. -->
         <dependency>
             <groupId>${project.groupId}</groupId>
             <artifactId>fe-filesystem-spi</artifactId>

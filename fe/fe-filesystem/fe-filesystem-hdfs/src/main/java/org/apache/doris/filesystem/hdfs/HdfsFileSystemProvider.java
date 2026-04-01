@@ -17,8 +17,8 @@
 
 package org.apache.doris.filesystem.hdfs;
 
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.Map;

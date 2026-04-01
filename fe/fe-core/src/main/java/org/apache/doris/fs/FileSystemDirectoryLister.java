@@ -18,12 +18,12 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.FileSystemIOException;
-import org.apache.doris.filesystem.spi.FileSystemTransferUtil;
-import org.apache.doris.filesystem.spi.RemoteIterator;
-import org.apache.doris.filesystem.spi.SimpleRemoteIterator;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemIOException;
+import org.apache.doris.filesystem.FileSystemTransferUtil;
+import org.apache.doris.filesystem.RemoteIterator;
+import org.apache.doris.filesystem.SimpleRemoteIterator;
 
 import java.io.IOException;
 import java.util.List;

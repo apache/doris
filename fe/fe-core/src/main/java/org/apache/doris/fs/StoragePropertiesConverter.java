@@ -30,8 +30,8 @@ import java.util.Map;
 
 /**
  * Converts legacy {@link StorageProperties} objects to the {@code Map<String, String>} format
- * expected by {@link org.apache.doris.filesystem.spi.FileSystemProvider#supports} and
- * {@link org.apache.doris.filesystem.spi.FileSystemProvider#create}.
+ * expected by {@link org.apache.doris.filesystem.FileSystemProvider#supports} and
+ * {@link org.apache.doris.filesystem.FileSystemProvider#create}.
  *
  * <p>This class is the ONLY place in fe-core that knows about the mapping between
  * StorageProperties subtypes and filesystem property keys. All other code in fe-core

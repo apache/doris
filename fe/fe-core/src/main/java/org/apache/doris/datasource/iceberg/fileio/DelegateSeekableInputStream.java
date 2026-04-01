@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.filesystem.spi.DorisInputStream;
+import org.apache.doris.filesystem.DorisInputStream;
 
 import org.apache.iceberg.io.SeekableInputStream;
 

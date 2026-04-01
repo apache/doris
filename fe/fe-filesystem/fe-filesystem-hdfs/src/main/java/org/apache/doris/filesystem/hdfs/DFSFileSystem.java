@@ -17,11 +17,11 @@
 
 package org.apache.doris.filesystem.hdfs;
 
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileIterator;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.HadoopAuthenticator;
-import org.apache.doris.filesystem.spi.Location;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileStatus;
@@ -39,7 +39,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * SPI FileSystem implementation for HDFS, ViewFS, JFS, OFS, and OSSHdfs.
  * Has zero dependency on fe-core; accepts {@code Map<String, String>} configuration.
  */
-public class DFSFileSystem implements org.apache.doris.filesystem.spi.FileSystem {
+public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
 
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
 

@@ -21,10 +21,10 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.hive.AcidInfo.DeleteDeltaInfo;
 import org.apache.doris.datasource.hive.HiveExternalMetaCache.FileCacheValue;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.FileSystemTransferUtil;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemTransferUtil;
+import org.apache.doris.filesystem.Location;
 
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
@@ -419,7 +419,7 @@ public class AcidUtil {
         return fileCacheValue;
     }
 
-    private static String locationName(org.apache.doris.filesystem.spi.Location location) {
+    private static String locationName(org.apache.doris.filesystem.Location location) {
         String uri = location.uri();
         int idx = uri.lastIndexOf('/');
         return idx >= 0 ? uri.substring(idx + 1) : uri;

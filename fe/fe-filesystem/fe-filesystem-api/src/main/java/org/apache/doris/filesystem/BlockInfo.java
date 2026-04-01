@@ -14,14 +14,33 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/RemoteIterator.java
-// and modified by Doris
 
-package org.apache.doris.filesystem.spi;
+package org.apache.doris.filesystem;
 
-public interface RemoteIterator<T> {
-    boolean hasNext() throws FileSystemIOException;
+/**
+ * Represents a block location within a file (e.g., HDFS block).
+ */
+public final class BlockInfo {
 
-    T next() throws FileSystemIOException;
+    private final long offset;
+    private final long length;
+    private final String[] hosts;
+
+    public BlockInfo(long offset, long length, String[] hosts) {
+        this.offset = offset;
+        this.length = length;
+        this.hosts = hosts == null ? new String[0] : hosts.clone();
+    }
+
+    public long offset() {
+        return offset;
+    }
+
+    public long length() {
+        return length;
+    }
+
+    public String[] hosts() {
+        return hosts.clone();
+    }
 }

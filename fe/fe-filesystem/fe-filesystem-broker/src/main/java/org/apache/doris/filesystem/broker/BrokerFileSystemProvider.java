@@ -17,8 +17,8 @@
 
 package org.apache.doris.filesystem.broker;
 
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -33,7 +33,7 @@ import java.util.Map;
  * avoiding any dependency on BrokerMgr here.
  *
  * <p>Registered via:
- * META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider
+ * META-INF/services/org.apache.doris.filesystem.FileSystemProvider
  */
 public class BrokerFileSystemProvider implements FileSystemProvider {
 

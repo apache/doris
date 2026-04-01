@@ -14,20 +14,29 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+// This file is copied from
+// https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/SimpleRemoteIterator.java
+// and modified by Doris
 
-package org.apache.doris.filesystem.spi;
+package org.apache.doris.filesystem;
 
-import java.io.IOException;
-import java.io.OutputStream;
+import java.util.Iterator;
+import java.util.Objects;
 
-/**
- * Represents a writable file in the filesystem.
- */
-public interface DorisOutputFile {
+public class SimpleRemoteIterator implements RemoteIterator<FileEntry> {
+    private final Iterator<FileEntry> iterator;
 
-    Location location();
+    public SimpleRemoteIterator(Iterator<FileEntry> iterator) {
+        this.iterator = Objects.requireNonNull(iterator, "iterator is null");
+    }
 
-    OutputStream create() throws IOException;
+    @Override
+    public boolean hasNext() throws FileSystemIOException {
+        return iterator.hasNext();
+    }
 
-    OutputStream createOrOverwrite() throws IOException;
+    @Override
+    public FileEntry next() throws FileSystemIOException {
+        return iterator.next();
+    }
 }

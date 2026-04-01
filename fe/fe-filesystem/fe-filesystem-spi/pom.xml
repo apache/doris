@@ -39,6 +39,13 @@ under the License.
     </description>
 
     <dependencies>
+        <!-- fe-filesystem-api: consumer-facing types (FileSystem, Location, FileEntry, etc.)
+             moved from spi to api package. ObjFileSystem extends FileSystem from api. -->
+        <dependency>
+            <groupId>${project.groupId}</groupId>
+            <artifactId>fe-filesystem-api</artifactId>
+            <version>${project.version}</version>
+        </dependency>
         <!-- fe-extension-spi: pure Java interfaces (no third-party deps) required for
              FileSystemProvider extends PluginFactory, enabling DirectoryPluginRuntimeManager
              to load filesystem provider plugins from the filesystem directory. -->

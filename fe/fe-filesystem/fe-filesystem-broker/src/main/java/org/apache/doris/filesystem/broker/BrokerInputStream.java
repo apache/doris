@@ -17,7 +17,7 @@
 
 package org.apache.doris.filesystem.broker;
 
-import org.apache.doris.filesystem.spi.DorisInputStream;
+import org.apache.doris.filesystem.DorisInputStream;
 import org.apache.doris.thrift.TBrokerCloseReaderRequest;
 import org.apache.doris.thrift.TBrokerFD;
 import org.apache.doris.thrift.TBrokerOperationStatus;

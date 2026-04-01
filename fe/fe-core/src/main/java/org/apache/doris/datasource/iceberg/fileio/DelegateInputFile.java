@@ -17,7 +17,7 @@
 
 package org.apache.doris.datasource.iceberg.fileio;
 
-import org.apache.doris.filesystem.spi.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputFile;
 
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.io.InputFile;

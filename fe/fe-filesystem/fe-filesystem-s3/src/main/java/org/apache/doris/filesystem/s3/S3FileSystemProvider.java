@@ -17,8 +17,8 @@
 
 package org.apache.doris.filesystem.s3;
 
-import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.Map;
@@ -26,7 +26,7 @@ import java.util.Map;
 /**
  * SPI provider for AWS S3 and S3-compatible storage (MinIO, etc.).
  *
- * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
+ * <p>Registered via META-INF/services/org.apache.doris.filesystem.FileSystemProvider.
  *
  * <p>Identified by presence of AWS_ACCESS_KEY with either AWS_ENDPOINT or AWS_REGION.
  * S3 is intentionally the last-resort provider; cloud-specific providers (OSS, COS, OBS)

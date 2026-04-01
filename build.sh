@@ -606,7 +606,8 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     modules+=("fe-extension-spi")
     modules+=("fe-extension-loader")
     modules+=("fe-core")
-    # Filesystem SPI plugin modules (loaded at runtime as plugins)
+    # Filesystem API and SPI plugin modules (loaded at runtime as plugins)
+    modules+=("fe-filesystem/fe-filesystem-api")
     modules+=("fe-filesystem/fe-filesystem-spi")
     for _fs_mod in s3 oss cos obs azure hdfs local broker; do
         if [[ -d "${DORIS_HOME}/fe/fe-filesystem/fe-filesystem-${_fs_mod}" ]]; then
@@ -921,7 +922,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         (cd "${DORIS_HOME}/fe" && "${MVN_CMD}" dependency:copy-dependencies \
             -pl "fe-filesystem/fe-filesystem-${fs_module}" \
             -DoutputDirectory="${fs_plugin_target}" \
-            -DexcludeArtifactIds="fe-filesystem-spi,fe-extension-spi" \
+            -DexcludeArtifactIds="fe-filesystem-api,fe-filesystem-spi,fe-extension-spi" \
             --no-transfer-progress -q 2>/dev/null) || true
     done
     unset FS_PLUGIN_DIR fs_module fs_plugin_target fs_module_dir

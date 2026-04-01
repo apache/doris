@@ -20,7 +20,7 @@ package org.apache.doris.fs;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.FileSystem;
 
 import com.github.benmanes.caffeine.cache.LoadingCache;
 

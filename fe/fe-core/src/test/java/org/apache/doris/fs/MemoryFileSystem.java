@@ -17,12 +17,12 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisInputStream;
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileIterator;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisInputStream;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -38,13 +38,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 /**
- * In-memory {@link org.apache.doris.filesystem.spi.FileSystem} implementation for unit testing.
+ * In-memory {@link org.apache.doris.filesystem.FileSystem} implementation for unit testing.
  * <p>
  * File data is stored in a {@link ConcurrentHashMap}. Directories are implicit
  * (any Location whose path ends with "/" is treated as a directory).
  * Thread-safe for concurrent read/write operations.
  */
-public class MemoryFileSystem implements org.apache.doris.filesystem.spi.FileSystem {
+public class MemoryFileSystem implements org.apache.doris.filesystem.FileSystem {
 
     // Maps location string → file bytes (null entry = directory marker)
     private final ConcurrentHashMap<String, byte[]> store = new ConcurrentHashMap<>();

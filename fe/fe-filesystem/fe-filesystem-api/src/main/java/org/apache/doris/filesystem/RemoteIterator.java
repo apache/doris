@@ -15,28 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 // This file is copied from
-// https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/SimpleRemoteIterator.java
+// https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/main/java/io/trino/plugin/hive/fs/RemoteIterator.java
 // and modified by Doris
 
-package org.apache.doris.filesystem.spi;
+package org.apache.doris.filesystem;
 
-import java.util.Iterator;
-import java.util.Objects;
+public interface RemoteIterator<T> {
+    boolean hasNext() throws FileSystemIOException;
 
-public class SimpleRemoteIterator implements RemoteIterator<FileEntry> {
-    private final Iterator<FileEntry> iterator;
-
-    public SimpleRemoteIterator(Iterator<FileEntry> iterator) {
-        this.iterator = Objects.requireNonNull(iterator, "iterator is null");
-    }
-
-    @Override
-    public boolean hasNext() throws FileSystemIOException {
-        return iterator.hasNext();
-    }
-
-    @Override
-    public FileEntry next() throws FileSystemIOException {
-        return iterator.next();
-    }
+    T next() throws FileSystemIOException;
 }

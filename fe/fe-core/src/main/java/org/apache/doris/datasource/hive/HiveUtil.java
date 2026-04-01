@@ -22,7 +22,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.statistics.CommonStatistics;
-import org.apache.doris.filesystem.spi.FileSystem;
+import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 

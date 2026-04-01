@@ -32,11 +32,11 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.filesystem.spi.DorisInputFile;
-import org.apache.doris.filesystem.spi.DorisOutputFile;
-import org.apache.doris.filesystem.spi.FileEntry;
-import org.apache.doris.filesystem.spi.FileIterator;
-import org.apache.doris.filesystem.spi.Location;
+import org.apache.doris.filesystem.DorisInputFile;
+import org.apache.doris.filesystem.DorisOutputFile;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileIterator;
+import org.apache.doris.filesystem.Location;
 import org.apache.doris.foundation.fs.FsStorageType;
 import org.apache.doris.fs.FileSystemDescriptor;
 import org.apache.doris.fs.FileSystemFactory;
@@ -139,7 +139,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
     /** SPI filesystem for I/O operations; transient — rebuilt in {@link #gsonPostProcess()}.
      *  Null for BROKER repositories, which resolve a live broker endpoint per I/O call. */
-    private transient org.apache.doris.filesystem.spi.FileSystem spiFs;
+    private transient org.apache.doris.filesystem.FileSystem spiFs;
 
     public FileSystemDescriptor getFileSystemDescriptor() {
         return fileSystemDescriptor;
@@ -275,7 +275,7 @@ public class Repository implements Writable, GsonPostProcessable {
      *       instance that <b>must</b> be closed by calling {@link #releaseSpiFs}.</li>
      * </ul>
      */
-    private org.apache.doris.filesystem.spi.FileSystem acquireSpiFs() throws IOException {
+    private org.apache.doris.filesystem.FileSystem acquireSpiFs() throws IOException {
         if (spiFs != null) {
             return spiFs;
         }
@@ -298,7 +298,7 @@ public class Repository implements Writable, GsonPostProcessable {
      * Releases an SPI FileSystem acquired via {@link #acquireSpiFs}.
      * Closes broker per-call instances; leaves the shared non-broker instance open.
      */
-    private void releaseSpiFs(org.apache.doris.filesystem.spi.FileSystem fs) {
+    private void releaseSpiFs(org.apache.doris.filesystem.FileSystem fs) {
         if (fs != spiFs) {
             try {
                 fs.close();
@@ -309,7 +309,7 @@ public class Repository implements Writable, GsonPostProcessable {
     }
 
     /** Uploads a local file to a remote path via the SPI filesystem. */
-    private static void spiUploadFile(org.apache.doris.filesystem.spi.FileSystem fs,
+    private static void spiUploadFile(org.apache.doris.filesystem.FileSystem fs,
             String localFilePath, String remotePath) throws IOException {
         DorisOutputFile outputFile = fs.newOutputFile(Location.of(remotePath));
         try (java.io.InputStream in = Files.newInputStream(Paths.get(localFilePath));
@@ -338,7 +338,7 @@ public class Repository implements Writable, GsonPostProcessable {
         }
 
         String repoInfoFilePath = assembleRepoInfoFilePath();
-        org.apache.doris.filesystem.spi.FileSystem fs;
+        org.apache.doris.filesystem.FileSystem fs;
         try {
             fs = acquireSpiFs();
         } catch (IOException e) {
@@ -460,7 +460,7 @@ public class Repository implements Writable, GsonPostProcessable {
         String path = location + "/" + joinPrefix(PREFIX_REPO, name) + "/" + FILE_REPO_INFO;
         try {
             URI checkUri = new URI(path);
-            org.apache.doris.filesystem.spi.FileSystem fs = acquireSpiFs();
+            org.apache.doris.filesystem.FileSystem fs = acquireSpiFs();
             try {
                 boolean exists = fs.exists(Location.of(checkUri.normalize().toString()));
                 if (!exists) {
@@ -489,7 +489,7 @@ public class Repository implements Writable, GsonPostProcessable {
         // eg. __palo_repository_repo_name/__ss_*
         String listPath = Joiner.on(PATH_DELIMITER).join(location, joinPrefix(PREFIX_REPO, name), PREFIX_SNAPSHOT_DIR)
                 + "*";
-        org.apache.doris.filesystem.spi.FileSystem fs;
+        org.apache.doris.filesystem.FileSystem fs;
         try {
             fs = acquireSpiFs();
         } catch (IOException e) {
@@ -610,7 +610,7 @@ public class Repository implements Writable, GsonPostProcessable {
         Preconditions.checkState(!Strings.isNullOrEmpty(md5sum));
         String finalRemotePath = assembleFileNameWithSuffix(remoteFilePath, md5sum);
 
-        org.apache.doris.filesystem.spi.FileSystem fs;
+        org.apache.doris.filesystem.FileSystem fs;
         try {
             fs = acquireSpiFs();
         } catch (IOException e) {
@@ -647,7 +647,7 @@ public class Repository implements Writable, GsonPostProcessable {
 
     // remoteFilePath must be a file(not dir) and does not contain checksum
     public Status download(String remoteFilePath, String localFilePath) {
-        org.apache.doris.filesystem.spi.FileSystem fs;
+        org.apache.doris.filesystem.FileSystem fs;
         try {
             fs = acquireSpiFs();
         } catch (IOException e) {
@@ -822,7 +822,7 @@ public class Repository implements Writable, GsonPostProcessable {
                 LOG.debug("assemble infoFilePath: {}, snapshot: {}", infoFilePath, snapshotName);
             }
             try {
-                org.apache.doris.filesystem.spi.FileSystem fs = acquireSpiFs();
+                org.apache.doris.filesystem.FileSystem fs = acquireSpiFs();
                 List<FileEntry> results;
                 try {
                     results = fs.listFiles(Location.of(infoFilePath + "*"));
