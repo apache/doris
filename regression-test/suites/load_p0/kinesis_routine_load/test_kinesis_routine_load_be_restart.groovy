@@ -24,49 +24,120 @@ import java.nio.ByteBuffer
 
 suite("test_kinesis_routine_load_be_restart", "nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableKinesisTest")
-    String awsRegion = context.config.otherConfigs.get("awsRegion")
-    String awsAccessKey = context.config.otherConfigs.get("awsAccessKey")
-    String awsSecretKey = context.config.otherConfigs.get("awsSecretKey")
+    def region = context.config.awsRegion ?: context.config.otherConfigs.get("awsRegion")
+    def ak = context.config.awsAccessKey ?: context.config.otherConfigs.get("awsAccessKey")
+    def sk = context.config.awsSecretKey ?: context.config.otherConfigs.get("awsSecretKey")
 
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("Skip Kinesis test")
+        logger.info("Skip ${name} case, enableKinesisTest is not true")
         return
     }
 
-    def streamName = "doris-be-restart-${UUID.randomUUID().toString().substring(0, 8)}"
-    def tableName = "test_kinesis_be_restart"
-    def jobName = "testKinesisBERestart"
+    if (!region || !ak || !sk) {
+        logger.info("Skip ${name} case, missing AWS config: region=${region}, ak=${ak != null}, sk=${sk != null}")
+        return
+    }
 
-    def credentials = new BasicAWSCredentials(awsAccessKey, awsSecretKey)
+    def suffix = UUID.randomUUID().toString().substring(0, 8)
+    def streamName = "doris-be-restart-${suffix}"
+    def tableName = "test_kinesis_be_restart"
+    def jobName = "test_kinesis_be_restart_${suffix}"
+
+    def credentials = new BasicAWSCredentials(ak, sk)
     def kinesisClient = AmazonKinesisClientBuilder.standard()
-        .withRegion(awsRegion)
+        .withRegion(region)
         .withCredentials(new AWSStaticCredentialsProvider(credentials))
         .build()
+    def jobCreated = false
+
+    def writeRange = { int startId, int endId ->
+        logger.info("Writing records ${startId}-${endId} to stream ${streamName}")
+        for (int i = startId; i <= endId; i++) {
+            def data = "{\"id\": ${i}, \"name\": \"user_${i}\"}"
+            def putRequest = new PutRecordRequest()
+                .withStreamName(streamName)
+                .withPartitionKey("key_${i}")
+                .withData(ByteBuffer.wrap(data.getBytes("UTF-8")))
+            for (int retry = 0; retry < 20; retry++) {
+                try {
+                    kinesisClient.putRecord(putRequest)
+                    break
+                } catch (ResourceNotFoundException e) {
+                    if (retry == 19) {
+                        throw e
+                    }
+                    Thread.sleep(500)
+                }
+            }
+        }
+    }
+
+    def queryCount = {
+        def result = sql "SELECT COUNT(*) FROM ${tableName}"
+        return ((Number) result[0][0]).longValue()
+    }
+
+    def waitForCountAtLeast = { long expectedCount, int timeoutSec ->
+        long lastCount = -1
+        for (int i = 0; i < timeoutSec; i++) {
+            lastCount = queryCount()
+            if (lastCount >= expectedCount) {
+                logger.info("Table ${tableName} row count reached ${lastCount} (expected >= ${expectedCount})")
+                return lastCount
+            }
+            Thread.sleep(1000)
+        }
+        assertTrue(false, "Timeout waiting row count >= ${expectedCount}, last count=${lastCount}")
+    }
+
+    def waitForBackendsAlive = { int timeoutSec ->
+        for (int i = 0; i < timeoutSec; i++) {
+            def backends = sql_return_maparray("SHOW BACKENDS")
+            boolean allAlive = true
+            for (def backend : backends) {
+                if (!backend.Alive.toString().toBoolean()) {
+                    allAlive = false
+                    break
+                }
+            }
+            if (allAlive) {
+                logger.info("All backends are alive after restart")
+                return
+            }
+            Thread.sleep(1000)
+        }
+        assertTrue(false, "Timeout waiting all backends to be alive after restart")
+    }
+
+    def getJobState = {
+        def result = sql "SHOW ROUTINE LOAD FOR ${jobName}"
+        assertTrue(result.size() > 0, "SHOW ROUTINE LOAD returned empty result for ${jobName}")
+        return result[0][8].toString()
+    }
 
     try {
+        logger.info("Creating Kinesis stream: ${streamName}")
         kinesisClient.createStream(new CreateStreamRequest()
             .withStreamName(streamName)
             .withShardCount(1))
 
-        def streamActive = false
-        for (int i = 0; i < 30; i++) {
-            def result = kinesisClient.describeStream(new DescribeStreamRequest().withStreamName(streamName))
-            if (result.getStreamDescription().getStreamStatus() == "ACTIVE") {
-                streamActive = true
-                break
+        logger.info("Waiting for stream ${streamName} to become active")
+        def describeRequest = new DescribeStreamRequest().withStreamName(streamName)
+        def streamReady = false
+        for (int i = 0; i < 60; i++) {
+            try {
+                def result = kinesisClient.describeStream(describeRequest)
+                def description = result.getStreamDescription()
+                if (description.getStreamStatus() == "ACTIVE" && !description.getShards().isEmpty()) {
+                    streamReady = true
+                    break
+                }
+            } catch (ResourceNotFoundException e) {
+                // Metadata may not be visible immediately after create.
             }
-            Thread.sleep(2000)
+            Thread.sleep(1000)
         }
-        assertTrue(streamActive)
-
-        // Write initial data
-        for (int i = 1; i <= 50; i++) {
-            def data = "{\"id\": ${i}, \"name\": \"user_${i}\"}"
-            kinesisClient.putRecord(new PutRecordRequest()
-                .withStreamName(streamName)
-                .withPartitionKey("key_${i}")
-                .withData(ByteBuffer.wrap(data.getBytes("UTF-8"))))
-        }
+        assertTrue(streamReady, "Stream ${streamName} failed to become active")
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
@@ -81,47 +152,50 @@ suite("test_kinesis_routine_load_be_restart", "nonConcurrent") {
 
         sql """
             CREATE ROUTINE LOAD ${jobName} ON ${tableName}
-            PROPERTIES ("format" = "json")
+            PROPERTIES (
+                "format" = "json",
+                "desired_concurrent_number" = "1"
+            )
             FROM KINESIS (
-                "aws.region" = "${awsRegion}",
-                "aws.access_key" = "${awsAccessKey}",
-                "aws.secret_key" = "${awsSecretKey}",
+                "aws.region" = "${region}",
+                "aws.access_key" = "${ak}",
+                "aws.secret_key" = "${sk}",
                 "kinesis_stream" = "${streamName}",
                 "property.kinesis_default_pos" = "TRIM_HORIZON"
             )
         """
+        jobCreated = true
 
-        Thread.sleep(15000)
+        writeRange(1, 50)
+        long beforeRestartCount = waitForCountAtLeast(50, 120)
+        logger.info("Loaded rows before BE restart: ${beforeRestartCount}")
 
-        def count1 = sql "SELECT COUNT(*) FROM ${tableName}"
-        logger.info("Before BE restart: ${count1[0][0]} rows")
+        logger.info("Restarting all backends")
+        cluster.restartBackends()
+        waitForBackendsAlive(120)
 
-        // Note: Actual BE restart requires manual operation or cluster management
-        // This test verifies the job can recover after BE restart
-        logger.info("In production, BE would be restarted here")
+        def stateAfterRestart = getJobState()
+        logger.info("Routine load state after BE restart: ${stateAfterRestart}")
+        assertNotEquals("CANCELLED", stateAfterRestart)
 
-        // Write more data
-        for (int i = 51; i <= 100; i++) {
-            def data = "{\"id\": ${i}, \"name\": \"user_${i}\"}"
-            kinesisClient.putRecord(new PutRecordRequest()
-                .withStreamName(streamName)
-                .withPartitionKey("key_${i}")
-                .withData(ByteBuffer.wrap(data.getBytes("UTF-8"))))
-        }
-
-        Thread.sleep(20000)
-
-        def count2 = sql "SELECT COUNT(*) FROM ${tableName}"
-        logger.info("After BE restart: ${count2[0][0]} rows")
-        assertTrue(count2[0][0] >= 100)
-
-        sql "STOP ROUTINE LOAD FOR ${jobName}"
+        writeRange(51, 100)
+        long finalCount = waitForCountAtLeast(100, 120)
+        logger.info("Loaded rows after BE restart: ${finalCount}")
+        assertTrue(finalCount >= beforeRestartCount)
 
     } finally {
+        if (jobCreated) {
+            try {
+                sql "STOP ROUTINE LOAD FOR ${jobName}"
+            } catch (Exception e) {
+                logger.warn("Failed to stop routine load ${jobName}: ${e.message}")
+            }
+        }
         try {
             kinesisClient.deleteStream(new DeleteStreamRequest().withStreamName(streamName))
+            logger.info("Deleted stream: ${streamName}")
         } catch (Exception e) {
-            logger.warn("Failed to delete stream: ${e.message}")
+            logger.warn("Failed to delete stream ${streamName}: ${e.message}")
         }
         kinesisClient.shutdown()
         sql "DROP TABLE IF EXISTS ${tableName}"

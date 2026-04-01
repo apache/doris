@@ -24,48 +24,101 @@ import java.nio.ByteBuffer
 
 suite("test_kinesis_routine_load_restart_fe", "nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableKinesisTest")
-    String awsRegion = context.config.otherConfigs.get("awsRegion")
-    String awsAccessKey = context.config.otherConfigs.get("awsAccessKey")
-    String awsSecretKey = context.config.otherConfigs.get("awsSecretKey")
+    def region = context.config.awsRegion ?: context.config.otherConfigs.get("awsRegion")
+    def ak = context.config.awsAccessKey ?: context.config.otherConfigs.get("awsAccessKey")
+    def sk = context.config.awsSecretKey ?: context.config.otherConfigs.get("awsSecretKey")
 
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("Skip Kinesis test")
+        logger.info("Skip ${name} case, enableKinesisTest is not true")
         return
     }
 
-    def streamName = "doris-fe-restart-${UUID.randomUUID().toString().substring(0, 8)}"
-    def tableName = "test_kinesis_fe_restart"
-    def jobName = "testKinesisFERestart"
+    if (!region || !ak || !sk) {
+        logger.info("Skip ${name} case, missing AWS config: region=${region}, ak=${ak != null}, sk=${sk != null}")
+        return
+    }
 
-    def credentials = new BasicAWSCredentials(awsAccessKey, awsSecretKey)
+    def suffix = UUID.randomUUID().toString().substring(0, 8)
+    def streamName = "doris-fe-restart-${suffix}"
+    def tableName = "test_kinesis_fe_restart"
+    def jobName = "test_kinesis_fe_restart_${suffix}"
+
+    def credentials = new BasicAWSCredentials(ak, sk)
     def kinesisClient = AmazonKinesisClientBuilder.standard()
-        .withRegion(awsRegion)
+        .withRegion(region)
         .withCredentials(new AWSStaticCredentialsProvider(credentials))
         .build()
+    def jobCreated = false
+
+    def writeRange = { int startId, int endId ->
+        logger.info("Writing records ${startId}-${endId} to stream ${streamName}")
+        for (int i = startId; i <= endId; i++) {
+            def data = "{\"id\": ${i}, \"value\": ${i * 100}}"
+            def putRequest = new PutRecordRequest()
+                .withStreamName(streamName)
+                .withPartitionKey("key_${i}")
+                .withData(ByteBuffer.wrap(data.getBytes("UTF-8")))
+            for (int retry = 0; retry < 20; retry++) {
+                try {
+                    kinesisClient.putRecord(putRequest)
+                    break
+                } catch (ResourceNotFoundException e) {
+                    if (retry == 19) {
+                        throw e
+                    }
+                    Thread.sleep(500)
+                }
+            }
+        }
+    }
+
+    def queryCount = {
+        def result = sql "SELECT COUNT(*) FROM ${tableName}"
+        return ((Number) result[0][0]).longValue()
+    }
+
+    def waitForCountAtLeast = { long expectedCount, int timeoutSec ->
+        long lastCount = -1
+        for (int i = 0; i < timeoutSec; i++) {
+            lastCount = queryCount()
+            if (lastCount >= expectedCount) {
+                logger.info("Table ${tableName} row count reached ${lastCount} (expected >= ${expectedCount})")
+                return lastCount
+            }
+            Thread.sleep(1000)
+        }
+        assertTrue(false, "Timeout waiting row count >= ${expectedCount}, last count=${lastCount}")
+    }
+
+    def getJobState = {
+        def result = sql "SHOW ROUTINE LOAD FOR ${jobName}"
+        assertTrue(result.size() > 0, "SHOW ROUTINE LOAD returned empty result for ${jobName}")
+        return result[0][8].toString()
+    }
 
     try {
+        logger.info("Creating Kinesis stream: ${streamName}")
         kinesisClient.createStream(new CreateStreamRequest()
             .withStreamName(streamName)
             .withShardCount(1))
 
-        def streamActive = false
-        for (int i = 0; i < 30; i++) {
-            def result = kinesisClient.describeStream(new DescribeStreamRequest().withStreamName(streamName))
-            if (result.getStreamDescription().getStreamStatus() == "ACTIVE") {
-                streamActive = true
-                break
+        logger.info("Waiting for stream ${streamName} to become active")
+        def describeRequest = new DescribeStreamRequest().withStreamName(streamName)
+        def streamReady = false
+        for (int i = 0; i < 60; i++) {
+            try {
+                def result = kinesisClient.describeStream(describeRequest)
+                def description = result.getStreamDescription()
+                if (description.getStreamStatus() == "ACTIVE" && !description.getShards().isEmpty()) {
+                    streamReady = true
+                    break
+                }
+            } catch (ResourceNotFoundException e) {
+                // Metadata may not be visible immediately after create.
             }
-            Thread.sleep(2000)
+            Thread.sleep(1000)
         }
-        assertTrue(streamActive)
-
-        for (int i = 1; i <= 80; i++) {
-            def data = "{\"id\": ${i}, \"value\": ${i * 100}}"
-            kinesisClient.putRecord(new PutRecordRequest()
-                .withStreamName(streamName)
-                .withPartitionKey("key_${i}")
-                .withData(ByteBuffer.wrap(data.getBytes("UTF-8"))))
-        }
+        assertTrue(streamReady, "Stream ${streamName} failed to become active")
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
@@ -80,40 +133,52 @@ suite("test_kinesis_routine_load_restart_fe", "nonConcurrent") {
 
         sql """
             CREATE ROUTINE LOAD ${jobName} ON ${tableName}
-            PROPERTIES ("format" = "json")
+            PROPERTIES (
+                "format" = "json",
+                "desired_concurrent_number" = "1"
+            )
             FROM KINESIS (
-                "aws.region" = "${awsRegion}",
-                "aws.access_key" = "${awsAccessKey}",
-                "aws.secret_key" = "${awsSecretKey}",
+                "aws.region" = "${region}",
+                "aws.access_key" = "${ak}",
+                "aws.secret_key" = "${sk}",
                 "kinesis_stream" = "${streamName}",
                 "property.kinesis_default_pos" = "TRIM_HORIZON"
             )
         """
+        jobCreated = true
 
-        Thread.sleep(20000)
+        writeRange(1, 40)
+        long beforeRestartCount = waitForCountAtLeast(40, 120)
+        logger.info("Loaded rows before FE restart: ${beforeRestartCount}")
 
-        def count1 = sql "SELECT COUNT(*) FROM ${tableName}"
-        logger.info("Before FE restart: ${count1[0][0]} rows")
+        def masterFeIndex = cluster.getMasterFe().index
+        logger.info("Restarting master FE index=${masterFeIndex}")
+        cluster.restartFrontends(masterFeIndex)
+        Thread.sleep(30000)
+        context.reconnectFe()
 
-        // Note: Actual FE restart requires manual operation
-        logger.info("In production, FE would be restarted here")
+        def stateAfterRestart = getJobState()
+        logger.info("Routine load state after FE restart: ${stateAfterRestart}")
+        assertNotEquals("CANCELLED", stateAfterRestart)
 
-        Thread.sleep(15000)
-
-        def count2 = sql "SELECT COUNT(*) FROM ${tableName}"
-        logger.info("After FE restart: ${count2[0][0]} rows")
-        assertTrue(count2[0][0] >= 80)
-
-        def jobInfo = sql "SHOW ROUTINE LOAD FOR ${jobName}"
-        logger.info("Job state after restart: ${jobInfo[0][8]}")
-
-        sql "STOP ROUTINE LOAD FOR ${jobName}"
+        writeRange(41, 80)
+        long finalCount = waitForCountAtLeast(80, 120)
+        logger.info("Loaded rows after FE restart: ${finalCount}")
+        assertTrue(finalCount >= beforeRestartCount)
 
     } finally {
+        if (jobCreated) {
+            try {
+                sql "STOP ROUTINE LOAD FOR ${jobName}"
+            } catch (Exception e) {
+                logger.warn("Failed to stop routine load ${jobName}: ${e.message}")
+            }
+        }
         try {
             kinesisClient.deleteStream(new DeleteStreamRequest().withStreamName(streamName))
+            logger.info("Deleted stream: ${streamName}")
         } catch (Exception e) {
-            logger.warn("Failed to delete stream: ${e.message}")
+            logger.warn("Failed to delete stream ${streamName}: ${e.message}")
         }
         kinesisClient.shutdown()
         sql "DROP TABLE IF EXISTS ${tableName}"
