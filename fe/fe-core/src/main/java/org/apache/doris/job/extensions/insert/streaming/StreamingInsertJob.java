@@ -434,7 +434,7 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             }
             runningStreamTask.cancel(needWaitCancelComplete);
             if (TaskStatus.RUNNING.equals(runningStreamTask.getStatus())
-                || TaskStatus.PENDING.equals(runningStreamTask.getStatus())) {
+                    || TaskStatus.PENDING.equals(runningStreamTask.getStatus())) {
                 canceledTaskCount.incrementAndGet();
             }
         } finally {
