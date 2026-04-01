@@ -32,6 +32,7 @@ suite("test_routine_load_msk_access") {
     String bootstrapBrokers = context.config.otherConfigs.get("mskBrokerList")
     String role = context.config.otherConfigs.get("awsMskRole")
     String sslCaLocation = context.config.otherConfigs.get("MskSslCaLocation")
+    String credProvider = context.config.otherConfigs.get("CredentialsProvider")
 
     logger.info("Using topic: ${topicName}")
     logger.info("Bootstrap brokers: ${bootstrapBrokers}")
@@ -130,6 +131,7 @@ suite("test_routine_load_msk_access") {
                 "kafka_topic" = "${topicName}",
                 "aws.region" = "${region}",
                 "aws.role_arn" = "${role}",
+                "aws.credentials_provider" = "${credProvider}",
                 "property.kafka_default_offsets" = "OFFSET_BEGINNING",
                 "property.security.protocol" = "SASL_SSL",
                 "property.sasl.mechanism" = "OAUTHBEARER",
