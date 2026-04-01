@@ -337,6 +337,11 @@ Status OlapScanLocalState::_init_profile() {
     _ann_topn_engine_search_costs = ADD_CHILD_TIMER(
             _segment_profile, "AnnIndexTopNEngineSearchCosts", "AnnIndexTopNSearchCosts");
     _ann_index_load_costs = ADD_TIMER(_segment_profile, "AnnIndexLoadCosts");
+    _ann_ivf_on_disk_load_costs = ADD_TIMER(_segment_profile, "AnnIvfOnDiskLoadCosts");
+    _ann_ivf_on_disk_cache_hit_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIvfOnDiskCacheHitCnt", TUnit::UNIT);
+    _ann_ivf_on_disk_cache_miss_cnt =
+            ADD_COUNTER(_segment_profile, "AnnIvfOnDiskCacheMissCnt", TUnit::UNIT);
     _ann_topn_post_process_costs = ADD_CHILD_TIMER(
             _segment_profile, "AnnIndexTopNResultPostProcessCosts", "AnnIndexTopNSearchCosts");
     _ann_topn_pre_process_costs = ADD_CHILD_TIMER(

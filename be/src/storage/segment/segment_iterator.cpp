@@ -957,6 +957,10 @@ Status SegmentIterator::_apply_ann_topn_predicate() {
     _opts.stats->rows_ann_index_topn_filtered += rows_filterd;
     _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
     _opts.stats->ann_topn_search_ns += ann_index_stats.search_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+    _opts.stats->ann_ivf_on_disk_cache_hit_cnt += ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+    _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+            ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
     _opts.stats->ann_index_topn_engine_search_ns += ann_index_stats.engine_search_ns.value();
     _opts.stats->ann_index_topn_result_process_ns +=
             ann_index_stats.result_process_costs_ns.value();
@@ -1211,6 +1215,11 @@ Status SegmentIterator::_apply_index_expr() {
         _opts.stats->rows_ann_index_range_filtered += (origin_rows - _row_bitmap.cardinality());
         _opts.stats->ann_index_load_ns += ann_index_stats.load_index_costs_ns.value();
         _opts.stats->ann_index_range_search_ns += ann_index_stats.search_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_load_ns += ann_index_stats.ivf_on_disk_load_costs_ns.value();
+        _opts.stats->ann_ivf_on_disk_cache_hit_cnt +=
+                ann_index_stats.ivf_on_disk_cache_hit_cnt.value();
+        _opts.stats->ann_ivf_on_disk_cache_miss_cnt +=
+                ann_index_stats.ivf_on_disk_cache_miss_cnt.value();
         _opts.stats->ann_range_engine_search_ns += ann_index_stats.engine_search_ns.value();
         _opts.stats->ann_range_result_convert_ns += ann_index_stats.result_process_costs_ns.value();
         _opts.stats->ann_range_engine_convert_ns += ann_index_stats.engine_convert_ns.value();
