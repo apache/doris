@@ -17,10 +17,8 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
-import org.apache.doris.fs.remote.RemoteFileSystem;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -34,16 +32,6 @@ import java.util.ServiceLoader;
 
 /**
  * Factory for filesystem instances.
- *
- * <h2>Two APIs</h2>
- * <ul>
- *   <li><b>Legacy API</b> ({@code get(StorageProperties)} / {@code get(FileSystemType, Map)}) —
- *       delegates to {@link StorageTypeMapper}; returns {@link RemoteFileSystem}. All existing
- *       fe-core callers continue to use this path unchanged.</li>
- *   <li><b>SPI API</b> ({@code getFileSystem(Map)} / {@code getFileSystem(StorageProperties)}) —
- *       delegates to {@link FileSystemPluginManager}; returns
- *       {@code org.apache.doris.filesystem.spi.FileSystem}. New code should use this path.</li>
- * </ul>
  *
  * <p>Call {@link #initPluginManager(FileSystemPluginManager)} at FE startup before any
  * {@code getFileSystem()} call. In production, providers are loaded from the plugin directory
@@ -61,38 +49,6 @@ public final class FileSystemFactory {
     private static volatile List<FileSystemProvider> cachedProviders = null;
 
     private FileSystemFactory() {}
-
-    // =========================================================
-    // Legacy API — backward compatible, returns RemoteFileSystem
-    // =========================================================
-
-    /**
-     * Legacy entry point. Returns a {@link RemoteFileSystem} via {@link StorageTypeMapper}.
-     *
-     * @deprecated New code should use {@link #getFileSystem(Map)} instead.
-     */
-    @Deprecated
-    public static RemoteFileSystem get(StorageProperties storageProperties) {
-        return StorageTypeMapper.create(storageProperties);
-    }
-
-    /**
-     * Legacy entry point by enum type. Returns a {@link RemoteFileSystem} via
-     * {@link StorageTypeMapper}.
-     *
-     * @deprecated New code should use {@link #getFileSystem(Map)} instead.
-     */
-    @Deprecated
-    public static RemoteFileSystem get(FileSystemType fileSystemType, Map<String, String> properties)
-            throws UserException {
-        List<StorageProperties> storagePropertiesList = StorageProperties.createAll(properties);
-        for (StorageProperties storageProperties : storagePropertiesList) {
-            if (storageProperties.getStorageName().equalsIgnoreCase(fileSystemType.name())) {
-                return StorageTypeMapper.create(storageProperties);
-            }
-        }
-        throw new RuntimeException("Unsupported file system type: " + fileSystemType);
-    }
 
     // =========================================================
     // SPI API — returns spi.FileSystem

@@ -18,8 +18,8 @@
 package org.apache.doris.external.iceberg;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
 
 import com.google.common.collect.Maps;
@@ -49,7 +49,8 @@ public class IcebergHadoopCatalogTest {
         properties.put("cos.endpoint", "cos.ap-beijing.myqcloud.com");
         properties.put("cos.region", "ap-beijing");
         String pathStr = "cosn://bucket1/namespace";
-        DFSFileSystem fs = (DFSFileSystem) FileSystemFactory.get(StorageProperties.createPrimary(properties));
+        DFSFileSystem fs = new DFSFileSystem(
+                (HdfsCompatibleProperties) StorageProperties.createPrimary(properties));
         nativeFs = fs.nativeFileSystem(new Path(pathStr));
 
         RemoteIterator<FileStatus> it = nativeFs.listStatusIterator(new Path(pathStr));

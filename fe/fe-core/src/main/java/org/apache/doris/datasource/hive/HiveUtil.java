@@ -23,7 +23,6 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.statistics.CommonStatistics;
 import org.apache.doris.filesystem.spi.FileSystem;
-import org.apache.doris.fs.remote.BrokerFileSystem;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.qe.ConnectContext;
 
@@ -112,10 +111,6 @@ public final class HiveUtil {
 
     public static boolean isSplittable(FileSystem remoteFileSystem, String inputFormat,
             String location) throws UserException {
-        if (remoteFileSystem instanceof BrokerFileSystem) {
-            return ((BrokerFileSystem) remoteFileSystem).isSplittable(location, inputFormat);
-        }
-
         // All supported hive input format are splittable
         return HMSExternalTable.SUPPORTED_HIVE_FILE_FORMATS.contains(inputFormat);
     }
