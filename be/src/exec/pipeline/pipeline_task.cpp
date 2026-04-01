@@ -474,6 +474,15 @@ Status PipelineTask::execute(bool* done) {
 
         // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
         if (_wake_up_early) {
+            // If the task is in BLOCKED state (e.g., _is_blocked() returned true right before
+            // another thread called make_all_runnable), we must transition back to RUNNABLE first.
+            // This ensures close() sees a legal RUNNABLE→FINISHED transition, and also races with
+            // Dependency::set_ready()'s delayed wake_up() call: wake_up() will see the task is
+            // already RUNNABLE and be handled safely (see wake_up() below).
+            if (_exec_state == State::BLOCKED) {
+                _blocked_dep = nullptr;
+                THROW_IF_ERROR(_state_transition(State::RUNNABLE));
+            }
             _eos = true;
             *done = true;
         } else if (_eos && !_spilling &&
@@ -1046,6 +1055,15 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
 
 Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
     // call by dependency
+    //
+    // Race with execute()'s running_defer when _wake_up_early is set:
+    // Thread A (worker) may have already transitioned this task from BLOCKED to RUNNABLE (and
+    // cleared _blocked_dep) in running_defer, then proceeded to close/finalize the task.
+    // Meanwhile, Thread B (Dependency::set_ready) still holds a reference from _blocked_task and
+    // calls wake_up() here. In that case the task is no longer BLOCKED — just ignore the wake-up.
+    if (_exec_state != State::BLOCKED) {
+        return Status::OK();
+    }
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
@@ -1063,12 +1081,7 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     _task_profile->add_info_string("TaskState", _to_string(new_state));
     _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
-    bool legal = LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state);
-    // When _wake_up_early is true, a BLOCKED task can skip RUNNABLE and go directly to FINISHED.
-    if (!legal && _wake_up_early && _exec_state == State::BLOCKED && new_state == State::FINISHED) {
-        legal = true;
-    }
-    if (!legal) {
+    if (!LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state)) {
         return Status::InternalError(
                 "Task state transition from {} to {} is not allowed! Task info: {}",
                 _to_string(_exec_state), _to_string(new_state), debug_string());
