@@ -136,7 +136,7 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
                     "Job should be RUNNING before first restart, got: ${jobInfoBeforeRestart.get(0).get(0)}"
             assert jobInfoBeforeRestart.get(0).get(1) != null && !jobInfoBeforeRestart.get(0).get(1).isEmpty() :
                     "currentOffset should be non-empty before first restart"
-            def scannedRowsBeforeFirstRestart = (jobInfoBeforeRestart.get(0).get(2) =~ /scannedRows":(\d+)/)[0][1] as long
+            def scannedRowsBeforeFirstRestart = parseJson(jobInfoBeforeRestart.get(0).get(2) as String).scannedRows as long
             log.info("scannedRows before first restart: " + scannedRowsBeforeFirstRestart)
 
             // ── Phase 4: restart FE (mid-snapshot) ───────────────────────────────────
@@ -158,7 +158,7 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
 
             def jobInfoAfterRestart1 = sql """select currentOffset, loadStatistic from jobs("type"="insert") where Name='${jobName}'"""
             log.info("job info after first FE restart: " + jobInfoAfterRestart1)
-            def scannedRowsAfterFirstRestart = (jobInfoAfterRestart1.get(0).get(1) =~ /scannedRows":(\d+)/)[0][1] as long
+            def scannedRowsAfterFirstRestart = parseJson(jobInfoAfterRestart1.get(0).get(1) as String).scannedRows as long
             assert scannedRowsAfterFirstRestart >= scannedRowsBeforeFirstRestart :
                     "scannedRows should not reset after first FE restart: before=${scannedRowsBeforeFirstRestart}, after=${scannedRowsAfterFirstRestart}"
 
@@ -216,7 +216,7 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
                     "currentOffset should be in binlog state before second restart (F1/G1 consumed), got: ${offsetBeforeSecondRestart}"
 
             // Record scannedRows before restart — snapshot(5) + F1 + G1 = at least 7.
-            def scannedRowsBefore = (jobInfoBeforeSecondRestart.get(0).get(2) =~ /scannedRows":(\d+)/)[0][1] as long
+            def scannedRowsBefore = parseJson(jobInfoBeforeSecondRestart.get(0).get(2) as String).scannedRows as long
             log.info("scannedRows before second restart: " + scannedRowsBefore)
 
             cluster.restartFrontends()
@@ -276,7 +276,7 @@ suite("test_streaming_job_cdc_stream_postgres_restart_fe",
             assert (jobInfoFinal.get(0).get(1) as int) == 0 : "FailedTaskCount should be 0"
 
             // Verify scannedRows is not reset to 0 after FE restart (jobStatistic must persist).
-            def scannedRowsAfter = (jobInfoFinal.get(0).get(4) =~ /scannedRows":(\d+)/)[0][1] as long
+            def scannedRowsAfter = parseJson(jobInfoFinal.get(0).get(4) as String).scannedRows as long
             log.info("scannedRows after second restart: " + scannedRowsAfter)
             assert scannedRowsAfter >= scannedRowsBefore :
                     "scannedRows should not reset after FE restart: before=${scannedRowsBefore}, after=${scannedRowsAfter}"
