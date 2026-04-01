@@ -403,15 +403,23 @@ void run_peer_race(std::shared_ptr<RaceState> race, std::vector<FileBlockSPtr> e
 // Apply hedge delay, then submit S3 read to the thread pool (or run inline).
 void launch_s3_race(std::shared_ptr<RaceState> race, size_t empty_start, size_t span_size,
                     const IOContext* io_ctx, FileReaderSPtr remote_reader,
-                    std::shared_ptr<ResourceContext> parent_resource_ctx) {
+                    std::shared_ptr<ResourceContext> parent_resource_ctx,
+                    std::shared_ptr<CachedRemoteFileReader> owner) {
     // Raw S3 read body.
-    auto do_s3_read = [race, empty_start, span_size, io_ctx, remote_reader]() {
+    // `owner` keeps the CachedRemoteFileReader alive until the S3 task finishes,
+    // preventing close() from being called on remote_reader while we are still reading.
+    // Do NOT capture io_ctx: it points into the caller's stack/iterator which may be
+    // destroyed when the query is cancelled before this background task runs. The S3
+    // leg of the race is a best-effort background task whose result is discarded if the
+    // peer wins; passing nullptr is safe because S3FileReader::read_at_impl ignores it.
+    auto do_s3_read = [race, empty_start, span_size, remote_reader, owner]() {
+        (void)owner;
         auto s3_buf = std::make_unique<char[]>(span_size);
         size_t read_size = span_size;
         s3_read_counter << 1;
         TEST_SYNC_POINT("CachedRemoteFileReader::_execute_winner_race::s3_before_read");
         auto st = remote_reader->read_at(empty_start, Slice(s3_buf.get(), span_size), &read_size,
-                                         io_ctx);
+                                         nullptr);
         std::unique_lock<bthread::Mutex> lk(race->mtx);
         race->s3_done = true;
         race->s3_status = st;
@@ -648,7 +656,10 @@ Status CachedRemoteFileReader::_execute_winner_race(
             /*init_thread_ctx=*/true);
 
     // Launch S3 (with optional hedge delay).
-    launch_s3_race(race, empty_start, span_size, io_ctx, remote_reader, parent_resource_ctx);
+    // Pass shared_from_this() so the background S3 task holds a reference to this
+    // reader, preventing destruction (and close()) until the S3 task completes.
+    launch_s3_race(race, empty_start, span_size, io_ctx, remote_reader, parent_resource_ctx,
+                   shared_from_this());
 
     // Collect race result.
     return collect_race_result(race, span_size, buffer, peer_result, stats, io_ctx);
