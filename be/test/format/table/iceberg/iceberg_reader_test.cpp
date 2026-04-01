@@ -593,6 +593,23 @@ TEST_F(IcebergReaderTest, rejects_non_dictionary_encoding_without_encoding_stats
     EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
 }
 
+TEST_F(IcebergReaderTest, falls_back_to_encodings_when_data_page_stats_are_missing) {
+    tparquet::ColumnMetaData column_metadata;
+    column_metadata.type = tparquet::Type::BYTE_ARRAY;
+    column_metadata.__isset.encoding_stats = true;
+
+    tparquet::PageEncodingStats dict_page_header;
+    dict_page_header.page_type = tparquet::PageType::DICTIONARY_PAGE;
+    dict_page_header.encoding = tparquet::Encoding::PLAIN;
+    dict_page_header.count = 1;
+    column_metadata.encoding_stats = {dict_page_header};
+
+    column_metadata.encodings = {tparquet::Encoding::PLAIN, tparquet::Encoding::RLE,
+                                 tparquet::Encoding::RLE_DICTIONARY};
+
+    EXPECT_FALSE(IcebergReaderTestHelper::_is_fully_dictionary_encoded(column_metadata));
+}
+
 TEST_F(IcebergReaderTest, generated_position_delete_file_is_mixed_encoded) {
     RuntimeProfile profile("test_profile");
     RuntimeState runtime_state((TQueryOptions()), TQueryGlobals());

@@ -124,28 +124,34 @@ bool IcebergTableReader::_is_fully_dictionary_encoded(
     // A column chunk may have a dictionary page but still contain plain-encoded data pages.
     // Only treat it as dictionary-coded when all data pages are dictionary encoded.
     if (column_metadata.__isset.encoding_stats) {
+        bool has_data_page_stats = false;
         for (const tparquet::PageEncodingStats& enc_stat : column_metadata.encoding_stats) {
-            if (is_data_page(enc_stat.page_type) && enc_stat.count > 0 &&
-                !is_dictionary_encoding(enc_stat.encoding)) {
-                return false;
+            if (is_data_page(enc_stat.page_type) && enc_stat.count > 0) {
+                has_data_page_stats = true;
+                if (!is_dictionary_encoding(enc_stat.encoding)) {
+                    return false;
+                }
             }
         }
-    } else {
-        bool has_dict_encoding = false;
-        bool has_nondict_encoding = false;
-        for (const tparquet::Encoding::type& encoding : column_metadata.encodings) {
-            if (is_dictionary_encoding(encoding)) {
-                has_dict_encoding = true;
-            }
+        if (has_data_page_stats) {
+            return true;
+        }
+    }
 
-            if (!is_dictionary_encoding(encoding) && !is_level_encoding(encoding)) {
-                has_nondict_encoding = true;
-                break;
-            }
+    bool has_dict_encoding = false;
+    bool has_nondict_encoding = false;
+    for (const tparquet::Encoding::type& encoding : column_metadata.encodings) {
+        if (is_dictionary_encoding(encoding)) {
+            has_dict_encoding = true;
         }
-        if (!has_dict_encoding || has_nondict_encoding) {
-            return false;
+
+        if (!is_dictionary_encoding(encoding) && !is_level_encoding(encoding)) {
+            has_nondict_encoding = true;
+            break;
         }
+    }
+    if (!has_dict_encoding || has_nondict_encoding) {
+        return false;
     }
 
     return true;
