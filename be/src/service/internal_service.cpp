@@ -662,14 +662,26 @@ void PInternalService::fetch_arrow_data(google::protobuf::RpcController* control
         brpc::ClosureGuard closure_guard(done);
         auto ctx = vectorized::GetArrowResultBatchCtx::create_shared(result);
         TUniqueId unique_id = UniqueId(request->finst_id()).to_thrift(); // query_id or instance_id
+        LOG(WARNING) << fmt::format("fetch_arrow_data begin, finistId={}", print_id(unique_id));
         std::shared_ptr<vectorized::ArrowFlightResultBlockBuffer> arrow_buffer;
         auto st = ExecEnv::GetInstance()->result_mgr()->find_buffer(unique_id, arrow_buffer);
         if (!st.ok()) {
             LOG(WARNING) << "Result buffer not found! Query ID: " << print_id(unique_id);
             return;
         }
+        LOG(WARNING) << fmt::format("fetch_arrow_data found buffer, finistId={}, buffer_ptr={}",
+                                    print_id(unique_id), fmt::ptr(arrow_buffer.get()));
         if (st = arrow_buffer->get_batch(ctx); !st.ok()) {
             LOG(WARNING) << "fetch_arrow_data failed: " << st.to_string();
+        } else {
+            LOG(WARNING) << fmt::format(
+                    "fetch_arrow_data end, finistId={}, response_packet_seq={}, has_eos={}, "
+                    "eos={}, "
+                    "has_empty_batch={}, empty_batch={}, has_block={}, block_bytes={}",
+                    print_id(unique_id), result->has_packet_seq() ? result->packet_seq() : -1,
+                    result->has_eos(), result->has_eos() && result->eos(),
+                    result->has_empty_batch(), result->has_empty_batch() && result->empty_batch(),
+                    result->has_block(), result->has_block() ? result->block().ByteSizeLong() : 0);
         }
     });
     if (!ret) {

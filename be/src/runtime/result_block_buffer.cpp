@@ -157,6 +157,21 @@ Status ResultBlockBuffer<ResultCtxType>::get_batch(std::shared_ptr<ResultCtxType
             _instance_rows[it.first] -= it.second;
         }
         _instance_rows_in_queue.pop_front();
+        if constexpr (std::is_same_v<ResultCtxType, vectorized::GetArrowResultBatchCtx>) {
+            size_t batch_bytes = 0;
+            int64_t batch_rows = 0;
+            if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
+                batch_rows = result->rows();
+                batch_bytes = result->bytes();
+            }
+            LOG(WARNING) << fmt::format(
+                    "ArrowFlight ResultBlockBuffer get_batch data, fragment_id={}, packet_seq={}, "
+                    "queue_size_after_pop={}, rows={}, bytes={}, is_close={}, waiting_rpc={}, "
+                    "returned_rows={}, dependency_cnt={}",
+                    print_id(_fragment_id), _packet_num, _result_batch_queue.size(), batch_rows,
+                    batch_bytes, _is_close, _waiting_rpc.size(), _returned_rows.load(),
+                    _result_sink_dependencies.size());
+        }
         RETURN_IF_ERROR(ctx->on_data(result, _packet_num, this));
         _packet_num++;
         return Status::OK();
@@ -165,6 +180,14 @@ Status ResultBlockBuffer<ResultCtxType>::get_batch(std::shared_ptr<ResultCtxType
         if (!_status.ok()) {
             ctx->on_failure(_status);
             return Status::OK();
+        }
+        if constexpr (std::is_same_v<ResultCtxType, vectorized::GetArrowResultBatchCtx>) {
+            LOG(WARNING) << fmt::format(
+                    "ArrowFlight ResultBlockBuffer get_batch close, fragment_id={}, packet_seq={}, "
+                    "queue_size={}, is_close={}, returned_rows={}, waiting_rpc={}, "
+                    "dependency_cnt={}",
+                    print_id(_fragment_id), _packet_num, _result_batch_queue.size(), _is_close,
+                    _returned_rows.load(), _waiting_rpc.size(), _result_sink_dependencies.size());
         }
         ctx->on_close(_packet_num, _returned_rows);
         LOG(INFO) << fmt::format(
@@ -239,9 +262,33 @@ Status ResultBlockBuffer<ResultCtxType>::add_batch(RuntimeState* state,
         }
         _instance_rows[state->fragment_instance_id()] += num_rows;
         _instance_rows_in_queue.back()[state->fragment_instance_id()] += num_rows;
+        if constexpr (std::is_same_v<ResultCtxType, vectorized::GetArrowResultBatchCtx>) {
+            LOG(WARNING) << fmt::format(
+                    "ArrowFlight ResultBlockBuffer add_batch queued, fragment_id={}, "
+                    "producer_id={}, "
+                    "rows={}, bytes={}, queue_size={}, packet_seq_next={}, waiting_rpc={}, "
+                    "is_close={}",
+                    print_id(_fragment_id), print_id(state->fragment_instance_id()), num_rows,
+                    batch_size, _result_batch_queue.size(), _packet_num, _waiting_rpc.size(),
+                    _is_close);
+        }
     } else {
         auto ctx = _waiting_rpc.front();
         _waiting_rpc.pop_front();
+        if constexpr (std::is_same_v<ResultCtxType, vectorized::GetArrowResultBatchCtx>) {
+            int64_t batch_rows = 0;
+            size_t batch_bytes = 0;
+            if constexpr (std::is_same_v<InBlockType, vectorized::Block>) {
+                batch_rows = result->rows();
+                batch_bytes = result->bytes();
+            }
+            LOG(WARNING) << fmt::format(
+                    "ArrowFlight ResultBlockBuffer add_batch direct_send, fragment_id={}, "
+                    "producer_id={}, "
+                    "rows={}, bytes={}, packet_seq={}, waiting_rpc_after_pop={}, is_close={}",
+                    print_id(_fragment_id), print_id(state->fragment_instance_id()), batch_rows,
+                    batch_bytes, _packet_num, _waiting_rpc.size(), _is_close);
+        }
         RETURN_IF_ERROR(ctx->on_data(result, _packet_num, this));
         _packet_num++;
     }

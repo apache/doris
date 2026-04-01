@@ -207,6 +207,12 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
     while (true) {
         // if `continue` occurs, data is invalid, continue fetch, block is nullptr.
         // if `break` occurs, fetch data successfully (block is not nullptr) or fetch eos.
+        LOG(WARNING) << fmt::format(
+                "ArrowFlightBatchRemoteReader fetch request, finistId={}, expect_packet_seq={}, "
+                "result_addr={}:{}, schema_ready={}, cached_block={}, mem_peak={}",
+                print_id(_statement->query_id), _packet_seq.load(),
+                _statement->result_addr.hostname, _statement->result_addr.port, _schema != nullptr,
+                _block != nullptr, _mem_tracker->peak_consumption());
         Status st;
         auto request = std::make_shared<PFetchArrowDataRequest>();
         auto* pfinst_id = request->mutable_finst_id();
@@ -239,6 +245,20 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
         st = Status::create(callback->response_->status());
         ARROW_RETURN_NOT_OK(to_arrow_status(st));
 
+        LOG(WARNING) << fmt::format(
+                "ArrowFlightBatchRemoteReader fetch response, finistId={}, expect_packet_seq={}, "
+                "receive_packet_seq={}, has_eos={}, eos={}, has_empty_batch={}, empty_batch={}, "
+                "has_block={}, block_bytes={}, status={}, result_addr={}:{}",
+                print_id(_statement->query_id), _packet_seq.load(),
+                callback->response_->has_packet_seq() ? callback->response_->packet_seq() : -1,
+                callback->response_->has_eos(),
+                callback->response_->has_eos() && callback->response_->eos(),
+                callback->response_->has_empty_batch(),
+                callback->response_->has_empty_batch() && callback->response_->empty_batch(),
+                callback->response_->has_block(),
+                callback->response_->has_block() ? callback->response_->block().ByteSizeLong() : 0,
+                st.to_string(), _statement->result_addr.hostname, _statement->result_addr.port);
+
         DCHECK(callback->response_->has_packet_seq());
         if (_packet_seq != callback->response_->packet_seq()) {
             return _return_invalid_status(
@@ -270,6 +290,11 @@ arrow::Status ArrowFlightBatchRemoteReader::_fetch_data() {
             _block = vectorized::Block::create_shared();
             st = _block->deserialize(callback->response_->block());
             ARROW_RETURN_NOT_OK(to_arrow_status(st));
+            LOG(WARNING) << fmt::format(
+                    "ArrowFlightBatchRemoteReader fetch deserialize, finistId={}, packet_seq={}, "
+                    "rows={}, bytes={}",
+                    print_id(_statement->query_id), _packet_seq.load(), _block->rows(),
+                    _block->bytes());
             break;
         }
 
@@ -292,9 +317,19 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::
     // parameter *out not nullptr
     *out = nullptr;
     SCOPED_ATTACH_TASK(_mem_tracker);
+    LOG(WARNING) << fmt::format(
+            "ArrowFlightBatchRemoteReader ReadNext begin, finistId={}, packet_seq={}, "
+            "result_addr={}:{}, cached_block={}",
+            print_id(_statement->query_id), _packet_seq.load(), _statement->result_addr.hostname,
+            _statement->result_addr.port, _block != nullptr);
     ARROW_RETURN_NOT_OK(_fetch_data());
     if (_block == nullptr) {
         // eof, normal path end, last _fetch_data return block is nullptr
+        LOG(WARNING) << fmt::format(
+                "ArrowFlightBatchRemoteReader ReadNext eof, finistId={}, packet_seq={}, "
+                "result_addr={}:{}",
+                print_id(_statement->query_id), _packet_seq.load(),
+                _statement->result_addr.hostname, _statement->result_addr.port);
         return arrow::Status::OK();
     }
     {
@@ -308,6 +343,12 @@ arrow::Status ArrowFlightBatchRemoteReader::ReadNextImpl(std::shared_ptr<arrow::
     _block = nullptr;
 
     if (*out != nullptr) {
+        LOG(WARNING) << fmt::format(
+                "ArrowFlightBatchRemoteReader ReadNext output, finistId={}, packet_seq={}, "
+                "rows={}, "
+                "cols={}",
+                print_id(_statement->query_id), _packet_seq.load(), (*out)->num_rows(),
+                (*out)->num_columns());
         VLOG_NOTICE << "ArrowFlightBatchRemoteReader read next: " << (*out)->num_rows() << ", "
                     << (*out)->num_columns() << ", packet_seq: " << _packet_seq;
     }

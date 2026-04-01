@@ -101,6 +101,14 @@ Status ResultBufferMgr::create_sender(const TUniqueId& unique_id, int buffer_siz
         // add extra 5s for avoid corner case
         int64_t max_timeout = time(nullptr) + state->execution_timeout() + 5;
         cancel_at_time(max_timeout, unique_id);
+        if (arrow_flight) {
+            LOG(WARNING) << fmt::format(
+                    "ResultBufferMgr create_sender, finstId={}, arrow_flight={}, "
+                    "exec_timeout_s={}, "
+                    "cancel_at={}, buffer_ptr={}, map_size={}",
+                    print_id(unique_id), arrow_flight, state->execution_timeout(), max_timeout,
+                    fmt::ptr(control_block.get()), _buffer_map.size());
+        }
     }
     *sender = control_block;
     return Status::OK();
@@ -123,6 +131,13 @@ template <typename ResultBlockBufferType>
 Status ResultBufferMgr::find_buffer(const TUniqueId& finst_id,
                                     std::shared_ptr<ResultBlockBufferType>& buffer) {
     buffer = _find_control_block<ResultBlockBufferType>(finst_id);
+    if constexpr (std::is_same_v<ResultBlockBufferType, vectorized::ArrowFlightResultBlockBuffer>) {
+        const void* buffer_ptr =
+                buffer != nullptr ? static_cast<const void*>(buffer.get()) : nullptr;
+        LOG(WARNING) << fmt::format(
+                "ResultBufferMgr find_buffer, finstId={}, found={}, buffer_ptr={}",
+                print_id(finst_id), buffer != nullptr, buffer_ptr);
+    }
     return buffer == nullptr ? Status::InternalError(
                                        "no arrow schema for this query, maybe query has been "
                                        "canceled, finst_id={}",
@@ -136,8 +151,22 @@ bool ResultBufferMgr::cancel(const TUniqueId& unique_id, const Status& reason) {
 
     auto exist = _buffer_map.end() != iter;
     if (exist) {
+        bool arrow_flight = std::dynamic_pointer_cast<vectorized::ArrowFlightResultBlockBuffer>(
+                                    iter->second) != nullptr;
+        if (arrow_flight) {
+            LOG(WARNING) << fmt::format(
+                    "ResultBufferMgr cancel, finstId={}, reason={}, buffer_ptr={}, "
+                    "map_size_before={}",
+                    print_id(unique_id), reason.to_string(), fmt::ptr(iter->second.get()),
+                    _buffer_map.size());
+        }
         iter->second->cancel(reason);
         _buffer_map.erase(iter);
+        if (arrow_flight) {
+            LOG(WARNING) << fmt::format(
+                    "ResultBufferMgr cancel erased, finstId={}, map_size_after={}",
+                    print_id(unique_id), _buffer_map.size());
+        }
     }
     return exist;
 }

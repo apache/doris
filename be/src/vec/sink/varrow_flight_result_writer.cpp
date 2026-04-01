@@ -32,14 +32,18 @@ namespace doris::vectorized {
 
 void GetArrowResultBatchCtx::on_failure(const Status& status) {
     DCHECK(!status.ok()) << "status is ok, errmsg=" << status;
+    LOG(WARNING) << fmt::format("ArrowFlightResult on_failure, status={}", status.to_string());
     status.to_protobuf(_result->mutable_status());
 }
 
-void GetArrowResultBatchCtx::on_close(int64_t packet_seq, int64_t /* returned_rows */) {
+void GetArrowResultBatchCtx::on_close(int64_t packet_seq, int64_t returned_rows) {
     Status status;
     status.to_protobuf(_result->mutable_status());
     _result->set_packet_seq(packet_seq);
     _result->set_eos(true);
+    LOG(WARNING) << fmt::format(
+            "ArrowFlightResult on_close, packet_seq={}, eos=true, returned_rows={}", packet_seq,
+            returned_rows);
 }
 
 Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<vectorized::Block>& block,
@@ -58,10 +62,17 @@ Status GetArrowResultBatchCtx::on_data(const std::shared_ptr<vectorized::Block>&
         if (packet_seq == 0) {
             _result->set_timezone(arrow_buffer->_timezone);
         }
+        LOG(WARNING) << fmt::format(
+                "ArrowFlightResult on_data, finistId={}, packet_seq={}, eos=false, rows={}, "
+                "block_bytes={}, uncompressed_bytes={}, compressed_bytes={}",
+                print_id(arrow_buffer->_fragment_id), packet_seq, block->rows(), block->bytes(),
+                uncompressed_bytes, compressed_bytes);
     } else {
         _result->set_empty_batch(true);
         _result->set_packet_seq(packet_seq);
         _result->set_eos(false);
+        LOG(WARNING) << fmt::format(
+                "ArrowFlightResult on_data empty_batch, packet_seq={}, eos=false", packet_seq);
     }
     Status st = Status::OK();
     /// The size limit of proto buffer message is 2G
