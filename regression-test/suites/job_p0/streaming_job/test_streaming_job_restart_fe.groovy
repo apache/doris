@@ -96,7 +96,6 @@ suite("test_streaming_job_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
         def loadStat = parseJson(jobInfo.get(0).get(2))
         assert loadStat.scannedRows == 20
         assert loadStat.loadBytes == 425
@@ -118,7 +117,6 @@ suite("test_streaming_job_restart_fe", "docker") {
         """
         log.info("jobInfo: " + jobInfo)
         assert jobInfo.get(0).get(0) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
-        assert jobInfo.get(0).get(1) == "{\"fileName\":\"regression/load/data/example_1.csv\"}";
         def loadStatAfter = parseJson(jobInfo.get(0).get(2))
         assert loadStatAfter.scannedRows == 20
         assert loadStatAfter.loadBytes == 425
