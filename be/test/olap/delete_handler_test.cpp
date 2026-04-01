@@ -1234,4 +1234,4 @@ TEST_F(TestDeleteHandler, TestParseDeleteCondition) {
 }
 // clang-format on
 
-}
+} // namespace doris
