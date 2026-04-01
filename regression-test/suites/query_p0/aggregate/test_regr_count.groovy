@@ -165,10 +165,10 @@ suite("test_regr_count") {
     // Exception inputs
     test {
         sql """select regr_count(cast([1, 2, 3] as array<int>), 1);"""
-        exception "regr_count(y, x): y must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_count("
     }
     test {
         sql """select regr_count(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_count(y, x): x must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_count("
     }
 }

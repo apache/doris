@@ -165,10 +165,10 @@ suite("test_regr_avgy") {
     // Exception inputs
     test {
         sql """select regr_avgy(cast([1, 2, 3] as array<int>), 1);"""
-        exception "regr_avgy(y, x): y must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_avgy("
     }
     test {
         sql """select regr_avgy(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_avgy(y, x): x must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_avgy("
     }
 }

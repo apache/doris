@@ -205,11 +205,11 @@ suite("test_regr_slope") {
     // Exception inputs
     test {
         sql """select regr_slope(cast([1, 2, 3] as array<int>), 1);"""
-        exception "regr_slope(y, x): y must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_slope("
     }
     test {
         sql """select regr_slope(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_slope(y, x): x must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_slope("
     }
 
 }

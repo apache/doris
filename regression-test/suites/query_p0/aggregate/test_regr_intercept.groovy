@@ -205,11 +205,11 @@ suite("test_regr_intercept") {
     // Exception inputs
     test {
         sql """select regr_intercept(cast([1, 2, 3] as array<int>), 1);"""
-        exception "regr_intercept(y, x): y must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_intercept("
     }
     test {
         sql """select regr_intercept(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_intercept(y, x): x must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_intercept("
     }
 
 }

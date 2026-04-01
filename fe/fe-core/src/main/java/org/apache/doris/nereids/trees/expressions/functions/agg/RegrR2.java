@@ -18,13 +18,11 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DoubleType;
 
 import com.google.common.base.Preconditions;
@@ -49,20 +47,6 @@ public class RegrR2 extends AggregateFunction
 
     public RegrR2(AggregateFunctionParams functionParams) {
         super(functionParams);
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType yType = left().getDataType();
-        DataType xType = right().getDataType();
-        if (!yType.isNumericType() && !yType.isBooleanType()
-                && !yType.isNullType() && !yType.isStringLikeType()) {
-            throw new AnalysisException("regr_r2(y, x): y must be numeric, boolean or string type: " + toSql());
-        }
-        if (!xType.isNumericType() && !xType.isBooleanType()
-                && !xType.isNullType() && !xType.isStringLikeType()) {
-            throw new AnalysisException("regr_r2(y, x): x must be numeric, boolean or string type: " + toSql());
-        }
     }
 
     @Override

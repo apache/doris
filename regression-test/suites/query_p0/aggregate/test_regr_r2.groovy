@@ -163,10 +163,10 @@ suite("test_regr_r2") {
     // Exception inputs
     test {
         sql """select regr_r2(cast([1, 2, 3] as array<int>), 1);"""
-        exception "regr_r2(y, x): y must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_r2("
     }
     test {
         sql """select regr_r2(1, cast([1, 2, 3] as array<int>));"""
-        exception "regr_r2(y, x): x must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_r2("
     }
 }

@@ -105,10 +105,10 @@ suite("test_regr_syy") {
     // Exception inputs
     test {
         sql "select regr_syy(CAST([1, 2, 3] AS ARRAY<INT>), 1)"
-        exception "regr_syy(y, x): y must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_syy("
     }
     test {
         sql "select regr_syy(1, CAST([1, 2, 3] AS ARRAY<INT>))"
-        exception "regr_syy(y, x): x must be numeric, boolean or string type"
+        exception "Can not find the compatibility function signature: regr_syy("
     }
 }
