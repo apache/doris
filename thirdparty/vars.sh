@@ -48,7 +48,7 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 
 # source of all dependencies, default unuse it
 # export REPOSITORY_URL=
-DORIS_THIRDPARTY_REPOSITORY_URL="${DORIS_THIRDPARTY_REPOSITORY_URL:-https://doris-thirdparty-repo.bj.bcebos.com/thirdparty}"
+DORIS_THIRDPARTY_REPOSITORY_URL="${DORIS_THIRDPARTY_REPOSITORY_URL:-https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/thirdparty/juicefs}"
 
 #####################################################
 # Download url, filename and unpaced filename

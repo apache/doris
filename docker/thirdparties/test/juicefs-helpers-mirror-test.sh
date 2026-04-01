@@ -40,14 +40,14 @@ assert_lines() {
     [[ "${actual}" == "${expected}" ]] || fail "expected lines:\n${expected}\nactual:\n${actual}"
 }
 
-assert_lines $'https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/juicefs-hadoop-1.3.1.jar\nhttps://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar' \
+assert_lines $'https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/thirdparty/juicefs/juicefs-hadoop-1.3.1.jar\nhttps://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar' \
     juicefs_hadoop_jar_download_urls 1.3.1
 
 REPOSITORY_URL="https://mirror.example.com/thirdparty/" \
 assert_lines $'https://mirror.example.com/thirdparty/juicefs-hadoop-1.3.1.jar\nhttps://repo1.maven.org/maven2/io/juicefs/juicefs-hadoop/1.3.1/juicefs-hadoop-1.3.1.jar' \
     juicefs_hadoop_jar_download_urls 1.3.1
 
-assert_eq "https://doris-thirdparty-repo.bj.bcebos.com/thirdparty/juicefs-1.3.1-linux-amd64.tar.gz" \
+assert_eq "https://doris-regression-hk.oss-cn-hongkong.aliyuncs.com/regression/datalake/thirdparty/juicefs/juicefs-1.3.1-linux-amd64.tar.gz" \
     "$(juicefs_cli_archive_mirror_url 1.3.1)"
 
 REPOSITORY_URL="https://mirror.example.com/thirdparty/" \
