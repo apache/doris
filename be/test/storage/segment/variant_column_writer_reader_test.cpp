@@ -424,11 +424,11 @@ protected:
         config.parse_to = ParseConfig::ParseTo::OnlyDocValueColumn;
 
         MutableColumnPtr root_variant =
-                ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+                ColumnVariant::create(parent_column.variant_max_subcolumns_count(), true);
         variant_util::parse_json_to_variant(*root_variant, *full_strings, config);
 
         MutableColumnPtr bucket_variant =
-                ColumnVariant::create(parent_column.variant_max_subcolumns_count(), false);
+                ColumnVariant::create(parent_column.variant_max_subcolumns_count(), true);
         variant_util::parse_json_to_variant(*bucket_variant, *bucket_strings, config);
 
         auto root_data = std::make_unique<VariantColumnData>();
