@@ -1063,7 +1063,12 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     _task_profile->add_info_string("TaskState", _to_string(new_state));
     _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
-    if (!LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state)) {
+    bool legal = LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state);
+    // When _wake_up_early is true, a BLOCKED task can skip RUNNABLE and go directly to FINISHED.
+    if (!legal && _wake_up_early && _exec_state == State::BLOCKED && new_state == State::FINISHED) {
+        legal = true;
+    }
+    if (!legal) {
         return Status::InternalError(
                 "Task state transition from {} to {} is not allowed! Task info: {}",
                 _to_string(_exec_state), _to_string(new_state), debug_string());

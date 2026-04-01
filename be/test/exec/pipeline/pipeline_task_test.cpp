@@ -479,6 +479,8 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
+    // Test static LEGAL_STATE_TRANSITION table (with _wake_up_early = false)
+    task->_wake_up_early = false;
     for (int i = 0; i < task->LEGAL_STATE_TRANSITION.size(); i++) {
         auto target = (PipelineTask::State)i;
         for (int j = 0; j < task->LEGAL_STATE_TRANSITION.size(); j++) {
@@ -487,6 +489,17 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
                       task->LEGAL_STATE_TRANSITION[i].contains((PipelineTask::State)j));
         }
     }
+
+    // Test that BLOCKED -> FINISHED is allowed when _wake_up_early is true
+    task->_wake_up_early = true;
+    task->_exec_state = PipelineTask::State::BLOCKED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::FINISHED).ok());
+
+    // Other transitions that are illegal should remain illegal even with _wake_up_early = true
+    task->_exec_state = PipelineTask::State::INITED;
+    EXPECT_FALSE(task->_state_transition(PipelineTask::State::FINISHED).ok());
+
+    task->_wake_up_early = false;
 }
 
 TEST_F(PipelineTaskTest, TEST_SINK_FINISHED) {
@@ -1238,7 +1251,9 @@ TEST_F(PipelineTaskTest, TEST_SHOULD_TRIGGER_REVOKING) {
         query_mem_tracker->set_limit(wg_mem_limit);
     }
     // Case 4: reserve_size too small (reserve * parallelism <= query_limit / 5) -> false
-    { EXPECT_FALSE(task->_should_trigger_revoking(wg_mem_limit / 5)); }
+    {
+        EXPECT_FALSE(task->_should_trigger_revoking(wg_mem_limit / 5));
+    }
     // Case 5: no memory pressure (neither query tracker nor wg watermark) -> false
     {
         // consumption + reserve = 100MB + 250MB = 350MB < 90% of 1GB (900MB); wg not at watermark
