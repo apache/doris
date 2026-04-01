@@ -56,6 +56,34 @@ protected:
     const HashValType _partition_count;
 };
 
+class PartitionFunction {
+public:
+    using HashValType = PartitionerBase::HashValType;
+
+    virtual ~PartitionFunction() = default;
+
+    virtual Status init(const std::vector<TExpr>& texprs) = 0;
+
+    virtual Status prepare(RuntimeState* state, const RowDescriptor& row_desc) = 0;
+
+    virtual Status open(RuntimeState* state) = 0;
+
+    virtual Status close(RuntimeState* state) = 0;
+
+    virtual Status get_partitions(RuntimeState* state, Block* block, size_t partition_count,
+                                  std::vector<HashValType>& partitions) const = 0;
+
+    virtual HashValType partition_count() const = 0;
+
+    virtual Status clone(RuntimeState* state,
+                         std::unique_ptr<PartitionFunction>& function) const = 0;
+};
+
+enum class ShuffleHashMethod {
+    CRC32,
+    CRC32C,
+};
+
 template <typename ChannelIds>
 class Crc32HashPartitioner : public PartitionerBase {
 public:
@@ -114,7 +142,18 @@ struct ShuffleChannelIds {
 
 struct SpillPartitionChannelIds {
     using HashValType = PartitionerBase::HashValType;
+    // Default spill partition mapping used by level-0 partitioning:
+    // rotate hash bits and apply modulo to get a channel id directly.
     HashValType operator()(HashValType l, size_t r) { return ((l >> 16) | (l << 16)) % r; }
+};
+
+struct SpillRePartitionChannelIds {
+    using HashValType = PartitionerBase::HashValType;
+
+    // Repartition mode: return the raw hash value without modulo.
+    // The caller (SpillRepartitioner) will apply level-aware hash mixing and
+    // final channel mapping, so repartition behavior can vary by level.
+    HashValType operator()(HashValType l, size_t /*r*/) { return l; }
 };
 
 static inline PartitionerBase::HashValType crc32c_shuffle_mix(PartitionerBase::HashValType h) {

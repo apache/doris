@@ -48,6 +48,21 @@ TEST(NestedGroupPathTest, ContainsNestedGroupMarker) {
     EXPECT_FALSE(contains_nested_group_marker("__D0_root__"));
 }
 
+TEST(NestedGroupPathTest, NestedGroupPathHasPrefix) {
+    EXPECT_TRUE(nested_group_path_has_prefix("items.msg", "items"));
+    EXPECT_TRUE(nested_group_path_has_prefix("items", "items"));
+    EXPECT_FALSE(nested_group_path_has_prefix("item", "items"));
+    EXPECT_FALSE(nested_group_path_has_prefix("items_extra", "items"));
+}
+
+TEST(NestedGroupPathTest, NestedGroupPathsOverlap) {
+    EXPECT_TRUE(nested_group_paths_overlap("items", "items.msg"));
+    EXPECT_TRUE(nested_group_paths_overlap("items.msg", "items"));
+    EXPECT_TRUE(nested_group_paths_overlap("items", "items"));
+    EXPECT_FALSE(nested_group_paths_overlap("items", "other.msg"));
+    EXPECT_FALSE(nested_group_paths_overlap("items", "item"));
+}
+
 // ===========================================================================
 // nested_group_marker_token
 // ===========================================================================

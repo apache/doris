@@ -35,6 +35,7 @@
 #include "format/generic_reader.h"
 #include "format/orc/vorc_reader.h"
 #include "format/parquet/vparquet_reader.h"
+#include "format/table/iceberg_reader.h"
 #include "io/io_common.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_profile.h"
@@ -231,6 +232,10 @@ private:
 
     std::pair<std::shared_ptr<RowIdColumnIteratorV2>, int> _row_id_column_iterator_pair = {nullptr,
                                                                                            -1};
+    bool _need_iceberg_rowid_column = false;
+    int _iceberg_rowid_column_pos = -1;
+    // for iceberg row lineage
+    RowLineageColumns _row_lineage_columns;
     int64_t _last_bytes_read_from_local = 0;
     int64_t _last_bytes_read_from_remote = 0;
 

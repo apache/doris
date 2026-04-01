@@ -48,3 +48,35 @@ Added regression tests must comply with the following standards:
 ## Commit Standards
 
 Files in git commit should only be related to the current modification task. Environment modifications for running (e.g., `conf/`, `AGENTS.md`, `hooks/`, etc.) must not be `git add`ed. When delivering the final task, you must ensure all actual code modifications have been committed.
+
+Commit messages must follow the format below, which mirrors the PR template (`.github/PULL_REQUEST_TEMPLATE.md`):
+
+```
+[<type>](<module>) <Short summary of the change>
+
+### What problem does this PR solve?
+
+Issue Number: close #xxx
+
+Related PR: #xxx
+
+Problem Summary: <Describe the problem this commit addresses>
+
+### Release note
+
+<If applicable, describe user-visible changes; otherwise write "None">
+
+### Check List (For Author)
+
+- Test: <Specify which testing was done>
+    - Regression test / Unit Test / Manual test / No need to test (with reason)
+- Behavior changed: No / Yes (with explanation)
+- Does this need documentation: No / Yes (with doc PR link)
+```
+
+Key rules for commit messages:
+1. The title must follow the `[type](module)` format validated by the PR title checker (`.github/workflows/title-checker.yml`). Common types include: `fix`, `feature`, `improvement`, `refactor`, `chore`, `test`, `doc`. Common modules include: `fe`, `be`, `cloud`, `regression`, `build`
+2. The short summary must be concise and written in imperative mood (e.g., `[fix](fe) Fix null pointer in scan node` not `[fix](fe) Fixed null pointer`)
+3. The `Issue Number` field must reference the corresponding GitHub Issue with `close #xxx` syntax when applicable
+4. The `Release note` section must be filled in for any user-visible behavior or feature change; write "None" for internal refactoring or test-only changes
+5. The test section must honestly reflect the testing performed; do not claim tests that were not actually run

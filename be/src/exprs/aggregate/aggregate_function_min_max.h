@@ -768,7 +768,10 @@ public:
 
     DataTypePtr get_return_type() const override { return type; }
 
-    bool is_trivial() const override { return Data::IsFixedLength; }
+    // min/max require sentinel-initialized state (MAX_VALUE for min, MIN_VALUE for max) via
+    // create(), so they cannot use zero-init and must return false. any_value is safe with
+    // zero-init because it checks has_value before comparing (change_first_time).
+    bool is_trivial() const override { return Data::IsFixedLength && Data::IS_ANY; }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, ssize_t row_num,
              Arena& arena) const override {

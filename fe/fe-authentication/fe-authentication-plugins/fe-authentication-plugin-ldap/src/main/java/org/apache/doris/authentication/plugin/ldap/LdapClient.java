@@ -26,6 +26,7 @@ import org.springframework.ldap.core.LdapTemplate;
 import org.springframework.ldap.core.support.AbstractContextMapper;
 import org.springframework.ldap.core.support.LdapContextSource;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.ldap.support.LdapEncoder;
 
 import java.util.List;
 import java.util.Map;
@@ -176,7 +177,7 @@ public class LdapClient {
 
             if (!Strings.isNullOrEmpty(groupFilter)) {
                 // Support Open Directory implementations with custom filter
-                String filter = groupFilter.replace("{login}", username);
+                String filter = groupFilter.replace("{login}", LdapEncoder.filterEncode(username));
                 groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
                         .attributes("dn")
                         .base(groupBaseDn)
@@ -256,8 +257,8 @@ public class LdapClient {
     }
 
     private String getUserFilter(String filterTemplate, String username) {
-        // Replace {login} with actual username
-        return filterTemplate.replace("{login}", username);
+        // Replace {login} with escaped username to prevent LDAP filter injection (RFC 4515)
+        return filterTemplate.replace("{login}", LdapEncoder.filterEncode(username));
     }
 
     private String requireConfig(Map<String, String> config, String key, String description) {

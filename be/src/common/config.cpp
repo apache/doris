@@ -251,6 +251,8 @@ DEFINE_Int32(num_query_ctx_map_partitions, "128");
 DEFINE_Int32(make_snapshot_worker_count, "5");
 // the count of thread to release snapshot
 DEFINE_Int32(release_snapshot_worker_count, "5");
+// the count of thread to make committed rowsets visible in cloud mode
+DEFINE_Int32(cloud_make_committed_rs_visible_worker_count, "16");
 // report random wait a little time to avoid FE receiving multiple be reports at the same time.
 // do not set it to false for production environment
 DEFINE_mBool(report_random_wait, "true");
@@ -1461,9 +1463,10 @@ DEFINE_mDouble(high_disk_avail_level_diff_usages, "0.15");
 DEFINE_Int32(partition_disk_index_lru_size, "10000");
 // limit the storage space that query spill files can use
 DEFINE_String(spill_storage_root_path, "");
-DEFINE_String(spill_storage_limit, "20%");    // 20%
-DEFINE_mInt32(spill_gc_interval_ms, "2000");  // 2s
-DEFINE_mInt32(spill_gc_work_time_ms, "2000"); // 2s
+DEFINE_String(spill_storage_limit, "20%");               // 20%
+DEFINE_mInt32(spill_gc_interval_ms, "2000");             // 2s
+DEFINE_mInt32(spill_gc_work_time_ms, "2000");            // 2s
+DEFINE_mInt64(spill_file_part_size_bytes, "1073741824"); // 1GB
 
 // paused query in queue timeout(ms) will be resumed or canceled
 DEFINE_Int64(spill_in_paused_queue_timeout_ms, "60000");
@@ -1521,6 +1524,41 @@ DEFINE_mInt64(hive_sink_max_file_size, "1073741824"); // 1GB
 
 /** Iceberg sink configurations **/
 DEFINE_mInt64(iceberg_sink_max_file_size, "1073741824"); // 1GB
+
+// URI scheme to Doris file type mappings used by paimon-cpp DorisFileSystem.
+// Each entry uses the format "<scheme>=<file_type>", and file_type must be one of:
+// local, hdfs, s3, http, broker.
+DEFINE_Strings(paimon_file_system_scheme_mappings,
+               "file=local,hdfs=hdfs,viewfs=hdfs,local=hdfs,jfs=hdfs,"
+               "s3=s3,s3a=s3,s3n=s3,oss=s3,obs=s3,cos=s3,cosn=s3,gs=s3,"
+               "abfs=s3,abfss=s3,wasb=s3,wasbs=s3,http=http,https=http,"
+               "ofs=broker,gfs=broker");
+DEFINE_Validator(paimon_file_system_scheme_mappings,
+                 ([](const std::vector<std::string>& mappings) -> bool {
+                     doris::StringCaseUnorderedSet seen_schemes;
+                     static const doris::StringCaseUnorderedSet supported_types = {
+                             "local", "hdfs", "s3", "http", "broker"};
+                     for (const auto& raw_entry : mappings) {
+                         std::string_view entry = doris::trim(raw_entry);
+                         size_t separator = entry.find('=');
+                         if (separator == std::string_view::npos) {
+                             return false;
+                         }
+                         std::string scheme = std::string(doris::trim(entry.substr(0, separator)));
+                         std::string file_type =
+                                 std::string(doris::trim(entry.substr(separator + 1)));
+                         if (scheme.empty() || file_type.empty()) {
+                             return false;
+                         }
+                         if (supported_types.find(file_type) == supported_types.end()) {
+                             return false;
+                         }
+                         if (!seen_schemes.insert(scheme).second) {
+                             return false;
+                         }
+                     }
+                     return true;
+                 }));
 
 DEFINE_mInt32(thrift_client_open_num_tries, "1");
 
@@ -1711,6 +1749,10 @@ DEFINE_mBool(enable_concurrency_stats_dump, "false");
 DEFINE_mInt32(concurrency_stats_dump_interval_ms, "100");
 DEFINE_Validator(concurrency_stats_dump_interval_ms,
                  [](const int32_t config) -> bool { return config >= 10; });
+
+DEFINE_mBool(cloud_mow_sync_rowsets_when_load_txn_begin, "true");
+
+DEFINE_mBool(enable_cloud_make_rs_visible_on_be, "false");
 
 // clang-format off
 #ifdef BE_TEST

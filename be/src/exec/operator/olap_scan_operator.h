@@ -47,9 +47,12 @@ public:
     TOlapScanNode& olap_scan_node() const;
 
     std::string name_suffix() const override {
-        return fmt::format("(nereids_id={}. table_name={})" + operator_name_suffix,
-                           std::to_string(_parent->nereids_id()), olap_scan_node().table_name,
-                           std::to_string(_parent->node_id()));
+        if (_parent->nereids_id() == -1) {
+            return fmt::format("(id={}, table_name={})", _parent->node_id(),
+                               olap_scan_node().table_name);
+        }
+        return fmt::format("(nereids_id={}, id={}, table_name={})", _parent->nereids_id(),
+                           _parent->node_id(), olap_scan_node().table_name);
     }
     std::vector<Dependency*> execution_dependencies() override {
         if (!_cloud_tablet_dependency) {
@@ -180,6 +183,9 @@ private:
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_key_count = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_bytes = nullptr;
     RuntimeProfile::Counter* _sync_rowset_get_remote_delete_bitmap_rpc_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_bthread_schedule_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_meta_lock_wait_timer = nullptr;
+    RuntimeProfile::Counter* _sync_rowset_sync_meta_lock_wait_timer = nullptr;
     RuntimeProfile::Counter* _block_load_timer = nullptr;
     RuntimeProfile::Counter* _block_load_counter = nullptr;
     // Add more detail seek timer and counter profile
@@ -250,6 +256,8 @@ private:
 
     RuntimeProfile::Counter* _ann_range_engine_convert_costs = nullptr;
     RuntimeProfile::Counter* _ann_range_result_convert_costs = nullptr;
+
+    RuntimeProfile::Counter* _ann_fallback_brute_force_cnt = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

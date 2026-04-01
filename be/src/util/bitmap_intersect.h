@@ -56,7 +56,7 @@ public:
 };
 
 template <>
-char* Helper::write_to<VecDateTimeValue>(const VecDateTimeValue& v, char* dest) {
+inline char* Helper::write_to<VecDateTimeValue>(const VecDateTimeValue& v, char* dest) {
     *(int64_t*)dest = v.to_int64_datetime_packed();
     dest += DATETIME_PACKED_TIME_BYTE_SIZE;
     *(int*)dest = v.type();
@@ -65,7 +65,7 @@ char* Helper::write_to<VecDateTimeValue>(const VecDateTimeValue& v, char* dest) 
 }
 
 template <>
-char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
+inline char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
     __int128 value = v.value();
     memcpy(dest, &value, DECIMAL_BYTE_SIZE);
     dest += DECIMAL_BYTE_SIZE;
@@ -73,7 +73,7 @@ char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* dest) {
 }
 
 template <>
-char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
+inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
     *(int32_t*)dest = cast_set<int32_t>(v.size);
     dest += 4;
     memcpy(dest, v.data, v.size);
@@ -82,7 +82,7 @@ char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
 }
 
 template <>
-char* Helper::write_to<std::string>(const std::string& v, char* dest) {
+inline char* Helper::write_to<std::string>(const std::string& v, char* dest) {
     *(uint32_t*)dest = cast_set<uint32_t>(v.size());
     dest += 4;
     memcpy(dest, v.c_str(), v.size());
@@ -92,28 +92,28 @@ char* Helper::write_to<std::string>(const std::string& v, char* dest) {
 // write_to end
 
 template <>
-int32_t Helper::serialize_size<VecDateTimeValue>(const VecDateTimeValue& v) {
+inline int32_t Helper::serialize_size<VecDateTimeValue>(const VecDateTimeValue& v) {
     return Helper::DATETIME_PACKED_TIME_BYTE_SIZE + Helper::DATETIME_TYPE_BYTE_SIZE;
 }
 
 template <>
-int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
+inline int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
     return Helper::DECIMAL_BYTE_SIZE;
 }
 
 template <>
-int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
+inline int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
     return cast_set<int32_t>(v.size + 4);
 }
 
 template <>
-int32_t Helper::serialize_size<std::string>(const std::string& v) {
+inline int32_t Helper::serialize_size<std::string>(const std::string& v) {
     return cast_set<int32_t>(v.size() + 4);
 }
 // serialize_size end
 
 template <>
-void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeValue* result) {
+inline void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeValue* result) {
     result->from_packed_time(*(int64_t*)(*src));
     *src += DATETIME_PACKED_TIME_BYTE_SIZE;
     if (*(int*)(*src) == TIME_DATE) {
@@ -123,7 +123,7 @@ void Helper::read_from<VecDateTimeValue>(const char** src, VecDateTimeValue* res
 }
 
 template <>
-void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* result) {
+inline void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* result) {
     __int128 v = 0;
     memcpy(&v, *src, DECIMAL_BYTE_SIZE);
     *src += DECIMAL_BYTE_SIZE;
@@ -131,7 +131,7 @@ void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* result)
 }
 
 template <>
-void Helper::read_from<StringRef>(const char** src, StringRef* result) {
+inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
     *result = StringRef((char*)*src, length);
@@ -139,7 +139,7 @@ void Helper::read_from<StringRef>(const char** src, StringRef* result) {
 }
 
 template <>
-void Helper::read_from<std::string>(const char** src, std::string* result) {
+inline void Helper::read_from<std::string>(const char** src, std::string* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
     *result = std::string((char*)*src, length);

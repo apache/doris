@@ -42,6 +42,7 @@
 #include "core/types.h"
 #include "core/value/hll.h"
 #include "exec/pipeline/dependency.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "information_schema/schema_active_queries_scanner.h"
 #include "information_schema/schema_authentication_integrations_scanner.h"
 #include "information_schema/schema_backend_active_tasks.h"
@@ -73,6 +74,8 @@
 #include "information_schema/schema_table_options_scanner.h"
 #include "information_schema/schema_table_privileges_scanner.h"
 #include "information_schema/schema_table_properties_scanner.h"
+#include "information_schema/schema_table_stream_consumption_scanner.h"
+#include "information_schema/schema_table_streams_scanner.h"
 #include "information_schema/schema_tables_scanner.h"
 #include "information_schema/schema_tablets_scanner.h"
 #include "information_schema/schema_user_privileges_scanner.h"
@@ -264,6 +267,10 @@ std::unique_ptr<SchemaScanner> SchemaScanner::create(TSchemaTableType::type type
         return SchemaFileCacheInfoScanner::create_unique();
     case TSchemaTableType::SCH_AUTHENTICATION_INTEGRATIONS:
         return SchemaAuthenticationIntegrationsScanner::create_unique();
+    case TSchemaTableType::SCH_TABLE_STREAMS:
+        return SchemaTableStreamsScanner::create_unique();
+    case TSchemaTableType::SCH_TABLE_STREAM_CONSUMPTION:
+        return SchemaTableStreamConsumptionScanner::create_unique();
     default:
         return SchemaDummyScanner::create_unique();
         break;
@@ -456,6 +463,16 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
         break;
     }
 
+    case TYPE_FLOAT: {
+        assert_cast<ColumnFloat32*>(col_ptr)->insert_value(cell.doubleVal);
+        break;
+    }
+
+    case TYPE_DOUBLE: {
+        assert_cast<ColumnFloat64*>(col_ptr)->insert_value(cell.doubleVal);
+        break;
+    }
+
     case TYPE_BOOLEAN: {
         reinterpret_cast<ColumnUInt8*>(col_ptr)->insert_value(cell.boolVal);
         break;
@@ -472,7 +489,9 @@ Status SchemaScanner::insert_block_column(TCell cell, int col_index, Block* bloc
     case TYPE_DATETIME: {
         std::vector<void*> datas(1);
         VecDateTimeValue src[1];
-        src[0].from_date_str(cell.stringVal.data(), cell.stringVal.size());
+        CastParameters params;
+        CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+                {cell.stringVal.data(), cell.stringVal.size()}, src[0], nullptr, params);
         datas[0] = src;
         auto data = datas[0];
         reinterpret_cast<ColumnDateTime*>(col_ptr)->insert_data(reinterpret_cast<char*>(data), 0);

@@ -538,6 +538,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
+    public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -659,12 +660,19 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FORCE_SPILL = "enable_force_spill";
     public static final String ENABLE_RESERVE_MEMORY = "enable_reserve_memory";
     public static final String SPILL_MIN_REVOCABLE_MEM = "spill_min_revocable_mem";
-    public static final String SPILL_SORT_MEM_LIMIT = "spill_sort_mem_limit";
-    // spill_sort_batch_bytes controls the memory size of a sindle block data of spill sort.
-    public static final String SPILL_SORT_BATCH_BYTES = "spill_sort_batch_bytes";
     public static final String SPILL_AGGREGATION_PARTITION_COUNT = "spill_aggregation_partition_count";
     public static final String SPILL_STREAMING_AGG_MEM_LIMIT = "spill_streaming_agg_mem_limit";
     public static final String SPILL_HASH_JOIN_PARTITION_COUNT = "spill_hash_join_partition_count";
+    public static final String SPILL_REPARTITION_MAX_DEPTH = "spill_repartition_max_depth";
+    public static final String SPILL_BUFFER_SIZE_BYTES = "spill_buffer_size_bytes";
+    public static final String SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES =
+            "spill_join_build_sink_mem_limit_bytes";
+    public static final String SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES =
+            "spill_aggregation_sink_mem_limit_bytes";
+    public static final String SPILL_SORT_SINK_MEM_LIMIT_BYTES =
+            "spill_sort_sink_mem_limit_bytes";
+    public static final String SPILL_SORT_MERGE_MEM_LIMIT_BYTES =
+            "spill_sort_merge_mem_limit_bytes";
     public static final String SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT =
             "spill_revocable_memory_high_watermark_percent";
     public static final String DATA_QUEUE_MAX_BLOCKS = "data_queue_max_blocks";
@@ -801,8 +809,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String DISABLE_INVERTED_INDEX_V1_FOR_VARIANT = "disable_inverted_index_v1_for_variant";
 
-    // enable variant flatten nested as session variable, default is false,
-    // which means do not flatten nested when create table
+    // Deprecated legacy switch for flatten-nested variant behavior.
+    // It is distinct from variant_enable_nested_group.
+    // Default is false, which means do not flatten nested when create table.
+    @Deprecated
     public static final String ENABLE_VARIANT_FLATTEN_NESTED = "enable_variant_flatten_nested";
     public static final String ENABLE_VARIANT_SCHEMA_AUTO_CAST = "enable_variant_schema_auto_cast";
 
@@ -815,6 +825,7 @@ public class SessionVariable implements Serializable, Writable {
             "cloud_partition_version_cache_ttl_ms";
     public static final String CLOUD_TABLE_VERSION_CACHE_TTL_MS =
             "cloud_table_version_cache_ttl_ms";
+    public static final String CLOUD_FORCE_SYNC_TABLET_STATS = "cloud_force_sync_tablet_stats";
     // CLOUD_VARIABLES_BEGIN
 
     public static final String ENABLE_MATCH_WITHOUT_INVERTED_INDEX = "enable_match_without_inverted_index";
@@ -1716,6 +1727,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DISABLE_INVERTED_INDEX_V1_FOR_VARIANT, needForward = true)
     private boolean disableInvertedIndexV1ForVaraint = true;
 
+    @Deprecated
     @VariableMgr.VarAttr(name = ENABLE_VARIANT_FLATTEN_NESTED, needForward = true)
     private boolean enableVariantFlattenNested = false;
 
@@ -2842,7 +2854,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = MINIMUM_OPERATOR_MEMORY_REQUIRED_KB, needForward = true,
             description = {"一个算子运行需要的最小的内存大小",
                     "The minimum memory required to be used by an operator, if not meet, the operator will not run"})
-    public int minimumOperatorMemoryRequiredKB = 1000;
+    public int minimumOperatorMemoryRequiredKB = 32000;
 
     public static final String IGNORE_RUNTIME_FILTER_IDS = "ignore_runtime_filter_ids";
 
@@ -3112,6 +3124,8 @@ public class SessionVariable implements Serializable, Writable {
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
+    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_TABLET_STATS)
+    public boolean cloudForceSyncTabletStats = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
     public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
     @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
@@ -3170,20 +3184,18 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableReserveMemory = true;
 
     @VariableMgr.VarAttr(name = SPILL_MIN_REVOCABLE_MEM, fuzzy = true)
-    public long spillMinRevocableMem = 32 * 1024 * 1024;
+    public long spillMinRevocableMem = 4 * 1024 * 1024;
 
-    // spill_sort_mem_limit controls the memory usage during merge sort phase of spill sort.
-    // During merge sort phase, mutiple sorted blocks will be read into memory and do merge sort,
-    // the count of blocks should be controlled or else will cause OOM, it's calculated as
-    // std::max(spill_sort_mem_limit / spill_sort_batch_bytes, 2)
-    @VariableMgr.VarAttr(name = SPILL_SORT_MEM_LIMIT)
-    public long spillSortMemLimit = 134217728; // 128M
-
-    @VariableMgr.VarAttr(name = SPILL_SORT_BATCH_BYTES)
-    public long spillSortBatchBytes = 8388608; // 8M
+    @VariableMgr.VarAttr(name = SPILL_BUFFER_SIZE_BYTES, fuzzy = true, needForward = true,
+            description = {"落盘时写 block 的最大大小（字节）。如果一个 block 超过该阈值，会按此大小拆分后再写入磁盘。"
+                    + "同时也控制 merge sort 阶段每个文件的读 buffer 大小。默认 8MB。",
+                "Maximum block size for spill writes (in bytes). Blocks larger than this threshold are "
+                    + "split before writing to disk. Also controls per-file read buffer size during merge sort. "
+                    + "Default is 8MB."})
+    public long spillBufferSizeBytes = 8L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = SPILL_AGGREGATION_PARTITION_COUNT, fuzzy = true)
-    public int spillAggregationPartitionCount = 32;
+    public int spillAggregationPartitionCount = 4;
 
     @VariableMgr.VarAttr(name = LOW_MEMORY_MODE_BUFFER_LIMIT, fuzzy = false)
     public long lowMemoryModeBufferLimit = 33554432;
@@ -3194,7 +3206,38 @@ public class SessionVariable implements Serializable, Writable {
     public long spillStreamingAggMemLimit = 268435456; //256MB
 
     @VariableMgr.VarAttr(name = SPILL_HASH_JOIN_PARTITION_COUNT, fuzzy = true)
-    public int spillHashJoinPartitionCount = 32;
+    public int spillHashJoinPartitionCount = 4;
+
+    @VariableMgr.VarAttr(name = SPILL_REPARTITION_MAX_DEPTH, fuzzy = true, needForward = true,
+            description = {"重分区的最大递归深度，超过该深度不再继续重分区，\n默认值为 8",
+                "Maximum depth for repartition recursion. When exceeded, repartitioning will stop. Default is 8."})
+    public int spillRepartitionMaxDepth = 8;
+
+    @VariableMgr.VarAttr(name = SPILL_JOIN_BUILD_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = {"一旦触发 spill 后，join build sink 的 revocable memory 超过该阈值就主动落盘（字节）。默认 64MB。",
+                "After spill is triggered, join build sink will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64MB."})
+    public long spillJoinBuildSinkMemLimitBytes = 64L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = SPILL_AGGREGATION_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = {"一旦触发 spill 后，aggregation sink 的 revocable memory 超过该阈值就主动落盘（字节）。默认 64MB。",
+                "After spill is triggered, aggregation sink will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64GB."})
+    public long spillAggregationSinkMemLimitBytes = 64L * 1024L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = SPILL_SORT_SINK_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = {"一旦触发 spill 后，sort sink 的 revocable memory 超过该阈值就主动落盘（字节）。默认 64MB。",
+                "After spill is triggered, sort sink will proactively spill when revocable memory "
+                    + "exceeds this threshold (in bytes). Default is 64MB."})
+    public long spillSortSinkMemLimitBytes = 64L * 1024L * 1024L;
+
+    @VariableMgr.VarAttr(name = SPILL_SORT_MERGE_MEM_LIMIT_BYTES, fuzzy = true, needForward = true,
+            description = {"一旦触发 spill 后，sort merge 阶段可用的总内存大小（字节）。"
+                    + "该值除以 spill_buffer_size_bytes 即为可并行读取合并的文件数。默认 64MB。",
+                "After spill is triggered, total memory budget for the sort merge phase (in bytes). "
+                    + "Divided by spill_buffer_size_bytes gives the number of files that can be merged "
+                    + "in parallel. Default is 64MB."})
+    public long spillSortMergeMemLimitBytes = 64L * 1024L * 1024L;
 
     @VariableMgr.VarAttr(name = SPILL_REVOCABLE_MEMORY_HIGH_WATERMARK_PERCENT, fuzzy = true)
     public int spillRevocableMemoryHighWatermarkPercent = -1;
@@ -3535,6 +3578,11 @@ public class SessionVariable implements Serializable, Writable {
                             + "to exclude the impact of dangling delete files."})
     public boolean ignoreIcebergDanglingDelete = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_ICEBERG_MERGE_PARTITIONING,
+            description = {"是否启用 Iceberg UPDATE/DELETE 合并写入的双分支分发（INSERT 按分区列，DELETE 按 row_id）。",
+                    "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
+                            + "DELETE by row_id)."})
+    public boolean enableIcebergMergePartitioning = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -4640,6 +4688,10 @@ public class SessionVariable implements Serializable, Writable {
         this.icebergWriteTargetFileSizeBytes = icebergWriteTargetFileSizeBytes;
     }
 
+    public boolean isEnableIcebergMergePartitioning() {
+        return enableIcebergMergePartitioning;
+    }
+
     public int getNumPartitionsInBatchMode() {
         return numPartitionsInBatchMode;
     }
@@ -5386,13 +5438,18 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setEnableForceSpill(enableForceSpill);
         tResult.setEnableReserveMemory(enableReserveMemory);
         tResult.setMinRevocableMem(spillMinRevocableMem);
-        tResult.setSpillSortMemLimit(spillSortMemLimit);
-        tResult.setSpillSortBatchBytes(spillSortBatchBytes);
         tResult.setSpillAggregationPartitionCount(spillAggregationPartitionCount);
         tResult.setSpillStreamingAggMemLimit(spillStreamingAggMemLimit);
         tResult.setSpillHashJoinPartitionCount(spillHashJoinPartitionCount);
         tResult.setRevocableMemoryHighWatermarkPercent(spillRevocableMemoryHighWatermarkPercent);
         tResult.setDumpHeapProfileWhenMemLimitExceeded(dumpHeapProfileWhenMemLimitExceeded);
+        // Forward new spill-related tuning vars to BE
+        tResult.setSpillBufferSizeBytes(spillBufferSizeBytes);
+        tResult.setSpillRepartitionMaxDepth(spillRepartitionMaxDepth);
+        tResult.setSpillJoinBuildSinkMemLimitBytes(spillJoinBuildSinkMemLimitBytes);
+        tResult.setSpillAggregationSinkMemLimitBytes(spillAggregationSinkMemLimitBytes);
+        tResult.setSpillSortSinkMemLimitBytes(spillSortSinkMemLimitBytes);
+        tResult.setSpillSortMergeMemLimitBytes(spillSortMergeMemLimitBytes);
 
         tResult.setDataQueueMaxBlocks(dataQueueMaxBlocks);
         tResult.setEnableUseHybridSort(enableUseHybridSort);
@@ -5722,6 +5779,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableStrictConsistencyDml() {
+        // In cloud mode (store-compute separation), there is only a single copy of data,
+        // so multi-replica consistency is not a concern. Default to false.
+        if (Config.isCloudMode()) {
+            return false;
+        }
         return this.enableStrictConsistencyDml;
     }
 
@@ -6101,6 +6163,7 @@ public class SessionVariable implements Serializable, Writable {
         return ignoreSplitType;
     }
 
+
     public void checkIgnoreSplitType(String value) {
         try {
             IgnoreSplitType.valueOf(value);
@@ -6109,6 +6172,7 @@ public class SessionVariable implements Serializable, Writable {
                     "We only support `NONE`, `IGNORE_JNI`, `IGNORE_NATIVE` and `IGNORE_PAIMON_CPP`");
         }
     }
+
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;
@@ -6180,10 +6244,12 @@ public class SessionVariable implements Serializable, Writable {
         return disableInvertedIndexV1ForVaraint;
     }
 
+    @Deprecated
     public void setEnableVariantFlattenNested(boolean enableVariantFlattenNested) {
         this.enableVariantFlattenNested = enableVariantFlattenNested;
     }
 
+    @Deprecated
     public boolean getEnableVariantFlattenNested() {
         return enableVariantFlattenNested;
     }

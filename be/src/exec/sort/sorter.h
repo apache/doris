@@ -120,6 +120,8 @@ public:
             : _vsort_exec_exprs(mock_vsort_exec_exprs),
               _is_asc_order(mock_is_asc_order),
               _nulls_first(mock_nulls_first) {}
+    SortDescription& get_mutable_sort_description() { return _sort_description; }
+    const VSortExecExprs& get_vsort_exec_exprs() const { return _vsort_exec_exprs; }
 #endif
 
     virtual ~Sorter() = default;

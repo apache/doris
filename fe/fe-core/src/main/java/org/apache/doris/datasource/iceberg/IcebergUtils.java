@@ -51,12 +51,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.datasource.CacheException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.ExternalSchemaCache;
 import org.apache.doris.datasource.ExternalTable;
 import org.apache.doris.datasource.SchemaCacheValue;
-import org.apache.doris.datasource.iceberg.cache.IcebergManifestCache;
 import org.apache.doris.datasource.iceberg.source.IcebergTableQueryInfo;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.mvcc.MvccSnapshot;
@@ -66,6 +63,7 @@ import org.apache.doris.nereids.exceptions.NotSupportedException;
 import org.apache.doris.nereids.trees.expressions.literal.Result;
 import org.apache.doris.nereids.types.VarBinaryType;
 import org.apache.doris.nereids.util.DateUtils;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.github.benmanes.caffeine.cache.Caffeine;
 import com.github.benmanes.caffeine.cache.LoadingCache;
@@ -75,11 +73,15 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Range;
 import com.google.common.collect.Sets;
+import com.google.gson.reflect.TypeToken;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.exception.ExceptionUtils;
+import org.apache.iceberg.BaseTable;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.FileFormat;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.ManifestFile;
+import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.MetadataTableType;
 import org.apache.iceberg.MetadataTableUtils;
 import org.apache.iceberg.PartitionData;
@@ -104,6 +106,7 @@ import org.apache.iceberg.expressions.Unbound;
 import org.apache.iceberg.hive.HiveCatalog;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.types.Type.TypeID;
+import org.apache.iceberg.types.TypeUtil;
 import org.apache.iceberg.types.Types;
 import org.apache.iceberg.types.Types.NestedField;
 import org.apache.iceberg.types.Types.TimestampType;
@@ -178,6 +181,10 @@ public class IcebergUtils {
     public static final String IDENTITY = "identity";
     public static final int PARTITION_DATA_ID_START = 1000; // org.apache.iceberg.PartitionSpec
 
+    public static final int ICEBERG_ROW_LINEAGE_MIN_VERSION = 3;
+    public static final String ICEBERG_ROW_ID_COL = "_row_id";
+    public static final String ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL = "_last_updated_sequence_number";
+
     private static final Pattern SNAPSHOT_ID = Pattern.compile("\\d+");
 
     public static Expression convertToIcebergExpr(Expr expr, Schema schema) {
@@ -243,7 +250,10 @@ public class IcebergUtils {
                 return null;
             }
             String colName = slotRef.getColumnName();
-            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            Types.NestedField nestedField = getPushdownField(schema, colName);
+            if (nestedField == null) {
+                return null;
+            }
             colName = nestedField.name();
             Object value = extractDorisLiteral(nestedField.type(), literalExpr);
             if (value == null) {
@@ -285,7 +295,10 @@ public class IcebergUtils {
                 return null;
             }
             String colName = slotRef.getColumnName();
-            Types.NestedField nestedField = schema.caseInsensitiveFindField(colName);
+            Types.NestedField nestedField = getPushdownField(schema, colName);
+            if (nestedField == null) {
+                return null;
+            }
             colName = nestedField.name();
             List<Object> valueList = new ArrayList<>();
             for (int i = 1; i < inExpr.getChildren().size(); ++i) {
@@ -309,6 +322,14 @@ public class IcebergUtils {
         }
 
         return checkConversion(expression, schema);
+    }
+
+    private static Types.NestedField getPushdownField(Schema schema, String colName) {
+        if (ICEBERG_ROW_ID_COL.equalsIgnoreCase(colName)
+                || ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(colName)) {
+            return null;
+        }
+        return schema.caseInsensitiveFindField(colName);
     }
 
     private static Expression checkConversion(Expression expression, Schema schema) {
@@ -655,6 +676,16 @@ public class IcebergUtils {
                 return null;
             }
 
+            TypeID partitionTypeId = field.type().typeId();
+            if (partitionTypeId == TypeID.BINARY || partitionTypeId == TypeID.FIXED) {
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(
+                            "Skip dynamic partition pruning for binary partition field: {}",
+                            field.name());
+                }
+                return null;
+            }
+
             Object value = partitionData.get(i);
             try {
                 String partitionString = serializePartitionValue(field.type(), value, timeZone);
@@ -668,11 +699,53 @@ public class IcebergUtils {
         return partitionInfoMap;
     }
 
+    public static List<String> getPartitionValues(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone) {
+        List<NestedField> fields = partitionData.getPartitionType().asNestedType().fields();
+        Preconditions.checkArgument(fields.size() == partitionSpec.fields().size(),
+                "PartitionData fields size does not match PartitionSpec fields size");
+
+        List<String> partitionValues = new ArrayList<>(fields.size());
+        for (int i = 0; i < fields.size(); i++) {
+            NestedField field = fields.get(i);
+            Object value = partitionData.get(i);
+            try {
+                partitionValues.add(serializePartitionValue(field.type(), value, timeZone));
+            } catch (UnsupportedOperationException e) {
+                LOG.warn("Failed to serialize Iceberg partition value for field {}: {}", field.name(),
+                        e.getMessage());
+                partitionValues.add(null);
+            }
+        }
+        return partitionValues;
+    }
+
+    public static String getPartitionDataJson(PartitionData partitionData, PartitionSpec partitionSpec,
+            String timeZone) {
+        List<String> partitionValues = getPartitionValues(partitionData, partitionSpec, timeZone);
+        return GsonUtils.GSON.toJson(partitionValues);
+    }
+
+    public static List<String> parsePartitionValuesFromJson(String partitionDataJson) {
+        if (StringUtils.isBlank(partitionDataJson)) {
+            return Lists.newArrayList();
+        }
+        try {
+            java.lang.reflect.Type listType = new TypeToken<List<String>>() {}.getType();
+            return GsonUtils.GSON.fromJson(partitionDataJson, listType);
+        } catch (Exception e) {
+            LOG.warn("Failed to parse partition data JSON: {}", partitionDataJson, e);
+            return Lists.newArrayList();
+        }
+    }
+
     private static String serializePartitionValue(org.apache.iceberg.types.Type type, Object value, String timeZone) {
         switch (type.typeId()) {
             case BOOLEAN:
             case INTEGER:
             case LONG:
+            case FLOAT:
+            case DOUBLE:
             case STRING:
             case UUID:
             case DECIMAL:
@@ -720,16 +793,16 @@ public class IcebergUtils {
     }
 
     public static Table getIcebergTable(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getIcebergTable(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getIcebergTable(dorisTable);
     }
 
-    // Centralize cache access to keep call sites consistent and easy to understand.
-    private static IcebergMetadataCache icebergMetadataCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getIcebergMetadataCache(catalog);
+    private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalCatalog catalog) {
+        Preconditions.checkNotNull(catalog, "catalog can not be null");
+        return Env.getCurrentEnv().getExtMetaCacheMgr().iceberg(catalog.getId());
     }
 
-    private static ExternalSchemaCache schemaCache(ExternalCatalog catalog) {
-        return Env.getCurrentEnv().getExtMetaCacheMgr().getSchemaCache(catalog);
+    private static IcebergExternalMetaCache icebergExternalMetaCache(ExternalTable table) {
+        return icebergExternalMetaCache(table.getCatalog());
     }
 
     public static org.apache.iceberg.types.Type dorisTypeToIcebergType(Type type) {
@@ -1129,6 +1202,12 @@ public class IcebergUtils {
                 refName = params.getListParams().get(0);
             }
             SnapshotRef snapshotRef = table.refs().get(refName);
+            LOG.info("[BranchDebug] getQuerySpecSnapshot: refName={}, snapshotId={}, "
+                    + "currentSnapshotId={}, allRefs={}",
+                    refName,
+                    snapshotRef != null ? snapshotRef.snapshotId() : "null",
+                    table.currentSnapshot() != null ? table.currentSnapshot().snapshotId() : "null",
+                    table.refs());
             if (params.isBranch()) {
                 if (snapshotRef == null || !snapshotRef.isBranch()) {
                     throw new UserException("Table " + table.name() + " does not have branch named " + refName);
@@ -1206,15 +1285,10 @@ public class IcebergUtils {
         return false;
     }
 
-    // read schema from external schema cache
+    // read schema from iceberg.schema entry
     public static IcebergSchemaCacheValue getSchemaCacheValue(ExternalTable dorisTable, long schemaId) {
-        Optional<SchemaCacheValue> schemaCacheValue = schemaCache(dorisTable.getCatalog()).getSchemaValue(
-                new IcebergSchemaCacheKey(dorisTable.getOrBuildNameMapping(), schemaId));
-        if (!schemaCacheValue.isPresent()) {
-            throw new CacheException("failed to getSchema for: %s.%s.%s.%s",
-                    null, dorisTable.getCatalog().getName(), dorisTable.getDbName(), dorisTable.getName(), schemaId);
-        }
-        return (IcebergSchemaCacheValue) schemaCacheValue.get();
+        return icebergExternalMetaCache(dorisTable)
+                .getIcebergSchemaCacheValue(dorisTable.getOrBuildNameMapping(), schemaId);
     }
 
     public static IcebergSnapshot getLatestIcebergSnapshot(Table table) {
@@ -1484,7 +1558,7 @@ public class IcebergUtils {
     }
 
     public static IcebergSnapshotCacheValue getLatestSnapshotCacheValue(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getSnapshotCache(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getSnapshotCache(dorisTable);
     }
 
     public static IcebergSnapshotCacheValue getSnapshotCacheValue(Optional<MvccSnapshot> snapshot,
@@ -1532,7 +1606,7 @@ public class IcebergUtils {
     }
 
     public static View getIcebergView(ExternalTable dorisTable) {
-        return icebergMetadataCache(dorisTable.getCatalog()).getIcebergView(dorisTable);
+        return icebergExternalMetaCache(dorisTable).getIcebergView(dorisTable);
     }
 
     public static Optional<SchemaCacheValue> loadSchemaCacheValue(
@@ -1565,24 +1639,74 @@ public class IcebergUtils {
         return Optional.of(new IcebergSchemaCacheValue(schema, tmpColumns));
     }
 
+
+    public static boolean isIcebergRowLineageColumn(Column column) {
+        return column.nameEquals(IcebergUtils.ICEBERG_ROW_ID_COL, false)
+                || column.nameEquals(IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, false);
+    }
+
+    public static boolean isIcebergRowLineageColumn(String columnName) {
+        return IcebergUtils.ICEBERG_ROW_ID_COL.equalsIgnoreCase(columnName)
+                || IcebergUtils.ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL.equalsIgnoreCase(columnName);
+    }
+
+    public static List<Column> appendRowLineageColumnsForV3(List<Column> schema, Table table) {
+        if (getFormatVersion(table) < ICEBERG_ROW_LINEAGE_MIN_VERSION) {
+            return schema;
+        }
+        List<Column> newSchema = Lists.newArrayList(schema);
+
+        Column rowIdColumn = new Column(ICEBERG_ROW_ID_COL, Type.BIGINT, true);
+        rowIdColumn.setUniqueId(2147483540);
+        rowIdColumn.setIsVisible(false);
+        newSchema.add(rowIdColumn);
+
+        Column lastUpdatedSequenceNumberColumn =
+                new Column(ICEBERG_LAST_UPDATED_SEQUENCE_NUMBER_COL, Type.BIGINT, true);
+        lastUpdatedSequenceNumberColumn.setUniqueId(2147483539);
+        lastUpdatedSequenceNumberColumn.setIsVisible(false);
+        newSchema.add(lastUpdatedSequenceNumberColumn);
+
+        return newSchema;
+    }
+
+    public static Schema appendRowLineageFieldsForV3(Schema schema) {
+        return TypeUtil.join(schema, new Schema(
+                MetadataColumns.ROW_ID, MetadataColumns.LAST_UPDATED_SEQUENCE_NUMBER));
+    }
+
+    public static int getFormatVersion(Table table) {
+        int formatVersion = 2; // default format version : 2
+        if (table instanceof BaseTable) {
+            formatVersion = ((BaseTable) table).operations().current().formatVersion();
+        } else if (table != null && table.properties() != null) {
+            String version = table.properties().get(TableProperties.FORMAT_VERSION);
+            if (version != null) {
+                try {
+                    formatVersion = Integer.parseInt(version);
+                } catch (NumberFormatException ignored) {
+                    // keep default value
+                }
+            }
+        }
+        return formatVersion;
+    }
+
     public static String showCreateView(IcebergExternalTable icebergExternalTable) {
         return String.format("CREATE VIEW `%s` AS ", icebergExternalTable.getName())
                 +
                 icebergExternalTable.getViewText();
     }
 
-    public static IcebergManifestCache getManifestCache(ExternalCatalog catalog) {
-        return icebergMetadataCache(catalog).getManifestCache();
-    }
-
     public static boolean isManifestCacheEnabled(ExternalCatalog catalog) {
-        CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(),
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND,
-                IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
-                IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY);
+        CacheSpec spec = CacheSpec.fromProperties(catalog.getProperties(), CacheSpec.propertySpecBuilder()
+                .enable(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_ENABLE,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_ENABLE)
+                .ttl(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_TTL_SECOND,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_TTL_SECOND)
+                .capacity(IcebergExternalCatalog.ICEBERG_MANIFEST_CACHE_CAPACITY,
+                        IcebergExternalCatalog.DEFAULT_ICEBERG_MANIFEST_CACHE_CAPACITY)
+                .build());
         return CacheSpec.isCacheEnabled(spec.isEnable(), spec.getTtlSecond(), spec.getCapacity());
     }
 

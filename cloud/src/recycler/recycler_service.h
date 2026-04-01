@@ -44,10 +44,14 @@ public:
               ::doris::cloud::MetaServiceHttpResponse* response,
               ::google::protobuf::Closure* done) override;
 
-private:
     void statistics_recycle(StatisticsRecycleRequest& req, MetaServiceCode& code, std::string& msg);
 
     void check_instance(const std::string& instance_id, MetaServiceCode& code, std::string& msg);
+
+    std::shared_ptr<TxnKv> txn_kv() { return txn_kv_; }
+    Recycler* recycler() { return recycler_; }
+    Checker* checker() { return checker_; }
+    std::shared_ptr<TxnLazyCommitter> txn_lazy_committer() { return txn_lazy_committer_; }
 
 private:
     std::shared_ptr<TxnKv> txn_kv_;

@@ -191,6 +191,7 @@ public class RewriteTableCommand extends Command implements NeedAuditEncryption,
                 IcebergInsertCommandContext icebergInsertCtx = insertCtx
                         .map(c -> (IcebergInsertCommandContext) c)
                         .orElseGet(IcebergInsertCommandContext::new);
+                icebergInsertCtx.setRewriting(true);
                 branchName.ifPresent(notUsed -> icebergInsertCtx.setBranchName(branchName));
                 return ExecutorFactory.from(planner, dataSink, physicalSink,
                         () -> new IcebergRewriteExecutor(ctx, icebergExternalTable, label, planner,

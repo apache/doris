@@ -37,7 +37,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.util.AggregateUtils;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -163,15 +162,6 @@ public class SplitAggWithoutDistinct extends OneImplementationRuleFactory {
                 globalAggOutput, aggregate.getPartitionExpressions(), bufferToResultParam,
                 AggregateUtils.maybeUsingStreamAgg(aggregate.getGroupByExpressions(), bufferToResultParam),
                 aggregate.getLogicalProperties(), localAgg));
-    }
-
-    private boolean shouldUseLocalAgg(LogicalAggregate<? extends Plan> aggregate) {
-        Statistics aggStats = aggregate.getGroupExpression().get().getOwnerGroup().getStatistics();
-        Statistics aggChildStats = aggregate.getGroupExpression().get().childStatistics(0);
-        // if gbyNdv is high, should not use local agg
-        double rows = aggChildStats.getRowCount();
-        double gbyNdv = aggStats.getRowCount();
-        return gbyNdv * 10 < rows;
     }
 
     private boolean skipRegulator(LogicalAggregate<? extends Plan> aggregate) {

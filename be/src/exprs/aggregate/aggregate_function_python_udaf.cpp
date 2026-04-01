@@ -252,7 +252,9 @@ void AggregatePythonUDAF::create(AggregateDataPtr __restrict place) const {
                                        "Failed to convert argument type {} to Arrow type: {}", i,
                                        st.to_string());
             }
-            fields.push_back(arrow::field(std::to_string(i), arrow_type));
+            fields.push_back(create_arrow_field_with_metadata(
+                    std::to_string(i), arrow_type, argument_types[i]->is_nullable(),
+                    argument_types[i]->get_primitive_type()));
         }
 
         // Add places column for GROUP BY aggregation (always included, NULL in single-place mode)

@@ -55,7 +55,6 @@
 #include "runtime/thread_context.h"
 #include "runtime/workload_management/io_throttle.h"
 #include "service/backend_options.h"
-#include "storage/storage_policy.h"
 #include "util/bit_util.h"
 #include "util/brpc_client_cache.h" // BrpcClientCache
 #include "util/client_cache.h"
@@ -93,7 +92,8 @@ bvar::Adder<uint64_t> g_failed_get_peer_addr_counter(
 
 CachedRemoteFileReader::CachedRemoteFileReader(FileReaderSPtr remote_file_reader,
                                                const FileReaderOptions& opts)
-        : _remote_file_reader(std::move(remote_file_reader)) {
+        : _tablet_id(opts.tablet_id), _remote_file_reader(std::move(remote_file_reader)) {
+    DCHECK(!opts.is_doris_table || _tablet_id > 0);
     _is_doris_table = opts.is_doris_table;
     if (_is_doris_table) {
         _cache_hash = BlockFileCache::hash(path().filename().native());
@@ -159,29 +159,30 @@ std::pair<size_t, size_t> CachedRemoteFileReader::s_align_size(size_t offset, si
 }
 
 namespace {
-std::optional<int64_t> extract_tablet_id(const std::string& file_path) {
-    return StorageResource::parse_tablet_id_from_path(file_path);
+// Execute S3 read
+Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
+                       ReadStatistics& stats, const IOContext* io_ctx,
+                       FileReaderSPtr remote_file_reader) {
+    s3_read_counter << 1;
+    SCOPED_RAW_TIMER(&stats.remote_read_timer);
+    stats.from_peer_cache = false;
+    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
 }
 
 // Get peer connection info from tablet_id
-std::pair<std::string, int> get_peer_connection_info(const std::string& file_path) {
+std::pair<std::string, int> get_peer_connection_info(int64_t tablet_id,
+                                                     const std::string& file_path) {
     std::string host = "";
     int port = 0;
 
-    // Try to get tablet_id from actual path and lookup tablet info
-    if (auto tablet_id = extract_tablet_id(file_path)) {
-        auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
-        if (auto tablet_info = manager.get_balanced_tablet_info(*tablet_id)) {
-            host = tablet_info->first;
-            port = tablet_info->second;
-        } else {
-            LOG_EVERY_N(WARNING, 100)
-                    << "get peer connection info not found"
-                    << ", tablet_id=" << *tablet_id << ", file_path=" << file_path;
-        }
+    DCHECK(tablet_id > 0);
+    auto& manager = ExecEnv::GetInstance()->storage_engine().to_cloud().cloud_warm_up_manager();
+    if (auto tablet_info = manager.get_balanced_tablet_info(tablet_id)) {
+        host = tablet_info->first;
+        port = tablet_info->second;
     } else {
-        LOG_EVERY_N(WARNING, 100) << "parse tablet id from path failed"
-                                  << "tablet_id=null, file_path=" << file_path;
+        LOG_EVERY_N(WARNING, 100) << "get peer connection info not found"
+                                  << ", tablet_id=" << tablet_id << ", file_path=" << file_path;
     }
 
     DBUG_EXECUTE_IF("PeerFileCacheReader::_fetch_from_peer_cache_blocks", {
@@ -201,16 +202,15 @@ std::pair<std::string, int> get_peer_connection_info(const std::string& file_pat
 Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t empty_start,
                          size_t& size, std::unique_ptr<char[]>& buffer,
                          const std::string& file_path, size_t file_size, bool is_doris_table,
-                         ReadStatistics& stats, const IOContext* io_ctx) {
-    auto [host, port] = get_peer_connection_info(file_path);
+                         int64_t tablet_id, ReadStatistics& stats, const IOContext* io_ctx) {
+    auto [host, port] = get_peer_connection_info(tablet_id, file_path);
     VLOG_DEBUG << "PeerFileCacheReader read from peer, host=" << host << ", port=" << port
                << ", file_path=" << file_path;
 
     if (host.empty() || port == 0) {
         g_failed_get_peer_addr_counter << 1;
-        LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader host or port is empty"
-                                  << ", host=" << host << ", port=" << port
-                                  << ", file_path=" << file_path;
+        VLOG_DEBUG << "PeerFileCacheReader host or port is empty"
+                   << ", host=" << host << ", port=" << port << ", file_path=" << file_path;
         return Status::InternalError<false>("host or port is empty");
     }
     SCOPED_RAW_TIMER(&stats.peer_read_timer);
@@ -219,22 +219,11 @@ Status execute_peer_read(const std::vector<FileBlockSPtr>& empty_blocks, size_t 
     auto st = peer_reader.fetch_blocks(empty_blocks, empty_start, Slice(buffer.get(), size), &size,
                                        file_size, io_ctx);
     if (!st.ok()) {
-        LOG_EVERY_N(WARNING, 100) << "PeerFileCacheReader read from peer failed"
-                                  << ", host=" << host << ", port=" << port
-                                  << ", error=" << st.msg();
+        VLOG_DEBUG << "PeerFileCacheReader read from peer failed"
+                   << ", host=" << host << ", port=" << port << ", error=" << st.msg();
     }
     stats.from_peer_cache = true;
     return st;
-}
-
-// Execute S3 read
-Status execute_s3_read(size_t empty_start, size_t& size, std::unique_ptr<char[]>& buffer,
-                       ReadStatistics& stats, const IOContext* io_ctx,
-                       FileReaderSPtr remote_file_reader) {
-    s3_read_counter << 1;
-    SCOPED_RAW_TIMER(&stats.remote_read_timer);
-    stats.from_peer_cache = false;
-    return remote_file_reader->read_at(empty_start, Slice(buffer.get(), size), &size, io_ctx);
 }
 
 } // anonymous namespace
@@ -258,7 +247,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
             return execute_s3_read(empty_start, size, buffer, stats, io_ctx, _remote_file_reader);
         } else {
             return execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
-                                     this->size(), _is_doris_table, stats, io_ctx);
+                                     this->size(), _is_doris_table, _tablet_id, stats, io_ctx);
         }
     });
 
@@ -272,7 +261,7 @@ Status CachedRemoteFileReader::_execute_remote_read(const std::vector<FileBlockS
         // ATTN: Save original size before peer read, as it may be modified by fetch_blocks, read peer ref size
         size_t original_size = size;
         auto st = execute_peer_read(empty_blocks, empty_start, size, buffer, path().native(),
-                                    this->size(), _is_doris_table, stats, io_ctx);
+                                    this->size(), _is_doris_table, _tablet_id, stats, io_ctx);
         if (!st.ok()) {
             // Restore original size for S3 fallback, as peer read may have modified it
             size = original_size;
@@ -389,8 +378,7 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result, size_t*
             s_align_size(offset + already_read, bytes_req - already_read, size());
     CacheContext cache_context(io_ctx);
     cache_context.stats = &stats;
-    auto tablet_id = get_tablet_id(path().string());
-    cache_context.tablet_id = tablet_id.value_or(0);
+    cache_context.tablet_id = _tablet_id;
     MonotonicStopWatch sw;
     sw.start();
 

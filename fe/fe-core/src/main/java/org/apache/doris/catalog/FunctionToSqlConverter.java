@@ -22,7 +22,6 @@ import org.apache.doris.analysis.ExprToSqlVisitor;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.ToSqlParams;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -71,7 +70,7 @@ public class FunctionToSqlConverter {
             sb.append(",\n  \"CLOSE_FN\"=").append("\"" + fn.getCloseFnSymbol() + "\"");
         }
 
-        if (fn.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.JAVA_UDF) {
             sb.append(",\n  \"FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\"");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;
@@ -106,7 +105,7 @@ public class FunctionToSqlConverter {
         }
 
         sb.append(" PROPERTIES (");
-        if (fn.getBinaryType() != TFunctionBinaryType.JAVA_UDF) {
+        if (fn.getBinaryType() != Function.BinaryType.JAVA_UDF) {
             sb.append("\n  \"INIT_FN\"=\"" + fn.getInitFnSymbol() + "\",")
                     .append("\n  \"UPDATE_FN\"=\"" + fn.getUpdateFnSymbol() + "\",")
                     .append("\n  \"MERGE_FN\"=\"" + fn.getMergeFnSymbol() + "\",");
@@ -121,7 +120,7 @@ public class FunctionToSqlConverter {
             sb.append("\n  \"SYMBOL\"=\"" + fn.getSymbolName() + "\",");
         }
 
-        if (fn.getBinaryType() == TFunctionBinaryType.JAVA_UDF) {
+        if (fn.getBinaryType() == Function.BinaryType.JAVA_UDF) {
             sb.append("\n  \"FILE\"=")
                     .append("\"" + (fn.getLocation() == null ? "" : fn.getLocation().toString()) + "\",");
             boolean isReturnNull = fn.getNullableMode() == NullableMode.ALWAYS_NULLABLE;

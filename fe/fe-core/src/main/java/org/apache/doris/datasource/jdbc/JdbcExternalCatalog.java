@@ -20,8 +20,6 @@ package org.apache.doris.datasource.jdbc;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
-import org.apache.doris.catalog.JdbcTable;
-import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -45,12 +43,15 @@ import org.apache.doris.resource.computegroup.ComputeGroupMgr;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.thrift.TJdbcTable;
 import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TOdbcTableType;
 import org.apache.doris.thrift.TStatusCode;
+import org.apache.doris.thrift.TTableDescriptor;
+import org.apache.doris.thrift.TTableType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.protobuf.ByteString;
 import org.apache.commons.lang3.StringUtils;
@@ -353,28 +354,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return jdbcClient.getColumnsFromQuery(query);
     }
 
-    public void configureJdbcTable(JdbcTable jdbcTable, String tableName) {
-        makeSureInitialized();
-        setCommonJdbcTableProperties(jdbcTable, tableName, this.jdbcClient);
-    }
 
-    private void setCommonJdbcTableProperties(JdbcTable jdbcTable, String tableName, JdbcClient jdbcClient) {
-        jdbcTable.setCatalogId(this.getId());
-        jdbcTable.setExternalTableName(tableName);
-        jdbcTable.setJdbcTypeName(jdbcClient.getDbType());
-        jdbcTable.setJdbcUrl(this.getJdbcUrl());
-        jdbcTable.setJdbcUser(this.getJdbcUser());
-        jdbcTable.setJdbcPasswd(this.getJdbcPasswd());
-        jdbcTable.setDriverClass(this.getDriverClass());
-        jdbcTable.setDriverUrl(this.getDriverUrl());
-        jdbcTable.setCheckSum(this.getCheckSum());
-        jdbcTable.setResourceName("");
-        jdbcTable.setConnectionPoolMinSize(this.getConnectionPoolMinSize());
-        jdbcTable.setConnectionPoolMaxSize(this.getConnectionPoolMaxSize());
-        jdbcTable.setConnectionPoolMaxLifeTime(this.getConnectionPoolMaxLifeTime());
-        jdbcTable.setConnectionPoolMaxWaitTime(this.getConnectionPoolMaxWaitTime());
-        jdbcTable.setConnectionPoolKeepAlive(this.isConnectionPoolKeepAlive());
-    }
 
     private void testJdbcConnection() throws DdlException {
         if (FeConstants.runningUnitTest) {
@@ -427,10 +407,11 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
         TNetworkAddress address = new TNetworkAddress(aliveBe.getHost(), aliveBe.getBrpcPort());
         try {
-            JdbcTable testTable = getTestConnectionJdbcTable(testClient);
+            TTableDescriptor testThrift = buildTestConnectionThrift();
+            TOdbcTableType tableType = JdbcExternalTable.parseJdbcType(testClient.getDbType());
             PJdbcTestConnectionRequest request = InternalService.PJdbcTestConnectionRequest.newBuilder()
-                    .setJdbcTable(ByteString.copyFrom(new TSerializer().serialize(testTable.toThrift())))
-                    .setJdbcTableType(testTable.getJdbcTableType().getValue())
+                    .setJdbcTable(ByteString.copyFrom(new TSerializer().serialize(testThrift)))
+                    .setJdbcTableType(tableType.getValue())
                     .setQueryStr(testClient.getTestQuery()).build();
             InternalService.PJdbcTestConnectionResult result = null;
             Future<PJdbcTestConnectionResult> future = BackendServiceProxy.getInstance()
@@ -445,14 +426,26 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         }
     }
 
-    private JdbcTable getTestConnectionJdbcTable(JdbcClient testClient) throws DdlException {
-        JdbcTable testTable = new JdbcTable(0, "test_jdbc_connection", Lists.newArrayList(),
-                TableType.JDBC_EXTERNAL_TABLE);
-        setCommonJdbcTableProperties(testTable, "test_jdbc_connection", testClient);
-        // Special checksum computation
-        testTable.setCheckSum(JdbcResource.computeObjectChecksum(this.getDriverUrl()));
-
-        return testTable;
+    private TTableDescriptor buildTestConnectionThrift() throws DdlException {
+        TJdbcTable tJdbcTable = new TJdbcTable();
+        tJdbcTable.setCatalogId(this.getId());
+        tJdbcTable.setJdbcUrl(getJdbcUrl());
+        tJdbcTable.setJdbcUser(getJdbcUser());
+        tJdbcTable.setJdbcPassword(getJdbcPasswd());
+        tJdbcTable.setJdbcTableName("test_jdbc_connection");
+        tJdbcTable.setJdbcDriverClass(getDriverClass());
+        tJdbcTable.setJdbcDriverUrl(getDriverUrl());
+        tJdbcTable.setJdbcResourceName("");
+        tJdbcTable.setJdbcDriverChecksum(JdbcResource.computeObjectChecksum(getDriverUrl()));
+        tJdbcTable.setConnectionPoolMinSize(getConnectionPoolMinSize());
+        tJdbcTable.setConnectionPoolMaxSize(getConnectionPoolMaxSize());
+        tJdbcTable.setConnectionPoolMaxWaitTime(getConnectionPoolMaxWaitTime());
+        tJdbcTable.setConnectionPoolMaxLifeTime(getConnectionPoolMaxLifeTime());
+        tJdbcTable.setConnectionPoolKeepAlive(isConnectionPoolKeepAlive());
+        TTableDescriptor tTableDescriptor = new TTableDescriptor(0, TTableType.JDBC_TABLE, 0, 0,
+                "test_jdbc_connection", "");
+        tTableDescriptor.setJdbcTable(tJdbcTable);
+        return tTableDescriptor;
     }
 
     public ExternalFunctionRules getFunctionRules() {

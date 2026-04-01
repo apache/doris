@@ -20,36 +20,70 @@
 
 #include "util/io_helper.h"
 
+#include "core/binary_cast.hpp"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
+#include "exprs/function/cast/cast_to_datetimev2_impl.hpp"
+#include "exprs/function/cast/cast_to_datev2_impl.hpp"
+
 namespace doris {
 bool read_date_text_impl(VecDateTimeValue& x, const StringRef& buf) {
-    auto ans = x.from_date_str(buf.data, buf.size);
+    CastParameters params;
+    auto ans = CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+            buf, x, nullptr, params);
     x.cast_to_date();
     return ans;
 }
 
 bool read_datetime_text_impl(VecDateTimeValue& x, const StringRef& buf) {
-    auto ans = x.from_date_str(buf.data, buf.size);
+    CastParameters params;
+    auto ans = CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+            buf, x, nullptr, params);
     x.to_datetime();
     return ans;
 }
 
+bool read_date_text_impl(Int64& x, const StringRef& buf, const cctz::time_zone& local_time_zone) {
+    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
+    CastParameters params;
+    auto ans = CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE>(
+            buf, dv, &local_time_zone, params);
+    dv.cast_to_date();
+    x = binary_cast<VecDateTimeValue, Int64>(dv);
+    return ans;
+}
+
+bool read_datetime_text_impl(Int64& x, const StringRef& buf,
+                             const cctz::time_zone& local_time_zone) {
+    auto dv = binary_cast<Int64, VecDateTimeValue>(x);
+    CastParameters params;
+    auto ans = CastToDateOrDatetime::from_string_non_strict_mode<DatelikeTargetType::DATE_TIME>(
+            buf, dv, &local_time_zone, params);
+    dv.to_datetime();
+    x = binary_cast<VecDateTimeValue, Int64>(dv);
+    return ans;
+}
+
 bool read_date_v2_text_impl(DateV2Value<DateV2ValueType>& x, const StringRef& buf) {
-    return x.from_date_str(buf.data, (int)buf.size, config::allow_zero_date);
+    CastParameters params;
+    return CastToDateV2::from_string_non_strict_mode(buf, x, nullptr, params);
 }
 
 bool read_date_v2_text_impl(DateV2Value<DateV2ValueType>& x, const StringRef& buf,
                             const cctz::time_zone& local_time_zone) {
-    return x.from_date_str(buf.data, buf.size, local_time_zone, config::allow_zero_date);
+    CastParameters params;
+    return CastToDateV2::from_string_non_strict_mode(buf, x, &local_time_zone, params);
 }
 
 bool read_datetime_v2_text_impl(DateV2Value<DateTimeV2ValueType>& x, const StringRef& buf,
                                 UInt32 scale) {
-    return x.from_date_str(buf.data, (int)buf.size, scale, config::allow_zero_date);
+    CastParameters params;
+    return CastToDatetimeV2::from_string_non_strict_mode(buf, x, nullptr, scale, params);
 }
 
 bool read_datetime_v2_text_impl(DateV2Value<DateTimeV2ValueType>& x, const StringRef& buf,
                                 const cctz::time_zone& local_time_zone, UInt32 scale) {
-    return x.from_date_str(buf.data, buf.size, local_time_zone, scale, config::allow_zero_date);
+    CastParameters params;
+    return CastToDatetimeV2::from_string_non_strict_mode(buf, x, &local_time_zone, scale, params);
 }
 
 } // namespace doris

@@ -43,6 +43,7 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
         // create test
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
             // sql """CREATE SCHEMA IF NOT EXISTS ${pgSchema}"""
+            sql """CREATE EXTENSION IF NOT EXISTS hstore"""
             sql """DROP TABLE IF EXISTS ${pgDB}.${pgSchema}.${table1}"""
             sql """
             create table ${pgDB}.${pgSchema}.${table1} (
@@ -74,12 +75,15 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
                 bit_varying_col     bit varying(16),
                 int_array_col       integer[],
                 text_array_col      text[],
-                point_col           point
+                point_col           point,
+                macaddr8_col        macaddr8,
+                xml_col             xml,
+                hstore_col          hstore
             );
             """
             // mock snapshot data
             sql """
-            INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (1,1,100,1000,1.23,4.56,12345.678901,'char','varchar','text value',true,'2024-01-01','12:00:00','12:00:00+08','2024-01-01 12:00:00','2024-01-01 12:00:00+08','1 day',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555555'::uuid,'{"a":1}','{"b":2}','192.168.1.1','192.168.0.0/24','08:00:2b:01:02:03',B'10101010',B'1010',ARRAY[1,2,3],ARRAY['a','b','c'],'(1,2)');
+            INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (1,1,100,1000,1.23,4.56,12345.678901,'char','varchar','text value',true,'2024-01-01','12:00:00','12:00:00+08','2024-01-01 12:00:00','2024-01-01 12:00:00+08','1 day',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555555'::uuid,'{"a":1}','{"b":2}','192.168.1.1','192.168.0.0/24','08:00:2b:01:02:03',B'10101010',B'1010',ARRAY[1,2,3],ARRAY['a','b','c'],'(1,2)','08:00:2b:01:02:03:04:05'::macaddr8,'<root><item>1</item></root>'::xml,'a=>1,b=>2'::hstore);
             """
         }
 
@@ -125,7 +129,7 @@ suite("test_streaming_postgres_job_all_type", "p0,external,pg,external_docker,ex
 
         // mock incremental into
         connect("${pgUser}", "${pgPassword}", "jdbc:postgresql://${externalEnvIp}:${pg_port}/${pgDB}") {
-            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (2,2,200,2000,7.89,0.12,99999.000001,'char2','varchar2','another text',false,'2025-01-01','23:59:59','23:59:59+00','2025-01-01 23:59:59','2025-01-01 23:59:59+00','2 hours',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555556'::uuid,'{"x":10}','{"y":20}','10.0.0.1','10.0.0.0/16','08:00:2b:aa:bb:cc',B'11110000',B'1111',ARRAY[10,20],ARRAY['x','y'],'(3,4)');"""
+            sql """INSERT INTO ${pgDB}.${pgSchema}.${table1} VALUES (2,2,200,2000,7.89,0.12,99999.000001,'char2','varchar2','another text',false,'2025-01-01','23:59:59','23:59:59+00','2025-01-01 23:59:59','2025-01-01 23:59:59+00','2 hours',decode('DEADBEEF', 'hex'),'11111111-2222-3333-4444-555555555556'::uuid,'{"x":10}','{"y":20}','10.0.0.1','10.0.0.0/16','08:00:2b:aa:bb:cc',B'11110000',B'1111',ARRAY[10,20],ARRAY['x','y'],'(3,4)','08:00:2b:aa:bb:cc:dd:ee'::macaddr8,'<root><item>2</item></root>'::xml,'x=>10,y=>20'::hstore);"""
         }
 
         sleep(60000); // wait for cdc incremental data
