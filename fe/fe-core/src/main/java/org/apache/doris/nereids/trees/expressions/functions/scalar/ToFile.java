@@ -20,7 +20,6 @@ package org.apache.doris.nereids.trees.expressions.functions.scalar;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.FileType;
@@ -33,18 +32,21 @@ import java.util.List;
 
 /**
  * ScalarFunction 'to_file'.
+ * Overload: to_file(url, endpoint, role_arn) — construct FILE with auth info (no HTTP).
  */
-public class ToFile extends ScalarFunction implements UnaryExpression, ExplicitlyCastableSignature, PropagateNullable {
+public class ToFile extends ScalarFunction
+        implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(FileType.INSTANCE).args(StringType.INSTANCE)
+            FunctionSignature.ret(FileType.INSTANCE).args(
+                    StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
-     * constructor with 1 argument: the object URL (may include auth info).
+     * constructor with 3 arguments: object URL, endpoint, role_arn.
      */
-    public ToFile(Expression arg0) {
-        super("to_file", arg0);
+    public ToFile(Expression arg0, Expression arg1, Expression arg2) {
+        super("to_file", arg0, arg1, arg2);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -54,7 +56,7 @@ public class ToFile extends ScalarFunction implements UnaryExpression, Explicitl
 
     @Override
     public ToFile withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 1);
+        Preconditions.checkArgument(children.size() == 3);
         return new ToFile(getFunctionParams(children));
     }
 

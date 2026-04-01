@@ -19,6 +19,7 @@
 
 #include "core/assert_cast.h"
 #include "core/column/column_file.h"
+#include "core/column/column_string.h"
 
 namespace doris {
 
@@ -57,8 +58,8 @@ Status DataTypeFileSerDe::serialize_one_cell_to_json(const IColumn& column, int6
 Status DataTypeFileSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
                                                    int64_t end_idx, BufferWritable& bw,
                                                    FormatOptions& options) const {
-    return _physical_serde->serialize_column_to_json(get_physical_column(column), start_idx, end_idx,
-                                                     bw, options);
+    return _physical_serde->serialize_column_to_json(get_physical_column(column), start_idx,
+                                                     end_idx, bw, options);
 }
 
 Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
@@ -67,9 +68,10 @@ Status DataTypeFileSerDe::deserialize_one_cell_from_json(IColumn& column, Slice&
                                                            options);
 }
 
-Status DataTypeFileSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
-        const FormatOptions& options) const {
+Status DataTypeFileSerDe::deserialize_column_from_json_vector(IColumn& column,
+                                                              std::vector<Slice>& slices,
+                                                              uint64_t* num_deserialized,
+                                                              const FormatOptions& options) const {
     return _physical_serde->deserialize_column_from_json_vector(get_physical_column(column), slices,
                                                                 num_deserialized, options);
 }
@@ -92,8 +94,8 @@ Status DataTypeFileSerDe::deserialize_column_from_hive_text_vector(
 Status DataTypeFileSerDe::serialize_one_cell_to_hive_text(
         const IColumn& column, int64_t row_num, BufferWritable& bw, FormatOptions& options,
         int hive_text_complex_type_delimiter_level) const {
-    return _physical_serde->serialize_one_cell_to_hive_text(get_physical_column(column), row_num, bw,
-                                                            options,
+    return _physical_serde->serialize_one_cell_to_hive_text(get_physical_column(column), row_num,
+                                                            bw, options,
                                                             hive_text_complex_type_delimiter_level);
 }
 
@@ -101,6 +103,17 @@ Status DataTypeFileSerDe::serialize_column_to_jsonb(const IColumn& from_column, 
                                                     JsonbWriter& writer) const {
     return _physical_serde->serialize_column_to_jsonb(get_physical_column(from_column), row_num,
                                                       writer);
+}
+
+Status DataTypeFileSerDe::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                           ColumnString& to_column) const {
+    const auto& physical_col = get_physical_column(from_column);
+    const auto& jsonb_col = assert_cast<const ColumnString&>(physical_col);
+    for (size_t i = 0; i < jsonb_col.size(); ++i) {
+        StringRef ref = jsonb_col.get_data_at(i);
+        to_column.insert_data(ref.data, ref.size);
+    }
+    return Status::OK();
 }
 
 Status DataTypeFileSerDe::deserialize_column_from_jsonb(IColumn& column,
@@ -141,15 +154,15 @@ Status DataTypeFileSerDe::write_column_to_mysql_binary(const IColumn& column,
 Status DataTypeFileSerDe::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                                 arrow::ArrayBuilder* array_builder, int64_t start,
                                                 int64_t end, const cctz::time_zone& ctz) const {
-    return _physical_serde->write_column_to_arrow(get_physical_column(column), null_map, array_builder,
-                                                  start, end, ctz);
+    return _physical_serde->write_column_to_arrow(get_physical_column(column), null_map,
+                                                  array_builder, start, end, ctz);
 }
 
 Status DataTypeFileSerDe::read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array,
                                                  int64_t start, int64_t end,
                                                  const cctz::time_zone& ctz) const {
-    return _physical_serde->read_column_from_arrow(get_physical_column(column), arrow_array, start, end,
-                                                   ctz);
+    return _physical_serde->read_column_from_arrow(get_physical_column(column), arrow_array, start,
+                                                   end, ctz);
 }
 
 Status DataTypeFileSerDe::write_column_to_orc(const std::string& timezone, const IColumn& column,

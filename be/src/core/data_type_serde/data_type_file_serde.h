@@ -55,6 +55,8 @@ public:
             int hive_text_complex_type_delimiter_level = 1) const override;
     Status serialize_column_to_jsonb(const IColumn& from_column, int64_t row_num,
                                      JsonbWriter& writer) const override;
+    Status serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                            ColumnString& to_column) const override;
     Status deserialize_column_from_jsonb(IColumn& column, const JsonbValue* jsonb_value,
                                          CastParameters& castParms) const override;
     Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,

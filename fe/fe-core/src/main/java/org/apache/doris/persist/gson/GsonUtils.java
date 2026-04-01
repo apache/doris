@@ -78,6 +78,8 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
+import org.apache.doris.catalog.FileType;
+import org.apache.doris.catalog.FilesetTable;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionGenTable;
 import org.apache.doris.catalog.HMSResource;
@@ -259,6 +261,7 @@ public class GsonUtils {
             // TODO: register other sub type after Doris support more types.
             .registerSubtype(ScalarType.class, ScalarType.class.getSimpleName())
             .registerSubtype(ArrayType.class, ArrayType.class.getSimpleName())
+            .registerSubtype(FileType.class, FileType.class.getSimpleName())
             .registerSubtype(MapType.class, MapType.class.getSimpleName())
             .registerSubtype(StructType.class, StructType.class.getSimpleName())
             .registerSubtype(AggStateType.class, AggStateType.class.getSimpleName())
@@ -470,6 +473,7 @@ public class GsonUtils {
             .registerCompatibleSubtype(
                     PluginDrivenExternalTable.class, "JdbcExternalTable")
             .registerSubtype(BrokerTable.class, BrokerTable.class.getSimpleName())
+            .registerSubtype(FilesetTable.class, FilesetTable.class.getSimpleName())
             .registerSubtype(EsTable.class, EsTable.class.getSimpleName())
             .registerSubtype(FunctionGenTable.class, FunctionGenTable.class.getSimpleName())
             .registerSubtype(HiveTable.class, HiveTable.class.getSimpleName())

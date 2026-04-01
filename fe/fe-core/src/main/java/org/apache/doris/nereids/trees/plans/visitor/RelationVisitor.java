@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilesetScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -38,6 +39,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalCatalogRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilesetScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHudiScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -121,6 +123,10 @@ public interface RelationVisitor<R, C> {
         return visitLogicalCatalogRelation(schemaScan, context);
     }
 
+    default R visitLogicalFilesetScan(LogicalFilesetScan filesetScan, C context) {
+        return visitLogicalCatalogRelation(filesetScan, context);
+    }
+
     default R visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, C context) {
         return visitLogicalRelation(tvfRelation, context);
     }
@@ -172,6 +178,10 @@ public interface RelationVisitor<R, C> {
 
     default R visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, C context) {
         return visitPhysicalCatalogRelation(schemaScan, context);
+    }
+
+    default R visitPhysicalFilesetScan(PhysicalFilesetScan filesetScan, C context) {
+        return visitPhysicalCatalogRelation(filesetScan, context);
     }
 
     default R visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, C context) {

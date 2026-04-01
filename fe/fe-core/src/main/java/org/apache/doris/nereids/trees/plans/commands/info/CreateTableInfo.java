@@ -76,6 +76,7 @@ import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.VariantField;
 import org.apache.doris.nereids.types.VariantType;
 import org.apache.doris.nereids.util.TypeCoercionUtils;
@@ -119,6 +120,7 @@ public class CreateTableInfo {
     public static final String ENGINE_ODBC = "odbc";
     public static final String ENGINE_MYSQL = "mysql";
     public static final String ENGINE_BROKER = "broker";
+    public static final String ENGINE_FILESET = "fileset";
     public static final String ENGINE_HIVE = "hive";
     public static final String ENGINE_ICEBERG = "iceberg";
     public static final String ENGINE_PAIMON = "paimon";
@@ -941,7 +943,8 @@ public class CreateTableInfo {
         if (engineName.equals(ENGINE_MYSQL) || engineName.equals(ENGINE_ODBC) || engineName.equals(ENGINE_BROKER)
                 || engineName.equals(ENGINE_ELASTICSEARCH) || engineName.equals(ENGINE_HIVE)
                 || engineName.equals(ENGINE_ICEBERG) || engineName.equals(ENGINE_JDBC)
-                || engineName.equals(ENGINE_PAIMON) || engineName.equals(ENGINE_MAXCOMPUTE)) {
+                || engineName.equals(ENGINE_PAIMON) || engineName.equals(ENGINE_MAXCOMPUTE)
+                || engineName.equals(ENGINE_FILESET)) {
             if (!isExternal) {
                 // this is for compatibility
                 isExternal = true;
@@ -1117,6 +1120,8 @@ public class CreateTableInfo {
             if (distributionDesc != null) {
                 throw new AnalysisException("could not support distribution clause");
             }
+        } else if (engineName.equals(ENGINE_FILESET)) {
+            validateFilesetTable();
         } else if (!engineName.equals(ENGINE_OLAP)) {
             if (!engineName.equals(ENGINE_HIVE) && !engineName.equals(ENGINE_MAXCOMPUTE)
                     && distributionDesc != null) {
@@ -1134,6 +1139,31 @@ public class CreateTableInfo {
 
     public void setIsExternal(boolean isExternal) {
         this.isExternal = isExternal;
+    }
+
+    private void validateFilesetTable() {
+        if (columns.size() != 1) {
+            throw new AnalysisException(
+                    "Fileset table must have exactly one column of FILE type, but got " + columns.size() + " columns");
+        }
+        ColumnDefinition col = columns.get(0);
+        if (!(col.getType() instanceof FileType)) {
+            throw new AnalysisException(
+                    "Fileset table column must be of FILE type, but got: " + col.getType().toSql());
+        }
+        if (!col.isNullable()) {
+            throw new AnalysisException("Fileset table column must be NULLABLE");
+        }
+        if (properties == null || !properties.containsKey("location")) {
+            throw new AnalysisException(
+                    "Fileset table must specify 'location' property (e.g., location = 's3://bucket/path/*')");
+        }
+        if (distributionDesc != null) {
+            throw new AnalysisException("Fileset table should not contain distribution desc");
+        }
+        if (partitionDesc != null) {
+            throw new AnalysisException("Fileset table should not contain partition desc");
+        }
     }
 
     private void generatedColumnCommonCheck() {

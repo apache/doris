@@ -30,6 +30,7 @@ import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.DecimalV3Type;
 import org.apache.doris.nereids.types.DoubleType;
+import org.apache.doris.nereids.types.FileType;
 import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IPv4Type;
 import org.apache.doris.nereids.types.IPv6Type;
@@ -70,7 +71,8 @@ public class ToJson extends ScalarFunction
             FunctionSignature.ret(JsonType.INSTANCE).args(IPv4Type.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(IPv6Type.INSTANCE),
             FunctionSignature.ret(JsonType.INSTANCE).args(TimeV2Type.WILDCARD),
-            FunctionSignature.ret(JsonType.INSTANCE).args(StringType.INSTANCE));
+            FunctionSignature.ret(JsonType.INSTANCE).args(StringType.INSTANCE),
+            FunctionSignature.ret(JsonType.INSTANCE).args(FileType.INSTANCE));
 
     /**
      * constructor with 1 or more arguments.

@@ -139,6 +139,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilesetScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -202,6 +203,7 @@ import org.apache.doris.planner.DistributionMode;
 import org.apache.doris.planner.EmptySetNode;
 import org.apache.doris.planner.ExceptNode;
 import org.apache.doris.planner.ExchangeNode;
+import org.apache.doris.planner.FilesetScanNode;
 import org.apache.doris.planner.GroupCommitBlockSink;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HiveTableSink;
@@ -1095,6 +1097,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, schemaScan);
         context.addPlanFragment(planFragment);
         updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), schemaScan);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalFilesetScan(PhysicalFilesetScan filesetScan, PlanTranslatorContext context) {
+        List<Slot> slots = ImmutableList.copyOf(filesetScan.getOutput());
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slots, filesetScan.getTable(), context);
+        FilesetScanNode scanNode = new FilesetScanNode(context.nextPlanNodeId(), tupleDescriptor,
+                context.getScanContext());
+        scanNode.setNereidsId(filesetScan.getId());
+        context.getNereidsIdToPlanNodeIdMap().put(filesetScan.getId(), scanNode.getId());
+        translateRuntimeFilter(filesetScan, scanNode, context);
+        context.addScanNode(scanNode, filesetScan);
+        PlanFragment planFragment = createPlanFragment(scanNode, DataPartition.RANDOM, filesetScan);
+        context.addPlanFragment(planFragment);
+        updateLegacyPlanIdToPhysicalPlan(planFragment.getPlanRoot(), filesetScan);
         return planFragment;
     }
 

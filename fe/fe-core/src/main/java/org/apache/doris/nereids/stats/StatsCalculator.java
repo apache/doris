@@ -78,6 +78,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilesetScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
@@ -112,6 +113,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilesetScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -851,6 +853,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     }
 
     @Override
+    public Statistics visitLogicalFilesetScan(LogicalFilesetScan filesetScan, Void context) {
+        return computeCatalogRelation(filesetScan);
+    }
+
+    @Override
     public Statistics visitLogicalFileScan(LogicalFileScan fileScan, Void context) {
         return computeCatalogRelation(fileScan);
     }
@@ -1050,6 +1057,11 @@ public class StatsCalculator extends DefaultPlanVisitor<Statistics, Void> {
     @Override
     public Statistics visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, Void context) {
         return computeCatalogRelation(schemaScan);
+    }
+
+    @Override
+    public Statistics visitPhysicalFilesetScan(PhysicalFilesetScan filesetScan, Void context) {
+        return computeCatalogRelation(filesetScan);
     }
 
     @Override

@@ -27,55 +27,27 @@
 #include "core/column/column_file.h"
 #include "core/column/column_string.h"
 #include "core/data_type/data_type_file.h"
-#include "core/data_type/primitive_type.h"
 #include "core/data_type/data_type_string.h"
 #include "core/data_type/file_schema_descriptor.h"
 #include "exprs/function/simple_function_factory.h"
-#include "service/http/ev_http_server.h"
-#include "service/http/http_channel.h"
-#include "service/http/http_handler.h"
-#include "service/http/http_headers.h"
-#include "service/http/http_request.h"
 #include "testutil/column_helper.h"
 #include "util/jsonb_utils.h"
 
 namespace doris {
 
-namespace {
-
-class ToFileMetadataHandler : public HttpHandler {
-public:
-    void handle(HttpRequest* req) override {
-        req->add_output_header(HttpHeaders::ETAG, "\"etag-123\"");
-        req->add_output_header(HttpHeaders::LAST_MODIFIED, "Fri, 01 Mar 2024 10:00:00 GMT");
-        if (req->method() == HttpMethod::HEAD) {
-            HttpChannel::send_reply(req, HttpStatus::FORBIDDEN, "signature mismatch");
-            return;
-        }
-
-        EXPECT_EQ(req->header(HttpHeaders::RANGE), "bytes=0-0");
-        req->add_output_header(HttpHeaders::CONTENT_RANGE, "bytes 0-0/123");
-        req->add_output_header(HttpHeaders::CONTENT_LENGTH, "1");
-        HttpChannel::send_reply(req, HttpStatus::PARTIAL_CONTENT, "x");
-    }
-};
-
-} // namespace
-
 TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
-    EvHttpServer server(0);
-    ToFileMetadataHandler handler;
-    server.register_handler(HEAD, "/bucket/path/image.JPG", &handler);
-    server.register_handler(GET, "/bucket/path/image.JPG", &handler);
-    server.start();
-    std::string object_url = "http://127.0.0.1:" + std::to_string(server.get_real_port()) +
-                             "/bucket/path/image.JPG?X-Amz-Signature=test-signature";
+    const std::string object_url = "s3://bench-dataset/ssb/sf1/customer/customer.tbl";
+    const std::string endpoint = "http://oss-cn-beijing.aliyuncs.com";
+    const std::string role_arn = "arn:aws:iam::543815668950:role/test-role";
 
     auto string_type = std::make_shared<DataTypeString>();
     ColumnsWithTypeAndName arguments {
-            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>(
-                                           {object_url}),
-                                   string_type, "object_url"}};
+            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({object_url}),
+                                   string_type, "object_url"},
+            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({endpoint}),
+                                   string_type, "endpoint"},
+            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({role_arn}),
+                                   string_type, "role_arn"}};
 
     auto result_type = std::make_shared<DataTypeFile>();
     auto function =
@@ -85,18 +57,20 @@ TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
     Block block(arguments);
     block.insert(ColumnWithTypeAndName {nullptr, result_type, "result"});
 
-    Status status = function->execute(nullptr, block, {0}, 1, 1);
+    Status status = function->execute(nullptr, block, {0, 1, 2}, 3, 1);
     ASSERT_TRUE(status.ok()) << status;
 
-    const auto& result_column = assert_cast<const ColumnFile&>(*block.get_by_position(1).column);
+    const auto& result_column = assert_cast<const ColumnFile&>(*block.get_by_position(3).column);
     const auto& jsonb_column = assert_cast<const ColumnString&>(result_column.get_jsonb_column());
     ASSERT_EQ(result_column.size(), 1);
     EXPECT_EQ(JsonbToJson::jsonb_to_json_string(jsonb_column.get_data_at(0).data,
                                                 jsonb_column.get_data_at(0).size),
               "{\"object_uri\":\"" + object_url +
-                      "\",\"file_name\":\"image.JPG\",\"file_extension\":\".jpg\","
-                      "\"size\":123,\"etag\":\"etag-123\","
-                      "\"last_modified_at\":\"2024-03-01 10:00:00\"}");
+                      "\",\"file_name\":\"customer.tbl\",\"content_type\":\"text/plain\","
+                      "\"size\":-1,\"etag\":null,"
+                      "\"last_modified_at\":\"1970-01-01 00:00:00.000\","
+                      "\"region\":null,\"endpoint\":\"" +
+                      endpoint + "\",\"role_arn\":\"" + role_arn + "\"}");
     EXPECT_TRUE(result_column.check_schema(FileSchemaDescriptor::instance()).ok());
 
     const auto& file_type = assert_cast<const DataTypeFile&>(*result_type);
@@ -106,6 +80,9 @@ TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
     EXPECT_EQ(file_type.schema().field(3).type->get_name(), "BIGINT");
     EXPECT_EQ(file_type.schema().field(4).type->get_name(), "Nullable(String)");
     EXPECT_EQ(file_type.schema().field(5).type->get_name(), "DateTimeV2(3)");
+    EXPECT_EQ(file_type.schema().field(6).type->get_name(), "Nullable(String)");
+    EXPECT_EQ(file_type.schema().field(7).type->get_name(), "Nullable(String)");
+    EXPECT_EQ(file_type.schema().field(8).type->get_name(), "Nullable(String)");
 }
 
 } // namespace doris

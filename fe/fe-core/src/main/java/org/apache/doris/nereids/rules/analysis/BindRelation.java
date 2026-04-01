@@ -23,6 +23,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FilesetTable;
 import org.apache.doris.catalog.FunctionRegistry;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
@@ -84,6 +85,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Relation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTEConsumer;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilesetScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHudiScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOdbcScan;
@@ -539,6 +541,9 @@ public class BindRelation extends OneAnalysisRuleFactory {
                             unboundRelation.getTableSample(),
                             unboundRelation.getTableSnapshot(),
                             Optional.ofNullable(unboundRelation.getScanParams()), Optional.empty());
+                case FILESET:
+                    return new LogicalFilesetScan(unboundRelation.getRelationId(),
+                            (FilesetTable) table, qualifierWithoutTableName);
                 case SCHEMA:
                     LogicalSchemaScan schemaScan = new LogicalSchemaScan(unboundRelation.getRelationId(), table,
                             qualifierWithoutTableName);

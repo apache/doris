@@ -51,6 +51,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeOla
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDeferMaterializeTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFilesetScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -219,6 +220,12 @@ class CostModel extends PlanVisitor<Cost, PlanContext> {
     }
 
     public Cost visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
+        Statistics statistics = context.getStatisticsWithCheck();
+        return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount());
+    }
+
+    @Override
+    public Cost visitPhysicalFilesetScan(PhysicalFilesetScan physicalFilesetScan, PlanContext context) {
         Statistics statistics = context.getStatisticsWithCheck();
         return Cost.ofCpu(context.getSessionVariable(), statistics.getRowCount());
     }

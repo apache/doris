@@ -17,6 +17,12 @@
 
 #include "core/data_type/file_schema_descriptor.h"
 
+#include <algorithm>
+#include <cctype>
+#include <cstring>
+#include <unordered_map>
+
+#include "common/cast_set.h"
 #include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
@@ -39,10 +45,16 @@ FileSchemaDescriptor::FileSchemaDescriptor() {
 
     add_field(FILE_FIELD_OBJECT_URI.data(), std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
     add_field(FILE_FIELD_FILE_NAME.data(), std::make_shared<DataTypeString>(512, TYPE_VARCHAR));
-    add_field(FILE_FIELD_FILE_EXTENSION.data(), std::make_shared<DataTypeString>(64, TYPE_VARCHAR));
+    add_field(FILE_FIELD_CONTENT_TYPE.data(), std::make_shared<DataTypeString>(128, TYPE_VARCHAR));
     add_field(FILE_FIELD_SIZE.data(), std::make_shared<DataTypeInt64>());
     add_field(FILE_FIELD_ETAG.data(), make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
     add_field(FILE_FIELD_LAST_MODIFIED_AT.data(), std::make_shared<DataTypeDateTimeV2>(3));
+    add_field(FILE_FIELD_REGION.data(),
+              make_nullable(std::make_shared<DataTypeString>(64, TYPE_VARCHAR)));
+    add_field(FILE_FIELD_ENDPOINT.data(),
+              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field(FILE_FIELD_ROLE_ARN.data(),
+              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
 }
 
 std::optional<size_t> FileSchemaDescriptor::try_get_position(std::string_view name) const {
@@ -52,5 +64,69 @@ std::optional<size_t> FileSchemaDescriptor::try_get_position(std::string_view na
         }
     }
     return std::nullopt;
+}
+
+std::string FileSchemaDescriptor::extract_file_name(std::string_view uri) {
+    // Strip query string / fragment
+    size_t end = uri.find_first_of("?#");
+    std::string_view path = (end == std::string_view::npos) ? uri : uri.substr(0, end);
+    size_t pos = path.find_last_of('/');
+    if (pos == std::string_view::npos) {
+        return std::string(path);
+    }
+    if (pos + 1 >= path.size()) {
+        return "";
+    }
+    return std::string(path.substr(pos + 1));
+}
+
+std::string FileSchemaDescriptor::extract_file_extension(const std::string& file_name) {
+    size_t pos = file_name.find_last_of('.');
+    if (pos == std::string::npos) {
+        return "";
+    }
+    std::string extension = file_name.substr(pos);
+    std::transform(extension.begin(), extension.end(), extension.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    return extension;
+}
+
+std::string FileSchemaDescriptor::extension_to_content_type(const std::string& ext) {
+    static const std::unordered_map<std::string, std::string> mime_map = {
+            {".csv", "text/csv"},
+            {".tsv", "text/tab-separated-values"},
+            {".json", "application/json"},
+            {".jsonl", "application/x-ndjson"},
+            {".parquet", "application/x-parquet"},
+            {".orc", "application/x-orc"},
+            {".avro", "application/avro"},
+            {".txt", "text/plain"},
+            {".log", "text/plain"},
+            {".xml", "application/xml"},
+            {".html", "text/html"},
+            {".htm", "text/html"},
+            {".gz", "application/gzip"},
+            {".bz2", "application/x-bzip2"},
+            {".zst", "application/zstd"},
+            {".lz4", "application/x-lz4"},
+            {".snappy", "application/x-snappy"},
+            {".zip", "application/zip"},
+            {".tar", "application/x-tar"},
+            {".tbl", "text/plain"},
+    };
+    if (auto it = mime_map.find(ext); it != mime_map.end()) {
+        return it->second;
+    }
+    return "application/octet-stream";
+}
+
+void FileSchemaDescriptor::write_jsonb_string(JsonbWriter& writer, const std::string& value) {
+    writer.writeStartString();
+    writer.writeString(value.data(), cast_set<uint32_t>(value.size()));
+    writer.writeEndString();
+}
+
+void FileSchemaDescriptor::write_jsonb_key(JsonbWriter& writer, std::string_view key) {
+    writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
 }
 } // namespace doris

@@ -32,13 +32,6 @@
 
 namespace doris {
 
-namespace {
-constexpr std::string_view LAST_MODIFIED_AT_FALLBACK = "1970-01-01 00:00:00.000";
-constexpr std::string_view TABLE_SCAN_RECURSIVE = "table.scan.recursive";
-} // namespace
-
-// Keep the reader lightweight: FE decides the logical table root and BE only
-// receives scan-time parameters plus an optional runtime profile sink.
 FilesetReader::FilesetReader(const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
                              RuntimeProfile* profile,
                              const std::map<std::string, std::string>& fileset_params)
@@ -49,12 +42,10 @@ FilesetReader::FilesetReader(const std::vector<SlotDescriptor*>& file_slot_descs
     _init_profile();
 }
 
-// Build the file list once before scan so later blocks only materialize rows.
 Status FilesetReader::init_reader() {
     return _build_files();
 }
 
-// Fileset exposes a fixed FILE-typed schema, so we simply mirror slot descriptors.
 Status FilesetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* name_to_type,
                                   std::unordered_set<std::string>* missing_cols) {
     for (const auto& slot : _file_slot_descs) {
@@ -63,7 +54,6 @@ Status FilesetReader::get_columns(std::unordered_map<std::string, DataTypePtr>* 
     return Status::OK();
 }
 
-// Emit one FILE row per listed object. The row payload is assembled lazily into JSONB.
 Status FilesetReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     if (_next_file_idx >= _files.size()) {
         *eof = true;
@@ -109,11 +99,8 @@ Status FilesetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     return Status::OK();
 }
 
-// Resolve the backing filesystem and enumerate scan targets according to the explicit
-// `table.scan.recursive` flag rather than backend-specific listing behavior.
 Status FilesetReader::_build_files() {
     auto type = DORIS_TRY(_parse_file_type(_fileset_params.at("file_type")));
-    const bool recursive = _is_recursive_scan_enabled();
     io::FileSystemProperties fs_properties;
     fs_properties.system_type = type;
     fs_properties.properties = _fileset_params;
@@ -124,15 +111,6 @@ Status FilesetReader::_build_files() {
     if (_profile != nullptr) {
         _profile->add_info_string("FilesetTablePath", _fileset_params.at("table_path"));
         _profile->add_info_string("FilesetFileType", _fileset_params.at("file_type"));
-        _profile->add_info_string("FilesetRecursiveScan", recursive ? "true" : "false");
-        auto role_arn_it = _fileset_params.find("AWS_ROLE_ARN");
-        if (role_arn_it != _fileset_params.end() && !role_arn_it->second.empty()) {
-            _profile->add_info_string("FilesetRoleArn", role_arn_it->second);
-        }
-        auto provider_it = _fileset_params.find("AWS_CREDENTIALS_PROVIDER_TYPE");
-        if (provider_it != _fileset_params.end() && !provider_it->second.empty()) {
-            _profile->add_info_string("FilesetCredentialProvider", provider_it->second);
-        }
     }
 
     io::FileDescription file_description {
@@ -145,7 +123,7 @@ Status FilesetReader::_build_files() {
     io::FSPropertiesRef fs_ref(fs_properties);
     io::FileSystemSPtr fs = DORIS_TRY(FileFactory::create_fs(fs_ref, file_description));
 
-    RETURN_IF_ERROR(_list_files(fs, _fileset_params.at("table_path"), recursive));
+    RETURN_IF_ERROR(_list_files(fs, _fileset_params.at("table_path")));
     if (_files.empty()) {
         bool exists = false;
         RETURN_IF_ERROR(fs->exists(_fileset_params.at("table_path"), &exists));
@@ -153,27 +131,7 @@ Status FilesetReader::_build_files() {
             return Status::NotFound("fileset table path does not exist: {}", _fileset_params.at("table_path"));
         }
     }
-    if (_files.empty()) {
-        return Status::OK();
-    }
-    int64_t range_start = 0;
-    int64_t range_end = -1;
-    if (auto it = _fileset_params.find("range_start"); it != _fileset_params.end()) {
-        range_start = std::stoll(it->second);
-    }
-    if (auto it = _fileset_params.find("range_end"); it != _fileset_params.end()) {
-        range_end = std::stoll(it->second);
-    }
-    if (range_start > 0 || range_end >= 0) {
-        const size_t begin = std::min<size_t>(std::max<int64_t>(range_start, 0), _files.size());
-        const size_t end = range_end < 0 ? _files.size()
-                                         : std::min<size_t>(range_end, _files.size());
-        if (begin >= end) {
-            _files.clear();
-            return Status::OK();
-        }
-        _files = std::vector<io::FileInfo>(_files.begin() + begin, _files.begin() + end);
-    }
+
     size_t total_bytes = 0;
     for (const auto& file : _files) {
         total_bytes += file.file_size;
@@ -187,57 +145,21 @@ Status FilesetReader::_build_files() {
     return Status::OK();
 }
 
-// Walk the logical table root one level at a time so every filesystem follows the same
-// recursion semantics. Directory expansion only happens when the table flag enables it.
-Status FilesetReader::_list_files(const io::FileSystemSPtr& fs, const std::string& table_path,
-                                  bool recursive) {
+// Single-level listing only — fileset tables do not recurse into subdirectories.
+Status FilesetReader::_list_files(const io::FileSystemSPtr& fs, const std::string& table_path) {
     _files.clear();
-    std::deque<std::string> pending_paths {table_path};
-    while (!pending_paths.empty()) {
-        std::string current_path = std::move(pending_paths.front());
-        pending_paths.pop_front();
-
-        bool exists = false;
-        std::vector<io::FileInfo> listed_entries;
-        // `FileSystem::list` is always a single-level listing. We keep directory
-        // entries here and let fileset own the recursion policy so all backends
-        // follow the same `table.scan.recursive` semantics.
-        RETURN_IF_ERROR(fs->list(current_path, false, &listed_entries, &exists));
-        if (!exists) {
-            if (current_path == table_path) {
-                return Status::NotFound("fileset table path does not exist: {}", table_path);
-            }
-            return Status::NotFound("fileset nested path does not exist: {}", current_path);
-        }
-
-        for (const auto& entry : listed_entries) {
-            if (entry.is_file) {
-                _files.push_back(entry);
-                continue;
-            }
-            if (!recursive) {
-                continue;
-            }
-            std::string nested_path = current_path;
-            if (!nested_path.ends_with('/')) {
-                nested_path.push_back('/');
-            }
-            nested_path.append(entry.file_name);
-            if (!nested_path.ends_with('/')) {
-                nested_path.push_back('/');
-            }
-            pending_paths.push_back(std::move(nested_path));
+    bool exists = false;
+    std::vector<io::FileInfo> listed_entries;
+    RETURN_IF_ERROR(fs->list(table_path, false, &listed_entries, &exists));
+    if (!exists) {
+        return Status::NotFound("fileset table path does not exist: {}", table_path);
+    }
+    for (auto& entry : listed_entries) {
+        if (entry.is_file) {
+            _files.push_back(std::move(entry));
         }
     }
     return Status::OK();
-}
-
-// Treat missing flags as non-recursive to keep the default table scan shallow.
-bool FilesetReader::_is_recursive_scan_enabled() const {
-    if (auto it = _fileset_params.find(std::string(TABLE_SCAN_RECURSIVE)); it != _fileset_params.end()) {
-        return it->second == "true";
-    }
-    return false;
 }
 
 Result<TFileType::type> FilesetReader::_parse_file_type(const std::string& file_type) {
@@ -249,12 +171,6 @@ Result<TFileType::type> FilesetReader::_parse_file_type(const std::string& file_
     }
     if (file_type == "FILE_LOCAL") {
         return TFileType::FILE_LOCAL;
-    }
-    if (file_type == "FILE_HTTP") {
-        return TFileType::FILE_HTTP;
-    }
-    if (file_type == "FILE_BROKER") {
-        return TFileType::FILE_BROKER;
     }
     return ResultError(Status::InvalidArgument("unsupported fileset file type: {}", file_type));
 }
@@ -279,23 +195,6 @@ std::string FilesetReader::_build_object_uri(const std::string& table_path,
     return table_path + (table_path.ends_with("/") ? "" : "/") + listed_name;
 }
 
-std::string FilesetReader::_extract_file_name(std::string_view object_uri) {
-    size_t pos = object_uri.find_last_of('/');
-    return pos == std::string_view::npos ? std::string(object_uri) : std::string(object_uri.substr(pos + 1));
-}
-
-std::string FilesetReader::_extract_file_extension(const std::string& file_name) {
-    size_t pos = file_name.find_last_of('.');
-    return pos == std::string::npos ? "" : file_name.substr(pos);
-}
-
-void FilesetReader::_write_jsonb_string(JsonbWriter& writer, const std::string& value) {
-    writer.writeStartString();
-    writer.writeString(value.data(), cast_set<uint32_t>(value.size()));
-    writer.writeEndString();
-}
-
-// Allocate fileset-specific counters only when the caller requested profiling.
 void FilesetReader::_init_profile() {
     if (_profile == nullptr) {
         return;
@@ -310,31 +209,39 @@ void FilesetReader::_init_profile() {
             ADD_CHILD_COUNTER(_profile, "EmittedRows", TUnit::UNIT, fileset_profile);
 }
 
-// Serialize one file entry into the FILE logical type layout expected by execution.
 void FilesetReader::_write_file_jsonb(JsonbWriter& writer, const io::FileInfo& file) {
+    using S = FileSchemaDescriptor;
     const std::string object_uri = _build_object_uri(_fileset_params.at("table_path"), file.file_name);
-    const std::string file_name = _extract_file_name(object_uri);
-    const std::string file_extension = _extract_file_extension(file_name);
-    const auto& schema = FileSchemaDescriptor::instance();
+    const std::string file_name = S::extract_file_name(object_uri);
+    const std::string content_type =
+            S::extension_to_content_type(S::extract_file_extension(file_name));
+    const auto& schema = S::instance();
 
     writer.writeStartObject();
-    _write_jsonb_key(writer, schema.field_name(FileSchemaDescriptor::Field::OBJECT_URI));
-    _write_jsonb_string(writer, object_uri);
-    _write_jsonb_key(writer, schema.field_name(FileSchemaDescriptor::Field::FILE_NAME));
-    _write_jsonb_string(writer, file_name);
-    _write_jsonb_key(writer, schema.field_name(FileSchemaDescriptor::Field::FILE_EXTENSION));
-    _write_jsonb_string(writer, file_extension);
-    _write_jsonb_key(writer, schema.field_name(FileSchemaDescriptor::Field::SIZE));
+    S::write_jsonb_key(writer, schema.field_name(S::Field::OBJECT_URI));
+    S::write_jsonb_string(writer, object_uri);
+    S::write_jsonb_key(writer, schema.field_name(S::Field::FILE_NAME));
+    S::write_jsonb_string(writer, file_name);
+    S::write_jsonb_key(writer, schema.field_name(S::Field::CONTENT_TYPE));
+    S::write_jsonb_string(writer, content_type);
+    S::write_jsonb_key(writer, schema.field_name(S::Field::SIZE));
     writer.writeInt64(file.file_size);
-    _write_jsonb_key(writer, schema.field_name(FileSchemaDescriptor::Field::ETAG));
+    S::write_jsonb_key(writer, schema.field_name(S::Field::ETAG));
     writer.writeNull();
-    _write_jsonb_key(writer, schema.field_name(FileSchemaDescriptor::Field::LAST_MODIFIED_AT));
-    _write_jsonb_string(writer, std::string(LAST_MODIFIED_AT_FALLBACK));
+    S::write_jsonb_key(writer, schema.field_name(S::Field::LAST_MODIFIED_AT));
+    S::write_jsonb_string(writer, std::string(S::LAST_MODIFIED_AT_FALLBACK));
+    auto write_nullable_param = [&](S::Field field, const char* param_key) {
+        S::write_jsonb_key(writer, schema.field_name(field));
+        if (auto it = _fileset_params.find(param_key);
+            it != _fileset_params.end() && !it->second.empty()) {
+            S::write_jsonb_string(writer, it->second);
+        } else {
+            writer.writeNull();
+        }
+    };
+    write_nullable_param(S::Field::REGION, "AWS_REGION");
+    write_nullable_param(S::Field::ENDPOINT, "AWS_ENDPOINT");
+    write_nullable_param(S::Field::ROLE_ARN, "AWS_ROLE_ARN");
     writer.writeEndObject();
-}
-
-// JsonbWriter requires explicit key boundaries, so keep that tiny helper centralized.
-void FilesetReader::_write_jsonb_key(JsonbWriter& writer, std::string_view key) {
-    writer.writeKey(key.data(), cast_set<uint8_t>(key.size()));
 }
 } // namespace doris

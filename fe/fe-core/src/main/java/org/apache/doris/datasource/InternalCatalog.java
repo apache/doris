@@ -42,6 +42,7 @@ import org.apache.doris.catalog.DistributionInfo.DistributionInfoType;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EnvFactory;
+import org.apache.doris.catalog.FilesetTable;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.InfoSchemaDb;
@@ -1266,6 +1267,9 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
         if (engineName.equals("broker")) {
             return createBrokerTable(db, createTableInfo);
+        }
+        if (engineName.equals("fileset")) {
+            return createFilesetTable(db, createTableInfo);
         }
         if (engineName.equalsIgnoreCase("elasticsearch") || engineName.equalsIgnoreCase("es")) {
             throw new UserException(
@@ -3287,6 +3291,16 @@ public class InternalCatalog implements CatalogIf<Database> {
         brokerTable.setComment(createTableInfo.getComment());
         brokerTable.setBrokerProperties(createTableInfo.getExtProperties());
         Pair<Boolean, Boolean> result = db.createTableWithLock(brokerTable, false, createTableInfo.isIfNotExists());
+        return checkCreateTableResult(tableName, tableId, result);
+    }
+
+    private boolean createFilesetTable(Database db, CreateTableInfo createTableInfo) throws DdlException {
+        String tableName = createTableInfo.getTableName();
+        List<Column> columns = createTableInfo.getColumns();
+        long tableId = Env.getCurrentEnv().getNextId();
+        FilesetTable filesetTable = new FilesetTable(tableId, tableName, columns, createTableInfo.getProperties());
+        filesetTable.setComment(createTableInfo.getComment());
+        Pair<Boolean, Boolean> result = db.createTableWithLock(filesetTable, false, createTableInfo.isIfNotExists());
         return checkCreateTableResult(tableName, tableId, result);
     }
 

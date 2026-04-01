@@ -19,7 +19,6 @@
 
 #include <cstddef>
 #include <cstdint>
-#include <deque>
 #include <map>
 #include <string>
 #include <unordered_map>
@@ -36,9 +35,6 @@ class RuntimeProfile;
 class RuntimeState;
 class SlotDescriptor;
 
-// Reader for fileset tables. It enumerates files under the logical table root,
-// optionally recurses according to `table.scan.recursive`, and emits one FILE row
-// per discovered object.
 class FilesetReader : public GenericReader {
     ENABLE_FACTORY_CREATOR(FilesetReader);
 
@@ -60,16 +56,11 @@ private:
     };
 
     Status _build_files();
-    Status _list_files(const io::FileSystemSPtr& fs, const std::string& table_path, bool recursive);
-    bool _is_recursive_scan_enabled() const;
+    Status _list_files(const io::FileSystemSPtr& fs, const std::string& table_path);
     static Result<TFileType::type> _parse_file_type(const std::string& file_type);
     static std::string _build_object_uri(const std::string& table_path, const std::string& listed_name);
-    static std::string _extract_file_name(std::string_view object_uri);
-    static std::string _extract_file_extension(const std::string& file_name);
-    static void _write_jsonb_string(JsonbWriter& writer, const std::string& value);
     void _init_profile();
     void _write_file_jsonb(JsonbWriter& writer, const io::FileInfo& file);
-    static void _write_jsonb_key(JsonbWriter& writer, std::string_view key);
 
     const std::vector<SlotDescriptor*>& _file_slot_descs;
     RuntimeState* _state;
