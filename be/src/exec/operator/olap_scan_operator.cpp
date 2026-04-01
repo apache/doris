@@ -396,6 +396,24 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
+
+    // _build_key_ranges_and_filters may erase predicates from _slot_id_to_predicates
+    // that are covered by exact key ranges. Re-print PushDownPredicates to reflect the
+    // actual predicates that will reach the storage layer.
+    if (state->enable_profile()) {
+        fmt::memory_buffer buf;
+        for (const auto& [slot_id, predicates] : _slot_id_to_predicates) {
+            if (predicates.empty()) {
+                continue;
+            }
+            fmt::format_to(buf, "Slot ID: {}: [", slot_id);
+            for (const auto& predicate : predicates) {
+                fmt::format_to(buf, "{{{}}}, ", predicate->debug_string());
+            }
+            fmt::format_to(buf, "] ");
+        }
+        custom_profile()->add_info_string("PushDownPredicates", fmt::to_string(buf));
+    }
     return Status::OK();
 }
 
@@ -951,6 +969,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             const auto& value_range = iter->second;
 
             std::optional<int> key_to_erase;
+            bool is_fixed_value_range = false;
 
             RETURN_IF_ERROR(std::visit(
                     [&](auto&& range) {
@@ -964,6 +983,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                                                                &exact_range, &eos, &should_break));
                             if (exact_range) {
                                 key_to_erase = iter->first;
+                                is_fixed_value_range = range.is_fixed_value_range();
                             }
                         } else {
                             // if exceed max_pushdown_conditions_per_column, use whole_value_rang instead
@@ -983,7 +1003,14 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
 
                 std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
                 for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
-                    if (!it->could_be_erased()) {
+                    // When the ColumnValueRange is a scope range (e.g., >= X AND <= Y),
+                    // the key range only covers comparison predicates. IN_LIST predicates
+                    // whose values were not absorbed into the ColumnValueRange (e.g.,
+                    // because the value count exceeded _max_pushdown_conditions_per_column)
+                    // must be preserved, as their filtering semantics are not captured by
+                    // the scope range.
+                    if (!it->could_be_erased() ||
+                        (!is_fixed_value_range && PredicateTypeTraits::is_list(it->type()))) {
                         new_predicates.push_back(it);
                     }
                 }
