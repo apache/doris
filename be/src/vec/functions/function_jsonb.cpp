@@ -3500,6 +3500,8 @@ void register_function_jsonb(SimpleFunctionFactory& factory) {
 
     factory.register_function<FunctionStripNullValue>();
     factory.register_function<FunctionJsonExtractStringFromVarchar>();
+    factory.register_alias(FunctionJsonExtractStringFromVarchar::name, "jsonb_extract_string");
+    factory.register_alias(FunctionJsonExtractStringFromVarchar::name, "get_json_string");
     factory.register_function<FunctionJsonExtractSpark>();
 }
 

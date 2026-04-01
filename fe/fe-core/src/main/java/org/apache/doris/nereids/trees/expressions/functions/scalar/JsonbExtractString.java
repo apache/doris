@@ -80,6 +80,9 @@ public class JsonbExtractString extends ScalarFunction
 
     @Override
     public Expression rewriteWhenAnalyze() {
+        if (!getSignature().getArgType(0).isJsonType()) {
+            return this;
+        }
         JsonbExtract jsonExtract = new JsonbExtract(children.get(0), children.get(1));
         return new Cast(jsonExtract, StringType.INSTANCE, false);
     }

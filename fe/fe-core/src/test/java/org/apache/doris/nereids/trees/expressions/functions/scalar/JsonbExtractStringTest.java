@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
@@ -195,5 +196,29 @@ public class JsonbExtractStringTest {
         for (FunctionSignature sig : signatures) {
             Assertions.assertEquals(StringType.INSTANCE, sig.returnType);
         }
+    }
+
+    @Test
+    public void testRewriteWhenAnalyzeForJsonInput() {
+        SlotReference jsonColumn = new SlotReference("json_col", JsonType.INSTANCE);
+        VarcharLiteral pathLiteral = new VarcharLiteral("$.key");
+        JsonbExtractString func = new JsonbExtractString(jsonColumn, pathLiteral);
+
+        Expression rewritten = func.rewriteWhenAnalyze();
+
+        Assertions.assertInstanceOf(Cast.class, rewritten);
+        Assertions.assertInstanceOf(JsonbExtract.class, ((Cast) rewritten).child());
+    }
+
+    @Test
+    public void testRewriteWhenAnalyzeForStringInput() {
+        SlotReference stringColumn = new SlotReference("string_col", StringType.INSTANCE);
+        StringLiteral pathLiteral = new StringLiteral("$.key");
+        JsonbExtractString func = new JsonbExtractString(stringColumn, pathLiteral);
+
+        Expression rewritten = func.rewriteWhenAnalyze();
+
+        Assertions.assertSame(func, rewritten);
+        Assertions.assertInstanceOf(JsonbExtractString.class, rewritten);
     }
 }
