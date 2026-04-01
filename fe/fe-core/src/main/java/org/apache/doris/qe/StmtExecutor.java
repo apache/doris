@@ -1611,7 +1611,9 @@ public class StmtExecutor {
     }
 
     private void sendMetaData(ResultSetMetaData metaData, List<FieldInfo> fieldInfos) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
+        if (context.getConnectType() != ConnectType.MYSQL) {
+            return;
+        }
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(metaData.getColumnCount());
@@ -1644,7 +1646,9 @@ public class StmtExecutor {
     }
 
     public void sendStmtPrepareOK(int stmtId, List<String> labels, List<Slot> output) throws IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
+        if (context.getConnectType() != ConnectType.MYSQL) {
+            return;
+        }
         // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
         serializer.reset();
         // 0x00 OK
@@ -1725,7 +1729,9 @@ public class StmtExecutor {
 
     private void sendFields(List<String> colNames, List<FieldInfo> fieldInfos, List<Type> types) throws
             IOException {
-        Preconditions.checkState(context.getConnectType() == ConnectType.MYSQL);
+        if (context.getConnectType() != ConnectType.MYSQL) {
+            return;
+        }
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
