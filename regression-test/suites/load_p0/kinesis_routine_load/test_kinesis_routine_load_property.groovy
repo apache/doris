@@ -22,68 +22,111 @@ import com.amazonaws.services.kinesis.AmazonKinesisClientBuilder
 import com.amazonaws.services.kinesis.model.*
 import java.nio.ByteBuffer
 
-suite("test_kinesis_routine_load_property") {
-
+suite("test_kinesis_routine_load_property", "nonConcurrent") {
     String enabled = context.config.otherConfigs.get("enableKinesisTest")
-    String awsRegion = context.config.otherConfigs.get("awsRegion")
-    String awsAccessKey = context.config.otherConfigs.get("awsAccessKey")
-    String awsSecretKey = context.config.otherConfigs.get("awsSecretKey")
+    def region = context.config.awsRegion ?: context.config.otherConfigs.get("awsRegion")
+    def ak = context.config.awsAccessKey ?: context.config.otherConfigs.get("awsAccessKey")
+    def sk = context.config.awsSecretKey ?: context.config.otherConfigs.get("awsSecretKey")
 
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
-        logger.info("Skip ${name} case, Kinesis test not enabled")
+        logger.info("Skip ${name} case, enableKinesisTest is not true")
         return
     }
 
-    if (!awsRegion || !awsAccessKey || !awsSecretKey) {
-        logger.info("Skip ${name} case, AWS config not provided")
+    if (!region || !ak || !sk) {
+        logger.info("Skip ${name} case, missing AWS config: region=${region}, ak=${ak != null}, sk=${sk != null}")
         return
     }
 
-    def streamName = "doris-test-prop-${UUID.randomUUID().toString().substring(0, 8)}"
+    def suffix = UUID.randomUUID().toString().substring(0, 8)
+    def streamName = "doris-test-prop-${suffix}"
     def tableName = "test_kinesis_routine_load_property"
-    def jobName = "testKinesisProperty"
+    def jobName = "test_kinesis_property_${suffix}"
 
-    def credentials = new BasicAWSCredentials(awsAccessKey, awsSecretKey)
+    def credentials = new BasicAWSCredentials(ak, sk)
     def kinesisClient = AmazonKinesisClientBuilder.standard()
-        .withRegion(awsRegion)
+        .withRegion(region)
         .withCredentials(new AWSStaticCredentialsProvider(credentials))
         .build()
+    def jobCreated = false
+
+    def writeCsvRecords = { int startId, int endId ->
+        logger.info("Writing CSV records ${startId}-${endId} to stream ${streamName}")
+        for (int i = startId; i <= endId; i++) {
+            def data = "\"${i}\",\"name\\\"${i}\",\"2023-08-01\",\"value,${i}\",\"2023-08-01 12:00:00\",\"extra${i}\""
+            def putRequest = new PutRecordRequest()
+                .withStreamName(streamName)
+                .withPartitionKey("key_${i}")
+                .withData(ByteBuffer.wrap(data.getBytes("UTF-8")))
+            for (int retry = 0; retry < 20; retry++) {
+                try {
+                    kinesisClient.putRecord(putRequest)
+                    break
+                } catch (ResourceNotFoundException e) {
+                    if (retry == 19) {
+                        throw e
+                    }
+                    Thread.sleep(500)
+                }
+            }
+        }
+    }
+
+    def queryCount = {
+        def result = sql "SELECT COUNT(*) FROM ${tableName}"
+        return ((Number) result[0][0]).longValue()
+    }
+
+    def waitForCountAtLeast = { long expectedCount, int timeoutSec ->
+        long lastCount = -1
+        for (int i = 0; i < timeoutSec; i++) {
+            lastCount = queryCount()
+            if (lastCount >= expectedCount) {
+                logger.info("Table ${tableName} row count reached ${lastCount} (expected >= ${expectedCount})")
+                return
+            }
+            Thread.sleep(1000)
+        }
+        assertTrue(false, "Timeout waiting row count >= ${expectedCount}, last count=${lastCount}")
+    }
 
     try {
+        logger.info("Creating Kinesis stream: ${streamName}")
         kinesisClient.createStream(new CreateStreamRequest()
             .withStreamName(streamName)
             .withShardCount(1))
 
-        def streamActive = false
-        for (int i = 0; i < 30; i++) {
-            def result = kinesisClient.describeStream(new DescribeStreamRequest().withStreamName(streamName))
-            if (result.getStreamDescription().getStreamStatus() == "ACTIVE") {
-                streamActive = true
-                break
+        logger.info("Waiting for stream ${streamName} to become active")
+        def describeRequest = new DescribeStreamRequest().withStreamName(streamName)
+        def streamReady = false
+        for (int i = 0; i < 60; i++) {
+            try {
+                def result = kinesisClient.describeStream(describeRequest)
+                def description = result.getStreamDescription()
+                if (description.getStreamStatus() == "ACTIVE" && !description.getShards().isEmpty()) {
+                    streamReady = true
+                    break
+                }
+            } catch (ResourceNotFoundException e) {
+                // Metadata may not be visible immediately after create.
             }
-            Thread.sleep(2000)
+            Thread.sleep(1000)
         }
-        assertTrue(streamActive)
+        assertTrue(streamReady, "Stream ${streamName} failed to become active")
 
-        // Write data with enclose and escape characters
-        for (int i = 1; i <= 10; i++) {
-            def data = "\"${i}\",\"name\\\"${i}\",\"2023-08-01\",\"value,${i}\",\"2023-08-01 12:00:00\",\"extra${i}\""
-            kinesisClient.putRecord(new PutRecordRequest()
-                .withStreamName(streamName)
-                .withPartitionKey("key_${i}")
-                .withData(ByteBuffer.wrap(data.getBytes("UTF-8"))))
-        }
+        writeCsvRecords(1, 10)
 
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
-                k1 int(20) NULL,
-                k2 string NULL,
-                v1 date NULL,
-                v2 string NULL,
-                v3 datetime NULL,
-                v4 string NULL
-            ) ENGINE=OLAP
+                k1 INT NULL,
+                k2 STRING NULL,
+                v1 DATE NULL,
+                v2 STRING NULL,
+                v3 DATETIME NULL,
+                v4 STRING NULL
+            )
+            ENGINE=OLAP
             DUPLICATE KEY(k1)
             DISTRIBUTED BY HASH(k1) BUCKETS 3
             PROPERTIES ("replication_num" = "1")
@@ -95,29 +138,47 @@ suite("test_kinesis_routine_load_property") {
             PROPERTIES (
                 "enclose" = "\\"",
                 "escape" = "\\\\",
-                "max_batch_interval" = "5"
+                "max_batch_interval" = "5",
+                "max_batch_rows" = "200000",
+                "max_batch_size" = "209715200"
             )
             FROM KINESIS (
-                "aws.region" = "${awsRegion}",
-                "aws.access_key" = "${awsAccessKey}",
-                "aws.secret_key" = "${awsSecretKey}",
+                "aws.region" = "${region}",
+                "aws.access_key" = "${ak}",
+                "aws.secret_key" = "${sk}",
                 "kinesis_stream" = "${streamName}",
                 "property.kinesis_default_pos" = "TRIM_HORIZON"
             )
         """
+        jobCreated = true
 
-        Thread.sleep(20000)
+        waitForCountAtLeast(10, 120)
 
-        def result = sql "SELECT COUNT(*) FROM ${tableName}"
-        assertTrue(result[0][0] >= 10)
-
-        sql "STOP ROUTINE LOAD FOR ${jobName}"
+        def parsedRow = sql """
+            SELECT k1, k2, v2
+            FROM ${tableName}
+            WHERE k1 = 1
+            ORDER BY v3
+            LIMIT 1
+        """
+        assertTrue(parsedRow.size() > 0, "Expected at least one row for k1=1")
+        assertEquals(1, ((Number) parsedRow[0][0]).intValue())
+        assertEquals("name\"1", parsedRow[0][1].toString())
+        assertEquals("value,1", parsedRow[0][2].toString())
 
     } finally {
+        if (jobCreated) {
+            try {
+                sql "STOP ROUTINE LOAD FOR ${jobName}"
+            } catch (Exception e) {
+                logger.warn("Failed to stop routine load ${jobName}: ${e.message}")
+            }
+        }
         try {
             kinesisClient.deleteStream(new DeleteStreamRequest().withStreamName(streamName))
+            logger.info("Deleted stream: ${streamName}")
         } catch (Exception e) {
-            logger.warn("Failed to delete stream: ${e.message}")
+            logger.warn("Failed to delete stream ${streamName}: ${e.message}")
         }
         kinesisClient.shutdown()
         sql "DROP TABLE IF EXISTS ${tableName}"
