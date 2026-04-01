@@ -69,7 +69,8 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_provid
     return std::make_shared<Aws::Auth::DefaultAWSCredentialsProviderChain>();
 }
 
-std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_assume_role_base_provider() {
+std::shared_ptr<Aws::Auth::AWSCredentialsProvider>
+AwsMskIamAuth::_create_assume_role_base_provider() {
     if (!_config.access_key.empty() && !_config.secret_key.empty()) {
         Aws::Auth::AWSCredentials base_credentials(_config.access_key, _config.secret_key);
         return std::make_shared<Aws::Auth::SimpleAWSCredentialsProvider>(base_credentials);
@@ -99,8 +100,9 @@ std::shared_ptr<Aws::Auth::AWSCredentialsProvider> AwsMskIamAuth::_create_creden
 
         auto sts_client = std::make_shared<Aws::STS::STSClient>(base_provider, client_config);
 
-        Aws::String external_id = _config.external_id.empty() ? Aws::String()
-                                                               : Aws::String(_config.external_id.c_str());
+        Aws::String external_id = _config.external_id.empty()
+                                          ? Aws::String()
+                                          : Aws::String(_config.external_id.c_str());
         return std::make_shared<Aws::Auth::STSAssumeRoleCredentialsProvider>(
                 _config.role_arn, Aws::String(), external_id,
                 Aws::Auth::DEFAULT_CREDS_LOAD_FREQ_SECONDS, sts_client);
