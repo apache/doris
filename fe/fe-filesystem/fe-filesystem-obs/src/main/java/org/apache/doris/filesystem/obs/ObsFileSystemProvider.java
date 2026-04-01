@@ -38,6 +38,9 @@ public class ObsFileSystemProvider implements FileSystemProvider {
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        if ("OBS".equals(properties.get("_STORAGE_TYPE_"))) {
+            return true;
+        }
         String endpoint = properties.get("OBS_ENDPOINT");
         if (endpoint == null) {
             endpoint = properties.get("AWS_ENDPOINT");

@@ -173,16 +173,25 @@ public class LocalFileSystem implements FileSystem {
 
         @Override
         public void seek(long pos) throws IOException {
+            if (closed) {
+                throw new IOException("Stream is closed");
+            }
             raf.seek(pos);
         }
 
         @Override
         public int read() throws IOException {
+            if (closed) {
+                throw new IOException("Stream is closed");
+            }
             return raf.read();
         }
 
         @Override
         public int read(byte[] b, int off, int len) throws IOException {
+            if (closed) {
+                throw new IOException("Stream is closed");
+            }
             return raf.read(b, off, len);
         }
 

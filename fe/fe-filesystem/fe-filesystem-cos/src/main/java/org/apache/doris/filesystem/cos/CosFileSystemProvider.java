@@ -38,6 +38,9 @@ public class CosFileSystemProvider implements FileSystemProvider {
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        if ("COS".equals(properties.get("_STORAGE_TYPE_"))) {
+            return true;
+        }
         String endpoint = properties.get("COS_ENDPOINT");
         if (endpoint == null) {
             endpoint = properties.get("AWS_ENDPOINT");

@@ -53,7 +53,7 @@ public final class RemoteObject {
     }
 
     /** Last-modified time in milliseconds since epoch. 0 if not available. */
-    public long modificationTime() {
+    public long getModificationTime() {
         return modificationTime;
     }
 }

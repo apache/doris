@@ -44,7 +44,7 @@ public abstract class ObjFileSystem implements FileSystem {
     @Override
     public boolean exists(Location location) throws IOException {
         try {
-            objStorage.headObject(location.withoutScheme());
+            objStorage.headObject(location.uri());
             return true;
         } catch (IOException e) {
             if (isNotFoundError(e)) {

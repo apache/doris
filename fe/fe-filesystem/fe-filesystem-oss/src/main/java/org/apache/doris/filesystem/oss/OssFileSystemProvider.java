@@ -38,6 +38,9 @@ public class OssFileSystemProvider implements FileSystemProvider {
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        if ("OSS".equals(properties.get("_STORAGE_TYPE_"))) {
+            return true;
+        }
         String endpoint = properties.get("OSS_ENDPOINT");
         if (endpoint == null) {
             endpoint = properties.get("AWS_ENDPOINT");

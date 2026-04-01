@@ -122,8 +122,9 @@ public class DFSFileSystem implements org.apache.doris.filesystem.spi.FileSystem
     @Override
     public FileIterator list(Location location) throws IOException {
         Path path = new Path(location.toString());
-        FileStatus[] statuses = authenticator.doAs(() -> getHadoopFs(path).listStatus(path));
-        return new HdfsFileIterator(statuses);
+        org.apache.hadoop.fs.RemoteIterator<FileStatus> it =
+                authenticator.doAs(() -> getHadoopFs(path).listStatusIterator(path));
+        return new HdfsFileIterator(it, authenticator);
     }
 
     @Override

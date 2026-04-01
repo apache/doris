@@ -56,6 +56,8 @@ class BrokerInputStream extends DorisInputStream {
     private int bufOffset;
     private int bufLen;
     private boolean eof;
+    /** True when the Thrift client has already been invalidated (e.g. on RPC failure). */
+    private boolean clientInvalidated = false;
 
     BrokerInputStream(TNetworkAddress endpoint, BrokerClientPool clientPool,
             TPaloBrokerService.Client client, TBrokerFD fd) {
@@ -141,6 +143,7 @@ class BrokerInputStream extends DorisInputStream {
                 eof = true;
             }
         } catch (TException e) {
+            clientInvalidated = true;
             clientPool.invalidate(endpoint, client);
             throw new IOException("Broker pread RPC failed at offset " + position + ": " + e.getMessage(), e);
         }
@@ -148,6 +151,10 @@ class BrokerInputStream extends DorisInputStream {
 
     @Override
     public void close() throws IOException {
+        if (clientInvalidated) {
+            // Client already invalidated by a prior RPC failure; broker FD will time out on the broker side.
+            return;
+        }
         try {
             TBrokerCloseReaderRequest req = new TBrokerCloseReaderRequest(TBrokerVersion.VERSION_ONE, fd);
             TBrokerOperationStatus opst = client.closeReader(req);

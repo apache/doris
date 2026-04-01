@@ -33,6 +33,7 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.http.urlconnection.UrlConnectionHttpClient;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3Client;
+import software.amazon.awssdk.services.s3.S3ClientBuilder;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.model.AbortMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CompleteMultipartUploadRequest;
@@ -129,28 +130,31 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
 
     private S3Client buildClient() throws IOException {
         String endpointStr = properties.get(PROP_ENDPOINT);
-        if (endpointStr == null || endpointStr.isEmpty()) {
-            throw new IOException("S3 property " + PROP_ENDPOINT + " is required");
-        }
-        if (!endpointStr.contains("://")) {
-            endpointStr = "https://" + endpointStr;
-        }
         String region = properties.getOrDefault(PROP_REGION, "us-east-1");
         AwsCredentialsProvider credentialsProvider = buildCredentialsProvider();
 
-        return S3Client.builder()
+        S3ClientBuilder builder = S3Client.builder()
                 .httpClient(UrlConnectionHttpClient.builder()
                         .socketTimeout(Duration.ofSeconds(30))
                         .connectionTimeout(Duration.ofSeconds(30))
                         .build())
-                .endpointOverride(URI.create(endpointStr))
                 .credentialsProvider(credentialsProvider)
                 .region(Region.of(region))
                 .serviceConfiguration(S3Configuration.builder()
                         .chunkedEncodingEnabled(false)
                         .pathStyleAccessEnabled(usePathStyle)
-                        .build())
-                .build();
+                        .build());
+
+        // endpointOverride is only set for non-AWS endpoints (MinIO, COS, OSS, etc.).
+        // Standard AWS S3 access uses region-only routing without an explicit endpoint.
+        if (endpointStr != null && !endpointStr.isEmpty()) {
+            if (!endpointStr.contains("://")) {
+                endpointStr = "https://" + endpointStr;
+            }
+            builder.endpointOverride(URI.create(endpointStr));
+        }
+
+        return builder.build();
     }
 
     private AwsCredentialsProvider buildCredentialsProvider() {

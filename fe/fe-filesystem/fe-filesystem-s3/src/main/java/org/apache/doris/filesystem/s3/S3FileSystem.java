@@ -169,7 +169,7 @@ public class S3FileSystem extends ObjFileSystem {
             bufferIdx = 0;
             for (RemoteObject obj : page.getObjectList()) {
                 Location loc = Location.of(reconstructUri(prefix, obj.getKey()));
-                buffer.add(new FileEntry(loc, obj.getSize(), false, obj.modificationTime(), List.of()));
+                buffer.add(new FileEntry(loc, obj.getSize(), false, obj.getModificationTime(), List.of()));
             }
             if (page.isTruncated()) {
                 continuationToken = page.getContinuationToken();
@@ -399,7 +399,9 @@ public class S3FileSystem extends ObjFileSystem {
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
         boolean reachLimit = false;
-        String currentMaxFile = "";
+        // nextMatchAfterLimit: the first matching key found after the page limit was reached.
+        // Empty string means no such key was found yet (scanning still in progress or no more keys).
+        String nextMatchAfterLimit = "";
         String lastMatchedKey = "";
         boolean isTruncated;
 
@@ -407,12 +409,11 @@ public class S3FileSystem extends ObjFileSystem {
             do {
                 ListObjectsV2Response response = s3.getClient().listObjectsV2(request);
                 for (S3Object obj : response.contents()) {
-                    // Once limit reached: scan remaining objects to find the next glob-match
-                    // so callers can determine whether more data exists.
                     if (reachLimit) {
-                        if (matcher.matches(Paths.get(obj.key()))) {
-                            currentMaxFile = obj.key();
-                            break;
+                        // After hitting limit: find the first matching key so callers know more data exists.
+                        if (nextMatchAfterLimit.isEmpty()
+                                && matcher.matches(Paths.get(obj.key()))) {
+                            nextMatchAfterLimit = obj.key();
                         }
                         continue;
                     }
@@ -433,12 +434,7 @@ public class S3FileSystem extends ObjFileSystem {
                     if ((maxFiles > 0 && files.size() >= maxFiles)
                             || (maxBytes > 0 && totalSize >= maxBytes)) {
                         reachLimit = true;
-                        break;
                     }
-                }
-
-                if (currentMaxFile.isEmpty()) {
-                    currentMaxFile = lastMatchedKey;
                 }
 
                 isTruncated = response.isTruncated();
@@ -447,7 +443,9 @@ public class S3FileSystem extends ObjFileSystem {
                             .continuationToken(response.nextContinuationToken())
                             .build();
                 }
-            } while (isTruncated && !reachLimit);
+                // Continue paginating after limit until we find the next matching key,
+                // so callers can use it as a pagination cursor.
+            } while (isTruncated && (!reachLimit || nextMatchAfterLimit.isEmpty()));
         } catch (NoSuchKeyException e) {
             LOG.info("NoSuchKey when listing s3://{}/{}, treating as empty", bucket, listPrefix);
             return new GlobListing(List.of(), bucket, listPrefix, "");
@@ -455,6 +453,8 @@ public class S3FileSystem extends ObjFileSystem {
             throw new IOException("Failed to list S3 objects at " + uri + ": " + e.getMessage(), e);
         }
 
-        return new GlobListing(files, bucket, listPrefix, currentMaxFile);
+        // maxFile is the next matching key after the returned page (if found), or the last returned key.
+        String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;
+        return new GlobListing(files, bucket, listPrefix, maxFile);
     }
 }

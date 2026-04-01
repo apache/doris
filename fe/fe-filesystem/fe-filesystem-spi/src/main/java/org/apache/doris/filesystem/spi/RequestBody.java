@@ -17,7 +17,6 @@
 
 package org.apache.doris.filesystem.spi;
 
-import java.io.IOException;
 import java.io.InputStream;
 
 /**
@@ -34,7 +33,7 @@ public final class RequestBody {
         this.contentLength = contentLength;
     }
 
-    public InputStream content() throws IOException {
+    public InputStream content() {
         return content;
     }
 

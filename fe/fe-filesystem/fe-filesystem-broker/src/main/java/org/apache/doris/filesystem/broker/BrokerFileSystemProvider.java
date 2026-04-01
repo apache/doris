@@ -55,6 +55,9 @@ public class BrokerFileSystemProvider implements FileSystemProvider {
         if (host == null || host.isEmpty()) {
             throw new IOException("BROKER_HOST is required");
         }
+        if (portStr == null || portStr.isEmpty()) {
+            throw new IOException("BROKER_PORT is required");
+        }
         int port;
         try {
             port = Integer.parseInt(portStr);

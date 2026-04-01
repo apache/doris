@@ -101,12 +101,12 @@ public class AzureFileSystem extends ObjFileSystem {
      * Azure Blob Storage does not support atomic directory renames.
      * Single-blob renames are supported via copy-then-delete.
      *
-     * @throws UnsupportedOperationException if the source appears to be a directory prefix
+     * @throws IOException if the source appears to be a directory prefix
      */
     @Override
     public void rename(Location src, Location dst) throws IOException {
         if (src.uri().endsWith(DIR_MARKER_SUFFIX)) {
-            throw new UnsupportedOperationException(
+            throw new IOException(
                     "Renaming directories is not supported in Azure Blob Storage.");
         }
         objStorage.copyObject(src.uri(), dst.uri());
@@ -176,7 +176,7 @@ public class AzureFileSystem extends ObjFileSystem {
             bufferIdx = 0;
             for (RemoteObject obj : page.getObjectList()) {
                 Location loc = Location.of(rebuildUri(prefix, obj.getKey()));
-                buffer.add(new FileEntry(loc, obj.getSize(), false, obj.modificationTime(), List.of()));
+                buffer.add(new FileEntry(loc, obj.getSize(), false, obj.getModificationTime(), List.of()));
             }
             if (page.isTruncated()) {
                 continuationToken = page.getContinuationToken();

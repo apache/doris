@@ -19,32 +19,37 @@ package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.spi.FileEntry;
 import org.apache.doris.filesystem.spi.FileIterator;
+import org.apache.doris.filesystem.spi.HadoopAuthenticator;
 import org.apache.doris.filesystem.spi.Location;
 
 import org.apache.hadoop.fs.FileStatus;
+import org.apache.hadoop.fs.RemoteIterator;
 
 import java.io.IOException;
 
 /**
- * {@link FileIterator} backed by a Hadoop {@link FileStatus} array from a single listStatus call.
+ * {@link FileIterator} backed by a Hadoop {@link RemoteIterator}{@code <FileStatus>} for lazy,
+ * streaming directory listing. Each {@code hasNext()} / {@code next()} call is executed inside the
+ * provided {@link HadoopAuthenticator} context so that Kerberos tickets remain valid throughout.
  */
 class HdfsFileIterator implements FileIterator {
 
-    private final FileStatus[] statuses;
-    private int index = 0;
+    private final RemoteIterator<FileStatus> delegate;
+    private final HadoopAuthenticator authenticator;
 
-    HdfsFileIterator(FileStatus[] statuses) {
-        this.statuses = statuses;
+    HdfsFileIterator(RemoteIterator<FileStatus> delegate, HadoopAuthenticator authenticator) {
+        this.delegate = delegate;
+        this.authenticator = authenticator;
     }
 
     @Override
     public boolean hasNext() throws IOException {
-        return index < statuses.length;
+        return authenticator.doAs(delegate::hasNext);
     }
 
     @Override
     public FileEntry next() throws IOException {
-        FileStatus status = statuses[index++];
+        FileStatus status = authenticator.doAs(delegate::next);
         Location loc = Location.of(status.getPath().toString());
         return new FileEntry(loc, status.getLen(), status.isDirectory(),
                 status.getModificationTime(), null);
@@ -52,6 +57,6 @@ class HdfsFileIterator implements FileIterator {
 
     @Override
     public void close() throws IOException {
-        // no-op: statuses array is already fully loaded
+        // RemoteIterator has no close(); listing completes on exhaustion.
     }
 }
