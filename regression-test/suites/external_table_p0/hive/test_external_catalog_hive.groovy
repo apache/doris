@@ -17,6 +17,7 @@
 
 suite("test_external_catalog_hive", "p0,external") {
     String enabled = context.config.otherConfigs.get("enableHiveTest")
+    String enableRangerTest = context.config.otherConfigs.get("enableRangerTest")
     if (enabled == null || !enabled.equalsIgnoreCase("true")) {
         logger.info("diable Hive test.")
         return;
@@ -184,24 +185,28 @@ suite("test_external_catalog_hive", "p0,external") {
 
         sql """alter catalog hms rename ${catalog_name};"""
 
-        // test wrong ranger service
-        def tmp_name = "${catalog_name}" + "_wrong"
-        sql "drop catalog if exists ${tmp_name}"
-        sql """
-            create catalog if not exists ${tmp_name} properties (
-                'type'='hms',
-                'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
-                'access_controller.properties.ranger.service.name' = 'hive_wrong',
-                'access_controller.class' = 'org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory'
-            );
-        """
-        sql """switch ${tmp_name};"""
-        test {
-            sql """use test;"""
-            exception "Access denied for user"
+        // test wrong ranger service only when ranger regression environment is configured
+        if (enableRangerTest != null && enableRangerTest.equalsIgnoreCase("true")) {
+            def tmp_name = "${catalog_name}" + "_wrong"
+            sql "drop catalog if exists ${tmp_name}"
+            sql """
+                create catalog if not exists ${tmp_name} properties (
+                    'type'='hms',
+                    'hive.metastore.uris' = 'thrift://${externalEnvIp}:${hms_port}',
+                    'access_controller.properties.ranger.service.name' = 'hive_wrong',
+                    'access_controller.class' = 'org.apache.doris.catalog.authorizer.ranger.hive.RangerHiveAccessControllerFactory'
+                );
+            """
+            sql """switch ${tmp_name};"""
+            test {
+                sql """use test;"""
+                exception "Access denied for user"
+            }
+            sql """switch internal"""
+            sql "drop catalog if exists ${tmp_name}"
+        } else {
+            logger.info("skip wrong ranger service case because enableRangerTest is not true")
         }
-        sql """switch internal"""
-        sql "drop catalog if exists ${tmp_name}"
 
         // test catalog_meta_cache_statistics
         sql """
