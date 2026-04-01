@@ -24,9 +24,9 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.filesystem.spi.ObjFileSystem;
 import org.apache.doris.fs.obj.ListObjectsResult;
 import org.apache.doris.fs.obj.ObjectFile;
-import org.apache.doris.fs.remote.ObjFileSystem;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import mockit.Mock;

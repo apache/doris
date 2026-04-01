@@ -586,9 +586,6 @@ public class GsonUtils {
         String[][] subtypes = {
             {"BrokerFileSystem",  "org.apache.doris.fs.remote.BrokerFileSystem"},
             {"DFSFileSystem",     "org.apache.doris.fs.remote.dfs.DFSFileSystem"},
-            {"JFSFileSystem",     "org.apache.doris.fs.remote.dfs.JFSFileSystem"},
-            {"OFSFileSystem",     "org.apache.doris.fs.remote.dfs.OFSFileSystem"},
-            {"ObjFileSystem",     "org.apache.doris.fs.remote.ObjFileSystem"},
             {"S3FileSystem",      "org.apache.doris.fs.remote.S3FileSystem"},
             {"AzureFileSystem",   "org.apache.doris.fs.remote.AzureFileSystem"},
         };
