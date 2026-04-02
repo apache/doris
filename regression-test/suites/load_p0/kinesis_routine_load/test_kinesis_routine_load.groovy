@@ -85,11 +85,25 @@ suite("test_kinesis_routine_load", "nonConcurrent") {
         }
     }
 
+    def toLongValue = { Object value ->
+        if (value instanceof Number) {
+            return ((Number) value).longValue()
+        }
+        return Long.parseLong(value.toString().trim())
+    }
+
+    def toIntValue = { Object value ->
+        if (value instanceof Number) {
+            return ((Number) value).intValue()
+        }
+        return Integer.parseInt(value.toString().trim())
+    }
+
     def waitForCountAtLeast = { String tableName, long expectedCount, int timeoutSec ->
         long lastCount = -1
         for (int i = 0; i < timeoutSec; i++) {
             def result = sql "SELECT COUNT(*) FROM ${tableName}"
-            lastCount = ((Number) result[0][0]).longValue()
+            lastCount = toLongValue(result[0][0])
             if (lastCount >= expectedCount) {
                 logger.info("Table ${tableName} row count reached ${lastCount} (expected >= ${expectedCount})")
                 return lastCount
@@ -175,10 +189,10 @@ suite("test_kinesis_routine_load", "nonConcurrent") {
             waitForCountAtLeast(sharedTableName, 2, 180)
 
             def dedupResult = sql "SELECT COUNT(*), COUNT(DISTINCT id), MIN(id), MAX(id) FROM ${sharedTableName}"
-            assertEquals(2L, ((Number) dedupResult[0][0]).longValue())
-            assertEquals(2L, ((Number) dedupResult[0][1]).longValue())
-            assertEquals(1, ((Number) dedupResult[0][2]).intValue())
-            assertEquals(2, ((Number) dedupResult[0][3]).intValue())
+            assertEquals(2L, toLongValue(dedupResult[0][0]))
+            assertEquals(2L, toLongValue(dedupResult[0][1]))
+            assertEquals(1, toIntValue(dedupResult[0][2]))
+            assertEquals(2, toIntValue(dedupResult[0][3]))
         } finally {
             if (sharedJobCreated) {
                 try {
@@ -256,7 +270,7 @@ suite("test_kinesis_routine_load", "nonConcurrent") {
             for (int i = 0; i < 120; i++) {
                 def jobInfo = sql "SHOW ROUTINE LOAD FOR ${multiJobName}"
                 assertTrue(jobInfo.size() > 0)
-                int currentTaskNum = ((Number) jobInfo[0][10]).intValue()
+                int currentTaskNum = toIntValue(jobInfo[0][10])
                 if (currentTaskNum >= 2) {
                     seenParallelTask = true
                     break
