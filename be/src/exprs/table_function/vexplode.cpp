@@ -94,7 +94,7 @@ Status VExplodeTableFunction::process_init(Block* block, RuntimeState* state) {
 }
 
 bool VExplodeTableFunction::support_block_fast_path() const {
-    return !_is_outer;
+    return true;
 }
 
 Status VExplodeTableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,

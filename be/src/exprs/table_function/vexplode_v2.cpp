@@ -109,7 +109,7 @@ Status VExplodeV2TableFunction::process_init(Block* block, RuntimeState* state) 
 }
 
 bool VExplodeV2TableFunction::support_block_fast_path() const {
-    return !_is_outer && !_generate_row_index && _multi_detail.size() == 1;
+    return _multi_detail.size() == 1;
 }
 
 Status VExplodeV2TableFunction::prepare_block_fast_path(Block* /*block*/, RuntimeState* /*state*/,
@@ -123,6 +123,7 @@ Status VExplodeV2TableFunction::prepare_block_fast_path(Block* /*block*/, Runtim
     ctx->offsets_ptr = detail.offsets_ptr;
     ctx->nested_col = detail.nested_col;
     ctx->nested_nullmap_data = detail.nested_nullmap_data;
+    ctx->generate_row_index = _generate_row_index;
     return Status::OK();
 }
 
