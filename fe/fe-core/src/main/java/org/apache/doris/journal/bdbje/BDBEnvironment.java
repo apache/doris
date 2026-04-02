@@ -312,21 +312,15 @@ public class BDBEnvironment {
     public void removeDatabase(String dbName) {
         lock.writeLock().lock();
         try {
-            String targetDbName = null;
-            int index = 0;
-            for (Database db : openedDatabases) {
+            for (java.util.Iterator<Database> iter = openedDatabases.iterator(); iter.hasNext();) {
+                Database db = iter.next();
                 String name = db.getDatabaseName();
                 if (dbName.equals(name)) {
                     db.close();
                     LOG.info("database {} has been closed", name);
-                    targetDbName = name;
+                    iter.remove();
                     break;
                 }
-                index++;
-            }
-            if (targetDbName != null) {
-                LOG.info("begin to remove database {} from openedDatabases", targetDbName);
-                openedDatabases.remove(index);
             }
             try {
                 LOG.info("begin to remove database {} from replicatedEnvironment", dbName);
@@ -481,32 +475,37 @@ public class BDBEnvironment {
 
     // Close the store and environment
     public void close() {
-        for (Database db : openedDatabases) {
-            try {
-                db.close();
-            } catch (DatabaseException exception) {
-                LOG.error("Error closing db {} will exit", db.getDatabaseName(), exception);
+        lock.writeLock().lock();
+        try {
+            for (Database db : openedDatabases) {
+                try {
+                    db.close();
+                } catch (DatabaseException exception) {
+                    LOG.error("Error closing db {} will exit", db.getDatabaseName(), exception);
+                }
             }
-        }
-        openedDatabases.clear();
+            openedDatabases.clear();
 
-        if (epochDB != null) {
-            try {
-                epochDB.close();
-                epochDB = null;
-            } catch (DatabaseException exception) {
-                LOG.error("Error closing db {} will exit", epochDB.getDatabaseName(), exception);
+            if (epochDB != null) {
+                try {
+                    epochDB.close();
+                    epochDB = null;
+                } catch (DatabaseException exception) {
+                    LOG.error("Error closing db {} will exit", epochDB.getDatabaseName(), exception);
+                }
             }
-        }
 
-        if (replicatedEnvironment != null) {
-            try {
-                // Finally, close the store and environment.
-                replicatedEnvironment.close();
-                replicatedEnvironment = null;
-            } catch (DatabaseException exception) {
-                LOG.error("Error closing replicatedEnvironment", exception);
+            if (replicatedEnvironment != null) {
+                try {
+                    // Finally, close the store and environment.
+                    replicatedEnvironment.close();
+                    replicatedEnvironment = null;
+                } catch (DatabaseException exception) {
+                    LOG.error("Error closing replicatedEnvironment", exception);
+                }
             }
+        } finally {
+            lock.writeLock().unlock();
         }
     }
 

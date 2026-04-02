@@ -131,7 +131,8 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         List<JournalBatch.Entity> entities = batch.getJournalEntities();
         int entitySize = entities.size();
         long dataSize = 0;
-        long firstId = nextJournalId.getAndAdd(entitySize);
+        // Reserve IDs only after successful commit to avoid burning IDs on write failure.
+        long firstId = nextJournalId.get();
 
         // Write the journals to bdb.
         for (int i = 0; i < RETRY_TIME; i++) {
@@ -155,6 +156,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
 
                 txn.commit();
                 txn = null;
+                nextJournalId.addAndGet(entitySize);
 
                 if (MetricRepo.isInit) {
                     MetricRepo.COUNTER_EDIT_LOG_SIZE_BYTES.increase(dataSize);
@@ -237,8 +239,9 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
         entity.setOpCode(op);
         entity.setData(writable);
 
-        // id is the key
-        long id = nextJournalId.getAndIncrement();
+        // id is the key. Reserve ID only after successful write to avoid burning IDs on failure.
+        // This is safe because the method is synchronized.
+        long id = nextJournalId.get();
         DatabaseEntry theKey = idToKey(id);
 
         // entity is the value
@@ -273,6 +276,7 @@ public class BDBJEJournal implements Journal { // CHECKSTYLE IGNORE THIS LINE: B
                 // Parameter null means auto commit
                 if (currentJournalDB.put(null, theKey, theData) == OperationStatus.SUCCESS) {
                     writeSucceed = true;
+                    nextJournalId.incrementAndGet();
                     if (LOG.isDebugEnabled()) {
                         LOG.debug("master write journal {} finished. db name {}, current time {}",
                                 id, currentJournalDB.getDatabaseName(), System.currentTimeMillis());
