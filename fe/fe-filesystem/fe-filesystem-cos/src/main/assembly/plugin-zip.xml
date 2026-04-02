@@ -19,11 +19,16 @@ under the License.
 -->
 <!--
   Plugin zip layout expected by DirectoryPluginRuntimeManager:
-    doris-fe-filesystem-<name>.jar   (plugin jar at root)
+    <finalName>.jar   (the plugin jar at root — discovered for service registration)
     lib/
-      *.jar                          (transitive runtime deps)
+      *.jar           (all runtime deps: direct + transitive)
 
-  Jars already present in fe-core classpath are excluded:
+  The plugin jar is placed at root via <files> so that service-discovery scans
+  only root-level jars. All dependencies (including intra-doris modules such as
+  fe-filesystem-s3 inside fe-filesystem-cos) land in lib/ and are available for
+  class loading but are NOT scanned for FileSystemProvider registrations.
+
+  Jars already present in fe-core classpath are excluded from lib/:
     fe-filesystem-api, fe-filesystem-spi, fe-extension-spi
 -->
 <assembly xmlns="http://maven.apache.org/ASSEMBLY/2.2.0"
@@ -35,18 +40,17 @@ under the License.
         <format>zip</format>
     </formats>
     <includeBaseDirectory>false</includeBaseDirectory>
-    <dependencySets>
-        <!-- Plugin jar itself at the root of the zip -->
-        <dependencySet>
+
+    <!-- Plugin jar at the root of the zip (service-discovery target) -->
+    <files>
+        <file>
+            <source>${project.build.directory}/${project.build.finalName}.jar</source>
             <outputDirectory>/</outputDirectory>
-            <useProjectArtifact>true</useProjectArtifact>
-            <useTransitiveDependencies>false</useTransitiveDependencies>
-            <excludes>
-                <!-- Exclude intra-doris dependencies from root; they go to lib/ via the second set. -->
-                <exclude>org.apache.doris:*</exclude>
-            </excludes>
-        </dependencySet>
-        <!-- All transitive runtime deps in lib/ (SPI/API jars excluded: they live in fe-core) -->
+        </file>
+    </files>
+
+    <dependencySets>
+        <!-- All runtime deps (direct + transitive) in lib/ -->
         <dependencySet>
             <outputDirectory>/lib</outputDirectory>
             <useProjectArtifact>false</useProjectArtifact>
