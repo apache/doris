@@ -46,6 +46,10 @@ public class HdfsConfigBuilder {
                 conf.set(k, v);
             }
         });
+        // Bind the configuration's classloader to this plugin's classloader so that
+        // conf.getClass("fs.hdfs.impl", ...) resolves DistributedFileSystem from the
+        // plugin jars rather than the parent FE classloader.
+        conf.setClassLoader(HdfsConfigBuilder.class.getClassLoader());
         return conf;
     }
 

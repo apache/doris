@@ -72,8 +72,23 @@ public class DFSFileSystem implements org.apache.doris.filesystem.FileSystem {
                     throw new IOException("DFSFileSystem is closed.");
                 }
                 if (hadoopFs == null) {
-                    hadoopFs = authenticator.doAs(
-                            () -> org.apache.hadoop.fs.FileSystem.get(path.toUri(), conf));
+                    // Switch the thread context classloader to the plugin classloader before
+                    // calling FileSystem.get(). Hadoop's ServiceLoader.load(FileSystem.class)
+                    // uses the context classloader to discover FileSystem implementations. If
+                    // left as the FE parent classloader, hive-exec.jar (on the parent classpath)
+                    // injects NullScanFileSystem which is not a subtype of the plugin's
+                    // FileSystem class, causing a ServiceConfigurationError that prevents HDFS
+                    // from being registered and leads to "No FileSystem for scheme 'hdfs'".
+                    ClassLoader pluginCL = DFSFileSystem.class.getClassLoader();
+                    Thread currentThread = Thread.currentThread();
+                    ClassLoader previousCCL = currentThread.getContextClassLoader();
+                    currentThread.setContextClassLoader(pluginCL);
+                    try {
+                        hadoopFs = authenticator.doAs(
+                                () -> org.apache.hadoop.fs.FileSystem.get(path.toUri(), conf));
+                    } finally {
+                        currentThread.setContextClassLoader(previousCCL);
+                    }
                 }
             }
         }
