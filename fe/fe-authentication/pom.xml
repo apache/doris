@@ -31,6 +31,7 @@ under the License.
     <name>Doris FE Authentication</name>
     <modules>
         <module>fe-authentication-api</module>
+        <module>fe-authentication-role-mapping</module>
         <module>fe-authentication-spi</module>
         <module>fe-authentication-handler</module>
         <module>fe-authentication-plugins</module>

@@ -162,6 +162,7 @@ import org.apache.doris.nereids.DorisParser.CreateIndexTokenizerContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRoleContext;
+import org.apache.doris.nereids.DorisParser.CreateRoleMappingContext;
 import org.apache.doris.nereids.DorisParser.CreateRoutineLoadContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateSqlBlockRuleContext;
@@ -206,6 +207,7 @@ import org.apache.doris.nereids.DorisParser.DropPartitionFieldClauseContext;
 import org.apache.doris.nereids.DorisParser.DropProcedureContext;
 import org.apache.doris.nereids.DorisParser.DropRepositoryContext;
 import org.apache.doris.nereids.DorisParser.DropRoleContext;
+import org.apache.doris.nereids.DorisParser.DropRoleMappingContext;
 import org.apache.doris.nereids.DorisParser.DropRollupClauseContext;
 import org.apache.doris.nereids.DorisParser.DropSqlBlockRuleContext;
 import org.apache.doris.nereids.DorisParser.DropStoragePolicyContext;
@@ -333,6 +335,7 @@ import org.apache.doris.nereids.DorisParser.ReplacePartitionClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplacePartitionFieldClauseContext;
 import org.apache.doris.nereids.DorisParser.ReplaceTableClauseContext;
 import org.apache.doris.nereids.DorisParser.ResumeMTMVContext;
+import org.apache.doris.nereids.DorisParser.RoleMappingRuleClauseContext;
 import org.apache.doris.nereids.DorisParser.RollupDefContext;
 import org.apache.doris.nereids.DorisParser.RollupDefsContext;
 import org.apache.doris.nereids.DorisParser.RowConstructorContext;
@@ -707,6 +710,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateRoleMappingCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStageCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateStorageVaultCommand;
@@ -744,6 +748,7 @@ import org.apache.doris.nereids.trees.plans.commands.DropProcedureCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRepositoryCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropResourceCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRoleCommand;
+import org.apache.doris.nereids.trees.plans.commands.DropRoleMappingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropRowPolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropSqlBlockRuleCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropStageCommand;
@@ -1127,6 +1132,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -7224,6 +7230,29 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
+    public LogicalPlan visitCreateRoleMapping(CreateRoleMappingContext ctx) {
+        boolean ifNotExists = ctx.IF() != null;
+        String mappingName = stripQuotes(ctx.mappingName.getText());
+        String integrationName = stripQuotes(ctx.integrationName.getText());
+        List<CreateRoleMappingCommand.RoleMappingRule> rules = new ArrayList<>(ctx.rules.size());
+        for (RoleMappingRuleClauseContext ruleContext : ctx.rules) {
+            rules.add(visitRoleMappingRuleClause(ruleContext));
+        }
+        String comment = ctx.commentSpec() == null ? null : stripQuotes(ctx.commentSpec().STRING_LITERAL().getText());
+        return new CreateRoleMappingCommand(mappingName, ifNotExists, integrationName, rules, comment);
+    }
+
+    @Override
+    public CreateRoleMappingCommand.RoleMappingRule visitRoleMappingRuleClause(RoleMappingRuleClauseContext ctx) {
+        String condition = stripQuotes(ctx.condition.getText());
+        Set<String> grantedRoles = new LinkedHashSet<>();
+        for (DorisParser.IdentifierOrTextContext grantedRole : ctx.grantedRoles) {
+            grantedRoles.add(visitIdentifierOrText(grantedRole));
+        }
+        return new CreateRoleMappingCommand.RoleMappingRule(condition, grantedRoles);
+    }
+
+    @Override
     public LogicalPlan visitShowStages(ShowStagesContext ctx) {
         return new ShowStagesCommand();
     }
@@ -7415,6 +7444,13 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String integrationName = stripQuotes(ctx.name.getText());
         boolean ifExists = ctx.EXISTS() != null;
         return new DropAuthenticationIntegrationCommand(ifExists, integrationName);
+    }
+
+    @Override
+    public LogicalPlan visitDropRoleMapping(DropRoleMappingContext ctx) {
+        String mappingName = stripQuotes(ctx.name.getText());
+        boolean ifExists = ctx.EXISTS() != null;
+        return new DropRoleMappingCommand(ifExists, mappingName);
     }
 
     @Override
