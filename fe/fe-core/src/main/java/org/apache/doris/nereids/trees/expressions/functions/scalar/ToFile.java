@@ -32,21 +32,22 @@ import java.util.List;
 
 /**
  * ScalarFunction 'to_file'.
- * Overload: to_file(url, endpoint, role_arn) — construct FILE with auth info (no HTTP).
+ * to_file(url, endpoint, ak, sk) — construct FILE with AK/SK auth info.
  */
 public class ToFile extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(FileType.INSTANCE).args(
-                    StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
+                    StringType.INSTANCE, StringType.INSTANCE,
+                    StringType.INSTANCE, StringType.INSTANCE)
     );
 
     /**
-     * constructor with 3 arguments: object URL, endpoint, role_arn.
+     * constructor with 4 arguments: object URL, endpoint, ak, sk.
      */
-    public ToFile(Expression arg0, Expression arg1, Expression arg2) {
-        super("to_file", arg0, arg1, arg2);
+    public ToFile(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
+        super("to_file", arg0, arg1, arg2, arg3);
     }
 
     /** constructor for withChildren and reuse signature */
@@ -56,7 +57,7 @@ public class ToFile extends ScalarFunction
 
     @Override
     public ToFile withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 3);
+        Preconditions.checkArgument(children.size() == 4);
         return new ToFile(getFunctionParams(children));
     }
 

@@ -31,28 +31,32 @@ struct FileFieldDesc {
     DataTypePtr type;
 };
 
-inline constexpr std::string_view FILE_FIELD_OBJECT_URI = "object_uri";
+inline constexpr std::string_view FILE_FIELD_URI = "uri";
 inline constexpr std::string_view FILE_FIELD_FILE_NAME = "file_name";
 inline constexpr std::string_view FILE_FIELD_CONTENT_TYPE = "content_type";
 inline constexpr std::string_view FILE_FIELD_SIZE = "size";
-inline constexpr std::string_view FILE_FIELD_ETAG = "etag";
-inline constexpr std::string_view FILE_FIELD_LAST_MODIFIED_AT = "last_modified_at";
 inline constexpr std::string_view FILE_FIELD_REGION = "region";
 inline constexpr std::string_view FILE_FIELD_ENDPOINT = "endpoint";
+inline constexpr std::string_view FILE_FIELD_AK = "ak";
+inline constexpr std::string_view FILE_FIELD_SK = "sk";
 inline constexpr std::string_view FILE_FIELD_ROLE_ARN = "role_arn";
+inline constexpr std::string_view FILE_FIELD_EXTERNAL_ID = "external_id";
 
+// now struct FileInfo only contains file_name and file_size, 
+// and if we want to get ETAG and LAST_MODIFIED_AT, need refactor FileInfo and the underlying file system client to support them.
 class FileSchemaDescriptor final {
 public:
     enum class Field : uint8_t {
-        OBJECT_URI = 0,
+        URI = 0,
         FILE_NAME = 1,
         CONTENT_TYPE = 2,
         SIZE = 3,
-        ETAG = 4,
-        LAST_MODIFIED_AT = 5,
-        REGION = 6,
-        ENDPOINT = 7,
+        REGION = 4,
+        ENDPOINT = 5,
+        AK = 6,
+        SK = 7,
         ROLE_ARN = 8,
+        EXTERNAL_ID = 9,
     };
 
     static const FileSchemaDescriptor& instance();
@@ -65,12 +69,12 @@ public:
 
     // Shared utilities for FILE type serialization.
     static std::string extract_file_name(std::string_view uri);
+    // Returns the lowercased file extension including the dot (e.g., ".jpg", ".csv").
     static std::string extract_file_extension(const std::string& file_name);
+    // Maps file extension to MIME content type (e.g., ".jpg" → "image/jpeg").
     static std::string extension_to_content_type(const std::string& ext);
     static void write_jsonb_string(JsonbWriter& writer, const std::string& value);
     static void write_jsonb_key(JsonbWriter& writer, std::string_view key);
-
-    static constexpr std::string_view LAST_MODIFIED_AT_FALLBACK = "1970-01-01 00:00:00.000";
 
 private:
     FileSchemaDescriptor();

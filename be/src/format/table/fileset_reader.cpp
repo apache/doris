@@ -17,6 +17,8 @@
 
 #include "format/table/fileset_reader.h"
 
+#include <fnmatch.h>
+
 #include "common/cast_set.h"
 #include "core/assert_cast.h"
 #include "core/block/block.h"
@@ -145,7 +147,15 @@ Status FilesetReader::_build_files() {
     return Status::OK();
 }
 
-// Single-level listing only — fileset tables do not recurse into subdirectories.
+// Lists files in the directory specified by table_path, then filters them
+// against the glob pattern from fileset_params["file_pattern"].
+//
+// The pattern supports POSIX glob syntax via fnmatch(3):
+//   *           — matches any sequence of characters
+//   ?           — matches any single character
+//   [abc]       — matches any character in the set
+//   [a-z]       — matches any character in the range
+//   [!abc]      — matches any character NOT in the set
 Status FilesetReader::_list_files(const io::FileSystemSPtr& fs, const std::string& table_path) {
     _files.clear();
     bool exists = false;
@@ -154,12 +164,25 @@ Status FilesetReader::_list_files(const io::FileSystemSPtr& fs, const std::strin
     if (!exists) {
         return Status::NotFound("fileset table path does not exist: {}", table_path);
     }
+    auto it = _fileset_params.find("file_pattern");
+    DORIS_CHECK(it != _fileset_params.end());
+    const std::string& pattern = it->second;
     for (auto& entry : listed_entries) {
-        if (entry.is_file) {
-            _files.push_back(std::move(entry));
+        if (!entry.is_file) {
+            continue;
         }
+        // Match the filename (not full path) against the glob pattern.
+        std::string name = FileSchemaDescriptor::extract_file_name(entry.file_name);
+        if (fnmatch(pattern.c_str(), name.c_str(), 0) != 0) {
+            continue;
+        }
+        _files.push_back(std::move(entry));
     }
     return Status::OK();
+}
+
+bool FilesetReader::_match_glob_pattern(const std::string& name, const std::string& pattern) {
+    return fnmatch(pattern.c_str(), name.c_str(), 0) == 0;
 }
 
 Result<TFileType::type> FilesetReader::_parse_file_type(const std::string& file_type) {
@@ -175,7 +198,7 @@ Result<TFileType::type> FilesetReader::_parse_file_type(const std::string& file_
     return ResultError(Status::InvalidArgument("unsupported fileset file type: {}", file_type));
 }
 
-std::string FilesetReader::_build_object_uri(const std::string& table_path,
+std::string FilesetReader::_build_uri(const std::string& table_path,
                                              const std::string& listed_name) {
     if (listed_name.find("://") != std::string::npos) {
         return listed_name;
@@ -211,25 +234,21 @@ void FilesetReader::_init_profile() {
 
 void FilesetReader::_write_file_jsonb(JsonbWriter& writer, const io::FileInfo& file) {
     using S = FileSchemaDescriptor;
-    const std::string object_uri = _build_object_uri(_fileset_params.at("table_path"), file.file_name);
-    const std::string file_name = S::extract_file_name(object_uri);
+    const std::string uri = _build_uri(_fileset_params.at("table_path"), file.file_name);
+    const std::string file_name = S::extract_file_name(uri);
     const std::string content_type =
             S::extension_to_content_type(S::extract_file_extension(file_name));
     const auto& schema = S::instance();
 
     writer.writeStartObject();
-    S::write_jsonb_key(writer, schema.field_name(S::Field::OBJECT_URI));
-    S::write_jsonb_string(writer, object_uri);
+    S::write_jsonb_key(writer, schema.field_name(S::Field::URI));
+    S::write_jsonb_string(writer, uri);
     S::write_jsonb_key(writer, schema.field_name(S::Field::FILE_NAME));
     S::write_jsonb_string(writer, file_name);
     S::write_jsonb_key(writer, schema.field_name(S::Field::CONTENT_TYPE));
     S::write_jsonb_string(writer, content_type);
     S::write_jsonb_key(writer, schema.field_name(S::Field::SIZE));
     writer.writeInt64(file.file_size);
-    S::write_jsonb_key(writer, schema.field_name(S::Field::ETAG));
-    writer.writeNull();
-    S::write_jsonb_key(writer, schema.field_name(S::Field::LAST_MODIFIED_AT));
-    S::write_jsonb_string(writer, std::string(S::LAST_MODIFIED_AT_FALLBACK));
     auto write_nullable_param = [&](S::Field field, const char* param_key) {
         S::write_jsonb_key(writer, schema.field_name(field));
         if (auto it = _fileset_params.find(param_key);
@@ -241,7 +260,10 @@ void FilesetReader::_write_file_jsonb(JsonbWriter& writer, const io::FileInfo& f
     };
     write_nullable_param(S::Field::REGION, "AWS_REGION");
     write_nullable_param(S::Field::ENDPOINT, "AWS_ENDPOINT");
+    write_nullable_param(S::Field::AK, "AWS_ACCESS_KEY");
+    write_nullable_param(S::Field::SK, "AWS_SECRET_KEY");
     write_nullable_param(S::Field::ROLE_ARN, "AWS_ROLE_ARN");
+    write_nullable_param(S::Field::EXTERNAL_ID, "AWS_EXTERNAL_ID");
     writer.writeEndObject();
 }
 } // namespace doris

@@ -23,7 +23,6 @@
 #include <unordered_map>
 
 #include "common/cast_set.h"
-#include "core/data_type/data_type_date_or_datetime_v2.h"
 #include "core/data_type/data_type_nullable.h"
 #include "core/data_type/data_type_number.h"
 #include "core/data_type/data_type_string.h"
@@ -43,17 +42,21 @@ FileSchemaDescriptor::FileSchemaDescriptor() {
         });
     };
 
-    add_field(FILE_FIELD_OBJECT_URI.data(), std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
+    add_field(FILE_FIELD_URI.data(), std::make_shared<DataTypeString>(4096, TYPE_VARCHAR));
     add_field(FILE_FIELD_FILE_NAME.data(), std::make_shared<DataTypeString>(512, TYPE_VARCHAR));
     add_field(FILE_FIELD_CONTENT_TYPE.data(), std::make_shared<DataTypeString>(128, TYPE_VARCHAR));
     add_field(FILE_FIELD_SIZE.data(), std::make_shared<DataTypeInt64>());
-    add_field(FILE_FIELD_ETAG.data(), make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
-    add_field(FILE_FIELD_LAST_MODIFIED_AT.data(), std::make_shared<DataTypeDateTimeV2>(3));
     add_field(FILE_FIELD_REGION.data(),
               make_nullable(std::make_shared<DataTypeString>(64, TYPE_VARCHAR)));
     add_field(FILE_FIELD_ENDPOINT.data(),
               make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field(FILE_FIELD_AK.data(),
+              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field(FILE_FIELD_SK.data(),
+              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
     add_field(FILE_FIELD_ROLE_ARN.data(),
+              make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
+    add_field(FILE_FIELD_EXTERNAL_ID.data(),
               make_nullable(std::make_shared<DataTypeString>(256, TYPE_VARCHAR)));
 }
 
@@ -102,9 +105,22 @@ std::string FileSchemaDescriptor::extension_to_content_type(const std::string& e
             {".avro", "application/avro"},
             {".txt", "text/plain"},
             {".log", "text/plain"},
+            {".tbl", "text/plain"},
             {".xml", "application/xml"},
             {".html", "text/html"},
             {".htm", "text/html"},
+            {".pdf", "application/pdf"},
+            {".jpg", "image/jpeg"},
+            {".jpeg", "image/jpeg"},
+            {".png", "image/png"},
+            {".gif", "image/gif"},
+            {".bmp", "image/bmp"},
+            {".svg", "image/svg+xml"},
+            {".webp", "image/webp"},
+            {".mp3", "audio/mpeg"},
+            {".wav", "audio/wav"},
+            {".mp4", "video/mp4"},
+            {".avi", "video/x-msvideo"},
             {".gz", "application/gzip"},
             {".bz2", "application/x-bzip2"},
             {".zst", "application/zstd"},
@@ -112,7 +128,6 @@ std::string FileSchemaDescriptor::extension_to_content_type(const std::string& e
             {".snappy", "application/x-snappy"},
             {".zip", "application/zip"},
             {".tar", "application/x-tar"},
-            {".tbl", "text/plain"},
     };
     if (auto it = mime_map.find(ext); it != mime_map.end()) {
         return it->second;

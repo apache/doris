@@ -18,7 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.common.DdlException;
-import org.apache.doris.datasource.property.storage.S3Properties;
+import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TFilesetTable;
 import org.apache.doris.thrift.TTableDescriptor;
@@ -77,44 +77,63 @@ public class FilesetTable extends Table {
     }
 
     /**
-     * Strip trailing wildcard characters to get the directory path for the BE reader.
-     * For example: s3://bucket/path/* → s3://bucket/path/
+     * Extract the directory path from the location (everything up to the last '/').
+     * Normalizes URI scheme (e.g. oss:// → s3://) for BE compatibility.
+     * The location always has a file pattern after the last '/', so we strip it.
      */
     public String getTablePath() {
-        String path = location;
-        if (path.endsWith("/**")) {
-            path = path.substring(0, path.length() - 2);
-        } else if (path.endsWith("/*")) {
-            path = path.substring(0, path.length() - 1);
-        } else if (path.endsWith("*")) {
-            path = path.substring(0, path.length() - 1);
+        int lastSlash = location.lastIndexOf('/');
+        String path = (lastSlash >= 0) ? location.substring(0, lastSlash + 1) : location;
+        try {
+            return getOrCreateStorageProperties().validateAndNormalizeUri(path);
+        } catch (Exception e) {
+            LOG.warn("Failed to normalize table path, using raw path: {}", path, e);
+            return path;
         }
-        return path;
+    }
+
+    /**
+     * Extract the file pattern from the location (everything after the last '/').
+     * This is always non-null after validation. Supports:
+     *   *.jpg       — glob: match all .jpg files
+     *   *           — match all files
+     *   file.csv    — exact match: single specific file
+     *   data_[0-9]* — character class glob
+     */
+    public String getFilePattern() {
+        int lastSlash = location.lastIndexOf('/');
+        if (lastSlash < 0 || lastSlash == location.length() - 1) {
+            return "*";
+        }
+        return location.substring(lastSlash + 1);
     }
 
     /**
      * Derive the TFileType from the location URI scheme.
      */
     public TFileType getFileType() {
-        if (location.startsWith("s3://") || location.startsWith("s3a://") || location.startsWith("s3n://")) {
-            return TFileType.FILE_S3;
-        } else if (location.startsWith("hdfs://")) {
+        String loc = location.toLowerCase();
+        if (loc.startsWith("hdfs://")) {
             return TFileType.FILE_HDFS;
-        } else {
-            return TFileType.FILE_S3;
         }
+        return TFileType.FILE_S3;
     }
 
     /**
-     * Convert user-facing S3 storage properties to backend-facing AWS_* properties.
+     * Convert user-facing storage properties (s3.*, oss.*, etc.) to
+     * backend-facing AWS_* properties.
      */
     public Map<String, String> getBackendProperties() {
         try {
-            return S3Properties.of(storageProperties).getBackendConfigProperties();
+            return getOrCreateStorageProperties().getBackendConfigProperties();
         } catch (Exception e) {
-            LOG.warn("Failed to convert S3 properties to backend properties, using raw properties", e);
+            LOG.warn("Failed to convert storage properties to backend properties, using raw", e);
             return storageProperties;
         }
+    }
+
+    private StorageProperties getOrCreateStorageProperties() {
+        return StorageProperties.createPrimary(storageProperties);
     }
 
     @Override
@@ -122,6 +141,7 @@ public class FilesetTable extends Table {
         TFilesetTable tFilesetTable = new TFilesetTable();
         tFilesetTable.setTablePath(getTablePath());
         tFilesetTable.setFileType(getFileType());
+        tFilesetTable.setFilePattern(getFilePattern());
 
         TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.FILESET_TABLE,
                 fullSchema.size(), 0, getName(), "");

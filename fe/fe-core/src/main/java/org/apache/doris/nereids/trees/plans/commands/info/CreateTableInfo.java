@@ -1158,6 +1158,13 @@ public class CreateTableInfo {
             throw new AnalysisException(
                     "Fileset table must specify 'location' property (e.g., location = 's3://bucket/path/*')");
         }
+        String location = properties.get("location");
+        if (location.endsWith("/")) {
+            throw new AnalysisException(
+                    "Fileset table location must specify a file pattern or file name after the last '/', "
+                    + "e.g., 's3://bucket/path/*' or 's3://bucket/path/file.csv'. "
+                    + "Got: " + location);
+        }
         if (distributionDesc != null) {
             throw new AnalysisException("Fileset table should not contain distribution desc");
         }

@@ -48,7 +48,7 @@ public:
 
     bool is_variadic() const override { return false; }
 
-    size_t get_number_of_arguments() const override { return 3; }
+    size_t get_number_of_arguments() const override { return 4; }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeFile>();
@@ -56,15 +56,17 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         uint32_t result, size_t input_rows_count) const override {
-        DCHECK_EQ(arguments.size(), 3);
+        DCHECK_EQ(arguments.size(), 4);
 
-        ColumnPtr uri_holder, endpoint_holder, role_arn_holder;
+        ColumnPtr uri_holder, endpoint_holder, ak_holder, sk_holder;
         const ColumnString* uri_col =
                 _unwrap_string_column(block.get_by_position(arguments[0]), uri_holder);
         const ColumnString* endpoint_col =
                 _unwrap_string_column(block.get_by_position(arguments[1]), endpoint_holder);
-        const ColumnString* role_arn_col =
-                _unwrap_string_column(block.get_by_position(arguments[2]), role_arn_holder);
+        const ColumnString* ak_col =
+                _unwrap_string_column(block.get_by_position(arguments[2]), ak_holder);
+        const ColumnString* sk_col =
+                _unwrap_string_column(block.get_by_position(arguments[3]), sk_holder);
 
         using S = FileSchemaDescriptor;
         const auto& schema = S::instance();
@@ -76,13 +78,14 @@ public:
         for (size_t row = 0; row < input_rows_count; ++row) {
             std::string uri = uri_col->get_data_at(row).to_string();
             std::string endpoint = endpoint_col->get_data_at(row).to_string();
-            std::string role_arn = role_arn_col->get_data_at(row).to_string();
+            std::string ak = ak_col->get_data_at(row).to_string();
+            std::string sk = sk_col->get_data_at(row).to_string();
             std::string file_name = S::extract_file_name(uri);
             std::string content_type =
                     S::extension_to_content_type(S::extract_file_extension(file_name));
 
             writer.reset();
-            _write_file_jsonb(writer, schema, uri, file_name, content_type, endpoint, role_arn);
+            _write_file_jsonb(writer, schema, uri, file_name, content_type, endpoint, ak, sk);
             jsonb_col.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
         }
         block.replace_by_position(result, std::move(result_col));
@@ -102,7 +105,8 @@ private:
     static void _write_file_jsonb(JsonbWriter& writer, const FileSchemaDescriptor& schema,
                                   const std::string& uri, const std::string& file_name,
                                   const std::string& content_type,
-                                  const std::string& endpoint, const std::string& role_arn) {
+                                  const std::string& endpoint,
+                                  const std::string& ak, const std::string& sk) {
         using S = FileSchemaDescriptor;
         auto write_nullable_str = [&](S::Field field, const std::string& s) {
             S::write_jsonb_key(writer, schema.field_name(field));
@@ -114,7 +118,7 @@ private:
         };
 
         writer.writeStartObject();
-        S::write_jsonb_key(writer, schema.field_name(S::Field::OBJECT_URI));
+        S::write_jsonb_key(writer, schema.field_name(S::Field::URI));
         S::write_jsonb_string(writer, uri);
         S::write_jsonb_key(writer, schema.field_name(S::Field::FILE_NAME));
         S::write_jsonb_string(writer, file_name);
@@ -122,13 +126,15 @@ private:
         S::write_jsonb_string(writer, content_type);
         S::write_jsonb_key(writer, schema.field_name(S::Field::SIZE));
         writer.writeInt64(-1);
-        S::write_jsonb_key(writer, schema.field_name(S::Field::ETAG));
-        writer.writeNull();
-        S::write_jsonb_key(writer, schema.field_name(S::Field::LAST_MODIFIED_AT));
-        S::write_jsonb_string(writer, std::string(S::LAST_MODIFIED_AT_FALLBACK));
         write_nullable_str(S::Field::REGION, "");
         write_nullable_str(S::Field::ENDPOINT, endpoint);
-        write_nullable_str(S::Field::ROLE_ARN, role_arn);
+        write_nullable_str(S::Field::AK, ak);
+        write_nullable_str(S::Field::SK, sk);
+        // role_arn and external_id not used in to_file()
+        S::write_jsonb_key(writer, schema.field_name(S::Field::ROLE_ARN));
+        writer.writeNull();
+        S::write_jsonb_key(writer, schema.field_name(S::Field::EXTERNAL_ID));
+        writer.writeNull();
         writer.writeEndObject();
     }
 };

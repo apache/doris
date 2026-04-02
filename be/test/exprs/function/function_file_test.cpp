@@ -38,7 +38,8 @@ namespace doris {
 TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
     const std::string object_url = "s3://bench-dataset/ssb/sf1/customer/customer.tbl";
     const std::string endpoint = "http://oss-cn-beijing.aliyuncs.com";
-    const std::string role_arn = "arn:aws:iam::543815668950:role/test-role";
+    const std::string ak = "fake_ak";
+    const std::string sk = "fake_sk";
 
     auto string_type = std::make_shared<DataTypeString>();
     ColumnsWithTypeAndName arguments {
@@ -46,8 +47,10 @@ TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
                                    string_type, "object_url"},
             ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({endpoint}),
                                    string_type, "endpoint"},
-            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({role_arn}),
-                                   string_type, "role_arn"}};
+            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({ak}),
+                                   string_type, "ak"},
+            ColumnWithTypeAndName {ColumnHelper::create_column<DataTypeString>({sk}),
+                                   string_type, "sk"}};
 
     auto result_type = std::make_shared<DataTypeFile>();
     auto function =
@@ -57,20 +60,20 @@ TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
     Block block(arguments);
     block.insert(ColumnWithTypeAndName {nullptr, result_type, "result"});
 
-    Status status = function->execute(nullptr, block, {0, 1, 2}, 3, 1);
+    Status status = function->execute(nullptr, block, {0, 1, 2, 3}, 4, 1);
     ASSERT_TRUE(status.ok()) << status;
 
-    const auto& result_column = assert_cast<const ColumnFile&>(*block.get_by_position(3).column);
+    const auto& result_column = assert_cast<const ColumnFile&>(*block.get_by_position(4).column);
     const auto& jsonb_column = assert_cast<const ColumnString&>(result_column.get_jsonb_column());
     ASSERT_EQ(result_column.size(), 1);
     EXPECT_EQ(JsonbToJson::jsonb_to_json_string(jsonb_column.get_data_at(0).data,
                                                 jsonb_column.get_data_at(0).size),
-              "{\"object_uri\":\"" + object_url +
+              "{\"uri\":\"" + object_url +
                       "\",\"file_name\":\"customer.tbl\",\"content_type\":\"text/plain\","
-                      "\"size\":-1,\"etag\":null,"
-                      "\"last_modified_at\":\"1970-01-01 00:00:00.000\","
+                      "\"size\":-1,"
                       "\"region\":null,\"endpoint\":\"" +
-                      endpoint + "\",\"role_arn\":\"" + role_arn + "\"}");
+                      endpoint + "\",\"ak\":\"" + ak + "\",\"sk\":\"" + sk +
+                      "\",\"role_arn\":null,\"external_id\":null}");
     EXPECT_TRUE(result_column.check_schema(FileSchemaDescriptor::instance()).ok());
 
     const auto& file_type = assert_cast<const DataTypeFile&>(*result_type);
@@ -79,10 +82,11 @@ TEST(FunctionFileTest, toFileBuildsExpectedJsonbPayload) {
     EXPECT_EQ(file_type.schema().field(2).type->get_name(), "String");
     EXPECT_EQ(file_type.schema().field(3).type->get_name(), "BIGINT");
     EXPECT_EQ(file_type.schema().field(4).type->get_name(), "Nullable(String)");
-    EXPECT_EQ(file_type.schema().field(5).type->get_name(), "DateTimeV2(3)");
+    EXPECT_EQ(file_type.schema().field(5).type->get_name(), "Nullable(String)");
     EXPECT_EQ(file_type.schema().field(6).type->get_name(), "Nullable(String)");
     EXPECT_EQ(file_type.schema().field(7).type->get_name(), "Nullable(String)");
     EXPECT_EQ(file_type.schema().field(8).type->get_name(), "Nullable(String)");
+    EXPECT_EQ(file_type.schema().field(9).type->get_name(), "Nullable(String)");
 }
 
 } // namespace doris

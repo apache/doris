@@ -56,9 +56,13 @@ private:
     };
 
     Status _build_files();
+    // Lists files in the directory and filters by the glob pattern from _fileset_params.
+    // Uses POSIX fnmatch(3) for pattern matching (supports *, ?, [...]).
     Status _list_files(const io::FileSystemSPtr& fs, const std::string& table_path);
+    // Matches a filename against a glob pattern using fnmatch(3).
+    static bool _match_glob_pattern(const std::string& name, const std::string& pattern);
     static Result<TFileType::type> _parse_file_type(const std::string& file_type);
-    static std::string _build_object_uri(const std::string& table_path, const std::string& listed_name);
+    static std::string _build_uri(const std::string& table_path, const std::string& listed_name);
     void _init_profile();
     void _write_file_jsonb(JsonbWriter& writer, const io::FileInfo& file);
 

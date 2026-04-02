@@ -4165,7 +4165,8 @@ public class Env {
         sb.append("CREATE ");
         if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL
                 || table.getType() == TableType.ELASTICSEARCH || table.getType() == TableType.BROKER
-                || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
+                || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC
+                || table.getType() == TableType.FILESET) {
             sb.append("EXTERNAL ");
         }
 
@@ -4387,6 +4388,18 @@ public class Env {
                         hidePassword).toString());
                 sb.append("\n)");
             }
+        } else if (table.getType() == TableType.FILESET) {
+            FilesetTable filesetTable = (FilesetTable) table;
+            addTableComment(filesetTable, sb);
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"location\" = \"").append(filesetTable.getLocation()).append("\"");
+            Map<String, String> storageProps = filesetTable.getStorageProperties();
+            if (storageProps != null && !storageProps.isEmpty()) {
+                sb.append(",\n");
+                sb.append(new DatasourcePrintableMap<>(storageProps, " = ", true, true,
+                        hidePassword).toString());
+            }
+            sb.append("\n)");
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             addTableComment(table, sb);
             sb.append("\n-- Internal Elasticsearch tables are deprecated. Please use ES Catalog instead.");
@@ -4550,7 +4563,8 @@ public class Env {
         sb.append("CREATE ");
         if (table.getType() == TableType.ODBC || table.getType() == TableType.MYSQL
                 || table.getType() == TableType.ELASTICSEARCH || table.getType() == TableType.BROKER
-                || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC) {
+                || table.getType() == TableType.HIVE || table.getType() == TableType.JDBC
+                || table.getType() == TableType.FILESET) {
             sb.append("EXTERNAL ");
         }
 
@@ -4779,6 +4793,18 @@ public class Env {
                         hidePassword).toString());
                 sb.append("\n)");
             }
+        } else if (table.getType() == TableType.FILESET) {
+            FilesetTable filesetTable = (FilesetTable) table;
+            addTableComment(filesetTable, sb);
+            sb.append("\nPROPERTIES (\n");
+            sb.append("\"location\" = \"").append(filesetTable.getLocation()).append("\"");
+            Map<String, String> storageProps = filesetTable.getStorageProperties();
+            if (storageProps != null && !storageProps.isEmpty()) {
+                sb.append(",\n");
+                sb.append(new DatasourcePrintableMap<>(storageProps, " = ", true, true,
+                        hidePassword).toString());
+            }
+            sb.append("\n)");
         } else if (table.getType() == TableType.ELASTICSEARCH) {
             addTableComment(table, sb);
             sb.append("\n-- Internal Elasticsearch tables are deprecated. Please use ES Catalog instead.");

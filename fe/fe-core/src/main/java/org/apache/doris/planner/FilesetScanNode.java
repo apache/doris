@@ -82,6 +82,7 @@ public class FilesetScanNode extends ScanNode {
         Map<String, String> filesetParams = filesetTable.getBackendProperties();
         filesetParams.put("table_path", filesetTable.getTablePath());
         filesetParams.put("file_type", filesetTable.getFileType().name());
+        filesetParams.put("file_pattern", filesetTable.getFilePattern());
 
         // Build TTableFormatFileDesc
         TTableFormatFileDesc tableFormatFileDesc = new TTableFormatFileDesc();

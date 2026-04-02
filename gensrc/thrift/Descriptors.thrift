@@ -453,6 +453,7 @@ struct TFilesetTable {
   1: optional string table_path
   2: optional Types.TFileType file_type
   3: optional map<string, string> properties
+  4: optional string file_pattern
 }
 
 struct TMCTable {
