@@ -391,6 +391,7 @@ public class Env {
     private ConsistencyChecker consistencyChecker;
     private BackupHandler backupHandler;
     private PublishVersionDaemon publishVersionDaemon;
+    private org.apache.doris.cloud.transaction.CloudPublishDaemon cloudPublishDaemon;
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInfoCollector partitionInfoCollector;
@@ -737,6 +738,7 @@ public class Env {
         this.backupHandler = new BackupHandler(this);
         this.metaDir = Config.meta_dir;
         this.publishVersionDaemon = new PublishVersionDaemon();
+        this.cloudPublishDaemon = null; // initialized later when cloud mode is confirmed
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInfoCollector = new PartitionInfoCollector();
@@ -1940,6 +1942,14 @@ public class Env {
         loadingLoadTaskScheduler.start();
         loadManager.prepareJobs();
         loadJobScheduler.start();
+        if (Config.isCloudMode()) {
+            org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr cloudTxnMgr =
+                    (org.apache.doris.cloud.transaction.CloudGlobalTransactionMgr)
+                    getGlobalTransactionMgr();
+            cloudPublishDaemon = new org.apache.doris.cloud.transaction.CloudPublishDaemon(
+                    cloudTxnMgr.getCommittedTxnManager(), cloudTxnMgr.getCallbackFactory());
+            cloudPublishDaemon.start();
+        }
         if (Config.isNotCloudMode()) {
             // Tablet checker and scheduler
             tabletChecker.start();
@@ -3877,6 +3887,11 @@ public class Env {
             sb.append(olapTable.getEnableUniqueKeyMergeOnWrite()).append("\"");
         }
 
+        if (olapTable.isEnableTwoPhaseCommit()) {
+            sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_MOW_ASYNC_PUBLISH).append("\" = \"");
+            sb.append(true).append("\"");
+        }
+
         // enable_unique_key_skip_bitmap, always print this property for merge-on-write unique table
         if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()
                 && olapTable.getEnableUniqueKeySkipBitmap()) {
@@ -5186,6 +5201,10 @@ public class Env {
 
     public DeleteHandler getDeleteHandler() {
         return this.deleteHandler;
+    }
+
+    public org.apache.doris.cloud.transaction.CloudPublishDaemon getCloudPublishDaemon() {
+        return this.cloudPublishDaemon;
     }
 
     public LoadManager getLoadManager() {

@@ -1112,4 +1112,19 @@ public class CreateTableTest extends TestWithFeService {
                         + "\"sequence_mapping.s1\" = \"c,d\"\n"
                         + ");", true));
     }
+
+    @Test
+    public void testCreateTableWithMowAsyncPublishProperty() {
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class,
+                "enable_mow_async_publish property is only supported in cloud mode",
+                () -> createTable("CREATE TABLE test.test_mow_async_publish \n"
+                        + "(k int, v1 int, v2 int)\n"
+                        + "UNIQUE KEY(k)\n"
+                        + "DISTRIBUTED BY HASH(k) BUCKETS 1\n"
+                        + "PROPERTIES (\n"
+                        + "\"replication_num\" = \"1\",\n"
+                        + "\"enable_unique_key_merge_on_write\" = \"true\",\n"
+                        + "\"enable_mow_async_publish\" = \"true\"\n"
+                        + ");", true));
+    }
 }

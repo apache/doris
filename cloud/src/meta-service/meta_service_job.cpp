@@ -912,9 +912,19 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
         INSTANCE_LOG(INFO) << "abort tablet compaction job, tablet_id=" << tablet_id
                            << " key=" << hex(job_key);
         if (compaction.has_delete_bitmap_lock_initiator()) {
-            remove_delete_bitmap_update_lock(
-                    txn, instance_id, table_id, tablet_id, COMPACTION_DELETE_BITMAP_LOCK_ID,
-                    compaction.delete_bitmap_lock_initiator(), use_version);
+            if (compaction.has_use_delete_bitmap_tablet_lock() &&
+                compaction.use_delete_bitmap_tablet_lock()) {
+                // Async publish tables use tablet-level lock
+                std::string lock_key =
+                        meta_delete_bitmap_tablet_lock_key({instance_id, table_id, tablet_id});
+                txn->remove(lock_key);
+                LOG(INFO) << "remove tablet-level delete bitmap lock in abort_tablet_job"
+                          << " table_id=" << table_id << " tablet_id=" << tablet_id;
+            } else {
+                remove_delete_bitmap_update_lock(
+                        txn, instance_id, table_id, tablet_id, COMPACTION_DELETE_BITMAP_LOCK_ID,
+                        compaction.delete_bitmap_lock_initiator(), use_version);
+            }
         }
         need_commit = true;
         return;
@@ -1063,12 +1073,31 @@ void process_compaction_job(MetaServiceCode& code, std::string& msg, std::string
 
     // remove delete bitmap update lock for MoW table
     if (compaction.has_delete_bitmap_lock_initiator()) {
-        bool success = check_and_remove_delete_bitmap_update_lock(
-                code, msg, ss, txn, instance_id, table_id, tablet_id,
-                COMPACTION_DELETE_BITMAP_LOCK_ID, compaction.delete_bitmap_lock_initiator(),
-                use_version);
-        if (!success) {
-            return;
+        if (compaction.has_use_delete_bitmap_tablet_lock() &&
+            compaction.use_delete_bitmap_tablet_lock()) {
+            // Async publish tables use tablet-level lock
+            std::string lock_key =
+                    meta_delete_bitmap_tablet_lock_key({instance_id, table_id, tablet_id});
+            std::string lock_val;
+            auto err = txn->get(lock_key, &lock_val);
+            if (err == TxnErrorCode::TXN_OK) {
+                txn->remove(lock_key);
+                LOG(INFO) << "remove tablet-level delete bitmap lock in finish_tablet_job"
+                          << " table_id=" << table_id << " tablet_id=" << tablet_id;
+            } else if (err != TxnErrorCode::TXN_KEY_NOT_FOUND) {
+                ss << "failed to get tablet lock key, err=" << err;
+                msg = ss.str();
+                code = cast_as<ErrCategory::READ>(err);
+                return;
+            }
+        } else {
+            bool success = check_and_remove_delete_bitmap_update_lock(
+                    code, msg, ss, txn, instance_id, table_id, tablet_id,
+                    COMPACTION_DELETE_BITMAP_LOCK_ID, compaction.delete_bitmap_lock_initiator(),
+                    use_version);
+            if (!success) {
+                return;
+            }
         }
     }
 

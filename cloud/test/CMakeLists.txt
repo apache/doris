@@ -89,6 +89,8 @@ add_executable(network_util_test network_util_test.cpp)
 
 add_executable(txn_lazy_commit_test txn_lazy_commit_test.cpp)
 
+add_executable(txn_async_publish_test txn_async_publish_test.cpp)
+
 add_executable(versionstamp_test versionstamp_test.cpp)
 
 add_executable(versioned_value_test versioned_value_test.cpp)
@@ -146,6 +148,8 @@ target_link_libraries(util_test ${TEST_LINK_LIBS})
 target_link_libraries(network_util_test ${TEST_LINK_LIBS})
 
 target_link_libraries(txn_lazy_commit_test ${TEST_LINK_LIBS})
+
+target_link_libraries(txn_async_publish_test ${TEST_LINK_LIBS})
 
 target_link_libraries(versionstamp_test ${TEST_LINK_LIBS})
 

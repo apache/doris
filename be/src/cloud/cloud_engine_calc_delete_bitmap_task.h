@@ -20,6 +20,7 @@
 #include <gen_cpp/AgentService_types.h>
 
 #include <memory>
+#include <mutex>
 #include <optional>
 
 #include "cloud/cloud_storage_engine.h"

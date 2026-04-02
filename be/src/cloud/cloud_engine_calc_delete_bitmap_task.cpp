@@ -26,6 +26,7 @@
 
 #include "cloud/cloud_meta_mgr.h"
 #include "cloud/cloud_tablet.h"
+#include "cloud/cloud_txn_delete_bitmap_cache.h"
 #include "common/status.h"
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "storage/olap_common.h"
@@ -35,7 +36,6 @@
 #include "storage/tablet/tablet_fwd.h"
 #include "storage/tablet/tablet_meta.h"
 #include "storage/txn/txn_manager.h"
-#include "storage/utils.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -199,6 +199,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     }
     auto sync_rowset_time_us = MonotonicMicros() - t2;
     max_version = tablet->max_version_unlocked();
+
     if (_version != max_version + 1) {
         bool need_log = (config::publish_version_gap_logging_threshold < 0 ||
                          max_version + config::publish_version_gap_logging_threshold >= _version);
@@ -224,13 +225,14 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
     });
     Status status;
     if (_sub_txn_ids.empty()) {
-        // Check empty rowset for non-sub_txn case
+        // Non-sub_txn case: check if empty rowset
         if (_engine.txn_delete_bitmap_cache().is_empty_rowset(_transaction_id, _tablet_id)) {
             LOG(INFO) << "tablet=" << _tablet_id << ", txn=" << _transaction_id
                       << " is empty rowset, skip delete bitmap calculation";
-            return Status::OK();
+            status = Status::OK();
+        } else {
+            status = _handle_rowset(tablet, _version);
         }
-        status = _handle_rowset(tablet, _version);
     } else {
         std::stringstream ss;
         for (const auto& sub_txn_id : _sub_txn_ids) {
@@ -282,6 +284,7 @@ Status CloudTabletCalcDeleteBitmapTask::handle() const {
             return Status::InternalError("injected error");
         }
     });
+
     auto total_update_delete_bitmap_time_us = MonotonicMicros() - t3;
     LOG(INFO) << "finish calculate delete bitmap on tablet"
               << ", table_id=" << tablet->table_id() << ", transaction_id=" << _transaction_id

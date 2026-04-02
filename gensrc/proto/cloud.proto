@@ -490,6 +490,18 @@ message TxnIndexPB {
     optional int64 parent_txn_id = 2;
 }
 
+// Tablet info within a transaction (for async publish)
+message TxnTabletInfoPB {
+    optional int64 tablet_id = 1;
+    optional int64 table_id = 2;
+    optional int64 index_id = 3;
+    optional int64 partition_id = 4;
+    // cloud_unique_id of the BE that performed the load
+    optional string be_cloud_unique_id = 5;
+    // BE host:port for FE to send publish RPC
+    optional string be_endpoint = 6;
+}
+
 message TxnInfoPB {
     optional int64 db_id = 1;
     repeated int64 table_ids = 2;
@@ -520,6 +532,19 @@ message TxnInfoPB {
     // The cluster_id of the compute cluster that performed the load
     // Set by FE during begin_txn, used by commit_txn for compaction read-write separation
     optional string load_cluster_id = 22;
+
+    // ========== Async publish fields (30-39) ==========
+    // Whether this transaction uses the async publish (two-phase commit) mode
+    optional bool mow_async_publish = 30;
+    // Commit phase: partition IDs and their assigned commit versions (1:1 correspondence)
+    repeated int64 committed_partition_ids = 31;
+    repeated int64 committed_versions = 32;
+    // Tablets involved in this transaction (tablet -> BE mapping for publish phase)
+    repeated TxnTabletInfoPB involved_tablets = 33;
+    // TOlapTableSchemaParam Thrift serialized bytes (load parameters for delete bitmap calc)
+    optional bytes load_schema_param = 34;
+    // Publish phase: tablet IDs that have completed conversion (for checkpoint/resume)
+    repeated int64 published_tablet_ids = 35;
 }
 
 // For check txn conflict and txn timeout
@@ -709,6 +734,8 @@ message TabletCompactionJobPB {
     optional int64 segment_size_input_rowsets = 28;
     optional int64 index_size_output_rowsets = 29;
     optional int64 segment_size_output_rowsets = 30;
+    // Whether this compaction uses tablet-level lock (for async publish tables)
+    optional bool use_delete_bitmap_tablet_lock = 31;
 }
 
 message TabletSchemaChangeJobPB {
@@ -1008,6 +1035,16 @@ message CommitTxnRequest {
     repeated SubTxnInfo sub_txn_infos = 10;
     optional bool enable_txn_lazy_commit = 11;
     optional string request_ip = 12;
+
+    // ========== Async publish fields (20-29) ==========
+    // Mark this as an async publish commit request (Commit phase)
+    optional bool enable_mow_async_publish = 20;
+    // Tablets involved in this transaction (persisted to TxnInfoPB.involved_tablets)
+    repeated TxnTabletInfoPB involved_tablets = 21;
+    // TOlapTableSchemaParam Thrift serialized bytes (persisted to TxnInfoPB.load_schema_param)
+    optional bytes load_schema_param = 22;
+    // Mark this as a lightweight publish request (Publish phase)
+    optional bool is_lightweight_publish = 23;
 }
 
 message SubTxnInfo {
@@ -1033,6 +1070,34 @@ message CommitTxnResponse {
     repeated int64 versions = 5;
     repeated TableStatsPB table_stats = 6;
     optional int64 version_update_time_ms = 7;
+
+    // ========== Async publish fields (10-19) ==========
+    // Commit phase: assigned commit versions (1:1 with partition_ids)
+    repeated int64 commit_versions = 10;
+}
+
+// Async publish: per-tablet tmp rowset conversion request
+message ConvertTmpRowsetRequest {
+    optional string cloud_unique_id = 1;  // For auth
+    optional int64 txn_id = 2;
+    optional int64 tablet_id = 3;
+    optional int64 version = 4;           // Target version (commit version)
+    optional int64 db_id = 5;
+    optional int64 table_id = 6;
+    optional int64 index_id = 7;
+    optional int64 partition_id = 8;
+    optional string request_ip = 9;
+    // For transaction load: same tablet may have tmp rowsets from multiple sub txns
+    repeated int64 sub_txn_ids = 10;
+}
+
+// Async publish: per-tablet tmp rowset conversion response
+message ConvertTmpRowsetResponse {
+    optional MetaServiceResponseStatus status = 1;
+    // Converted formal rowset meta (for BE local apply)
+    optional doris.RowsetMetaCloudPB rowset_meta = 2;
+    // Updated tablet stats
+    optional TabletStatsPB stats = 3;
 }
 
 message AbortTxnRequest {
@@ -1900,6 +1965,8 @@ message UpdateDeleteBitmapRequest {
     repeated string delta_rowset_ids = 50;
     repeated DeleteBitmapStoragePB delete_bitmap_storages = 51;
     optional int64 store_version = 52;
+    // Whether this tablet belongs to a table with async publish enabled
+    optional bool is_mow_async_publish = 53;
 }
 
 message UpdateDeleteBitmapResponse {
@@ -1978,6 +2045,12 @@ message GetDeleteBitmapUpdateLockRequest {
     repeated TabletIndexPB tablet_indexes = 8;
     optional string request_ip = 9;
     optional bool urgent = 10;
+
+    // ========== Tablet-level lock fields (20-29) ==========
+    // Use tablet-level lock instead of table-level lock (for async publish tables)
+    optional bool tablet_level_lock = 20;
+    // Tablet IDs to lock (when tablet_level_lock=true)
+    repeated int64 lock_tablet_ids = 21;
 }
 
 message GetDeleteBitmapUpdateLockResponse {
@@ -1995,6 +2068,12 @@ message RemoveDeleteBitmapUpdateLockRequest {
     optional int64 lock_id = 4;
     optional int64 initiator = 5;
     optional string request_ip = 6;
+
+    // ========== Tablet-level lock fields (20-29) ==========
+    // Use tablet-level lock instead of table-level lock (for async publish tables)
+    optional bool tablet_level_lock = 20;
+    // Tablet IDs to unlock (when tablet_level_lock=true)
+    repeated int64 unlock_tablet_ids = 21;
 }
 
 message RemoveDeleteBitmapUpdateLockResponse {
@@ -2363,6 +2442,9 @@ service MetaService {
     rpc compact_snapshot(CompactSnapshotRequest) returns (CompactSnapshotResponse);
 
     rpc update_packed_file_info(UpdatePackedFileInfoRequest) returns (UpdatePackedFileInfoResponse);
+
+    // async publish: per-tablet tmp rowset conversion
+    rpc convert_tmp_rowset(ConvertTmpRowsetRequest) returns (ConvertTmpRowsetResponse);
 };
 
 service RecyclerService {

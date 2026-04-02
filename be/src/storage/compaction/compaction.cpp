@@ -1682,9 +1682,15 @@ Status CloudCompactionMixin::execute_compact() {
                     // will release if abort job successfully, but if abort failed, delete bitmap
                     // lock will not release, in this situation, be need to send this rpc to ms
                     // to try to release delete bitmap lock.
-                    _engine.meta_mgr().remove_delete_bitmap_update_lock(
-                            _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
-                            _tablet->tablet_id());
+                    if (_tablet->enable_mow_async_publish()) {
+                        _engine.meta_mgr().remove_delete_bitmap_tablet_lock(
+                                *std::static_pointer_cast<CloudTablet>(_tablet),
+                                COMPACTION_DELETE_BITMAP_LOCK_ID, initiator());
+                    } else {
+                        _engine.meta_mgr().remove_delete_bitmap_update_lock(
+                                _tablet->table_id(), COMPACTION_DELETE_BITMAP_LOCK_ID, initiator(),
+                                _tablet->tablet_id());
+                    }
                 }
             });
 

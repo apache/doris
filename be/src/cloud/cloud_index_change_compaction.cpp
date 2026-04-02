@@ -246,6 +246,15 @@ Status CloudIndexChangeCompaction::execute_compact() {
 }
 
 Status CloudIndexChangeCompaction::modify_rowsets() {
+    bool hold_delete_bitmap_and_rowset_layout_lock =
+            _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write() && _tablet->enable_mow_async_publish();
+    std::unique_lock<std::mutex> delete_bitmap_and_rowset_layout_lock(
+            cloud_tablet()->get_delete_bitmap_and_rowset_layout_lock(), std::defer_lock);
+    if (hold_delete_bitmap_and_rowset_layout_lock) {
+        delete_bitmap_and_rowset_layout_lock.lock();
+    }
+
     // commit compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -300,6 +309,7 @@ Status CloudIndexChangeCompaction::modify_rowsets() {
                 .tag("number_output_delete_bitmap",
                      output_rowset_delete_bitmap->delete_bitmap.size());
         compaction_job->set_delete_bitmap_lock_initiator(initiator);
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
 
     cloud::FinishTabletJobResponse resp;
@@ -336,6 +346,9 @@ Status CloudIndexChangeCompaction::modify_rowsets() {
         } else {
             _update_tablet_for_cumu_compaction(resp, output_rowset_delete_bitmap);
         }
+    }
+    if (delete_bitmap_and_rowset_layout_lock.owns_lock()) {
+        delete_bitmap_and_rowset_layout_lock.unlock();
     }
     return Status::OK();
 }
@@ -467,6 +480,7 @@ Status CloudIndexChangeCompaction::garbage_collection() {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {

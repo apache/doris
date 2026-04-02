@@ -40,6 +40,7 @@ import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
 import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.task.AlterReplicaTask;
+import org.apache.doris.task.CalcDeleteBitmapAsyncPublishTask;
 import org.apache.doris.task.CalcDeleteBitmapTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
@@ -174,6 +175,7 @@ public class MasterImpl {
                         && taskType != TTaskType.CREATE && taskType != TTaskType.UPDATE_TABLET_META_INFO
                         && taskType != TTaskType.STORAGE_MEDIUM_MIGRATE
                         && taskType != TTaskType.CALCULATE_DELETE_BITMAP
+                        && taskType != TTaskType.CALC_DELETE_BITMAP_ASYNC_PUBLISH
                         && taskType != TTaskType.REALTIME_PUSH) {
                     return result;
                 }
@@ -241,6 +243,9 @@ public class MasterImpl {
                     break;
                 case CALCULATE_DELETE_BITMAP:
                     finishCalcDeleteBitmap(task, request);
+                    break;
+                case CALC_DELETE_BITMAP_ASYNC_PUBLISH:
+                    finishCalcDeleteBitmapAsyncPublish(task, request);
                     break;
                 default:
                     break;
@@ -703,30 +708,27 @@ public class MasterImpl {
     }
 
     private void finishCalcDeleteBitmap(AgentTask task, TFinishTaskRequest request) {
-        // if we get here, this task will be removed from AgentTaskQueue for certain.
-        // because in this function, the only problem that cause failure is meta missing.
-        // and if meta is missing, we no longer need to resend this task
+        CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
         try {
-            CalcDeleteBitmapTask calcDeleteBitmapTask = (CalcDeleteBitmapTask) task;
-            // check if the request is stale first, if so, let it retry regardless of the status code
             if (request.isSetRespPartitions()
                     && calcDeleteBitmapTask.isFinishRequestStale(request.getRespPartitions())) {
                 LOG.warn("get staled response from backend: {}, report version: {}. calcDeleteBitmapTask's"
-                        + "partitionInfos: {}. response's partitionInfos: {}", task.getBackendId(),
-                                request.getReportVersion(),
-                                        calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
-                                                request.getRespPartitions().toString());
-                // DELETE_BITMAP_LOCK_ERROR will be retried
+                        + "partitionInfos: {}. response's partitionInfos: {}",
+                        calcDeleteBitmapTask.getBackendId(), request.getReportVersion(),
+                        calcDeleteBitmapTask.getCalcDeleteBimapPartitionInfos().toString(),
+                        request.getRespPartitions().toString());
                 calcDeleteBitmapTask.countDownToZero(TStatusCode.DELETE_BITMAP_LOCK_ERROR,
-                        "get staled response from backend " + task.getBackendId() + ", report version: "
-                                + request.getReportVersion());
+                        "get staled response from backend " + calcDeleteBitmapTask.getBackendId()
+                                + ", report version: " + request.getReportVersion());
             } else if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
                 calcDeleteBitmapTask.countDownToZero(request.getTaskStatus().getStatusCode(),
-                        "backend: " + task.getBackendId() + ", error_tablet_size: " + request.getErrorTabletIdsSize()
+                        "backend: " + calcDeleteBitmapTask.getBackendId()
+                                + ", error_tablet_size: " + request.getErrorTabletIdsSize()
                                 + ", error_tablets: " + request.getErrorTabletIds()
                                 + ", err_msg: " + request.getTaskStatus().getErrorMsgs().toString());
             } else {
-                calcDeleteBitmapTask.countDownLatch(task.getBackendId(), calcDeleteBitmapTask.getTransactionId());
+                calcDeleteBitmapTask.countDownLatch(calcDeleteBitmapTask.getBackendId(),
+                        calcDeleteBitmapTask.getTransactionId());
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("finish calc delete bitmap. transaction id: {}, be: {}, report version: {}",
                             calcDeleteBitmapTask.getTransactionId(), calcDeleteBitmapTask.getBackendId(),
@@ -734,7 +736,28 @@ public class MasterImpl {
                 }
             }
         } finally {
-            AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.CALCULATE_DELETE_BITMAP, task.getSignature());
+            AgentTaskQueue.removeTask(calcDeleteBitmapTask.getBackendId(),
+                    TTaskType.CALCULATE_DELETE_BITMAP, calcDeleteBitmapTask.getSignature());
+        }
+    }
+
+    private void finishCalcDeleteBitmapAsyncPublish(AgentTask task, TFinishTaskRequest request) {
+        CalcDeleteBitmapAsyncPublishTask asyncPublishTask = (CalcDeleteBitmapAsyncPublishTask) task;
+
+        if (request.getTaskStatus().getStatusCode() != TStatusCode.OK) {
+            LOG.warn("async publish calc delete bitmap failed, will auto-retry. txn_id={}, be={}, err={}",
+                    asyncPublishTask.getTransactionId(), asyncPublishTask.getBackendId(),
+                    request.getTaskStatus().getErrorMsgs());
+            return;
+        }
+
+        // Success: mark finished and remove from queue
+        asyncPublishTask.setIsFinished(true);
+        AgentTaskQueue.removeTask(asyncPublishTask.getBackendId(),
+                TTaskType.CALC_DELETE_BITMAP_ASYNC_PUBLISH, asyncPublishTask.getSignature());
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("async publish finish calc delete bitmap. txn_id={}, be={}",
+                    asyncPublishTask.getTransactionId(), asyncPublishTask.getBackendId());
         }
     }
 }

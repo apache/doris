@@ -1186,7 +1186,7 @@ Status CloudTablet::save_delete_bitmap_to_ms(int64_t cur_version, int64_t txn_id
             *this, ms_lock_id, LOAD_INITIATOR_ID, new_delete_bitmap.get(), new_delete_bitmap.get(),
             rowset->rowset_id().to_string(), storage_resource,
             config::delete_bitmap_store_write_version, txn_id, is_explicit_txn,
-            next_visible_version));
+            next_visible_version, enable_mow_async_publish()));
     return Status::OK();
 }
 
@@ -1283,9 +1283,21 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
 
     // 2. calc delete bitmap for incremental data
+    // For async publish tables, caller already holds
+    // _delete_bitmap_and_rowset_layout_lock to cover the later local rowset layout update.
+    // We still acquire _rowset_update_lock before the MS tablet-level lock to preserve the
+    // existing serialization among local calc delete bitmap tasks.
+    // For legacy tables: use MS table-level lock only
+    std::unique_lock<std::mutex> rowset_update_lock(get_rowset_update_lock(), std::defer_lock);
     int64_t t1 = MonotonicMicros();
-    RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
-            *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    if (enable_mow_async_publish()) {
+        rowset_update_lock.lock();
+        RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_tablet_lock(
+                *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    } else {
+        RETURN_IF_ERROR(_engine.meta_mgr().get_delete_bitmap_update_lock(
+                *this, COMPACTION_DELETE_BITMAP_LOCK_ID, initiator));
+    }
     int64_t t2 = MonotonicMicros();
     if (compaction_type == ReaderType::READER_CUMULATIVE_COMPACTION) {
         g_cu_compaction_get_delete_bitmap_lock_time_ms << (t2 - t1) / 1000;
@@ -1338,7 +1350,8 @@ Status CloudTablet::calc_delete_bitmap_for_compaction(
     }
     auto st = _engine.meta_mgr().update_delete_bitmap(
             *this, -1, initiator, output_rowset_delete_bitmap.get(), delete_bitmap_v2.get(),
-            output_rowset->rowset_id().to_string(), storage_resource, store_version);
+            output_rowset->rowset_id().to_string(), storage_resource, store_version,
+            -1, false, -1, enable_mow_async_publish());
     int64_t t6 = MonotonicMicros();
     LOG(INFO) << "calc_delete_bitmap_for_compaction, tablet_id=" << tablet_id()
               << ", get lock cost " << (t2 - t1) << " us, sync rowsets cost " << (t3 - t2)

@@ -553,4 +553,32 @@ public class OlapTableTest {
         }
         // CHECKSTYLE ONca
     }
+
+    @Test
+    public void testShowCreateTableContainsMowAsyncPublishProperty() {
+        new MockUp<Config>() {
+            @Mock
+            public boolean isNotCloudMode() {
+                return false;
+            }
+
+            @Mock
+            public boolean isCloudMode() {
+                return true;
+            }
+        };
+
+        Column keyColumn = new Column("k", Type.INT, true, AggregateType.NONE, "0", "");
+        Column valueColumn = new Column("v", Type.INT, false, AggregateType.NONE, "0", "");
+        OlapTable table = new OlapTable(1L, "t1", Lists.newArrayList(keyColumn, valueColumn), KeysType.UNIQUE_KEYS,
+                new SinglePartitionInfo(), new HashDistributionInfo(1, Lists.newArrayList(keyColumn)));
+        table.setEnableUniqueKeyMergeOnWrite(true);
+        table.setEnableMowAsyncPublish(true);
+
+        List<String> createTableStmt = Lists.newArrayList();
+        Env.getDdlStmt(table, createTableStmt, null, null, false, true, -1L);
+
+        Assert.assertEquals(1, createTableStmt.size());
+        Assert.assertTrue(createTableStmt.get(0).contains("\"enable_mow_async_publish\" = \"true\""));
+    }
 }

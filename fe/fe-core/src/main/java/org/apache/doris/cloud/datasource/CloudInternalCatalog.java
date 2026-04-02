@@ -178,7 +178,8 @@ public class CloudInternalCatalog extends InternalCatalog {
                         bfColumns, tbl.getBfFpp(), indexes, columns, tbl.getDataSortInfo(),
                         tbl.getCompressionType(), tbl.getStorageFormat(), storagePolicy, isInMemory, false,
                         tbl.getName(), tbl.getTTLSeconds(),
-                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
+                        tbl.getEnableUniqueKeyMergeOnWrite(), tbl.isEnableTwoPhaseCommit(),
+                        tbl.storeRowColumn(), indexMeta.getSchemaVersion(),
                         tbl.getCompactionPolicy(), tbl.getTimeSeriesCompactionGoalSizeMbytes(),
                         tbl.getTimeSeriesCompactionFileCountThreshold(),
                         tbl.getTimeSeriesCompactionTimeThresholdSeconds(),
@@ -218,6 +219,7 @@ public class CloudInternalCatalog extends InternalCatalog {
             List<Column> schemaColumns, DataSortInfo dataSortInfo, TCompressionType compressionType,
             TStorageFormat storageFormat, String storagePolicy, boolean isInMemory, boolean isShadow,
             String tableName, long ttlSeconds, boolean enableUniqueKeyMergeOnWrite,
+            boolean enableMowAsyncPublish,
             boolean storeRowColumn, int schemaVersion, String compactionPolicy,
             Long timeSeriesCompactionGoalSizeMbytes, Long timeSeriesCompactionFileCountThreshold,
             Long timeSeriesCompactionTimeThresholdSeconds, Long timeSeriesCompactionEmptyRowsetsThreshold,
@@ -255,6 +257,7 @@ public class CloudInternalCatalog extends InternalCatalog {
 
         builder.setReplicaId(tablet.getReplicas().get(0).getId());
         builder.setEnableUniqueKeyMergeOnWrite(enableUniqueKeyMergeOnWrite);
+        builder.setEnableMowAsyncPublish(enableMowAsyncPublish);
 
         builder.setCompactionPolicy(compactionPolicy);
         builder.setTimeSeriesCompactionGoalSizeMbytes(timeSeriesCompactionGoalSizeMbytes);

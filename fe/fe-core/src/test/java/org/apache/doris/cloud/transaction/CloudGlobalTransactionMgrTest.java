@@ -21,11 +21,15 @@ import org.apache.doris.catalog.CatalogTestUtil;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FakeEditLog;
 import org.apache.doris.catalog.FakeEnv;
+import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.catalog.TabletInvertedIndex;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.AbortTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.BeginTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.CheckTxnConflictResponse;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnRequest;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.GetCurrentMaxTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
@@ -39,8 +43,10 @@ import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.QuotaExceedException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.transaction.BeginTransactionException;
 import org.apache.doris.transaction.GlobalTransactionMgrIface;
+import org.apache.doris.transaction.TabletCommitInfo;
 import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.collect.Lists;
@@ -280,6 +286,33 @@ public class CloudGlobalTransactionMgrTest {
                 .getTableOrMetaException(CatalogTestUtil.testTableId1);
         masterTransMgr.commitTransactionWithoutLock(CatalogTestUtil.testDbId1, Lists.newArrayList(testTable1),
                 transactionId, null, null);
+    }
+
+    @Test
+    public void testBuildTwoPhaseCommitRequestContainsInvolvedTablets() throws UserException {
+        CloudGlobalTransactionMgr cloudTxnMgr = (CloudGlobalTransactionMgr) masterTransMgr;
+        long tabletId = 90001L;
+        long backendId = 90002L;
+        LocalTabletInvertedIndex mockIndex = new LocalTabletInvertedIndex();
+        mockIndex.addTablet(tabletId, new TabletMeta(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1,
+                CatalogTestUtil.testPartitionId1, CatalogTestUtil.testIndexId1, 0, TStorageMedium.HDD));
+
+        new MockUp<Env>() {
+            @Mock
+            public TabletInvertedIndex getCurrentInvertedIndex() {
+                return mockIndex;
+            }
+        };
+
+        CommitTxnRequest request = cloudTxnMgr.buildTwoPhaseCommitRequest(CatalogTestUtil.testDbId1, 12345L,
+                Lists.newArrayList(new TabletCommitInfo(tabletId, backendId)), null);
+
+        Assert.assertTrue(request.getEnableMowAsyncPublish());
+        Assert.assertEquals(1, request.getInvolvedTabletsCount());
+        Assert.assertEquals(tabletId, request.getInvolvedTablets(0).getTabletId());
+        Assert.assertEquals(CatalogTestUtil.testTableId1, request.getInvolvedTablets(0).getTableId());
+        Assert.assertEquals(CatalogTestUtil.testPartitionId1, request.getInvolvedTablets(0).getPartitionId());
+        Assert.assertEquals(CatalogTestUtil.testIndexId1, request.getInvolvedTablets(0).getIndexId());
     }
 
     @Test

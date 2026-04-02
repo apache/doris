@@ -234,4 +234,4 @@ cd test
 # FILTER: meta_service_test:DetachSchemaKVTest.*
 # ./run_all_tests.sh --test "\"$(echo "${FILTER}" | awk -F: '{print $1}')\"" --filter "\"$(echo "${FILTER}" | awk -F: '{print $2}')\"" --fdb "\"${FDB}\""
 set -euo pipefail
-bash -x ./run_all_tests.sh "${COVERAGE}" --test "$(echo "${FILTER}" | awk -F: '{print $1}')" --filter "$(echo "${FILTER}" | awk -F: '{print $2}')" --fdb "${FDB}" "${GDB}"
+bash ./run_all_tests.sh "${COVERAGE}" --test "$(echo "${FILTER}" | awk -F: '{print $1}')" --filter "$(echo "${FILTER}" | awk -F: '{print $2}')" --fdb "${FDB}" "${GDB}"

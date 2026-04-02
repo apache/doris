@@ -211,6 +211,15 @@ Status CloudFullCompaction::execute_compact() {
 }
 
 Status CloudFullCompaction::modify_rowsets() {
+    bool hold_delete_bitmap_and_rowset_layout_lock =
+            _tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+            _tablet->enable_unique_key_merge_on_write() && _tablet->enable_mow_async_publish();
+    std::unique_lock<std::mutex> delete_bitmap_and_rowset_layout_lock(
+            cloud_tablet()->get_delete_bitmap_and_rowset_layout_lock(), std::defer_lock);
+    if (hold_delete_bitmap_and_rowset_layout_lock) {
+        delete_bitmap_and_rowset_layout_lock.lock();
+    }
+
     // commit compaction job
     cloud::TabletJobInfoPB job;
     auto idx = job.mutable_idx();
@@ -253,6 +262,7 @@ Status CloudFullCompaction::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write()) {
         RETURN_IF_ERROR(_cloud_full_compaction_update_delete_bitmap(this->initiator()));
         compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
 
     cloud::FinishTabletJobResponse resp;
@@ -288,6 +298,9 @@ Status CloudFullCompaction::modify_rowsets() {
                                                     stats.num_rows(), stats.data_size());
         }
     }
+    if (delete_bitmap_and_rowset_layout_lock.owns_lock()) {
+        delete_bitmap_and_rowset_layout_lock.unlock();
+    }
     _tablet->prefill_dbm_agg_cache_after_compaction(_output_rowset);
     return Status::OK();
 }
@@ -308,6 +321,7 @@ Status CloudFullCompaction::garbage_collection() {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         compaction_job->set_delete_bitmap_lock_initiator(this->initiator());
+        compaction_job->set_use_delete_bitmap_tablet_lock(_tablet->enable_mow_async_publish());
     }
     auto st = _engine.meta_mgr().abort_tablet_job(job);
     if (!st.ok()) {
@@ -359,8 +373,22 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
         RETURN_IF_ERROR(_cloud_full_compaction_calc_delete_bitmap(it, cur_version, delete_bitmap));
     }
 
-    RETURN_IF_ERROR(
-            _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
+    // For async publish tables, caller already holds
+    // _delete_bitmap_and_rowset_layout_lock to cover the later local rowset layout update.
+    // We still acquire _rowset_update_lock before the MS tablet-level lock to preserve the
+    // existing serialization among local calc delete bitmap tasks.
+    // For legacy tables: use MS table-level lock only
+    std::unique_lock<std::mutex> rowset_update_lock(cloud_tablet()->get_rowset_update_lock(),
+                                                     std::defer_lock);
+    if (cloud_tablet()->enable_mow_async_publish()) {
+        rowset_update_lock.lock();
+        RETURN_IF_ERROR(
+                _engine.meta_mgr().get_delete_bitmap_tablet_lock(*cloud_tablet(), -1, initiator));
+    } else {
+        RETURN_IF_ERROR(
+                _engine.meta_mgr().get_delete_bitmap_update_lock(*cloud_tablet(), -1, initiator));
+    }
+
     RETURN_IF_ERROR(_engine.meta_mgr().sync_tablet_rowsets(cloud_tablet()));
     std::lock_guard header_lock(_tablet->get_header_lock());
     for (const auto& it : cloud_tablet()->rowset_map()) {
@@ -379,7 +407,8 @@ Status CloudFullCompaction::_cloud_full_compaction_update_delete_bitmap(int64_t 
     RETURN_IF_ERROR(_engine.meta_mgr().update_delete_bitmap(
             *cloud_tablet(), -1, initiator, delete_bitmap.get(), delete_bitmap.get(),
             _output_rowset->rowset_id().to_string(), storage_resource,
-            config::delete_bitmap_store_write_version));
+            config::delete_bitmap_store_write_version, -1, false, -1,
+            cloud_tablet()->enable_mow_async_publish()));
     LOG_INFO("update delete bitmap in CloudFullCompaction, tablet_id={}, range=[{}-{}]",
              _tablet->tablet_id(), _input_rowsets.front()->start_version(),
              _input_rowsets.back()->end_version())

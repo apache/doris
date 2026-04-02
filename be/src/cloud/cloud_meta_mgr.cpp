@@ -369,6 +369,9 @@ static std::string debug_info(const Request& req) {
         return fmt::format(" tablet_id={}", req.tablet_id());
     } else if constexpr (is_any_v<Request, UpdatePackedFileInfoRequest>) {
         return fmt::format(" packed_file_path={}", req.packed_file_path());
+    } else if constexpr (std::is_same_v<Request, ConvertTmpRowsetRequest>) {
+        return fmt::format(" txn_id={}, tablet_id={}, version={}", req.txn_id(), req.tablet_id(),
+                         req.version());
     } else {
         static_assert(!sizeof(Request));
     }
@@ -1417,6 +1420,49 @@ Status CloudMetaMgr::update_tmp_rowset(const RowsetMeta& rs_meta) {
     return st;
 }
 
+Status CloudMetaMgr::convert_tmp_rowset(int64_t txn_id, int64_t tablet_id, int64_t version,
+                                         int64_t db_id, int64_t table_id, int64_t index_id,
+                                         int64_t partition_id, RowsetMetaSharedPtr* rowset_meta) {
+    VLOG_DEBUG << "convert tmp rowset, tablet_id: " << tablet_id << ", txn_id: " << txn_id
+               << ", version: " << version;
+    {
+        Status ret_st;
+        TEST_INJECTION_POINT_RETURN_WITH_VALUE("CloudMetaMgr::convert_tmp_rowset", ret_st);
+    }
+
+    ConvertTmpRowsetRequest req;
+    ConvertTmpRowsetResponse resp;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_txn_id(txn_id);
+    req.set_tablet_id(tablet_id);
+    req.set_version(version);
+    req.set_db_id(db_id);
+    req.set_table_id(table_id);
+    req.set_index_id(index_id);
+    req.set_partition_id(partition_id);
+
+    Status st = retry_rpc("convert tmp rowset", req, &resp, &MetaService_Stub::convert_tmp_rowset);
+    if (!st.ok()) {
+        LOG_WARNING("failed to convert tmp rowset: {}, tablet_id={}, txn_id={}, version={}",
+                   st.to_string(), tablet_id, txn_id, version);
+        return st;
+    }
+
+    // If rowset_meta is requested, fill it from response
+    if (rowset_meta != nullptr && resp.has_rowset_meta()) {
+        RowsetMetaPB doris_rs_meta = cloud_rowset_meta_to_doris(std::move(*resp.mutable_rowset_meta()));
+        *rowset_meta = std::make_shared<RowsetMeta>();
+        (*rowset_meta)->init_from_pb(doris_rs_meta);
+        LOG_INFO("convert tmp rowset success, tablet_id={}, txn_id={}, version={}", tablet_id,
+                 txn_id, version);
+    } else {
+        LOG_INFO("convert tmp rowset success, tablet_id={}, txn_id={}, version={}", tablet_id,
+                 txn_id, version);
+    }
+
+    return Status::OK();
+}
+
 // async send TableStats(in res) to FE coz we are in streamload ctx, response to the user ASAP
 static void send_stats_to_fe_async(const int64_t db_id, const int64_t txn_id,
                                    const std::string& label, CommitTxnResponse& res,
@@ -1755,7 +1801,8 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
                                           DeleteBitmap* delete_bitmap_v2, std::string rowset_id,
                                           std::optional<StorageResource> storage_resource,
                                           int64_t store_version, int64_t txn_id,
-                                          bool is_explicit_txn, int64_t next_visible_version) {
+                                          bool is_explicit_txn, int64_t next_visible_version,
+                                          bool is_mow_async_publish) {
     VLOG_DEBUG << "update_delete_bitmap , tablet_id: " << tablet.tablet_id();
     if (config::enable_mow_verbose_log) {
         std::stringstream ss;
@@ -1785,6 +1832,7 @@ Status CloudMetaMgr::update_delete_bitmap(const CloudTablet& tablet, int64_t loc
         req.set_next_visible_version(next_visible_version);
     }
     req.set_store_version(store_version);
+    req.set_is_mow_async_publish(is_mow_async_publish);
 
     bool write_v1 = store_version == 1 || store_version == 3;
     bool write_v2 = store_version == 2 || store_version == 3;
@@ -2024,6 +2072,92 @@ void CloudMetaMgr::remove_delete_bitmap_update_lock(int64_t table_id, int64_t lo
         LOG(WARNING) << "remove delete bitmap update lock fail,table_id=" << table_id
                      << ",tablet_id=" << tablet_id << ",lock_id=" << lock_id
                      << ",st=" << st.to_string();
+    }
+}
+
+Status CloudMetaMgr::get_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                                   int64_t initiator,
+                                                   DeleteBitmapTabletLockInfo* lock_info) {
+    LOG(INFO) << "get_delete_bitmap_tablet_lock, tablet_id=" << tablet.tablet_id()
+              << ", lock_id=" << lock_id << ", initiator=" << initiator;
+    GetDeleteBitmapUpdateLockRequest req;
+    GetDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(tablet.table_id());
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    req.set_expiration(config::delete_bitmap_lock_expiration_seconds);
+    req.set_tablet_level_lock(true);
+    req.add_lock_tablet_ids(tablet.tablet_id());
+    if (lock_info != nullptr) {
+        req.set_require_compaction_stats(true);
+        auto* tablet_index = req.add_tablet_indexes();
+        tablet_index->set_table_id(tablet.table_id());
+        tablet_index->set_index_id(tablet.index_id());
+        tablet_index->set_partition_id(tablet.partition_id());
+        tablet_index->set_tablet_id(tablet.tablet_id());
+    }
+
+    int retry_times = 0;
+    Status st;
+    std::default_random_engine rng = make_random_engine();
+    std::uniform_int_distribution<uint32_t> u(500, 2000);
+    do {
+        st = retry_rpc("get delete bitmap tablet lock", req, &res,
+                       &MetaService_Stub::get_delete_bitmap_update_lock);
+        if (res.status().code() != MetaServiceCode::LOCK_CONFLICT) {
+            break;
+        }
+        uint32_t duration_ms = u(rng);
+        LOG(WARNING) << "get delete bitmap tablet lock conflict, tablet_id=" << tablet.tablet_id()
+                     << " lock_id=" << lock_id << " retry_times=" << retry_times
+                     << " sleep=" << duration_ms << "ms : " << res.status().msg();
+        bthread_usleep(duration_ms * 1000);
+    } while (++retry_times <= config::get_delete_bitmap_lock_max_retry_times);
+
+    if (res.status().code() == MetaServiceCode::LOCK_CONFLICT) {
+        return Status::Error<ErrorCode::DELETE_BITMAP_LOCK_ERROR, false>(
+                "lock conflict when get delete bitmap tablet lock, tablet_id {}, lock_id {}, "
+                "initiator {}",
+                tablet.tablet_id(), lock_id, initiator);
+    }
+    RETURN_IF_ERROR(st);
+    if (lock_info != nullptr) {
+        if (res.base_compaction_cnts_size() != 1 || res.cumulative_compaction_cnts_size() != 1 ||
+            res.cumulative_points_size() != 1 || res.tablet_states_size() != 1) {
+            return Status::InternalError<false>(
+                    "invalid delete bitmap tablet lock response, tablet_id={}, "
+                    "base_compaction_cnts_size={}, cumulative_compaction_cnts_size={}, "
+                    "cumulative_points_size={}, tablet_states_size={}",
+                    tablet.tablet_id(), res.base_compaction_cnts_size(),
+                    res.cumulative_compaction_cnts_size(), res.cumulative_points_size(),
+                    res.tablet_states_size());
+        }
+        lock_info->base_compaction_cnt = res.base_compaction_cnts(0);
+        lock_info->cumulative_compaction_cnt = res.cumulative_compaction_cnts(0);
+        lock_info->cumulative_point = res.cumulative_points(0);
+        lock_info->tablet_state = res.tablet_states(0);
+    }
+    return st;
+}
+
+void CloudMetaMgr::remove_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                                    int64_t initiator) {
+    LOG(INFO) << "remove_delete_bitmap_tablet_lock, tablet_id=" << tablet.tablet_id()
+              << ", lock_id=" << lock_id << ", initiator=" << initiator;
+    RemoveDeleteBitmapUpdateLockRequest req;
+    RemoveDeleteBitmapUpdateLockResponse res;
+    req.set_cloud_unique_id(config::cloud_unique_id);
+    req.set_table_id(tablet.table_id());
+    req.set_lock_id(lock_id);
+    req.set_initiator(initiator);
+    req.set_tablet_level_lock(true);
+    req.add_unlock_tablet_ids(tablet.tablet_id());
+    auto st = retry_rpc("remove delete bitmap tablet lock", req, &res,
+                        &MetaService_Stub::remove_delete_bitmap_update_lock);
+    if (!st.ok()) {
+        LOG(WARNING) << "remove delete bitmap tablet lock fail, tablet_id=" << tablet.tablet_id()
+                     << ", lock_id=" << lock_id << ", st=" << st.to_string();
     }
 }
 

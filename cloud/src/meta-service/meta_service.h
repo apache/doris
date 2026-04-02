@@ -345,6 +345,12 @@ public:
                                           RemoveDeleteBitmapUpdateLockResponse* response,
                                           ::google::protobuf::Closure* done) override;
 
+    // Async publish: per-tablet tmp rowset conversion
+    void convert_tmp_rowset(google::protobuf::RpcController* controller,
+                           const ConvertTmpRowsetRequest* request,
+                           ConvertTmpRowsetResponse* response,
+                           ::google::protobuf::Closure* done) override;
+
     // cloud control get cluster's status by this api
     void get_cluster_status(google::protobuf::RpcController* controller,
                             const GetClusterStatusRequest* request,
@@ -470,6 +476,22 @@ private:
                                              std::string& msg, std::stringstream& ss,
                                              KVStats& stats);
 
+    // Tablet-level lock for async publish tables
+    void get_delete_bitmap_tablet_lock(google::protobuf::RpcController* controller,
+                                       const GetDeleteBitmapUpdateLockRequest* request,
+                                       GetDeleteBitmapUpdateLockResponse* response,
+                                       ::google::protobuf::Closure* done,
+                                       std::string& instance_id, MetaServiceCode& code,
+                                       std::string& msg, std::stringstream& ss, KVStats& stats);
+
+    void remove_delete_bitmap_tablet_lock(google::protobuf::RpcController* controller,
+                                          const RemoveDeleteBitmapUpdateLockRequest* request,
+                                          RemoveDeleteBitmapUpdateLockResponse* response,
+                                          ::google::protobuf::Closure* done,
+                                          std::string& instance_id, MetaServiceCode& code,
+                                          std::string& msg, std::stringstream& ss,
+                                          KVStats& stats);
+
     void update_table_version(Transaction* txn, std::string_view instance_id, int64_t db_id,
                               int64_t table_id);
 
@@ -491,6 +513,21 @@ private:
     void commit_txn_with_sub_txn(const CommitTxnRequest* request, CommitTxnResponse* response,
                                  MetaServiceCode& code, std::string& msg,
                                  const std::string& instance_id, int64_t db_id, KVStats& stats);
+
+    // Async publish commit phase: fast commit that only updates partition commit
+    // versions and TxnInfoPB, without rowset conversion or visible version update.
+    void commit_txn_async_publish(const CommitTxnRequest* request, CommitTxnResponse* response,
+                                  MetaServiceCode& code, std::string& msg,
+                                  const std::string& instance_id, int64_t db_id, KVStats& stats);
+
+    // Async publish lightweight publish phase: updates partition visible versions to
+    // commit versions and marks transaction as VISIBLE. Called after all per-tablet
+    // rowset conversions are completed.
+    void commit_txn_2pc_lightweight_publish(const CommitTxnRequest* request,
+                                            CommitTxnResponse* response,
+                                            MetaServiceCode& code, std::string& msg,
+                                            const std::string& instance_id, int64_t db_id,
+                                            KVStats& stats);
 
     // Get the first pending transaction ID for a partition. If there no any pending transaction,
     // `first_txn_id` will be set to -1.
@@ -909,6 +946,14 @@ public:
                                           ::google::protobuf::Closure* done) override {
         call_impl(&cloud::MetaService::remove_delete_bitmap_update_lock, controller, request,
                   response, done);
+    }
+
+    // Async publish: per-tablet tmp rowset conversion
+    void convert_tmp_rowset(google::protobuf::RpcController* controller,
+                           const ConvertTmpRowsetRequest* request,
+                           ConvertTmpRowsetResponse* response,
+                           ::google::protobuf::Closure* done) override {
+        call_impl(&cloud::MetaService::convert_tmp_rowset, controller, request, response, done);
     }
 
     // cloud control get cluster's status by this api

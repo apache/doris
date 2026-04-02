@@ -20,6 +20,7 @@
 
 #include <future>
 #include <memory>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <variant>
@@ -65,6 +66,13 @@ Status bthread_fork_join(std::vector<std::function<Status()>>&& tasks, int concu
 
 class CloudMetaMgr {
 public:
+    struct DeleteBitmapTabletLockInfo {
+        int64_t base_compaction_cnt {-1};
+        int64_t cumulative_compaction_cnt {-1};
+        int64_t cumulative_point {-1};
+        std::optional<int64_t> tablet_state;
+    };
+
     CloudMetaMgr() = default;
     ~CloudMetaMgr() = default;
     CloudMetaMgr(const CloudMetaMgr&) = delete;
@@ -86,6 +94,11 @@ public:
     void cache_committed_rowset(RowsetMetaSharedPtr rs_meta, int64_t expiration_time);
 
     Status update_tmp_rowset(const RowsetMeta& rs_meta);
+
+    // Async publish: convert tmp rowset to formal rowset (per-tablet)
+    Status convert_tmp_rowset(int64_t txn_id, int64_t tablet_id, int64_t version, int64_t db_id,
+                              int64_t table_id, int64_t index_id, int64_t partition_id,
+                              RowsetMetaSharedPtr* rowset_meta = nullptr);
 
     Status update_packed_file_info(const std::string& packed_file_path,
                                    const cloud::PackedFileInfoPB& packed_file_info);
@@ -143,7 +156,8 @@ public:
                                 std::string rowset_id,
                                 std::optional<StorageResource> storage_resource,
                                 int64_t store_version, int64_t txn_id = -1,
-                                bool is_explicit_txn = false, int64_t next_visible_version = -1);
+                                bool is_explicit_txn = false, int64_t next_visible_version = -1,
+                                bool is_mow_async_publish = false);
 
     Status cloud_update_delete_bitmap_without_lock(
             const CloudTablet& tablet, DeleteBitmap* delete_bitmap,
@@ -155,6 +169,14 @@ public:
 
     void remove_delete_bitmap_update_lock(int64_t table_id, int64_t lock_id, int64_t initiator,
                                           int64_t tablet_id);
+
+    // Tablet-level lock for async publish tables
+    Status get_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                         int64_t initiator,
+                                         DeleteBitmapTabletLockInfo* lock_info = nullptr);
+
+    void remove_delete_bitmap_tablet_lock(const CloudTablet& tablet, int64_t lock_id,
+                                          int64_t initiator);
 
     // Fill version holes by creating empty rowsets for missing versions
     Status fill_version_holes(CloudTablet* tablet, int64_t max_version,

@@ -54,6 +54,7 @@ BvarLatencyRecorderWithTag g_bvar_ms_get_tablet("ms", "get_tablet");
 BvarLatencyRecorderWithTag g_bvar_ms_prepare_rowset("ms", "prepare_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_commit_rowset("ms", "commit_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_update_tmp_rowset("ms", "update_tmp_rowset");
+BvarLatencyRecorderWithTag g_bvar_ms_convert_tmp_rowset("ms", "convert_tmp_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_get_rowset("ms", "get_rowset");
 BvarLatencyRecorderWithTag g_bvar_ms_drop_index("ms", "drop_index");
 BvarLatencyRecorderWithTag g_bvar_ms_prepare_index("ms", "prepare_index");
@@ -340,6 +341,10 @@ mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_del_counter("rpc_kv_commit_rowset_de
 // update_tmp_rowset
 mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_get_counter("rpc_kv_update_tmp_rowset_get_counter",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_put_counter("rpc_kv_update_tmp_rowset_put_counter",{"instance_id"});
+// convert_tmp_rowset
+mBvarInt64Adder g_bvar_rpc_kv_convert_tmp_rowset_get_counter("rpc_kv_convert_tmp_rowset_get_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_convert_tmp_rowset_put_counter("rpc_kv_convert_tmp_rowset_put_counter",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_convert_tmp_rowset_del_counter("rpc_kv_convert_tmp_rowset_del_counter",{"instance_id"});
 // get_tablet_stats
 mBvarInt64Adder g_bvar_rpc_kv_get_tablet_stats_get_counter("rpc_kv_get_tablet_stats_get_counter",{"instance_id"});
 // update_delete_bitmap
@@ -547,6 +552,10 @@ mBvarInt64Adder g_bvar_rpc_kv_commit_rowset_del_bytes("rpc_kv_commit_rowset_del_
 // update_tmp_rowset
 mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_get_bytes("rpc_kv_update_tmp_rowset_get_bytes",{"instance_id"});
 mBvarInt64Adder g_bvar_rpc_kv_update_tmp_rowset_put_bytes("rpc_kv_update_tmp_rowset_put_bytes",{"instance_id"});
+// convert_tmp_rowset
+mBvarInt64Adder g_bvar_rpc_kv_convert_tmp_rowset_get_bytes("rpc_kv_convert_tmp_rowset_get_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_convert_tmp_rowset_put_bytes("rpc_kv_convert_tmp_rowset_put_bytes",{"instance_id"});
+mBvarInt64Adder g_bvar_rpc_kv_convert_tmp_rowset_del_bytes("rpc_kv_convert_tmp_rowset_del_bytes",{"instance_id"});
 // get_tablet_stats
 mBvarInt64Adder g_bvar_rpc_kv_get_tablet_stats_get_bytes("rpc_kv_get_tablet_stats_get_bytes",{"instance_id"});
 // update_delete_bitmap

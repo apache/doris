@@ -634,6 +634,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, const TabletMetaPB& in) 
         out->mutable_delete_bitmap()->CopyFrom(in.delete_bitmap());
     }
     out->set_enable_unique_key_merge_on_write(in.enable_unique_key_merge_on_write());
+    out->set_enable_mow_async_publish(in.enable_mow_async_publish());
     out->set_storage_policy_id(in.storage_policy_id());
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
@@ -713,6 +714,7 @@ void doris_tablet_meta_to_cloud(TabletMetaCloudPB* out, TabletMetaPB&& in) {
         out->mutable_delete_bitmap()->Swap(in.mutable_delete_bitmap());
     }
     out->set_enable_unique_key_merge_on_write(in.enable_unique_key_merge_on_write());
+    out->set_enable_mow_async_publish(in.enable_mow_async_publish());
     out->set_storage_policy_id(in.storage_policy_id());
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
@@ -799,6 +801,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, const TabletMetaCloudPB& in) 
         out->mutable_delete_bitmap()->CopyFrom(in.delete_bitmap());
     }
     out->set_enable_unique_key_merge_on_write(in.enable_unique_key_merge_on_write());
+    out->set_enable_mow_async_publish(in.enable_mow_async_publish());
     out->set_storage_policy_id(in.storage_policy_id());
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {
@@ -878,6 +881,7 @@ void cloud_tablet_meta_to_doris(TabletMetaPB* out, TabletMetaCloudPB&& in) {
         out->mutable_delete_bitmap()->Swap(in.mutable_delete_bitmap());
     }
     out->set_enable_unique_key_merge_on_write(in.enable_unique_key_merge_on_write());
+    out->set_enable_mow_async_publish(in.enable_mow_async_publish());
     out->set_storage_policy_id(in.storage_policy_id());
     out->mutable_cooldown_meta_id()->CopyFrom(in.cooldown_meta_id());
     if (in.has_binlog_config()) {

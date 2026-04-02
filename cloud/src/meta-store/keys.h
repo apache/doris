@@ -36,6 +36,7 @@
 // 0x01 "txn" ${instance_id} "txn_running" ${db_id} ${txn_id}                   -> TxnRunningPB
 //
 // 0x01 "version" ${instance_id} "partition" ${db_id} ${tbl_id} ${partition_id} -> VersionPB
+// 0x01 "version" ${instance_id} "partition_commit" ${db_id} ${tbl_id} ${partition_id} -> VersionPB
 // 0x01 "version" ${instance_id} "table" ${db_id} ${tbl_id}                     -> int64
 //
 // 0x01 "meta" ${instance_id} "rowset" ${tablet_id} ${version}                                   -> RowsetMetaCloudPB
@@ -44,6 +45,7 @@
 // 0x01 "meta" ${instance_id} "tablet_index" ${tablet_id}                                        -> TabletIndexPB
 // 0x01 "meta" ${instance_id} "schema" ${index_id} ${schema_version}                             -> TabletSchemaCloudPB
 // 0x01 "meta" ${instance_id} "delete_bitmap_lock" ${table_id} ${partition_id}                   -> DeleteBitmapUpdateLockPB
+// 0x01 "meta" ${instance_id} "delete_bitmap_tablet_lock" ${table_id} ${tablet_id}              -> DeleteBitmapUpdateLockPB
 // 0x01 "meta" ${instance_id} "delete_bitmap_pending" ${table_id}                                -> PendingDeleteBitmapPB
 // 0x01 "meta" ${instance_id} "delete_bitmap" ${tablet_id} ${rowset_id} ${version} ${segment_id} -> roaringbitmap
 // 0x01 "meta" ${instance_id} "tablet_schema_pb_dict" ${index_id}                                -> SchemaCloudDictionary
@@ -166,6 +168,9 @@ using TxnRunningKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  in
 //                                                      0:instance_id  1:db_id  2:tbl_id  3:partition_id
 using PartitionVersionKeyInfo     = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t, int64_t,  int64_t>>;
 
+//                                                      0:instance_id  1:db_id  2:tbl_id  3:partition_id
+using PartitionCommitVersionKeyInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t, int64_t>>;
+
 //                                                      0:instance_id  1:tablet_id  2:version
 using MetaRowsetKeyInfo    = BasicKeyInfo<__LINE__ , std::tuple<std::string,  int64_t,     int64_t>>;
 
@@ -222,6 +227,9 @@ using MetaDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int
 // partition_id of -1 indicates all partitions
 //                                                      0:instance_id  1:table_id 2:partition_id
 using MetaDeleteBitmapUpdateLockInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t, int64_t>>;
+
+//                                                      0:instance_id  1:table_id  2:tablet_id
+using MetaDeleteBitmapTabletLockInfo = BasicKeyInfo<__LINE__, std::tuple<std::string, int64_t, int64_t>>;
 
 //                                                      0:instance_id  1:tablet_id
 using MetaPendingDeleteBitmapInfo = BasicKeyInfo<__LINE__ , std::tuple<std::string, int64_t>>;
@@ -360,6 +368,8 @@ static inline std::string txn_running_key(const TxnRunningKeyInfo& in) { std::st
 std::string version_key_prefix(std::string_view instance_id);
 void partition_version_key(const PartitionVersionKeyInfo& in, std::string* out);
 static inline std::string partition_version_key(const PartitionVersionKeyInfo& in) { std::string s; partition_version_key(in, &s); return s; }
+void partition_commit_version_key(const PartitionCommitVersionKeyInfo& in, std::string* out);
+static inline std::string partition_commit_version_key(const PartitionCommitVersionKeyInfo& in) { std::string s; partition_commit_version_key(in, &s); return s; }
 void table_version_key(const TableVersionKeyInfo& in, std::string* out);
 static inline std::string table_version_key(const TableVersionKeyInfo& in) { std::string s; table_version_key(in, &s); return s; }
 
@@ -371,6 +381,7 @@ void meta_tablet_key(const MetaTabletKeyInfo& in, std::string* out);
 void meta_schema_key(const MetaSchemaKeyInfo& in, std::string* out);
 void meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in, std::string* out);
 void meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in, std::string* out);
+void meta_delete_bitmap_tablet_lock_key(const MetaDeleteBitmapTabletLockInfo& in, std::string* out);
 void meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in, std::string* out);
 void meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in, std::string* out);
 void mow_tablet_job_key(const MowTabletJobInfo& in, std::string* out);
@@ -382,6 +393,7 @@ static inline std::string meta_tablet_key(const MetaTabletKeyInfo& in) { std::st
 static inline std::string meta_schema_key(const MetaSchemaKeyInfo& in) { std::string s; meta_schema_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_key(const MetaDeleteBitmapInfo& in) { std::string s; meta_delete_bitmap_key(in, &s); return s; }
 static inline std::string meta_delete_bitmap_update_lock_key(const MetaDeleteBitmapUpdateLockInfo& in) { std::string s; meta_delete_bitmap_update_lock_key(in, &s); return s; }
+static inline std::string meta_delete_bitmap_tablet_lock_key(const MetaDeleteBitmapTabletLockInfo& in) { std::string s; meta_delete_bitmap_tablet_lock_key(in, &s); return s; }
 static inline std::string meta_pending_delete_bitmap_key(const MetaPendingDeleteBitmapInfo& in) { std::string s; meta_pending_delete_bitmap_key(in, &s); return s; }
 static inline std::string meta_schema_pb_dictionary_key(const MetaSchemaPBDictionaryInfo& in) { std::string s; meta_schema_pb_dictionary_key(in, &s); return s; }
 static inline std::string mow_tablet_job_key(const MowTabletJobInfo& in) { std::string s; mow_tablet_job_key(in, &s); return s; }
@@ -623,6 +635,11 @@ bool decode_tablet_schema_key(std::string_view* in, int64_t* index_id, int64_t* 
 // Return true if decode successfully, otherwise false
 bool decode_partition_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id,
                                   int64_t* partition_id);
+
+// Decode partition commit version key
+// Return true if decode successfully, otherwise false
+bool decode_partition_commit_version_key(std::string_view* in, int64_t* db_id, int64_t* tbl_id,
+                                          int64_t* partition_id);
 
 // Decode meta tablet key
 // Return true if decode successfully, otherwise false

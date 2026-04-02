@@ -17,6 +17,9 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.catalog.Env;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.RoutineLoadProgressPB;
 import org.apache.doris.cloud.proto.Cloud.StreamingTaskCommitAttachmentPB;
@@ -29,6 +32,8 @@ import org.apache.doris.cloud.proto.Cloud.TxnCoordinatorPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
@@ -44,15 +49,32 @@ import org.apache.doris.transaction.TransactionState.TxnCoordinator;
 import org.apache.doris.transaction.TransactionState.TxnSourceType;
 import org.apache.doris.transaction.TransactionStatus;
 import org.apache.doris.transaction.TxnCommitAttachment;
+import org.apache.doris.transaction.TxnStateCallbackFactory;
+import org.apache.doris.transaction.TxnStateChangeCallback;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 public class TxnUtil {
     private static final Logger LOG = LogManager.getLogger(TxnUtil.class);
+
+    /**
+     * Backoff policy for retry: sleep random milliseconds in [20ms, 200ms].
+     * Used to avoid txn conflict when retrying RPC calls.
+     */
+    public static void backoff() {
+        int randomMillis = 20 + (int) (Math.random() * (200 - 20));
+        try {
+            Thread.sleep(randomMillis);
+        } catch (InterruptedException e) {
+            LOG.info("InterruptedException: ", e);
+        }
+    }
 
     public static EtlStatusPB.EtlStatePB etlStateToPb(TEtlState tEtlState) {
         switch (tEtlState) {
@@ -408,6 +430,100 @@ public class TxnUtil {
             LOG.debug("transactionState={}", transactionState);
         }
         return transactionState;
+    }
+
+    /**
+     * Execute callback handling after transaction commit/publish succeeds.
+     * This method extracts common callback logic used by both one-phase and two-phase commit.
+     *
+     * @param txnId transaction id
+     * @param txnCommitAttachment transaction commit attachment
+     * @param txnState transaction state (may be null for two-phase publish phase)
+     * @param callbackFactory callback factory to get callbacks
+     * @param isTwoPhase whether this is two-phase commit (affects which callbacks to call)
+     * @param txnOperated whether the transaction operation succeeded (affects callback execution)
+     */
+    public static void executeCommitCallbacks(long txnId,
+                                              TxnCommitAttachment txnCommitAttachment,
+                                              TransactionState txnState,
+                                              TxnStateCallbackFactory callbackFactory,
+                                              boolean isTwoPhase,
+                                              boolean txnOperated) {
+        long callbackId = 0L;
+
+        // Determine callbackId from txnCommitAttachment or txnState
+        if (txnCommitAttachment != null && txnCommitAttachment instanceof RLTaskTxnCommitAttachment) {
+            callbackId = ((RLTaskTxnCommitAttachment) txnCommitAttachment).getJobId();
+        } else if (txnCommitAttachment != null
+                && txnCommitAttachment instanceof StreamingTaskTxnCommitAttachment) {
+            callbackId = ((StreamingTaskTxnCommitAttachment) txnCommitAttachment).getJobId();
+        } else if (txnState != null) {
+            callbackId = txnState.getCallbackId();
+        }
+
+        if (callbackId == 0L) {
+            return;
+        }
+
+        TxnStateChangeCallback cb = callbackFactory.getCallback(callbackId);
+        if (cb != null) {
+            try {
+                LOG.info("execute commit callbacks, transactionId:{} callbackId:{}, isTwoPhase:{}, txnOperated:{}",
+                        txnId, callbackId, isTwoPhase, txnOperated);
+                if (isTwoPhase) {
+                    // For two-phase commit, the transaction is already committed,
+                    // we only call afterVisible when publish completes
+                    cb.afterVisible(txnState, txnOperated);
+                } else {
+                    // For one-phase commit, call both afterCommitted and afterVisible
+                    cb.afterCommitted(txnState, txnOperated);
+                    // do not execute afterVisible if commit txn failed in cloud mode
+                    if (txnOperated) {
+                        cb.afterVisible(txnState, txnOperated);
+                    }
+                }
+            } catch (Throwable t) {
+                LOG.warn("callback execution failed for txnId={}, callbackId={}", txnId, callbackId, t);
+            }
+        }
+    }
+
+    /**
+     * Common after-commit operations: update stats, produce events.
+     * This method extracts common logic used by both one-phase and two-phase commit.
+     *
+     * @param commitTxnResponse commit txn response from MS
+     */
+    public static void afterCommitCommon(CommitTxnResponse commitTxnResponse) {
+        long dbId = commitTxnResponse.getTxnInfo().getDbId();
+        long txnId = commitTxnResponse.getTxnInfo().getTxnId();
+
+        // 1. update rowCount for AnalysisManager
+        Map<Long, Long> updatedRows = new HashMap<>();
+        for (Cloud.TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
+            if (tableStats.hasUpdatedRowCount()) {
+                LOG.info("Update RowCount for AnalysisManager. transactionId:{}, table_id:{}, updated_row_count:{}",
+                        txnId, tableStats.getTableId(), tableStats.getUpdatedRowCount());
+                updatedRows.put(tableStats.getTableId(), tableStats.getUpdatedRowCount());
+            }
+        }
+        Env env = Env.getCurrentEnv();
+        env.getAnalysisManager().updateUpdatedRows(updatedRows);
+
+        // 2. notify partition first load (tablePartitionMap comes from caller)
+        // This is handled by the caller's updateVersion method
+
+        // 3. produce event
+        List<Long> tableList = commitTxnResponse.getTxnInfo().getTableIdsList()
+                .stream().distinct().collect(Collectors.toList());
+        try {
+            for (Long tableId : tableList) {
+                Env.getCurrentEnv().getEventProcessor().processEvent(
+                    new DataChangeEvent(InternalCatalog.INTERNAL_CATALOG_ID, dbId, tableId));
+            }
+        } catch (Throwable t) {
+            LOG.warn("produceEvent failed, db {}, tables {} ", dbId, tableList, t);
+        }
     }
 
 }
