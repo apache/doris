@@ -28,10 +28,12 @@ import java.util.Objects;
 public class IvmDeltaRewriteContext {
     private final MTMV mtmv;
     private final ConnectContext connectContext;
+    private final IvmNormalizeResult normalizeResult;
 
-    public IvmDeltaRewriteContext(MTMV mtmv, ConnectContext connectContext) {
+    public IvmDeltaRewriteContext(MTMV mtmv, ConnectContext connectContext, IvmNormalizeResult normalizeResult) {
         this.mtmv = Objects.requireNonNull(mtmv, "mtmv can not be null");
         this.connectContext = Objects.requireNonNull(connectContext, "connectContext can not be null");
+        this.normalizeResult = normalizeResult;
     }
 
     public MTMV getMtmv() {
@@ -40,5 +42,10 @@ public class IvmDeltaRewriteContext {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    /** Returns the IVM normalize result, or null if this is a non-agg scan-only MV. */
+    public IvmNormalizeResult getNormalizeResult() {
+        return normalizeResult;
     }
 }
