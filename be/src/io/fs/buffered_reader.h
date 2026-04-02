@@ -38,6 +38,7 @@
 #include "util/runtime_profile.h"
 #include "util/slice.h"
 #include "vec/common/custom_allocator.h"
+#include "vec/common/pod_array.h"
 #include "vec/common/typeid_cast.h"
 namespace doris {
 
@@ -425,7 +426,6 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
               _whole_buffer_size(whole_buffer_size),
               _reader(reader),
               _io_ctx(io_ctx),
-              _buf(nullptr),
               _sync_profile(std::move(sync_profile)) {}
 
     PrefetchBuffer(PrefetchBuffer&& other)
@@ -452,7 +452,7 @@ struct PrefetchBuffer : std::enable_shared_from_this<PrefetchBuffer>, public Pro
     size_t _whole_buffer_size;
     io::FileReader* _reader = nullptr;
     const IOContext* _io_ctx = nullptr;
-    std::unique_ptr<char[]> _buf;
+    PODArray<char> _buf;
     BufferStatus _buffer_status {BufferStatus::RESET};
     std::mutex _lock;
     std::condition_variable _prefetched;
