@@ -46,7 +46,6 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileEntry;
@@ -163,30 +162,16 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         try {
             StorageProperties sp = brokerDesc.getStorageProperties();
             if (sp instanceof ObjectStorageProperties) {
-                String endpoint = ((ObjectStorageProperties) sp).getEndpoint();
-                S3Util.validateAndTestEndpoint(endpoint);
+                S3Util.validateAndTestEndpoint(((ObjectStorageProperties) sp).getEndpoint());
             }
-            if (sp instanceof BrokerProperties) {
-                try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
-                    List<FileEntry> entries = fs.listFiles(Location.of(path));
-                    for (FileEntry e : entries) {
-                        fileStatuses.add(new TBrokerFileStatus(
-                                e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
-                    }
-                } catch (IOException e) {
-                    throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
+            try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
+                List<FileEntry> entries = fs.listFiles(Location.of(path));
+                for (FileEntry e : entries) {
+                    fileStatuses.add(new TBrokerFileStatus(
+                            e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
                 }
-            } else {
-                // Non-broker storage (HDFS, S3, etc.): use the SPI filesystem directly.
-                try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(sp)) {
-                    List<FileEntry> entries = fs.listFiles(Location.of(path));
-                    for (FileEntry e : entries) {
-                        fileStatuses.add(new TBrokerFileStatus(
-                                e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
-                    }
-                } catch (IOException e) {
-                    throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
-                }
+            } catch (IOException e) {
+                throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
             }
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
