@@ -437,8 +437,15 @@ public class StreamingInsertJob extends AbstractJob<StreamingJobSchedulerTask, M
             if (runningStreamTask == null) {
                 return;
             }
+            // Check status before cancel: if the task was still active (RUNNING or PENDING),
+            // count it as canceled. If already in a terminal state (e.g. FAILED), it was
+            // already counted by onStreamTaskFail(), so skip to avoid double-counting.
+            boolean wasActive = TaskStatus.RUNNING.equals(runningStreamTask.getStatus())
+                    || TaskStatus.PENDING.equals(runningStreamTask.getStatus());
             runningStreamTask.cancel(needWaitCancelComplete);
-            canceledTaskCount.incrementAndGet();
+            if (wasActive) {
+                canceledTaskCount.incrementAndGet();
+            }
         } finally {
             lock.writeLock().unlock();
         }
