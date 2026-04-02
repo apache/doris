@@ -50,34 +50,5 @@ under the License.
         <module>fe-filesystem-broker</module>
     </modules>
 
-    <build>
-        <plugins>
-            <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-dependency-plugin</artifactId>
-                <executions>
-                    <execution>
-                        <!-- Copy transitive runtime deps into target/plugin-deps/ during package.
-                             Runs within the main reactor so all local SNAPSHOT dependencies are
-                             resolved from the reactor (not from the remote repository).
-                             fe-filesystem-api, fe-filesystem-spi, and fe-extension-spi are
-                             excluded because they are compiled into fe-core and must NOT be
-                             duplicated inside the plugin class-loader. -->
-                        <id>copy-plugin-deps</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>copy-dependencies</goal>
-                        </goals>
-                        <configuration>
-                            <outputDirectory>${project.build.directory}/plugin-deps</outputDirectory>
-                            <excludeArtifactIds>fe-filesystem-api,fe-filesystem-spi,fe-extension-spi</excludeArtifactIds>
-                            <includeScope>runtime</includeScope>
-                            <overWriteReleases>false</overWriteReleases>
-                            <overWriteSnapshots>true</overWriteSnapshots>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
+
 </project>

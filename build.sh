@@ -916,12 +916,11 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
             continue
         fi
         mkdir -p "${fs_plugin_target}"
-        # Copy main JAR
-        cp -f "${fs_module_dir}/target/doris-fe-filesystem-${fs_module}"*.jar "${fs_plugin_target}/" 2>/dev/null || true
-        # Copy transitive dependencies collected by maven-dependency-plugin during the main build.
-        # The deps are staged in target/plugin-deps/ by the copy-plugin-deps execution in
-        # fe-filesystem/pom.xml, which runs inside the main reactor (no separate Maven invocation).
-        cp -f "${fs_module_dir}/target/plugin-deps/"*.jar "${fs_plugin_target}/" 2>/dev/null || true
+        # Unpack the self-contained plugin zip produced by maven-assembly-plugin.
+        # Layout inside the zip: <plugin>.jar at root + lib/*.jar for runtime deps.
+        # DirectoryPluginRuntimeManager picks up both root and lib/ jars automatically.
+        unzip -o "${fs_module_dir}/target/doris-fe-filesystem-${fs_module}.zip" \
+            -d "${fs_plugin_target}/"
     done
     unset FS_PLUGIN_DIR fs_module fs_plugin_target fs_module_dir
 
