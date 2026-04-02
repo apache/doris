@@ -473,12 +473,6 @@ Status PipelineTask::execute(bool* done) {
                 delta_cpu_time);
 
         // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
-        // Note: the task may still be in BLOCKED state here (e.g., _is_blocked() returned true
-        // right before another thread called make_all_runnable which set _wake_up_early).
-        // We do NOT transition BLOCKED→RUNNABLE here because _blocked_dep is shared with
-        // Dependency::set_ready()/wake_up() under _task_lock, and writing it outside that lock
-        // would be a data race. Instead, _state_transition() allows BLOCKED→FINISHED when
-        // _wake_up_early is true, and wake_up() safely ignores tasks no longer in BLOCKED state.
         if (_wake_up_early) {
             _eos = true;
             *done = true;
@@ -1052,19 +1046,6 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
 
 Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
     // call by dependency
-    //
-    // Race with make_all_runnable() + execute()'s running_defer:
-    // make_all_runnable() calls set_wake_up_early() then unblock_all_dependencies(). Inside
-    // unblock_all_dependencies(), each dep's set_always_ready() → set_ready() swaps _blocked_task
-    // out under _task_lock, then iterates the list **outside** the lock to call wake_up().
-    // Between the swap and the actual wake_up() call, the worker thread may observe
-    // _wake_up_early, set done=true, and close/finalize the task — transitioning _exec_state
-    // from BLOCKED to FINISHED to FINALIZED. When the delayed wake_up() finally runs here,
-    // the task is no longer BLOCKED. Since _exec_state is std::atomic, reading it is safe;
-    // we simply ignore the stale wake-up.
-    if (_exec_state != State::BLOCKED) {
-        return Status::OK();
-    }
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
