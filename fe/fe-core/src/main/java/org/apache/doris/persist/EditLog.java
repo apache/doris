@@ -255,6 +255,14 @@ public class EditLog {
                 }
             }
         } catch (Throwable t) {
+            // Notify all pending items so producer threads don't hang if System.exit is delayed
+            for (EditLogItem req : batch) {
+                synchronized (req.lock) {
+                    req.finished = true;
+                    req.logId = -1;
+                    req.lock.notifyAll();
+                }
+            }
             // Throwable contains all Exception and Error, such as IOException and
             // OutOfMemoryError
             if (journal instanceof BDBJEJournal) {
