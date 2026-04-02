@@ -62,7 +62,7 @@ class IvmDeltaRewriterTest {
             }
         };
 
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext());
+        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         List<DeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(plan, ctx);
 
         Assertions.assertEquals(1, bundles.size());
@@ -87,7 +87,7 @@ class IvmDeltaRewriterTest {
             }
         };
 
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext());
+        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         List<DeltaCommandBundle> bundles = new IvmDeltaRewriter().rewrite(plan, ctx);
 
         Assertions.assertEquals(1, bundles.size());
@@ -103,7 +103,7 @@ class IvmDeltaRewriterTest {
                 ImmutableList.of(new OrderKey(scan.getOutput().get(0), true, true)), scan);
         LogicalResultSink<?> plan = new LogicalResultSink<>(exprs, sort);
 
-        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext());
+        IvmDeltaRewriteContext ctx = new IvmDeltaRewriteContext(mtmv, new ConnectContext(), null);
         AnalysisException ex = Assertions.assertThrows(AnalysisException.class,
                 () -> new IvmDeltaRewriter().rewrite(plan, ctx));
         Assertions.assertTrue(ex.getMessage().contains("LogicalSort"));
@@ -112,8 +112,8 @@ class IvmDeltaRewriterTest {
     @Test
     void testContextRejectsNulls(@Mocked MTMV mtmv) {
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmDeltaRewriteContext(null, new ConnectContext()));
+                () -> new IvmDeltaRewriteContext(null, new ConnectContext(), null));
         Assertions.assertThrows(NullPointerException.class,
-                () -> new IvmDeltaRewriteContext(mtmv, null));
+                () -> new IvmDeltaRewriteContext(mtmv, null, null));
     }
 }
