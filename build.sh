@@ -918,12 +918,10 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
         mkdir -p "${fs_plugin_target}"
         # Copy main JAR
         cp -f "${fs_module_dir}/target/doris-fe-filesystem-${fs_module}"*.jar "${fs_plugin_target}/" 2>/dev/null || true
-        # Copy transitive dependencies flat into the same directory, excluding spi JARs already on FE classpath
-        (cd "${DORIS_HOME}/fe" && "${MVN_CMD}" dependency:copy-dependencies \
-            -pl "fe-filesystem/fe-filesystem-${fs_module}" \
-            -DoutputDirectory="${fs_plugin_target}" \
-            -DexcludeArtifactIds="fe-filesystem-api,fe-filesystem-spi,fe-extension-spi" \
-            --no-transfer-progress -q 2>/dev/null) || true
+        # Copy transitive dependencies collected by maven-dependency-plugin during the main build.
+        # The deps are staged in target/plugin-deps/ by the copy-plugin-deps execution in
+        # fe-filesystem/pom.xml, which runs inside the main reactor (no separate Maven invocation).
+        cp -f "${fs_module_dir}/target/plugin-deps/"*.jar "${fs_plugin_target}/" 2>/dev/null || true
     done
     unset FS_PLUGIN_DIR fs_module fs_plugin_target fs_module_dir
 

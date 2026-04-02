@@ -58,5 +58,18 @@ under the License.
 
     <build>
         <finalName>doris-fe-filesystem-spi</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <executions>
+                    <!-- This module is compiled into fe-core, not deployed as a plugin. -->
+                    <execution>
+                        <id>copy-plugin-deps</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
     </build>
 </project>
