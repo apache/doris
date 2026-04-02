@@ -58,7 +58,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     @SerializedName(value = "bes")
     private ConcurrentHashMap<String, List<Long>> primaryClusterToBackends = null;
     @SerializedName(value = "be")
-    private ConcurrentHashMap<String, Long> primaryClusterToBackend = new ConcurrentHashMap<>();
+    private volatile ConcurrentHashMap<String, Long> primaryClusterToBackend;
     @SerializedName(value = "dbId")
     private long dbId = -1;
     @SerializedName(value = "tableId")
@@ -93,11 +93,22 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
 
     private static final Random rand = new Random();
 
+    // Intern pool for cluster ID strings to avoid millions of duplicate String instances.
+    // Typically only a handful of distinct cluster IDs exist in the system.
+    private static final ConcurrentHashMap<String, String> CLUSTER_ID_POOL = new ConcurrentHashMap<>();
+
+    private static String internClusterId(String clusterId) {
+        if (clusterId == null) {
+            return null;
+        }
+        String existing = CLUSTER_ID_POOL.putIfAbsent(clusterId, clusterId);
+        return existing != null ? existing : clusterId;
+    }
+
     private Map<String, List<Long>> memClusterToBackends = null;
 
     // clusterId, secondaryBe, changeTimestamp
-    private Map<String, Pair<Long, Long>> secondaryClusterToBackends
-            = new ConcurrentHashMap<String, Pair<Long, Long>>();
+    private volatile Map<String, Pair<Long, Long>> secondaryClusterToBackends;
 
     public CloudReplica() {
     }
@@ -117,6 +128,34 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         this.partitionId = partitionId;
         this.indexId = indexId;
         this.idx = idx;
+    }
+
+    private ConcurrentHashMap<String, Long> getOrCreatePrimaryMap() {
+        ConcurrentHashMap<String, Long> map = primaryClusterToBackend;
+        if (map == null) {
+            synchronized (this) {
+                map = primaryClusterToBackend;
+                if (map == null) {
+                    map = new ConcurrentHashMap<>(2);
+                    primaryClusterToBackend = map;
+                }
+            }
+        }
+        return map;
+    }
+
+    private Map<String, Pair<Long, Long>> getOrCreateSecondaryMap() {
+        Map<String, Pair<Long, Long>> map = secondaryClusterToBackends;
+        if (map == null) {
+            synchronized (this) {
+                map = secondaryClusterToBackends;
+                if (map == null) {
+                    map = new ConcurrentHashMap<>(2);
+                    secondaryClusterToBackends = map;
+                }
+            }
+        }
+        return map;
     }
 
     private boolean isColocated() {
@@ -226,7 +265,8 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             }
         }
 
-        return primaryClusterToBackend.getOrDefault(clusterId, -1L);
+        ConcurrentHashMap<String, Long> map = primaryClusterToBackend;
+        return map != null ? map.getOrDefault(clusterId, -1L) : -1L;
     }
 
     private String getCurrentClusterId() throws ComputeGroupException {
@@ -336,8 +376,9 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                 backendId = memClusterToBackends.get(clusterId).get(indexRand);
             }
 
-            if (!replicaEnough && !allowColdRead && primaryClusterToBackend.containsKey(clusterId)) {
-                backendId = primaryClusterToBackend.get(clusterId);
+            ConcurrentHashMap<String, Long> priMap = primaryClusterToBackend;
+            if (!replicaEnough && !allowColdRead && priMap != null && priMap.containsKey(clusterId)) {
+                backendId = priMap.get(clusterId);
             }
 
             if (backendId > 0) {
@@ -413,7 +454,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public Backend getSecondaryBackend(String clusterId) {
-        Pair<Long, Long> secondBeAndChangeTimestamp = secondaryClusterToBackends.get(clusterId);
+        Map<String, Pair<Long, Long>> secMap = secondaryClusterToBackends;
+        if (secMap == null) {
+            return null;
+        }
+        Pair<Long, Long> secondBeAndChangeTimestamp = secMap.get(clusterId);
         if (secondBeAndChangeTimestamp == null) {
             return null;
         }
@@ -595,8 +640,11 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public void updateClusterToPrimaryBe(String cluster, long beId) {
-        primaryClusterToBackend.put(cluster, beId);
-        secondaryClusterToBackends.remove(cluster);
+        getOrCreatePrimaryMap().put(internClusterId(cluster), beId);
+        Map<String, Pair<Long, Long>> secMap = secondaryClusterToBackends;
+        if (secMap != null) {
+            secMap.remove(cluster);
+        }
     }
 
     /**
@@ -610,19 +658,29 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
             LOG.debug("add to secondary clusterId {}, beId {}, changeTimestamp {}, replica info {}",
                     cluster, beId, changeTimestamp, this);
         }
-        secondaryClusterToBackends.put(cluster, Pair.of(beId, changeTimestamp));
+        getOrCreateSecondaryMap().put(internClusterId(cluster), Pair.of(beId, changeTimestamp));
     }
 
     public void clearClusterToBe(String cluster) {
-        primaryClusterToBackend.remove(cluster);
-        secondaryClusterToBackends.remove(cluster);
+        ConcurrentHashMap<String, Long> priMap = primaryClusterToBackend;
+        if (priMap != null) {
+            priMap.remove(cluster);
+        }
+        Map<String, Pair<Long, Long>> secMap = secondaryClusterToBackends;
+        if (secMap != null) {
+            secMap.remove(cluster);
+        }
     }
 
     // ATTN: This func is only used by redundant tablet report clean in bes.
     // Only the master node will do the diff logic,
     // so just only need to clean up secondaryClusterToBackends on the master node.
     public void checkAndClearSecondaryClusterToBe(String clusterId, long expireTimestamp) {
-        Pair<Long, Long> secondBeAndChangeTimestamp = secondaryClusterToBackends.get(clusterId);
+        Map<String, Pair<Long, Long>> secMap = secondaryClusterToBackends;
+        if (secMap == null) {
+            return;
+        }
+        Pair<Long, Long> secondBeAndChangeTimestamp = secMap.get(clusterId);
         if (secondBeAndChangeTimestamp == null) {
             return;
         }
@@ -632,19 +690,22 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
         if (changeTimestamp < expireTimestamp) {
             LOG.debug("remove clusterId {} secondary beId {} changeTimestamp {} expireTimestamp {} replica info {}",
                     clusterId, beId, changeTimestamp, expireTimestamp, this);
-            secondaryClusterToBackends.remove(clusterId);
+            secMap.remove(clusterId);
             return;
         }
     }
 
     public List<Backend> getAllPrimaryBes() {
         List<Backend> result = new ArrayList<Backend>();
-        primaryClusterToBackend.forEach((clusterId, beId) -> {
-            if (beId != -1) {
-                Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
-                result.add(backend);
-            }
-        });
+        ConcurrentHashMap<String, Long> map = primaryClusterToBackend;
+        if (map != null) {
+            map.forEach((clusterId, beId) -> {
+                if (beId != -1) {
+                    Backend backend = Env.getCurrentSystemInfo().getBackend(beId);
+                    result.add(backend);
+                }
+            });
+        }
         return result;
     }
 
@@ -675,14 +736,24 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
                     this.getId(), this.primaryClusterToBackends, this.primaryClusterToBackend);
         }
         if (primaryClusterToBackends != null) {
+            ConcurrentHashMap<String, Long> map = getOrCreatePrimaryMap();
             for (Map.Entry<String, List<Long>> entry : primaryClusterToBackends.entrySet()) {
                 String clusterId = entry.getKey();
                 List<Long> beIds = entry.getValue();
                 if (beIds != null && !beIds.isEmpty()) {
-                    primaryClusterToBackend.put(clusterId, beIds.get(0));
+                    map.put(internClusterId(clusterId), beIds.get(0));
                 }
             }
             this.primaryClusterToBackends = null;
+        }
+        // Intern cluster ID keys in deserialized primary map to share String instances
+        // across millions of CloudReplica objects
+        if (primaryClusterToBackend != null) {
+            ConcurrentHashMap<String, Long> interned = new ConcurrentHashMap<>(primaryClusterToBackend.size());
+            for (Map.Entry<String, Long> entry : primaryClusterToBackend.entrySet()) {
+                interned.put(internClusterId(entry.getKey()), entry.getValue());
+            }
+            primaryClusterToBackend = interned;
         }
     }
 }
