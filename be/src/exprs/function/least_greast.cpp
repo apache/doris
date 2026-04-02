@@ -25,6 +25,7 @@
 
 #include "core/accurate_comparison.h"
 #include "core/assert_cast.h"
+#include "core/call_on_type_index.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
@@ -187,10 +188,9 @@ struct FunctionFieldImpl {
         DCHECK_EQ(arg_const, false);
 
         //TODO: maybe could use hashmap to save column data, not use for loop ervey time to test equals.
-        switch (data_type->get_primitive_type()) {
-        case PrimitiveType::TYPE_STRING:
-        case PrimitiveType::TYPE_CHAR:
-        case PrimitiveType::TYPE_VARCHAR: {
+        if (data_type->get_primitive_type() == PrimitiveType::TYPE_STRING ||
+            data_type->get_primitive_type() == PrimitiveType::TYPE_CHAR ||
+            data_type->get_primitive_type() == PrimitiveType::TYPE_VARCHAR) {
             const auto& column_string = assert_cast<const ColumnString&>(*argument_columns[0]);
             for (int row = 0; row < input_rows_count; ++row) {
                 const auto& str_data = column_string.get_data_at(row);
@@ -204,115 +204,18 @@ struct FunctionFieldImpl {
                     }
                 }
             }
-            break;
-        }
-        case PrimitiveType::TYPE_TINYINT: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_TINYINT>(res_data, argument_columns[0],
-                                                 argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_SMALLINT: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_SMALLINT>(res_data, argument_columns[0],
-                                                  argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_INT: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_INT>(res_data, argument_columns[0], argument_columns[col],
-                                             input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_BIGINT: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_BIGINT>(res_data, argument_columns[0],
-                                                argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_LARGEINT: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_LARGEINT>(res_data, argument_columns[0],
-                                                  argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_FLOAT: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_FLOAT>(res_data, argument_columns[0], argument_columns[col],
-                                               input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DOUBLE: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DOUBLE>(res_data, argument_columns[0],
-                                                argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL32: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DECIMAL32>(res_data, argument_columns[0],
-                                                   argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL64: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DECIMAL64>(res_data, argument_columns[0],
-                                                   argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMALV2: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DECIMALV2>(res_data, argument_columns[0],
-                                                   argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL128I: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DECIMAL128I>(res_data, argument_columns[0],
-                                                     argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DECIMAL256: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DECIMAL256>(res_data, argument_columns[0],
-                                                    argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DATEV2: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DATEV2>(res_data, argument_columns[0],
-                                                argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_DATETIMEV2: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_DATETIMEV2>(res_data, argument_columns[0],
-                                                    argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        case PrimitiveType::TYPE_TIMESTAMPTZ: {
-            for (int col = 1; col < arguments.size(); ++col) {
-                insert_result_data<TYPE_TIMESTAMPTZ>(res_data, argument_columns[0],
-                                                     argument_columns[col], input_rows_count, col);
-            }
-            break;
-        }
-        default:
-            break;
+        } else {
+            bool dispatched = dispatch_switch_scalar(data_type->get_primitive_type(),
+                    [&](auto type_holder) {
+                        using DT = std::decay_t<decltype(type_holder)>;
+                        for (int col = 1; col < column_size; ++col) {
+                            insert_result_data<DT::PType>(res_data, argument_columns[0],
+                                                          argument_columns[col], input_rows_count,
+                                                          col);
+                        }
+                        return true;
+                    });
+            DCHECK(dispatched) << "unsupported type: " << data_type->get_name();
         }
 
         return result_column;

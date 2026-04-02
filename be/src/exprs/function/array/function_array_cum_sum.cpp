@@ -159,62 +159,28 @@ private:
                           const ColumnArray::Offsets64& src_offsets,
                           const NullMapType& src_null_map, ColumnPtr& res_nested_ptr) const {
         bool res = false;
-        switch (src_nested_type->get_primitive_type()) {
-        case TYPE_BOOLEAN:
-            res = _execute_number<TYPE_BOOLEAN, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
+        dispatch_switch_number(src_nested_type->get_primitive_type(), [&](auto type_holder) {
+            using SrcDT = std::decay_t<decltype(type_holder)>;
+            constexpr auto SrcPType = SrcDT::PType;
+            if constexpr (SrcPType == TYPE_LARGEINT) {
+                res = _execute_number<SrcPType, TYPE_LARGEINT>(src_column, src_offsets,
+                                                               src_null_map, res_nested_ptr);
+            } else if constexpr (SrcPType == TYPE_FLOAT || SrcPType == TYPE_DOUBLE) {
+                res = _execute_number<SrcPType, TYPE_DOUBLE>(src_column, src_offsets, src_null_map,
                                                              res_nested_ptr);
-            break;
-        case TYPE_TINYINT:
-            res = _execute_number<TYPE_TINYINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                             res_nested_ptr);
-            break;
-        case TYPE_SMALLINT:
-            res = _execute_number<TYPE_SMALLINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                              res_nested_ptr);
-            break;
-        case TYPE_INT:
-            res = _execute_number<TYPE_INT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                         res_nested_ptr);
-            break;
-        case TYPE_BIGINT:
-            res = _execute_number<TYPE_BIGINT, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
-                                                            res_nested_ptr);
-            break;
-        case TYPE_LARGEINT:
-            res = _execute_number<TYPE_LARGEINT, TYPE_LARGEINT>(src_column, src_offsets,
+            } else if constexpr (SrcPType == TYPE_DECIMALV2) {
+                res = _execute_number<SrcPType, TYPE_DECIMALV2>(src_column, src_offsets,
                                                                 src_null_map, res_nested_ptr);
-            break;
-        case TYPE_FLOAT:
-            res = _execute_number<TYPE_FLOAT, TYPE_DOUBLE>(src_column, src_offsets, src_null_map,
-                                                           res_nested_ptr);
-            break;
-        case TYPE_DOUBLE:
-            res = _execute_number<TYPE_DOUBLE, TYPE_DOUBLE>(src_column, src_offsets, src_null_map,
-                                                            res_nested_ptr);
-            break;
-        case TYPE_DECIMAL32:
-            res = _execute_number<TYPE_DECIMAL32, PType>(src_column, src_offsets, src_null_map,
-                                                         res_nested_ptr);
-            break;
-        case TYPE_DECIMAL64:
-            res = _execute_number<TYPE_DECIMAL64, PType>(src_column, src_offsets, src_null_map,
-                                                         res_nested_ptr);
-            break;
-        case TYPE_DECIMAL128I:
-            res = _execute_number<TYPE_DECIMAL128I, PType>(src_column, src_offsets, src_null_map,
-                                                           res_nested_ptr);
-            break;
-        case TYPE_DECIMAL256:
-            res = _execute_number<TYPE_DECIMAL256, PType>(src_column, src_offsets, src_null_map,
-                                                          res_nested_ptr);
-            break;
-        case TYPE_DECIMALV2:
-            res = _execute_number<TYPE_DECIMALV2, TYPE_DECIMALV2>(src_column, src_offsets,
-                                                                  src_null_map, res_nested_ptr);
-            break;
-        default:
-            break;
-        }
+            } else if constexpr (is_decimalv3(SrcPType)) {
+                res = _execute_number<SrcPType, PType>(src_column, src_offsets, src_null_map,
+                                                       res_nested_ptr);
+            } else {
+                // int types: BOOLEAN, TINYINT, SMALLINT, INT, BIGINT
+                res = _execute_number<SrcPType, TYPE_BIGINT>(src_column, src_offsets, src_null_map,
+                                                             res_nested_ptr);
+            }
+            return true;
+        });
         return res;
     }
 

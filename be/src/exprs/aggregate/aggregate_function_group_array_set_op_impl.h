@@ -36,80 +36,25 @@ inline AggregateFunctionPtr create_aggregate_function_group_array_impl(
     const auto& nested_type = remove_nullable(
             assert_cast<const DataTypeArray&>(*(argument_types[0])).get_nested_type());
 
-    switch (nested_type->get_primitive_type()) {
-    case doris::PrimitiveType::TYPE_BOOLEAN:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_BOOLEAN>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_TINYINT:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_TINYINT>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_SMALLINT:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_SMALLINT>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_INT:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_INT>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_BIGINT:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_BIGINT>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_LARGEINT:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_LARGEINT>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATEV2:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_DATEV2>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DATETIMEV2:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_DATETIMEV2>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DOUBLE:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_DOUBLE>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_FLOAT:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_FLOAT>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL32:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_DECIMAL32>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL64:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_DECIMAL64>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL128I:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_DECIMAL128I>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_DECIMAL256:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_DECIMAL256>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_IPV4:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_IPV4>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_IPV6:
-        return creator_without_type::create<
-                AggregateFunctionGroupArraySetOp<ImplNumericData<TYPE_IPV6>>>(
-                argument_types, result_is_nullable, attr);
-    case PrimitiveType::TYPE_STRING:
-    case PrimitiveType::TYPE_VARCHAR:
-    case PrimitiveType::TYPE_CHAR:
+    auto pt = nested_type->get_primitive_type();
+    if (pt == PrimitiveType::TYPE_STRING || pt == PrimitiveType::TYPE_VARCHAR ||
+        pt == PrimitiveType::TYPE_CHAR) {
         return creator_without_type::create<AggregateFunctionGroupArraySetOp<ImplStringData>>(
                 argument_types, result_is_nullable, attr);
-    default:
-        LOG(WARNING) << " got invalid of nested type: " << nested_type->get_name();
-        return nullptr;
     }
+
+    AggregateFunctionPtr result;
+    dispatch_switch_scalar(pt, [&](auto type_holder) {
+        using DT = std::decay_t<decltype(type_holder)>;
+        result = creator_without_type::create<
+                AggregateFunctionGroupArraySetOp<ImplNumericData<DT::PType>>>(
+                argument_types, result_is_nullable, attr);
+        return true;
+    });
+    if (!result) {
+        LOG(WARNING) << " got invalid of nested type: " << nested_type->get_name();
+    }
+    return result;
 }
 
 } // namespace doris
