@@ -264,14 +264,7 @@ public class EditLog {
             System.exit(-1);
         }
 
-        txId += batch.size();
-        // update statistics, etc. (optional, can be added as needed)
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
-            rollEditLog();
-            txId = 0;
-        }
+        advanceTxIdAndRollIfNeeded(batch.size());
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(batch.size()));
         }
@@ -1523,6 +1516,16 @@ public class EditLog {
         journal.open();
     }
 
+    private void advanceTxIdAndRollIfNeeded(long delta) {
+        txId += delta;
+        if (txId >= Config.edit_log_roll_num) {
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.",
+                    txId, Config.edit_log_roll_num);
+            rollEditLog();
+            txId = 0;
+        }
+    }
+
     /**
      * Close current journal and start a new journal
      */
@@ -1557,7 +1560,7 @@ public class EditLog {
         if (!batch.getJournalEntities().isEmpty()) {
             journal.write(batch);
         }
-        txId += entries.size();
+        advanceTxIdAndRollIfNeeded(entries.size());
     }
 
     /**
@@ -1653,15 +1656,7 @@ public class EditLog {
             System.exit(-1);
         }
 
-        // get a new transactionId
-        txId++;
-
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
-                    Config.edit_log_roll_num);
-            rollEditLog();
-            txId = 0;
-        }
+        advanceTxIdAndRollIfNeeded(1);
 
         return logId;
     }
