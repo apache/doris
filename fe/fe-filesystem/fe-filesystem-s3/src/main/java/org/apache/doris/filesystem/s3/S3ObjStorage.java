@@ -154,7 +154,18 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
             builder.endpointOverride(URI.create(endpointStr));
         }
 
-        return builder.build();
+        // Switch TCCL to the plugin classloader so that AWS SDK's
+        // ClasspathInterceptorChainFactory scans the plugin's classpath rather than
+        // the FE parent classloader.  Without this the interceptor type check fails
+        // with "does not implement ExecutionInterceptor API" because the interceptor
+        // class and the interface are loaded by different classloaders.
+        ClassLoader prev = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(S3ObjStorage.class.getClassLoader());
+        try {
+            return builder.build();
+        } finally {
+            Thread.currentThread().setContextClassLoader(prev);
+        }
     }
 
     private AwsCredentialsProvider buildCredentialsProvider() {
