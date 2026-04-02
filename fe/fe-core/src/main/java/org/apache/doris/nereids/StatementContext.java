@@ -1207,7 +1207,7 @@ public class StatementContext implements Closeable {
         }
         return lowerCaseDatabaseNamesCache.computeIfAbsent(catalogName, Env::getLowerCaseDatabaseNames);
     }
-    
+
     public void addToMustLineCTEs(CTEId cteId) {
         mustInlineCTE.add(cteId);
     }
