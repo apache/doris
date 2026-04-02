@@ -589,14 +589,24 @@ public abstract class ExternalCatalog
      * @param invalidCache if {@code true}, the catalog cache will be invalidated
      *                     and reloaded during the refresh process.
      */
-    public synchronized void resetToUninitialized(boolean invalidCache) {
+    public void resetToUninitialized(boolean invalidCache) {
+        synchronized (this) {
+            resetToUninitializedInLock();
+        }
+        onRefreshCache(invalidCache);
+    }
+
+    /**
+     * Reset catalog state under catalog monitor.
+     * Cache invalidation must be executed outside catalog monitor to avoid lock-order inversion.
+     */
+    protected void resetToUninitializedInLock() {
         this.objectCreated = false;
         this.initialized = false;
         synchronized (this.confLock) {
             this.cachedConf = null;
         }
         onClose();
-        onRefreshCache(invalidCache);
     }
 
     /**
