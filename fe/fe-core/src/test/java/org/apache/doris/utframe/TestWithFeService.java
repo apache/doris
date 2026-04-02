@@ -55,6 +55,7 @@ import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewComma
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateRoleCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateSqlBlockRuleCommand;
+import org.apache.doris.nereids.trees.plans.commands.CreateStreamCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateUserCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
@@ -701,6 +702,8 @@ public abstract class TestWithFeService {
             StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
             if (parsed instanceof CreateTableCommand) {
                 ((CreateTableCommand) parsed).run(connectContext, stmtExecutor);
+            } else if (parsed instanceof CreateStreamCommand) {
+                ((CreateStreamCommand) parsed).run(connectContext, stmtExecutor);
             }
         }
         updateReplicaPathHash();

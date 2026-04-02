@@ -55,7 +55,7 @@ std::string metric_to_string(AnnIndexMetric metric);
 
 AnnIndexMetric string_to_metric(const std::string& metric);
 
-enum class AnnIndexType { UNKNOWN, HNSW, IVF };
+enum class AnnIndexType { UNKNOWN, HNSW, IVF, IVF_ON_DISK };
 
 std::string ann_index_type_to_string(AnnIndexType type);
 
@@ -88,6 +88,17 @@ public:
      * @param x      input matrix, size n * d
      */
     virtual doris::Status add(Int64 n, const float* x) = 0;
+
+    /**
+     * @brief Returns the minimum number of rows required for training the index.
+     *
+     * Some index types (like IVF) require a minimum number of training points.
+     * For example, IVF requires at least 'nlist' training points.
+     * HNSW does not require any minimum and returns 0.
+     *
+     * @return Minimum number of rows required for training
+     */
+    virtual Int64 get_min_train_rows() const { return 0; }
 
     /** Return approximate nearest neighbors of a query vector.
      * The result is stored in the result object.

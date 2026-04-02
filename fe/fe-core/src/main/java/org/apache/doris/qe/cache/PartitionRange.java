@@ -21,7 +21,6 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionKey;
-import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.Type;
 
 import com.google.common.base.Preconditions;
@@ -73,10 +72,6 @@ public class PartitionRange {
 
         public PartitionKeyType getCacheKey() {
             return cacheKey;
-        }
-
-        public void setCacheKey(PartitionKeyType cacheKey) {
-            this.cacheKey.clone(cacheKey);
         }
 
         public PartitionSingle() {
@@ -212,23 +207,10 @@ public class PartitionRange {
         }
     }
 
-    private RangePartitionInfo rangePartitionInfo;
     private Column partitionColumn;
-
-    public RangePartitionInfo getRangePartitionInfo() {
-        return rangePartitionInfo;
-    }
-
-    public void setRangePartitionInfo(RangePartitionInfo rangePartitionInfo) {
-        this.rangePartitionInfo = rangePartitionInfo;
-    }
 
     public Column getPartitionColumn() {
         return partitionColumn;
-    }
-
-    public void setPartitionColumn(Column partitionColumn) {
-        this.partitionColumn = partitionColumn;
     }
 
     public PartitionRange() {

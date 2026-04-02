@@ -18,7 +18,6 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -62,7 +61,7 @@ public class AliasFunction extends Function {
     public static AliasFunction createFunction(FunctionName functionName, Type[] argTypes, Type retType,
             boolean hasVarArgs, List<String> parameters, Expr originFunction, Map<String, String> sessionVariables) {
         AliasFunction aliasFunction = new AliasFunction(functionName, Arrays.asList(argTypes), retType, hasVarArgs);
-        aliasFunction.setBinaryType(TFunctionBinaryType.JAVA_UDF);
+        aliasFunction.setBinaryType(BinaryType.JAVA_UDF);
         aliasFunction.setUserVisible(true);
         aliasFunction.originFunction = originFunction;
         aliasFunction.parameters = parameters;

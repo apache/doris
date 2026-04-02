@@ -1306,6 +1306,7 @@ TEST(MetaServiceJobVersionedReadTest, CompactionJobTest) {
             auto tmp_rowset = create_rowset(tablet_id, tc.start_version, tc.end_version, 100);
             tmp_rowset.set_txn_id(txn_id);
             CreateRowsetResponse res;
+            prepare_rowset(meta_service.get(), tmp_rowset, res, txn_id);
             commit_rowset(meta_service.get(), tmp_rowset, res, txn_id);
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
         }
@@ -1485,6 +1486,7 @@ TEST(MetaServiceJobVersionedReadTest, SchemaChangeJobTest) {
         rowset.set_txn_id(txn_id + i);
         output_rowsets.push_back(rowset);
         CreateRowsetResponse res;
+        prepare_rowset(meta_service.get(), output_rowsets.back(), res, txn_id + i);
         commit_rowset(meta_service.get(), output_rowsets.back(), res, txn_id + i);
         ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
     }
@@ -6765,6 +6767,147 @@ TEST(MetaServiceJobTest, DeleteJobForRelatedRowsetTest) {
             ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
             LOG(INFO) << "Step 6: commit_txn correctly failed for aborted txn";
         }
+    }
+}
+
+// Test: Verify that check_idempotent_for_txn_or_job correctly calls check_job_existed
+// when enable_recycle_delete_rowset_key_check is false and tablet_job_id is non-empty.
+// This covers the bug fix where the condition was:
+//   tablet_job_id.empty() && !tablet_job_id.empty()  (always false, check never ran)
+// Fixed to:
+//   !tablet_job_id.empty()
+TEST(MetaServiceJobTest, CheckIdempotentWithTabletJobId) {
+    auto meta_service = get_meta_service();
+    auto* sp = SyncPoint::get_instance();
+    DORIS_CLOUD_DEFER {
+        SyncPoint::get_instance()->clear_all_call_backs();
+        config::enable_recycle_delete_rowset_key_check = true;
+    };
+    // Disable recycle_delete_rowset_key_check so we enter the else-if branch
+    // in check_idempotent_for_txn_or_job where the bug existed.
+    config::enable_recycle_delete_rowset_key_check = false;
+    sp->set_call_back("get_instance_id", [&](auto&& args) {
+        auto* ret = try_any_cast_ret<std::string>(args);
+        ret->first = instance_id;
+        ret->second = true;
+    });
+    sp->enable_processing();
+
+    int64_t table_id = 13440;
+    int64_t index_id = 13450;
+    int64_t partition_id = 13460;
+    int64_t tablet_id = 13470;
+
+    create_tablet(meta_service.get(), table_id, index_id, partition_id, tablet_id);
+
+    std::string job_id = "test_check_idempotent_job";
+
+    // Step 1: Create input rowsets for compaction
+    {
+        std::vector<doris::RowsetMetaCloudPB> input_rowsets;
+        input_rowsets.push_back(create_rowset(tablet_id, 2, 2, 100));
+        input_rowsets.push_back(create_rowset(tablet_id, 3, 3, 100));
+        input_rowsets[0].set_resource_id(std::string(RESOURCE_ID));
+        input_rowsets[1].set_resource_id(std::string(RESOURCE_ID));
+        insert_rowsets(meta_service->txn_kv().get(), table_id, index_id, partition_id, tablet_id,
+                       input_rowsets);
+    }
+
+    // Step 2: Start a compaction job
+    {
+        StartTabletJobResponse res;
+        start_compaction_job(meta_service.get(), tablet_id, job_id, "test_initiator", 0, 0,
+                             TabletCompactionJobPB::CUMULATIVE, res, {2, 3});
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 3: Prepare rowset with tablet_job_id
+    doris::RowsetMetaCloudPB rowset_meta;
+    {
+        rowset_meta = create_rowset(tablet_id, 4, 4, 200);
+        rowset_meta.set_job_id(job_id);
+        rowset_meta.set_resource_id(std::string(RESOURCE_ID));
+
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+        req->set_tablet_job_id(job_id);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 4: commit_rowset with tablet_job_id while job still exists - should succeed
+    {
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta);
+        req->set_tablet_job_id(job_id);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "commit_rowset should succeed when job exists, msg=" << res.status().msg();
+    }
+
+    // Step 5: Abort the compaction job (removes the job entry from TabletJobInfoPB)
+    {
+        FinishTabletJobResponse res;
+        finish_compaction_job(meta_service.get(), tablet_id, job_id, "test_initiator", 0, 0,
+                              TabletCompactionJobPB::CUMULATIVE, res, FinishTabletJobRequest::ABORT,
+                              {2, 3});
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 6: Prepare a new rowset (without tablet_job_id to bypass prepare check)
+    doris::RowsetMetaCloudPB rowset_meta2;
+    {
+        rowset_meta2 = create_rowset(tablet_id, 5, 5, 200);
+        rowset_meta2.set_job_id(job_id);
+        rowset_meta2.set_resource_id(std::string(RESOURCE_ID));
+
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta2);
+        meta_service->prepare_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK);
+    }
+
+    // Step 7: commit_rowset with tablet_job_id after job aborted - should fail.
+    // Before the fix, this would incorrectly succeed because check_job_existed was
+    // never called (the condition was always false).
+    {
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta2);
+        req->set_tablet_job_id(job_id);
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::STALE_PREPARE_ROWSET)
+                << "commit_rowset should fail with STALE_PREPARE_ROWSET when job is aborted, msg="
+                << res.status().msg();
+    }
+
+    // Step 8: commit_rowset without tablet_job_id - should succeed (skips job check)
+    {
+        brpc::Controller cntl;
+        CreateRowsetResponse res;
+        auto* arena = res.GetArena();
+        auto* req = google::protobuf::Arena::CreateMessage<CreateRowsetRequest>(arena);
+        req->mutable_rowset_meta()->CopyFrom(rowset_meta2);
+        // Do NOT set tablet_job_id - the check should be skipped
+        meta_service->commit_rowset(&cntl, req, &res, nullptr);
+        if (!arena) delete req;
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "commit_rowset without tablet_job_id should succeed, msg=" << res.status().msg();
     }
 }
 

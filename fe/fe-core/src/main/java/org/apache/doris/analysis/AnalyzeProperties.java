@@ -279,10 +279,6 @@ public class AnalyzeProperties {
         return properties.containsKey(PROPERTY_FORCE_FULL);
     }
 
-    public boolean isSampleRows() {
-        return properties.containsKey(PROPERTY_SAMPLE_ROWS);
-    }
-
     public boolean usingSqlForExternalTable() {
         return properties.containsKey(PROPERTY_EXTERNAL_TABLE_USE_SQL);
     }

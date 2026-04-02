@@ -385,9 +385,7 @@ public class CatalogRecycleBinTest {
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
         Assert.assertTrue(recoveredDb.getTable(CatalogTestUtil.testTableId2).isPresent());
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
-        // non olap table should not be recovered
-        Assert.assertFalse(recoveredDb.getTable(CatalogTestUtil.testEsTableId1).isPresent());
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testEsTableId1));
+
     }
 
     @Test
@@ -652,14 +650,14 @@ public class CatalogRecycleBinTest {
         recycleBin.replayEraseDatabase(CatalogTestUtil.testDbId1);
         recycleBin.replayEraseTable(CatalogTestUtil.testTableId1);
         recycleBin.replayEraseTable(CatalogTestUtil.testTableId2);
-        recycleBin.replayEraseTable(CatalogTestUtil.testEsTableId1);
+
         recycleBin.replayErasePartition(CatalogTestUtil.testPartitionId1);
 
         // verify objects are no longer in recycle bin
         Assert.assertFalse(recycleBin.isRecycleDatabase(CatalogTestUtil.testDbId1));
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1));
         Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId2));
-        Assert.assertFalse(recycleBin.isRecycleTable(CatalogTestUtil.testDbId1, CatalogTestUtil.testEsTableId1));
+
         Assert.assertFalse(recycleBin.isRecyclePartition(CatalogTestUtil.testDbId1, CatalogTestUtil.testTableId1, CatalogTestUtil.testPartitionId1));
     }
 
@@ -829,19 +827,11 @@ public class CatalogRecycleBinTest {
         Assert.assertTrue(table2.get() instanceof OlapTable);
         OlapTable olapTable2 = (OlapTable) table2.get();
 
-        Optional<Table> table3 = db.getTable(CatalogTestUtil.testEsTableId1);
-        Assert.assertTrue(table3.isPresent());
-        Assert.assertTrue(table3.get() instanceof EsTable);
-        EsTable esTable = (EsTable) table3.get();
-
         db.unregisterTable(CatalogTestUtil.testTableId1);
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable1, false, false, 0);
 
         db.unregisterTable(CatalogTestUtil.testTableId2);
         recycleBin.recycleTable(CatalogTestUtil.testDbId1, olapTable2, false, false, 0);
-
-        db.unregisterTable(CatalogTestUtil.testEsTableId1);
-        recycleBin.recycleTable(CatalogTestUtil.testDbId1, esTable, false, false, 0);
     }
 
     @Test

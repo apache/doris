@@ -38,21 +38,22 @@ public class AlterTableCommandTest {
         List<AlterTableOp> ops = new ArrayList<>();
         ops.add(new EnableFeatureOp("BATCH_DELETE"));
         AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ENABLE FEATURE \"BATCH_DELETE\"");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` ENABLE FEATURE \"BATCH_DELETE\"", alterTableCommand.toSql());
 
         ops.clear();
         ops.add(new EnableFeatureOp("UPDATE_FLEXIBLE_COLUMNS"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\"");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` ENABLE FEATURE \"UPDATE_FLEXIBLE_COLUMNS\"",
+                alterTableCommand.toSql());
 
         ops.clear();
         Map<String, String> properties = new HashMap<>();
         properties.put("function_column.sequence_type", "int");
         ops.add(new EnableFeatureOp("SEQUENCE_LOAD", properties));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` ENABLE FEATURE \"SEQUENCE_LOAD\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")");
+        Assertions.assertEquals(
+                "ALTER TABLE `internal`.`db`.`test` ENABLE FEATURE \"SEQUENCE_LOAD\" WITH PROPERTIES (\"function_column.sequence_type\" = \"int\")",
+                alterTableCommand.toSql());
     }
 
     @Test
@@ -60,24 +61,25 @@ public class AlterTableCommandTest {
         List<AlterTableOp> ops = new ArrayList<>();
         ops.add(new AddPartitionFieldOp("bucket", 16, "id", null));
         AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ADD PARTITION KEY bucket(16, id)");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` ADD PARTITION KEY bucket(16, id)", alterTableCommand.toSql());
 
         ops.clear();
         ops.add(new AddPartitionFieldOp("year", null, "ts", null));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ADD PARTITION KEY year(ts)");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` ADD PARTITION KEY year(ts)",
+                alterTableCommand.toSql());
 
         ops.clear();
         ops.add(new AddPartitionFieldOp(null, null, "category", null));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` ADD PARTITION KEY category");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` ADD PARTITION KEY category", alterTableCommand.toSql());
 
         // Test with custom partition field name
         ops.clear();
         ops.add(new AddPartitionFieldOp("day", null, "ts", "ts_day"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` ADD PARTITION KEY day(ts) AS ts_day");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` ADD PARTITION KEY day(ts) AS ts_day",
+                alterTableCommand.toSql());
     }
 
     @Test
@@ -85,17 +87,19 @@ public class AlterTableCommandTest {
         List<AlterTableOp> ops = new ArrayList<>();
         ops.add(new DropPartitionFieldOp("id_bucket_16"));
         AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY id_bucket_16");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` DROP PARTITION KEY id_bucket_16",
+                alterTableCommand.toSql());
 
         ops.clear();
         ops.add(new DropPartitionFieldOp("ts_year"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY ts_year");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` DROP PARTITION KEY ts_year",
+                alterTableCommand.toSql());
 
         ops.clear();
         ops.add(new DropPartitionFieldOp("category"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(), "ALTER TABLE `db`.`test` DROP PARTITION KEY category");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` DROP PARTITION KEY category", alterTableCommand.toSql());
     }
 
     @Test
@@ -115,37 +119,40 @@ public class AlterTableCommandTest {
         ops.add(new ReplacePartitionFieldOp("ts_year", null, null, null,
                 "month", null, "ts", null));
         AlterTableCommand alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` REPLACE PARTITION KEY ts_year WITH month(ts)");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` REPLACE PARTITION KEY ts_year WITH month(ts)",
+                alterTableCommand.toSql());
 
         ops.clear();
         ops.add(new ReplacePartitionFieldOp("id_bucket_10", null, null, null,
                 "bucket", 16, "id", null));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` REPLACE PARTITION KEY id_bucket_10 WITH bucket(16, id)");
+        Assertions.assertEquals(
+                "ALTER TABLE `internal`.`db`.`test` REPLACE PARTITION KEY id_bucket_10 WITH bucket(16, id)",
+                alterTableCommand.toSql());
 
         ops.clear();
         ops.add(new ReplacePartitionFieldOp("category", null, null, null,
                 "bucket", 8, "id", null));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` REPLACE PARTITION KEY category WITH bucket(8, id)");
+        Assertions.assertEquals("ALTER TABLE `internal`.`db`.`test` REPLACE PARTITION KEY category WITH bucket(8, id)",
+                alterTableCommand.toSql());
 
         // Test with custom partition field name
         ops.clear();
         ops.add(new ReplacePartitionFieldOp("ts_year", null, null, null,
                 "day", null, "ts", "day_of_ts"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` REPLACE PARTITION KEY ts_year WITH day(ts) AS day_of_ts");
+        Assertions.assertEquals(
+                "ALTER TABLE `internal`.`db`.`test` REPLACE PARTITION KEY ts_year WITH day(ts) AS day_of_ts",
+                alterTableCommand.toSql());
 
         // Test with old partition expression
         ops.clear();
         ops.add(new ReplacePartitionFieldOp(null, "bucket", 16, "id",
                 "truncate", 5, "code", "code_trunc"));
         alterTableCommand = new AlterTableCommand(new TableNameInfo("db", "test"), ops);
-        Assertions.assertEquals(alterTableCommand.toSql(),
-                "ALTER TABLE `db`.`test` REPLACE PARTITION KEY bucket(16, id) WITH truncate(5, code) AS code_trunc");
+        Assertions.assertEquals(
+                "ALTER TABLE `internal`.`db`.`test` REPLACE PARTITION KEY bucket(16, id) WITH truncate(5, code) AS code_trunc",
+                alterTableCommand.toSql());
     }
 }

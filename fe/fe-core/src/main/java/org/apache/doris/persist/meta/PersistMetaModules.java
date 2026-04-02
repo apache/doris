@@ -44,7 +44,7 @@ public class PersistMetaModules {
             "globalFunction", "workloadGroups",
             "binlogs", "resourceGroups", "AnalysisMgrV2", "AsyncJobManager", "workloadSchedPolicy",
             "insertOverwrite", "plsql", "dictionaryManager", "indexPolicy", "KeyManagerStore",
-            "constraintManager"
+            "constraintManager", "TableStreamManager"
             // TODO: Re-enable "authenticationIntegrations" after persistence requirements are confirmed.
             // , "authenticationIntegrations"
     );

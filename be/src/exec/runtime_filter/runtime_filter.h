@@ -44,6 +44,9 @@ public:
 
     bool has_remote_target() const { return _has_remote_target; }
 
+    uint32_t stage() const { return _stage; }
+    void set_stage(uint32_t stage) { _stage = stage; }
+
     template <class T>
     Status assign(const T& request, butil::IOBufAsZeroCopyInputStream* data) {
         std::unique_lock<std::recursive_mutex> l(_rmtx);
@@ -119,6 +122,10 @@ protected:
 
     // _wrapper is a runtime filter function wrapper
     std::shared_ptr<RuntimeFilterWrapper> _wrapper;
+
+    // The recursion round number for recursive CTE.
+    // Stamped onto outgoing RPC requests so stale messages from old rounds are discarded.
+    uint32_t _stage = 0;
 
     // will apply to remote node
     const bool _has_remote_target;

@@ -62,6 +62,10 @@ private:
     // Returns OK on success with _range_supported set appropriately
     Status detect_range_support();
 
+    // Start the CDC client process
+    // Called at the start of open() when enable_cdc_client=true.
+    Status setup_cdc_client();
+
     std::unique_ptr<char[]> _read_buffer;
     static constexpr size_t READ_BUFFER_SIZE = 1 << 20; // 1MB
     // Default maximum file size for servers that don't support Range requests
@@ -89,6 +93,8 @@ private:
     // Full file cache for non-Range mode to avoid repeated downloads
     std::string _full_file_cache;   // Cache complete file content
     bool _full_file_cached = false; // Whether full file has been cached
+
+    bool _enable_chunk_response = false; // Whether server returns chunk streaming response
 };
 
 } // namespace doris::io

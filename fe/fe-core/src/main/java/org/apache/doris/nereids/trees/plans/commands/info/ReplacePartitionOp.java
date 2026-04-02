@@ -69,7 +69,6 @@ public class ReplacePartitionOp extends AlterTableOp {
         super(AlterOpType.REPLACE_PARTITION);
         this.partitionNames = partitionNames;
         this.tempPartitionNames = tempPartitionNames;
-        this.needTableStable = false;
         this.forceDropOldPartition = isForce;
         this.properties = properties;
 

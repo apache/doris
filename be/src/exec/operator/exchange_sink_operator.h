@@ -244,6 +244,8 @@ private:
     RuntimeState* _state = nullptr;
 
     const std::vector<TExpr> _texprs;
+    TMergePartitionInfo _merge_partition_info;
+    bool _has_merge_partition_info = false;
 
     const RowDescriptor& _row_desc;
     TTupleId _output_tuple_id = -1;

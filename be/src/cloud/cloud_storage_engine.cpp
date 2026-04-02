@@ -44,6 +44,7 @@
 #include "cloud/cloud_warm_up_manager.h"
 #include "cloud/config.h"
 #include "common/config.h"
+#include "common/metrics/doris_metrics.h"
 #include "common/signal_handler.h"
 #include "common/status.h"
 #include "core/assert_cast.h"
@@ -56,6 +57,7 @@
 #include "io/hdfs_util.h"
 #include "io/io_common.h"
 #include "load/memtable/memtable_flush_executor.h"
+#include "runtime/exec_env.h"
 #include "runtime/memory/cache_manager.h"
 #include "storage/compaction/cumulative_compaction_policy.h"
 #include "storage/compaction/cumulative_compaction_time_series_policy.h"
@@ -276,6 +278,7 @@ void CloudStorageEngine::stop() {
     if (_cumu_compaction_thread_pool) {
         _cumu_compaction_thread_pool->shutdown();
     }
+    _adaptive_thread_controller.stop();
     LOG(INFO) << "Cloud storage engine is stopped.";
 
     if (_calc_tablet_delete_bitmap_task_thread_pool) {
@@ -388,6 +391,8 @@ Status CloudStorageEngine::start_bg_threads(std::shared_ptr<WorkloadGroup> wg_sp
             [this]() { this->_check_tablet_delete_bitmap_score_callback(); },
             &_bg_threads.emplace_back()));
     LOG(INFO) << "check tablet delete bitmap score thread started";
+
+    _start_adaptive_thread_controller();
 
     return Status::OK();
 }

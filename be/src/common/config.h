@@ -402,8 +402,10 @@ DECLARE_mInt32(doris_scan_range_max_mb);
 DECLARE_mInt32(doris_scanner_row_num);
 // single read execute fragment row bytes
 DECLARE_mInt32(doris_scanner_row_bytes);
-// single read execute fragment max run time millseconds
+// Deprecated. single read execute fragment max run time millseconds
 DECLARE_mInt32(doris_scanner_max_run_time_ms);
+// Minimum interval in milliseconds between adaptive scanner concurrency adjustments
+DECLARE_mInt32(doris_scanner_dynamic_interval_ms);
 // (Advanced) Maximum size of per-query receive-side buffer
 DECLARE_mInt32(exchg_node_buffer_size_bytes);
 DECLARE_mInt32(exchg_buffer_queue_capacity_factor);
@@ -878,6 +880,11 @@ DECLARE_mInt32(high_priority_flush_thread_num_per_store);
 // number of threads = min(flush_thread_num_per_store * num_store,
 //                         max_flush_thread_num_per_cpu * num_cpu)
 DECLARE_mInt32(max_flush_thread_num_per_cpu);
+// minimum flush threads per cpu when adaptive flush is enabled (default 0.5)
+DECLARE_mDouble(min_flush_thread_num_per_cpu);
+
+// Whether to enable adaptive flush thread adjustment
+DECLARE_mBool(enable_adaptive_flush_threads);
 
 // config for tablet meta checkpoint
 DECLARE_mInt32(tablet_meta_checkpoint_min_new_rowsets_num);
@@ -1119,7 +1126,6 @@ DECLARE_Int32(min_s3_file_system_thread_num);
 DECLARE_Int32(max_s3_file_system_thread_num);
 
 DECLARE_Bool(enable_time_lut);
-DECLARE_mBool(enable_simdjson_reader);
 
 DECLARE_mBool(enable_query_like_bloom_filter);
 // number of s3 scanner thread pool size
@@ -1617,6 +1623,9 @@ DECLARE_mInt64(hive_sink_max_file_size);
 /** Iceberg sink configurations **/
 DECLARE_mInt64(iceberg_sink_max_file_size);
 
+/** Paimon file system configurations **/
+DECLARE_Strings(paimon_file_system_scheme_mappings);
+
 // Number of open tries, default 1 means only try to open once.
 // Retry the Open num_retries time waiting 100 milliseconds between retries.
 DECLARE_mInt32(thrift_client_open_num_tries);
@@ -1778,6 +1787,11 @@ DECLARE_mInt64(max_csv_line_reader_output_buffer_size);
 DECLARE_Int32(omp_threads_limit);
 // The capacity of segment partial column cache, used to cache column readers for each segment.
 DECLARE_mInt32(max_segment_partial_column_cache_size);
+// Cache for ANN index IVF on-disk list data.
+// Default "70%" means 70% of total physical memory.
+DECLARE_String(ann_index_ivf_list_cache_limit);
+// Stale sweep time for ANN index IVF list cache in seconds.
+DECLARE_mInt32(ann_index_ivf_list_cache_stale_sweep_time_sec);
 // Chunk size for ANN/vector index building per training/adding batch
 DECLARE_mInt64(ann_index_build_chunk_size);
 

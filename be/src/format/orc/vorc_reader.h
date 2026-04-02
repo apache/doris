@@ -68,6 +68,7 @@ class FileSystem;
 struct IOContext;
 } // namespace io
 class Block;
+struct RowLineageColumns;
 template <PrimitiveType T>
 class ColumnVector;
 template <PrimitiveType T>
@@ -217,6 +218,11 @@ public:
                     iterator_pair) {
         _row_id_column_iterator_pair = iterator_pair;
     }
+    void set_iceberg_rowid_params(const std::string& file_path, int32_t partition_spec_id,
+                                  const std::string& partition_data_json, int row_id_column_pos);
+    void set_row_lineage_columns(std::shared_ptr<RowLineageColumns> row_lineage_columns) {
+        _row_lineage_columns = std::move(row_lineage_columns);
+    }
 
     static bool inline is_hive1_col_name(const orc::Type* orc_type_ptr) {
         for (uint64_t idx = 0; idx < orc_type_ptr->getSubtypeCount(); idx++) {
@@ -249,6 +255,14 @@ protected:
     void _filter_rows_by_condition_cache(size_t* read_rows, bool* eof);
 
 private:
+    struct IcebergRowIdParams {
+        bool enabled = false;
+        std::string file_path;
+        int32_t partition_spec_id = 0;
+        std::string partition_data_json;
+        int row_id_column_pos = -1;
+    };
+
     struct OrcProfile {
         RuntimeProfile::Counter* read_time = nullptr;
         RuntimeProfile::Counter* read_calls = nullptr;
@@ -340,7 +354,7 @@ private:
                                 std::unique_ptr<orc::SearchArgumentBuilder>& builder);
     bool _init_search_argument(const VExprSPtrs& exprs);
 
-    void _execute_filter_position_delete_rowids(IColumn::Filter& filter);
+    void _execute_filter_position_delete_rowids(IColumn::Filter& filter, int64_t start_row);
     void _fill_batch_vec(std::vector<orc::ColumnVectorBatch*>& result,
                          orc::ColumnVectorBatch* batch, int idx);
 
@@ -649,7 +663,8 @@ private:
         return true;
     }
 
-    Status _fill_row_id_columns(Block* block);
+    Status _fill_row_id_columns(Block* block, int64_t start_row);
+    Status _append_iceberg_rowid_column(Block* block, size_t rows, int64_t start_row);
 
     bool _seek_to_read_one_line() {
         if (_read_by_rows) {
@@ -772,6 +787,8 @@ private:
 
     std::pair<std::shared_ptr<segment_v2::RowIdColumnIteratorV2>, int>
             _row_id_column_iterator_pair = {nullptr, -1};
+    IcebergRowIdParams _iceberg_rowid_params;
+    std::shared_ptr<RowLineageColumns> _row_lineage_columns;
 
     // Through this node, you can find the file column based on the table column.
     std::shared_ptr<TableSchemaChangeHelper::Node> _table_info_node_ptr =

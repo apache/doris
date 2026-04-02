@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <type_traits>
+
 #include "core/column/column_array.h"
 #include "core/column/column_map.h"
 #include "core/column/column_nullable.h"
@@ -32,7 +34,7 @@
 namespace doris {
 #include "common/compile_check_begin.h"
 
-template <typename ColVecType, bool arg_is_nullable>
+template <bool arg_is_nullable>
 struct Value {
 public:
     bool is_null() const {
@@ -46,6 +48,7 @@ public:
         return false;
     }
 
+    template <typename ColVecType>
     void insert_into(IColumn& to) const {
         if constexpr (arg_is_nullable) {
             const auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(_ptr);
@@ -53,6 +56,17 @@ public:
                     col->get_nested_column(), _offset);
         } else {
             assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).insert_from(*_ptr, _offset);
+        }
+    }
+
+    // Non-template version: virtual dispatch on IColumn::insert_from.
+    // Used by window path where devirtualization is not beneficial.
+    void insert_into(IColumn& to) const {
+        if constexpr (arg_is_nullable) {
+            const auto* col = assert_cast<const ColumnNullable*, TypeCheckOnRelease::DISABLE>(_ptr);
+            to.insert_from(col->get_nested_column(), _offset);
+        } else {
+            to.insert_from(*_ptr, _offset);
         }
     }
 
@@ -71,15 +85,17 @@ protected:
     size_t _offset = 0;
 };
 
-template <typename ColVecType, bool arg_is_nullable>
-struct CopiedValue : public Value<ColVecType, arg_is_nullable> {
+template <bool arg_is_nullable>
+struct CopiedValue : public Value<arg_is_nullable> {
 public:
+    template <typename ColVecType>
     void insert_into(IColumn& to) const {
         assert_cast<ColVecType&, TypeCheckOnRelease::DISABLE>(to).insert(_copied_value);
     }
 
     bool is_null() const { return this->_ptr == nullptr; }
 
+    template <typename ColVecType>
     void set_value(const IColumn* column, size_t row) {
         // here _ptr, maybe null at row, so call reset to set nullptr
         // But we will use is_null() check first, others have set _ptr column to a meaningless address
@@ -108,8 +124,8 @@ private:
 template <typename ColVecType, bool result_is_nullable, bool arg_is_nullable, bool is_copy>
 struct ReaderFirstAndLastData {
 public:
-    using StoreType = std::conditional_t<is_copy, CopiedValue<ColVecType, arg_is_nullable>,
-                                         Value<ColVecType, arg_is_nullable>>;
+    using StoreType =
+            std::conditional_t<is_copy, CopiedValue<arg_is_nullable>, Value<arg_is_nullable>>;
     static constexpr bool nullable = arg_is_nullable;
     static constexpr bool result_nullable = result_is_nullable;
 
@@ -126,17 +142,29 @@ public:
             } else {
                 auto& col = assert_cast<ColumnNullable&>(to);
                 col.get_null_map_data().push_back(0);
-                _data_value.insert_into(col.get_nested_column());
+                if constexpr (!std::is_same_v<ColVecType, void>) {
+                    _data_value.template insert_into<ColVecType>(col.get_nested_column());
+                } else {
+                    _data_value.insert_into(col.get_nested_column());
+                }
             }
         } else {
-            _data_value.insert_into(to);
+            if constexpr (!std::is_same_v<ColVecType, void>) {
+                _data_value.template insert_into<ColVecType>(to);
+            } else {
+                _data_value.insert_into(to);
+            }
         }
     }
 
     // here not check the columns[0] is null at the row,
     // but it is need to check in other
     void set_value(const IColumn** columns, size_t pos) {
-        _data_value.set_value(columns[0], pos);
+        if constexpr (is_copy) {
+            _data_value.template set_value<ColVecType>(columns[0], pos);
+        } else {
+            _data_value.set_value(columns[0], pos);
+        }
         _has_value = true;
     }
 

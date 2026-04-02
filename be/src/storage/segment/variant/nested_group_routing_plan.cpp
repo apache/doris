@@ -35,11 +35,6 @@ namespace doris::segment_v2 {
 // Path prefix utilities
 // --------------------------------------------------------------------------
 
-static bool _path_has_prefix(std::string_view path, std::string_view prefix) {
-    return path == prefix ||
-           (path.size() > prefix.size() && path.starts_with(prefix) && path[prefix.size()] == '.');
-}
-
 static bool _is_excluded_by_prefixes(std::string_view path,
                                      const std::vector<std::string>& excluded_prefixes,
                                      bool exclude_all_paths) {
@@ -47,7 +42,7 @@ static bool _is_excluded_by_prefixes(std::string_view path,
         return true;
     }
     for (const auto& prefix : excluded_prefixes) {
-        if (_path_has_prefix(path, prefix)) {
+        if (nested_group_path_has_prefix(path, prefix)) {
             return true;
         }
     }
@@ -72,7 +67,7 @@ static std::vector<std::string> _compact_prefixes(std::vector<std::string> prefi
     for (auto& p : prefixes) {
         bool redundant = false;
         for (const auto& c : compacted) {
-            if (_path_has_prefix(p, c)) {
+            if (nested_group_path_has_prefix(p, c)) {
                 redundant = true;
                 break;
             }
@@ -90,6 +85,27 @@ static bool _is_array_variant_type(const DataTypePtr& type) {
     return base_type != nullptr &&
            remove_nullable(base_type)->get_primitive_type() == PrimitiveType::TYPE_VARIANT;
 }
+
+std::string format_nested_group_conflict_paths(const std::vector<std::string>& conflict_paths) {
+    std::string paths_str;
+    for (const auto& path : conflict_paths) {
+        if (!paths_str.empty()) {
+            paths_str += ", ";
+        }
+        paths_str += path;
+    }
+    return paths_str;
+}
+
+Status validate_nested_group_conflicts(const std::vector<std::string>& conflict_paths,
+                                       NestedGroupConflictPolicy policy) {
+    if (policy == NestedGroupConflictPolicy::ERROR && !conflict_paths.empty()) {
+        return Status::InvalidArgument("NestedGroup conflict detected (policy=ERROR) at paths: {}",
+                                       format_nested_group_conflict_paths(conflict_paths));
+    }
+    return Status::OK();
+}
+
 // Routing builder: only NON-conflict NG paths go into ng_only_prefixes.
 // Conflict paths are NOT excluded from subcolumn writes so compaction/write
 // can still preserve conflict-path payload in regular subcolumns.
@@ -112,16 +128,7 @@ static Status _build_ng_routing_from_columns(
         return Status::OK();
     }
 
-    // Under ERROR policy, reject any conflicts immediately.
-    if (*conflict_policy == NestedGroupConflictPolicy::ERROR && !conflict_candidate_paths.empty()) {
-        std::string paths_str;
-        for (const auto& p : conflict_candidate_paths) {
-            if (!paths_str.empty()) paths_str += ", ";
-            paths_str += p;
-        }
-        return Status::InvalidArgument("NestedGroup conflict detected (policy=ERROR) at paths: {}",
-                                       paths_str);
-    }
+    RETURN_IF_ERROR(validate_nested_group_conflicts(conflict_candidate_paths, *conflict_policy));
 
     // Build the conflict set for quick lookup.
     std::unordered_set<std::string> conflict_set(conflict_candidate_paths.begin(),
@@ -159,15 +166,22 @@ static Status _build_ng_routing_from_columns(
 // --------------------------------------------------------------------------
 
 Status build_nested_group_routing_plan(const ColumnVariant& variant, NestedGroupRoutingPlan* plan) {
+    std::vector<std::string> ng_candidate_paths;
+    std::vector<std::string> conflict_candidate_paths;
+    RETURN_IF_ERROR(collect_nested_group_routing_paths_from_variant_jsonb(
+            variant, &ng_candidate_paths, &conflict_candidate_paths));
+    return build_nested_group_routing_plan_from_candidates(variant, ng_candidate_paths,
+                                                           conflict_candidate_paths, plan);
+}
+
+Status build_nested_group_routing_plan_from_candidates(
+        const ColumnVariant& variant, const std::vector<std::string>& ng_candidate_paths,
+        const std::vector<std::string>& conflict_candidate_paths, NestedGroupRoutingPlan* plan) {
     if (plan == nullptr) {
         return Status::InvalidArgument("plan is null");
     }
     *plan = NestedGroupRoutingPlan {};
 
-    std::vector<std::string> ng_candidate_paths;
-    std::vector<std::string> conflict_candidate_paths;
-    RETURN_IF_ERROR(collect_nested_group_routing_paths_from_variant_jsonb(
-            variant, &ng_candidate_paths, &conflict_candidate_paths));
     RETURN_IF_ERROR(_build_ng_routing_from_columns(
             variant, ng_candidate_paths, conflict_candidate_paths, &plan->ng_only_prefixes,
             &plan->exclude_all_subcolumns, &plan->conflict_policy, &plan->has_conflict_paths));

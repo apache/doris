@@ -15,70 +15,52 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/aggregate/aggregate_function_orthogonal_bitmap.h"
-
-#include <map>
-#include <ostream>
+#include <string>
 
 #include "core/data_type/data_type.h"
-#include "core/data_type/data_type_nullable.h"
+#include "exprs/aggregate/aggregate_function.h"
 #include "exprs/aggregate/aggregate_function_simple_factory.h"
-#include "exprs/aggregate/helpers.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
-struct StringRef;
-} // namespace doris
 
-namespace doris {
+AggregateFunctionPtr create_aggregate_function_orth_bitmap_intersect(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
-template <template <PrimitiveType> class Impl>
-AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& name,
-                                                          const DataTypes& argument_types,
-                                                          const DataTypePtr& result_type,
-                                                          const bool result_is_nullable,
-                                                          const AggregateFunctionAttr& attr) {
-    if (argument_types.empty()) {
-        LOG(WARNING) << "Incorrect number of arguments for aggregate function " << name;
-        return nullptr;
-    } else if (argument_types.size() == 1) {
-        return creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<TYPE_STRING>>>(
-                argument_types, result_is_nullable, attr);
-    } else {
-        AggregateFunctionPtr res(
-                creator_with_type_list_base<1, TYPE_TINYINT, TYPE_SMALLINT, TYPE_INT, TYPE_BIGINT,
-                                            TYPE_LARGEINT>::create<AggFunctionOrthBitmapFunc,
-                                                                   Impl>(argument_types,
-                                                                         result_is_nullable, attr));
-        if (res) {
-            return res;
-        } else if (is_string_type(argument_types[1]->get_primitive_type())) {
-            res = creator_without_type::create<AggFunctionOrthBitmapFunc<Impl<TYPE_STRING>>>(
-                    argument_types, result_is_nullable, attr);
-            return res;
-        }
+AggregateFunctionPtr create_aggregate_function_orth_bitmap_intersect_count(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
-        const IDataType& argument_type = *argument_types[1];
-        LOG(WARNING) << "Incorrect Type " << argument_type.get_name()
-                     << " of arguments for aggregate function " << name;
-        return nullptr;
-    }
-}
+AggregateFunctionPtr create_aggregate_function_orth_bitmap_union_count(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
+
+AggregateFunctionPtr create_aggregate_function_orth_intersect_count(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
+
+AggregateFunctionPtr create_aggregate_function_orth_bitmap_expr_cal(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
+
+AggregateFunctionPtr create_aggregate_function_orth_bitmap_expr_cal_count(
+        const std::string& name, const DataTypes& argument_types, const DataTypePtr& result_type,
+        const bool result_is_nullable, const AggregateFunctionAttr& attr);
 
 void register_aggregate_function_orthogonal_bitmap(AggregateFunctionSimpleFactory& factory) {
     factory.register_function_both("orthogonal_bitmap_intersect",
-                                   create_aggregate_function_orthogonal<AggOrthBitMapIntersect>);
-    factory.register_function_both(
-            "orthogonal_bitmap_intersect_count",
-            create_aggregate_function_orthogonal<AggOrthBitMapIntersectCount>);
+                                   create_aggregate_function_orth_bitmap_intersect);
+    factory.register_function_both("orthogonal_bitmap_intersect_count",
+                                   create_aggregate_function_orth_bitmap_intersect_count);
     factory.register_function_both("orthogonal_bitmap_union_count",
-                                   create_aggregate_function_orthogonal<OrthBitmapUnionCountData>);
+                                   create_aggregate_function_orth_bitmap_union_count);
     factory.register_function_both("intersect_count",
-                                   create_aggregate_function_orthogonal<AggIntersectCount>);
+                                   create_aggregate_function_orth_intersect_count);
     factory.register_function_both("orthogonal_bitmap_expr_calculate",
-                                   create_aggregate_function_orthogonal<AggOrthBitMapExprCal>);
+                                   create_aggregate_function_orth_bitmap_expr_cal);
     factory.register_function_both("orthogonal_bitmap_expr_calculate_count",
-                                   create_aggregate_function_orthogonal<AggOrthBitMapExprCalCount>);
+                                   create_aggregate_function_orth_bitmap_expr_cal_count);
 }
 
 } // namespace doris

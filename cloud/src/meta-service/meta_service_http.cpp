@@ -134,7 +134,7 @@ HttpResponse http_json_reply(MetaServiceCode code, const std::string& msg,
     d.SetObject();
     if (code == MetaServiceCode::OK) {
         d.AddMember("code", "OK", d.GetAllocator());
-        d.AddMember("msg", "", d.GetAllocator());
+        d.AddMember("msg", rapidjson::StringRef(msg.data(), msg.size()), d.GetAllocator());
     } else {
         d.AddMember("code", rapidjson::StringRef(status_msg.data(), status_msg.size()),
                     d.GetAllocator());
@@ -721,17 +721,49 @@ static HttpResponse process_txn_lazy_commit(MetaServiceImpl* service, brpc::Cont
     return http_json_reply(code, msg);
 }
 
-static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller*) {
+static HttpResponse process_unknown(MetaServiceImpl*, brpc::Controller* cntl) {
     // ATTN: To be compatible with cloud manager versions higher than this MS
-    return http_json_reply(MetaServiceCode::OK, "");
+    const auto& uri = cntl->http_request().uri();
+    std::string query_params;
+    for (auto it = uri.QueryBegin(); it != uri.QueryEnd(); ++it) {
+        if (!query_params.empty()) query_params += "&";
+        query_params += it->first + "=" + it->second;
+    }
+    LOG(WARNING) << "unknown http request path=" << uri.path() << " query_params=[" << query_params
+                 << "]";
+    return http_json_reply(MetaServiceCode::OK, "no handler found for path: " + uri.path());
 }
 
 static HttpResponse process_list_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
     ListSnapshotRequest req;
-    PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    if (instance_id.empty()) {
+        PARSE_MESSAGE_OR_RETURN(ctrl, req);
+    } else {
+        req.set_instance_id(instance_id);
+    }
+
     ListSnapshotResponse resp;
     service->list_snapshot(ctrl, &req, &resp, nullptr);
     return http_json_reply_message(resp.status(), resp);
+}
+
+static HttpResponse process_drop_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
+    auto& uri = ctrl->http_request().uri();
+    std::string instance_id(http_query(uri, "instance_id"));
+    std::string snapshot_id(http_query(uri, "snapshot_id"));
+    if (instance_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "instance_id is empty");
+    }
+    if (snapshot_id.empty()) {
+        return http_json_reply(MetaServiceCode::INVALID_ARGUMENT, "snapshot_id is empty");
+    }
+    DropSnapshotRequest req;
+    req.set_snapshot_id(snapshot_id);
+    DropSnapshotResponse resp;
+    service->snapshot_manager()->drop_snapshot(instance_id, req, &resp);
+    return http_json_reply(resp.status());
 }
 
 static HttpResponse process_compact_snapshot(MetaServiceImpl* service, brpc::Controller* ctrl) {
@@ -988,10 +1020,12 @@ void MetaServiceImpl::http(::google::protobuf::RpcController* controller,
             {"v1/get_cluster_status", process_get_cluster_status},
             // snapshot related
             {"list_snapshot", process_list_snapshot},
+            {"drop_snapshot", process_drop_snapshot},
             {"set_snapshot_property", process_set_snapshot_property},
             {"get_snapshot_property", process_get_snapshot_property},
             {"set_multi_version_status", process_set_multi_version_status},
             {"v1/list_snapshot", process_list_snapshot},
+            {"v1/drop_snapshot", process_drop_snapshot},
             {"v1/set_snapshot_property", process_set_snapshot_property},
             {"v1/get_snapshot_property", process_get_snapshot_property},
             {"v1/set_multi_version_status", process_set_multi_version_status},

@@ -543,6 +543,14 @@ public class Config extends ConfigBase {
     public static boolean random_use_v3_storage_format = true;
 
     @ConfField(mutable = true, masterOnly = true, description = {
+            "The stale threshold of checkpoint image file in cloud mode (in seconds). "
+                    + "If the image file is older than this threshold, a new checkpoint will be triggered "
+                    + "even if there are no new journals. This helps keep table version, partition version, "
+                    + "and tablet stats in the image up-to-date. If the value is less than or equal to 0, "
+                    + "this feature is disabled."})
+    public static long cloud_checkpoint_image_stale_threshold_seconds = 3600;
+
+    @ConfField(mutable = true, masterOnly = true, description = {
             "Wait for the internal batch to be written before returning; "
                     + "insert into and stream load use group commit by default."})
     public static boolean wait_internal_group_commit_finish = false;
@@ -1521,7 +1529,7 @@ public class Config extends ConfigBase {
      * The number is determined by "start" and "end" in the dynamic partition parameters.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static int max_dynamic_partition_num = 500;
+    public static int max_dynamic_partition_num = 20000;
 
     /**
      * Used to limit the maximum number of partitions that can be created when creating multi partition,
@@ -2570,6 +2578,17 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {"Maximum number of buckets for auto bucketing."})
     public static int autobucket_max_buckets = 128;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Maximum number of buckets allowed when creating a table or adding a partition. "
+                    + "This config shares the same default value with autobucket_max_buckets for consistency. "
+                    + "Behavior: "
+                    + "1. For user-specified buckets (CREATE TABLE / ALTER TABLE ADD PARTITION): "
+                    + "if bucket number exceeds this limit, the operation will be rejected with an error message. "
+                    + "2. For auto-bucket feature (Dynamic Partition): "
+                    + "bucket number will be capped at autobucket_max_buckets automatically. "
+                    + "Set to 0 or negative value to disable this limit for user-specified buckets."})
+    public static int max_bucket_num_per_partition = autobucket_max_buckets;
+
     @ConfField(description = {"Maximum number of connections for the Arrow Flight Server per FE."})
     public static int arrow_flight_max_connections = 4096;
 
@@ -2690,8 +2709,8 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "For auto-partitioned tables to prevent users from accidentally creating a large number of partitions, "
-                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 2000."})
-    public static int max_auto_partition_num = 2000;
+                    + "the number of partitions allowed per OLAP table is `max_auto_partition_num`. Default 20000."})
+    public static int max_auto_partition_num = 20000;
 
     @ConfField(mutable = true, masterOnly = true, description = {
             "The maximum difference in the number of tablets of each BE in partition rebalance mode. "
@@ -2772,9 +2791,16 @@ public class Config extends ConfigBase {
     @ConfField
     public static boolean ignore_bdbje_log_checksum_read = false;
 
-    @ConfField(description = {"Specifies the authentication type"},
-            options = {"default", "ldap"})
+    @ConfField(description = {
+            "Specifies the primary MySQL authenticator name, either a built-in authenticator "
+                    + "or an authentication plugin name"},
+            options = {"default", "password", "ldap", "<plugin_name>"})
     public static String authentication_type = "default";
+
+    @ConfField(description = {
+            "Specifies the authentication chain used after primary authentication failure, "
+                    + "multiple integration names are comma-separated"})
+    public static String authentication_chain = "";
 
     @ConfField(mutable = true, masterOnly = false, description = {
             "Specify the default plugins loading path for the trino-connector catalog"})
@@ -2904,6 +2930,11 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true, description = {
             "Interval at which the dictionary triggers a data expiration check, in seconds."})
     public static int dictionary_auto_refresh_interval_seconds = 5;
+
+    @ConfField(mutable = false, masterOnly = false, description = {
+            "Whether to enable the experimental Table Stream functionality" },
+            varType = VariableAnnotation.EXPERIMENTAL)
+    public static boolean enable_table_stream = false;
 
     //==========================================================================
     //                    begin of cloud config
@@ -3261,8 +3292,8 @@ public class Config extends ConfigBase {
     public static boolean enable_commit_lock_for_all_tables = true;
 
     @ConfField(mutable = true, description = {
-            "Whether to enable lazy commit for large transactions in cloud mode. Default is false."})
-    public static boolean enable_cloud_txn_lazy_commit = false;
+            "Whether to enable lazy commit for large transactions in cloud mode. Default is true."})
+    public static boolean enable_cloud_txn_lazy_commit = true;
 
     @ConfField(mutable = true, masterOnly = true,
             description = {
@@ -3456,6 +3487,16 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, description = {
             "The maximum length of the first row error message when data quality error occurs, default is 256 bytes"})
     public static int first_error_msg_max_length = 256;
+
+    @ConfField(mutable = false, description = {
+        "Whether to enable file cache admission control(Blocklist and Allowlist)"
+    })
+    public static boolean enable_file_cache_admission_control = false;
+
+    @ConfField(mutable = false, description = {
+        "Directory path for storing admission rules JSON files"
+    })
+    public static String file_cache_admission_control_json_dir = "";
 
     @ConfField
     public static String cloud_snapshot_handler_class = "org.apache.doris.cloud.snapshot.CloudSnapshotHandler";

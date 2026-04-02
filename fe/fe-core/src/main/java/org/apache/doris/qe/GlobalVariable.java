@@ -20,7 +20,6 @@ package org.apache.doris.qe;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
-import org.apache.doris.mysql.MysqlHandshakePacket;
 
 import com.google.common.collect.Lists;
 
@@ -32,6 +31,11 @@ import java.util.List;
 // and change its value through `SET variable_name = xxx`
 // NOTE: If you want access your variable safe, please hold VariableMgr's lock before access.
 public final class GlobalVariable {
+
+    // JDBC uses this version to check which protocol the server support
+    // Set the patch version to 99 to prevent the vulnerability scanning tool from
+    // falsely reporting MySQL vulnerabilities
+    public static final String DEFAULT_SERVER_VERSION = "5.7.99";
 
     public static final int VARIABLE_VERSION_0 = 0;
     public static final int VARIABLE_VERSION_100 = 100;
@@ -98,7 +102,7 @@ public final class GlobalVariable {
             + (Config.isCloudMode() ? " (Cloud Mode)" : "");
 
     @VariableMgr.VarAttr(name = VERSION)
-    public static String version = MysqlHandshakePacket.DEFAULT_SERVER_VERSION;
+    public static String version = DEFAULT_SERVER_VERSION;
 
     // 0: table names are stored as specified and comparisons are case sensitive.
     // 1: table names are stored in lowercase on disk and comparisons are not case sensitive.

@@ -272,6 +272,14 @@ public class Auth implements Writable {
         return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
     }
 
+    public List<UserIdentity> getUserIdentityForExternalAuth(String remoteUser, String remoteHost) {
+        return userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost);
+    }
+
+    public boolean doesUserExist(String remoteUser, String remoteHost) {
+        return !userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty();
+    }
+
     // ==== Global ====
     protected boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         readLock();

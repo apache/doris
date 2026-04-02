@@ -428,7 +428,10 @@ endif()
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
 message(STATUS "UBSAN_IGNORELIST is ${UBSAN_IGNORELIST}")
-set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow -fsanitize-ignorelist=${UBSAN_IGNORELIST} -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+set(CXX_FLAGS_ASAN "-O0 -fsanitize=address -fsanitize=undefined -fno-sanitize=float-cast-overflow -DUNDEFINED_BEHAVIOR_SANITIZER -DADDRESS_SANITIZER")
+if (COMPILER_CLANG)
+    set(CXX_FLAGS_ASAN "${CXX_FLAGS_ASAN} -fsanitize-ignorelist=${UBSAN_IGNORELIST}")
+endif()
 set(CXX_FLAGS_LSAN "-O0 -fsanitize=leak -DLEAK_SANITIZER")
 ## Use for BE-UT
 set(CXX_FLAGS_ASAN_UT "-O0 -fsanitize=address -DADDRESS_SANITIZER")
@@ -706,6 +709,11 @@ else()
         -lresolv
         -liconv
     )
+    # On macOS arm64, large binaries (>2GB) can cause the virtual address space
+    # to overlap with the dyld shared cache region, resulting in "dyld cache not
+    # loaded: syscall to map cache into shared region failed". Use -dead_strip to
+    # remove unreachable code/data and reduce binary size.
+    add_link_options(-Wl,-dead_strip)
 endif()
 
 
