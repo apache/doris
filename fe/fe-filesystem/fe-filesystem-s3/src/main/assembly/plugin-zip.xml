@@ -41,6 +41,10 @@ under the License.
             <outputDirectory>/</outputDirectory>
             <useProjectArtifact>true</useProjectArtifact>
             <useTransitiveDependencies>false</useTransitiveDependencies>
+            <excludes>
+                <!-- Exclude intra-doris dependencies from root; they go to lib/ via the second set. -->
+                <exclude>org.apache.doris:*</exclude>
+            </excludes>
         </dependencySet>
         <!-- All transitive runtime deps in lib/ (SPI/API jars excluded: they live in fe-core) -->
         <dependencySet>
