@@ -75,6 +75,7 @@ suite("test_rf_in_list_not_erased_by_scope_range") {
     sql "set runtime_filter_wait_time_ms = 10000;"
     sql "set runtime_filter_wait_infinitely = true;"
     sql "set enable_runtime_filter_prune = false;"
+    sql "set enable_left_semi_direct_return_opt = true;"
     sql "set parallel_pipeline_task_num = 1;"
 
     // The join should only return 6 rows (matching k1 in {2,4,6,8,10,12}).
@@ -82,9 +83,9 @@ suite("test_rf_in_list_not_erased_by_scope_range") {
     // would let through rows with k1 in {3,5,7,9,11} as well, producing wrong results.
     // We verify correctness by checking the result.
     order_qt_join """
-        SELECT p.k1, p.v1, b.k1, b.v1
+        SELECT p.k1, p.v1
         FROM rf_scope_probe p
-        INNER JOIN rf_scope_build b ON p.k1 = b.k1
+        LEFT SEMI JOIN rf_scope_build b ON p.k1 = b.k1
         ORDER BY p.k1;
     """
 }
