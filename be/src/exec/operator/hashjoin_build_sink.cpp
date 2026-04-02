@@ -237,7 +237,18 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
 
         if (p._use_shared_hash_table) {
             std::unique_lock lock(p._mutex);
-            p._signaled = true;
+            // Only signal non-builder tasks when the builder actually built the hash table.
+            // When the builder is terminated (woken up early because the probe side finished
+            // first), it never called process_build_block() so the hash table variant is still
+            // monostate. Setting _signaled=true in that case would cause non-builder tasks to
+            // enter std::visit on monostate and crash with "Hash table type mismatch".
+            //
+            // _terminated is reliably true here when the task was woken up early, because
+            // operator terminate() is called in the execute() Defer (pipeline_task.cpp:510-512)
+            // BEFORE close() runs.
+            if (!_terminated) {
+                p._signaled = true;
+            }
             for (auto& dep : _shared_state->sink_deps) {
                 dep->set_ready();
             }
@@ -840,10 +851,18 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
         RETURN_IF_ERROR(local_state.build_asof_index(*local_state._shared_state->build_block));
         local_state.init_short_circuit_for_probe();
     } else if (!local_state._should_build_hash_table) {
-        // the instance which is not build hash table, it's should wait the signal of hash table build finished.
-        // but if it's running and signaled == false, maybe the source operator have closed caused by some short circuit
-        // return eof will make task marked as wake_up_early
-        // todo: remove signaled after we can guarantee that wake up eraly is always set accurately
+        // The non-builder instance waits for the builder (task 0) to finish building the hash table.
+        // If _signaled is false, either the builder hasn't finished yet, or the builder was
+        // terminated (woken up early) without building the hash table — in both cases, return EOF.
+        //
+        // The close() Defer in the builder conditionally sets _signaled=true ONLY when the builder
+        // was NOT terminated (i.e., the hash table was actually built). When the builder is
+        // terminated, _signaled stays false, so non-builders always hit this guard and return EOF
+        // safely — never reaching the std::visit on an uninitialized (monostate) hash table.
+        //
+        // _terminated is also checked as a secondary guard. Note that _terminated is always false
+        // inside sink() during execute() (it's set in the Defer AFTER execute() returns), so it
+        // provides no protection against the race. The _signaled check is the real guard.
         if (!_signaled || local_state._terminated) {
             return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
         }
