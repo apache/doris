@@ -177,9 +177,12 @@ Status ExchangeSinkBuffer::add_block(Channel* channel, TransmitInfo&& request) {
         }
         instance_data.package_queue[channel].emplace(std::move(request));
         _total_queue_size++;
-        if (_total_queue_size > _queue_capacity) {
-            for (auto& dep : _queue_deps) {
-                dep->block();
+        {
+            AnnotatedLockGuard l(_m);
+            if (_total_queue_size > _queue_capacity) {
+                for (auto& dep : _queue_deps) {
+                    dep->block();
+                }
             }
         }
     }
@@ -377,9 +380,12 @@ Status ExchangeSinkBuffer::_send_rpc(RpcInstance& instance_data) {
         }
         DCHECK_GE(_total_queue_size, requests.size());
         _total_queue_size -= (int)requests.size();
-        if (_total_queue_size <= _queue_capacity) {
-            for (auto& dep : _queue_deps) {
-                dep->set_ready();
+        {
+            AnnotatedLockGuard l(_m);
+            if (_total_queue_size <= _queue_capacity) {
+                for (auto& dep : _queue_deps) {
+                    dep->set_ready();
+                }
             }
         }
     } else if (broadcast_q_ptr && !broadcast_q_ptr->empty()) {
@@ -557,9 +563,12 @@ void ExchangeSinkBuffer::_set_receiver_eof(RpcInstance& ins) {
     }
 
     // Try to wake up pipeline after clearing the queue
-    if (_total_queue_size <= _queue_capacity) {
-        for (auto& dep : _queue_deps) {
-            dep->set_ready();
+    {
+        AnnotatedLockGuard l(_m);
+        if (_total_queue_size <= _queue_capacity) {
+            for (auto& dep : _queue_deps) {
+                dep->set_ready();
+            }
         }
     }
 
@@ -579,6 +588,7 @@ void ExchangeSinkBuffer::_turn_off_channel(RpcInstance& ins,
     ins.rpc_channel_is_turn_off = true;
     auto weak_task_ctx = weak_task_exec_ctx();
     if (auto pip_ctx = weak_task_ctx.lock()) {
+        AnnotatedLockGuard l(_m);
         for (auto& parent : _parents) {
             parent->on_channel_finished(ins.id);
         }

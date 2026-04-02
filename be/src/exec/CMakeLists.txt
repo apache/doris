@@ -32,6 +32,14 @@ if (WITH_LZO)
     )
 endif()
 
+# Enable Clang thread safety analysis for specific files
+if (COMPILER_CLANG)
+    set_source_files_properties(
+        ${CMAKE_CURRENT_SOURCE_DIR}/operator/exchange_sink_buffer.cpp
+        PROPERTIES COMPILE_FLAGS "-Wthread-safety"
+    )
+endif()
+
 add_library(Exec STATIC
     ${EXEC_FILES}
 )
