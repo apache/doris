@@ -27,6 +27,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -369,7 +370,18 @@ public class CloudPublishDaemon extends MasterDaemon {
         committedTxnManager.removeCommittedTxn(txnId);
         entry.markPublishSucceeded();
 
-        LOG.info("cloud publish completed, txnId={}, dbId={}", txnId, dbId);
+        // Record total transaction execution latency (prepare → publish complete)
+        long nowMs = System.currentTimeMillis();
+        long txnExecLatencyMs = (txnState != null) ? (nowMs - txnState.getPrepareTime()) : -1;
+        long publishLatencyMs = (txnState != null) ? (nowMs - txnState.getCommitTime()) : -1;
+        if (MetricRepo.isInit && txnState != null) {
+            MetricRepo.COUNTER_TXN_SUCCESS.increase(1L);
+            MetricRepo.HISTO_TXN_EXEC_LATENCY.update(txnExecLatencyMs);
+            MetricRepo.HISTO_TXN_PUBLISH_LATENCY.update(publishLatencyMs);
+        }
+
+        LOG.info("cloud publish completed, txnId={}, dbId={}, tableId={}, txnExecLatencyMs={}, publishLatencyMs={}",
+                txnId, dbId, entry.getTableId(), txnExecLatencyMs, publishLatencyMs);
     }
 
     // Visible for testing
