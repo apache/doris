@@ -479,31 +479,52 @@ public class BDBEnvironment {
         return ret;
     }
 
-    // Close the store and environment
+    // Close the store and environment.
+    // Two-phase close: detach resources under the write lock, then close them outside the lock
+    // to avoid blocking openDatabase() callers during potentially slow close() calls.
     public void close() {
-        for (Database db : openedDatabases) {
+        List<Database> databasesToClose;
+        Database epochDBToClose = null;
+        ReplicatedEnvironment envToClose = null;
+
+        lock.writeLock().lock();
+        try {
+            databasesToClose = new ArrayList<>(openedDatabases);
+            openedDatabases.clear();
+
+            if (epochDB != null) {
+                epochDBToClose = epochDB;
+                epochDB = null;
+            }
+
+            if (replicatedEnvironment != null) {
+                envToClose = replicatedEnvironment;
+                replicatedEnvironment = null;
+            }
+        } finally {
+            lock.writeLock().unlock();
+        }
+
+        // Close resources outside the lock
+        for (Database db : databasesToClose) {
             try {
                 db.close();
             } catch (DatabaseException exception) {
-                LOG.error("Error closing db {} will exit", db.getDatabaseName(), exception);
+                LOG.error("Error closing db {}", db.getDatabaseName(), exception);
             }
         }
-        openedDatabases.clear();
 
-        if (epochDB != null) {
+        if (epochDBToClose != null) {
             try {
-                epochDB.close();
-                epochDB = null;
+                epochDBToClose.close();
             } catch (DatabaseException exception) {
-                LOG.error("Error closing db {} will exit", epochDB.getDatabaseName(), exception);
+                LOG.error("Error closing epoch db {}", epochDBToClose.getDatabaseName(), exception);
             }
         }
 
-        if (replicatedEnvironment != null) {
+        if (envToClose != null) {
             try {
-                // Finally, close the store and environment.
-                replicatedEnvironment.close();
-                replicatedEnvironment = null;
+                envToClose.close();
             } catch (DatabaseException exception) {
                 LOG.error("Error closing replicatedEnvironment", exception);
             }
