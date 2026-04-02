@@ -26,13 +26,14 @@
 #include "core/value/time_value.h"
 
 namespace doris {
-class DataTypeTimeStampTzSerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_TIMESTAMPTZ> {
+class DataTypeTimeStampTzSerDe : public DataTypeNumberSerDeBase<PrimitiveType::TYPE_TIMESTAMPTZ> {
 public:
     DataTypeTimeStampTzSerDe(const UInt32 scale, int nesting_level = 1)
-            : DataTypeNumberSerDe<PrimitiveType::TYPE_TIMESTAMPTZ>(nesting_level), _scale(scale) {};
+            : DataTypeNumberSerDeBase<PrimitiveType::TYPE_TIMESTAMPTZ>(nesting_level),
+              _scale(scale) {};
 
     // Currently DataTypeTimeStampTzSerDe only supports from_string interface and MySQL output interface
-    // Other interfaces are in DataTypeNumberSerDe, and an error will be reported when called.
+    // Other interfaces are in DataTypeNumberSerDeBase, and an error will be reported when called.
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
 
@@ -66,6 +67,8 @@ public:
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
                                  const cctz::time_zone& ctz) const override;
+    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
+                                  int64_t end, const cctz::time_zone& ctz) const override;
 
     Status write_column_to_orc(const std::string& timezone, const IColumn& column,
                                const NullMap* null_map, orc::ColumnVectorBatch* orc_col_batch,
@@ -73,6 +76,15 @@ public:
                                const FormatOptions& options) const override;
 
     std::string to_olap_string(const Field& field) const override;
+
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override;
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
+                                 Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
 protected:
     Status from_olap_string(const std::string& str, Field& field,

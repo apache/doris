@@ -35,10 +35,10 @@
 
 namespace doris {
 
-class DataTypeIPv4SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4> {
+class DataTypeIPv4SerDe : public DataTypeNumberSerDeBase<PrimitiveType::TYPE_IPV4> {
 public:
     DataTypeIPv4SerDe(int nesting_level = 1)
-            : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV4>(nesting_level) {};
+            : DataTypeNumberSerDeBase<PrimitiveType::TYPE_IPV4>(nesting_level) {};
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,
@@ -71,6 +71,11 @@ public:
 
     void write_one_cell_to_binary(const IColumn& src_column, ColumnString::Chars& chars,
                                   int64_t row_num) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
+                                 Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
     std::string to_olap_string(const Field& field) const override;
 

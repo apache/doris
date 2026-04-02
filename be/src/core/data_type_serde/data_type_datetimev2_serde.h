@@ -33,10 +33,11 @@
 namespace doris {
 class Arena;
 
-class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2> {
+class DataTypeDateTimeV2SerDe : public DataTypeNumberSerDeBase<PrimitiveType::TYPE_DATETIMEV2> {
 public:
     DataTypeDateTimeV2SerDe(int scale, int nesting_level = 1)
-            : DataTypeNumberSerDe<PrimitiveType::TYPE_DATETIMEV2>(nesting_level), _scale(scale) {};
+            : DataTypeNumberSerDeBase<PrimitiveType::TYPE_DATETIMEV2>(nesting_level),
+              _scale(scale) {};
 
     Status from_string_batch(const ColumnString& str, ColumnNullable& column,
                              const FormatOptions& options) const final;
@@ -108,6 +109,15 @@ public:
     int get_scale() const override { return _scale; }
 
     std::string to_olap_string(const Field& field) const override;
+
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override;
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
+                                 Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
 
 protected:
     Status from_olap_string(const std::string& str, Field& field,

@@ -31,7 +31,7 @@
 #include "core/data_type/data_type_number_base.h"
 #include "core/data_type/define_primitive_type.h"
 #include "core/data_type/primitive_type.h"
-#include "core/data_type_serde/data_type_date_or_datetime_serde.h"
+#include "core/data_type_serde/data_type_datetime_serde.h"
 #include "core/types.h"
 
 namespace doris {

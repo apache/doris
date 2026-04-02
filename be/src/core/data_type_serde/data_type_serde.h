@@ -496,6 +496,8 @@ public:
 
     virtual void set_return_object_as_string(bool value) { _return_object_as_string = value; }
 
+    virtual int get_scale() const { return 0; }
+
     virtual DataTypeSerDeSPtrs get_nested_serdes() const {
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR,
                                "Method get_nested_serdes is not supported for this serde");

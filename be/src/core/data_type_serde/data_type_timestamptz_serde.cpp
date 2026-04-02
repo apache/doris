@@ -17,6 +17,7 @@
 
 #include "core/data_type_serde/data_type_timestamptz_serde.h"
 
+#include <arrow/array.h>
 #include <arrow/builder.h>
 
 #include "core/data_type/primitive_type.h"
@@ -24,6 +25,8 @@
 #include "exprs/function/cast/cast_parameters.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "exprs/function/cast/cast_to_timestamptz.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 namespace doris {
 
 // The implementation of these functions mainly refers to data_type_datetimev2_serde.cpp
@@ -248,6 +251,99 @@ Status DataTypeTimeStampTzSerDe::write_column_to_orc(const std::string& timezone
 
 std::string DataTypeTimeStampTzSerDe::to_olap_string(const Field& field) const {
     return CastToString::from_timestamptz(field.get<TYPE_TIMESTAMPTZ>(), 6);
+}
+
+Status DataTypeTimeStampTzSerDe::write_column_to_pb(const IColumn& column, PValues& result,
+                                                    int64_t start, int64_t end) const {
+    auto row_count = cast_set<int>(end - start);
+    auto* ptype = result.mutable_type();
+    const auto* col = check_and_get_column<ColumnType>(column);
+    auto& data = col->get_data();
+    ptype->set_id(PGenericType::UINT64);
+    auto* values = result.mutable_uint64_value();
+    values->Reserve(row_count);
+    values->Add((uint64_t*)data.begin() + start, (uint64_t*)data.begin() + end);
+    return Status::OK();
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto old_column_size = column.size();
+    column.resize(old_column_size + arg.uint64_value_size());
+    auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+    for (int i = 0; i < arg.uint64_value_size(); ++i) {
+        data[old_column_size + i] = binary_cast<UInt64, TimestampTzValue>(arg.uint64_value(i));
+    }
+    return Status::OK();
+}
+
+void DataTypeTimeStampTzSerDe::write_one_cell_to_jsonb(const IColumn& column,
+                                                       JsonbWriterT<JsonbOutStream>& result,
+                                                       Arena& mem_pool, int32_t col_id,
+                                                       int64_t row_num,
+                                                       const FormatOptions& options) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    StringRef data_ref = column.get_data_at(row_num);
+    int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
+    result.writeInt64(val);
+}
+
+void DataTypeTimeStampTzSerDe::read_one_cell_from_jsonb(IColumn& column,
+                                                        const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
+    col.insert_value(
+            binary_cast<UInt64, TimestampTzValue>((UInt64)arg->unpack<JsonbInt64Val>()->val()));
+}
+
+Status DataTypeTimeStampTzSerDe::read_column_from_arrow(IColumn& column,
+                                                        const arrow::Array* arrow_array,
+                                                        int64_t start, int64_t end,
+                                                        const cctz::time_zone& ctz) const {
+    auto row_count = end - start;
+    auto& col_data = static_cast<ColumnType&>(column).get_data();
+
+    if (arrow_array->type_id() == arrow::Type::STRING) {
+        const auto* concrete_array = dynamic_cast<const arrow::StringArray*>(arrow_array);
+        std::shared_ptr<arrow::Buffer> buffer = concrete_array->value_data();
+        const auto* offsets_data = concrete_array->value_offsets()->data();
+        const size_t offset_size = sizeof(int32_t);
+        for (size_t offset_i = start; offset_i < end; ++offset_i) {
+            if (!concrete_array->IsNull(offset_i)) {
+                int32_t start_offset = 0;
+                int32_t end_offset = 0;
+                memcpy(&start_offset, offsets_data + offset_i * offset_size, offset_size);
+                memcpy(&end_offset, offsets_data + (offset_i + 1) * offset_size, offset_size);
+                const auto* raw_data = buffer->data() + start_offset;
+                const auto raw_data_len = end_offset - start_offset;
+                if (raw_data_len == 0) {
+                    col_data.emplace_back(TimestampTzValue());
+                } else {
+                    StringRef str_ref(raw_data, raw_data_len);
+                    UInt64 val = 0;
+                    if (!try_read_int_text(val, str_ref)) {
+                        return Status::Error(ErrorCode::INVALID_ARGUMENT,
+                                             "parse number fail, string: '{}'",
+                                             std::string(str_ref.data, str_ref.size).c_str());
+                    }
+                    col_data.emplace_back(binary_cast<UInt64, TimestampTzValue>(val));
+                }
+            } else {
+                col_data.emplace_back(TimestampTzValue());
+            }
+        }
+        return Status::OK();
+    }
+
+    // Buffer path
+    if (row_count == 0 || arrow_array->data()->buffers[1] == nullptr) {
+        return Status::OK();
+    }
+    std::shared_ptr<arrow::Buffer> buffer = arrow_array->data()->buffers[1];
+    const auto* raw_data =
+            reinterpret_cast<const typename PrimitiveTypeTraits<TYPE_TIMESTAMPTZ>::CppType*>(
+                    buffer->data()) +
+            start;
+    col_data.insert(raw_data, raw_data + row_count);
+    return Status::OK();
 }
 
 } // namespace doris

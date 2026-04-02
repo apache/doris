@@ -37,10 +37,10 @@ namespace doris {
 
 class Arena;
 
-class DataTypeIPv6SerDe : public DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6> {
+class DataTypeIPv6SerDe : public DataTypeNumberSerDeBase<PrimitiveType::TYPE_IPV6> {
 public:
     DataTypeIPv6SerDe(int nesting_level = 1)
-            : DataTypeNumberSerDe<PrimitiveType::TYPE_IPV6>(nesting_level) {};
+            : DataTypeNumberSerDeBase<PrimitiveType::TYPE_IPV6>(nesting_level) {};
 
     Status write_column_to_mysql_binary(const IColumn& column, MysqlRowBinaryBuffer& row_buffer,
                                         int64_t row_idx, bool col_const,

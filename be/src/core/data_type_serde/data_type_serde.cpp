@@ -177,12 +177,12 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_column(const uint8_t* data, 
         break;                                                                                \
     }
 
-#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                   \
-    case FieldType::FT: {                                                \
-        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_column( \
-                data, nullable_column.get_nested_column());              \
-        nullable_column.push_false_to_nullmap(1);                        \
-        break;                                                           \
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                       \
+    case FieldType::FT: {                                                    \
+        end = DataTypeNumberSerDeBase<TYPEID>::deserialize_binary_to_column( \
+                data, nullable_column.get_nested_column());                  \
+        nullable_column.push_false_to_nullmap(1);                            \
+        break;                                                               \
     }
 
 #define HANDLE_T_DEC_SERDE(FT, TYPEID)                                    \
@@ -243,10 +243,10 @@ const uint8_t* DataTypeSerDe::deserialize_binary_to_field(const uint8_t* data, F
         break;                                                       \
     }
 
-#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                                     \
-    case FieldType::FT: {                                                                  \
-        end = DataTypeNumberSerDe<TYPEID>::deserialize_binary_to_field(data, field, info); \
-        break;                                                                             \
+#define HANDLE_T_NUM_SERDE(FT, TYPEID)                                                         \
+    case FieldType::FT: {                                                                      \
+        end = DataTypeNumberSerDeBase<TYPEID>::deserialize_binary_to_field(data, field, info); \
+        break;                                                                                 \
     }
 
 #define HANDLE_T_DEC_SERDE(FT, TYPEID)                                                      \

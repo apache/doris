@@ -29,7 +29,8 @@
 #include "core/data_type/common_data_type_serder_test.h"
 #include "core/data_type/common_data_type_test.h"
 #include "core/data_type/data_type.h"
-#include "core/data_type_serde/data_type_date_or_datetime_serde.h"
+#include "core/data_type_serde/data_type_date_serde.h"
+#include "core/data_type_serde/data_type_datetime_serde.h"
 #include "core/types.h"
 #include "testutil/test_util.h"
 #include "util/slice.h"
@@ -38,7 +39,7 @@
 namespace doris {
 static std::string test_data_dir;
 
-static auto serde_date_v1 = std::make_shared<DataTypeDateSerDe<>>();
+static auto serde_date_v1 = std::make_shared<DataTypeDateSerDe>();
 static auto serde_datetime_v1 = std::make_shared<DataTypeDateTimeSerDe>(0);
 
 static ColumnDateTime::MutablePtr column_datetime_v1_0;

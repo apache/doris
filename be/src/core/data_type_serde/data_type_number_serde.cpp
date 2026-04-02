@@ -83,10 +83,11 @@ using DORIS_NUMERIC_ARROW_BUILDER =
                 >;
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                     arrow::ArrayBuilder* array_builder,
-                                                     int64_t start, int64_t end,
-                                                     const cctz::time_zone& ctz) const {
+Status DataTypeNumberSerDeBase<T>::write_column_to_arrow(const IColumn& column,
+                                                         const NullMap* null_map,
+                                                         arrow::ArrayBuilder* array_builder,
+                                                         int64_t start, int64_t end,
+                                                         const cctz::time_zone& ctz) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
     using ARROW_BUILDER_TYPE = typename TypeMapLookup<
             std::conditional_t<
@@ -159,8 +160,8 @@ Status DataTypeNumberSerDe<T>::write_column_to_arrow(const IColumn& column, cons
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                              const FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::deserialize_one_cell_from_json(
+        IColumn& column, Slice& slice, const FormatOptions& options) const {
     auto& column_data = reinterpret_cast<ColumnType&>(column);
     StringRef str_ref {slice.data, slice.size};
     if constexpr (T == TYPE_IPV6) {
@@ -192,16 +193,17 @@ Status DataTypeNumberSerDe<T>::deserialize_one_cell_from_json(IColumn& column, S
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::serialize_column_to_json(const IColumn& column, int64_t start_idx,
-                                                        int64_t end_idx, BufferWritable& bw,
-                                                        FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::serialize_column_to_json(const IColumn& column,
+                                                            int64_t start_idx, int64_t end_idx,
+                                                            BufferWritable& bw,
+                                                            FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
-                                                          BufferWritable& bw,
-                                                          FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::serialize_one_cell_to_json(const IColumn& column,
+                                                              int64_t row_num, BufferWritable& bw,
+                                                              FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
@@ -220,7 +222,7 @@ Status DataTypeNumberSerDe<T>::serialize_one_cell_to_json(const IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
+Status DataTypeNumberSerDeBase<T>::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
@@ -228,10 +230,10 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_json_vector(
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                      const arrow::Array* arrow_array,
-                                                      int64_t start, int64_t end,
-                                                      const cctz::time_zone& ctz) const {
+Status DataTypeNumberSerDeBase<T>::read_column_from_arrow(IColumn& column,
+                                                          const arrow::Array* arrow_array,
+                                                          int64_t start, int64_t end,
+                                                          const cctz::time_zone& ctz) const {
     auto row_count = end - start;
     auto& col_data = static_cast<ColumnType&>(column).get_data();
 
@@ -330,7 +332,7 @@ Status DataTypeNumberSerDe<T>::read_column_from_arrow(IColumn& column,
     return Status::OK();
 }
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
+Status DataTypeNumberSerDeBase<T>::deserialize_column_from_fixed_json(
         IColumn& column, Slice& slice, uint64_t rows, uint64_t* num_deserialized,
         const FormatOptions& options) const {
     if (rows < 1) [[unlikely]] {
@@ -341,7 +343,7 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_fixed_json(
         return st;
     }
 
-    DataTypeNumberSerDe::insert_column_last_value_multiple_times(column, rows - 1);
+    DataTypeNumberSerDeBase::insert_column_last_value_multiple_times(column, rows - 1);
     *num_deserialized = rows;
     return Status::OK();
 }
@@ -403,23 +405,24 @@ bool write_to_jsonb_from_number(auto& data, JsonbWriter& writer, int scale) {
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb(const IColumn& from_column,
-                                                         int64_t row_num,
-                                                         JsonbWriter& writer) const {
+Status DataTypeNumberSerDeBase<T>::serialize_column_to_jsonb(const IColumn& from_column,
+                                                             int64_t row_num,
+                                                             JsonbWriter& writer) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
     const auto& data = assert_cast<const ColumnType&>(from_column).get_element(row_num);
     if (!write_to_jsonb_from_number<T>(data, writer, get_scale())) {
-        return Status::InvalidArgument("DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed");
+        return Status::InvalidArgument(
+                "DataTypeNumberSerDeBase<T>::serialize_column_to_jsonb failed");
     }
 
     return Status::OK();
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
-                                                                ColumnString& to_column) const {
+Status DataTypeNumberSerDeBase<T>::serialize_column_to_jsonb_vector(const IColumn& from_column,
+                                                                    ColumnString& to_column) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     }
@@ -431,7 +434,7 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& f
         writer.reset();
         if (!write_to_jsonb_from_number<T>(data[i], writer, scale)) {
             return Status::InvalidArgument(
-                    "DataTypeNumberSerDe<T>::serialize_column_to_jsonb failed for row {}", i);
+                    "DataTypeNumberSerDeBase<T>::serialize_column_to_jsonb failed for row {}", i);
         }
         to_column.insert_data(writer.getOutput()->getBuffer(), writer.getOutput()->getSize());
     }
@@ -439,9 +442,9 @@ Status DataTypeNumberSerDe<T>::serialize_column_to_jsonb_vector(const IColumn& f
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
-                                                             const JsonbValue* jsonb_value,
-                                                             CastParameters& castParms) const {
+Status DataTypeNumberSerDeBase<T>::deserialize_column_from_jsonb(IColumn& column,
+                                                                 const JsonbValue* jsonb_value,
+                                                                 CastParameters& castParms) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
         return Status::NotSupported("{} does not support serialize_column_to_jsonb", get_name());
     } else {
@@ -467,7 +470,7 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
+Status DataTypeNumberSerDeBase<T>::deserialize_column_from_jsonb_vector(
         ColumnNullable& column_to, const ColumnString& col_from_json,
         CastParameters& castParms) const {
     if constexpr (!can_write_to_jsonb_from_number<T>()) {
@@ -517,8 +520,8 @@ Status DataTypeNumberSerDe<T>::deserialize_column_from_jsonb_vector(
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& column,
-                                                                     uint64_t times) const {
+void DataTypeNumberSerDeBase<T>::insert_column_last_value_multiple_times(IColumn& column,
+                                                                         uint64_t times) const {
     if (times < 1) [[unlikely]] {
         return;
     }
@@ -529,10 +532,9 @@ void DataTypeNumberSerDe<T>::insert_column_last_value_multiple_times(IColumn& co
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
-                                                            MysqlRowBinaryBuffer& result,
-                                                            int64_t row_idx, bool col_const,
-                                                            const FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::write_column_to_mysql_binary(
+        const IColumn& column, MysqlRowBinaryBuffer& result, int64_t row_idx, bool col_const,
+        const FormatOptions& options) const {
     int buf_ret = 0;
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
@@ -583,11 +585,12 @@ Status DataTypeNumberSerDe<T>::write_column_to_mysql_binary(const IColumn& colum
     cur_batch->numElements = end - start;
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
-                                                   const IColumn& column, const NullMap* null_map,
-                                                   orc::ColumnVectorBatch* orc_col_batch,
-                                                   int64_t start, int64_t end, Arena& arena,
-                                                   const FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::write_column_to_orc(const std::string& timezone,
+                                                       const IColumn& column,
+                                                       const NullMap* null_map,
+                                                       orc::ColumnVectorBatch* orc_col_batch,
+                                                       int64_t start, int64_t end, Arena& arena,
+                                                       const FormatOptions& options) const {
     auto& col_data = assert_cast<const ColumnType&>(column).get_data();
 
     if constexpr (T == TYPE_LARGEINT) { // largeint
@@ -648,26 +651,15 @@ Status DataTypeNumberSerDe<T>::write_column_to_orc(const std::string& timezone,
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
-                                                      const JsonbValue* arg) const {
+void DataTypeNumberSerDeBase<T>::read_one_cell_from_jsonb(IColumn& column,
+                                                          const JsonbValue* arg) const {
     auto& col = reinterpret_cast<ColumnType&>(column);
     if constexpr (T == TYPE_TINYINT || T == TYPE_BOOLEAN) {
         col.insert_value(arg->unpack<JsonbInt8Val>()->val());
     } else if constexpr (T == TYPE_SMALLINT) {
         col.insert_value(arg->unpack<JsonbInt16Val>()->val());
-    } else if constexpr (T == TYPE_INT || T == TYPE_IPV4) {
+    } else if constexpr (T == TYPE_INT) {
         col.insert_value(arg->unpack<JsonbInt32Val>()->val());
-    } else if constexpr (T == TYPE_DATEV2) {
-        col.insert_value(binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
-                (UInt32)arg->unpack<JsonbInt32Val>()->val()));
-    } else if constexpr (T == TYPE_DATETIMEV2) {
-        col.insert_value(binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(
-                (UInt64)arg->unpack<JsonbInt64Val>()->val()));
-    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
-        col.insert_value(
-                binary_cast<UInt64, TimestampTzValue>((UInt64)arg->unpack<JsonbInt64Val>()->val()));
-    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
-        col.insert_value(binary_cast<Int64, VecDateTimeValue>(arg->unpack<JsonbInt64Val>()->val()));
     } else if constexpr (T == TYPE_BIGINT) {
         col.insert_value(arg->unpack<JsonbInt64Val>()->val());
     } else if constexpr (T == TYPE_LARGEINT) {
@@ -682,11 +674,11 @@ void DataTypeNumberSerDe<T>::read_one_cell_from_jsonb(IColumn& column,
     }
 }
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
-                                                     JsonbWriterT<JsonbOutStream>& result,
-                                                     Arena& mem_pool, int32_t col_id,
-                                                     int64_t row_num,
-                                                     const FormatOptions& options) const {
+void DataTypeNumberSerDeBase<T>::write_one_cell_to_jsonb(const IColumn& column,
+                                                         JsonbWriterT<JsonbOutStream>& result,
+                                                         Arena& mem_pool, int32_t col_id,
+                                                         int64_t row_num,
+                                                         const FormatOptions& options) const {
     result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
     StringRef data_ref = column.get_data_at(row_num);
     // TODO: Casting unsigned integers to signed integers may result in loss of data precision.
@@ -699,11 +691,10 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
     } else if constexpr (T == TYPE_SMALLINT) {
         int16_t val = *reinterpret_cast<const int16_t*>(data_ref.data);
         result.writeInt16(val);
-    } else if constexpr (T == TYPE_INT || T == TYPE_DATEV2 || T == TYPE_IPV4) {
+    } else if constexpr (T == TYPE_INT) {
         int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
         result.writeInt32(val);
-    } else if constexpr (T == TYPE_BIGINT || T == TYPE_DATE || T == TYPE_DATETIME ||
-                         T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
+    } else if constexpr (T == TYPE_BIGINT) {
         int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
         result.writeInt64(val);
     } else if constexpr (T == TYPE_LARGEINT) {
@@ -737,8 +728,8 @@ bool try_parse_impl(typename PrimitiveTypeTraits<PT>::CppType& x, const StringRe
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
-                                           const FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::from_string(StringRef& str, IColumn& column,
+                                               const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
     typename PrimitiveTypeTraits<T>::CppType val;
     CastParameters params;
@@ -765,7 +756,7 @@ Status DataTypeNumberSerDe<T>::from_string(StringRef& str, IColumn& column,
 //   to_olap_string(Field(Float32(3.14f)))  => "3.14"
 //   to_olap_string(Field(Float64(1e300)))  => "1e+300"
 template <PrimitiveType T>
-std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
+std::string DataTypeNumberSerDeBase<T>::to_olap_string(const Field& field) const {
     if constexpr (T == TYPE_BOOLEAN) {
         char buf[8] = {'\0'};
         snprintf(buf, sizeof(buf), "%d", field.get<T>());
@@ -794,8 +785,8 @@ std::string DataTypeNumberSerDe<T>::to_olap_string(const Field& field) const {
 //   from_olap_string("3.14", field, ...)   => field = Float32(3.14)
 //   from_olap_string("NaN", field, ...)     => returns InvalidArgument (NaN/Inf are rejected)
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_olap_string(const std::string& str, Field& field,
-                                                const FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::from_olap_string(const std::string& str, Field& field,
+                                                    const FormatOptions& options) const {
     typename PrimitiveTypeTraits<T>::CppType val;
     CastParameters params;
     params.is_strict = false;
@@ -815,8 +806,8 @@ Status DataTypeNumberSerDe<T>::from_olap_string(const std::string& str, Field& f
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
-                                                       const FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                           const FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
     typename PrimitiveTypeTraits<T>::CppType val;
     CastParameters params;
@@ -829,8 +820,9 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& 
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, ColumnNullable& column,
-                                                 const FormatOptions& options) const {
+Status DataTypeNumberSerDeBase<T>::from_string_batch(const ColumnString& str,
+                                                     ColumnNullable& column,
+                                                     const FormatOptions& options) const {
     const auto size = str.size();
     column.resize(size);
 
@@ -856,7 +848,7 @@ Status DataTypeNumberSerDe<T>::from_string_batch(const ColumnString& str, Column
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
+Status DataTypeNumberSerDeBase<T>::from_string_strict_mode_batch(
         const ColumnString& str, IColumn& column, const FormatOptions& options,
         const NullMap::value_type* null_map) const {
     const auto size = str.size();
@@ -889,9 +881,9 @@ Status DataTypeNumberSerDe<T>::from_string_strict_mode_batch(
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
-                                                      ColumnString::Chars& chars,
-                                                      int64_t row_num) const {
+void DataTypeNumberSerDeBase<T>::write_one_cell_to_binary(const IColumn& src_column,
+                                                          ColumnString::Chars& chars,
+                                                          int64_t row_num) const {
     const uint8_t type = (const uint8_t)TabletColumn::get_field_type_by_type(T);
     const auto& data_ref = assert_cast<const ColumnType&>(src_column).get_data_at(row_num);
 
@@ -904,8 +896,8 @@ void DataTypeNumberSerDe<T>::write_one_cell_to_binary(const IColumn& src_column,
 }
 
 template <PrimitiveType T>
-const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_t* data,
-                                                                    IColumn& column) {
+const uint8_t* DataTypeNumberSerDeBase<T>::deserialize_binary_to_column(const uint8_t* data,
+                                                                        IColumn& column) {
     auto& col = assert_cast<ColumnType&, TypeCheckOnRelease::DISABLE>(column);
     if constexpr (T == TYPE_BOOLEAN) {
         col.insert_value(unaligned_load<UInt8>(data));
@@ -957,8 +949,9 @@ const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_column(const uint8_
 }
 
 template <PrimitiveType T>
-const uint8_t* DataTypeNumberSerDe<T>::deserialize_binary_to_field(const uint8_t* data,
-                                                                   Field& field, FieldInfo& info) {
+const uint8_t* DataTypeNumberSerDeBase<T>::deserialize_binary_to_field(const uint8_t* data,
+                                                                       Field& field,
+                                                                       FieldInfo& info) {
     if constexpr (T == TYPE_BOOLEAN) {
         field = Field::create_field<TYPE_BOOLEAN>(unaligned_load<UInt8>(data));
         data += sizeof(UInt8);
@@ -1044,8 +1037,8 @@ void value_to_string(const typename PrimitiveTypeTraits<T>::CppType value, Buffe
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, BufferWritable& bw,
-                                       const FormatOptions& options) const {
+void DataTypeNumberSerDeBase<T>::to_string(const IColumn& column, size_t row_num,
+                                           BufferWritable& bw, const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     if constexpr (is_timestamptz_type(T) || is_date_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
@@ -1061,18 +1054,18 @@ void DataTypeNumberSerDe<T>::to_string(const IColumn& column, size_t row_num, Bu
 }
 
 template <PrimitiveType T>
-bool DataTypeNumberSerDe<T>::write_column_to_presto_text(const IColumn& column, BufferWritable& bw,
-                                                         int64_t row_idx,
-                                                         const FormatOptions& options) const {
+bool DataTypeNumberSerDeBase<T>::write_column_to_presto_text(const IColumn& column,
+                                                             BufferWritable& bw, int64_t row_idx,
+                                                             const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     value_to_string<T>(data[row_idx], bw, get_scale(), options);
     return true;
 }
 
 template <PrimitiveType T>
-bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, BufferWritable& bw,
-                                                       int64_t row_idx,
-                                                       const FormatOptions& options) const {
+bool DataTypeNumberSerDeBase<T>::write_column_to_hive_text(const IColumn& column,
+                                                           BufferWritable& bw, int64_t row_idx,
+                                                           const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&, TypeCheckOnRelease::DISABLE>(column).get_data();
     if constexpr (is_date_type(T) || is_timestamptz_type(T) || is_time_type(T) || is_ip(T)) {
         if (_nesting_level > 1) {
@@ -1093,8 +1086,8 @@ bool DataTypeNumberSerDe<T>::write_column_to_hive_text(const IColumn& column, Bu
 }
 
 template <PrimitiveType T>
-void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
-                                             const FormatOptions& options) const {
+void DataTypeNumberSerDeBase<T>::to_string_batch(const IColumn& column, ColumnString& column_to,
+                                                 const FormatOptions& options) const {
     auto& data = assert_cast<const ColumnType&>(column).get_data();
     const size_t size = column.size();
     const auto maybe_reserve_size = CastToString::string_length<T>;
@@ -1109,6 +1102,25 @@ void DataTypeNumberSerDe<T>::to_string_batch(const IColumn& column, ColumnString
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.
+template class DataTypeNumberSerDeBase<TYPE_BOOLEAN>;
+template class DataTypeNumberSerDeBase<TYPE_TINYINT>;
+template class DataTypeNumberSerDeBase<TYPE_SMALLINT>;
+template class DataTypeNumberSerDeBase<TYPE_INT>;
+template class DataTypeNumberSerDeBase<TYPE_BIGINT>;
+template class DataTypeNumberSerDeBase<TYPE_LARGEINT>;
+template class DataTypeNumberSerDeBase<TYPE_FLOAT>;
+template class DataTypeNumberSerDeBase<TYPE_DOUBLE>;
+template class DataTypeNumberSerDeBase<TYPE_DATE>;
+template class DataTypeNumberSerDeBase<TYPE_DATEV2>;
+template class DataTypeNumberSerDeBase<TYPE_DATETIME>;
+template class DataTypeNumberSerDeBase<TYPE_DATETIMEV2>;
+template class DataTypeNumberSerDeBase<TYPE_IPV4>;
+template class DataTypeNumberSerDeBase<TYPE_IPV6>;
+template class DataTypeNumberSerDeBase<TYPE_TIME>;
+template class DataTypeNumberSerDeBase<TYPE_TIMEV2>;
+template class DataTypeNumberSerDeBase<TYPE_TIMESTAMPTZ>;
+
+// Explicit instantiations for the thin DataTypeNumberSerDe (pure numeric types only)
 template class DataTypeNumberSerDe<TYPE_BOOLEAN>;
 template class DataTypeNumberSerDe<TYPE_TINYINT>;
 template class DataTypeNumberSerDe<TYPE_SMALLINT>;
@@ -1117,13 +1129,5 @@ template class DataTypeNumberSerDe<TYPE_BIGINT>;
 template class DataTypeNumberSerDe<TYPE_LARGEINT>;
 template class DataTypeNumberSerDe<TYPE_FLOAT>;
 template class DataTypeNumberSerDe<TYPE_DOUBLE>;
-template class DataTypeNumberSerDe<TYPE_DATE>;
-template class DataTypeNumberSerDe<TYPE_DATEV2>;
-template class DataTypeNumberSerDe<TYPE_DATETIME>;
-template class DataTypeNumberSerDe<TYPE_DATETIMEV2>;
-template class DataTypeNumberSerDe<TYPE_IPV4>;
-template class DataTypeNumberSerDe<TYPE_IPV6>;
 template class DataTypeNumberSerDe<TYPE_TIME>;
-template class DataTypeNumberSerDe<TYPE_TIMEV2>;
-template class DataTypeNumberSerDe<TYPE_TIMESTAMPTZ>;
 } // namespace doris

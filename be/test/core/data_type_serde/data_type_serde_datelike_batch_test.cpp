@@ -34,7 +34,8 @@
 #include "core/column/column_vector.h"
 #include "core/data_type/data_type_decimal.h"
 #include "core/data_type/data_type_number.h"
-#include "core/data_type_serde/data_type_date_or_datetime_serde.h"
+#include "core/data_type_serde/data_type_date_serde.h"
+#include "core/data_type_serde/data_type_datetime_serde.h"
 #include "core/data_type_serde/data_type_datetimev2_serde.h"
 #include "core/data_type_serde/data_type_datev2_serde.h"
 #include "core/data_type_serde/data_type_time_serde.h"
@@ -77,14 +78,14 @@ static ColumnFloat64::MutablePtr build_float64_column(const std::vector<double>&
 }
 
 // ============================================================================
-// DateV1 / DateTimeV1 (DataTypeDateSerDe<TYPE_DATE / TYPE_DATETIME>)
+// DateV1 / DateTimeV1 (DataTypeDateSerDe / DataTypeDateTimeSerDe)
 // ============================================================================
 
 // --- from_decimal_batch (non-strict) ---
 // Valid: 20230115 (8 digits → 2023-01-15)
 // Invalid: -1 (negative, always rejected)
 TEST_F(DatelikeSerDeBatchTest, datev1_from_decimal_batch) {
-    DataTypeDateSerDe<TYPE_DATE> serde;
+    DataTypeDateSerDe serde;
     auto dec_col = build_decimal64_column({20230115, -1}, /*scale=*/0);
 
     auto data_col = ColumnDate::create();
@@ -100,7 +101,7 @@ TEST_F(DatelikeSerDeBatchTest, datev1_from_decimal_batch) {
 
 // --- from_decimal_strict_mode_batch (strict) ---
 TEST_F(DatelikeSerDeBatchTest, datev1_from_decimal_strict_mode_batch) {
-    DataTypeDateSerDe<TYPE_DATE> serde;
+    DataTypeDateSerDe serde;
     auto dec_col = build_decimal64_column({-1}, /*scale=*/0);
 
     auto target = ColumnDate::create();
@@ -109,7 +110,7 @@ TEST_F(DatelikeSerDeBatchTest, datev1_from_decimal_strict_mode_batch) {
 }
 
 TEST_F(DatelikeSerDeBatchTest, datetimev1_from_decimal_batch) {
-    DataTypeDateSerDe<TYPE_DATETIME> serde;
+    DataTypeDateTimeSerDe serde;
     auto dec_col = build_decimal64_column({20230115143059, -1}, /*scale=*/0);
 
     auto data_col = ColumnDateTime::create();
@@ -124,7 +125,7 @@ TEST_F(DatelikeSerDeBatchTest, datetimev1_from_decimal_batch) {
 }
 
 TEST_F(DatelikeSerDeBatchTest, datetimev1_from_decimal_strict_mode_batch) {
-    DataTypeDateSerDe<TYPE_DATETIME> serde;
+    DataTypeDateTimeSerDe serde;
     auto dec_col = build_decimal64_column({-1}, /*scale=*/0);
 
     auto target = ColumnDateTime::create();
@@ -134,7 +135,7 @@ TEST_F(DatelikeSerDeBatchTest, datetimev1_from_decimal_strict_mode_batch) {
 
 // --- from_int_batch / from_int_strict_mode_batch ---
 TEST_F(DatelikeSerDeBatchTest, datev1_from_int_batch) {
-    DataTypeDateSerDe<TYPE_DATE> serde;
+    DataTypeDateSerDe serde;
     auto int_col = build_int64_column({20230115, -1});
 
     auto data_col = ColumnDate::create();
@@ -149,7 +150,7 @@ TEST_F(DatelikeSerDeBatchTest, datev1_from_int_batch) {
 }
 
 TEST_F(DatelikeSerDeBatchTest, datev1_from_int_strict_mode_batch) {
-    DataTypeDateSerDe<TYPE_DATE> serde;
+    DataTypeDateSerDe serde;
     auto int_col = build_int64_column({-1});
 
     auto target = ColumnDate::create();
@@ -159,7 +160,7 @@ TEST_F(DatelikeSerDeBatchTest, datev1_from_int_strict_mode_batch) {
 
 // --- from_float_batch / from_float_strict_mode_batch ---
 TEST_F(DatelikeSerDeBatchTest, datev1_from_float_batch) {
-    DataTypeDateSerDe<TYPE_DATE> serde;
+    DataTypeDateSerDe serde;
     auto float_col = build_float64_column({20230115.0, -1.0});
 
     auto data_col = ColumnDate::create();
@@ -174,7 +175,7 @@ TEST_F(DatelikeSerDeBatchTest, datev1_from_float_batch) {
 }
 
 TEST_F(DatelikeSerDeBatchTest, datev1_from_float_strict_mode_batch) {
-    DataTypeDateSerDe<TYPE_DATE> serde;
+    DataTypeDateSerDe serde;
     auto float_col = build_float64_column({-1.0});
 
     auto target = ColumnDate::create();
@@ -417,7 +418,7 @@ TEST_F(DatelikeSerDeBatchTest, timev2_from_float_strict_mode_batch) {
 // accidentally used in from_decimal_batch for DateV1/DateTimeV1.
 // ============================================================================
 TEST_F(DatelikeSerDeBatchTest, datev1_from_decimal_batch_mixed) {
-    DataTypeDateSerDe<TYPE_DATE> serde;
+    DataTypeDateSerDe serde;
     // valid, invalid, valid, invalid
     auto dec_col = build_decimal64_column({20230115, -1, 20001231, 0}, /*scale=*/0);
 
@@ -435,7 +436,7 @@ TEST_F(DatelikeSerDeBatchTest, datev1_from_decimal_batch_mixed) {
 }
 
 TEST_F(DatelikeSerDeBatchTest, datetimev1_from_decimal_batch_mixed) {
-    DataTypeDateSerDe<TYPE_DATETIME> serde;
+    DataTypeDateTimeSerDe serde;
     auto dec_col = build_decimal64_column({20230115143059, -1, 20001231235959, 0}, /*scale=*/0);
 
     auto data_col = ColumnDateTime::create();

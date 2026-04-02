@@ -32,6 +32,10 @@ public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using FieldType = typename PrimitiveTypeTraits<T>::CppType;
     bool equals(const IDataType& rhs) const override { return typeid(rhs) == typeid(*this); }
+    using SerDeType = DataTypeNumberSerDe<T>;
+    DataTypeSerDeSPtr get_serde(int nesting_level = 1) const override {
+        return std::make_shared<SerDeType>(nesting_level);
+    };
 };
 template <typename DataType>
 constexpr bool IsDataTypeBool = false;

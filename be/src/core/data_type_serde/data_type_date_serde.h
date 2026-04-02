@@ -35,18 +35,20 @@
 namespace doris {
 class Arena;
 
+/// Shared template implementation for Date v1 and DateTime v1 SerDe.
+/// Both DataTypeDateSerDe and DataTypeDateTimeSerDe inherit from this to share code.
 template <PrimitiveType T = PrimitiveType::TYPE_DATE>
-class DataTypeDateSerDe : public DataTypeNumberSerDe<T> {
+class DataTypeDateLikeV1SerDe : public DataTypeNumberSerDeBase<T> {
 public:
     constexpr static bool IsDatetime = (T == PrimitiveType::TYPE_DATETIME);
     static_assert(IsDatetime || T == PrimitiveType::TYPE_DATE,
-                  "DataTypeDateSerDe can only be used for TYPE_DATE or TYPE_DATETIME");
+                  "DataTypeDateLikeV1SerDe can only be used for TYPE_DATE or TYPE_DATETIME");
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
     using CppType = typename PrimitiveTypeTraits<T>::CppType; // VecDateTimeValue
     constexpr static std::string_view name() { return IsDatetime ? "DateTime" : "Date"; }
 
-    using typename DataTypeNumberSerDe<T>::FormatOptions;
-    DataTypeDateSerDe(int nesting_level = 1) : DataTypeNumberSerDe<T>(nesting_level) {};
+    using typename DataTypeNumberSerDeBase<T>::FormatOptions;
+    DataTypeDateLikeV1SerDe(int nesting_level = 1) : DataTypeNumberSerDeBase<T>(nesting_level) {};
 
     Status from_string(StringRef& str, IColumn& column,
                        const FormatOptions& options) const override;
@@ -54,14 +56,13 @@ public:
     Status from_string_strict_mode(StringRef& str, IColumn& column,
                                    const FormatOptions& options) const override;
 
-    /// these functions are for both TYPE_DATE and TYPE_DATETIME. we set field according to T.
     Status from_string_batch(
             const ColumnString& str, ColumnNullable& column,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const final;
+            const typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const final;
 
     Status from_string_strict_mode_batch(
             const ColumnString& str, IColumn& column,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options,
+            const typename DataTypeNumberSerDeBase<T>::FormatOptions& options,
             const NullMap::value_type* null_map = nullptr) const final;
 
     template <typename IntDataType>
@@ -87,17 +88,17 @@ public:
 
     Status serialize_one_cell_to_json(
             const IColumn& column, int64_t row_num, BufferWritable& bw,
-            typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+            typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const override;
     Status serialize_column_to_json(
             const IColumn& column, int64_t start_idx, int64_t end_idx, BufferWritable& bw,
-            typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+            typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const override;
     Status deserialize_one_cell_from_json(
             IColumn& column, Slice& slice,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+            const typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const override;
 
     Status deserialize_column_from_json_vector(
             IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
-            const typename DataTypeNumberSerDe<T>::FormatOptions& options) const override;
+            const typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const override;
 
     Status write_column_to_arrow(const IColumn& column, const NullMap* null_map,
                                  arrow::ArrayBuilder* array_builder, int64_t start, int64_t end,
@@ -115,6 +116,15 @@ public:
 
     std::string to_olap_string(const Field& field) const override;
 
+    Status write_column_to_pb(const IColumn& column, PValues& result, int64_t start,
+                              int64_t end) const override;
+    Status read_column_from_pb(IColumn& column, const PValues& arg) const override;
+
+    void write_one_cell_to_jsonb(const IColumn& column, JsonbWriterT<JsonbOutStream>& result,
+                                 Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                 const FormatOptions& options) const override;
+    void read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const override;
+
 protected:
     Status from_olap_string(const std::string& str, Field& field,
                             const FormatOptions& options) const override;
@@ -124,25 +134,11 @@ protected:
                                    int64_t end, const cctz::time_zone& ctz) const;
 };
 
-class DataTypeDateTimeSerDe : public DataTypeDateSerDe<PrimitiveType::TYPE_DATETIME> {
+/// Concrete SerDe for TYPE_DATE (Date v1). Corresponds to DataTypeDate on the DataType side.
+class DataTypeDateSerDe final : public DataTypeDateLikeV1SerDe<PrimitiveType::TYPE_DATE> {
 public:
-    DataTypeDateTimeSerDe(int nesting_level = 1)
-            : DataTypeDateSerDe<PrimitiveType::TYPE_DATETIME>(nesting_level) {};
-
-    // all from_{XXX} use DateTypeDateSerDe's with template check of PrimitiveType T
-
-    Status serialize_column_to_json(const IColumn& column, int64_t start_idx, int64_t end_idx,
-                                    BufferWritable& bw, FormatOptions& options) const override;
-
-    Status serialize_one_cell_to_json(const IColumn& column, int64_t row_num, BufferWritable& bw,
-                                      FormatOptions& options) const override;
-
-    Status deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                          const FormatOptions& options) const override;
-    Status deserialize_column_from_json_vector(IColumn& column, std::vector<Slice>& slices,
-                                               uint64_t* num_deserialized,
-                                               const FormatOptions& options) const override;
-    Status read_column_from_arrow(IColumn& column, const arrow::Array* arrow_array, int64_t start,
-                                  int64_t end, const cctz::time_zone& ctz) const override;
+    DataTypeDateSerDe(int nesting_level = 1)
+            : DataTypeDateLikeV1SerDe<PrimitiveType::TYPE_DATE>(nesting_level) {};
 };
+
 } // namespace doris

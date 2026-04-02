@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "core/data_type_serde/data_type_date_or_datetime_serde.h"
+#include "core/data_type_serde/data_type_date_serde.h"
 
 #include <arrow/builder.h>
 #include <cctz/time_zone.h>
@@ -28,25 +28,27 @@
 #include "exprs/function/cast/cast_base.h"
 #include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "util/io_helper.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::serialize_column_to_json(
+Status DataTypeDateLikeV1SerDe<T>::serialize_column_to_json(
         const IColumn& column, int64_t start_idx, int64_t end_idx, BufferWritable& bw,
-        typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+        typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const {
     SERIALIZE_COLUMN_TO_JSON();
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::serialize_one_cell_to_json(
+Status DataTypeDateLikeV1SerDe<T>::serialize_one_cell_to_json(
         const IColumn& column, int64_t row_num, BufferWritable& bw,
-        typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+        typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const {
     auto result = check_column_const_set_readability(column, row_num);
     ColumnPtr ptr = result.first;
     row_num = result.second;
-    if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
+    if (DataTypeNumberSerDeBase<T>::_nesting_level > 1) {
         bw.write('"');
     }
     doris::VecDateTimeValue value = assert_cast<const ColumnVector<T>&>(*ptr).get_element(row_num);
@@ -54,26 +56,26 @@ Status DataTypeDateSerDe<T>::serialize_one_cell_to_json(
     char buf[64];
     char* pos = value.to_string(buf);
     bw.write(buf, pos - buf - 1);
-    if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
+    if (DataTypeNumberSerDeBase<T>::_nesting_level > 1) {
         bw.write('"');
     }
     return Status::OK();
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::deserialize_column_from_json_vector(
+Status DataTypeDateLikeV1SerDe<T>::deserialize_column_from_json_vector(
         IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+        const typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const {
     DESERIALIZE_COLUMN_FROM_JSON_VECTOR();
     return Status::OK();
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
+Status DataTypeDateLikeV1SerDe<T>::deserialize_one_cell_from_json(
         IColumn& column, Slice& slice,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+        const typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const {
     auto& column_data = assert_cast<ColumnVector<T>&>(column);
-    if (DataTypeNumberSerDe<T>::_nesting_level > 1) {
+    if (DataTypeNumberSerDeBase<T>::_nesting_level > 1) {
         slice.trim_quote();
     }
     VecDateTimeValue val;
@@ -84,65 +86,12 @@ Status DataTypeDateSerDe<T>::deserialize_one_cell_from_json(
     return Status::OK();
 }
 
-Status DataTypeDateTimeSerDe::serialize_column_to_json(const IColumn& column, int64_t start_idx,
-                                                       int64_t end_idx, BufferWritable& bw,
-                                                       FormatOptions& options) const {
-        SERIALIZE_COLUMN_TO_JSON()}
-
-Status DataTypeDateTimeSerDe::serialize_one_cell_to_json(const IColumn& column, int64_t row_num,
-                                                         BufferWritable& bw,
-                                                         FormatOptions& options) const {
-    auto result = check_column_const_set_readability(column, row_num);
-    ColumnPtr ptr = result.first;
-    row_num = result.second;
-
-    auto value = assert_cast<const ColumnDateTime&>(*ptr).get_element(row_num);
-    if (_nesting_level > 1) {
-        bw.write('"');
-    }
-
-    char buf[64];
-    char* pos = value.to_string(buf);
-    bw.write(buf, pos - buf - 1);
-    if (_nesting_level > 1) {
-        bw.write('"');
-    }
-    return Status::OK();
-}
-
-Status DataTypeDateTimeSerDe::deserialize_column_from_json_vector(
-        IColumn& column, std::vector<Slice>& slices, uint64_t* num_deserialized,
-        const FormatOptions& options) const {
-    DESERIALIZE_COLUMN_FROM_JSON_VECTOR()
-    return Status::OK();
-}
-
-Status DataTypeDateTimeSerDe::deserialize_one_cell_from_json(IColumn& column, Slice& slice,
-                                                             const FormatOptions& options) const {
-    auto& column_data = assert_cast<ColumnDateTime&>(column);
-    if (_nesting_level > 1) {
-        slice.trim_quote();
-    }
-    VecDateTimeValue val;
-    if (StringRef str(slice.data, slice.size); !read_datetime_text_impl(val, str)) {
-        return Status::InvalidArgument("parse datetime fail, string: '{}'", str.to_string());
-    }
-    column_data.insert_value(val);
-    return Status::OK();
-}
-
-Status DataTypeDateTimeSerDe::read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int64_t start,
-                                                     int64_t end,
-                                                     const cctz::time_zone& ctz) const {
-    return _read_column_from_arrow<false>(column, arrow_array, start, end, ctz);
-}
-
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_arrow(const IColumn& column, const NullMap* null_map,
-                                                   arrow::ArrayBuilder* array_builder,
-                                                   int64_t start, int64_t end,
-                                                   const cctz::time_zone& ctz) const {
+Status DataTypeDateLikeV1SerDe<T>::write_column_to_arrow(const IColumn& column,
+                                                         const NullMap* null_map,
+                                                         arrow::ArrayBuilder* array_builder,
+                                                         int64_t start, int64_t end,
+                                                         const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<const ColumnVector<T>&>(column).get_data();
     auto& string_builder = assert_cast<arrow::StringBuilder&>(*array_builder);
     for (size_t i = start; i < end; ++i) {
@@ -182,10 +131,10 @@ static int64_t time_unit_divisor(arrow::TimeUnit::type unit) {
 
 template <PrimitiveType T>
 template <bool is_date>
-Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
-                                                     const arrow::Array* arrow_array, int64_t start,
-                                                     int64_t end,
-                                                     const cctz::time_zone& ctz) const {
+Status DataTypeDateLikeV1SerDe<T>::_read_column_from_arrow(IColumn& column,
+                                                           const arrow::Array* arrow_array,
+                                                           int64_t start, int64_t end,
+                                                           const cctz::time_zone& ctz) const {
     auto& col_data = static_cast<ColumnVector<T>&>(column).get_data();
     int64_t divisor = 1;
     int64_t multiplier = 1;
@@ -244,17 +193,17 @@ Status DataTypeDateSerDe<T>::_read_column_from_arrow(IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::read_column_from_arrow(IColumn& column,
-                                                    const arrow::Array* arrow_array, int64_t start,
-                                                    int64_t end, const cctz::time_zone& ctz) const {
+Status DataTypeDateLikeV1SerDe<T>::read_column_from_arrow(IColumn& column,
+                                                          const arrow::Array* arrow_array,
+                                                          int64_t start, int64_t end,
+                                                          const cctz::time_zone& ctz) const {
     return _read_column_from_arrow<true>(column, arrow_array, start, end, ctz);
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
-                                                          MysqlRowBinaryBuffer& result,
-                                                          int64_t row_idx, bool col_const,
-                                                          const FormatOptions& options) const {
+Status DataTypeDateLikeV1SerDe<T>::write_column_to_mysql_binary(
+        const IColumn& column, MysqlRowBinaryBuffer& result, int64_t row_idx, bool col_const,
+        const FormatOptions& options) const {
     const auto& data = assert_cast<const ColumnVector<T>&>(column).get_data();
     const auto col_index = index_check_const(row_idx, col_const);
     VecDateTimeValue time_val = data[col_index];
@@ -265,11 +214,12 @@ Status DataTypeDateSerDe<T>::write_column_to_mysql_binary(const IColumn& column,
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, const IColumn& column,
-                                                 const NullMap* null_map,
-                                                 orc::ColumnVectorBatch* orc_col_batch,
-                                                 int64_t start, int64_t end, Arena& arena,
-                                                 const FormatOptions& options) const {
+Status DataTypeDateLikeV1SerDe<T>::write_column_to_orc(const std::string& timezone,
+                                                       const IColumn& column,
+                                                       const NullMap* null_map,
+                                                       orc::ColumnVectorBatch* orc_col_batch,
+                                                       int64_t start, int64_t end, Arena& arena,
+                                                       const FormatOptions& options) const {
     const auto& col_data = assert_cast<const ColumnVector<T>&>(column).get_data();
     auto* cur_batch = dynamic_cast<orc::StringVectorBatch*>(orc_col_batch);
 
@@ -317,14 +267,15 @@ Status DataTypeDateSerDe<T>::write_column_to_orc(const std::string& timezone, co
 // NOLINTBEGIN(readability-function-size)
 // NOLINTBEGIN(readability-function-cognitive-complexity)
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::from_string_batch(
+Status DataTypeDateLikeV1SerDe<T>::from_string_batch(
         const ColumnString& col_str, ColumnNullable& col_res,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options) const {
+        const typename DataTypeNumberSerDeBase<T>::FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnType&>(col_res.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(col_res.get_null_map_column());
     size_t row = col_str.size();
     col_res.resize(row);
 
+    constexpr auto kTarget = IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE;
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < row; ++i) {
         auto str = col_str.get_data_at(i);
@@ -333,10 +284,8 @@ Status DataTypeDateSerDe<T>::from_string_batch(
         // then we rely on return value to check success.
         // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
         // Exception!
-        if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
-                    ? DatelikeTargetType::DATE_TIME
-                    : DatelikeTargetType::DATE > (str, res, options.timezone, params))
-                [[unlikely]] {
+        if (!CastToDateOrDatetime::from_string_non_strict_mode<kTarget>(str, res, options.timezone,
+                                                                        params)) [[unlikely]] {
             col_nullmap.get_data()[i] = true;
             //TODO: we should set `for` functions who need it then skip to set default value for null rows.
             col_data.get_data()[i] = VecDateTimeValue::FIRST_DAY;
@@ -349,9 +298,9 @@ Status DataTypeDateSerDe<T>::from_string_batch(
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
+Status DataTypeDateLikeV1SerDe<T>::from_string_strict_mode_batch(
         const ColumnString& col_str, IColumn& col_res,
-        const typename DataTypeNumberSerDe<T>::FormatOptions& options,
+        const typename DataTypeNumberSerDeBase<T>::FormatOptions& options,
         const NullMap::value_type* null_map) const {
     size_t row = col_str.size();
     col_res.resize(row);
@@ -381,10 +330,11 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode_batch(
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
-                                         const FormatOptions& options) const {
+Status DataTypeDateLikeV1SerDe<T>::from_string(StringRef& str, IColumn& column,
+                                               const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnType&>(column);
 
+    constexpr auto kTarget = IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE;
     CastParameters params {.status = Status::OK(), .is_strict = false};
 
     CppType res;
@@ -392,9 +342,8 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
     // then we rely on return value to check success.
     // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
     // Exception!
-    if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
-                ? DatelikeTargetType::DATE_TIME
-                : DatelikeTargetType::DATE > (str, res, options.timezone, params)) [[unlikely]] {
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<kTarget>(str, res, options.timezone,
+                                                                    params)) [[unlikely]] {
         return Status::InvalidArgument("parse date or datetime fail, string: '{}'",
                                        str.to_string());
     }
@@ -415,8 +364,9 @@ Status DataTypeDateSerDe<T>::from_string(StringRef& str, IColumn& column,
 //   DateV1:     "YYYY-MM-DD"              e.g. "2023-10-15"
 //   DateTimeV1: "YYYY-MM-DD HH:MM:SS"    e.g. "2023-10-15 14:30:00"
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& field,
-                                              const FormatOptions& options) const {
+Status DataTypeDateLikeV1SerDe<T>::from_olap_string(const std::string& str, Field& field,
+                                                    const FormatOptions& options) const {
+    constexpr auto kTarget = IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE;
     CastParameters params {.status = Status::OK(), .is_strict = false};
 
     CppType res;
@@ -424,10 +374,8 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
     // then we rely on return value to check success.
     // return value only represent OK or InvalidArgument for other error(like InternalError) in parser, MUST throw
     // Exception!
-    if (!CastToDateOrDatetime::from_string_non_strict_mode < IsDatetime
-                ? DatelikeTargetType::DATE_TIME
-                : DatelikeTargetType::DATE > (StringRef(str), res, options.timezone, params))
-            [[unlikely]] {
+    if (!CastToDateOrDatetime::from_string_non_strict_mode<kTarget>(
+                StringRef(str), res, options.timezone, params)) [[unlikely]] {
         return Status::InvalidArgument("parse date or datetime fail, string: '{}'", str);
     }
     field = Field::create_field<T>(std::move(res));
@@ -435,8 +383,8 @@ Status DataTypeDateSerDe<T>::from_olap_string(const std::string& str, Field& fie
 }
 
 template <PrimitiveType T>
-Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
-                                                     const FormatOptions& options) const {
+Status DataTypeDateLikeV1SerDe<T>::from_string_strict_mode(StringRef& str, IColumn& column,
+                                                           const FormatOptions& options) const {
     auto& col_data = assert_cast<ColumnType&>(column);
 
     CastParameters params {.status = Status::OK(), .is_strict = true};
@@ -458,20 +406,19 @@ Status DataTypeDateSerDe<T>::from_string_strict_mode(StringRef& str, IColumn& co
 
 template <PrimitiveType T>
 template <typename IntDataType>
-Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnType& int_col,
-                                            ColumnNullable& target_col) const {
+Status DataTypeDateLikeV1SerDe<T>::from_int_batch(const typename IntDataType::ColumnType& int_col,
+                                                  ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
     col_data.resize(int_col.size());
     col_nullmap.resize(int_col.size());
 
+    constexpr auto kTarget = IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE;
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_integer < DatelikeParseMode::NON_STRICT,
-            IsDatetime ? DatelikeTargetType::DATE_TIME
-                       : DatelikeTargetType::DATE > (int_col.get_element(i), val, params))
-                [[likely]] {
+        if (CastToDateOrDatetime::from_integer<DatelikeParseMode::NON_STRICT, kTarget>(
+                    int_col.get_element(i), val, params)) [[likely]] {
             // did cast_to_type in `from_integer`
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
@@ -485,7 +432,7 @@ Status DataTypeDateSerDe<T>::from_int_batch(const typename IntDataType::ColumnTy
 
 template <PrimitiveType T>
 template <typename IntDataType>
-Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(
+Status DataTypeDateLikeV1SerDe<T>::from_int_strict_mode_batch(
         const typename IntDataType::ColumnType& int_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(int_col.size());
@@ -510,20 +457,19 @@ Status DataTypeDateSerDe<T>::from_int_strict_mode_batch(
 
 template <PrimitiveType T>
 template <typename FloatDataType>
-Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::ColumnType& float_col,
-                                              ColumnNullable& target_col) const {
+Status DataTypeDateLikeV1SerDe<T>::from_float_batch(
+        const typename FloatDataType::ColumnType& float_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
     col_data.resize(float_col.size());
     col_nullmap.resize(float_col.size());
 
+    constexpr auto kTarget = IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE;
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_float < DatelikeParseMode::NON_STRICT,
-            IsDatetime ? DatelikeTargetType::DATE_TIME
-                       : DatelikeTargetType::DATE > (float_col.get_data()[i], val, 0, params))
-                [[likely]] {
+        if (CastToDateOrDatetime::from_float<DatelikeParseMode::NON_STRICT, kTarget>(
+                    float_col.get_data()[i], val, 0, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -536,7 +482,7 @@ Status DataTypeDateSerDe<T>::from_float_batch(const typename FloatDataType::Colu
 
 template <PrimitiveType T>
 template <typename FloatDataType>
-Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
+Status DataTypeDateLikeV1SerDe<T>::from_float_strict_mode_batch(
         const typename FloatDataType::ColumnType& float_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(float_col.size());
@@ -561,22 +507,20 @@ Status DataTypeDateSerDe<T>::from_float_strict_mode_batch(
 
 template <PrimitiveType T>
 template <typename DecimalDataType>
-Status DataTypeDateSerDe<T>::from_decimal_batch(
+Status DataTypeDateLikeV1SerDe<T>::from_decimal_batch(
         const typename DecimalDataType::ColumnType& decimal_col, ColumnNullable& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col.get_nested_column());
     auto& col_nullmap = assert_cast<ColumnBool&>(target_col.get_null_map_column());
     col_data.resize(decimal_col.size());
     col_nullmap.resize(decimal_col.size());
 
+    constexpr auto kTarget = IsDatetime ? DatelikeTargetType::DATE_TIME : DatelikeTargetType::DATE;
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         CppType val;
-        if (CastToDateOrDatetime::from_decimal < DatelikeParseMode::NON_STRICT,
-            IsDatetime ? DatelikeTargetType::DATE_TIME
-                       : DatelikeTargetType::DATE > (decimal_col.get_intergral_part(i),
-                                                     decimal_col.get_fractional_part(i),
-                                                     decimal_col.get_scale(), val, params))
-                [[likely]] {
+        if (CastToDateOrDatetime::from_decimal<DatelikeParseMode::NON_STRICT, kTarget>(
+                    decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                    decimal_col.get_scale(), val, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -589,7 +533,7 @@ Status DataTypeDateSerDe<T>::from_decimal_batch(
 
 template <PrimitiveType T>
 template <typename DecimalDataType>
-Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
+Status DataTypeDateLikeV1SerDe<T>::from_decimal_strict_mode_batch(
         const typename DecimalDataType::ColumnType& decimal_col, IColumn& target_col) const {
     auto& col_data = assert_cast<ColumnType&>(target_col);
     col_data.resize(decimal_col.size());
@@ -623,7 +567,7 @@ Status DataTypeDateSerDe<T>::from_decimal_strict_mode_batch(
 //
 // Note: DateTimeV1 never includes microseconds (VecDateTimeValue::microsecond() always returns 0).
 template <PrimitiveType T>
-std::string DataTypeDateSerDe<T>::to_olap_string(const Field& field) const {
+std::string DataTypeDateLikeV1SerDe<T>::to_olap_string(const Field& field) const {
     char buf[64];
     char* pos = field.get<T>().to_string(buf);
     return std::string(buf, pos - buf - 1);
@@ -631,107 +575,166 @@ std::string DataTypeDateSerDe<T>::to_olap_string(const Field& field) const {
 // NOLINTEND(readability-function-cognitive-complexity)
 // NOLINTEND(readability-function-size)
 
-// instantiation of template functions
-template class DataTypeDateSerDe<TYPE_DATE>;
-template class DataTypeDateSerDe<TYPE_DATETIME>;
+template <PrimitiveType T>
+Status DataTypeDateLikeV1SerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
+                                                      int64_t start, int64_t end) const {
+    auto row_count = cast_set<int>(end - start);
+    auto* ptype = result.mutable_type();
+    const auto* col = check_and_get_column<ColumnType>(column);
+    auto& data = col->get_data();
+    ptype->set_id(PGenericType::INT64);
+    auto* values = result.mutable_int64_value();
+    values->Reserve(row_count);
+    for (int64_t i = start; i < end; ++i) {
+        values->Add(binary_cast<CppType, Int64>(data[i]));
+    }
+    return Status::OK();
+}
 
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt8>(
+template <PrimitiveType T>
+Status DataTypeDateLikeV1SerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto old_column_size = column.size();
+    column.resize(old_column_size + arg.int64_value_size());
+    auto& data = reinterpret_cast<ColumnType&>(column).get_data();
+    for (int i = 0; i < arg.int64_value_size(); ++i) {
+        data[old_column_size + i] = binary_cast<Int64, VecDateTimeValue>(arg.int64_value(i));
+    }
+    return Status::OK();
+}
+
+template <PrimitiveType T>
+void DataTypeDateLikeV1SerDe<T>::write_one_cell_to_jsonb(const IColumn& column,
+                                                         JsonbWriterT<JsonbOutStream>& result,
+                                                         Arena& mem_pool, int32_t col_id,
+                                                         int64_t row_num,
+                                                         const FormatOptions& options) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    StringRef data_ref = column.get_data_at(row_num);
+    int64_t val = *reinterpret_cast<const int64_t*>(data_ref.data);
+    result.writeInt64(val);
+}
+
+template <PrimitiveType T>
+void DataTypeDateLikeV1SerDe<T>::read_one_cell_from_jsonb(IColumn& column,
+                                                          const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
+    col.insert_value(binary_cast<Int64, VecDateTimeValue>(arg->unpack<JsonbInt64Val>()->val()));
+}
+
+// instantiation of template functions
+template class DataTypeDateLikeV1SerDe<TYPE_DATE>;
+template class DataTypeDateLikeV1SerDe<TYPE_DATETIME>;
+
+// Explicit instantiation for _read_column_from_arrow<false> used by DataTypeDateTimeSerDe
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::_read_column_from_arrow<false>(
+        IColumn& column, const arrow::Array* arrow_array, int64_t start, int64_t end,
+        const cctz::time_zone& ctz) const;
+
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_batch<DataTypeInt8>(
         const DataTypeInt8::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt16>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_batch<DataTypeInt16>(
         const DataTypeInt16::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_batch<DataTypeInt32>(
         const DataTypeInt32::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_batch<DataTypeInt64>(
         const DataTypeInt64::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_batch<DataTypeInt128>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt8>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt8>(
         const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt16>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt16>(
         const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt32>(
         const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt64>(
         const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt128>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_int_strict_mode_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_float_batch<DataTypeFloat32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_float_batch<DataTypeFloat32>(
         const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_float_batch<DataTypeFloat64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_float_batch<DataTypeFloat64>(
         const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_float_strict_mode_batch<DataTypeFloat32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_float_strict_mode_batch<DataTypeFloat32>(
         const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_float_strict_mode_batch<DataTypeFloat64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_float_strict_mode_batch<DataTypeFloat64>(
         const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal64>(
         const DataTypeDecimal64::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimalV2>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimalV2>(
         const DataTypeDecimalV2::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal128>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal128>(
         const DataTypeDecimal128::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal256>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal32>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal64>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal64>(
         const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
         const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal128>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal128>(
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATE>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
 
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt8>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt8>(
         const DataTypeInt8::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt16>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt16>(
         const DataTypeInt16::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt32>(
         const DataTypeInt32::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt64>(
         const DataTypeInt64::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt128>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt8>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt8>(
         const DataTypeInt8::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt16>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt16>(
         const DataTypeInt16::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt32>(
         const DataTypeInt32::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt64>(
         const DataTypeInt64::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt128>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_int_strict_mode_batch<DataTypeInt128>(
         const DataTypeInt128::ColumnType& int_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_batch<DataTypeFloat32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_float_batch<DataTypeFloat32>(
         const DataTypeFloat32::ColumnType& float_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_batch<DataTypeFloat64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_float_batch<DataTypeFloat64>(
         const DataTypeFloat64::ColumnType& float_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_strict_mode_batch<DataTypeFloat32>(
-        const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_float_strict_mode_batch<DataTypeFloat64>(
-        const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal32>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_float_strict_mode_batch<
+        DataTypeFloat32>(const DataTypeFloat32::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_float_strict_mode_batch<
+        DataTypeFloat64>(const DataTypeFloat64::ColumnType& float_col, IColumn& target_col) const;
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal64>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal64>(
         const DataTypeDecimal64::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimalV2>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimalV2>(
         const DataTypeDecimalV2::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal128>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal128>(
         const DataTypeDecimal128::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal256>(
+template Status DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, ColumnNullable& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal32>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal32>(
         const DataTypeDecimal32::ColumnType& decimal_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal64>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal64>(
         const DataTypeDecimal64::ColumnType& decimal_col, IColumn& target_col) const;
-template Status DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
+template Status
+DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimalV2>(
         const DataTypeDecimalV2::ColumnType& decimal_col, IColumn& target_col) const;
 template Status
-DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal128>(
+DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal128>(
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
 template Status
-DataTypeDateSerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
+DataTypeDateLikeV1SerDe<TYPE_DATETIME>::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
 } // namespace doris

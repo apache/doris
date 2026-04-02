@@ -32,6 +32,8 @@
 #include "exprs/function/cast/cast_to_datev2_impl.hpp"
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 
 namespace doris {
 
@@ -514,5 +516,44 @@ template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDeci
         const DataTypeDecimal128::ColumnType& decimal_col, IColumn& target_col) const;
 template Status DataTypeDateV2SerDe::from_decimal_strict_mode_batch<DataTypeDecimal256>(
         const DataTypeDecimal256::ColumnType& decimal_col, IColumn& target_col) const;
+
+Status DataTypeDateV2SerDe::write_column_to_pb(const IColumn& column, PValues& result,
+                                               int64_t start, int64_t end) const {
+    auto row_count = cast_set<int>(end - start);
+    auto* ptype = result.mutable_type();
+    const auto* col = check_and_get_column<ColumnType>(column);
+    auto& data = col->get_data();
+    ptype->set_id(PGenericType::UINT32);
+    auto* values = result.mutable_uint32_value();
+    values->Reserve(row_count);
+    values->Add((uint32_t*)data.begin() + start, (uint32_t*)data.begin() + end);
+    return Status::OK();
+}
+
+Status DataTypeDateV2SerDe::read_column_from_pb(IColumn& column, const PValues& arg) const {
+    auto old_column_size = column.size();
+    column.resize(old_column_size + arg.uint32_value_size());
+    auto& data = assert_cast<ColumnType&>(column).get_data();
+    for (int i = 0; i < arg.uint32_value_size(); ++i) {
+        data[old_column_size + i] = arg.uint32_value(i);
+    }
+    return Status::OK();
+}
+
+void DataTypeDateV2SerDe::write_one_cell_to_jsonb(const IColumn& column,
+                                                  JsonbWriterT<JsonbOutStream>& result,
+                                                  Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                                  const FormatOptions& options) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    StringRef data_ref = column.get_data_at(row_num);
+    int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
+    result.writeInt32(val);
+}
+
+void DataTypeDateV2SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
+    col.insert_value(binary_cast<UInt32, DateV2Value<DateV2ValueType>>(
+            (UInt32)arg->unpack<JsonbInt32Val>()->val()));
+}
 
 } // namespace doris

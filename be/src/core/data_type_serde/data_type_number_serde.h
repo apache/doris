@@ -48,14 +48,14 @@ class Arena;
 //  IPv4 => T:UInt32
 //  IPv6 => T:uint128_t
 template <PrimitiveType T>
-class DataTypeNumberSerDe : public DataTypeSerDe {
+class DataTypeNumberSerDeBase : public DataTypeSerDe {
     static_assert(is_int_or_bool(T) || is_ip(T) || is_date_type(T) || is_float_or_double(T) ||
                   T == TYPE_TIME || T == TYPE_TIMEV2 || T == TYPE_TIMESTAMPTZ);
 
 public:
     using ColumnType = typename PrimitiveTypeTraits<T>::ColumnType;
 
-    DataTypeNumberSerDe(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
+    DataTypeNumberSerDeBase(int nesting_level = 1) : DataTypeSerDe(nesting_level) {};
 
     std::string get_name() const override { return type_to_string(T); }
 
@@ -142,9 +142,6 @@ public:
 
     std::string to_olap_string(const Field& field) const override;
 
-    // will override in DateTime and Time
-    virtual int get_scale() const { return 0; }
-
     static const uint8_t* deserialize_binary_to_column(const uint8_t* data, IColumn& column);
 
     static const uint8_t* deserialize_binary_to_field(const uint8_t* data, Field& field,
@@ -155,8 +152,18 @@ protected:
                             const FormatOptions& options) const override;
 };
 
+/// Thin final class for pure numeric types (Bool, Int8-128, Float32-64).
+/// Corresponds to DataTypeNumber<T> on the DataType side.
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
+class DataTypeNumberSerDe final : public DataTypeNumberSerDeBase<T> {
+    static_assert(is_int_or_bool(T) || is_float_or_double(T) || T == TYPE_TIME);
+
+public:
+    using DataTypeNumberSerDeBase<T>::DataTypeNumberSerDeBase;
+};
+
+template <PrimitiveType T>
+Status DataTypeNumberSerDeBase<T>::read_column_from_pb(IColumn& column, const PValues& arg) const {
     auto old_column_size = column.size();
     if constexpr (T == TYPE_BOOLEAN) {
         column.resize(old_column_size + arg.uint32_value_size());
@@ -165,12 +172,6 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
             data[old_column_size + i] =
                     cast_set<typename PrimitiveTypeTraits<T>::CppType, uint32_t, false>(
                             arg.uint32_value(i));
-        }
-    } else if constexpr (T == TYPE_DATEV2 || T == TYPE_IPV4) {
-        column.resize(old_column_size + arg.uint32_value_size());
-        auto& data = assert_cast<ColumnType&>(column).get_data();
-        for (int i = 0; i < arg.uint32_value_size(); ++i) {
-            data[old_column_size + i] = arg.uint32_value(i);
         }
     } else if constexpr (T == TYPE_TINYINT || T == TYPE_SMALLINT) {
         column.resize(old_column_size + arg.int32_value_size());
@@ -185,25 +186,6 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
         auto& data = reinterpret_cast<ColumnType&>(column).get_data();
         for (int i = 0; i < arg.int32_value_size(); ++i) {
             data[old_column_size + i] = arg.int32_value(i);
-        }
-    } else if constexpr (T == TYPE_DATETIMEV2) {
-        column.resize(old_column_size + arg.uint64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
-        for (int i = 0; i < arg.uint64_value_size(); ++i) {
-            data[old_column_size + i] =
-                    binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(arg.uint64_value(i));
-        }
-    } else if constexpr (T == TYPE_TIMESTAMPTZ) {
-        column.resize(old_column_size + arg.uint64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
-        for (int i = 0; i < arg.uint64_value_size(); ++i) {
-            data[old_column_size + i] = binary_cast<UInt64, TimestampTzValue>(arg.uint64_value(i));
-        }
-    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
-        column.resize(old_column_size + arg.int64_value_size());
-        auto& data = reinterpret_cast<ColumnType&>(column).get_data();
-        for (int i = 0; i < arg.int64_value_size(); ++i) {
-            data[old_column_size + i] = binary_cast<Int64, VecDateTimeValue>(arg.int64_value(i));
         }
     } else if constexpr (T == TYPE_BIGINT) {
         column.resize(old_column_size + arg.int64_value_size());
@@ -236,8 +218,8 @@ Status DataTypeNumberSerDe<T>::read_column_from_pb(IColumn& column, const PValue
 }
 
 template <PrimitiveType T>
-Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues& result,
-                                                  int64_t start, int64_t end) const {
+Status DataTypeNumberSerDeBase<T>::write_column_to_pb(const IColumn& column, PValues& result,
+                                                      int64_t start, int64_t end) const {
     auto row_count = cast_set<int>(end - start);
     auto* ptype = result.mutable_type();
     const auto* col = check_and_get_column<ColumnType>(column);
@@ -256,21 +238,6 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_uint32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DATEV2) {
-        ptype->set_id(PGenericType::UINT32);
-        auto* values = result.mutable_uint32_value();
-        values->Reserve(row_count);
-        values->Add((uint32_t*)data.begin() + start, (uint32_t*)data.begin() + end);
-    } else if constexpr (T == TYPE_IPV4) {
-        ptype->set_id(PGenericType::UINT32);
-        auto* values = result.mutable_uint32_value();
-        values->Reserve(row_count);
-        values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DATETIMEV2 || T == TYPE_TIMESTAMPTZ) {
-        ptype->set_id(PGenericType::UINT64);
-        auto* values = result.mutable_uint64_value();
-        values->Reserve(row_count);
-        values->Add((uint64_t*)data.begin() + start, (uint64_t*)data.begin() + end);
     } else if constexpr (T == TYPE_TINYINT) {
         ptype->set_id(PGenericType::INT8);
         auto* values = result.mutable_int32_value();
@@ -286,11 +253,6 @@ Status DataTypeNumberSerDe<T>::write_column_to_pb(const IColumn& column, PValues
         auto* values = result.mutable_int32_value();
         values->Reserve(row_count);
         values->Add(data.begin() + start, data.begin() + end);
-    } else if constexpr (T == TYPE_DATE || T == TYPE_DATETIME) {
-        ptype->set_id(PGenericType::INT64);
-        auto* values = result.mutable_int64_value();
-        values->Reserve(row_count);
-        values->Add((int64_t*)data.begin() + start, (int64_t*)data.begin() + end);
     } else if constexpr (T == TYPE_BIGINT) {
         ptype->set_id(PGenericType::INT64);
         auto* values = result.mutable_int64_value();

@@ -24,6 +24,8 @@
 #include "exprs/function/cast/cast_to_ip.h"
 #include "exprs/function/cast/cast_to_string.h"
 #include "util/io_helper.h"
+#include "util/jsonb_document.h"
+#include "util/jsonb_writer.h"
 
 namespace doris {
 #include "common/compile_check_begin.h"
@@ -233,6 +235,21 @@ void DataTypeIPv4SerDe::write_one_cell_to_binary(const IColumn& src_column,
 // Output format: "A.B.C.D", e.g. "192.168.1.1"
 std::string DataTypeIPv4SerDe::to_olap_string(const Field& field) const {
     return CastToString::from_ip(field.get<TYPE_IPV4>());
+}
+
+void DataTypeIPv4SerDe::write_one_cell_to_jsonb(const IColumn& column,
+                                                JsonbWriterT<JsonbOutStream>& result,
+                                                Arena& mem_pool, int32_t col_id, int64_t row_num,
+                                                const FormatOptions& options) const {
+    result.writeKey(cast_set<JsonbKeyValue::keyid_type>(col_id));
+    StringRef data_ref = column.get_data_at(row_num);
+    int32_t val = *reinterpret_cast<const int32_t*>(data_ref.data);
+    result.writeInt32(val);
+}
+
+void DataTypeIPv4SerDe::read_one_cell_from_jsonb(IColumn& column, const JsonbValue* arg) const {
+    auto& col = reinterpret_cast<ColumnType&>(column);
+    col.insert_value(arg->unpack<JsonbInt32Val>()->val());
 }
 
 } // namespace doris
