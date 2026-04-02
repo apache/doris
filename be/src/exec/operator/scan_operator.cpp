@@ -153,6 +153,23 @@ Status ScanLocalState<Derived>::init(RuntimeState* state, LocalStateInfo& info) 
     return Status::OK();
 }
 
+static std::string predicates_to_string(
+        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
+                slot_id_to_predicates) {
+    fmt::memory_buffer debug_string_buffer;
+    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
+        if (predicates.empty()) {
+            continue;
+        }
+        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
+        for (const auto& predicate : predicates) {
+            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
+        }
+        fmt::format_to(debug_string_buffer, "] ");
+    }
+    return fmt::to_string(debug_string_buffer);
+}
+
 template <typename Derived>
 Status ScanLocalState<Derived>::open(RuntimeState* state) {
     SCOPED_TIMER(exec_time_counter());
@@ -206,23 +223,6 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
     }
     _opened = true;
     return status;
-}
-
-static std::string predicates_to_string(
-        const phmap::flat_hash_map<int, std::vector<std::shared_ptr<ColumnPredicate>>>&
-                slot_id_to_predicates) {
-    fmt::memory_buffer debug_string_buffer;
-    for (const auto& [slot_id, predicates] : slot_id_to_predicates) {
-        if (predicates.empty()) {
-            continue;
-        }
-        fmt::format_to(debug_string_buffer, "Slot ID: {}: [", slot_id);
-        for (const auto& predicate : predicates) {
-            fmt::format_to(debug_string_buffer, "{{{}}}, ", predicate->debug_string());
-        }
-        fmt::format_to(debug_string_buffer, "] ");
-    }
-    return fmt::to_string(debug_string_buffer);
 }
 
 static void init_slot_value_range(
