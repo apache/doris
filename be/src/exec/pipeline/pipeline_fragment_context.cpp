@@ -119,11 +119,9 @@
 #include "load/stream_load/new_load_stream_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
-#include "runtime/result_block_buffer.h"
 #include "runtime/result_buffer_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "service/backend_options.h"
 #include "util/countdown_latch.h"
 #include "util/debug_util.h"
 #include "util/uid_util.h"
@@ -257,7 +255,7 @@ void PipelineFragmentContext::cancel(const Status reason) {
 
     for (auto& tasks : _tasks) {
         for (auto& task : tasks) {
-            task.first->terminate();
+            task.first->unblock_all_dependencies();
         }
     }
 }

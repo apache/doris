@@ -55,7 +55,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ insert into ${table_name_expire} values (4, 'd', 'snapshot4') """
     sql """ insert into ${table_name_expire} values (5, 'e', 'snapshot5') """
 
-    List<List<Object>> snapshots_expire = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_expire}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_expire = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_expire}\$snapshots order by committed_at; """
     String s_expire_0 = snapshots_expire.get(0)[0]
     String s_expire_1 = snapshots_expire.get(1)[0]
     String s_expire_2 = snapshots_expire.get(2)[0]
@@ -69,7 +69,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     logger.info("Created tags t_early (snapshot ${s_expire_1}) and t_middle (snapshot ${s_expire_3})")
 
     // Get snapshot count before expire
-    def snapshot_count_before_expire = sql """ select count(*) from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_expire}", "query_type" = "snapshots") """
+    def snapshot_count_before_expire = sql """ select count(*) from ${catalog_name}.test_db_tag_retention.${table_name_expire}\$snapshots """
     logger.info("Snapshot count before expire: ${snapshot_count_before_expire[0][0]}")
 
     // Call expire_snapshots via Spark - should not delete snapshots referenced by tags
@@ -95,7 +95,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ insert into ${table_name_multi_tag} values (2, 'second') """
     sql """ insert into ${table_name_multi_tag} values (3, 'third') """
 
-    List<List<Object>> snapshots_multi = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_multi_tag}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_multi = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_multi_tag}\$snapshots order by committed_at; """
     String s_multi_1 = snapshots_multi.get(1)[0]
 
     // Create multiple tags pointing to the same snapshot
@@ -126,7 +126,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ insert into ${table_name_immutable} values (1, 'version1', 1000) """
     sql """ insert into ${table_name_immutable} values (2, 'version2', 2000) """
 
-    List<List<Object>> snapshots_imm = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_immutable}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_imm = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_immutable}\$snapshots order by committed_at; """
     String s_imm_v1 = snapshots_imm.get(1)[0]
 
     // Create a tag at this point
@@ -157,11 +157,11 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ create table ${table_name_replace} (id int, status string) """
 
     sql """ insert into ${table_name_replace} values (1, 'pending') """
-    List<List<Object>> snapshots_replace = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_replace}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_replace = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_replace}\$snapshots order by committed_at; """
     String s_rep_v1 = snapshots_replace.get(0)[0]
 
     sql """ insert into ${table_name_replace} values (2, 'approved') """
-    List<List<Object>> snapshots_replace_2 = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_replace}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_replace_2 = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_replace}\$snapshots order by committed_at; """
     String s_rep_v2 = snapshots_replace_2.get(1)[0]
 
     // Create initial tag
@@ -185,7 +185,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ insert into ${table_name_time_travel} values (2, 'v1.0', '2024-01-01') """
     sql """ insert into ${table_name_time_travel} values (3, 'v1.0', '2024-01-01') """
 
-    List<List<Object>> snapshots_tt = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_time_travel}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_tt = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_time_travel}\$snapshots order by committed_at; """
     String s_tt_1 = snapshots_tt.get(0)[0]
     String s_tt_2 = snapshots_tt.get(1)[0]
     String s_tt_3 = snapshots_tt.get(2)[0]
@@ -219,7 +219,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ insert into ${table_name_agg} values (3, 'A', 150) """
     sql """ insert into ${table_name_agg} values (4, 'C', 300) """
 
-    List<List<Object>> snapshots_agg = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_agg}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_agg = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_agg}\$snapshots order by committed_at; """
     String s_agg_all = snapshots_agg.get(3)[0]
 
     // Create tag for aggregate queries
@@ -245,7 +245,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ insert into ${table_name_interaction} values (1, 'item1', 'main') """
     sql """ insert into ${table_name_interaction} values (2, 'item2', 'main') """
 
-    List<List<Object>> snapshots_inter = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_interaction}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_inter = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_interaction}\$snapshots order by committed_at; """
     String s_inter_baseline = snapshots_inter.get(1)[0]
 
     // Create a tag for baseline
@@ -276,7 +276,7 @@ suite("iceberg_tag_retention_and_consistency", "p0,external") {
     sql """ create table ${table_name_write_fail} (id int, value string) """
 
     sql """ insert into ${table_name_write_fail} values (1, 'data1') """
-    List<List<Object>> snapshots_fail = sql """ select snapshot_id from iceberg_meta("table" = "${catalog_name}.test_db_tag_retention.${table_name_write_fail}", "query_type" = "snapshots") order by committed_at; """
+    List<List<Object>> snapshots_fail = sql """ select snapshot_id from ${catalog_name}.test_db_tag_retention.${table_name_write_fail}\$snapshots order by committed_at; """
     String s_fail = snapshots_fail.get(0)[0]
 
     // Create a tag

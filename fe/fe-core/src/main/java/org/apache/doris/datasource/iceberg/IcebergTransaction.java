@@ -52,6 +52,7 @@ import org.apache.iceberg.expressions.Expressions;
 import org.apache.iceberg.io.CloseableIterable;
 import org.apache.iceberg.io.WriteResult;
 import org.apache.iceberg.types.Types;
+import org.apache.iceberg.util.ContentFileUtil;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -60,6 +61,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -80,6 +82,7 @@ public class IcebergTransaction implements Transaction {
     private IcebergInsertCommandContext insertCtx;
     private String branchName;
     private Long baseSnapshotId;
+    private Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
 
     // Rewrite operation support
     long startingSnapshotId = -1L; // Track the starting snapshot ID for rewrite operations
@@ -103,6 +106,14 @@ public class IcebergTransaction implements Transaction {
 
     public void clearConflictDetectionFilter() {
         conflictDetectionFilter = Optional.empty();
+    }
+
+    public void setRewrittenDeleteFilesByReferencedDataFile(
+            Map<String, List<DeleteFile>> rewrittenDeleteFilesByReferencedDataFile) {
+        this.rewrittenDeleteFilesByReferencedDataFile =
+                rewrittenDeleteFilesByReferencedDataFile == null
+                        ? Collections.emptyMap()
+                        : rewrittenDeleteFilesByReferencedDataFile;
     }
 
     public List<TIcebergCommitData> getCommitDataList() {
@@ -135,6 +146,7 @@ public class IcebergTransaction implements Transaction {
                     }
                 }
                 this.transaction = table.newTransaction();
+                this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
             });
         } catch (Exception e) {
             throw new UserException("Failed to begin insert for iceberg table " + dorisTable.getName()
@@ -268,6 +280,7 @@ public class IcebergTransaction implements Transaction {
                     }
                 }
                 this.transaction = table.newTransaction();
+                this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
                 LOG.info("Started delete transaction for table: {}", dorisTable.getName());
             });
         } catch (Exception e) {
@@ -294,6 +307,7 @@ public class IcebergTransaction implements Transaction {
                     }
                 }
                 this.transaction = table.newTransaction();
+                this.rewrittenDeleteFilesByReferencedDataFile = Collections.emptyMap();
                 LOG.info("Started merge transaction for table: {}", dorisTable.getName());
                 return null;
             });
@@ -348,6 +362,9 @@ public class IcebergTransaction implements Transaction {
             return;
         }
         List<DeleteFile> deleteFiles = convertCommitDataToDeleteFiles(fileFormat, commitDataList);
+        List<DeleteFile> rewrittenDeleteFiles = shouldRewritePreviousDeleteFiles()
+                ? collectRewrittenDeleteFiles(commitDataList)
+                : Collections.emptyList();
 
         if (deleteFiles.isEmpty()) {
             LOG.info("No delete files generated from commit data");
@@ -365,10 +382,15 @@ public class IcebergTransaction implements Transaction {
             rowDelta.addDeletes(deleteFile);
         }
 
+        for (DeleteFile deleteFile : rewrittenDeleteFiles) {
+            rowDelta.removeDeletes(deleteFile);
+        }
+
         // Commit the delete operation
         rowDelta.commit();
 
-        LOG.info("Committed {} delete files", deleteFiles.size());
+        LOG.info("Committed {} delete files and removed {} previous delete files",
+                deleteFiles.size(), rewrittenDeleteFiles.size());
     }
 
     private List<DeleteFile> convertCommitDataToDeleteFiles(FileFormat fileFormat,
@@ -425,7 +447,8 @@ public class IcebergTransaction implements Transaction {
 
         for (TIcebergCommitData commitData : commitDataList) {
             if (commitData.isSetFileContent()
-                    && commitData.getFileContent() == TFileContent.POSITION_DELETES) {
+                    && (commitData.getFileContent() == TFileContent.POSITION_DELETES
+                    || commitData.getFileContent() == TFileContent.DELETION_VECTOR)) {
                 deleteCommitData.add(commitData);
             } else {
                 dataCommitData.add(commitData);
@@ -440,6 +463,9 @@ public class IcebergTransaction implements Transaction {
         }
 
         List<DeleteFile> deleteFiles = convertCommitDataToDeleteFiles(fileFormat, deleteCommitData);
+        List<DeleteFile> rewrittenDeleteFiles = shouldRewritePreviousDeleteFiles()
+                ? collectRewrittenDeleteFiles(deleteCommitData)
+                : Collections.emptyList();
 
         if (dataFiles.isEmpty() && deleteFiles.isEmpty()) {
             LOG.info("No data or delete files generated from commit data");
@@ -457,10 +483,13 @@ public class IcebergTransaction implements Transaction {
         for (DeleteFile deleteFile : deleteFiles) {
             rowDelta.addDeletes(deleteFile);
         }
+        for (DeleteFile deleteFile : rewrittenDeleteFiles) {
+            rowDelta.removeDeletes(deleteFile);
+        }
 
         rowDelta.commit();
-        LOG.info("Committed merge with {} data files and {} delete files",
-                dataFiles.size(), deleteFiles.size());
+        LOG.info("Committed merge with {} data files, {} delete files and removed {} previous delete files",
+                dataFiles.size(), deleteFiles.size(), rewrittenDeleteFiles.size());
     }
 
     public void finishInsert(NameMapping nameMapping) {
@@ -534,11 +563,15 @@ public class IcebergTransaction implements Transaction {
         long dataRows = 0;
         long deleteRows = 0;
         for (TIcebergCommitData commitData : commitDataList) {
+            long affectedRows = commitData.isSetAffectedRows()
+                    ? commitData.getAffectedRows()
+                    : commitData.getRowCount();
             if (commitData.isSetFileContent()
-                    && commitData.getFileContent() == TFileContent.POSITION_DELETES) {
-                deleteRows += commitData.getRowCount();
+                    && (commitData.getFileContent() == TFileContent.POSITION_DELETES
+                    || commitData.getFileContent() == TFileContent.DELETION_VECTOR)) {
+                deleteRows += affectedRows;
             } else {
-                dataRows += commitData.getRowCount();
+                dataRows += affectedRows;
             }
         }
         // For UPDATE/MERGE, dataRows includes both inserted and update-inserted rows,
@@ -735,6 +768,45 @@ public class IcebergTransaction implements Transaction {
         return "serializable".equalsIgnoreCase(level);
     }
 
+    private boolean shouldRewritePreviousDeleteFiles() {
+        return table != null && IcebergUtils.getFormatVersion(table) >= 3;
+    }
+
+    private List<DeleteFile> collectRewrittenDeleteFiles(List<TIcebergCommitData> deleteCommitData) {
+        if (deleteCommitData == null || deleteCommitData.isEmpty()
+                || rewrittenDeleteFilesByReferencedDataFile.isEmpty()) {
+            return Collections.emptyList();
+        }
+
+        Map<String, DeleteFile> dedup = new LinkedHashMap<>();
+        for (TIcebergCommitData commitData : deleteCommitData) {
+            if (!commitData.isSetReferencedDataFilePath()
+                    || commitData.getReferencedDataFilePath() == null
+                    || commitData.getReferencedDataFilePath().isEmpty()) {
+                continue;
+            }
+            List<DeleteFile> oldDeleteFiles =
+                    rewrittenDeleteFilesByReferencedDataFile.get(commitData.getReferencedDataFilePath());
+            if (oldDeleteFiles == null) {
+                continue;
+            }
+            for (DeleteFile deleteFile : oldDeleteFiles) {
+                if (deleteFile != null && ContentFileUtil.isFileScoped(deleteFile)) {
+                    dedup.putIfAbsent(buildDeleteFileDedupKey(deleteFile), deleteFile);
+                }
+            }
+        }
+        return new ArrayList<>(dedup.values());
+    }
+
+    private String buildDeleteFileDedupKey(DeleteFile deleteFile) {
+        if (deleteFile.format() == FileFormat.PUFFIN) {
+            return deleteFile.path() + "#" + deleteFile.contentOffset() + "#"
+                    + deleteFile.contentSizeInBytes();
+        }
+        return deleteFile.path().toString();
+    }
+
     private List<String> collectReferencedDataFiles(List<TIcebergCommitData> commitDataList) {
         if (commitDataList == null || commitDataList.isEmpty()) {
             return Collections.emptyList();
@@ -743,7 +815,8 @@ public class IcebergTransaction implements Transaction {
         List<String> referencedDataFiles = new ArrayList<>();
         for (TIcebergCommitData commitData : commitDataList) {
             if (commitData.isSetFileContent()
-                    && commitData.getFileContent() != TFileContent.POSITION_DELETES) {
+                    && commitData.getFileContent() != TFileContent.POSITION_DELETES
+                    && commitData.getFileContent() != TFileContent.DELETION_VECTOR) {
                 continue;
             }
             if (commitData.isSetReferencedDataFiles()) {

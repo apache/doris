@@ -109,6 +109,32 @@ public class IcebergWriterHelperTest {
     }
 
     @Test
+    public void testConvertToDeleteFiles_DeletionVectorUsesPuffinMetadata() {
+        List<TIcebergCommitData> commitDataList = new ArrayList<>();
+
+        TIcebergCommitData commitData = new TIcebergCommitData();
+        commitData.setFilePath("/path/to/delete.puffin");
+        commitData.setRowCount(7);
+        commitData.setFileSize(2048);
+        commitData.setFileContent(TFileContent.DELETION_VECTOR);
+        commitData.setContentOffset(128L);
+        commitData.setContentSizeInBytes(64L);
+        commitData.setReferencedDataFilePath("/path/to/data.parquet");
+        commitDataList.add(commitData);
+
+        List<DeleteFile> deleteFiles = IcebergWriterHelper.convertToDeleteFiles(
+                format, unpartitionedSpec, commitDataList);
+
+        Assertions.assertEquals(1, deleteFiles.size());
+        DeleteFile deleteFile = deleteFiles.get(0);
+        Assertions.assertEquals(FileFormat.PUFFIN, deleteFile.format());
+        Assertions.assertEquals(128L, deleteFile.contentOffset());
+        Assertions.assertEquals(64L, deleteFile.contentSizeInBytes());
+        Assertions.assertEquals("/path/to/data.parquet", deleteFile.referencedDataFile());
+        Assertions.assertEquals(org.apache.iceberg.FileContent.POSITION_DELETES, deleteFile.content());
+    }
+
+    @Test
     public void testConvertToDeleteFiles_UnsupportedDeleteContent() {
         List<TIcebergCommitData> commitDataList = new ArrayList<>();
 

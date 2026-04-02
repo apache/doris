@@ -18,8 +18,6 @@
 suite("test_ipv4_cidr_to_range") {
     sql """ DROP TABLE IF EXISTS test_ipv4_cidr_to_range """
 
-    sql """ SET enable_nereids_planner=true """
-    sql """ SET enable_fallback_to_original_planner=false """
 
     sql """
         CREATE TABLE test_ipv4_cidr_to_range (

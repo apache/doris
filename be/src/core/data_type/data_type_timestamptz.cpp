@@ -26,8 +26,8 @@ namespace doris {
 Field DataTypeTimeStampTz::get_field(const TExprNode& node) const {
     TimestampTzValue res;
     CastParameters params {.status = Status::OK(), .is_strict = true};
-
-    if (!CastToTimstampTz::from_string(
+    // FE pass the value with timezone info(using legacy planner), so no `local_time_zone` here is ok.
+    if (!CastToTimestampTz::from_string(
                 {node.date_literal.value.c_str(), node.date_literal.value.size()}, res, params,
                 nullptr, _scale)) [[unlikely]] {
         throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,

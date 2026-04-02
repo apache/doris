@@ -49,14 +49,14 @@ struct CastToDateV2 {
     static inline bool from_integer(T int_val, DateV2Value<DateV2ValueType>& val,
                                     CastParameters& params) {
         if (params.is_strict) {
-            return from_integer<true>(int_val, val, params);
+            return from_integer<DatelikeParseMode::STRICT>(int_val, val, params);
         } else {
-            return from_integer<false>(int_val, val, params);
+            return from_integer<DatelikeParseMode::NON_STRICT>(int_val, val, params);
         }
     }
 
     // same behaviour in both strict and non-strict mode
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
     static inline bool from_integer(T int_val, DateV2Value<DateV2ValueType>& val,
                                     CastParameters& params);
 
@@ -66,23 +66,25 @@ struct CastToDateV2 {
     static inline bool from_float(T float_value, DateV2Value<DateV2ValueType>& val,
                                   CastParameters& params) {
         if (params.is_strict) {
-            return from_float<true>(float_value, val, params);
+            return from_float<DatelikeParseMode::STRICT>(float_value, val, params);
         } else {
-            return from_float<false>(float_value, val, params);
+            return from_float<DatelikeParseMode::NON_STRICT>(float_value, val, params);
         }
     }
 
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
         requires std::is_floating_point_v<T>
     static inline bool from_float(T float_value, DateV2Value<DateV2ValueType>& val,
                                   CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
         SET_PARAMS_RET_FALSE_IFN(float_value > 0 && !std::isnan(float_value) &&
                                          !std::isinf(float_value) &&
                                          float_value < (double)std::numeric_limits<int64_t>::max(),
                                  "invalid float value for datev2: {}", float_value);
 
         auto int_part = static_cast<int64_t>(float_value);
-        if (!from_integer<IsStrict>(int_part, val, params)) {
+        if (!from_integer<ParseMode>(int_part, val, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
@@ -94,19 +96,22 @@ struct CastToDateV2 {
     static inline bool from_decimal(const T& int_part, const int64_t& decimal_scale,
                                     DateV2Value<DateV2ValueType>& res, CastParameters& params) {
         if (params.is_strict) {
-            return from_decimal<true>(int_part, decimal_scale, res, params);
+            return from_decimal<DatelikeParseMode::STRICT>(int_part, decimal_scale, res, params);
         } else {
-            return from_decimal<false>(int_part, decimal_scale, res, params);
+            return from_decimal<DatelikeParseMode::NON_STRICT>(int_part, decimal_scale, res,
+                                                               params);
         }
     }
 
-    template <bool IsStrict, typename T>
+    template <DatelikeParseMode ParseMode, typename T>
     static inline bool from_decimal(const T& int_part, const int64_t& decimal_scale,
                                     DateV2Value<DateV2ValueType>& res, CastParameters& params) {
+        constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+        DCHECK(IsStrict == params.is_strict);
         SET_PARAMS_RET_FALSE_IFN(int_part <= std::numeric_limits<int64_t>::max() && int_part >= 1,
                                  "invalid decimal value for datev2: {}.xxx", int_part);
 
-        if (!from_integer<IsStrict>(int_part, res, params)) {
+        if (!from_integer<ParseMode>(int_part, res, params)) {
             // if IsStrict, error code has been set in from_integer
             return false;
         }
@@ -117,7 +122,8 @@ struct CastToDateV2 {
     static inline bool from_string(const StringRef& str, DateV2Value<DateV2ValueType>& res,
                                    const cctz::time_zone* local_time_zone, CastParameters& params) {
         if (params.is_strict) {
-            return from_string_strict_mode<true>(str, res, local_time_zone, params);
+            return from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, local_time_zone,
+                                                                      params);
         } else {
             return from_string_non_strict_mode(str, res, local_time_zone, params);
         }
@@ -125,7 +131,7 @@ struct CastToDateV2 {
 
     // this code follow rules of strict mode, but whether it RUNNING IN strict mode or not depends on the `IsStrict`
     // parameter. if it's false, we dont set error code for performance and we dont need.
-    template <bool IsStrict>
+    template <DatelikeParseMode ParseMode>
     static inline bool from_string_strict_mode(const StringRef& str,
                                                DateV2Value<DateV2ValueType>& res,
                                                const cctz::time_zone* local_time_zone,
@@ -135,7 +141,8 @@ struct CastToDateV2 {
                                                    DateV2Value<DateV2ValueType>& res,
                                                    const cctz::time_zone* local_time_zone,
                                                    CastParameters& params) {
-        return CastToDateV2::from_string_strict_mode<false>(str, res, local_time_zone, params) ||
+        return CastToDateV2::from_string_strict_mode<DatelikeParseMode::NON_STRICT>(
+                       str, res, local_time_zone, params) ||
                CastToDateV2::from_string_non_strict_mode_impl(str, res, local_time_zone, params);
     }
 
@@ -145,9 +152,11 @@ struct CastToDateV2 {
                                                         CastParameters& params);
 };
 
-template <bool IsStrict, typename T>
+template <DatelikeParseMode ParseMode, typename T>
 inline bool CastToDateV2::from_integer(T input, DateV2Value<DateV2ValueType>& val,
                                        CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
+    DCHECK(IsStrict == params.is_strict);
     // T maybe int128 then bigger than int64_t. so we must check before cast
     SET_PARAMS_RET_FALSE_IFN(input <= std::numeric_limits<int64_t>::max() && input > 0,
                              "invalid int value for datev2: {}", input);
@@ -257,11 +266,12 @@ inline bool CastToDateV2::from_integer(T input, DateV2Value<DateV2ValueType>& va
 <alpha>          ::= "A" | … | "Z" | "a" | … | "z"
 <whitespace>     ::= " " | "\t" | "\n" | "\r" | "\v" | "\f"
 */
-template <bool IsStrict>
+template <DatelikeParseMode ParseMode>
 inline bool CastToDateV2::from_string_strict_mode(const StringRef& str,
                                                   DateV2Value<DateV2ValueType>& res,
                                                   const cctz::time_zone* local_time_zone,
                                                   CastParameters& params) {
+    constexpr bool IsStrict = is_datelike_parse_strict(ParseMode);
     const char* ptr = str.data;
     const char* end = ptr + str.size;
     AsanPoisonGuard defer(end, 1);

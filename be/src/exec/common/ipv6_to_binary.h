@@ -20,6 +20,8 @@
 
 #pragma once
 
+#include <algorithm>
+
 #include "exec/common/format_ip.h"
 
 namespace doris {
@@ -29,18 +31,15 @@ namespace doris {
 constexpr size_t IPV6_MASKS_COUNT = 256;
 using RawMaskArrayV6 = std::array<uint8_t, IPV6_BINARY_LENGTH>;
 
-template <typename RawMaskArrayT>
-static constexpr RawMaskArrayT generate_bit_mask(size_t prefix) {
-    RawMaskArrayT arr {0};
-    if (prefix >= arr.size() * 8) {
-        prefix = arr.size() * 8;
-    }
+static constexpr RawMaskArrayV6 generate_bit_mask(size_t prefix) {
+    RawMaskArrayV6 arr {0};
+    prefix = std::min(prefix, arr.size() * 8);
     int8_t i = IPV6_BINARY_LENGTH - 1;
     for (; prefix >= 8; --i, prefix -= 8) {
         arr[i] = 0xff;
     }
     if (prefix > 0) {
-        arr[i--] = ~(0xff >> prefix);
+        arr[i--] = static_cast<uint8_t>(~(0xff >> prefix));
     }
     while (i >= 0) {
         arr[i--] = 0x00;
@@ -48,11 +47,10 @@ static constexpr RawMaskArrayT generate_bit_mask(size_t prefix) {
     return arr;
 }
 
-template <typename RawMaskArrayT, size_t masksCount>
-static constexpr std::array<RawMaskArrayT, masksCount> generate_bit_masks() {
-    std::array<RawMaskArrayT, masksCount> arr {};
-    for (size_t i = 0; i < masksCount; ++i) {
-        arr[i] = generate_bit_mask<RawMaskArrayT>(i);
+static constexpr std::array<RawMaskArrayV6, IPV6_MASKS_COUNT> generate_bit_masks() {
+    std::array<RawMaskArrayV6, IPV6_MASKS_COUNT> arr {};
+    for (size_t i = 0; i < IPV6_MASKS_COUNT; ++i) {
+        arr[i] = generate_bit_mask(i);
     }
     return arr;
 }
@@ -62,8 +60,7 @@ static constexpr std::array<RawMaskArrayT, masksCount> generate_bit_masks() {
 /// The reference is valid during all program execution time.
 /// Values of prefix_len greater than 128 interpreted as 128 exactly.
 inline const std::array<uint8_t, 16>& get_cidr_mask_ipv6(uint8_t prefix_len) {
-    static constexpr auto IPV6_RAW_MASK_ARRAY =
-            generate_bit_masks<RawMaskArrayV6, IPV6_MASKS_COUNT>();
+    static constexpr auto IPV6_RAW_MASK_ARRAY = generate_bit_masks();
     return IPV6_RAW_MASK_ARRAY[prefix_len];
 }
 

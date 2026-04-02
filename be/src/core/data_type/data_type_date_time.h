@@ -91,16 +91,7 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     }
 
-    Field get_field(const TExprNode& node) const override {
-        VecDateTimeValue value;
-        if (value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size())) {
-            value.to_datetime();
-            return Field::create_field<TYPE_DATETIME>(std::move(value));
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type DateTime", node.date_literal.value);
-        }
-    }
+    Field get_field(const TExprNode& node) const override;
 
     static void cast_to_date_time(VecDateTimeValue& x);
 

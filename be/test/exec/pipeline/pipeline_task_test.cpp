@@ -435,7 +435,7 @@ TEST_F(PipelineTaskTest, TEST_TERMINATE) {
             std::this_thread::sleep_for(std::chrono::milliseconds(std::rand() % 5000));
             terminated = true;
             task->set_wake_up_early();
-            task->terminate();
+            task->unblock_all_dependencies();
         };
 
         std::thread exec_thread(exec_func);

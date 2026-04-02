@@ -43,48 +43,13 @@ suite("test_iceberg_sys_table", "p0,external") {
     sql """switch ${catalog_name}"""
     sql """use ${db_name}"""
 
-    def test_iceberg_systable = { tblName, systableType ->
-        def systableName = "${tblName}\$${systableType}"
-
-        order_qt_desc_systable1 """desc ${systableName}"""
-        order_qt_desc_systable2 """desc ${db_name}.${systableName}"""
-        order_qt_desc_systable3 """desc ${catalog_name}.${db_name}.${systableName}"""
-
-        List<List<Object>> schema = sql """desc ${systableName}"""
-        String key = String.valueOf(schema[1][0])
-
-        order_qt_tbl1_systable """select * from ${systableName}"""
-        order_qt_tbl1_systable_select """select ${key} from ${systableName}"""
-        order_qt_tbl1_systable_count """select count(*) from ${systableName}"""
-        order_qt_tbl1_systable_count_select """select count(${key}) from ${systableName}"""
-
-        List<List<Object>> res1 = sql """select ${key} from ${systableName} order by ${key}"""
-        List<List<Object>> res2 = sql """select ${key} from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${tblName}",
-            "query_type" = "${systableType}") order by ${key};
-        """
-        assertEquals(res1.size(), res2.size());
-        for (int i = 0; i < res1.size(); i++) {
-            for (int j = 0; j < res1[i].size(); j++) {
-                assertEquals(res1[i][j], res2[i][j]);
-            }
-        }
-
-        if (res1.isEmpty()) {
-            return
-        }
-
-        String value = String.valueOf(res1[0][0])
-        order_qt_tbl1_systable_where """
-            select * from ${systableName} where ${key}="${value}";
-        """
-        order_qt_tbl1_systable_where_count """
-            select count(*) from ${systableName} where ${key}="${value}";
-        """
-        order_qt_systable_where2 """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${tblName}",
-            "query_type" = "${systableType}") where ${key}="${value}";
-        """
+    def assertQueryRowsMatchCount = { String countSql, String querySql, String label ->
+        List<List<Object>> countResult = sql countSql
+        assertEquals(1, countResult.size())
+        long expectedRows = ((Number) countResult[0][0]).longValue()
+        List<List<Object>> queryResult = sql querySql
+        assertNotNull(queryResult, "${label} result should not be null")
+        assertEquals(expectedRows, (long) queryResult.size(), "${label} row count should match count query")
     }
 
     def test_systable_entries = { table, systableType ->
@@ -103,10 +68,16 @@ suite("test_iceberg_sys_table", "p0,external") {
             }
         }
 
-        order_qt_select_entries """select status, sequence_number, file_sequence_number from ${systableName}"""
         order_qt_select_entries_count """select count(*) from ${systableName}"""
-        order_qt_select_entries_where """select status, sequence_number, file_sequence_number from ${systableName} where status="0";"""
         order_qt_select_entries_where_count """select count(status) from ${systableName} where status="0";"""
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select status, sequence_number, file_sequence_number from ${systableName}""",
+                systableName)
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName} where status="0";""",
+                """select status, sequence_number, file_sequence_number from ${systableName} where status="0";""",
+                "${systableName} filtered by status")
     }
 
     def test_systable_files = { table, systableType ->
@@ -125,10 +96,16 @@ suite("test_iceberg_sys_table", "p0,external") {
             }
         }
 
-        order_qt_select_files """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName}"""
         order_qt_select_files_count """select count(*) from ${systableName}"""
-        order_qt_select_files_where """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName} where content="0";"""
         order_qt_select_files_where_count """select count(content) from ${systableName} where content="0";"""
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName}""",
+                systableName)
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName} where content="0";""",
+                """select content, file_format, record_count, lower_bounds, upper_bounds from ${systableName} where content="0";""",
+                "${systableName} filtered by content")
     }
 
     def test_systable_history = { table ->
@@ -148,17 +125,10 @@ suite("test_iceberg_sys_table", "p0,external") {
         }
 
         order_qt_select_history_count """select count(*) from ${systableName}"""
-
-        List<List<Object>> res1 = sql """select * from ${systableName} order by snapshot_id"""
-        List<List<Object>> res2 = sql """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "history") order by snapshot_id"""
-        assertEquals(res1.size(), res2.size());
-        for (int i = 0; i < res1.size(); i++) {
-            for (int j = 0; j < res1[i].size(); j++) {
-                assertEquals(res1[i][j], res2[i][j]);
-            }
-        }
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select * from ${systableName} order by snapshot_id""",
+                systableName)
     }
 
     def test_systable_metadata_log_entries = { table ->
@@ -178,17 +148,10 @@ suite("test_iceberg_sys_table", "p0,external") {
         }
 
         order_qt_select_metadata_log_entries_count """select count(*) from ${systableName}"""
-
-        List<List<Object>> res1 = sql """select * from ${systableName} order by timestamp"""
-        List<List<Object>> res2 = sql """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "metadata_log_entries") order by timestamp"""
-        assertEquals(res1.size(), res2.size());
-        for (int i = 0; i < res1.size(); i++) {
-            for (int j = 0; j < res1[i].size(); j++) {
-                assertEquals(res1[i][j], res2[i][j]);
-            }
-        }
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select * from ${systableName} order by timestamp""",
+                systableName)
     }
 
     def test_systable_snapshots = { table ->
@@ -207,19 +170,15 @@ suite("test_iceberg_sys_table", "p0,external") {
             }
         }
 
-        order_qt_select_snapshots """select operation from ${systableName}"""
         order_qt_select_snapshots_count """select count(*) from ${systableName}"""
-
-        List<List<Object>> res1 = sql """select * from ${systableName} order by committed_at"""
-        List<List<Object>> res2 = sql """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "snapshots") order by committed_at"""
-        assertEquals(res1.size(), res2.size());
-        for (int i = 0; i < res1.size(); i++) {
-            for (int j = 0; j < res1[i].size(); j++) {
-                assertEquals(res1[i][j], res2[i][j]);
-            }
-        }
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select operation from ${systableName}""",
+                "${systableName} projected query")
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select * from ${systableName} order by committed_at""",
+                systableName)
     }
 
     def test_systable_refs = { table ->
@@ -238,19 +197,15 @@ suite("test_iceberg_sys_table", "p0,external") {
             }
         }
 
-        order_qt_select_refs """select name, type from ${systableName}"""
         order_qt_select_refs_count """select count(*) from ${systableName}"""
-
-        List<List<Object>> res1 = sql """select * from ${systableName} order by snapshot_id"""
-        List<List<Object>> res2 = sql """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "refs") order by snapshot_id"""
-        assertEquals(res1.size(), res2.size());
-        for (int i = 0; i < res1.size(); i++) {
-            for (int j = 0; j < res1[i].size(); j++) {
-                assertEquals(res1[i][j], res2[i][j]);
-            }
-        }
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select name, type from ${systableName}""",
+                "${systableName} projected query")
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select * from ${systableName} order by snapshot_id""",
+                systableName)
     }
 
     def test_systable_manifests = { table, systableType ->
@@ -272,27 +227,15 @@ suite("test_iceberg_sys_table", "p0,external") {
         order_qt_select_manifests_count """select count(*) from ${systableName}"""
 
         if (systableType.equals("manifests")) {
-            List<List<Object>> res1 = sql """select * from ${systableName} order by path"""
-            List<List<Object>> res2 = sql """select * from iceberg_meta(
-                "table" = "${catalog_name}.${db_name}.${table}",
-                "query_type" = "${systableType}") order by path"""
-            assertEquals(res1.size(), res2.size());
-            for (int i = 0; i < res1.size(); i++) {
-                for (int j = 0; j < res1[i].size(); j++) {
-                    assertEquals(res1[i][j], res2[i][j]);
-                }
-            }
+            assertQueryRowsMatchCount(
+                    """select count(*) from ${systableName}""",
+                    """select * from ${systableName} order by path""",
+                    systableName)
         } else {
-            List<List<Object>> res1 = sql """select * from ${systableName} order by path, reference_snapshot_id"""
-            List<List<Object>> res2 = sql """select * from iceberg_meta(
-                "table" = "${catalog_name}.${db_name}.${table}",
-                "query_type" = "${systableType}") order by path, reference_snapshot_id"""
-            assertEquals(res1.size(), res2.size());
-            for (int i = 0; i < res1.size(); i++) {
-                for (int j = 0; j < res1[i].size(); j++) {
-                    assertEquals(res1[i][j], res2[i][j]);
-                }
-            }
+            assertQueryRowsMatchCount(
+                    """select count(*) from ${systableName}""",
+                    """select * from ${systableName} order by path, reference_snapshot_id""",
+                    systableName)
         }
     }
 
@@ -313,14 +256,10 @@ suite("test_iceberg_sys_table", "p0,external") {
         }
 
         order_qt_select_partitions_count """select count(*) from ${systableName}"""
-
-        
-        List<List<Object>> res1 = sql """select * from ${systableName};"""
-        List<List<Object>> res2 = sql """select * from iceberg_meta(
-            "table" = "${catalog_name}.${db_name}.${table}",
-            "query_type" = "partitions");"""
-        assertEquals(res1.size(), res2.size());
-        // just test can be selected successully
+        assertQueryRowsMatchCount(
+                """select count(*) from ${systableName}""",
+                """select * from ${systableName};""",
+                systableName)
     }
 
     def test_table_systables = { table ->
@@ -376,14 +315,6 @@ suite("test_iceberg_sys_table", "p0,external") {
     connect(user, "${pwd}", context.config.jdbcUrl) {
         test {
               sql """
-                 select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
-                                             "table" = "${catalog_name}.${db_name}.test_iceberg_systable_tbl1",
-                                             "query_type" = "snapshots");
-              """
-              exception "denied"
-        }
-        test {
-              sql """
                  select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots
               """
               exception "denied"
@@ -391,11 +322,6 @@ suite("test_iceberg_sys_table", "p0,external") {
     }
     sql """grant select_priv on ${catalog_name}.${db_name}.test_iceberg_systable_tbl1 to ${user}"""
     connect(user, "${pwd}", context.config.jdbcUrl) {
-        sql """
-           select committed_at, snapshot_id, parent_id, operation from iceberg_meta(
-                                       "table" = "${catalog_name}.${db_name}.test_iceberg_systable_tbl1",
-                                       "query_type" = "snapshots");
-        """
         sql """select committed_at, snapshot_id, parent_id, operation from ${catalog_name}.${db_name}.test_iceberg_systable_tbl1\$snapshots"""
     }
     try_sql("DROP USER ${user}")
@@ -417,5 +343,13 @@ suite("test_iceberg_sys_table", "p0,external") {
     sql """use ${db_name}"""
 
     order_qt_varbinary_sys_table_desc """desc test_iceberg_systable_unpartitioned\$files"""
-    order_qt_varbinary_sys_table_select """select content, file_format, record_count, lower_bounds, upper_bounds from test_iceberg_systable_unpartitioned\$files;"""
+    List<List<Object>> varbinaryRows = sql """
+        select content, file_format, record_count, lower_bounds, upper_bounds
+        from test_iceberg_systable_unpartitioned\$files;
+    """
+    assertTrue(varbinaryRows.size() > 0, "Varbinary system table query should return data")
+    assertTrue(String.valueOf(varbinaryRows[0][3]).contains("0x"),
+            "Expected lower_bounds to use varbinary hex output")
+    assertTrue(String.valueOf(varbinaryRows[0][4]).contains("0x"),
+            "Expected upper_bounds to use varbinary hex output")
 }

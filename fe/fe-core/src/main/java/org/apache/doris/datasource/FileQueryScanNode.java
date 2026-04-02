@@ -247,7 +247,7 @@ public abstract class FileQueryScanNode extends FileScanNode {
         }
 
         // Pre-index columns into a Map for O(1) lookup
-        List<Column> columns = getColumns();
+        List<Column> columns = desc.getTable().getFullSchema();
         Map<String, Integer> columnNameMap = new HashMap<>(columns.size());
         for (int i = 0; i < columns.size(); i++) {
             columnNameMap.putIfAbsent(columns.get(i).getName(), i);

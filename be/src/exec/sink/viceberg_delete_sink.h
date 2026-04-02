@@ -18,6 +18,7 @@
 #pragma once
 
 #include <gen_cpp/DataSinks_types.h>
+#include <gen_cpp/PlanNodes_types.h>
 
 #include <map>
 #include <memory>
@@ -26,10 +27,10 @@
 
 #include "common/status.h"
 #include "core/block/block.h"
-#include "core/value/bitmap_value.h"
 #include "exec/sink/writer/async_result_writer.h"
 #include "exec/sink/writer/iceberg/viceberg_delete_file_writer.h"
 #include "exprs/vexpr_fwd.h"
+#include "roaring/roaring64map.hh"
 #include "runtime/runtime_profile.h"
 
 namespace doris {
@@ -47,7 +48,7 @@ struct IcebergFileDeletion {
 
     int32_t partition_spec_id = 0;
     std::string partition_data_json;
-    doris::detail::Roaring64Map rows_to_delete;
+    roaring::Roaring64Map rows_to_delete;
 };
 
 /**
@@ -85,6 +86,28 @@ private:
     Status _write_position_delete_files(
             const std::map<std::string, IcebergFileDeletion>& file_deletions);
 
+    Status _write_deletion_vector_files(
+            const std::map<std::string, IcebergFileDeletion>& file_deletions);
+
+    struct DeletionVectorBlob {
+        std::string referenced_data_file;
+        int32_t partition_spec_id = 0;
+        std::string partition_data_json;
+        int64_t delete_count = 0; // The number of rows deleted in this delete operation.
+        int64_t merged_count =
+                0; // The number of rows after merging the old deletion vector and position delete.
+        int64_t content_offset = 0;
+        int64_t content_size_in_bytes = 0;
+        std::vector<char> blob_data;
+    };
+
+    Status _write_puffin_file(const std::string& puffin_path,
+                              std::vector<DeletionVectorBlob>* blobs, int64_t* out_file_size);
+
+    std::string _build_puffin_footer_json(const std::vector<DeletionVectorBlob>& blobs);
+
+    std::string _generate_puffin_file_path();
+
     /**
      * Generate unique delete file path
      */
@@ -106,6 +129,7 @@ private:
     TDataSink _t_sink;
     RuntimeState* _state = nullptr;
 
+    int32_t _format_version = 2;
     TFileContent::type _delete_type = TFileContent::POSITION_DELETES;
 
     // Writers for delete files
@@ -117,6 +141,7 @@ private:
     //  per-file when the upstream guarantees file_path ordering, or flushing
     //  when estimated memory exceeds a threshold, to reduce peak memory usage.
     std::map<std::string, IcebergFileDeletion> _file_deletions;
+    std::map<std::string, std::vector<TIcebergDeleteFileDesc>> _rewritable_delete_files;
 
     // Hadoop configuration
     std::map<std::string, std::string> _hadoop_conf;

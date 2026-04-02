@@ -190,7 +190,7 @@ suite("create_ann_index_test") {
                 "replication_num" = "1"
             );
         """
-        exception "only support ann index with type hnsw or ivf"
+        exception "only support ann index with type hnsw, ivf or ivf_on_disk"
     }
 
     // metric_type is incorrect
@@ -386,4 +386,26 @@ suite("create_ann_index_test") {
 
         exception "ANN index is not supported in index format V1"
     }
+
+    // CREATE INDEX with ivf_on_disk type on existing table
+    sql "drop table if exists tbl_ann_ivf_on_disk_create_idx"
+    sql """
+        CREATE TABLE tbl_ann_ivf_on_disk_create_idx (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT ""
+        ) ENGINE=OLAP
+        DUPLICATE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
+    sql """
+        CREATE INDEX idx_ivf_on_disk ON tbl_ann_ivf_on_disk_create_idx (`embedding`) USING ANN PROPERTIES(
+            "index_type"="ivf_on_disk",
+            "metric_type"="l2_distance",
+            "dim"="128",
+            "nlist"="64"
+        );
+    """
 }

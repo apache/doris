@@ -17,6 +17,7 @@
 
 #include "iceberg_sys_table_jni_reader.h"
 
+#include "common/logging.h"
 #include "format/jni/jni_data_bridge.h"
 #include "runtime/runtime_state.h"
 #include "util/string_util.h"
@@ -26,9 +27,27 @@ namespace doris {
 
 static const std::string HADOOP_OPTION_PREFIX = "hadoop.";
 
+Status IcebergSysTableJniReader::validate_scan_range(const TFileRangeDesc& range) {
+    if (!range.__isset.table_format_params) {
+        return Status::InternalError(
+                "missing table_format_params for iceberg sys table jni reader");
+    }
+    if (!range.table_format_params.__isset.iceberg_params) {
+        return Status::InternalError("missing iceberg_params for iceberg sys table jni reader");
+    }
+    if (!range.table_format_params.iceberg_params.__isset.serialized_split ||
+        range.table_format_params.iceberg_params.serialized_split.empty()) {
+        return Status::InternalError(
+                "missing serialized_split for iceberg sys table jni reader, "
+                "possibly caused by FE/BE protocol mismatch");
+    }
+    return Status::OK();
+}
+
 IcebergSysTableJniReader::IcebergSysTableJniReader(
         const std::vector<SlotDescriptor*>& file_slot_descs, RuntimeState* state,
-        RuntimeProfile* profile, const TMetaScanRange& meta_scan_range)
+        RuntimeProfile* profile, const TFileRangeDesc& range,
+        const TFileScanRangeParams* range_params)
         : JniReader(
                   file_slot_descs, state, profile,
                   "org/apache/doris/iceberg/IcebergSysTableJniScanner",
@@ -41,12 +60,16 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
                                   JniDataBridge::get_jni_type_with_different_string(desc->type()));
                       }
                       std::map<std::string, std::string> params;
-                      params["serialized_splits"] = join(meta_scan_range.serialized_splits, ",");
+                      params["serialized_split"] =
+                              range.table_format_params.iceberg_params.serialized_split;
                       params["required_fields"] = join(required_fields, ",");
                       params["required_types"] = join(required_types, "#");
                       params["time_zone"] = state->timezone();
-                      for (const auto& kv : meta_scan_range.hadoop_props) {
-                          params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+                      if (range_params != nullptr && range_params->__isset.properties &&
+                          !range_params->properties.empty()) {
+                          for (const auto& kv : range_params->properties) {
+                              params[HADOOP_OPTION_PREFIX + kv.first] = kv.second;
+                          }
                       }
                       return params;
                   }(),
@@ -56,9 +79,12 @@ IcebergSysTableJniReader::IcebergSysTableJniReader(
                           names.emplace_back(desc->col_name());
                       }
                       return names;
-                  }()) {}
+                  }(),
+                  range.__isset.self_split_weight ? range.self_split_weight : -1),
+          _init_status(validate_scan_range(range)) {}
 
 Status IcebergSysTableJniReader::init_reader() {
+    RETURN_IF_ERROR(_init_status);
     return open(_state, _profile);
 }
 

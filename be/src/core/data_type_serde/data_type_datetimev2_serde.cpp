@@ -90,7 +90,8 @@ Status DataTypeDateTimeV2SerDe::from_string_strict_mode_batch(
         }
         auto str = col_str.get_data_at(i);
         DateV2Value<DateTimeV2ValueType> res;
-        CastToDatetimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
+        CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(
+                str, res, options.timezone, _scale, params);
         // only after we called something with `IS_STRICT = true`, params.status will be set
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
@@ -156,7 +157,8 @@ Status DataTypeDateTimeV2SerDe::from_string_strict_mode(StringRef& str, IColumn&
     CastParameters params {.status = Status::OK(), .is_strict = true};
 
     DateV2Value<DateTimeV2ValueType> res;
-    CastToDatetimeV2::from_string_strict_mode<true>(str, res, options.timezone, _scale, params);
+    CastToDatetimeV2::from_string_strict_mode<DatelikeParseMode::STRICT>(str, res, options.timezone,
+                                                                         _scale, params);
     // only after we called something with `IS_STRICT = true`, params.status will be set
     if (!params.status.ok()) [[unlikely]] {
         params.status.prepend(fmt::format("parse {} to datetime failed: ", str.to_string_view()));
@@ -177,7 +179,8 @@ Status DataTypeDateTimeV2SerDe::from_int_batch(const typename IntDataType::Colum
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        if (CastToDatetimeV2::from_integer<false>(int_col.get_element(i), val, params)) [[likely]] {
+        if (CastToDatetimeV2::from_integer<DatelikeParseMode::NON_STRICT>(int_col.get_element(i),
+                                                                          val, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -197,7 +200,8 @@ Status DataTypeDateTimeV2SerDe::from_int_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < int_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        CastToDatetimeV2::from_integer<true>(int_col.get_element(i), val, params);
+        CastToDatetimeV2::from_integer<DatelikeParseMode::STRICT>(int_col.get_element(i), val,
+                                                                  params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to datetime failed: ", int_col.get_element(i)));
@@ -220,8 +224,8 @@ Status DataTypeDateTimeV2SerDe::from_float_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        if (CastToDatetimeV2::from_float<false>(float_col.get_data()[i], val, _scale, params))
-                [[likely]] {
+        if (CastToDatetimeV2::from_float<DatelikeParseMode::NON_STRICT>(
+                    float_col.get_data()[i], val, _scale, params)) [[likely]] {
             col_data.get_data()[i] = val;
             col_nullmap.get_data()[i] = false;
         } else {
@@ -241,7 +245,8 @@ Status DataTypeDateTimeV2SerDe::from_float_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < float_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        CastToDatetimeV2::from_float<true>(float_col.get_data()[i], val, _scale, params);
+        CastToDatetimeV2::from_float<DatelikeParseMode::STRICT>(float_col.get_data()[i], val,
+                                                                _scale, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(
                     fmt::format("parse {} to datetime failed: ", float_col.get_data()[i]));
@@ -264,7 +269,7 @@ Status DataTypeDateTimeV2SerDe::from_decimal_batch(
     CastParameters params {.status = Status::OK(), .is_strict = false};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        if (CastToDatetimeV2::from_decimal<true>(
+        if (CastToDatetimeV2::from_decimal<DatelikeParseMode::NON_STRICT>(
                     decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
                     decimal_col.get_scale(), val, _scale, params)) [[likely]] {
             col_data.get_data()[i] = val;
@@ -286,9 +291,9 @@ Status DataTypeDateTimeV2SerDe::from_decimal_strict_mode_batch(
     CastParameters params {.status = Status::OK(), .is_strict = true};
     for (size_t i = 0; i < decimal_col.size(); ++i) {
         DateV2Value<DateTimeV2ValueType> val;
-        CastToDatetimeV2::from_decimal<true>(decimal_col.get_intergral_part(i),
-                                             decimal_col.get_fractional_part(i),
-                                             decimal_col.get_scale(), val, _scale, params);
+        CastToDatetimeV2::from_decimal<DatelikeParseMode::STRICT>(
+                decimal_col.get_intergral_part(i), decimal_col.get_fractional_part(i),
+                decimal_col.get_scale(), val, _scale, params);
         if (!params.status.ok()) [[unlikely]] {
             params.status.prepend(fmt::format(
                     "parse {}.{} to datetime failed: ", decimal_col.get_intergral_part(i),

@@ -46,19 +46,15 @@ class IColumn;
 namespace doris {
 #include "common/compile_check_begin.h"
 
-DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count)
-        : _max_subcolumns_count(max_subcolumns_count) {
-    name = fmt::format("Variant(max subcolumns count = {})", max_subcolumns_count);
+DataTypeVariant::DataTypeVariant(int32_t max_subcolumns_count, bool enable_doc_mode)
+        : _max_subcolumns_count(max_subcolumns_count), _enable_doc_mode(enable_doc_mode) {
+    name = fmt::format("Variant(max subcolumns count = {}, enable doc mode = {})",
+                       max_subcolumns_count, enable_doc_mode);
 }
 bool DataTypeVariant::equals(const IDataType& rhs) const {
     auto rhs_type = typeid_cast<const DataTypeVariant*>(&rhs);
-    if (rhs_type && _max_subcolumns_count != rhs_type->variant_max_subcolumns_count()) {
-        VLOG_DEBUG << "_max_subcolumns_count is" << _max_subcolumns_count
-                   << "rhs_type->variant_max_subcolumns_count()"
-                   << rhs_type->variant_max_subcolumns_count();
-        return false;
-    }
-    return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count();
+    return rhs_type && _max_subcolumns_count == rhs_type->variant_max_subcolumns_count() &&
+           _enable_doc_mode == rhs_type->enable_doc_mode();
 }
 
 int64_t DataTypeVariant::get_uncompressed_serialized_bytes(const IColumn& column,
@@ -240,10 +236,11 @@ const char* DataTypeVariant::deserialize(const char* buf, MutableColumnPtr* colu
 void DataTypeVariant::to_pb_column_meta(PColumnMeta* col_meta) const {
     IDataType::to_pb_column_meta(col_meta);
     col_meta->set_variant_max_subcolumns_count(_max_subcolumns_count);
+    col_meta->set_variant_enable_doc_mode(_enable_doc_mode);
 }
 
 MutableColumnPtr DataTypeVariant::create_column() const {
-    return ColumnVariant::create(_max_subcolumns_count);
+    return ColumnVariant::create(_max_subcolumns_count, _enable_doc_mode);
 }
 
 } // namespace doris
