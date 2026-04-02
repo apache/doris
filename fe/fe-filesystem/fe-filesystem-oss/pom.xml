@@ -40,6 +40,12 @@ under the License.
             <artifactId>fe-filesystem-s3</artifactId>
             <version>${revision}</version>
         </dependency>
+        <!-- Alibaba Cloud OSS native SDK (presigned URL + transitively includes aliyun-java-sdk-core/sts) -->
+        <dependency>
+            <groupId>com.aliyun.oss</groupId>
+            <artifactId>aliyun-sdk-oss</artifactId>
+            <version>${aliyun-sdk-oss.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

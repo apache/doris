@@ -29,14 +29,18 @@ import com.azure.identity.ClientSecretCredentialBuilder;
 import com.azure.identity.DefaultAzureCredentialBuilder;
 import com.azure.storage.blob.BlobClient;
 import com.azure.storage.blob.BlobContainerClient;
+import com.azure.storage.blob.BlobContainerClientBuilder;
 import com.azure.storage.blob.BlobServiceClient;
 import com.azure.storage.blob.BlobServiceClientBuilder;
 import com.azure.storage.blob.models.BlobItem;
 import com.azure.storage.blob.models.BlobProperties;
 import com.azure.storage.blob.models.BlobStorageException;
 import com.azure.storage.blob.models.ListBlobsOptions;
+import com.azure.storage.blob.sas.BlobSasPermission;
+import com.azure.storage.blob.sas.BlobServiceSasSignatureValues;
 import com.azure.storage.blob.specialized.BlockBlobClient;
 import com.azure.storage.common.StorageSharedKeyCredential;
+import com.azure.storage.common.sas.SasProtocol;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,6 +49,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -86,6 +91,8 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
 
     private static final String DEFAULT_ENDPOINT_TEMPLATE = "https://%s.blob.core.windows.net";
     private static final int HTTP_NOT_FOUND = 404;
+    /** Validity period for presigned (SAS) URLs, in seconds. */
+    private static final int SESSION_EXPIRE_SECONDS = 3600;
 
     private final Map<String, String> properties;
     private volatile BlobServiceClient client;
@@ -364,6 +371,138 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
     @Override
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    // -------------------------------------------------------------------------
+    // Cloud-specific extension methods
+    // -------------------------------------------------------------------------
+
+    /**
+     * Generates an Azure SAS presigned URL for PUT access to the given blob key.
+     *
+     * <p>Requires shared-key authentication ({@code AZURE_ACCOUNT_KEY} /
+     * {@code azure.account_key} / {@code AWS_SECRET_KEY}). The returned URL
+     * is valid for {@link #SESSION_EXPIRE_SECONDS} seconds.
+     *
+     * @param objectKey blob key inside the container (no leading slash)
+     * @return fully-qualified HTTPS URL with embedded SAS token
+     * @throws IOException if the account key is missing or SAS generation fails
+     */
+    @Override
+    public String getPresignedUrl(String objectKey) throws IOException {
+        String accountName = resolveAccountName();
+        String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
+        if (accountKey == null || accountKey.isEmpty()) {
+            throw new IOException(
+                    "getPresignedUrl requires a storage account key (AZURE_ACCOUNT_KEY)");
+        }
+        // Container must be provided or derived from the object key URI
+        AzureUri uri;
+        try {
+            uri = AzureUri.parse(objectKey);
+        } catch (Exception e) {
+            throw new IOException("Cannot parse Azure object key: " + objectKey, e);
+        }
+        String container = uri.container();
+        String blobKey = uri.key();
+
+        StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
+        String endpoint = resolveEndpoint(accountName);
+        BlobContainerClient containerClient = new BlobContainerClientBuilder()
+                .endpoint(endpoint + "/" + container)
+                .credential(credential)
+                .buildClient();
+        BlobClient blobClient = containerClient.getBlobClient(blobKey);
+
+        OffsetDateTime expiresOn = OffsetDateTime.now().plusSeconds(SESSION_EXPIRE_SECONDS);
+        BlobSasPermission permission = new BlobSasPermission()
+                .setReadPermission(true)
+                .setWritePermission(true)
+                .setDeletePermission(true);
+        BlobServiceSasSignatureValues sasValues = new BlobServiceSasSignatureValues(expiresOn, permission)
+                .setProtocol(SasProtocol.HTTPS_ONLY)
+                .setStartTime(OffsetDateTime.now().minusMinutes(5));
+
+        String sasToken = blobClient.generateSas(sasValues);
+        return blobClient.getBlobUrl() + "?" + sasToken;
+    }
+
+    /**
+     * Lists blobs whose keys start with {@code prefix + subPrefix}.
+     *
+     * @param prefix      base prefix (e.g., a staging directory path)
+     * @param subPrefix   additional sub-prefix to narrow the listing
+     * @param token       continuation token from a previous call, or {@code null}
+     * @return paged listing result
+     * @throws IOException on Azure API errors
+     */
+    @Override
+    public RemoteObjects listObjectsWithPrefix(String prefix, String subPrefix, String token)
+            throws IOException {
+        String fullPrefix = prefix + (subPrefix == null ? "" : subPrefix);
+        return listObjects(fullPrefix, token);
+    }
+
+    /**
+     * Returns metadata for a single blob identified by {@code prefix + subKey}.
+     *
+     * <p>Returns an empty result instead of throwing if the blob does not exist.
+     *
+     * @param prefix base directory prefix
+     * @param subKey relative key appended to prefix
+     * @return {@link RemoteObjects} containing zero or one {@link RemoteObject}
+     * @throws IOException on Azure API errors (other than 404)
+     */
+    @Override
+    public RemoteObjects headObjectWithMeta(String prefix, String subKey) throws IOException {
+        String fullKey = prefix + subKey;
+        try {
+            AzureUri uri = AzureUri.parse(fullKey);
+            BlobProperties props = getClient()
+                    .getBlobContainerClient(uri.container())
+                    .getBlobClient(uri.key())
+                    .getProperties();
+            long size = props.getBlobSize();
+            long lastModifiedMs = props.getLastModified() != null
+                    ? props.getLastModified().toInstant().toEpochMilli() : 0L;
+            RemoteObject obj = new RemoteObject(uri.key(), uri.key(), null, size, lastModifiedMs);
+            return new RemoteObjects(Collections.singletonList(obj), false, null);
+        } catch (BlobStorageException e) {
+            if (e.getStatusCode() == HTTP_NOT_FOUND) {
+                return new RemoteObjects(Collections.emptyList(), false, null);
+            }
+            throw new IOException("headObjectWithMeta failed for " + fullKey + ": " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Deletes multiple blobs by their keys within the given container.
+     *
+     * <p>All deletions are attempted; any failures are collected and thrown
+     * as a single {@link IOException} at the end.
+     *
+     * @param container container (bucket) name
+     * @param keys      blob keys to delete
+     * @throws IOException if one or more deletions fail
+     */
+    @Override
+    public void deleteObjectsByKeys(String container, List<String> keys) throws IOException {
+        BlobContainerClient containerClient = getClient().getBlobContainerClient(container);
+        List<String> failures = new ArrayList<>();
+        for (String key : keys) {
+            try {
+                containerClient.getBlobClient(key).delete();
+            } catch (BlobStorageException e) {
+                if (e.getStatusCode() != HTTP_NOT_FOUND) {
+                    failures.add(key + ": " + e.getMessage());
+                }
+            } catch (Exception e) {
+                failures.add(key + ": " + e.getMessage());
+            }
+        }
+        if (!failures.isEmpty()) {
+            throw new IOException("deleteObjectsByKeys failed for: " + String.join(", ", failures));
+        }
     }
 
     @Override

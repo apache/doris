@@ -40,6 +40,18 @@ under the License.
             <artifactId>fe-filesystem-s3</artifactId>
             <version>${revision}</version>
         </dependency>
+        <!-- Huawei Cloud OBS native SDK (presigned URL via TemporarySignature) -->
+        <dependency>
+            <groupId>com.huaweicloud</groupId>
+            <artifactId>esdk-obs-java-bundle</artifactId>
+            <version>${esdk-obs.version}</version>
+        </dependency>
+        <!-- Huawei Cloud IAM SDK (getStsToken via IamClient) -->
+        <dependency>
+            <groupId>com.huaweicloud.sdk</groupId>
+            <artifactId>huaweicloud-sdk-iam</artifactId>
+            <version>${huaweicloud-sdk-iam.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

@@ -40,6 +40,18 @@ under the License.
             <artifactId>fe-filesystem-s3</artifactId>
             <version>${revision}</version>
         </dependency>
+        <!-- Tencent Cloud COS native SDK (presigned URL) -->
+        <dependency>
+            <groupId>com.qcloud</groupId>
+            <artifactId>cos_api</artifactId>
+            <version>${cos-api.version}</version>
+        </dependency>
+        <!-- Tencent Cloud STS SDK (getStsToken) -->
+        <dependency>
+            <groupId>com.tencentcloudapi</groupId>
+            <artifactId>tencentcloud-sdk-java-sts</artifactId>
+            <version>${tencentcloud-sdk-java-sts.version}</version>
+        </dependency>
     </dependencies>
 
     <build>

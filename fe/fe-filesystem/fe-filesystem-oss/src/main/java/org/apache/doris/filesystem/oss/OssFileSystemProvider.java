@@ -20,7 +20,6 @@ package org.apache.doris.filesystem.oss;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemProvider;
 import org.apache.doris.filesystem.s3.S3FileSystem;
-import org.apache.doris.filesystem.s3.S3ObjStorage;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -32,7 +31,9 @@ import java.util.Map;
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.FileSystemProvider.
  *
  * <p>Identified by an endpoint containing {@code aliyuncs.com}. Translates OSS-specific
- * property keys to S3-compatible keys and delegates to {@link S3FileSystem}.
+ * property keys to S3-compatible keys and delegates core I/O to {@link S3FileSystem},
+ * while {@link OssObjStorage} overrides cloud-specific operations (presigned URL, STS)
+ * using the Alibaba Cloud native SDK.
  */
 public class OssFileSystemProvider implements FileSystemProvider {
 
@@ -50,18 +51,18 @@ public class OssFileSystemProvider implements FileSystemProvider {
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        Map<String, String> s3Props = new HashMap<>(properties);
+        Map<String, String> props = new HashMap<>(properties);
         if (properties.containsKey("OSS_ENDPOINT")) {
-            s3Props.put("AWS_ENDPOINT", properties.get("OSS_ENDPOINT"));
+            props.put("AWS_ENDPOINT", properties.get("OSS_ENDPOINT"));
         }
         if (properties.containsKey("OSS_ACCESS_KEY")) {
-            s3Props.put("AWS_ACCESS_KEY", properties.get("OSS_ACCESS_KEY"));
+            props.put("AWS_ACCESS_KEY", properties.get("OSS_ACCESS_KEY"));
         }
         if (properties.containsKey("OSS_SECRET_KEY")) {
-            s3Props.put("AWS_SECRET_KEY", properties.get("OSS_SECRET_KEY"));
+            props.put("AWS_SECRET_KEY", properties.get("OSS_SECRET_KEY"));
         }
-        s3Props.put("use_path_style", "false");
-        return new S3FileSystem(new S3ObjStorage(s3Props));
+        props.put("use_path_style", "false");
+        return new S3FileSystem(new OssObjStorage(props));
     }
 
     @Override
