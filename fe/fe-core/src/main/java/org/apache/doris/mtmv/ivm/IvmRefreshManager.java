@@ -97,12 +97,13 @@ public class IvmRefreshManager {
     List<DeltaCommandBundle> analyzeDeltaCommandBundles(IvmRefreshContext context) throws Exception {
         MTMVAnalyzeQueryInfo queryInfo = MTMVPlanUtil.analyzeQueryWithSql(
                 context.getMtmv(), context.getConnectContext(), true);
+        IvmNormalizeResult normalizeResult = queryInfo.getIvmNormalizeResult();
         Plan normalizedPlan = queryInfo.getIvmNormalizedPlan();
         if (normalizedPlan == null) {
             return Collections.emptyList();
         }
         IvmDeltaRewriteContext rewriteCtx = new IvmDeltaRewriteContext(
-                context.getMtmv(), context.getConnectContext());
+                context.getMtmv(), context.getConnectContext(), normalizeResult);
         return new IvmDeltaRewriter().rewrite(normalizedPlan, rewriteCtx);
     }
 

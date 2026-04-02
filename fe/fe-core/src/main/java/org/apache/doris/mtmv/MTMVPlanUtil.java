@@ -560,7 +560,7 @@ public class MTMVPlanUtil {
             MTMVAnalyzeQueryInfo queryInfo = new MTMVAnalyzeQueryInfo(columns, mvPartitionInfo, relation);
             if (enableIvmNormalize) {
                 planner.getCascadesContext().getIvmNormalizeResult().ifPresent(
-                        ivm -> queryInfo.setIvmNormalizedPlan(ivm.getNormalizedPlan()));
+                        queryInfo::setIvmNormalizeResult);
             }
             return queryInfo;
         }
