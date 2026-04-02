@@ -1050,11 +1050,6 @@ Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* d
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
-    // When _wake_up_early is set, FINISHED→RUNNABLE is legal but is a no-op (state stays
-    // FINISHED). In that case we must NOT re-submit the task to the scheduler.
-    if (_exec_state == State::FINISHED || _exec_state == State::FINALIZED) {
-        return Status::OK();
-    }
     if (auto f = _fragment_context.lock(); f) {
         RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
     }
