@@ -225,7 +225,7 @@ std::string construct_sub_predicate(const TCondition& condition) {
 }
 
 // make operators from FE adaptive to BE
-std::string trans_op(const std::string& opt) {
+std::string trans_op(const std::string& opt, const std::string& condition_value = "") {
     std::string op = string(opt);
     if (op == "<") {
         op += "<";
@@ -237,6 +237,8 @@ std::string trans_op(const std::string& opt) {
             op = "=";
         } else if (op == "!*=") {
             op = "!=";
+        } else if (op == "<=>") {
+            op = iequal(condition_value, "NULL") ? "IS" : "="; 
         }
     }
     return op;
@@ -487,7 +489,8 @@ DeleteHandler::ConditionParseResult DeleteHandler::parse_condition(
     }
     res.column_name = sub_cond.column_name();
     res.value_str.push_back(sub_cond.cond_value());
-    res.condition_op = parse_condition_op(sub_cond.op(), res.value_str);
+    auto norm_op = trans_op(sub_cond.op(), sub_cond.cond_value());
+    res.condition_op = parse_condition_op(norm_op, res.value_str);
     return res;
 }
 
