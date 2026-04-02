@@ -270,10 +270,6 @@ public:
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
-        LOG(INFO) << "[lzq]: QWEN multimodal embedding request built, model=" << _config.model_name
-                  << ", media_url=" << media_url
-                  << ", media_type=" << multimodal_type_to_string(media_type)
-                  << ", request_body=" << request_body;
         return Status::OK();
     }
 
@@ -928,10 +924,6 @@ public:
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
-        LOG(INFO) << "[lzq]: QWEN multimodal embedding request built, model=" << _config.model_name
-                  << ", media_url=" << media_url
-                  << ", media_type=" << multimodal_type_to_string(media_type)
-                  << ", request_body=" << request_body;
         return Status::OK();
     }
 
@@ -1031,10 +1023,6 @@ public:
         rapidjson::Writer<rapidjson::StringBuffer> writer(buffer);
         doc.Accept(writer);
         request_body = buffer.GetString();
-        LOG(INFO) << "[lzq]: JINA multimodal embedding request built, model=" << _config.model_name
-                  << ", media_url=" << media_url
-                  << ", media_type=" << multimodal_type_to_string(media_type)
-                  << ", request_body=" << request_body;
         return Status::OK();
     }
 };

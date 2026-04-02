@@ -165,15 +165,14 @@ private:
         if (_starts_with_ignore_case(content_type, "image/")) {
             media_type = MultimodalType::IMAGE;
             return Status::OK();
-        }
-        if (_starts_with_ignore_case(content_type, "video/")) {
+        } else if (_starts_with_ignore_case(content_type, "video/")) {
             media_type = MultimodalType::VIDEO;
             return Status::OK();
-        }
-        if (_starts_with_ignore_case(content_type, "audio/")) {
+        } else if (_starts_with_ignore_case(content_type, "audio/")) {
             media_type = MultimodalType::AUDIO;
             return Status::OK();
         }
+
         return Status::InvalidArgument("Unsupported content_type for EMBED: {}", content_type);
     }
 
@@ -211,18 +210,22 @@ private:
         RETURN_IF_ERROR(_get_required_string_field(file_input, "endpoint", endpoint));
         std::string region;
         RETURN_IF_ERROR(_get_required_string_field(file_input, "region", region));
-        std::string role_arn;
-        RETURN_IF_ERROR(_get_required_string_field(file_input, "role_arn", role_arn));
 
-        auto external_id_iter = file_input.FindMember("external_id");
-        if (external_id_iter != file_input.MemberEnd()) {
-            DORIS_CHECK(external_id_iter->value.IsString());
-            s3_client_conf.external_id = external_id_iter->value.GetString();
-        }
+        auto get_optional_string_field = [&](const char* field_name, std::string& value) {
+            auto iter = file_input.FindMember(field_name);
+            if (iter == file_input.MemberEnd() || iter->value.IsNull()) {
+                return;
+            }
+            DORIS_CHECK(iter->value.IsString());
+            value = iter->value.GetString();
+        };
 
+        get_optional_string_field("ak", s3_client_conf.ak);
+        get_optional_string_field("sk", s3_client_conf.sk);
+        get_optional_string_field("role_arn", s3_client_conf.role_arn);
+        get_optional_string_field("external_id", s3_client_conf.external_id);
         s3_client_conf.endpoint = endpoint;
         s3_client_conf.region = region;
-        s3_client_conf.role_arn = role_arn;
 
         return Status::OK();
     }

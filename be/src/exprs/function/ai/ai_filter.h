@@ -65,12 +65,12 @@ public:
             }
 #endif
 
-            _trim_string(string_result);
-            if (string_result != "1" && string_result != "0") {
+            std::string_view trimmed = doris::trim(string_result);
+            if (trimmed != "1" && trimmed != "0") {
                 return Status::RuntimeError("Failed to parse boolean value: " + string_result);
             }
 
-            col_result->insert_value(static_cast<UInt8>(string_result == "1"));
+            col_result->insert_value(static_cast<UInt8>(trimmed == "1"));
         }
 
         block.replace_by_position(result, std::move(col_result));
@@ -78,15 +78,5 @@ public:
     }
 
     static FunctionPtr create() { return std::make_shared<FunctionAIFilter>(); }
-
-private:
-    static void _trim_string(std::string& str) {
-        str.erase(str.begin(), std::find_if(str.begin(), str.end(),
-                                            [](unsigned char ch) { return !std::isspace(ch); }));
-        str.erase(std::find_if(str.rbegin(), str.rend(),
-                               [](unsigned char ch) { return !std::isspace(ch); })
-                          .base(),
-                  str.end());
-    }
 };
 } // namespace doris

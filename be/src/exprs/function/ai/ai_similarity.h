@@ -68,13 +68,14 @@ public:
             }
 #endif
 
-            _trim_string(string_result);
-            try {
-                float float_value = std::stof(string_result);
-                assert_cast<ColumnFloat32&>(*col_result).insert_value(float_value);
-            } catch (...) {
+            std::string_view trimmed = doris::trim(string_result);
+            float float_value = 0;
+            auto [ptr, ec] =
+                    std::from_chars(trimmed.data(), trimmed.data() + trimmed.size(), float_value);
+            if (ec != std::errc() || ptr != trimmed.data() + trimmed.size()) [[unlikely]] {
                 return Status::RuntimeError("Failed to parse float value: " + string_result);
             }
+            assert_cast<ColumnFloat32&>(*col_result).insert_value(float_value);
         }
 
         block.replace_by_position(result, std::move(col_result));
@@ -85,16 +86,6 @@ public:
 
     Status build_prompt(const Block& block, const ColumnNumbers& arguments, size_t row_num,
                         std::string& prompt) const override;
-
-private:
-    static void _trim_string(std::string& str) {
-        str.erase(str.begin(), std::find_if(str.begin(), str.end(),
-                                            [](unsigned char ch) { return !std::isspace(ch); }));
-        str.erase(std::find_if(str.rbegin(), str.rend(),
-                               [](unsigned char ch) { return !std::isspace(ch); })
-                          .base(),
-                  str.end());
-    }
 };
 
 } // namespace doris
