@@ -21,12 +21,27 @@
 JUICEFS_DEFAULT_VERSION="${JUICEFS_DEFAULT_VERSION:-1.3.1}"
 MAVEN_REPOSITORY_URL="${MAVEN_REPOSITORY_URL:-https://repo1.maven.org/maven2}"
 JUICEFS_THIRDPARTY_REPOSITORY_URL="${JUICEFS_THIRDPARTY_REPOSITORY_URL:-}"
-JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL="${JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL:-https://doris-thirdparty-repo.bj.bcebos.com/thirdparty}"
+JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL="${JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL:-}"
 JUICEFS_HADOOP_MAVEN_REPO="${JUICEFS_HADOOP_MAVEN_REPO:-${MAVEN_REPOSITORY_URL}/io/juicefs/juicefs-hadoop}"
 JUICEFS_CLI_RELEASE_REPO="${JUICEFS_CLI_RELEASE_REPO:-https://github.com/juicedata/juicefs/releases/download}"
 
+juicefs_default_thirdparty_repository_url() {
+    if [[ -n "${JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL}" ]]; then
+        echo "${JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL%/}"
+        return 0
+    fi
+    if [[ -n "${s3BucketName:-}" && -n "${s3Endpoint:-}" ]]; then
+        echo "https://${s3BucketName}.${s3Endpoint}/regression/datalake/thirdparty/juicefs"
+        return 0
+    fi
+    echo "https://doris-thirdparty-repo.bj.bcebos.com/thirdparty"
+}
+
 juicefs_thirdparty_repository_url() {
-    local repository_url="${JUICEFS_THIRDPARTY_REPOSITORY_URL:-${REPOSITORY_URL:-${JUICEFS_DEFAULT_THIRDPARTY_REPOSITORY_URL}}}"
+    local repository_url="${JUICEFS_THIRDPARTY_REPOSITORY_URL:-${REPOSITORY_URL:-}}"
+    if [[ -z "${repository_url}" ]]; then
+        repository_url=$(juicefs_default_thirdparty_repository_url)
+    fi
     echo "${repository_url%/}"
 }
 
