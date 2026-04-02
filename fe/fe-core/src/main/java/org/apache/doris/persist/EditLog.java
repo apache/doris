@@ -167,8 +167,6 @@ public class EditLog {
     private final BlockingQueue<EditLogItem> logEditQueue = new LinkedBlockingQueue<>();
     private final Thread flushThread;
 
-    private EditLogOutputStream editStream = null;
-
     private long txId = 0;
 
 
@@ -1713,13 +1711,6 @@ public class EditLog {
         }
 
         return logId;
-    }
-
-    /**
-     * Return the size of the current EditLog
-     */
-    public synchronized long getEditLogSize() throws IOException {
-        return editStream.length();
     }
 
     /**
