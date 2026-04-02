@@ -98,9 +98,12 @@ public class ExchangeNode extends PlanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
-        // If this fragment has another scan node, this exchange node is serial or not should be decided by the scan
-        // node.
-        msg.setIsSerialOperator((isSerialOperator() || fragment.hasSerialScanNode())
+        // is_serial = operator-level serial AND fragment-level pooling guard.
+        // isSerialOperator(): only UNPARTITIONED or use_serial_exchange (not bucket shuffle/hash).
+        // useSerialSource(): pooling mode where BE manages per-pipeline parallelism.
+        // Note: useSerialSource() calls planRoot.isSerialOperator(), so we must NOT call
+        // useSerialSource() inside isSerialOperator() to avoid infinite recursion.
+        msg.setIsSerialOperator(isSerialOperator()
                 && fragment.useSerialSource(ConnectContext.get()));
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;
         msg.exchange_node = new TExchangeNode();
@@ -153,8 +156,10 @@ public class ExchangeNode extends PlanNode {
      */
     @Override
     public boolean isSerialOperator() {
-        return (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().isUseSerialExchange()
-                || partitionType == TPartitionType.UNPARTITIONED) && mergeInfo == null;
+        boolean forceSerialExchange = ConnectContext.get() != null
+                && ConnectContext.get().getSessionVariable().isUseSerialExchange();
+        boolean unPartition = partitionType == TPartitionType.UNPARTITIONED;
+        return (forceSerialExchange || unPartition) && mergeInfo == null;
     }
 
     @Override

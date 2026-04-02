@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.AssignedJobBuilder;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.BucketScanSource;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.DefaultScanSource;
-import org.apache.doris.nereids.trees.plans.distribute.worker.job.LocalShuffleAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.StaticAssignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJob;
 import org.apache.doris.nereids.trees.plans.distribute.worker.job.UnassignedJobBuilder;
@@ -175,16 +174,12 @@ public class DistributePlanner {
     }
 
     private FragmentIdMapping<DistributedPlan> linkPlans(FragmentIdMapping<DistributedPlan> plans) {
-        boolean enableShareHashTableForBroadcastJoin = statementContext.getConnectContext()
-                .getSessionVariable()
-                .enableShareHashTableForBroadcastJoin;
         for (DistributedPlan receiverPlan : plans.values()) {
             for (Entry<ExchangeNode, DistributedPlan> link : receiverPlan.getInputs().entries()) {
                 linkPipelinePlan(
                         (PipelineDistributedPlan) receiverPlan,
                         (PipelineDistributedPlan) link.getValue(),
-                        link.getKey(),
-                        enableShareHashTableForBroadcastJoin
+                        link.getKey()
                 );
                 for (Entry<DataSink, List<AssignedJob>> kv :
                         ((PipelineDistributedPlan) link.getValue()).getDestinations().entrySet()) {
@@ -205,11 +200,10 @@ public class DistributePlanner {
     private void linkPipelinePlan(
             PipelineDistributedPlan receiverPlan,
             PipelineDistributedPlan senderPlan,
-            ExchangeNode linkNode,
-            boolean enableShareHashTableForBroadcastJoin) {
+            ExchangeNode linkNode) {
 
         List<AssignedJob> receiverInstances = filterInstancesWhichCanReceiveDataFromRemote(
-                receiverPlan, enableShareHashTableForBroadcastJoin, linkNode);
+                receiverPlan, linkNode);
         if (linkNode.getPartitionType() == TPartitionType.BUCKET_SHFFULE_HASH_PARTITIONED) {
             receiverInstances = getDestinationsByBuckets(receiverPlan, receiverInstances);
         }
@@ -239,13 +233,15 @@ public class DistributePlanner {
 
     private List<AssignedJob> filterInstancesWhichCanReceiveDataFromRemote(
             PipelineDistributedPlan receiverPlan,
-            boolean enableShareHashTableForBroadcastJoin,
             ExchangeNode linkNode) {
-        boolean useLocalShuffle = receiverPlan.getInstanceJobs().stream()
-                .anyMatch(LocalShuffleAssignedJob.class::isInstance);
-        if (useLocalShuffle) {
-            return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
-        } else if (enableShareHashTableForBroadcastJoin && linkNode.isRightChildOfBroadcastHashJoin()) {
+        // isSerialOperator(): UNPARTITIONED or use_serial_exchange (operator-level)
+        // useSerialSource(): fragment is in pooling mode (fragment-level guard)
+        // Both must be true: serial exchange semantics AND pooling mode active.
+        // Note: cannot combine these into isSerialOperator() because useSerialSource()
+        // calls planRoot.isSerialOperator() which would cause infinite recursion.
+        if (linkNode.isSerialOperator()
+                && linkNode.getFragment().useSerialSource(
+                        statementContext.getConnectContext())) {
             return getFirstInstancePerWorker(receiverPlan.getInstanceJobs());
         } else {
             return receiverPlan.getInstanceJobs();
