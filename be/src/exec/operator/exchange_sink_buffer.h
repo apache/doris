@@ -34,6 +34,7 @@
 
 #include "common/global_types.h"
 #include "common/status.h"
+#include "common/thread_safety_annotations.h"
 #include "runtime/runtime_state.h"
 #include "service/backend_options.h"
 #include "util/brpc_closure.h"
@@ -277,7 +278,7 @@ public:
 
     void set_dependency(InstanceLoId sender_ins_id, std::shared_ptr<Dependency> queue_dependency,
                         ExchangeSinkLocalState* local_state) {
-        std::lock_guard l(_m);
+        AnnotatedLockGuard l(_m);
         _queue_deps.push_back(queue_dependency);
         _parents.push_back(local_state);
     }
@@ -330,11 +331,11 @@ private:
     std::atomic<int> _total_queue_size = 0;
 
     // protected the `_queue_deps` and `_parents`
-    std::mutex _m;
+    AnnotatedMutex _m;
     // _queue_deps is used for memory control.
-    std::vector<std::shared_ptr<Dependency>> _queue_deps;
+    std::vector<std::shared_ptr<Dependency>> _queue_deps TSA_GUARDED_BY(_m);
     // The ExchangeSinkLocalState in _parents is only used in _turn_off_channel.
-    std::vector<ExchangeSinkLocalState*> _parents;
+    std::vector<ExchangeSinkLocalState*> _parents TSA_GUARDED_BY(_m);
     const int64_t _exchange_sink_num;
     bool _send_multi_blocks = false;
     int _send_multi_blocks_byte_size = 256 * 1024;
