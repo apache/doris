@@ -60,23 +60,28 @@ suite("test_kinesis_routine_load_pause_resume", "nonConcurrent") {
         assertTrue(false, "Stream ${streamName} failed to become active")
     }
 
-    def getJobState = {
-        def result = sql "SHOW ROUTINE LOAD FOR ${jobName}"
-        assertTrue(result.size() > 0, "SHOW ROUTINE LOAD returned empty result for job ${jobName}")
+    def getJobState = { boolean includeHistory = false ->
+        def showSql = includeHistory
+            ? "SHOW ALL ROUTINE LOAD FOR ${jobName}"
+            : "SHOW ROUTINE LOAD FOR ${jobName}"
+        def result = sql showSql
+        assertTrue(result.size() > 0, "${showSql} returned empty result for job ${jobName}")
         return result[0][8].toString()
     }
 
-    def waitForJobStateIn = { Set<String> expectedStates, int timeoutSec ->
+    def waitForJobStateIn = { Set<String> expectedStates, int timeoutSec, boolean includeHistory = false ->
         def lastState = "UNKNOWN"
         for (int i = 0; i < timeoutSec; i++) {
-            lastState = getJobState()
+            lastState = getJobState(includeHistory)
             if (expectedStates.contains(lastState)) {
                 logger.info("Routine load job ${jobName} reached state ${lastState}")
                 return lastState
             }
             Thread.sleep(1000)
         }
-        assertTrue(false, "Timeout waiting job ${jobName} to reach states ${expectedStates}, last state=${lastState}")
+        assertTrue(false,
+                "Timeout waiting job ${jobName} to reach states ${expectedStates}, " +
+                "includeHistory=${includeHistory}, last state=${lastState}")
     }
 
     def putRecordWithRetry = { String partitionKey, String data ->
@@ -129,7 +134,7 @@ suite("test_kinesis_routine_load_pause_resume", "nonConcurrent") {
     def test1PreparedForReuse = false
 
     try {
-        // test1 : 建流/建表/建作业，写入首批数据，PAUSE 后继续写入新数据并验证不消费
+        // test1 : create stream/table/job, load first batch, then PAUSE and verify newly written data is not consumed
         try {
             logger.info("Creating Kinesis stream: ${streamName}")
             kinesisClient.createStream(new CreateStreamRequest()
@@ -176,7 +181,7 @@ suite("test_kinesis_routine_load_pause_resume", "nonConcurrent") {
             sql "PAUSE ROUTINE LOAD FOR ${jobName}"
             waitForJobStateIn(["PAUSED"] as Set<String>, 60)
 
-            // PAUSE 期间继续向 stream 写入新数据
+            // Continue writing new records to the stream while the job is PAUSED
             writeRange(31, 60)
 
             long pausedCountBeforeWait = queryCount()
@@ -212,7 +217,7 @@ suite("test_kinesis_routine_load_pause_resume", "nonConcurrent") {
             }
         }
 
-        // test2 : RESUME 后继续消费，校验最终完整性，再 STOP
+        // test2 : RESUME consumption, verify final integrity, then STOP the job
         try {
             assertTrue(test1PreparedForReuse, "Test2 requires test1 to prepare paused stream/job")
 
@@ -229,8 +234,8 @@ suite("test_kinesis_routine_load_pause_resume", "nonConcurrent") {
             assertEquals(60, ((Number) result[0][3]).intValue())
 
             sql "STOP ROUTINE LOAD FOR ${jobName}"
-            waitForJobStateIn(["STOPPED", "CANCELLED"] as Set<String>, 60)
             jobCreated = false
+            waitForJobStateIn(["STOPPED", "CANCELLED"] as Set<String>, 60, true)
         } finally {
             if (jobCreated) {
                 try {
