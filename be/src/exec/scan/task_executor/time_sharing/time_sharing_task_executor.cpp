@@ -553,7 +553,30 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
             _running_splits.insert(split);
         }
 
-        Result<SharedListenableFuture<Void>> blocked_future_result = split->process();
+        auto blocked_future_result = [&]() -> Result<SharedListenableFuture<Void>> {
+            try {
+                doris::enable_thread_catch_bad_alloc++;
+                Defer defer {[&]() { doris::enable_thread_catch_bad_alloc--; }};
+                return split->process();
+            } catch (const doris::Exception& e) {
+                if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
+                    return unexpected(Status::MemoryLimitExceeded(
+                            "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, "
+                            "__FUNCTION__:{}",
+                            e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+                }
+                return unexpected(e.to_status());
+            } catch (const std::exception& e) {
+                return unexpected(Status::InternalError(
+                        "split process threw std::exception, split_id: {}, worker_id: {}, "
+                        "reason: {}",
+                        split->split_id(), split->worker_id(), e.what()));
+            } catch (...) {
+                return unexpected(Status::InternalError(
+                        "split process threw unknown exception, split_id: {}, worker_id: {}",
+                        split->split_id(), split->worker_id()));
+            }
+        }();
 
         if (!blocked_future_result.has_value()) {
             LOG(WARNING) << "split process failed, split_id: " << split->split_id()

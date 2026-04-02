@@ -28,6 +28,7 @@
 #include <random>
 #include <thread>
 
+#include "common/exception.h"
 #include "exec/scan/task_executor/ticker.h"
 #include "exec/scan/task_executor/time_sharing/time_sharing_task_handle.h"
 
@@ -289,6 +290,46 @@ private:
     ListenableFuture<Void> _completion_future {};
 };
 
+class ThrowingSplitRunner : public SplitRunner {
+public:
+    explicit ThrowingSplitRunner(std::string message) : _message(std::move(message)) {}
+
+    Status init() override { return Status::OK(); }
+
+    Result<SharedListenableFuture<Void>> process_for(std::chrono::nanoseconds) override {
+        _process_calls.fetch_add(1, std::memory_order_relaxed);
+        throw doris::Exception(ErrorCode::INTERNAL_ERROR, "{}", _message);
+    }
+
+    void close(const Status& status) override {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _status = status;
+        _close_calls.fetch_add(1, std::memory_order_relaxed);
+        _closed.store(true, std::memory_order_release);
+    }
+
+    bool is_finished() override { return _closed.load(std::memory_order_acquire); }
+
+    Status finished_status() override {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _status;
+    }
+
+    std::string get_info() const override { return _message; }
+
+    int process_calls() const { return _process_calls.load(std::memory_order_relaxed); }
+
+    int close_calls() const { return _close_calls.load(std::memory_order_relaxed); }
+
+private:
+    std::string _message;
+    std::atomic<bool> _closed {false};
+    std::atomic<int> _process_calls {0};
+    std::atomic<int> _close_calls {0};
+    Status _status = Status::OK();
+    mutable std::mutex _mutex;
+};
+
 class TimeSharingTaskExecutorTest : public testing::Test {
 protected:
     void SetUp() override {}
@@ -411,6 +452,47 @@ TEST_F(TimeSharingTaskExecutorTest, test_tasks_complete) {
 
         // no splits remaining
         ticker->increment(610, std::chrono::seconds(1));
+    } catch (...) {
+        executor.stop();
+        throw;
+    }
+    executor.stop();
+}
+
+TEST_F(TimeSharingTaskExecutorTest, test_process_exception_is_caught) {
+    auto ticker = std::make_shared<TestingTicker>();
+
+    TimeSharingTaskExecutor::ThreadConfig thread_config;
+    thread_config.max_thread_num = 1;
+    thread_config.min_thread_num = 1;
+    TimeSharingTaskExecutor executor(thread_config, 1, 1, 1, ticker);
+    ASSERT_TRUE(executor.init().ok());
+    ASSERT_TRUE(executor.start().ok());
+
+    try {
+        ticker->increment(20, std::chrono::milliseconds(1));
+        TaskId task_id("throwing_split_task");
+        auto task_handle = TEST_TRY(executor.create_task(
+                task_id, []() { return 0.0; }, 10, std::chrono::milliseconds(1), std::nullopt));
+
+        auto split = std::make_shared<ThrowingSplitRunner>("intentional split process failure");
+        executor.enqueue_splits(task_handle, false, {split});
+
+        constexpr auto TIMEOUT = std::chrono::seconds(30);
+        auto start = std::chrono::steady_clock::now();
+        while (!split->is_finished()) {
+            if (std::chrono::steady_clock::now() - start > TIMEOUT) {
+                throw std::runtime_error("Timeout waiting for throwing split to finish.");
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+
+        Status status = split->finished_status();
+        EXPECT_FALSE(status.ok());
+        EXPECT_EQ(status.code(), ErrorCode::INTERNAL_ERROR);
+        EXPECT_NE(status.msg().find("intentional split process failure"), std::string_view::npos);
+        EXPECT_EQ(split->process_calls(), 1);
+        EXPECT_EQ(split->close_calls(), 1);
     } catch (...) {
         executor.stop();
         throw;
