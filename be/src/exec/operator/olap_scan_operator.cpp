@@ -1008,9 +1008,10 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         (pt == PredicateType::EQ && opposite)) {
                         return false;
                     }
-                    // Comparison predicates (EQ/LT/LE/GT/GE): subsumed by both
+                    // Comparison predicates (EQ/LT/LE/GT/GE) or IS_NULL/IS_NOT_NULL: subsumed by both
                     // fixed value and scope ranges.
-                    if (PredicateTypeTraits::is_comparison(pt)) {
+                    if (PredicateTypeTraits::is_comparison(pt) || pt == PredicateType::IS_NULL ||
+                        pt == PredicateType::IS_NOT_NULL) {
                         return true;
                     }
                     // Effective IN_LIST: only subsumed by fixed value range.
@@ -1018,7 +1019,7 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
                         (pt == PredicateType::NOT_IN_LIST && opposite)) {
                         return is_fixed_value_range;
                     }
-                    // Everything else (BF, BITMAP, NOT_IN_LIST, IS_NULL, etc.): keep.
+                    // Everything else (BF, BITMAP, NOT_IN_LIST, etc.): keep.
                     return false;
                 };
 
