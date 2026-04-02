@@ -300,25 +300,22 @@ suite("create_ann_index_test") {
     """
 
     sql "drop table if exists tbl_ann_unique_key"
-    test {
-        sql """
-            CREATE TABLE tbl_ann_unique_key (
-                id INT NOT NULL COMMENT "",
-                embedding ARRAY<FLOAT> NOT NULL COMMENT "",
-                INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
-                    "index_type"="hnsw",
-                    "metric_type"="inner_product",
-                    "dim"="128"
-                )
-            ) ENGINE=OLAP
-            UNIQUE KEY(id) COMMENT "OLAP"
-            DISTRIBUTED BY HASH(id) BUCKETS 2
-            PROPERTIES (
-                "replication_num" = "1"
-            );
-        """
-        exception "ANN index can only be used in DUP_KEYS table"
-    }
+    sql """
+        CREATE TABLE tbl_ann_unique_key (
+            id INT NOT NULL COMMENT "",
+            embedding ARRAY<FLOAT> NOT NULL COMMENT "",
+            INDEX idx_test_ann (`embedding`) USING ANN PROPERTIES(
+                "index_type"="hnsw",
+                "metric_type"="inner_product",
+                "dim"="128"
+            )
+        ) ENGINE=OLAP
+        UNIQUE KEY(id) COMMENT "OLAP"
+        DISTRIBUTED BY HASH(id) BUCKETS 2
+        PROPERTIES (
+            "replication_num" = "1"
+        );
+    """
 
     sql "drop table if exists tbl_efconstruction"
     sql """
