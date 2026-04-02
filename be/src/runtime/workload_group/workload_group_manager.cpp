@@ -231,16 +231,14 @@ void WorkloadGroupMgr::refresh_workload_group_memory_state() {
     for (auto& [wg_id, wg] : _workload_groups) {
         all_workload_groups_mem_usage += wg->refresh_memory_usage();
     }
-    if (all_workload_groups_mem_usage <= 0) {
-        return;
+    if (all_workload_groups_mem_usage > 0) {
+        std::string debug_msg = fmt::format(
+                "\nProcess Memory Summary: {}, {}, all workload groups memory usage: {}",
+                doris::GlobalMemoryArbitrator::process_memory_used_details_str(),
+                doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
+                PrettyPrinter::print(all_workload_groups_mem_usage, TUnit::BYTES));
+        LOG_EVERY_T(INFO, 60) << debug_msg;
     }
-
-    std::string debug_msg =
-            fmt::format("\nProcess Memory Summary: {}, {}, all workload groups memory usage: {}",
-                        doris::GlobalMemoryArbitrator::process_memory_used_details_str(),
-                        doris::GlobalMemoryArbitrator::sys_mem_available_details_str(),
-                        PrettyPrinter::print(all_workload_groups_mem_usage, TUnit::BYTES));
-    LOG_EVERY_T(INFO, 60) << debug_msg;
     for (auto& wg : _workload_groups) {
         update_queries_limit_(wg.second, false);
     }
@@ -316,8 +314,8 @@ void WorkloadGroupMgr::add_paused_query(const std::shared_ptr<ResourceContext>& 
 void WorkloadGroupMgr::handle_paused_queries() {
     {
         std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+        std::unique_lock<std::mutex> lock(_paused_queries_lock);
         for (auto& [wg_id, wg] : _workload_groups) {
-            std::unique_lock<std::mutex> lock(_paused_queries_lock);
             if (_paused_queries_list[wg].empty()) {
                 // Add an empty set to wg that not contains paused queries.
             }
@@ -325,6 +323,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
     }
 
     std::unique_lock<std::mutex> lock(_paused_queries_lock);
+    bool has_recently_cancelled_query = false;
+    std::set<WorkloadGroupPtr> wgs_with_recently_cancelled;
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
         auto& queries_list = it->second;
         for (auto query_it = queries_list.begin(); query_it != queries_list.end();) {
@@ -335,12 +335,23 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 query_it = queries_list.erase(query_it);
                 continue;
             }
-            // If there are any tasks that is cancelled and canceled time is less than 15 seconds, just break.
-            // because it may release memory and other tasks may not be cancelled and spill disk.
-            if (resource_ctx->task_controller()->is_cancelled() &&
-                resource_ctx->task_controller()->cancel_elapsed_millis() <
-                        config::wait_cancel_release_memory_ms) {
-                return;
+            if (resource_ctx->task_controller()->is_cancelled()) {
+                if (resource_ctx->task_controller()->cancel_elapsed_millis() <
+                    config::wait_cancel_release_memory_ms) {
+                    // Recently cancelled — may still be releasing memory. Record it so that
+                    // PROCESS_MEMORY_EXCEEDED queries wait globally and
+                    // WORKLOAD_GROUP_MEMORY_EXCEEDED queries wait within the same WG.
+                    has_recently_cancelled_query = true;
+                    wgs_with_recently_cancelled.insert(it->first);
+                    ++query_it;
+                } else {
+                    // Cancelled long ago — no longer releasing memory. Remove it now to
+                    // avoid unnecessary processing in Phase 4.
+                    LOG(INFO) << "Query: " << query_it->query_id()
+                              << " was cancelled and has exceeded wait time, erase it.";
+                    query_it = queries_list.erase(query_it);
+                }
+                continue;
             }
             ++query_it;
         }
@@ -355,22 +366,40 @@ void WorkloadGroupMgr::handle_paused_queries() {
 
     // In previous loop, some query is cancelled, and now there is no query in cancel list. Resume all paused queries.
     if (revoking_memory_from_other_query_) {
-        for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end(); ++it) {
+        if (has_recently_cancelled_query) {
+            // Still waiting for the cancelled query to release memory.
+            return;
+        }
+        for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
             auto& queries_list = it->second;
-            for (auto query_it = queries_list.begin(); query_it != queries_list.end(); ++query_it) {
+            for (auto query_it = queries_list.begin(); query_it != queries_list.end();) {
                 auto resource_ctx = query_it->resource_ctx_.lock();
                 // The query is finished during in paused list.
                 if (resource_ctx == nullptr) {
                     LOG(INFO) << "Query: " << query_it->query_id() << " is nullptr, erase it.";
+                    query_it = queries_list.erase(query_it);
+                    continue;
+                }
+                if (resource_ctx->task_controller()->is_cancelled()) {
+                    LOG(INFO) << "Query: " << query_it->query_id()
+                              << " is already cancelled, erase it from paused list.";
+                    query_it = queries_list.erase(query_it);
                     continue;
                 }
                 LOG(INFO) << "Query " << print_id(resource_ctx->task_controller()->task_id())
                           << " is blocked due to process memory not enough, but already "
-                             "cancelled some queries, resumt it now.";
+                             "cancelled some queries, resume it now.";
                 resource_ctx->task_controller()->set_memory_sufficient(true);
+                query_it = queries_list.erase(query_it);
+            }
+            if (queries_list.empty()) {
+                it = _paused_queries_list.erase(it);
+            } else {
+                ++it;
             }
         }
         revoking_memory_from_other_query_ = false;
+        return;
     }
 
     for (auto it = _paused_queries_list.begin(); it != _paused_queries_list.end();) {
@@ -399,6 +428,14 @@ void WorkloadGroupMgr::handle_paused_queries() {
                 continue;
             }
 
+            // Recently cancelled queries are kept in the list by Phase 2 for
+            // delay-waiting tracking. Skip them here — they must not be processed
+            // (spilled/cancelled/resumed) by Phase 4.
+            if (resource_ctx->task_controller()->is_cancelled()) {
+                ++query_it;
+                continue;
+            }
+
             if (resource_ctx->task_controller()
                         ->paused_reason()
                         .is<ErrorCode::QUERY_MEMORY_EXCEEDED>()) {
@@ -424,6 +461,12 @@ void WorkloadGroupMgr::handle_paused_queries() {
             } else if (resource_ctx->task_controller()
                                ->paused_reason()
                                .is<ErrorCode::WORKLOAD_GROUP_MEMORY_EXCEEDED>()) {
+                // For WORKLOAD_GROUP_MEMORY_EXCEEDED: only wait if a cancelled query in the
+                // SAME WG is releasing memory (WG memory pools are independent across WGs).
+                if (wgs_with_recently_cancelled.contains(wg)) {
+                    ++query_it;
+                    continue;
+                }
                 // here query is paused because of WORKLOAD_GROUP_MEMORY_EXCEEDED,
                 // wg of the current query may not actually exceed the limit,
                 // just (wg consumption + current query expected reserve memory > wg memory limit)
@@ -460,8 +503,8 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     continue;
                 }
 
-                // when running here, current query adjusted_mem_limit < query memory consumption + reserve_size,
-                // which means that the current query itself has not exceeded the memory limit.
+                // when running here, current query adjusted_mem_limit >= query memory consumption + reserve_size,
+                // which means that the current query itself has not exceeded the adjusted memory limit.
                 //
                 // this means that there must be queries in the wg of the current query whose memory exceeds
                 // adjusted_mem_limit, but these queries may not have entered the paused state,
@@ -536,6 +579,12 @@ void WorkloadGroupMgr::handle_paused_queries() {
                     }
                 }
             } else {
+                // PROCESS_MEMORY_EXCEEDED: a recently cancelled query anywhere may be releasing
+                // process-level memory, so wait globally before spilling or revoking.
+                if (has_recently_cancelled_query) {
+                    ++query_it;
+                    continue;
+                }
                 // If workload group's memory usage > min memory, then it means the workload group use too much memory
                 // in memory contention state. Should just spill
                 if (wg->total_mem_used() > wg->min_memory_limit()) {
@@ -865,11 +914,13 @@ void WorkloadGroupMgr::update_queries_limit_(WorkloadGroupPtr wg, bool enable_ha
         // If the query is a pure load task, then should not modify its limit. Or it will reserve
         // memory failed and we did not hanle it.
         if (!resource_ctx->task_controller()->is_pure_load_task()) {
-            // If user's set mem limit is less than query weighted mem limit, then should not modify its limit.
-            // Use user settings.
-            if (resource_ctx->memory_context()->user_set_mem_limit() > query_weighted_mem_limit) {
-                resource_ctx->memory_context()->set_mem_limit(query_weighted_mem_limit);
-            }
+            // The effective limit should be min(user_set_mem_limit, query_weighted_mem_limit).
+            // This ensures limits are both lowered under memory pressure and restored when
+            // pressure eases (e.g., when concurrent queries finish or WG memory drops below
+            // low watermark).
+            int64_t effective_limit = std::min(resource_ctx->memory_context()->user_set_mem_limit(),
+                                               query_weighted_mem_limit);
+            resource_ctx->memory_context()->set_mem_limit(effective_limit);
             resource_ctx->memory_context()->set_adjusted_mem_limit(
                     expected_query_weighted_mem_limit);
         }
