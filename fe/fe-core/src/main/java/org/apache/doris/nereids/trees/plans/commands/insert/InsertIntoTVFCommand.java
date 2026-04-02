@@ -23,7 +23,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.filesystem.FileSystemUtil;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.fs.FileSystemFactory;
@@ -177,7 +177,7 @@ public class InsertIntoTVFCommand extends Command implements ForwardWithSync, Ex
             throws Exception {
         String filePath = props.get("file_path");
         // Extract parent directory from prefix path: s3://bucket/path/to/prefix_ -> s3://bucket/path/to/
-        String parentDir = BrokerUtil.extractParentDirectory(filePath);
+        String parentDir = FileSystemUtil.extractParentDirectory(filePath);
         LOG.info("TVF sink: deleting existing files in directory: {}", parentDir);
 
         // Copy props for building StorageProperties (exclude write-specific params)

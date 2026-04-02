@@ -17,8 +17,17 @@
 
 package org.apache.doris.fs;
 
+import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FsBroker;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.NetUtils;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystemProvider;
+import org.apache.doris.service.FrontendOptions;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -137,6 +146,45 @@ public final class FileSystemFactory {
     static void clearProviderCache() {
         cachedProviders = null;
         pluginManager = null;
+    }
+
+    /**
+     * Creates a {@link org.apache.doris.filesystem.FileSystem} for the given {@link BrokerDesc}.
+     *
+     * <p>For broker storage ({@link BrokerProperties}), resolves the live broker host:port via
+     * {@code BrokerMgr} and delegates to {@link #getBrokerFileSystem}. For all other storage
+     * types (HDFS, S3, etc.), converts via {@link StoragePropertiesConverter} and delegates to
+     * {@link #getFileSystem(StorageProperties)}.
+     *
+     * <p>This is the preferred entry point for fe-core code that holds a {@code BrokerDesc}
+     * and wants to perform filesystem operations (list, delete, read, write) via the unified
+     * {@code FileSystem} SPI without caring about the underlying storage type.
+     *
+     * @param brokerDesc descriptor for the target storage
+     * @return initialized {@link org.apache.doris.filesystem.FileSystem}; caller must close it
+     * @throws UserException if the broker cannot be resolved or filesystem creation fails
+     */
+    public static org.apache.doris.filesystem.FileSystem getFileSystem(BrokerDesc brokerDesc)
+            throws UserException {
+        StorageProperties sp = brokerDesc.getStorageProperties();
+        if (sp instanceof BrokerProperties) {
+            BrokerProperties bp = (BrokerProperties) sp;
+            try {
+                String localIP = FrontendOptions.getLocalHostAddress();
+                FsBroker broker = Env.getCurrentEnv().getBrokerMgr().getBroker(bp.getBrokerName(), localIP);
+                String clientId = NetUtils.getHostPortInAccessibleFormat(localIP, Config.edit_log_port);
+                return getBrokerFileSystem(broker.host, broker.port, clientId, bp.getBrokerParams());
+            } catch (AnalysisException | IOException e) {
+                throw new UserException("Failed to create broker filesystem for '"
+                        + brokerDesc.getName() + "': " + e.getMessage(), e);
+            }
+        }
+        try {
+            return getFileSystem(sp);
+        } catch (IOException e) {
+            throw new UserException("Failed to create filesystem for '"
+                    + brokerDesc.getName() + "': " + e.getMessage(), e);
+        }
     }
 
     /**

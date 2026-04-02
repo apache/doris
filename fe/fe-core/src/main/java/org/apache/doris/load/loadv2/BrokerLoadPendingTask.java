@@ -22,6 +22,10 @@ import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
 import org.apache.doris.load.BrokerFileGroup;
@@ -95,7 +99,16 @@ public class BrokerLoadPendingTask extends LoadTask {
                     long groupFileSize = 0;
                     List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
                     for (String path : fileGroup.getFilePaths()) {
-                        BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+                        try (FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
+                            for (FileEntry e : fs.listFiles(Location.of(path))) {
+                                fileStatuses.add(new TBrokerFileStatus(
+                                        e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                            }
+                        } catch (java.io.IOException e) {
+                            throw new org.apache.doris.common.UserException(
+                                    brokerDesc.getName() + " list path exception. path=" + path
+                                    + ", err: " + e.getMessage(), e);
+                        }
                     }
                     if (!fileStatuses.isEmpty()) {
                         fileGroup.initDeferredFileFormatPropertiesIfNecessary(fileStatuses);

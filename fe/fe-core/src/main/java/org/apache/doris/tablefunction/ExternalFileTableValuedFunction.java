@@ -38,7 +38,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.profile.SummaryProfile;
-import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.common.util.FileFormatConstants;
 import org.apache.doris.common.util.FileFormatUtils;
 import org.apache.doris.common.util.NetUtils;
@@ -168,10 +167,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 S3Util.validateAndTestEndpoint(endpoint);
             }
             if (sp instanceof BrokerProperties) {
-                BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+                try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(brokerDesc)) {
+                    List<FileEntry> entries = fs.listFiles(Location.of(path));
+                    for (FileEntry e : entries) {
+                        fileStatuses.add(new TBrokerFileStatus(
+                                e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                    }
+                } catch (IOException e) {
+                    throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
+                }
             } else {
                 // Non-broker storage (HDFS, S3, etc.): use the SPI filesystem directly.
-                // BrokerUtil.parseFile is broker-daemon-specific and must not be called here.
                 try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(sp)) {
                     List<FileEntry> entries = fs.listFiles(Location.of(path));
                     for (FileEntry e : entries) {

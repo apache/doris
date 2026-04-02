@@ -69,4 +69,23 @@ public class FileSystemUtil {
     private static String joinPath(String parent, String child) {
         return parent.endsWith("/") ? parent + child : parent + "/" + child;
     }
+
+    /**
+     * Returns the parent directory of the given path (including the trailing slash).
+     * If the path contains no slash, returns the path unchanged.
+     *
+     * <p>Examples:
+     * <pre>
+     *   "hdfs://nn/a/b/file.csv"  →  "hdfs://nn/a/b/"
+     *   "hdfs://nn/file.csv"      →  "hdfs://nn/"
+     *   "file.csv"                →  "file.csv"
+     * </pre>
+     */
+    public static String extractParentDirectory(String path) {
+        int lastSlash = path.lastIndexOf('/');
+        if (lastSlash >= 0) {
+            return path.substring(0, lastSlash + 1);
+        }
+        return path;
+    }
 }
