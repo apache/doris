@@ -238,7 +238,7 @@ std::string trans_op(const std::string& opt, const std::string& condition_value 
         } else if (op == "!*=") {
             op = "!=";
         } else if (op == "<=>") {
-            op = iequal(condition_value, "NULL") ? "IS" : "="; 
+            op = iequal(condition_value, "NULL") ? "IS" : "=";
         }
     }
     return op;
