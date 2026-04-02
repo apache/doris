@@ -58,7 +58,7 @@ import java.util.concurrent.atomic.AtomicReference;
 class AuthenticatorManagerTest {
     private static final String USER_NAME = "alice";
     private static final String REMOTE_IP = "127.0.0.1";
-    private static final String OIDC_ID_TOKEN = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJhbGljZSJ9.signature";
+    private static final String OIDC_ID_TOKEN = "eyJhbGciOiJub25lIn0.eyJzdWIiOiJhbGljZSJ9.signature";//gitleaks:allow
 
     private Env env;
     private Auth auth;
