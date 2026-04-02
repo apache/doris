@@ -17,6 +17,7 @@
 
 package org.apache.doris.common;
 
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.thrift.TNetworkAddress;
 
 import org.apache.commons.pool2.BaseKeyedPooledObjectFactory;
@@ -63,6 +64,25 @@ public class GenericPool<VALUE extends org.apache.thrift.TServiceClient>  {
         if (!isNonBlockingIO && Config.thrift_rpc_connect_timeout_ms > 0) {
             TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
             socket.setTimeout(Config.thrift_rpc_connect_timeout_ms);
+        }
+        // Debug point: redirect to unreachable address before close, so open() connects to
+        // a black-hole. With the fix, connectTimeout_ is 5s and open() fails fast. Without
+        // the fix, connectTimeout_ inherits the inflated RPC timeout and blocks for minutes.
+        if (DebugPointUtil.isEnable("GenericPool.reopen.unreachable")) {
+            if (!isNonBlockingIO) {
+                try {
+                    TSocket socket = (TSocket) object.getOutputProtocol().getTransport();
+                    java.lang.reflect.Field hostField = TSocket.class.getDeclaredField("host_");
+                    hostField.setAccessible(true);
+                    hostField.set(socket, "192.0.2.1"); // RFC 5737 TEST-NET-1, guaranteed unreachable
+                    java.lang.reflect.Field portField = TSocket.class.getDeclaredField("port_");
+                    portField.setAccessible(true);
+                    portField.set(socket, 1);
+                    LOG.info("debug point GenericPool.reopen.unreachable: redirected to 192.0.2.1:1");
+                } catch (Exception e) {
+                    LOG.warn("debug point GenericPool.reopen.unreachable failed", e);
+                }
+            }
         }
         object.getOutputProtocol().getTransport().close();
         try {

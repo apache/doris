@@ -365,9 +365,8 @@ public class GenericPoolTest {
         BackendService.Client client1 = backendService.borrowObject(address);
         backendService.returnObject(address, client1);
 
-        // Borrow a connection, then try reopenOrClear to an unreachable address
+        // Borrow a connection, then try reopenOrClear
         BackendService.Client client2 = backendService.borrowObject(address);
-        TNetworkAddress badAddress = new TNetworkAddress("192.0.2.1", 1);
 
         int savedConnectTimeout = Config.thrift_rpc_connect_timeout_ms;
         Config.thrift_rpc_connect_timeout_ms = 1000; // 1s to fail fast
