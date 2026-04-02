@@ -39,6 +39,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Manager for AUTHENTICATION INTEGRATION metadata.
  */
 public class AuthenticationIntegrationMgr implements Writable {
+    // Lock ordering across authentication metadata managers:
+    // AuthenticationIntegrationMgr.lock -> RoleMappingMgr.lock.
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "nTi")

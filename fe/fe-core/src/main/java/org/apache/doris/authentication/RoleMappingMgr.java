@@ -45,6 +45,8 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
  * Manager for ROLE MAPPING metadata.
  */
 public class RoleMappingMgr implements Writable {
+    // Lock ordering across authentication metadata managers:
+    // AuthenticationIntegrationMgr.lock -> RoleMappingMgr.lock.
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
 
     @SerializedName(value = "nTrm")
