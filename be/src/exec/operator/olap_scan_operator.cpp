@@ -396,24 +396,6 @@ Status OlapScanLocalState::_process_conjuncts(RuntimeState* state) {
         return Status::OK();
     }
     RETURN_IF_ERROR(_build_key_ranges_and_filters());
-
-    // _build_key_ranges_and_filters may erase predicates from _slot_id_to_predicates
-    // that are covered by exact key ranges. Re-print PushDownPredicates to reflect the
-    // actual predicates that will reach the storage layer.
-    if (state->enable_profile()) {
-        fmt::memory_buffer buf;
-        for (const auto& [slot_id, predicates] : _slot_id_to_predicates) {
-            if (predicates.empty()) {
-                continue;
-            }
-            fmt::format_to(buf, "Slot ID: {}: [", slot_id);
-            for (const auto& predicate : predicates) {
-                fmt::format_to(buf, "{{{}}}, ", predicate->debug_string());
-            }
-            fmt::format_to(buf, "] ");
-        }
-        custom_profile()->add_info_string("PushDownPredicates", fmt::to_string(buf));
-    }
     return Status::OK();
 }
 

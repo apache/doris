@@ -193,6 +193,11 @@ Status ScanLocalState<Derived>::open(RuntimeState* state) {
 
     RETURN_IF_ERROR(_process_conjuncts(state));
 
+    if (state->enable_profile()) {
+        custom_profile()->add_info_string("PushDownPredicates",
+                                          predicates_to_string(_slot_id_to_predicates));
+    }
+
     auto status = _eos ? Status::OK() : _prepare_scanners();
     RETURN_IF_ERROR(status);
     if (auto ctx = _scanner_ctx.load()) {
@@ -325,8 +330,6 @@ Status ScanLocalState<Derived>::_normalize_conjuncts(RuntimeState* state) {
     }
 
     if (state->enable_profile()) {
-        custom_profile()->add_info_string("PushDownPredicates",
-                                          predicates_to_string(_slot_id_to_predicates));
         std::string message;
         for (auto& conjunct : _conjuncts) {
             if (conjunct->root()) {
