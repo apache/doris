@@ -102,6 +102,8 @@ public:
         _row_lineage_columns = std::move(row_lineage_columns);
     }
 
+    static bool _is_fully_dictionary_encoded(const tparquet::ColumnMetaData& column_metadata);
+
 protected:
     struct IcebergProfile {
         RuntimeProfile::Counter* num_delete_files;
