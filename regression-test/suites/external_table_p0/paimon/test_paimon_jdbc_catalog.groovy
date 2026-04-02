@@ -124,6 +124,22 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         executeCommand(command, true)
     }
 
+    def assertSystemTableReadable = { String tableExpr, List<String> expectedColumns = [], Integer minCount = null ->
+        def descRows = sql """DESC ${tableExpr}"""
+        assertTrue(descRows.size() > 0)
+        expectedColumns.each { col ->
+            assertTrue(descRows.toString().contains(col))
+        }
+
+        def countRows = sql """SELECT COUNT(*) FROM ${tableExpr}"""
+        assertEquals(1, countRows.size())
+        int countValue = countRows[0][0].toString().toInteger()
+        if (minCount != null) {
+            assertTrue(countValue >= minCount)
+        }
+        return countValue
+    }
+
     try {
         sql """switch internal"""
         sql """DROP CATALOG IF EXISTS ${catalogName}"""
@@ -189,15 +205,55 @@ suite("test_paimon_jdbc_catalog", "p0,external") {
         assertEquals(1, rowCount.size())
         assertEquals("2", rowCount[0][0].toString())
 
-        def schemaDesc = sql """DESC paimon_jdbc_tbl\$schemas"""
-        assertTrue(schemaDesc.toString().contains("schema_id"))
+        assertSystemTableReadable("paimon_jdbc_tbl\$schemas", ["schema_id"], 1)
+        assertSystemTableReadable("paimon_jdbc_tbl\$snapshots", ["snapshot_id"], 1)
+        [
+            "paimon_jdbc_tbl\$options",
+            "paimon_jdbc_tbl\$audit_log",
+            "paimon_jdbc_tbl\$files",
+            "paimon_jdbc_tbl\$tags",
+            "paimon_jdbc_tbl\$branches",
+            "paimon_jdbc_tbl\$consumers",
+            "paimon_jdbc_tbl\$ro",
+            "paimon_jdbc_tbl\$aggregation_fields",
+            "paimon_jdbc_tbl\$binlog",
+            "paimon_jdbc_tbl\$manifests",
+            "paimon_jdbc_tbl\$partitions",
+            "paimon_jdbc_tbl\$buckets",
+            "paimon_jdbc_tbl\$statistics",
+            "paimon_jdbc_tbl\$table_indexes"
+        ].each { tableExpr ->
+            assertSystemTableReadable(tableExpr)
+        }
 
-        def schemaCount = sql """SELECT COUNT(*) FROM paimon_jdbc_tbl\$schemas"""
-        assertEquals(1, schemaCount.size())
-        assertTrue(schemaCount[0][0].toString().toInteger() >= 1)
+        sql """DROP TABLE IF EXISTS paimon_jdbc_row_tracking_tbl"""
+        sql """
+            CREATE TABLE ${dbName}.paimon_jdbc_row_tracking_tbl (
+                id INT,
+                name STRING,
+                dt DATE
+            ) ENGINE=paimon
+            PROPERTIES (
+                'bucket' = '-1',
+                'row-tracking.enabled' = 'true'
+            )
+        """
+
+        sparkPaimonJdbc """
+            INSERT INTO ${sparkSeedCatalogName}.${dbName}.paimon_jdbc_row_tracking_tbl VALUES
+            (3, 'carol', DATE '2025-01-03'),
+            (4, 'dave', DATE '2025-01-04')
+        """
+
+        assertSystemTableReadable(
+            "paimon_jdbc_row_tracking_tbl\$row_tracking",
+            ["_row_id", "_sequence_number"],
+            1
+        )
     } finally {
         try {
             sql """SWITCH ${catalogName}"""
+            sql """DROP TABLE IF EXISTS ${dbName}.paimon_jdbc_row_tracking_tbl"""
             sql """DROP TABLE IF EXISTS ${dbName}.paimon_jdbc_tbl"""
             sql """DROP DATABASE IF EXISTS ${dbName} FORCE"""
         } catch (Exception e) {

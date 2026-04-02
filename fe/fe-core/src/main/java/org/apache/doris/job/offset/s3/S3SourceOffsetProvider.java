@@ -131,7 +131,8 @@ public class S3SourceOffsetProvider implements SourceOffsetProvider {
     }
 
     @Override
-    public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand, Offset runningOffset) {
+    public InsertIntoTableCommand rewriteTvfParams(InsertIntoTableCommand originCommand,
+            Offset runningOffset, long taskId) {
         S3Offset offset = (S3Offset) runningOffset;
         Map<String, String> props = new HashMap<>();
         // rewrite plan

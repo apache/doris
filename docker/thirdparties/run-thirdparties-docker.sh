@@ -240,7 +240,6 @@ JUICEFS_LOCAL_BIN="${JUICEFS_RUNTIME_ROOT}/bin/juicefs"
 find_juicefs_hadoop_jar() {
     local -a jar_globs=(
         "${JUICEFS_RUNTIME_ROOT}/lib/juicefs-hadoop-[0-9]*.jar"
-        "${ROOT}/docker-compose/hive/scripts/auxlib/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/thirdparty/installed/juicefs_libs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/fe/lib/juicefs/juicefs-hadoop-[0-9]*.jar"
         "${DORIS_ROOT}/output/be/lib/java_extensions/juicefs/juicefs-hadoop-[0-9]*.jar"
@@ -359,6 +358,10 @@ ensure_juicefs_hadoop_jar_for_hive() {
     fi
 
     mkdir -p "${auxlib_dir}"
+    if [[ "${source_jar}" == "${auxlib_dir}/$(basename "${source_jar}")" ]]; then
+        echo "JuiceFS Hadoop jar already exists in hive auxlib: $(basename "${source_jar}")"
+        return 0
+    fi
     cp -f "${source_jar}" "${auxlib_dir}/"
     echo "Synced JuiceFS Hadoop jar to hive auxlib: $(basename "${source_jar}")"
 }

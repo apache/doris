@@ -229,21 +229,20 @@ Status IcebergInsertPartitionFunction::_compute_hashes_with_exprs(
         return Status::InternalError("Merge partitioning insert exprs are empty");
     }
 
-    std::vector<int> results(_partition_expr_ctxs.size());
+    std::vector<ColumnWithTypeAndName> results(_partition_expr_ctxs.size());
     for (size_t i = 0; i < _partition_expr_ctxs.size(); ++i) {
-        RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(block, &results[i]));
+        RETURN_IF_ERROR(_partition_expr_ctxs[i]->execute(block, results[i]));
     }
 
     initialize_shuffle_hashes(partitions, rows, _hash_method);
     auto* __restrict hash_values = partitions.data();
     for (size_t i = 0; i < results.size(); ++i) {
-        const auto& col_info = block->get_by_position(results[i]);
-        const auto& [column, is_const] = unpack_if_const(col_info.column);
+        const auto& [column, is_const] = unpack_if_const(results[i].column);
         if (is_const) {
             // Same value for all rows — no effect on inter-row partitioning.
             continue;
         }
-        update_shuffle_hashes(column, col_info.type, hash_values, _hash_method);
+        update_shuffle_hashes(column, results[i].type, hash_values, _hash_method);
     }
     return Status::OK();
 }
@@ -312,23 +311,22 @@ Status IcebergDeletePartitionFunction::_compute_hashes(Block* block,
         return Status::InternalError("Merge partitioning delete exprs are empty");
     }
 
-    std::vector<int> results(_delete_partition_expr_ctxs.size());
+    std::vector<ColumnWithTypeAndName> results(_delete_partition_expr_ctxs.size());
     for (size_t i = 0; i < _delete_partition_expr_ctxs.size(); ++i) {
-        RETURN_IF_ERROR(_delete_partition_expr_ctxs[i]->execute(block, &results[i]));
+        RETURN_IF_ERROR(_delete_partition_expr_ctxs[i]->execute(block, results[i]));
     }
 
     initialize_shuffle_hashes(partitions, rows, _hash_method);
     auto* __restrict hash_values = partitions.data();
     for (size_t i = 0; i < results.size(); ++i) {
-        const auto& col_info = block->get_by_position(results[i]);
-        const auto& [column, is_const] = unpack_if_const(col_info.column);
+        const auto& [column, is_const] = unpack_if_const(results[i].column);
         if (is_const) {
             // Same value for all rows — no effect on inter-row partitioning.
             continue;
         }
         ColumnPtr hash_col = column;
-        DataTypePtr hash_type = col_info.type;
-        RETURN_IF_ERROR(_get_delete_hash_column(col_info, &hash_col, &hash_type));
+        DataTypePtr hash_type = results[i].type;
+        RETURN_IF_ERROR(_get_delete_hash_column(results[i], &hash_col, &hash_type));
         update_shuffle_hashes(hash_col, hash_type, hash_values, _hash_method);
     }
     return Status::OK();

@@ -92,7 +92,14 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _topn_limit = _reader->_reader_context.read_orderby_key_limit;
     } else {
         _topn_limit = 0;
-        DCHECK_EQ(_reader->_reader_context.filter_block_conjuncts.size(), 0);
+    }
+
+    // General limit pushdown: only for non-merge path (DUP_KEYS or UNIQUE_KEYS with MOW).
+    // The scanner already guards this with _storage_no_merge(), but we also check !_merge
+    // here because _merge can be forced true by overlapping data (force_merge), in which
+    // case limit pushdown is not safe.
+    if (!_merge && _reader->_reader_context.general_read_limit > 0) {
+        _general_read_limit = _reader->_reader_context.general_read_limit;
     }
 }
 
@@ -248,8 +255,43 @@ Status VCollectIterator::next(Block* block) {
         return _topn_next(block);
     }
 
+    // Fast path: if general limit already reached, return EOF immediately
+    if (_general_read_limit > 0 && _general_rows_returned >= _general_read_limit) {
+        return Status::Error<END_OF_FILE>("");
+    }
+
     if (LIKELY(_inner_iter)) {
-        return _inner_iter->next(block);
+        auto st = _inner_iter->next(block);
+        if (UNLIKELY(!st.ok())) {
+            return st;
+        }
+
+        // Apply filter_block_conjuncts that were moved from Scanner::_conjuncts.
+        // This must happen BEFORE limit counting so that _general_rows_returned
+        // reflects post-filter rows (same pattern as _topn_next).
+        // Intentionally not gated by _general_read_limit > 0:
+        // filter_block_conjuncts is only populated when the general-limit or
+        // topn branches move conjuncts into the storage layer (topn takes
+        // the _topn_next path and never reaches here).
+        if (!_reader->_reader_context.filter_block_conjuncts.empty()) {
+            RETURN_IF_ERROR(VExprContext::filter_block(
+                    _reader->_reader_context.filter_block_conjuncts, block, block->columns()));
+        }
+
+        // Enforce general read limit: truncate block if needed
+        if (_general_read_limit > 0) {
+            _general_rows_returned += block->rows();
+            if (_general_rows_returned > _general_read_limit) {
+                // Truncate block to return exactly the remaining rows needed
+                int64_t excess = _general_rows_returned - _general_read_limit;
+                int64_t keep = block->rows() - excess;
+                DCHECK_GT(keep, 0);
+                block->set_num_rows(keep);
+                _general_rows_returned = _general_read_limit;
+            }
+        }
+
+        return Status::OK();
     } else {
         return Status::Error<END_OF_FILE>("");
     }

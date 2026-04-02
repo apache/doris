@@ -60,9 +60,13 @@ suite("test_insert_tablet_sink") {
 
 
     sql """ insert into table_largeint select k1,c_varchar,cast(rand() * 50000000 as bigint) from tmp_varchar where k1>=3; """
-    explain {
-        sql "insert into table_largeint select k1,c_varchar,cast(rand() * 50000000 as bigint) from tmp_varchar;"
-        contains "OLAP_TABLE_SINK_HASH_PARTITIONED"
+    // In cloud mode (store-compute separation), enable_strict_consistency_dml defaults to false,
+    // so no hash-partitioned sink is required for multi-replica consistency.
+    if (!isCloudMode()) {
+        explain {
+            sql "insert into table_largeint select k1,c_varchar,cast(rand() * 50000000 as bigint) from tmp_varchar;"
+            contains "OLAP_TABLE_SINK_HASH_PARTITIONED"
+        }
     }
     
     sql """ insert into table_largeint select k1,c_varchar,cast(rand() * 50000000 as bigint) from tmp_varchar; """

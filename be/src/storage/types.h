@@ -33,7 +33,6 @@
 #include "common/config.h"
 #include "common/consts.h"
 #include "common/status.h"
-#include "core/arena.h"
 #include "core/decimal12.h"
 #include "core/extended_types.h"
 #include "core/packed_int128.h"
@@ -71,8 +70,6 @@ public:
     virtual ~TypeInfo() = default;
     virtual int cmp(const void* left, const void* right) const = 0;
 
-    virtual void deep_copy(void* dest, const void* src, Arena& arena) const = 0;
-
     virtual void set_to_max(void* buf) const = 0;
     virtual void set_to_min(void* buf) const = 0;
 
@@ -85,10 +82,6 @@ class ScalarTypeInfo : public TypeInfo {
 public:
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
-    void deep_copy(void* dest, const void* src, Arena& arena) const override {
-        _deep_copy(dest, src, arena);
-    }
-
     void set_to_max(void* buf) const override { _set_to_max(buf); }
     void set_to_min(void* buf) const override { _set_to_min(buf); }
     size_t size() const override { return _size; }
@@ -98,7 +91,6 @@ public:
     template <typename TypeTraitsClass>
     ScalarTypeInfo(TypeTraitsClass t)
             : _cmp(TypeTraitsClass::cmp),
-              _deep_copy(TypeTraitsClass::deep_copy),
               _set_to_max(TypeTraitsClass::set_to_max),
               _set_to_min(TypeTraitsClass::set_to_min),
               _size(TypeTraitsClass::size),
@@ -106,8 +98,6 @@ public:
 
 private:
     int (*_cmp)(const void* left, const void* right);
-
-    void (*_deep_copy)(void* dest, const void* src, Arena& arena);
 
     void (*_set_to_max)(void* buf);
     void (*_set_to_min)(void* buf);
@@ -169,39 +159,6 @@ public:
         }
     }
 
-    void deep_copy(void* dest, const void* src, Arena& arena) const override {
-        auto dest_value = reinterpret_cast<CollectionValue*>(dest);
-        auto src_value = reinterpret_cast<const CollectionValue*>(src);
-
-        if (src_value->length() == 0) {
-            new (dest_value) CollectionValue(src_value->length());
-            return;
-        }
-
-        dest_value->set_length(src_value->length());
-
-        size_t item_size = src_value->length() * _item_size;
-        size_t nulls_size = src_value->has_null() ? src_value->length() : 0;
-        dest_value->set_data(arena.alloc(item_size + nulls_size));
-        dest_value->set_has_null(src_value->has_null());
-        dest_value->set_null_signs(src_value->has_null()
-                                           ? reinterpret_cast<bool*>(dest_value->mutable_data()) +
-                                                     item_size
-                                           : nullptr);
-
-        // copy null_signs
-        if (src_value->has_null()) {
-            dest_value->copy_null_signs(src_value);
-        }
-
-        // copy item
-        for (uint32_t i = 0; i < src_value->length(); ++i) {
-            if (dest_value->is_null_at(i)) continue;
-            _item_type_info->deep_copy((uint8_t*)(dest_value->mutable_data()) + i * _item_size,
-                                       (uint8_t*)(src_value->data()) + i * _item_size, arena);
-        }
-    }
-
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
     }
@@ -252,8 +209,6 @@ public:
             }
         }
     }
-
-    void deep_copy(void* dest, const void* src, Arena& arena) const override { DCHECK(false); }
 
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
@@ -325,44 +280,6 @@ public:
             return 1;
         } else {
             return 0;
-        }
-    }
-
-    void deep_copy(void* dest, const void* src, Arena& arena) const override {
-        auto dest_value = reinterpret_cast<StructValue*>(dest);
-        auto src_value = reinterpret_cast<const StructValue*>(src);
-
-        if (src_value->size() == 0) {
-            new (dest_value) StructValue(src_value->size());
-            return;
-        }
-
-        dest_value->set_size(src_value->size());
-        dest_value->set_has_null(src_value->has_null());
-
-        size_t allocate_size = src_value->size() * sizeof(*src_value->values());
-        // allocate memory for children value
-        for (uint32_t i = 0; i < src_value->size(); ++i) {
-            if (src_value->is_null_at(i)) continue;
-            allocate_size += _type_infos[i]->size();
-        }
-
-        dest_value->set_values((void**)arena.alloc(allocate_size));
-        auto ptr = reinterpret_cast<uint8_t*>(dest_value->mutable_values());
-        ptr += dest_value->size() * sizeof(*dest_value->values());
-
-        for (uint32_t i = 0; i < src_value->size(); ++i) {
-            dest_value->set_child_value(nullptr, i);
-            if (src_value->is_null_at(i)) continue;
-            dest_value->set_child_value(ptr, i);
-            ptr += _type_infos[i]->size();
-        }
-
-        // copy children value
-        for (uint32_t i = 0; i < src_value->size(); ++i) {
-            if (src_value->is_null_at(i)) continue;
-            _type_infos[i]->deep_copy(dest_value->mutable_child_value(i), src_value->child_value(i),
-                                      arena);
         }
     }
 
@@ -594,10 +511,6 @@ struct BaseFieldTypeTraits : public CppTypeTraits<field_type> {
         }
     }
 
-    static inline void deep_copy(void* dest, const void* src, Arena& arena) {
-        memcpy(dest, src, sizeof(CppType));
-    }
-
     static inline void set_to_max(void* buf) {
         set_cpp_type_value(buf, type_limit<CppType>::max());
     }
@@ -634,12 +547,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_BOOL>
 template <>
 struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT>
         : public NumericFieldTypeTraits<FieldType::OLAP_FIELD_TYPE_LARGEINT, true> {
-    // GCC7.3 will generate movaps instruction, which will lead to SEGV when buf is
-    // not aligned to 16 byte
-    static void deep_copy(void* dest, const void* src, Arena& arena) {
-        *reinterpret_cast<PackedInt128*>(dest) = *reinterpret_cast<const PackedInt128*>(src);
-    }
-
     static void set_to_max(void* buf) {
         *reinterpret_cast<PackedInt128*>(buf) = ~((int128_t)(1) << 127);
     }
@@ -757,14 +664,6 @@ struct FieldTypeTraits<FieldType::OLAP_FIELD_TYPE_CHAR>
         auto r_slice = reinterpret_cast<const Slice*>(right);
         return l_slice->compare(*r_slice);
     }
-    static void deep_copy(void* dest, const void* src, Arena& arena) {
-        auto l_slice = reinterpret_cast<Slice*>(dest);
-        auto r_slice = reinterpret_cast<const Slice*>(src);
-        l_slice->data = arena.alloc(r_slice->size);
-        memcpy(l_slice->data, r_slice->data, r_slice->size);
-        l_slice->size = r_slice->size;
-    }
-
     // Using field.set_to_max to set varchar/char,not here.
     static void (*set_to_max)(void*);
 

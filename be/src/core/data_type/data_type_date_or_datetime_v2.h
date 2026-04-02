@@ -66,16 +66,7 @@ public:
         return std::make_shared<SerDeType>(nesting_level);
     }
 
-    Field get_field(const TExprNode& node) const override {
-        DateV2Value<DateV2ValueType> value;
-        if (value.from_date_str(node.date_literal.value.c_str(),
-                                cast_set<Int32>(node.date_literal.value.size()))) {
-            return Field::create_field<TYPE_DATEV2>(std::move(value));
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type DateV2", node.date_literal.value);
-        }
-    }
+    Field get_field(const TExprNode& node) const override;
     bool equals(const IDataType& rhs) const override;
 
 #ifdef BE_TEST
@@ -147,19 +138,7 @@ public:
         return std::make_shared<SerDeType>(_scale, nesting_level);
     };
 
-    Field get_field(const TExprNode& node) const override {
-        DateV2Value<DateTimeV2ValueType> value;
-        const int32_t scale =
-                node.type.types.empty() ? -1 : node.type.types.front().scalar_type.scale;
-        if (value.from_date_str(node.date_literal.value.c_str(),
-                                cast_set<int32_t>(node.date_literal.value.size()), scale)) {
-            return Field::create_field<TYPE_DATETIMEV2>(std::move(value));
-        } else {
-            throw doris::Exception(doris::ErrorCode::INVALID_ARGUMENT,
-                                   "Invalid value: {} for type DateTimeV2({})",
-                                   node.date_literal.value, _scale);
-        }
-    }
+    Field get_field(const TExprNode& node) const override;
     MutableColumnPtr create_column() const override;
 
     UInt32 get_scale() const override { return _scale; }

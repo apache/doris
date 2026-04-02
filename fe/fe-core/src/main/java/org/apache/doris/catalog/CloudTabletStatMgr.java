@@ -29,6 +29,7 @@ import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.DebugPointUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.rpc.RpcException;
@@ -47,6 +48,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -302,6 +304,8 @@ public class CloudTabletStatMgr extends MasterDaemon {
         long tabletCount = 0L;
         long partitionCount = 0L;
         long tableCount = 0L;
+        long autoPartitionNearLimitCount = 0L;
+        long dynamicPartitionNearLimitCount = 0L;
         List<OlapTable.Statistics> newCloudTableStatsList = new ArrayList<>();
         for (Long dbId : dbIds) {
             Database db = Env.getCurrentInternalCatalog().getDbNullable(dbId);
@@ -333,7 +337,24 @@ public class CloudTabletStatMgr extends MasterDaemon {
                 OlapTable.Statistics tableStats;
                 try {
                     List<Partition> allPartitions = olapTable.getAllPartitions();
+                    // Use getPartitionNum() (excludes temp partitions) for limit check,
+                    // consistent with how partition limits are enforced elsewhere.
+                    int nonTempPartitionNum = olapTable.getPartitionNum();
                     partitionCount += allPartitions.size();
+                    // Check if this table's partition count is near the limit (>80%)
+                    if (olapTable.getPartitionInfo().enableAutomaticPartition()) {
+                        int limit = Config.max_auto_partition_num;
+                        if (nonTempPartitionNum > limit * 8L / 10) {
+                            autoPartitionNearLimitCount++;
+                        }
+                    }
+                    if (olapTable.dynamicPartitionExists()
+                            && olapTable.getTableProperty().getDynamicPartitionProperty().getEnable()) {
+                        int limit = Config.max_dynamic_partition_num;
+                        if (nonTempPartitionNum > limit * 8L / 10) {
+                            dynamicPartitionNearLimitCount++;
+                        }
+                    }
                     for (Partition partition : allPartitions) {
                         long partitionDataSize = 0L;
                         for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.VISIBLE)) {
@@ -449,6 +470,9 @@ public class CloudTabletStatMgr extends MasterDaemon {
             long avgTabletSize = totalTableSize / Math.max(1, tabletCount);
             MetricRepo.GAUGE_AVG_TABLET_SIZE_BYTES.setValue(avgTabletSize);
 
+            MetricRepo.GAUGE_AUTO_PARTITION_NEAR_LIMIT.setValue(autoPartitionNearLimitCount);
+            MetricRepo.GAUGE_DYNAMIC_PARTITION_NEAR_LIMIT.setValue(dynamicPartitionNearLimitCount);
+
             LOG.info("OlapTable num=" + tableCount
                     + ", partition num=" + partitionCount + ", tablet num=" + tabletCount
                     + ", max tablet byte size=" + maxTabletSize.second
@@ -558,6 +582,12 @@ public class CloudTabletStatMgr extends MasterDaemon {
 
     public void addActiveTablets(List<Long> tabletIds) {
         if (Config.cloud_get_tablet_stats_version == 1 || tabletIds == null || tabletIds.isEmpty()) {
+            return;
+        }
+        List<String> ignoreTablets = Arrays.asList(DebugPointUtil.getDebugParamOrDefault(
+                "FE.CloudTabletStatMgr.addActiveTablets.ignore.tablets", "").split(","));
+        if (!ignoreTablets.isEmpty() && tabletIds.stream().anyMatch(id -> ignoreTablets.contains(String.valueOf(id)))) {
+            LOG.info("ignore adding active tablets: {}, debug param: {}", tabletIds, ignoreTablets);
             return;
         }
         activeTablets.addAll(tabletIds);
