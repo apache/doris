@@ -560,10 +560,9 @@ void TimeSharingTaskExecutor::_dispatch_thread() {
                 return split->process();
             } catch (const doris::Exception& e) {
                 if (e.code() == doris::ErrorCode::MEM_ALLOC_FAILED) {
-                    return unexpected(Status::MemoryLimitExceeded(
-                            "PreCatch error code:{}, {}, __FILE__:{}, __LINE__:{}, "
-                            "__FUNCTION__:{}",
-                            e.code(), e.to_string(), __FILE__, __LINE__, __PRETTY_FUNCTION__));
+                    Status st = e.to_status();
+                    st.set_code(doris::ErrorCode::MEM_LIMIT_EXCEEDED);
+                    return unexpected(st);
                 }
                 return unexpected(e.to_status());
             } catch (const std::exception& e) {
