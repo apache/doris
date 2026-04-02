@@ -28,6 +28,7 @@ import org.junit.Test;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.UUID;
 
 public class KinesisRoutineLoadJobTest {
 
@@ -89,5 +90,21 @@ public class KinesisRoutineLoadJobTest {
         Assert.assertEquals(3L, ((Number) statistic.get("cachedMillisBehindLatestShardNum")).longValue());
         Assert.assertEquals(100L, ((Number) statistic.get("totalMillisBehindLatest")).longValue());
         Assert.assertEquals(100L, ((Number) statistic.get("maxMillisBehindLatest")).longValue());
+    }
+
+    @Test
+    public void testHasMoreDataToConsumeShouldKeepPollingWhenLagCacheIsZero() throws Exception {
+        KinesisRoutineLoadJob routineLoadJob =
+                new KinesisRoutineLoadJob(1L, "kinesis_routine_load_job", 1L,
+                        1L, "ap-southeast-1", "stream-1", UserIdentity.ADMIN);
+
+        Map<String, Long> shardToMillisBehindLatest = new HashMap<>();
+        shardToMillisBehindLatest.put("shard-0", 0L);
+        Deencapsulation.setField(routineLoadJob, "cachedShardWithMillsBehindLatest",
+                shardToMillisBehindLatest);
+
+        Map<String, String> shardToSeqNum = new HashMap<>();
+        shardToSeqNum.put("shard-0", "100");
+        Assert.assertTrue(routineLoadJob.hasMoreDataToConsume(UUID.randomUUID(), shardToSeqNum));
     }
 }

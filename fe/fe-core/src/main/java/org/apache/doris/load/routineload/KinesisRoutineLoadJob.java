@@ -783,36 +783,28 @@ public class KinesisRoutineLoadJob extends RoutineLoadJob {
     /**
      * Check if there is more data to consume from Kinesis shards.
      *
-     * For Kinesis, we always return true as a simple implementation,
-     * since Kinesis doesn't provide an easy way to check if there's more data
-     * without actually trying to consume it. The actual data availability
-     * is handled during consumption with GetRecords API which returns
-     * MillisBehindLatest to indicate how far behind the consumer is.
-     *
-     * @param taskId The task ID
-     * @param shardIdToSequenceNumber Map of shard IDs to sequence numbers
-     * @return true if there may be more data to consume
-     * @throws UserException if an error occurs
+     * Kinesis does not provide a cheap FE-side API equivalent to Kafka's latest offset query.
+     * So FE cannot rely on cached lag to block scheduling, otherwise a task can get stuck after
+     * catching up once and never probe for newly arrived records. Keep polling and let BE's
+     * GetRecords result decide whether this round has data.
      */
     public boolean hasMoreDataToConsume(UUID taskId, Map<String, String> shardIdToSequenceNumber)
             throws UserException {
-        // If the cache is empty (no task has committed yet), consume optimistically.
-        if (cachedShardWithMillsBehindLatest.isEmpty()) {
-            return true;
-        }
-        // If any shard's MillisBehindLatest is unknown or > 0, there is data to consume.
-        for (String shardId : shardIdToSequenceNumber.keySet()) {
-            Long millis = cachedShardWithMillsBehindLatest.get(shardId);
-            if (millis == null || millis > 0) {
-                return true;
+        if (LOG.isDebugEnabled() && !cachedShardWithMillsBehindLatest.isEmpty()) {
+            boolean allCaughtUp = true;
+            for (String shardId : shardIdToSequenceNumber.keySet()) {
+                Long millis = cachedShardWithMillsBehindLatest.get(shardId);
+                if (millis == null || millis > 0) {
+                    allCaughtUp = false;
+                    break;
+                }
+            }
+            if (allCaughtUp) {
+                LOG.debug("All shards are caught up by cached MillisBehindLatest, but keep polling. job {}, task {}",
+                        id, taskId);
             }
         }
-        // All shards report MillisBehindLatest == 0: consumer has caught up.
-        if (LOG.isDebugEnabled()) {
-            LOG.debug("All shards caught up (MillisBehindLatest=0), skip scheduling. job {}, task {}",
-                    id, taskId);
-        }
-        return false;
+        return true;
     }
 
     @Override
