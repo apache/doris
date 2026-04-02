@@ -113,7 +113,7 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         return client;
     }
 
-    private BlobServiceClient buildClient() throws IOException {
+    protected BlobServiceClient buildClient() throws IOException {
         String accountName = resolveAccountName();
         String endpoint = resolveEndpoint(accountName);
         String accountKey = resolve(PROP_ACCOUNT_KEY, PROP_ACCOUNT_KEY_ALT, null);
@@ -396,25 +396,28 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
             throw new IOException(
                     "getPresignedUrl requires a storage account key (AZURE_ACCOUNT_KEY)");
         }
-        // Container must be provided or derived from the object key URI
         AzureUri uri;
         try {
             uri = AzureUri.parse(objectKey);
         } catch (Exception e) {
             throw new IOException("Cannot parse Azure object key: " + objectKey, e);
         }
-        String container = uri.container();
-        String blobKey = uri.key();
-
-        StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
         String endpoint = resolveEndpoint(accountName);
+        StorageSharedKeyCredential credential = new StorageSharedKeyCredential(accountName, accountKey);
+        return generateSasUrl(endpoint, uri.container(), uri.key(), credential,
+                OffsetDateTime.now().plusSeconds(SESSION_EXPIRE_SECONDS));
+    }
+
+    /**
+     * Creates a SAS URL for a blob. Protected for testability.
+     */
+    protected String generateSasUrl(String endpoint, String container, String blobKey,
+            StorageSharedKeyCredential credential, OffsetDateTime expiresOn) {
         BlobContainerClient containerClient = new BlobContainerClientBuilder()
                 .endpoint(endpoint + "/" + container)
                 .credential(credential)
                 .buildClient();
         BlobClient blobClient = containerClient.getBlobClient(blobKey);
-
-        OffsetDateTime expiresOn = OffsetDateTime.now().plusSeconds(SESSION_EXPIRE_SECONDS);
         BlobSasPermission permission = new BlobSasPermission()
                 .setReadPermission(true)
                 .setWritePermission(true)
@@ -422,7 +425,6 @@ public class AzureObjStorage implements ObjStorage<BlobServiceClient> {
         BlobServiceSasSignatureValues sasValues = new BlobServiceSasSignatureValues(expiresOn, permission)
                 .setProtocol(SasProtocol.HTTPS_ONLY)
                 .setStartTime(OffsetDateTime.now().minusMinutes(5));
-
         String sasToken = blobClient.generateSas(sasValues);
         return blobClient.getBlobUrl() + "?" + sasToken;
     }
