@@ -244,8 +244,8 @@ Status HashJoinBuildSinkLocalState::close(RuntimeState* state, Status exec_statu
             // enter std::visit on monostate and crash with "Hash table type mismatch".
             //
             // _terminated is reliably true here when the task was woken up early, because
-            // operator terminate() is called in the execute() Defer (pipeline_task.cpp:510-512)
-            // BEFORE close() runs.
+            // operator terminate() is called from the execute() Defer in PipelineTask
+            // before close() is invoked.
             if (!_terminated) {
                 p._signaled = true;
             }
