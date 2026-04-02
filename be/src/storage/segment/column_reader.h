@@ -556,6 +556,12 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     ordinal_t get_current_ordinal() const override {
         return _offset_iterator->get_current_ordinal();
     }
@@ -642,6 +648,11 @@ public:
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
 
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
 
@@ -684,6 +695,11 @@ public:
     Status init(const ColumnIteratorOptions& opts) override;
 
     Status next_batch(size_t* n, MutableColumnPtr& dst, bool* has_null) override;
+
+    Status next_batch(size_t* n, MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
                           MutableColumnPtr& dst) override;
