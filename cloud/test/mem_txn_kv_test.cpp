@@ -1786,3 +1786,64 @@ TEST(TxnMemKvTest, WatchKeyRaceConditionTest) {
     }
     watch_key_race_condition_test(fdb_txn_kv);
 }
+
+TEST(TxnMemKvTest, ValueSizeLimitTest) {
+    using namespace doris::cloud;
+
+    auto mem_txn_kv = std::dynamic_pointer_cast<TxnKv>(std::make_shared<MemTxnKv>());
+    ASSERT_NE(mem_txn_kv.get(), nullptr);
+    ASSERT_EQ(mem_txn_kv->init(), 0);
+
+    // Test 1: Value exactly at the limit (100000 bytes) should succeed
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = "test_at_limit";
+        std::string val(100000, 'x'); // exactly 100KB
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_OK)
+                << "value at exactly 100KB should commit successfully";
+
+        // Verify the value was stored correctly
+        std::unique_ptr<Transaction> read_txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&read_txn), TxnErrorCode::TXN_OK);
+        std::string read_val;
+        ASSERT_EQ(read_txn->get(key, &read_val), TxnErrorCode::TXN_OK);
+        ASSERT_EQ(read_val.size(), 100000);
+    }
+
+    // Test 2: Value exceeding the limit (100001 bytes) should fail at commit
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        std::string key = "test_over_limit";
+        std::string val(100001, 'y'); // 100KB + 1 byte
+        txn->put(key, val);
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_VALUE_TOO_LARGE)
+                << "value exceeding 100KB should fail with TXN_VALUE_TOO_LARGE";
+
+        // Verify the value was NOT stored
+        std::unique_ptr<Transaction> read_txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&read_txn), TxnErrorCode::TXN_OK);
+        std::string read_val;
+        ASSERT_EQ(read_txn->get(key, &read_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+
+    // Test 3: Multiple puts in one txn - one large value should fail the entire txn
+    {
+        std::unique_ptr<Transaction> txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
+        txn->put("small_key_1", "small_value_1");
+        txn->put("large_key", std::string(200000, 'z')); // 200KB
+        txn->put("small_key_2", "small_value_2");
+        ASSERT_EQ(txn->commit(), TxnErrorCode::TXN_VALUE_TOO_LARGE)
+                << "txn with any oversized value should fail";
+
+        // Verify none of the values were stored (txn is atomic)
+        std::unique_ptr<Transaction> read_txn;
+        ASSERT_EQ(mem_txn_kv->create_txn(&read_txn), TxnErrorCode::TXN_OK);
+        std::string read_val;
+        ASSERT_EQ(read_txn->get("small_key_1", &read_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+        ASSERT_EQ(read_txn->get("small_key_2", &read_val), TxnErrorCode::TXN_KEY_NOT_FOUND);
+    }
+}

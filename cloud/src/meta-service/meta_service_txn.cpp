@@ -3281,10 +3281,10 @@ void MetaServiceImpl::commit_txn_async_publish(const CommitTxnRequest* request,
             stats.del_counter += txn->num_del_keys();
         };
 
-        // Step 1: Read TxnInfoPB
-        std::string info_val;
+        // Step 1: Read TxnInfoPB (use blob_get to support large values >100KB)
         const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
-        err = txn->get(info_key, &info_val);
+        ValueBuf info_val_buf;
+        err = cloud::blob_get(txn.get(), info_key, &info_val_buf);
         if (err != TxnErrorCode::TXN_OK) {
             code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
                                                           : cast_as<ErrCategory::READ>(err);
@@ -3300,7 +3300,7 @@ void MetaServiceImpl::commit_txn_async_publish(const CommitTxnRequest* request,
         }
 
         TxnInfoPB txn_info;
-        if (!txn_info.ParseFromString(info_val)) {
+        if (!info_val_buf.to_pb(&txn_info)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
             msg = ss.str();
@@ -3462,14 +3462,9 @@ void MetaServiceImpl::commit_txn_async_publish(const CommitTxnRequest* request,
             txn_info.set_load_schema_param(request->load_schema_param());
         }
 
-        info_val.clear();
-        if (!txn_info.SerializeToString(&info_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            ss << "failed to serialize txn_info, txn_id=" << txn_id;
-            msg = ss.str();
-            return;
-        }
-        txn->put(info_key, info_val);
+        // Remove old txn_info keys and write with blob_put to handle large values (>100KB)
+        info_val_buf.remove(txn.get());
+        cloud::blob_put(txn.get(), info_key, txn_info, 0);
         LOG(INFO) << "put txn_info_key=" << hex(info_key) << " txn_id=" << txn_id
                   << " status=COMMITTED mow_async_publish=true";
 
@@ -3561,10 +3556,10 @@ void MetaServiceImpl::commit_txn_2pc_lightweight_publish(const CommitTxnRequest*
             stats.del_counter += txn->num_del_keys();
         };
 
-        // Step 1: Read and validate TxnInfoPB
-        std::string info_val;
+        // Step 1: Read and validate TxnInfoPB (use blob_get to support large values >100KB)
         const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
-        err = txn->get(info_key, &info_val);
+        ValueBuf info_val_buf;
+        err = cloud::blob_get(txn.get(), info_key, &info_val_buf);
         if (err != TxnErrorCode::TXN_OK) {
             code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
                                                           : cast_as<ErrCategory::READ>(err);
@@ -3580,7 +3575,7 @@ void MetaServiceImpl::commit_txn_2pc_lightweight_publish(const CommitTxnRequest*
         }
 
         TxnInfoPB txn_info;
-        if (!txn_info.ParseFromString(info_val)) {
+        if (!info_val_buf.to_pb(&txn_info)) {
             code = MetaServiceCode::PROTOBUF_PARSE_ERR;
             ss << "failed to parse txn_info, db_id=" << db_id << " txn_id=" << txn_id;
             msg = ss.str();
@@ -3770,15 +3765,9 @@ void MetaServiceImpl::commit_txn_2pc_lightweight_publish(const CommitTxnRequest*
         int64_t finish_time = version_update_time_ms;
         txn_info.set_finish_time(finish_time);
 
-        info_val.clear();
-        if (!txn_info.SerializeToString(&info_val)) {
-            code = MetaServiceCode::PROTOBUF_SERIALIZE_ERR;
-            ss << "failed to serialize txn_info, txn_id=" << txn_id;
-            msg = ss.str();
-            LOG(WARNING) << msg;
-            return;
-        }
-        txn->put(info_key, info_val);
+        // Remove old txn_info keys and write with blob_put to handle large values (>100KB)
+        info_val_buf.remove(txn.get());
+        cloud::blob_put(txn.get(), info_key, txn_info, 0);
         LOG(INFO) << "put txn_info_key=" << hex(info_key) << " txn_id=" << txn_id
                   << " status=VISIBLE";
 
@@ -4368,10 +4357,10 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
         }
     }
 
-    // Get txn info with db_id and txn_id
+    // Get txn info with db_id and txn_id (use blob_get to support large values >100KB)
     const std::string info_key = txn_info_key({instance_id, db_id, txn_id});
-    std::string info_val;
-    err = txn->get(info_key, &info_val);
+    ValueBuf info_val_buf;
+    err = cloud::blob_get(txn.get(), info_key, &info_val_buf);
     if (err != TxnErrorCode::TXN_OK) {
         code = err == TxnErrorCode::TXN_KEY_NOT_FOUND ? MetaServiceCode::TXN_ID_NOT_FOUND
                                                       : cast_as<ErrCategory::READ>(err);
@@ -4381,7 +4370,7 @@ void MetaServiceImpl::get_txn(::google::protobuf::RpcController* controller,
     }
 
     TxnInfoPB txn_info;
-    if (!txn_info.ParseFromString(info_val)) {
+    if (!info_val_buf.to_pb(&txn_info)) {
         code = MetaServiceCode::PROTOBUF_PARSE_ERR;
         ss << "failed to parse txn_info db_id=" << db_id << " txn_id=" << txn_id;
         msg = ss.str();

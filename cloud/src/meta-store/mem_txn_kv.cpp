@@ -35,6 +35,9 @@
 
 namespace doris::cloud {
 
+// Match FDB's 100KB value size limit for realistic simulation in tests
+constexpr size_t MEM_KV_VALUE_BYTES_LIMIT = 100'000; // 100 KB
+
 int MemTxnKv::init() {
     return 0;
 }
@@ -392,6 +395,12 @@ int Transaction::init() {
 
 void Transaction::put(std::string_view key, std::string_view val) {
     std::lock_guard<std::mutex> l(lock_);
+    if (val.size() > MEM_KV_VALUE_BYTES_LIMIT) {
+        LOG(WARNING) << "memkv txn put with large value, key_size=" << key.size()
+                     << " value_size=" << val.size()
+                     << " limit=" << MEM_KV_VALUE_BYTES_LIMIT;
+        value_too_large_ = true;
+    }
     std::string k(key.data(), key.size());
     std::string v(val.data(), val.size());
     writes_.insert_or_assign(k, v);
@@ -699,6 +708,10 @@ TxnErrorCode Transaction::commit() {
     if (aborted_) {
         LOG(WARNING) << "transaction aborted, cannot commit";
         return TxnErrorCode::TXN_UNIDENTIFIED_ERROR;
+    }
+    if (value_too_large_) {
+        LOG(WARNING) << "transaction has value exceeding size limit, cannot commit";
+        return TxnErrorCode::TXN_VALUE_TOO_LARGE;
     }
     auto code = kv_->update(read_set_, op_list_, read_version_, &committed_version_);
     if (code != TxnErrorCode::TXN_OK) {

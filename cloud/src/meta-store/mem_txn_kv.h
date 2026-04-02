@@ -293,6 +293,7 @@ private:
 
     bool versionstamp_enabled_ {false};
     Versionstamp versionstamp_result_;
+    bool value_too_large_ {false};
 };
 
 class RangeGetIterator : public cloud::RangeGetIterator {

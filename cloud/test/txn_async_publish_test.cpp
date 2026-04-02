@@ -28,6 +28,7 @@
 #include "common/logging.h"
 #include "meta-service/meta_service.h"
 #include "meta-service/meta_service_helper.h"
+#include "meta-store/blob_message.h"
 #include "meta-store/keys.h"
 #include "meta-store/mem_txn_kv.h"
 #include "meta-store/txn_kv_error.h"
@@ -200,16 +201,16 @@ static int64_t get_partition_commit_version(std::shared_ptr<TxnKv>& txn_kv,
     return version_pb.version();
 }
 
-// Helper: read TxnInfoPB from KV
+// Helper: read TxnInfoPB from KV (supports blob format for large values >100KB)
 static TxnInfoPB get_txn_info(std::shared_ptr<TxnKv>& txn_kv, const std::string& instance_id,
                               int64_t db_id, int64_t txn_id) {
     std::unique_ptr<Transaction> txn;
     EXPECT_EQ(txn_kv->create_txn(&txn), TxnErrorCode::TXN_OK);
     std::string key = txn_info_key({instance_id, db_id, txn_id});
-    std::string val;
-    EXPECT_EQ(txn->get(key, &val), TxnErrorCode::TXN_OK);
+    ValueBuf val_buf;
+    EXPECT_EQ(cloud::blob_get(txn.get(), key, &val_buf), TxnErrorCode::TXN_OK);
     TxnInfoPB txn_info;
-    EXPECT_TRUE(txn_info.ParseFromString(val));
+    EXPECT_TRUE(val_buf.to_pb(&txn_info));
     return txn_info;
 }
 
@@ -2135,6 +2136,201 @@ TEST(TxnAsyncPublishTest, EndToEndManyTxnsVaryingPartitions) {
     for (int64_t v : {2, 3, 4}) {
         ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, t3, v).has_value())
                 << "t3 version " << v;
+    }
+}
+
+// Test: Async publish commit and lightweight publish with a large number of tablets
+// that causes txn_info to exceed FDB's 100KB value limit. This verifies that
+// blob_put/blob_get correctly handle splitting and merging large values.
+TEST(TxnAsyncPublishTest, LargeValueBlobSplitEndToEnd) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 9001;
+    int64_t table_id = 9002;
+    int64_t index_id = 9003;
+
+    // Create enough tablets so that serialized txn_info exceeds 100KB.
+    // Each TxnTabletInfoPB is ~60-80 bytes when serialized.
+    // 2000 tablets * ~80 bytes ≈ 160KB > 100KB limit.
+    constexpr int kNumPartitions = 100;
+    constexpr int kTabletsPerPartition = 20;
+    constexpr int kTotalTablets = kNumPartitions * kTabletsPerPartition;
+
+    // tablets: (tablet_id, table_id, index_id, partition_id)
+    std::vector<std::tuple<int64_t, int64_t, int64_t, int64_t>> tablets;
+    tablets.reserve(kTotalTablets);
+
+    int64_t tablet_id_base = 10000;
+    int64_t partition_id_base = 20000;
+
+    for (int p = 0; p < kNumPartitions; ++p) {
+        int64_t partition_id = partition_id_base + p;
+        for (int t = 0; t < kTabletsPerPartition; ++t) {
+            int64_t tablet_id = tablet_id_base + p * kTabletsPerPartition + t;
+            create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+            tablets.emplace_back(tablet_id, table_id, index_id, partition_id);
+        }
+    }
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_large_blob");
+
+    // Prepare and commit a rowset for each tablet
+    for (auto& [tid, tbl_id, idx_id, pid] : tablets) {
+        auto rowset = create_rowset(txn_id, tid, idx_id, pid);
+        prepare_rowset(meta_service.get(), rowset);
+        commit_rowset(meta_service.get(), rowset);
+    }
+
+    // Phase 1: Async publish commit with large number of tablets
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id, tablets);
+        // Also set a non-trivial load_schema_param to add more size
+        std::string schema_param(1024, 'x');
+        req.set_load_schema_param(schema_param);
+
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "commit failed: " << res.status().msg();
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_COMMITTED);
+    }
+
+    // Verify txn_info is readable via get_txn_info helper (uses blob_get)
+    {
+        auto txn_info = get_txn_info(txn_kv, mock_instance, db_id, txn_id);
+        ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_COMMITTED);
+        ASSERT_TRUE(txn_info.mow_async_publish());
+        ASSERT_EQ(txn_info.involved_tablets_size(), kTotalTablets);
+        ASSERT_EQ(txn_info.committed_partition_ids_size(), kNumPartitions);
+        ASSERT_EQ(txn_info.committed_versions_size(), kNumPartitions);
+        ASSERT_TRUE(txn_info.has_load_schema_param());
+    }
+
+    // Verify get_txn RPC also reads blob-format txn_info correctly
+    {
+        brpc::Controller cntl;
+        GetTxnRequest req;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_db_id(db_id);
+        req.set_txn_id(txn_id);
+        GetTxnResponse res;
+        meta_service->get_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                              &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << "get_txn failed: " << res.status().msg();
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_COMMITTED);
+        ASSERT_EQ(res.txn_info().involved_tablets_size(), kTotalTablets);
+    }
+
+    // Phase 2: Convert tmp rowsets for each tablet
+    for (auto& [tid, tbl_id, idx_id, pid] : tablets) {
+        brpc::Controller cntl;
+        ConvertTmpRowsetRequest req;
+        ConvertTmpRowsetResponse res;
+        req.set_cloud_unique_id("test_cloud_unique_id");
+        req.set_txn_id(txn_id);
+        req.set_tablet_id(tid);
+        req.set_version(2); // First commit → version 2
+        req.set_db_id(db_id);
+        req.set_table_id(tbl_id);
+        req.set_index_id(idx_id);
+        req.set_partition_id(pid);
+        meta_service->convert_tmp_rowset(reinterpret_cast<::google::protobuf::RpcController*>(&cntl),
+                                         &req, &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "convert failed for tablet " << tid << ": " << res.status().msg();
+    }
+
+    // Phase 3: Lightweight publish
+    {
+        auto req = build_lightweight_publish_req(db_id, txn_id);
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "publish failed: " << res.status().msg();
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+
+    // Verify final txn_info is VISIBLE and all data preserved
+    {
+        auto txn_info = get_txn_info(txn_kv, mock_instance, db_id, txn_id);
+        ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+        ASSERT_TRUE(txn_info.mow_async_publish());
+        ASSERT_EQ(txn_info.involved_tablets_size(), kTotalTablets);
+        ASSERT_EQ(txn_info.committed_partition_ids_size(), kNumPartitions);
+    }
+
+    // Verify visible versions for a sample of partitions
+    for (int p = 0; p < kNumPartitions; p += 10) {
+        int64_t partition_id = partition_id_base + p;
+        ASSERT_EQ(
+                get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id),
+                2)
+                << "partition " << partition_id;
+    }
+}
+
+// Test: Idempotent commit retry correctly reads blob-format txn_info
+// When commit_txn_async_publish is called again after a successful commit,
+// it should detect the COMMITTED state and return success (idempotent).
+TEST(TxnAsyncPublishTest, CommitIdempotentWithLargeValue) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 9101;
+    int64_t table_id = 9102;
+    int64_t index_id = 9103;
+
+    // Create enough tablets to exceed 100KB
+    constexpr int kNumTablets = 2000;
+    std::vector<std::tuple<int64_t, int64_t, int64_t, int64_t>> tablets;
+    tablets.reserve(kNumTablets);
+
+    int64_t tablet_id_base = 30000;
+    int64_t partition_id_base = 40000;
+
+    for (int i = 0; i < kNumTablets; ++i) {
+        int64_t tablet_id = tablet_id_base + i;
+        int64_t partition_id = partition_id_base + (i % 50); // 50 partitions
+        create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id, tablet_id);
+        tablets.emplace_back(tablet_id, table_id, index_id, partition_id);
+    }
+
+    int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, "label_idempotent_blob");
+
+    for (auto& [tid, tbl_id, idx_id, pid] : tablets) {
+        auto rowset = create_rowset(txn_id, tid, idx_id, pid);
+        prepare_rowset(meta_service.get(), rowset);
+        commit_rowset(meta_service.get(), rowset);
+    }
+
+    // First commit
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id, tablets);
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "first commit failed: " << res.status().msg();
+    }
+
+    // Second commit (idempotent) - must correctly read blob-format txn_info
+    {
+        auto req = build_async_publish_commit_req(db_id, txn_id, tablets);
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "idempotent commit failed: " << res.status().msg();
+        ASSERT_EQ(res.txn_info().status(), TxnStatusPB::TXN_STATUS_COMMITTED);
+        // Verify the committed partition info is returned
+        ASSERT_GT(res.partition_ids_size(), 0);
     }
 }
 
