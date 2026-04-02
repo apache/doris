@@ -864,7 +864,7 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
         // inside sink() during execute() (it's set in the Defer AFTER execute() returns), so it
         // provides no protection against the race. The _signaled check is the real guard.
         if (!_signaled || local_state._terminated) {
-            return Status::Error<ErrorCode::END_OF_FILE>("source have closed");
+            return Status::Error<ErrorCode::END_OF_FILE>("source has closed");
         }
 
         DCHECK_LE(local_state._task_idx,
