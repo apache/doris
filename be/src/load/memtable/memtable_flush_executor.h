@@ -174,7 +174,6 @@ public:
     static std::pair<int, int> calc_flush_thread_count(int num_cpus, int num_disk,
                                                        int thread_num_per_store);
 
-
 private:
     std::unique_ptr<ThreadPool> _flush_pool;
     std::unique_ptr<ThreadPool> _high_prio_flush_pool;
