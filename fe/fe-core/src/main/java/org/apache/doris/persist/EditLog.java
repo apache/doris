@@ -169,7 +169,7 @@ public class EditLog {
 
     private EditLogOutputStream editStream = null;
 
-    private long txId = 0;
+    private final AtomicLong txId = new AtomicLong(0);
 
 
     private AtomicLong numTransactions = new AtomicLong(0);
@@ -264,13 +264,13 @@ public class EditLog {
             System.exit(-1);
         }
 
-        txId += batch.size();
+        txId.addAndGet(batch.size());
         // update statistics, etc. (optional, can be added as needed)
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
+        if (txId.get() >= Config.edit_log_roll_num) {
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId.get(),
                     Config.edit_log_roll_num);
             rollEditLog();
-            txId = 0;
+            txId.set(0);
         }
         if (MetricRepo.isInit) {
             MetricRepo.COUNTER_EDIT_LOG_WRITE.increase(Long.valueOf(batch.size()));
@@ -1557,7 +1557,7 @@ public class EditLog {
         if (!batch.getJournalEntities().isEmpty()) {
             journal.write(batch);
         }
-        txId += entries.size();
+        txId.addAndGet(entries.size());
     }
 
     /**
@@ -1654,13 +1654,13 @@ public class EditLog {
         }
 
         // get a new transactionId
-        txId++;
+        long newTxId = txId.incrementAndGet();
 
-        if (txId >= Config.edit_log_roll_num) {
-            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", txId,
+        if (newTxId >= Config.edit_log_roll_num) {
+            LOG.info("txId {} is equal to or larger than edit_log_roll_num {}, will roll edit.", newTxId,
                     Config.edit_log_roll_num);
             rollEditLog();
-            txId = 0;
+            txId.set(0);
         }
 
         return logId;
@@ -1709,7 +1709,7 @@ public class EditLog {
 
         if (LOG.isDebugEnabled()) {
             LOG.debug("nextId = {}, numTransactions = {}, totalTimeTransactions = {}, op = {} delta = {}",
-                    txId, numTransactions, totalTimeTransactions, op, end - start);
+                    txId.get(), numTransactions, totalTimeTransactions, op, end - start);
         }
 
         return logId;
