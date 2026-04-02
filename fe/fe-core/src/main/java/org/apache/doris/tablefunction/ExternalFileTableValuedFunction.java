@@ -47,8 +47,12 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.property.fileformat.CsvFileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.FileFormatProperties;
 import org.apache.doris.datasource.property.fileformat.TextFileFormatProperties;
+import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.ObjectStorageProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileEntry;
+import org.apache.doris.filesystem.Location;
+import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.datasource.tvf.source.TVFScanNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.exceptions.NotSupportedException;
@@ -89,6 +93,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -157,13 +162,26 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
         try {
-            if (brokerDesc.getFileType() != null && brokerDesc.getFileType().equals(TFileType.FILE_S3)
-                    && brokerDesc.getStorageProperties() instanceof ObjectStorageProperties) {
-                ObjectStorageProperties storageProperties = (ObjectStorageProperties) brokerDesc.getStorageProperties();
-                String endpoint = storageProperties.getEndpoint();
+            StorageProperties sp = brokerDesc.getStorageProperties();
+            if (sp instanceof ObjectStorageProperties) {
+                String endpoint = ((ObjectStorageProperties) sp).getEndpoint();
                 S3Util.validateAndTestEndpoint(endpoint);
             }
-            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+            if (sp instanceof BrokerProperties) {
+                BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+            } else {
+                // Non-broker storage (HDFS, S3, etc.): use the SPI filesystem directly.
+                // BrokerUtil.parseFile is broker-daemon-specific and must not be called here.
+                try (org.apache.doris.filesystem.FileSystem fs = FileSystemFactory.getFileSystem(sp)) {
+                    List<FileEntry> entries = fs.listFiles(Location.of(path));
+                    for (FileEntry e : entries) {
+                        fileStatuses.add(new TBrokerFileStatus(
+                                e.location().uri(), e.isDirectory(), e.length(), !e.isDirectory()));
+                    }
+                } catch (IOException e) {
+                    throw new UserException("list files failed for path " + path + ": " + e.getMessage(), e);
+                }
+            }
         } catch (UserException e) {
             throw new AnalysisException("parse file failed, err: " + e.getMessage(), e);
         } finally {
