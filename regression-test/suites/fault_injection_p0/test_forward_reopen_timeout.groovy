@@ -18,13 +18,18 @@
 import org.apache.doris.regression.suite.ClusterOptions
 import org.apache.doris.regression.util.NodeType
 
-// Test that GenericPool.reopen() fails fast when connecting to an unreachable
-// address, instead of blocking for the full RPC timeout (18 minutes).
+// Test that GenericPool.reopen() uses a short connect timeout instead of
+// the inherited large RPC timeout when reconnecting stale connections.
 //
-// Uses debug point "GenericPool.reopen.unreachable" to redirect the TSocket to
-// a black-hole IP (192.0.2.1). Then:
-//   With fix: connectTimeout_ = thrift_rpc_connect_timeout_ms (5s) → fails in ~5s
-//   Without fix: connectTimeout_ = inherited from borrowObject (large) → blocks for minutes
+// Two debug points work together:
+// 1. "GenericPool.borrowObject.break_connection" - closes the underlying socket
+//    after borrowObject, simulating a TCP half-open (stale) connection. The next
+//    RPC will fail with TTransportException, triggering reopen().
+// 2. "GenericPool.reopen.simulate_stale" - reads TSocket's connectTimeout_ via
+//    reflection and sleeps that duration, simulating a blocked TCP connect.
+//
+//   With fix: connectTimeout_ = thrift_rpc_connect_timeout_ms (5s) → sleeps 5s
+//   Without fix: connectTimeout_ = query_timeout * 1.2 (36s) → sleeps 36s
 suite('test_forward_reopen_timeout', 'docker') {
     def options = new ClusterOptions()
     options.setFeNum(2)
@@ -50,39 +55,24 @@ suite('test_forward_reopen_timeout', 'docker') {
         assertEquals(1, result.size())
         logger.info("Step 1 passed: basic DDL forwarding works")
 
-        // Step 2: Inject debug point on FOLLOWER FE only — redirect reopen() to black-hole
+        // Step 2: Inject both debug points on follower FE
         def followerFe = cluster.getAllFrontends().find { !it.isMaster }
         assertNotNull(followerFe)
-        logger.info("Injecting debug point on follower FE (index=${followerFe.index})")
-        followerFe.enableDebugPoint('GenericPool.reopen.unreachable', null)
+        logger.info("Injecting debug points on follower FE (index=${followerFe.index})")
+        // This breaks the connection after borrow → forces TTransportException → triggers reopen
+        followerFe.enableDebugPoint('GenericPool.borrowObject.break_connection', null)
+        // This simulates stale connect in reopen by sleeping for connectTimeout_ duration
+        followerFe.enableDebugPoint('GenericPool.reopen.simulate_stale', null)
 
-        // Step 3: Set short query timeout so the test doesn't wait too long on failure
+        // Step 3: Set query timeout so borrowObject sets connectTimeout_ to 30*1.2=36s
         sql "SET query_timeout = 30"
 
-        // Step 4: Force the pooled connection to go stale by closing it from server side.
-        // Restart master to invalidate all pooled connections on the follower.
-        def masterFe = cluster.getMasterFe()
-        logger.info("Restarting master FE (index=${masterFe.index}) to create stale connections")
-        cluster.restartFrontends(masterFe.index)
-        sleep(5000)
-        // Reconnect so SHOW FRONTENDS works
-        context.reconnectFe()
-
-        // Wait for master to be ready
-        for (int i = 0; i < 30; i++) {
-            try {
-                def alive = sql "SHOW FRONTENDS"
-                if (alive.size() >= 2) break
-            } catch (Exception e) { /* ignore */ }
-            sleep(1000)
-        }
-        logger.info("Master FE restarted")
-
-        // Step 5: DDL from follower → forward to master → stale connection detected →
-        // reopen() triggered → debug point redirects to 192.0.2.1 → open() blocks on connect.
+        // Step 4: DDL from follower triggers the full chain:
+        // borrowObject → break_connection closes socket → forward() fails →
+        // TTransportException → reopen() → simulate_stale reads connectTimeout_ and sleeps.
         //
-        // With fix: connectTimeout_ = 5s → fails in ~5s → clearPool → retry with new connection
-        // Without fix: connectTimeout_ = query_timeout*1.2 = 36s → blocks 36s (or 1080s with defaults)
+        // With fix: setTimeout(5000) called before close → connectTimeout_=5s → sleeps 5s
+        // Without fix: connectTimeout_=36s (from borrowObject) → sleeps 36s → exceeds 15s
         def startTime = System.currentTimeMillis()
         def ddlError = null
         try {
@@ -96,17 +86,18 @@ suite('test_forward_reopen_timeout', 'docker') {
             ddlError = e.getMessage()
         }
         def elapsed = System.currentTimeMillis() - startTime
-        logger.info("Step 5: DDL attempt took ${elapsed}ms, error=${ddlError}")
+        logger.info("Step 4: DDL attempt took ${elapsed}ms, error=${ddlError}")
 
         // Key assertion: should complete within 15s.
-        // With fix (connectTimeout=5s): ~5s for reopen timeout
-        // Without fix (connectTimeout=36s from query_timeout=30*1.2): would exceed 15s
+        // With fix (connectTimeout=5s): debug point sleeps ~5s → PASS
+        // Without fix (connectTimeout=36s): debug point sleeps ~36s → FAIL
         assertTrue(elapsed < 15000,
                 "DDL forwarding took ${elapsed}ms, expected < 15s. " +
-                "Without the fix, reopen() would block for the full connect timeout.")
+                "Without the fix, connectTimeout_ would be 36s instead of 5s.")
 
-        // Step 6: Remove debug point, verify recovery
-        followerFe.disableDebugPoint('GenericPool.reopen.unreachable')
+        // Step 5: Remove debug points, verify recovery
+        followerFe.disableDebugPoint('GenericPool.borrowObject.break_connection')
+        followerFe.disableDebugPoint('GenericPool.reopen.simulate_stale')
         sleep(2000)
 
         sql "USE test_reopen_timeout"
@@ -118,7 +109,7 @@ suite('test_forward_reopen_timeout', 'docker') {
         sql "INSERT INTO tbl_recovered VALUES (42)"
         result = sql "SELECT * FROM tbl_recovered"
         assertEquals(1, result.size())
-        logger.info("Step 6 passed: DDL works after debug point removed")
+        logger.info("Step 5 passed: DDL works after debug points removed")
 
         sql "DROP DATABASE IF EXISTS test_reopen_timeout"
     }
