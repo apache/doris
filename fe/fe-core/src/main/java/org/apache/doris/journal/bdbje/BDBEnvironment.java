@@ -60,6 +60,7 @@ import java.io.File;
 import java.net.InetSocketAddress;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
@@ -257,7 +258,7 @@ public class BDBEnvironment {
         lock.writeLock().lock();
         try {
             // find if the specified database is already opened. find and return it.
-            for (java.util.Iterator<Database> iter = openedDatabases.iterator(); iter.hasNext();) {
+            for (Iterator<Database> iter = openedDatabases.iterator(); iter.hasNext();) {
                 Database openedDb = iter.next();
                 try {
                     if (openedDb.getDatabaseName() == null) {
@@ -312,21 +313,15 @@ public class BDBEnvironment {
     public void removeDatabase(String dbName) {
         lock.writeLock().lock();
         try {
-            String targetDbName = null;
-            int index = 0;
-            for (Database db : openedDatabases) {
+            for (Iterator<Database> iter = openedDatabases.iterator(); iter.hasNext();) {
+                Database db = iter.next();
                 String name = db.getDatabaseName();
                 if (dbName.equals(name)) {
                     db.close();
                     LOG.info("database {} has been closed", name);
-                    targetDbName = name;
+                    iter.remove();
                     break;
                 }
-                index++;
-            }
-            if (targetDbName != null) {
-                LOG.info("begin to remove database {} from openedDatabases", targetDbName);
-                openedDatabases.remove(index);
             }
             try {
                 LOG.info("begin to remove database {} from replicatedEnvironment", dbName);
