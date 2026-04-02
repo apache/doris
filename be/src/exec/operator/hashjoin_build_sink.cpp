@@ -860,10 +860,10 @@ Status HashJoinBuildSinkOperatorX::sink(RuntimeState* state, Block* in_block, bo
         // terminated, _signaled stays false, so non-builders always hit this guard and return EOF
         // safely — never reaching the std::visit on an uninitialized (monostate) hash table.
         //
-        // _terminated is also checked as a secondary guard. Note that _terminated is always false
-        // inside sink() during execute() (it's set in the Defer AFTER execute() returns), so it
-        // provides no protection against the race. The _signaled check is the real guard.
-        if (!_signaled || local_state._terminated) {
+        // At this point, termination is reflected solely through the value of _signaled: a
+        // terminated builder never sets _signaled to true. Checking !_signaled is therefore
+        // sufficient and serves as the real guard against racing with an uninitialized hash table.
+        if (!_signaled) {
             return Status::Error<ErrorCode::END_OF_FILE>("source has closed");
         }
 
