@@ -479,12 +479,20 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
+    // Test static LEGAL_STATE_TRANSITION table with _wake_up_early = false.
+    // Note: BLOCKED→FINISHED is in the table, but _state_transition() rejects it
+    // when _wake_up_early is false, so we expect it to fail in this loop.
+    task->_wake_up_early = false;
     for (int i = 0; i < task->LEGAL_STATE_TRANSITION.size(); i++) {
         auto target = (PipelineTask::State)i;
         for (int j = 0; j < task->LEGAL_STATE_TRANSITION.size(); j++) {
-            task->_exec_state = (PipelineTask::State)j;
-            EXPECT_EQ(task->_state_transition(target).ok(),
-                      task->LEGAL_STATE_TRANSITION[i].contains((PipelineTask::State)j));
+            auto from = (PipelineTask::State)j;
+            task->_exec_state = from;
+            bool table_legal = task->LEGAL_STATE_TRANSITION[i].contains(from);
+            // BLOCKED→FINISHED requires _wake_up_early, which is false here.
+            bool expected = table_legal && !(from == PipelineTask::State::BLOCKED &&
+                                             target == PipelineTask::State::FINISHED);
+            EXPECT_EQ(task->_state_transition(target).ok(), expected);
         }
     }
 

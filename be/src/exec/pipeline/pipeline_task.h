@@ -284,8 +284,8 @@ private:
          *                   ^                             |                  |
          *                   |                             |                  |
          *                   +----------- BLOCKED <--------+------------------+
-         *                                   |  (_wake_up_early)
-         *                                   +----> FINISHED (see _state_transition)
+         *                                   |
+         *                                   +----> FINISHED (only when _wake_up_early)
          */
     enum class State : int {
         INITED,
@@ -298,7 +298,7 @@ private:
             {},                                               // Target state is INITED
             {State::INITED, State::RUNNABLE, State::BLOCKED}, // Target state is RUNNABLE
             {State::RUNNABLE, State::FINISHED},               // Target state is BLOCKED
-            {State::RUNNABLE},                                // Target state is FINISHED
+            {State::RUNNABLE, State::BLOCKED},                // Target state is FINISHED
             {State::INITED, State::FINISHED}};                // Target state is FINALIZED
 
     std::string _to_string(State state) const {
