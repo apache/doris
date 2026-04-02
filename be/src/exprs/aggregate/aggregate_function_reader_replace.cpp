@@ -120,11 +120,13 @@ struct CopyStore {
 // ---------------------------------------------------------------------------
 // Data layer: ReaderReplaceData
 // Template params: IsFirst, SkipNull, ArgIsNullable
-// IsCopy is derived: reader (IsFirst=true) uses pointer, load (IsFirst=false) uses copy.
+// IsCopy is derived: reader (IsFirst=true) deep-copies via Field because the source
+// column will be reused; load (IsFirst=false) keeps a zero-copy pointer because
+// insert_result_into is called while the column is still alive.
 // ---------------------------------------------------------------------------
 template <bool IsFirst, bool SkipNull, bool ArgIsNullable>
 struct ReaderReplaceData {
-    static constexpr bool IsCopy = !IsFirst;
+    static constexpr bool IsCopy = IsFirst;
     using Store = std::conditional_t<IsCopy, CopyStore<ArgIsNullable>, PointerStore<ArgIsNullable>>;
 
     Store _store;
@@ -240,8 +242,8 @@ static AggregateFunctionPtr create_reader_replace(const std::string& /*name*/,
 
 // only replace function in load/reader do different agg operation.
 // because Doris can ensure that the data is globally ordered in reader, but cannot in load
-// 1. reader: get the first value of input data  (IsFirst=true  → PointerStore)
-// 2. load:   get the last  value of input data  (IsFirst=false → CopyStore)
+// 1. reader: get the first value of input data  (IsFirst=true  → CopyStore, deep copy)
+// 2. load:   get the last  value of input data  (IsFirst=false → PointerStore, zero-copy)
 void register_aggregate_function_replace_reader_load(AggregateFunctionSimpleFactory& factory) {
     auto reg = [&](const std::string& name, const std::string& suffix,
                    const AggregateFunctionCreator& creator,
