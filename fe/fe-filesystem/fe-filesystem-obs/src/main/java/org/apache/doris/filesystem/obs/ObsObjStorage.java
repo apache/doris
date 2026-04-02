@@ -123,7 +123,7 @@ public class ObsObjStorage extends S3ObjStorage {
         String accessKey = resolveRequired("OBS_ACCESS_KEY", "AWS_ACCESS_KEY", "OBS access key");
         String secretKey = resolveRequired("OBS_SECRET_KEY", "AWS_SECRET_KEY", "OBS secret key");
         String bucket = resolveRequired("OBS_BUCKET", "AWS_BUCKET", "OBS bucket for presigned URL");
-        ObsClient obsClient = new ObsClient(accessKey, secretKey, endpoint);
+        ObsClient obsClient = buildObsClient(endpoint, accessKey, secretKey);
         try {
             TemporarySignatureRequest request = new TemporarySignatureRequest(
                     HttpMethodEnum.PUT, SESSION_EXPIRE_SECONDS);
@@ -141,6 +141,13 @@ public class ObsObjStorage extends S3ObjStorage {
                 LOG.warn("Failed to close ObsClient after presigned URL generation", e);
             }
         }
+    }
+
+    /**
+     * Factory method for creating an {@link ObsClient}; protected for testability.
+     */
+    protected ObsClient buildObsClient(String endpoint, String accessKey, String secretKey) {
+        return new ObsClient(accessKey, secretKey, endpoint);
     }
 
     /**

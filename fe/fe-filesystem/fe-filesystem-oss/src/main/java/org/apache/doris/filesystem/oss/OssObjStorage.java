@@ -184,7 +184,7 @@ public class OssObjStorage extends S3ObjStorage {
         return ossClient;
     }
 
-    private OSS buildOssClient() throws IOException {
+    protected OSS buildOssClient() throws IOException {
         String endpoint = resolveRequired("OSS_ENDPOINT", "AWS_ENDPOINT", "OSS endpoint");
         String accessKey = resolveRequired("OSS_ACCESS_KEY", "AWS_ACCESS_KEY", "OSS access key");
         String secretKey = resolveRequired("OSS_SECRET_KEY", "AWS_SECRET_KEY", "OSS secret key");

@@ -180,7 +180,7 @@ public class CosObjStorage extends S3ObjStorage {
         return cosClient;
     }
 
-    private COSClient buildCosClient(String region) throws IOException {
+    protected COSClient buildCosClient(String region) throws IOException {
         String accessKey = resolveRequired("COS_ACCESS_KEY", "AWS_ACCESS_KEY", "COS access key");
         String secretKey = resolveRequired("COS_SECRET_KEY", "AWS_SECRET_KEY", "COS secret key");
         COSCredentials cred = new BasicCOSCredentials(accessKey, secretKey);
