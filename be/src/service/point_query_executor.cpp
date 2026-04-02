@@ -35,6 +35,7 @@
 #include "common/cast_set.h"
 #include "common/consts.h"
 #include "common/status.h"
+#include "core/data_type/data_type_factory.hpp"
 #include "core/data_type_serde/data_type_serde.h"
 #include "exec/sink/writer/vmysql_result_writer.h"
 #include "exprs/vexpr.h"
@@ -47,7 +48,6 @@
 #include "runtime/runtime_profile.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "storage/olap_tuple.h"
 #include "storage/row_cursor.h"
 #include "storage/rowset/beta_rowset.h"
 #include "storage/rowset/rowset_fwd.h"
@@ -386,21 +386,43 @@ void PointQueryExecutor::print_profile() {
 
 Status PointQueryExecutor::_init_keys(const PTabletKeyLookupRequest* request) {
     SCOPED_TIMER(&_profile_metrics.init_key_ns);
+    const auto& schema = _tablet->tablet_schema();
+    // Point query is only supported on merge-on-write unique key tables.
+    DCHECK(schema->keys_type() == UNIQUE_KEYS && _tablet->enable_unique_key_merge_on_write());
+    if (schema->keys_type() != UNIQUE_KEYS || !_tablet->enable_unique_key_merge_on_write()) {
+        return Status::InvalidArgument(
+                "Point query is only supported on merge-on-write unique key tables, "
+                "tablet_id={}",
+                _tablet->tablet_id());
+    }
     // 1. get primary key from conditions
-    std::vector<OlapTuple> olap_tuples;
-    olap_tuples.resize(request->key_tuples().size());
+    _row_read_ctxs.resize(request->key_tuples().size());
+    // get row cursor and encode keys
     for (int i = 0; i < request->key_tuples().size(); ++i) {
         const KeyTuple& key_tuple = request->key_tuples(i);
-        for (const std::string& key_col : key_tuple.key_column_rep()) {
-            olap_tuples[i].add_value(key_col);
+        if (UNLIKELY(cast_set<size_t>(key_tuple.key_column_literals_size()) !=
+                     schema->num_key_columns())) {
+            return Status::InvalidArgument(
+                    "Key column count mismatch. expected={}, actual={}, tablet_id={}",
+                    schema->num_key_columns(), key_tuple.key_column_literals_size(),
+                    _tablet->tablet_id());
         }
-    }
-    _row_read_ctxs.resize(olap_tuples.size());
-    // get row cursor and encode keys
-    for (size_t i = 0; i < olap_tuples.size(); ++i) {
         RowCursor cursor;
-        RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), olap_tuples[i].values()));
-        RETURN_IF_ERROR(cursor.from_tuple(olap_tuples[i]));
+        std::vector<Field> key_fields;
+        key_fields.reserve(key_tuple.key_column_literals_size());
+        for (int j = 0; j < key_tuple.key_column_literals_size(); ++j) {
+            const auto& literal_bytes = key_tuple.key_column_literals(j);
+            TExprNode expr_node;
+            auto len = cast_set<uint32_t>(literal_bytes.size());
+            RETURN_IF_ERROR(
+                    deserialize_thrift_msg(reinterpret_cast<const uint8_t*>(literal_bytes.data()),
+                                           &len, false, &expr_node));
+            const auto& col = schema->column(j);
+            auto data_type = DataTypeFactory::instance().create_data_type(
+                    col.type(), col.precision(), col.frac(), col.length());
+            key_fields.push_back(data_type->get_field(expr_node));
+        }
+        RETURN_IF_ERROR(cursor.init_scan_key(_tablet->tablet_schema(), std::move(key_fields)));
         cursor.encode_key_with_padding<true>(&_row_read_ctxs[i]._primary_key,
                                              _tablet->tablet_schema()->num_key_columns(), true);
     }

@@ -45,6 +45,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/query_context.h"
 #include "runtime/runtime_profile.h"
+#include "runtime/runtime_profile_counter_names.h"
 #include "runtime/thread_context.h"
 #include "runtime/workload_group/workload_group_manager.h"
 #include "util/defer_op.h"
@@ -159,7 +160,7 @@ Status PipelineTask::prepare(const std::vector<TScanRangeParams>& scan_range, co
     }
     if (auto fragment = _fragment_context.lock()) {
         if (fragment->get_query_ctx()->is_cancelled()) {
-            terminate();
+            unblock_all_dependencies();
             return fragment->get_query_ctx()->exec_status();
         }
     } else {
@@ -233,25 +234,25 @@ bool PipelineTask::inject_shared_state(std::shared_ptr<BasicSharedState> shared_
 void PipelineTask::_init_profile() {
     _task_profile = std::make_unique<RuntimeProfile>(fmt::format("PipelineTask(index={})", _index));
     _parent_profile->add_child(_task_profile.get(), true, nullptr);
-    _task_cpu_timer = ADD_TIMER(_task_profile, "TaskCpuTime");
+    _task_cpu_timer = ADD_TIMER(_task_profile, profile::TASK_CPU_TIME);
 
-    static const char* exec_time = "ExecuteTime";
+    static const char* exec_time = profile::EXECUTE_TIME;
     _exec_timer = ADD_TIMER(_task_profile, exec_time);
-    _prepare_timer = ADD_CHILD_TIMER(_task_profile, "PrepareTime", exec_time);
-    _open_timer = ADD_CHILD_TIMER(_task_profile, "OpenTime", exec_time);
-    _get_block_timer = ADD_CHILD_TIMER(_task_profile, "GetBlockTime", exec_time);
-    _get_block_counter = ADD_COUNTER(_task_profile, "GetBlockCounter", TUnit::UNIT);
-    _sink_timer = ADD_CHILD_TIMER(_task_profile, "SinkTime", exec_time);
-    _close_timer = ADD_CHILD_TIMER(_task_profile, "CloseTime", exec_time);
+    _prepare_timer = ADD_CHILD_TIMER(_task_profile, profile::PREPARE_TIME, exec_time);
+    _open_timer = ADD_CHILD_TIMER(_task_profile, profile::OPEN_TIME, exec_time);
+    _get_block_timer = ADD_CHILD_TIMER(_task_profile, profile::GET_BLOCK_TIME, exec_time);
+    _get_block_counter = ADD_COUNTER(_task_profile, profile::GET_BLOCK_COUNTER, TUnit::UNIT);
+    _sink_timer = ADD_CHILD_TIMER(_task_profile, profile::SINK_TIME, exec_time);
+    _close_timer = ADD_CHILD_TIMER(_task_profile, profile::CLOSE_TIME, exec_time);
 
-    _wait_worker_timer = ADD_TIMER_WITH_LEVEL(_task_profile, "WaitWorkerTime", 1);
+    _wait_worker_timer = ADD_TIMER_WITH_LEVEL(_task_profile, profile::WAIT_WORKER_TIME, 1);
 
-    _schedule_counts = ADD_COUNTER(_task_profile, "NumScheduleTimes", TUnit::UNIT);
-    _yield_counts = ADD_COUNTER(_task_profile, "NumYieldTimes", TUnit::UNIT);
-    _core_change_times = ADD_COUNTER(_task_profile, "CoreChangeTimes", TUnit::UNIT);
-    _memory_reserve_times = ADD_COUNTER(_task_profile, "MemoryReserveTimes", TUnit::UNIT);
+    _schedule_counts = ADD_COUNTER(_task_profile, profile::NUM_SCHEDULE_TIMES, TUnit::UNIT);
+    _yield_counts = ADD_COUNTER(_task_profile, profile::NUM_YIELD_TIMES, TUnit::UNIT);
+    _core_change_times = ADD_COUNTER(_task_profile, profile::CORE_CHANGE_TIMES, TUnit::UNIT);
+    _memory_reserve_times = ADD_COUNTER(_task_profile, profile::MEMORY_RESERVE_TIMES, TUnit::UNIT);
     _memory_reserve_failed_times =
-            ADD_COUNTER(_task_profile, "MemoryReserveFailedTimes", TUnit::UNIT);
+            ADD_COUNTER(_task_profile, profile::MEMORY_RESERVE_FAILED_TIMES, TUnit::UNIT);
 }
 
 void PipelineTask::_fresh_profile_counter() {
@@ -343,7 +344,7 @@ bool PipelineTask::_is_blocked() {
            });
 }
 
-void PipelineTask::terminate() {
+void PipelineTask::unblock_all_dependencies() {
     // We use a lock to assure all dependencies are not deconstructed here.
     std::unique_lock<std::mutex> lc(_dependency_lock);
     auto fragment = _fragment_context.lock();
@@ -362,7 +363,8 @@ void PipelineTask::terminate() {
                                   [&](Dependency* dep) { dep->set_ready(); });
             _memory_sufficient_dependency->set_ready();
         } catch (const doris::Exception& e) {
-            LOG(WARNING) << "Terminate failed: " << e.code() << ", " << e.to_string();
+            LOG(WARNING) << "unblock_all_dependencies failed: " << e.code() << ", "
+                         << e.to_string();
         }
     }
 }
@@ -472,14 +474,42 @@ Status PipelineTask::execute(bool* done) {
 
         // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
         if (_wake_up_early) {
-            terminate();
-            THROW_IF_ERROR(_root->terminate(_state));
-            THROW_IF_ERROR(_sink->terminate(_state));
             _eos = true;
             *done = true;
         } else if (_eos && !_spilling &&
                    (fragment_context->is_canceled() || !_is_pending_finish())) {
+            // Debug point for testing the race condition fix: inject set_wake_up_early() +
+            // unblock_all_dependencies() here to simulate Thread B writing A then B between
+            // Thread A's two reads of _wake_up_early.
+            DBUG_EXECUTE_IF("PipelineTask::execute.wake_up_early_in_else_if", {
+                set_wake_up_early();
+                unblock_all_dependencies();
+            });
             *done = true;
+        }
+
+        // NOTE: The operator terminate() call is intentionally placed AFTER the
+        // _is_pending_finish() check above, not before. This ordering is critical to avoid a race
+        // condition with the seq_cst memory ordering guarantee:
+        //
+        // Pipeline::make_all_runnable() writes in this order:
+        //   (A) set_wake_up_early()  ->  (B) unblock_all_dependencies() [sets finish_dep._always_ready]
+        //
+        // If we checked _wake_up_early (A) before _is_pending_finish() (B), there would be a
+        // window where Thread A reads _wake_up_early=false, then Thread B writes both A and B,
+        // then Thread A reads _is_pending_finish()=false (due to _always_ready). Thread A would
+        // then set *done=true without ever calling operator terminate(), causing close() to run
+        // on operators that were never properly terminated (e.g. RuntimeFilterProducer still in
+        // WAITING_FOR_SYNCED_SIZE state when insert() is called).
+        //
+        // By reading _is_pending_finish() (B) before the second read of _wake_up_early (A),
+        // if Thread A observes B's effect (_always_ready=true), it is guaranteed to also observe
+        // A's effect (_wake_up_early=true) on this second read, ensuring operator terminate() is
+        // called. This relies on _wake_up_early and _always_ready both being std::atomic with the
+        // default seq_cst ordering — do not weaken them to relaxed or acq/rel.
+        if (_wake_up_early) {
+            THROW_IF_ERROR(_root->terminate(_state));
+            THROW_IF_ERROR(_sink->terminate(_state));
         }
     }};
     const auto query_id = _state->query_id();
@@ -681,7 +711,7 @@ Status PipelineTask::execute(bool* done) {
                     if (required_pipeline_id == pipeline_id() && required_task_id == task_id() &&
                         fragment_context->get_fragment_id() == required_fragment_id) {
                         _wake_up_early = true;
-                        terminate();
+                        unblock_all_dependencies();
                     } else if (required_pipeline_id == pipeline_id() &&
                                fragment_context->get_fragment_id() == required_fragment_id) {
                         LOG(WARNING) << "PipelineTask::execute.terminate sleep 5s";
@@ -732,9 +762,10 @@ Status PipelineTask::do_revoke_memory(const std::shared_ptr<SpillContext>& spill
         fragment_context->get_query_ctx()->resource_ctx()->cpu_context()->update_cpu_cost_ms(
                 delta_cpu_time);
 
-        // If task is woke up early, we should terminate all operators, and this task could be closed immediately.
+        // If task is woke up early, unblock all dependencies and terminate all operators,
+        // so this task could be closed immediately.
         if (_wake_up_early) {
-            terminate();
+            unblock_all_dependencies();
             THROW_IF_ERROR(_root->terminate(_state));
             THROW_IF_ERROR(_sink->terminate(_state));
             _eos = true;
@@ -847,7 +878,7 @@ void PipelineTask::stop_if_finished() {
     if (auto sink = _sink) {
         if (sink->is_finished(_state)) {
             set_wake_up_early();
-            terminate();
+            unblock_all_dependencies();
         }
     }
 }

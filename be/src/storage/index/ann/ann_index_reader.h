@@ -21,6 +21,8 @@
 #include "storage/index/ann/ann_index.h"
 #include "storage/index/ann/ann_search_params.h"
 #include "storage/index/index_reader.h"
+#include "storage/index/inverted/inverted_index_common.h"
+#include "storage/index/inverted/inverted_index_compound_reader.h"
 #include "storage/tablet/tablet_schema.h"
 #include "util/once.h"
 namespace doris::segment_v2 {
@@ -45,6 +47,10 @@ public:
 
     Status load_index(io::IOContext* io_ctx);
 
+    // Try to load index, return true if successful, false if failed
+    // This method is used to check if index can be loaded before query
+    bool try_load_index(io::IOContext* io_ctx);
+
     Status query(io::IOContext* io_ctx, AnnTopNParam* param, AnnIndexStats* stats);
 
     Status range_search(const AnnRangeSearchParams& params,
@@ -64,6 +70,13 @@ public:
 private:
     TabletIndex _index_meta;
     std::shared_ptr<IndexFileReader> _index_file_reader;
+    // IMPORTANT: _compound_dir MUST be declared before _vector_index so that it is
+    // destroyed AFTER _vector_index (C++ destroys members in reverse declaration order).
+    // For IVF_ON_DISK, the CachedRandomAccessReader inside _vector_index holds a cloned
+    // CSIndexInput whose `base` raw pointer references the compound directory's underlying
+    // stream. If _compound_dir were destroyed first, that `base` would dangle, causing
+    // a use-after-free when ~CachedRandomAccessReader() calls _input->close().
+    std::unique_ptr<DorisCompoundReader, DirectoryDeleter> _compound_dir;
     std::unique_ptr<VectorIndex> _vector_index;
     AnnIndexType _index_type;
     AnnIndexMetric _metric_type;

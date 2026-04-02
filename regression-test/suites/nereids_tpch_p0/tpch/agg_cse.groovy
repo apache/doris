@@ -79,13 +79,13 @@ suite("agg_cse") {
     explain {
         sql """
             select count(distinct k2,k3),count(*), sum(k2+k3), avg(k2+k3) from 
-            nereids_test_query_db.baseall group by k1
+            test_query_db.baseall group by k1
             """
         contains("final projections: k1[#1], k2[#2], k3[#3], (CAST(k2[#2] AS bigint) + CAST(k3[#3] AS bigint))")
     //  expect plan: final projections: k1[#1], k2[#2], k3[#3], (k2[#2] + k3[#3])
     //
     //  0:VOlapScanNode(147)
-    //  TABLE: nereids_test_query_db.baseall(baseall), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function count(*)
+    //  TABLE: test_query_db.baseall(baseall), PREAGGREGATION: OFF. Reason: can't turn preAgg on for aggregate function count(*)
     //  partitions=1/1 (baseall)
     //  tablets=5/5, tabletList=43307,43309,43311 ...
     //  cardinality=16, avgRowSize=4418.75, numNodes=1
@@ -95,7 +95,7 @@ suite("agg_cse") {
     }
     qt_agg_cse_distinct """
         select count(distinct k2,k3),count(*), sum(k2+k3), avg(k2+k3) from 
-            nereids_test_query_db.baseall group by k1 order by 1, 2,3,4
+            test_query_db.baseall group by k1 order by 1, 2,3,4
         """
 
     explain {

@@ -23,6 +23,7 @@ file(GLOB SRC_FILES CONFIGURE_DEPENDS
     ${GEN_CPP_DIR}/*.cpp
     ${GEN_CPP_DIR}/*.cc
 )
+list(FILTER SRC_FILES EXCLUDE REGEX "_server\\.skeleton\\.cpp$")
 
 add_compile_options(-Wno-return-type)
 
@@ -43,4 +44,3 @@ endif()
 
 #add_dependencies(DorisGen thrift-cpp)
 #add_dependencies(Opcode function)
-

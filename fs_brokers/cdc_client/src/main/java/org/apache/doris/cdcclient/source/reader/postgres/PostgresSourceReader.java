@@ -55,7 +55,6 @@ import org.apache.flink.table.types.DataType;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -64,6 +63,7 @@ import java.util.Properties;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Preconditions;
+import io.debezium.connector.postgresql.PostgresOffsetContext;
 import io.debezium.connector.postgresql.SourceInfo;
 import io.debezium.connector.postgresql.connection.PostgresConnection;
 import io.debezium.connector.postgresql.connection.PostgresReplicationConnection;
@@ -90,7 +90,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
     }
 
     @Override
-    public void initialize(long jobId, DataSource dataSource, Map<String, String> config) {
+    public void initialize(String jobId, DataSource dataSource, Map<String, String> config) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         synchronized (SLOT_CREATION_LOCK) {
@@ -158,7 +158,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
 
     /** Generate PostgreSQL source config from Map config */
     private PostgresSourceConfig generatePostgresConfig(
-            Map<String, String> cdcConfig, Long jobId, int subtaskId) {
+            Map<String, String> cdcConfig, String jobId, int subtaskId) {
         PostgresSourceConfigFactory configFactory = new PostgresSourceConfigFactory();
 
         // Parse JDBC URL to extract connection info
@@ -191,19 +191,16 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         configFactory.includeSchemaChanges(false);
 
         // Set table list
-        String includingTables = cdcConfig.get(DataSourceConfigKeys.INCLUDE_TABLES);
-        if (StringUtils.isNotEmpty(includingTables)) {
-            String[] includingTbls =
-                    Arrays.stream(includingTables.split(","))
-                            .map(t -> schema + "." + t.trim())
-                            .toArray(String[]::new);
-            configFactory.tableList(includingTbls);
-        }
+        String[] tableList = ConfigUtil.getTableList(schema, cdcConfig);
+        Preconditions.checkArgument(tableList.length >= 1, "include_tables or table is required");
+        configFactory.tableList(tableList);
 
         // Set startup options
         String startupMode = cdcConfig.get(DataSourceConfigKeys.OFFSET);
         if (DataSourceConfigKeys.OFFSET_INITIAL.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.initial());
+        } else if (DataSourceConfigKeys.OFFSET_SNAPSHOT.equalsIgnoreCase(startupMode)) {
+            configFactory.startupOptions(StartupOptions.snapshot());
         } else if (DataSourceConfigKeys.OFFSET_EARLIEST.equalsIgnoreCase(startupMode)) {
             configFactory.startupOptions(StartupOptions.earliest());
         } else if (DataSourceConfigKeys.OFFSET_LATEST.equalsIgnoreCase(startupMode)) {
@@ -222,6 +219,10 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)) {
             configFactory.splitSize(
                     Integer.parseInt(cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_SIZE)));
+        }
+
+        if (cdcConfig.containsKey(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY)) {
+            configFactory.chunkKeyColumn(cdcConfig.get(DataSourceConfigKeys.SNAPSHOT_SPLIT_KEY));
         }
 
         Properties dbzProps = ConfigUtil.getDefaultDebeziumProps();
@@ -254,7 +255,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
         return configFactory.create(subtaskId);
     }
 
-    private String getSlotName(Long jobId) {
+    private String getSlotName(String jobId) {
         return "doris_cdc_" + jobId;
     }
 
@@ -377,7 +378,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
      * @return the fresh {@link TableChanges.TableChange}
      */
     private TableChanges.TableChange refreshSingleTableSchema(
-            TableId tableId, Map<String, String> config, long jobId) {
+            TableId tableId, Map<String, String> config, String jobId) {
         PostgresSourceConfig sourceConfig = generatePostgresConfig(config, jobId, 0);
         PostgresDialect dialect = new PostgresDialect(sourceConfig);
         try (JdbcConnection jdbcConnection = dialect.openJdbcConnection(sourceConfig)) {
@@ -405,7 +406,7 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
      * `CommitFeOffset` fails, Data after the startOffset will not be cleared.
      */
     @Override
-    public void commitSourceOffset(Long jobId, SourceSplit sourceSplit) {
+    public void commitSourceOffset(String jobId, SourceSplit sourceSplit) {
         try {
             if (sourceSplit instanceof StreamSplit) {
                 Offset offsetToCommit = ((StreamSplit) sourceSplit).getStartingOffset();
@@ -428,6 +429,25 @@ public class PostgresSourceReader extends JdbcIncrementalSourceReader {
                     e.getMessage(),
                     e);
         }
+    }
+
+    /**
+     * Strip lsn_proc and lsn_commit from the binlog state offset before it is passed to debezium's
+     * WalPositionLocator. In pgoutput non-streaming mode (proto_version=1, used by debezium 1.9.x
+     * even on PG14), BEGIN and DML messages within a transaction share the same XLogData.data_start
+     * as the transaction's begin_lsn. When begin_lsn equals the previous transaction's commit_lsn
+     * (i.e. no other WAL write exists between them), WalPositionLocator adds that lsn to lsnSeen
+     * during the find phase and then incorrectly filters the DML as already-processed during actual
+     * streaming. Removing these keys sets lastCommitStoredLsn=null, so the find phase exits
+     * immediately at the first received message and switch-off happens before any DML is filtered.
+     * See https://issues.apache.org/jira/browse/FLINK-39265.
+     */
+    @Override
+    public Map<String, String> extractBinlogStateOffset(Object splitState) {
+        Map<String, String> offset = super.extractBinlogStateOffset(splitState);
+        offset.remove(PostgresOffsetContext.LAST_COMPLETELY_PROCESSED_LSN_KEY);
+        offset.remove(PostgresOffsetContext.LAST_COMMIT_LSN_KEY);
+        return offset;
     }
 
     @Override

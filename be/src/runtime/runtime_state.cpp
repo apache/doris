@@ -37,8 +37,12 @@
 #include "common/status.h"
 #include "core/value/vdatetime_value.h"
 #include "exec/operator/operator.h"
+#include "exec/pipeline/pipeline_fragment_context.h"
 #include "exec/pipeline/pipeline_task.h"
+#include "exec/runtime_filter/runtime_filter_consumer.h"
 #include "exec/runtime_filter/runtime_filter_mgr.h"
+#include "exec/runtime_filter/runtime_filter_producer.h"
+#include "exprs/function/cast/cast_to_date_or_datetime_impl.hpp"
 #include "io/fs/s3_file_system.h"
 #include "load/load_path_mgr.h"
 #include "runtime/exec_env.h"
@@ -105,7 +109,7 @@ RuntimeState::RuntimeState(const TUniqueId& instance_id, const TUniqueId& query_
 RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env, QueryContext* ctx)
-        : _profile("PipelineX  " + std::to_string(fragment_id)),
+        : _profile(fmt::format("PipelineX(fragment_id={})", fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _unreported_error_idx(0),
@@ -130,7 +134,7 @@ RuntimeState::RuntimeState(const TUniqueId& query_id, int32_t fragment_id,
                            const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                            ExecEnv* exec_env,
                            const std::shared_ptr<MemTrackerLimiter>& query_mem_tracker)
-        : _profile("PipelineX  " + std::to_string(fragment_id)),
+        : _profile(fmt::format("PipelineX(fragment_id={})", fragment_id)),
           _load_channel_profile("<unnamed>"),
           _obj_pool(new ObjectPool()),
           _unreported_error_idx(0),
@@ -184,8 +188,15 @@ RuntimeState::~RuntimeState() {
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
     }
-
     _obj_pool->clear();
+}
+
+const std::set<int>& RuntimeState::get_deregister_runtime_filter() const {
+    return _registered_runtime_filter_ids;
+}
+
+void RuntimeState::merge_register_runtime_filter(const std::set<int>& runtime_filter_ids) {
+    _registered_runtime_filter_ids.insert(runtime_filter_ids.begin(), runtime_filter_ids.end());
 }
 
 Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
@@ -204,7 +215,11 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
     } else if (!query_globals.now_string.empty()) {
         _timezone = TimezoneUtils::default_time_zone;
         VecDateTimeValue dt;
-        dt.from_date_str(query_globals.now_string.c_str(), query_globals.now_string.size());
+        CastParameters params;
+        DORIS_CHECK((CastToDateOrDatetime::from_string_strict_mode<DatelikeParseMode::STRICT,
+                                                                   DatelikeTargetType::DATE_TIME>(
+                {query_globals.now_string.c_str(), query_globals.now_string.size()}, dt, nullptr,
+                params)));
         int64_t timestamp;
         dt.unix_timestamp(&timestamp, _timezone);
         _timestamp_ms = timestamp * 1000;
@@ -473,6 +488,18 @@ Status RuntimeState::register_producer_runtime_filter(
     // When RF is published, consumers in both global and local RF mgr will be found.
     RETURN_IF_ERROR(local_runtime_filter_mgr()->register_producer_filter(_query_ctx, desc,
                                                                          producer_filter));
+    // Stamp the producer with the current recursive CTE stage so that outgoing merge RPCs
+    // carry the correct round number and stale messages from old rounds are discarded.
+    // PFC must still be alive: this runs inside a pipeline task, so the execution context
+    // cannot have expired yet.
+    // In unit-test scenarios the task execution context is never set (no PipelineFragmentContext
+    // exists), so skip the stage stamping — the default stage (0) is correct.
+    if (task_execution_context_inited()) {
+        auto pfc = std::static_pointer_cast<PipelineFragmentContext>(
+                get_task_execution_context().lock());
+        DORIS_CHECK(pfc);
+        (*producer_filter)->set_stage(pfc->rec_cte_stage());
+    }
     RETURN_IF_ERROR(global_runtime_filter_mgr()->register_local_merger_producer_filter(
             _query_ctx, desc, *producer_filter));
     return Status::OK();
@@ -484,7 +511,20 @@ Status RuntimeState::register_consumer_runtime_filter(
     _registered_runtime_filter_ids.insert(desc.filter_id);
     bool need_merge = desc.has_remote_targets || need_local_merge;
     RuntimeFilterMgr* mgr = need_merge ? global_runtime_filter_mgr() : local_runtime_filter_mgr();
-    return mgr->register_consumer_filter(this, desc, node_id, consumer_filter);
+    RETURN_IF_ERROR(mgr->register_consumer_filter(this, desc, node_id, consumer_filter));
+    // Stamp the consumer with the current recursive CTE stage so that incoming publish RPCs
+    // from old rounds are detected and discarded.
+    // PFC must still be alive: this runs inside a pipeline task, so the execution context
+    // cannot have expired yet.
+    // In unit-test scenarios the task execution context is never set (no PipelineFragmentContext
+    // exists), so skip the stage stamping — the default stage (0) is correct.
+    if (task_execution_context_inited()) {
+        auto pfc = std::static_pointer_cast<PipelineFragmentContext>(
+                get_task_execution_context().lock());
+        DORIS_CHECK(pfc);
+        (*consumer_filter)->set_stage(pfc->rec_cte_stage());
+    }
+    return Status::OK();
 }
 
 bool RuntimeState::is_nereids() const {
@@ -494,16 +534,6 @@ bool RuntimeState::is_nereids() const {
 std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::pipeline_id_to_profile() {
     std::shared_lock lc(_pipeline_profile_lock);
     return _pipeline_id_to_profile;
-}
-
-void RuntimeState::reset_to_rerun() {
-    if (local_runtime_filter_mgr()) {
-        local_runtime_filter_mgr()->remove_filters(_registered_runtime_filter_ids);
-        global_runtime_filter_mgr()->remove_filters(_registered_runtime_filter_ids);
-        _registered_runtime_filter_ids.clear();
-    }
-    std::unique_lock lc(_pipeline_profile_lock);
-    _pipeline_id_to_profile.clear();
 }
 
 std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profile(
@@ -517,7 +547,7 @@ std::vector<std::shared_ptr<RuntimeProfile>> RuntimeState::build_pipeline_profil
         size_t pip_idx = 0;
         for (auto& pipeline_profile : _pipeline_id_to_profile) {
             pipeline_profile =
-                    std::make_shared<RuntimeProfile>("Pipeline : " + std::to_string(pip_idx));
+                    std::make_shared<RuntimeProfile>(fmt::format("Pipeline(id={})", pip_idx));
             pip_idx++;
         }
     }

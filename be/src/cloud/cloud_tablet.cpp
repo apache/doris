@@ -1724,6 +1724,7 @@ void CloudTablet::_submit_segment_download_task(const RowsetSharedPtr& rs,
                     LOG_WARNING("add rowset warm up error ").error(st);
                 }
             }},
+            .tablet_id = _tablet_meta->tablet_id(),
     });
     // clang-format on
 }
@@ -1766,6 +1767,7 @@ void CloudTablet::_submit_inverted_index_download_task(const RowsetSharedPtr& rs
                     LOG_WARNING("add rowset warm up error ").error(st);
                 }
             }},
+            .tablet_id = _tablet_meta->tablet_id(),
     };
     self->update_rowset_warmup_state_inverted_idx_num_unlocked(WarmUpTriggerSource::SYNC_ROWSET, rowset_meta->rowset_id(), 1);
     _engine.file_cache_block_downloader().submit_download_task(std::move(meta));

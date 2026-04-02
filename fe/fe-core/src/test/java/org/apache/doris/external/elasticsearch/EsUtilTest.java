@@ -18,10 +18,10 @@
 package org.apache.doris.external.elasticsearch;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.datasource.es.DorisEsException;
+import org.apache.doris.datasource.es.EsExternalTable;
 import org.apache.doris.datasource.es.EsRestClient;
 import org.apache.doris.datasource.es.EsUtil;
 import org.apache.doris.datasource.es.MappingPhase;
@@ -75,7 +75,7 @@ public class EsUtilTest extends EsTestCase {
     public void testExtractFieldsNormal() throws Exception {
 
         // ES version < 7.0
-        EsTable esTableBefore7X = fakeEsTable("fake", "test", "doc", columns);
+        EsExternalTable esTableBefore7X = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext = new SearchContext(esTableBefore7X);
         MappingPhase.resolveFields(searchContext, loadJsonFromFile("data/es/test_index_mapping.json"));
         Assertions.assertEquals("k3.keyword", searchContext.fetchFieldsContext().get("k3"));
@@ -84,7 +84,7 @@ public class EsUtilTest extends EsTestCase {
         Assertions.assertEquals("k2", searchContext.docValueFieldsContext().get("k2"));
 
         // ES version >= 7.0
-        EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
+        EsExternalTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext1 = new SearchContext(esTableAfter7X);
         MappingPhase.resolveFields(searchContext1, loadJsonFromFile("data/es/test_index_mapping_after_7x.json"));
         Assertions.assertEquals("k3.keyword", searchContext1.fetchFieldsContext().get("k3"));
@@ -95,7 +95,7 @@ public class EsUtilTest extends EsTestCase {
 
     @Test
     public void testWorkFlow(@Injectable EsRestClient client) throws Exception {
-        EsTable table = fakeEsTable("fake", "test", "doc", columns);
+        EsExternalTable table = fakeEsTable("fake", "test", "doc", columns);
         SearchContext searchContext1 = new SearchContext(table);
         String jsonMapping = loadJsonFromFile("data/es/test_index_mapping.json");
         new Expectations(client) {
@@ -119,7 +119,7 @@ public class EsUtilTest extends EsTestCase {
 
     @Test
     public void testMultTextFields() throws Exception {
-        EsTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
+        EsExternalTable esTableAfter7X = fakeEsTable("fake", "test", "_doc", columns);
         SearchContext searchContext = new SearchContext(esTableAfter7X);
         MappingPhase.resolveFields(searchContext,
                 loadJsonFromFile("data/es/test_index_mapping_field_mult_analyzer.json"));

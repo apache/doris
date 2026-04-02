@@ -955,7 +955,9 @@ public class RestoreJob extends AbstractJob implements GsonPostProcessable {
                         return;
                     }
                 } else {
-                    remoteOdbcTable.resetIdsForRestore(env);
+                    // ODBC tables are deprecated. We can no longer reset IDs for restore.
+                    // Just add the table as-is for metadata compatibility.
+                    LOG.warn("Skipping resetIdsForRestore for deprecated ODBC table: {}", backupOdbcTableName);
                     stagingRestoreTables.add(remoteOdbcTable);
                 }
             }

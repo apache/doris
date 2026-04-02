@@ -47,6 +47,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHiveTableSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergDeleteSink;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergMergeSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIcebergTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcTableSink;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
@@ -146,7 +148,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalOlapTableSink(PhysicalOlapTableSink<? extends Plan> olapTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(olapTableSink.getRequirePhysicalProperties());
@@ -156,7 +158,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalHiveTableSink(PhysicalHiveTableSink<? extends Plan> hiveTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(hiveTableSink.getRequirePhysicalProperties());
@@ -167,7 +169,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalIcebergTableSink(
             PhysicalIcebergTableSink<? extends Plan> icebergTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(icebergTableSink.getRequirePhysicalProperties());
@@ -178,10 +180,32 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     @Override
     public Void visitPhysicalMaxComputeTableSink(
             PhysicalMaxComputeTableSink<? extends Plan> mcTableSink, PlanContext context) {
-        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+        if (connectContext != null && !connectContext.getSessionVariable().isEnableStrictConsistencyDml()) {
             addRequestPropertyToChildren(PhysicalProperties.ANY);
         } else {
             addRequestPropertyToChildren(mcTableSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalIcebergDeleteSink(
+            PhysicalIcebergDeleteSink<? extends Plan> icebergDeleteSink, PlanContext context) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(icebergDeleteSink.getRequirePhysicalProperties());
+        }
+        return null;
+    }
+
+    @Override
+    public Void visitPhysicalIcebergMergeSink(
+            PhysicalIcebergMergeSink<? extends Plan> icebergMergeSink, PlanContext context) {
+        if (connectContext != null && !connectContext.getSessionVariable().enableStrictConsistencyDml) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        } else {
+            addRequestPropertyToChildren(icebergMergeSink.getRequirePhysicalProperties());
         }
         return null;
     }

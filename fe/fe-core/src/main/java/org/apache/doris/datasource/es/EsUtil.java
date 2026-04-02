@@ -36,9 +36,12 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.Spliterator;
 import java.util.Spliterators;
 import java.util.stream.StreamSupport;
@@ -49,6 +52,11 @@ import java.util.stream.StreamSupport;
 public class EsUtil {
 
     private static final Logger LOG = LogManager.getLogger(EsUtil.class);
+
+    // reference: https://www.elastic.co/guide/en/elasticsearch/reference/current/doc-values.html
+    // https://www.elastic.co/guide/en/elasticsearch/reference/current/text.html
+    public static final Set<String> DEFAULT_DOCVALUE_DISABLED_FIELDS =
+            new HashSet<>(Arrays.asList("text", "annotated_text", "match_only_text"));
 
     /**
      * Analyze partition and distributionDesc.

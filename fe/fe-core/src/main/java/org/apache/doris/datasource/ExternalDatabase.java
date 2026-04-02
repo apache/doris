@@ -127,7 +127,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
                 metaCache.invalidateAll();
             }
         }
-        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDbCache(getCatalog().getId(), getFullName());
+        Env.getCurrentEnv().getExtMetaCacheMgr().invalidateDb(extCatalog.getId(), getFullName());
     }
 
     public boolean isInitialized() {
@@ -163,7 +163,7 @@ public abstract class ExternalDatabase<T extends ExternalTable>
             if (LOG.isDebugEnabled()) {
                 LOG.debug("buildMetaCache for database: {}:{}", this.name, this.id, new Exception());
             }
-            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().buildMetaCache(
+            metaCache = Env.getCurrentEnv().getExtMetaCacheMgr().legacyMetaCacheFactory().build(
                     name,
                     OptionalLong.of(Config.external_cache_expire_time_seconds_after_access),
                     OptionalLong.of(Config.external_cache_refresh_time_minutes * 60L),

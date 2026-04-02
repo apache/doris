@@ -69,6 +69,7 @@ class AuthenticationResultTest {
         Assertions.assertNull(result.getPrincipal());
         Assertions.assertNotNull(result.getException());
         Assertions.assertEquals(errorMessage, result.getException().getMessage());
+        Assertions.assertEquals(AuthenticationFailureType.INTERNAL_ERROR, result.getException().getFailureType());
     }
 
     @Test
@@ -140,7 +141,8 @@ class AuthenticationResultTest {
     @DisplayName("UT-API-AR-010: Failure result with exception details")
     void testCreateFailure_WithException() {
         // Given
-        AuthenticationException cause = new AuthenticationException("Connection timeout");
+        AuthenticationException cause = new AuthenticationException(
+                "Connection timeout", AuthenticationFailureType.SOURCE_UNAVAILABLE);
 
         // When
         AuthenticationResult result = AuthenticationResult.failure(cause);
@@ -149,5 +151,17 @@ class AuthenticationResultTest {
         Assertions.assertTrue(result.isFailure());
         Assertions.assertNotNull(result.getException());
         Assertions.assertTrue(result.getException().getMessage().contains("Connection timeout"));
+        Assertions.assertEquals(AuthenticationFailureType.SOURCE_UNAVAILABLE, result.getException().getFailureType());
+    }
+
+    @Test
+    @DisplayName("UT-API-AR-011: Failure result preserves explicit failure type")
+    void testCreateFailure_WithFailureType() {
+        AuthenticationResult result = AuthenticationResult.failure(
+                AuthenticationFailureType.USER_NOT_FOUND, "User not found");
+
+        Assertions.assertTrue(result.isFailure());
+        Assertions.assertNotNull(result.getException());
+        Assertions.assertEquals(AuthenticationFailureType.USER_NOT_FOUND, result.getException().getFailureType());
     }
 }

@@ -42,11 +42,13 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.CreateMaterializedViewCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateViewCommand;
+import org.apache.doris.nereids.trees.plans.commands.DeleteFromUsingCommand;
 import org.apache.doris.nereids.trees.plans.commands.DropTableCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExecuteActionCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.commands.ReplayCommand;
+import org.apache.doris.nereids.trees.plans.commands.UpdateCommand;
 import org.apache.doris.nereids.trees.plans.commands.merge.MergeIntoCommand;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
@@ -1529,5 +1531,82 @@ public class NereidsParserTest extends ParserTestBase {
     public void testUnnest() {
         String sql = "SELECT t.* FROM LATERAL unnest([1,2], ['hi','hello']) WITH ORDINALITY AS t(c1,c2);";
         parsePlan(sql).matches(logicalGenerate().when(plan -> plan.getGenerators().get(0) instanceof Unnest));
+    }
+
+    @Test
+    public void testDeleteWithOrderByAndLimit() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // DELETE with ORDER BY and LIMIT
+        String sql = "DELETE FROM t ORDER BY c1 LIMIT 10";
+        LogicalPlan plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
+        Assertions.assertEquals(StmtType.DELETE, plan.stmtType());
+
+        // DELETE with WHERE, ORDER BY DESC NULLS LAST, and LIMIT with offset
+        sql = "DELETE FROM t WHERE c1 > 0 ORDER BY c1 DESC NULLS LAST LIMIT 5, 10";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
+
+        // DELETE with ORDER BY ASC NULLS FIRST and LIMIT with offset
+        sql = "DELETE FROM t ORDER BY c1 ASC NULLS FIRST LIMIT 10, 3";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
+
+        // DELETE with LIMIT only
+        sql = "DELETE FROM t LIMIT 5";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
+
+        // DELETE with ORDER BY only
+        sql = "DELETE FROM t ORDER BY c1";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
+
+        // DELETE with LIMIT OFFSET syntax
+        sql = "DELETE FROM t ORDER BY c1 LIMIT 10 OFFSET 5";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
+
+        // DELETE with multiple ORDER BY columns
+        sql = "DELETE FROM t ORDER BY c1 ASC, c2 DESC LIMIT 10";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(DeleteFromUsingCommand.class, plan);
+    }
+
+    @Test
+    public void testUpdateWithOrderByAndLimit() {
+        NereidsParser nereidsParser = new NereidsParser();
+
+        // UPDATE with ORDER BY and LIMIT
+        String sql = "UPDATE t SET c1 = 10 ORDER BY c2 LIMIT 100";
+        LogicalPlan plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, plan);
+        Assertions.assertEquals(StmtType.UPDATE, plan.stmtType());
+
+        // UPDATE with WHERE, ORDER BY DESC, and LIMIT with offset
+        sql = "UPDATE t SET c1 = 10 WHERE c2 > 5 ORDER BY c2 DESC LIMIT 100, 20";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, plan);
+
+        // UPDATE with LIMIT only
+        sql = "UPDATE t SET c1 = 10 LIMIT 50";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, plan);
+
+        // UPDATE with ORDER BY only
+        sql = "UPDATE t SET c1 = 10 ORDER BY c2 ASC NULLS FIRST";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, plan);
+
+        // UPDATE with LIMIT OFFSET syntax
+        sql = "UPDATE t SET c1 = 10 ORDER BY c2 LIMIT 20 OFFSET 10";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, plan);
+
+        // UPDATE with multiple ORDER BY columns
+        sql = "UPDATE t SET c1 = 10 ORDER BY c2 ASC, c3 DESC NULLS LAST LIMIT 5";
+        plan = nereidsParser.parseSingle(sql);
+        Assertions.assertInstanceOf(UpdateCommand.class, plan);
     }
 }

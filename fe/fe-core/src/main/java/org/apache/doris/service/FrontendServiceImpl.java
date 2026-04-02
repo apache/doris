@@ -4391,15 +4391,21 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         // check partition's number limit. because partitions in addPartitionClauseMap may be duplicated with existing
         // partitions, which would lead to false positive. so we should check the partition number AFTER adding new
         // partitions using its ACTUAL NUMBER, rather than the sum of existing and requested partitions.
-        if (olapTable.getPartitionNum() > Config.max_auto_partition_num) {
+        int partitionNum = olapTable.getPartitionNum();
+        int autoPartitionLimit = Config.max_auto_partition_num;
+        if (partitionNum > autoPartitionLimit) {
             String errorMessage = String.format(
                     "partition numbers %d exceeded limit of variable max_auto_partition_num %d",
-                    olapTable.getPartitionNum(), Config.max_auto_partition_num);
+                    partitionNum, autoPartitionLimit);
             LOG.warn(errorMessage);
             errorStatus.setErrorMsgs(Lists.newArrayList(errorMessage));
             result.setStatus(errorStatus);
             LOG.warn("send create partition error status: {}", result);
             return result;
+        } else if (partitionNum > autoPartitionLimit * 8 / 10) {
+            LOG.warn("Table {}.{} auto partition count {} is approaching limit {} (>80%)."
+                        + " Consider increasing max_auto_partition_num.",
+                    db.getFullName(), olapTable.getName(), partitionNum, autoPartitionLimit);
         }
 
         // build partition & tablets

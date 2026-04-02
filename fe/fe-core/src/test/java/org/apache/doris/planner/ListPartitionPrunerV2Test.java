@@ -18,6 +18,7 @@
 package org.apache.doris.planner;
 
 import org.apache.doris.analysis.PartitionValue;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
@@ -26,17 +27,20 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.ExecutionAuthenticator;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.NameMapping;
 import org.apache.doris.datasource.hive.HMSCachedClient;
 import org.apache.doris.datasource.hive.HMSExternalCatalog;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache;
-import org.apache.doris.datasource.hive.HiveMetaStoreCache.PartitionValueCacheKey;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache;
+import org.apache.doris.datasource.hive.HiveExternalMetaCache.PartitionValueCacheKey;
 import org.apache.doris.datasource.hive.ThriftHMSCachedClient;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import mockit.Expectations;
 import mockit.Mock;
 import mockit.MockUp;
+import mockit.Mocked;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.junit.Assert;
 import org.junit.Test;
@@ -72,7 +76,25 @@ public class ListPartitionPrunerV2Test {
     }
 
     @Test
-    public void testInvalidateTable() {
+    public void testInvalidateTable(@Mocked Env env, @Mocked CatalogMgr catalogMgr,
+            @Mocked HMSExternalCatalog hmsCatalog) {
+        long catalogId = 10001L;
+
+        new Expectations() {
+            {
+                Env.getCurrentEnv();
+                minTimes = 0;
+                result = env;
+
+                env.getCatalogMgr();
+                minTimes = 0;
+                result = catalogMgr;
+
+                catalogMgr.getCatalog(catalogId);
+                minTimes = 0;
+                result = hmsCatalog;
+            }
+        };
 
         new MockUp<HMSExternalCatalog>(HMSExternalCatalog.class) {
             @Mock
@@ -96,8 +118,8 @@ public class ListPartitionPrunerV2Test {
                 10, 10, "mgr", 120, false);
         ThreadPoolExecutor listExecutor = ThreadPoolManager.newDaemonFixedThreadPool(
                 10, 10, "mgr", 120, false);
-        HiveMetaStoreCache cache = new HiveMetaStoreCache(
-                new HMSExternalCatalog(1L, "catalog", null, new HashMap<>(), null), executor, listExecutor);
+        HiveExternalMetaCache cache = new HiveExternalMetaCache(executor, listExecutor);
+        cache.initCatalog(catalogId, new HashMap<>());
         ArrayList<Type> types = new ArrayList<>();
         types.add(ScalarType.DOUBLE);
 
@@ -105,11 +127,11 @@ public class ListPartitionPrunerV2Test {
         // the original partition of the table (in mock) will be loaded here
         String dbName = "db";
         String tblName = "tb";
-        PartitionValueCacheKey key = new PartitionValueCacheKey(NameMapping.createForTest("db", "tb"), types);
-        HiveMetaStoreCache.HivePartitionValues partitionValues = cache.getPartitionValues(key);
+        NameMapping nameMapping = NameMapping.createForTest(catalogId, dbName, tblName);
+        PartitionValueCacheKey key = new PartitionValueCacheKey(nameMapping, types);
+        HiveExternalMetaCache.HivePartitionValues partitionValues = cache.getPartitionValues(key);
         Assert.assertEquals(1, partitionValues.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues.getIdToPartitionItem().containsKey(8882801933302843777L));
-        List<PartitionKey> items = partitionValues.getIdToPartitionItem().get(8882801933302843777L).getItems();
+        List<PartitionKey> items = partitionValues.getIdToPartitionItem().values().iterator().next().getItems();
         Assert.assertEquals(1, items.size());
         PartitionKey partitionKey = items.get(0);
         Assert.assertEquals("1.234", partitionKey.getKeys().get(0).toString());
@@ -118,25 +140,30 @@ public class ListPartitionPrunerV2Test {
         // test add cache
         ArrayList<String> values = new ArrayList<>();
         values.add("c1=5.678000");
-        cache.addPartitionsCache(NameMapping.createForTest(dbName, tblName), values, types);
-        HiveMetaStoreCache.HivePartitionValues partitionValues2 = cache.getPartitionValues(
-                new PartitionValueCacheKey(NameMapping.createForTest(dbName, tblName), types));
+        cache.addPartitionsCache(nameMapping, values, types);
+        HiveExternalMetaCache.HivePartitionValues partitionValues2 = cache.getPartitionValues(
+                new PartitionValueCacheKey(nameMapping, types));
         Assert.assertEquals(2, partitionValues2.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues2.getIdToPartitionItem().containsKey(7070400225537799947L));
-        List<PartitionKey> items2 = partitionValues2.getIdToPartitionItem().get(7070400225537799947L).getItems();
-        Assert.assertEquals(1, items2.size());
-        PartitionKey partitionKey2 = items2.get(0);
+        PartitionKey partitionKey2 = null;
+        for (PartitionItem partitionItem : partitionValues2.getIdToPartitionItem().values()) {
+            List<PartitionKey> partitionKeys = partitionItem.getItems();
+            Assert.assertEquals(1, partitionKeys.size());
+            if ("5.678000".equals(partitionKeys.get(0).getOriginHiveKeys().get(0))) {
+                partitionKey2 = partitionKeys.get(0);
+                break;
+            }
+        }
+        Assert.assertNotNull(partitionKey2);
         Assert.assertEquals("5.678", partitionKey2.getKeys().get(0).toString());
         Assert.assertEquals("5.678000", partitionKey2.getOriginHiveKeys().get(0));
 
         // test refresh table
         // simulates the manually added partition table being deleted, leaving only one original partition in mock
-        cache.invalidateTableCache(NameMapping.createForTest(dbName, tblName));
-        HiveMetaStoreCache.HivePartitionValues partitionValues3 = cache.getPartitionValues(
-                new PartitionValueCacheKey(NameMapping.createForTest(dbName, tblName), types));
+        cache.invalidateTableCache(nameMapping);
+        HiveExternalMetaCache.HivePartitionValues partitionValues3 = cache.getPartitionValues(
+                new PartitionValueCacheKey(nameMapping, types));
         Assert.assertEquals(1, partitionValues3.getIdToPartitionItem().size());
-        Assert.assertTrue(partitionValues3.getIdToPartitionItem().containsKey(8882801933302843777L));
-        List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().get(8882801933302843777L).getItems();
+        List<PartitionKey> items3 = partitionValues3.getIdToPartitionItem().values().iterator().next().getItems();
         Assert.assertEquals(1, items3.size());
         PartitionKey partitionKey3 = items3.get(0);
         Assert.assertEquals("1.234", partitionKey3.getKeys().get(0).toString());

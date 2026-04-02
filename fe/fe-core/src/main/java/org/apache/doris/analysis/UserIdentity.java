@@ -165,13 +165,6 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     }
 
     /**
-     * Checks if this user has any TLS certificate requirements.
-     */
-    public boolean hasTlsRequirements() {
-        return san != null || issuer != null || cipher != null || subject != null;
-    }
-
-    /**
      * Clears all TLS certificate requirements.
      * Used when REQUIRE NONE is specified.
      */

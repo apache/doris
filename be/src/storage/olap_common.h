@@ -380,6 +380,9 @@ struct OlapReaderStatistics {
     int64_t ann_index_load_ns = 0;
     int64_t ann_topn_search_ns = 0;
     int64_t ann_index_topn_search_cnt = 0;
+    int64_t ann_ivf_on_disk_load_ns = 0;
+    int64_t ann_ivf_on_disk_cache_hit_cnt = 0;
+    int64_t ann_ivf_on_disk_cache_miss_cnt = 0;
 
     // Detailed timing for ANN operations
     int64_t ann_index_topn_engine_search_ns = 0;  // time spent in engine for range search
@@ -398,6 +401,7 @@ struct OlapReaderStatistics {
     int64_t ann_range_result_convert_ns = 0; // time spent processing range results
     int64_t ann_range_engine_convert_ns = 0; // time spent on FAISS-side conversions (Range)
     int64_t rows_ann_index_range_filtered = 0;
+    int64_t ann_fall_back_brute_force_cnt = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

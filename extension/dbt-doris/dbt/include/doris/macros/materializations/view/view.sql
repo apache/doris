@@ -19,30 +19,35 @@
 
   {%- set existing_relation = load_cached_relation(this) -%}
   {%- set target_relation = this.incorporate(type='view') -%}
-  {%- set intermediate_relation =  make_intermediate_relation(target_relation) -%}
-  {%- set preexisting_intermediate_relation = load_cached_relation(intermediate_relation) -%}
 
+  -- grab current tables grants config for comparision later on
+  {% set grant_config = config.get('grants') %}
 
-  {{ drop_relation_if_exists(intermediate_relation) }}
+  {{ run_hooks(pre_hooks, inside_transaction=False) }}
 
+  -- `BEGIN` happens here:
+  {{ run_hooks(pre_hooks, inside_transaction=True) }}
 
-  {% if existing_relation is not none %}
-  --todo: exchange
-    {% call statement('main_test') -%}
-      {{ get_create_view_as_sql(intermediate_relation, sql) }}
-    {%- endcall %}
-    {{ drop_relation_if_exists(intermediate_relation) }}
-    {{ drop_relation_if_exists(target_relation) }}
-    {% call statement('main') -%}
-      {{ get_create_view_as_sql(target_relation, sql) }}
-    {%- endcall %}
-    {# {{ adapter.rename_relation(intermediate_relation, target_relation) }} #}
-  {% else %}
-    {% call statement('main') -%}
-      {{ get_create_view_as_sql(target_relation, sql) }}
-    {%- endcall %}
+  {% if existing_relation is not none and existing_relation.type != 'view' %}
+    {{ doris__drop_relation(existing_relation) }}
   {% endif %}
 
+  -- build model
+  {% call statement('main') -%}
+    {{ doris__create_view_as(target_relation, sql) }}
+  {%- endcall %}
+
+  {% set should_revoke = should_revoke(existing_relation, full_refresh_mode=True) %}
+  {% do apply_grants(target_relation, grant_config, should_revoke=should_revoke) %}
+
+  {% do persist_docs(target_relation, model) %}
+
+  {{ run_hooks(post_hooks, inside_transaction=True) }}
+
+  -- `COMMIT` happens here
+  {% do adapter.commit() %}
+
+  {{ run_hooks(post_hooks, inside_transaction=False) }}
 
   {{ return({'relations': [target_relation]}) }}
 

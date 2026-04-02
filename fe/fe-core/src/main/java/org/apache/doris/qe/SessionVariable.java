@@ -90,6 +90,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final List<Field> affectQueryResultFields;
     public static final List<Field> affectQueryResultInPlanFields;
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
+    public static final String MAX_SCAN_MEM_RATIO = "max_scan_mem_ratio";
+    public static final String ENABLE_ADAPTIVE_SCAN = "enable_adaptive_scan";
     public static final String LOCAL_EXCHANGE_FREE_BLOCKS_LIMIT = "local_exchange_free_blocks_limit";
     public static final String SCAN_QUEUE_MEM_LIMIT = "scan_queue_mem_limit";
     public static final String MAX_SCANNERS_CONCURRENCY = "max_scanners_concurrency";
@@ -538,6 +540,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Target file size in bytes for Iceberg write operations
     public static final String ICEBERG_WRITE_TARGET_FILE_SIZE_BYTES = "iceberg_write_target_file_size_bytes";
+    public static final String ENABLE_ICEBERG_MERGE_PARTITIONING = "enable_iceberg_merge_partitioning";
 
     public static final String NUM_PARTITIONS_IN_BATCH_MODE = "num_partitions_in_batch_mode";
 
@@ -1055,6 +1058,10 @@ public class SessionVariable implements Serializable, Writable {
     // max memory used on every backend. Default value to 100G.
     @VariableMgr.VarAttr(name = EXEC_MEM_LIMIT, needForward = true)
     public long maxExecMemByte = 100147483648L;
+    @VariableMgr.VarAttr(name = MAX_SCAN_MEM_RATIO, needForward = true)
+    public double maxScanMemRatio = 0.3;
+    @VariableMgr.VarAttr(name = ENABLE_ADAPTIVE_SCAN, needForward = true)
+    public boolean enableAdaptiveScan = true;
 
     @VariableMgr.VarAttr(name = SCAN_QUEUE_MEM_LIMIT, needForward = true,
             description = {"每个 Scan Instance 的 block queue 能够保存多少字节的 block",
@@ -3123,13 +3130,13 @@ public class SessionVariable implements Serializable, Writable {
     public String cloudCluster = "";
     @VariableMgr.VarAttr(name = DISABLE_EMPTY_PARTITION_PRUNE)
     public boolean disableEmptyPartitionPrune = false;
-    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_TABLET_STATS)
+    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_TABLET_STATS, needForward = true)
     public boolean cloudForceSyncTabletStats = false;
     @VariableMgr.VarAttr(name = CLOUD_PARTITION_VERSION_CACHE_TTL_MS)
     public long cloudPartitionVersionCacheTtlMs = Long.MAX_VALUE;
     @VariableMgr.VarAttr(name = CLOUD_TABLE_VERSION_CACHE_TTL_MS)
     public long cloudTableVersionCacheTtlMs = Long.MAX_VALUE;
-    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_VERSION)
+    @VariableMgr.VarAttr(name = CLOUD_FORCE_SYNC_VERSION, needForward = true)
     public boolean cloudForceSyncVersion = false;
     // CLOUD_VARIABLES_END
 
@@ -3469,7 +3476,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = IVF_NPROBE, needForward = true,
             description = {"IVF 索引的 nprobe 参数，控制搜索时访问的聚类数量",
                     "IVF index nprobe parameter, controls the number of clusters to search"})
-    public int ivfNprobe = 1;
+    public int ivfNprobe = 32;
 
     @VariableMgr.VarAttr(
             name = DEFAULT_VARIANT_MAX_SUBCOLUMNS_COUNT,
@@ -3577,6 +3584,11 @@ public class SessionVariable implements Serializable, Writable {
                             + "to exclude the impact of dangling delete files."})
     public boolean ignoreIcebergDanglingDelete = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_ICEBERG_MERGE_PARTITIONING,
+            description = {"是否启用 Iceberg UPDATE/DELETE 合并写入的双分支分发（INSERT 按分区列，DELETE 按 row_id）。",
+                    "Enable merge partitioning for Iceberg UPDATE/DELETE (INSERT by partition columns, "
+                            + "DELETE by row_id)."})
+    public boolean enableIcebergMergePartitioning = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -4682,6 +4694,10 @@ public class SessionVariable implements Serializable, Writable {
         this.icebergWriteTargetFileSizeBytes = icebergWriteTargetFileSizeBytes;
     }
 
+    public boolean isEnableIcebergMergePartitioning() {
+        return enableIcebergMergePartitioning;
+    }
+
     public int getNumPartitionsInBatchMode() {
         return numPartitionsInBatchMode;
     }
@@ -5292,6 +5308,8 @@ public class SessionVariable implements Serializable, Writable {
     public TQueryOptions toThrift() {
         TQueryOptions tResult = new TQueryOptions();
         tResult.setMemLimit(maxExecMemByte);
+        tResult.setMaxScanMemRatio(maxScanMemRatio);
+        tResult.setEnableAdaptiveScan(enableAdaptiveScan);
         tResult.setLocalExchangeFreeBlocksLimit(localExchangeFreeBlocksLimit);
         tResult.setScanQueueMemLimit(maxScanQueueMemByte);
         tResult.setMaxScannersConcurrency(maxScannersConcurrency);
@@ -5769,6 +5787,11 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean isEnableStrictConsistencyDml() {
+        // In cloud mode (store-compute separation), there is only a single copy of data,
+        // so multi-replica consistency is not a concern. Default to false.
+        if (Config.isCloudMode()) {
+            return false;
+        }
         return this.enableStrictConsistencyDml;
     }
 
@@ -6148,6 +6171,7 @@ public class SessionVariable implements Serializable, Writable {
         return ignoreSplitType;
     }
 
+
     public void checkIgnoreSplitType(String value) {
         try {
             IgnoreSplitType.valueOf(value);
@@ -6156,6 +6180,7 @@ public class SessionVariable implements Serializable, Writable {
                     "We only support `NONE`, `IGNORE_JNI`, `IGNORE_NATIVE` and `IGNORE_PAIMON_CPP`");
         }
     }
+
 
     public boolean getUseConsistentHashForExternalScan() {
         return useConsistentHashForExternalScan;

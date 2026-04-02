@@ -138,6 +138,9 @@ QueryContext::QueryContext(TUniqueId query_id, ExecEnv* exec_env,
     }
     clock_gettime(CLOCK_MONOTONIC, &this->_query_arrival_timestamp);
     DorisMetrics::instance()->query_ctx_cnt->increment(1);
+    _mem_arb = MemShareArbitrator::create_shared(
+            query_id, query_options.mem_limit,
+            query_options.__isset.max_scan_mem_ratio ? query_options.max_scan_mem_ratio : 1.0);
 }
 
 void QueryContext::_init_query_mem_tracker() {
@@ -388,7 +391,9 @@ std::string QueryContext::print_all_pipeline_context() {
 void QueryContext::set_pipeline_context(const int fragment_id,
                                         std::shared_ptr<PipelineFragmentContext> pip_ctx) {
     std::lock_guard<std::mutex> lock(_pipeline_map_write_lock);
-    _fragment_id_to_pipeline_ctx.insert({fragment_id, pip_ctx});
+    // Use insert_or_assign instead of insert to support overwriting old entries
+    // when recursive CTE recreates PipelineFragmentContext between rounds.
+    _fragment_id_to_pipeline_ctx.insert_or_assign(fragment_id, pip_ctx);
 }
 
 doris::TaskScheduler* QueryContext::get_pipe_exec_scheduler() {
@@ -469,10 +474,6 @@ QueryContext::_collect_realtime_query_profile() {
                                     print_id(_query_id), fragment_id);
                 LOG_ERROR(msg);
                 DCHECK(false) << msg;
-                continue;
-            }
-
-            if (fragment_ctx->need_notify_close()) {
                 continue;
             }
 

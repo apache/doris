@@ -288,6 +288,18 @@ def convert_arrow_field_to_python(field, column_metadata=None):
                         )
                         return value
                 return None
+        elif doris_type in (b'LARGEINT', 'LARGEINT'):
+            if pa.types.is_string(field.type) or pa.types.is_large_string(field.type):
+                value = field.as_py()
+                if value is not None:
+                    try:
+                        return int(value)
+                    except (ValueError, TypeError) as e:
+                        logging.warning(
+                            "Failed to convert string '%s' to int for LARGEINT: %s", value, e
+                        )
+                        return value
+                return None
     
     return field.as_py()
 
@@ -314,16 +326,9 @@ def convert_python_to_arrow_value(value, output_type=None):
     if value is None:
         return None
 
-    is_ipv4_output = False
-    is_ipv6_output = False
-
-    if output_type is not None and hasattr(output_type, 'metadata') and output_type.metadata:
-        # Arrow metadata keys can be either bytes or str depending on how they were created
-        doris_type = output_type.metadata.get(b'doris_type') or output_type.metadata.get('doris_type')
-        if doris_type in (b'IPV4', 'IPV4'):
-            is_ipv4_output = True
-        elif doris_type in (b'IPV6', 'IPV6'):
-            is_ipv6_output = True
+    if output_type and pa.types.is_string(output_type) and isinstance(value, int):
+        # If output type is string but value is int, convert to string (for LARGEINT)
+        return str(value)
 
     # Convert IPv4Address back to int
     if isinstance(value, ipaddress.IPv4Address):
@@ -333,20 +338,6 @@ def convert_python_to_arrow_value(value, output_type=None):
     if isinstance(value, ipaddress.IPv6Address):
         return str(value)
 
-    # IPv4 output must return IPv4Address objects
-    if is_ipv4_output and isinstance(value, int):
-        raise TypeError(
-            f"IPv4 UDF must return ipaddress.IPv4Address object, got int ({value}). "
-            f"Use: return ipaddress.IPv4Address({value})"
-        )
-
-    # IPv6 output must return IPv6Address objects
-    if is_ipv6_output and isinstance(value, str):
-        raise TypeError(
-            f"IPv6 UDF must return ipaddress.IPv6Address object, got str ('{value}'). "
-            f"Use: return ipaddress.IPv6Address('{value}')"
-        )
-
     # Handle list of values (but not tuples that might be struct data)
     if isinstance(value, list):
         # For list types, recursively convert elements
@@ -355,7 +346,8 @@ def convert_python_to_arrow_value(value, output_type=None):
             return [convert_python_to_arrow_value(v, element_type) for v in value]
         else:
             # No type info, just recurse without type
-            return [convert_python_to_arrow_value(v, None) for v in value]
+            # Keep output_type here because UDTF row outputs are nested Python lists whose elements still need the outer element type.
+            return [convert_python_to_arrow_value(v, output_type) for v in value]
 
     # Handle tuple values (could be struct data)
     if isinstance(value, tuple):
@@ -812,28 +804,44 @@ class InlineUDFLoader(UDFLoader):
 class ModuleUDFLoader(UDFLoader):
     """Loads a UDF from a Python module file (.py)."""
 
+    # Module names that are forbidden for UDFs because they conflict with
+    # modules already imported by the server process. Loading a user module
+    # with one of these names would overwrite the entry in sys.modules and
+    # could break the server itself.
+    _FORBIDDEN_MODULE_NAMES: frozenset = frozenset({
+        "argparse", "base64", "gc", "importlib", "inspect", "ipaddress",
+        "json", "sys", "os", "traceback", "logging", "time", "threading",
+        "pickle", "abc", "contextlib", "typing", "datetime", "enum",
+        "pathlib", "pandas", "pd", "pyarrow", "pa", "flight",
+        "logging.handlers",
+    })
+
     # Class-level lock dictionary for thread-safe module imports
     # Using RLock allows the same thread to acquire the lock multiple times
-    # Key: (location, module_name) tuple to avoid conflicts between different locations
-    _import_locks: Dict[Tuple[str, str], threading.RLock] = {}
+
+    # Key for _import_locks: module_name only (not location)
+    # sys.modules is a global dict keyed by module name.
+    # we need to ensure that imports with the same module name
+    # do not interfere with each other across different threads,
+    # even if they come from different file paths.
+    _import_locks: Dict[str, threading.Lock] = {}
     _import_locks_lock = threading.Lock()
-    _module_cache: Dict[Tuple[str, str], Any] = {}
+
+    # Key for _module_cache: location only
+    # since location already contains a unique function_id
+    _module_cache: Dict[str, Any] = {}
     _module_cache_lock = threading.Lock()
 
     @classmethod
-    def _get_import_lock(cls, location: str, module_name: str) -> threading.RLock:
+    def _get_import_lock(cls, module_name: str) -> threading.Lock:
         """
-        Get or create a reentrant lock for the given location and module name.
+        Get or create a reentrant lock for the given module name.
 
         Uses double-checked locking pattern for optimal performance:
         - Fast path: return existing lock without acquiring global lock
         - Slow path: create new lock under global lock protection
-
-        Args:
-            location: The directory path where the module is located
-            module_name: The full module name to import
         """
-        cache_key = (location, module_name)
+        cache_key = module_name
 
         # Fast path: check without lock (read-only, safe for most cases)
         if cache_key in cls._import_locks:
@@ -843,7 +851,7 @@ class ModuleUDFLoader(UDFLoader):
         with cls._import_locks_lock:
             # Double-check: another thread might have created it while we waited
             if cache_key not in cls._import_locks:
-                cls._import_locks[cache_key] = threading.RLock()
+                cls._import_locks[cache_key] = threading.Lock()
             return cls._import_locks[cache_key]
 
     def load(self) -> AdaptivePythonUDF:
@@ -911,20 +919,46 @@ class ModuleUDFLoader(UDFLoader):
 
         return package_name, module_name, func_name
 
+    @staticmethod
+    def _clear_modules_from_sys(full_module_name: str) -> None:
+        """Remove a module and all its ancestor packages from sys.modules.
+
+        To prevent the same module from being polluted by old caches
+        when loaded from different paths.
+        e.g., the pkg under path_a affecting the pkg.mdu_a under path_b,
+        the ancestor chain is cleared after each import.
+
+        This ensures that subsequent imports always start from a fresh state.
+        """
+        parts = full_module_name.split(".")
+        for i in range(len(parts)):
+            ancestor = ".".join(parts[: i + 1])
+            sys.modules.pop(ancestor, None)
+
     def _get_or_import_module(self, location: str, full_module_name: str) -> Any:
         """
         Get module from cache or import it (thread-safe).
 
-        Uses a location-aware cache to prevent conflicts when different locations
-        have modules with the same name.
+        The cache is keyed by location alone, which already contains a unique
+        function_id assigned by the FE catalog.
         """
-        cache_key = (location, full_module_name)
+        # Reject module names that would shadow server-critical modules
+        top_level_name = full_module_name.split(".")[0]
+        if top_level_name in ModuleUDFLoader._FORBIDDEN_MODULE_NAMES:
+            raise ImportError(
+                f"Module name '{full_module_name}' is not allowed for UDFs "
+                f"because it conflicts with a module used by the server. "
+                f"Please rename your module to avoid shadowing built-in or "
+                f"server-critical modules."
+            )
 
-        # Use a per-(location, module) lock to prevent race conditions during import
-        import_lock = ModuleUDFLoader._get_import_lock(location, full_module_name)
+        cache_key = location
+
+        # Use a per-module lock to prevent race conditions during import
+        import_lock = ModuleUDFLoader._get_import_lock(full_module_name)
 
         with import_lock:
-            # Fast path: check location-aware cache first
+            # Fast path: check cache first
             if cache_key in ModuleUDFLoader._module_cache:
                 cached_module = ModuleUDFLoader._module_cache[cache_key]
                 if cached_module is not None and (
@@ -935,25 +969,19 @@ class ModuleUDFLoader(UDFLoader):
                 else:
                     del ModuleUDFLoader._module_cache[cache_key]
 
-            # Before importing, clear any existing module with the same name in sys.modules
-            # that might have been loaded from a different location
-            if full_module_name in sys.modules:
-                existing_module = sys.modules[full_module_name]
-                existing_file = getattr(existing_module, "__file__", None)
-                # Check if the existing module is from a different location
-                if existing_file and not existing_file.startswith(location):
-                    del sys.modules[full_module_name]
+            self._clear_modules_from_sys(full_module_name)
 
             with temporary_sys_path(location):
                 try:
                     module = importlib.import_module(full_module_name)
-                    # Store in location-aware cache
                     ModuleUDFLoader._module_cache[cache_key] = module
+                    # Evict from sys.modules so future imports from a
+                    # different location are not poisoned by this one.
+                    self._clear_modules_from_sys(full_module_name)
                     return module
                 except Exception:
                     # Clean up any partially-imported modules
-                    if full_module_name in sys.modules:
-                        del sys.modules[full_module_name]
+                    self._clear_modules_from_sys(full_module_name)
                     if cache_key in ModuleUDFLoader._module_cache:
                         del ModuleUDFLoader._module_cache[cache_key]
                     raise
@@ -2147,6 +2175,9 @@ class FlightServer(flight.FlightServerBase):
                     rows_processed = result_batch_accumulate.column(0)[0].as_py()
                     result_batch = self._create_unified_response(
                         success=(rows_processed > 0),
+                        # Processing zero rows is valid for empty fragments/slices.
+                        # Only exceptions should mark ACCUMULATE as failed.
+                        # success=True,
                         rows_processed=rows_processed,
                         data=b"",
                     )
@@ -2540,8 +2571,8 @@ class FlightServer(flight.FlightServerBase):
         # This ensures no concurrent _get_or_import_module is in progress
         # for this (location, module_name) pair.
         for key in keys_to_remove:
-            loc, module_name = key
-            import_lock = ModuleUDFLoader._get_import_lock(loc, module_name)
+            _, module_name = key
+            import_lock = ModuleUDFLoader._get_import_lock(module_name)
 
             with import_lock:
                 with ModuleUDFLoader._module_cache_lock:

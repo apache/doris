@@ -25,7 +25,6 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.SymmetricEncryption;
 import org.apache.doris.persist.LdapInfo;
 
-import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
@@ -37,6 +36,7 @@ import org.springframework.ldap.core.support.LdapContextSource;
 import org.springframework.ldap.pool.factory.PoolingContextSource;
 import org.springframework.ldap.pool.validation.DefaultDirContextValidator;
 import org.springframework.ldap.query.LdapQuery;
+import org.springframework.ldap.support.LdapEncoder;
 import org.springframework.ldap.transaction.compensating.manager.TransactionAwareContextSourceProxy;
 
 import java.util.List;
@@ -146,7 +146,7 @@ public class LdapClient {
         try {
             clientInfo.getLdapTemplateNoPool().authenticate(org.springframework.ldap.query.LdapQueryBuilder.query()
                     .base(LdapConfig.ldap_user_basedn)
-                    .filter(getUserFilter(LdapConfig.ldap_user_filter, userName)), password);
+                    .filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)), password);
             return true;
         } catch (Exception e) {
             LOG.info("ldap client checkPassword failed, userName: {}", userName, e);
@@ -167,7 +167,7 @@ public class LdapClient {
         List<String> groupDns;
         if (!LdapConfig.ldap_group_filter.isEmpty()) {
             // Support Open Directory implementations
-            String filter = LdapConfig.ldap_group_filter.replace("{login}", userName);
+            String filter = applyLoginFilter(LdapConfig.ldap_group_filter, userName);
             groupDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
                     .attributes("dn")
                     .base(LdapConfig.ldap_group_basedn)
@@ -195,13 +195,13 @@ public class LdapClient {
 
     private String getUserDn(String userName) {
         List<String> userDns = getDn(org.springframework.ldap.query.LdapQueryBuilder.query()
-                .base(LdapConfig.ldap_user_basedn).filter(getUserFilter(LdapConfig.ldap_user_filter, userName)));
+                .base(LdapConfig.ldap_user_basedn).filter(applyLoginFilter(LdapConfig.ldap_user_filter, userName)));
         if (userDns == null || userDns.isEmpty()) {
             return null;
         }
         if (userDns.size() > 1) {
             String msg = String.format("[%s] not unique in LDAP server: [%s]",
-                    getUserFilter(LdapConfig.ldap_user_filter, userName), userDns);
+                    applyLoginFilter(LdapConfig.ldap_user_filter, userName), userDns);
             LOG.error(msg);
             ErrorReport.report(ErrorCode.ERROR_LDAP_USER_NOT_UNIQUE_ERR, userName);
             throw new RuntimeException(msg);
@@ -209,7 +209,6 @@ public class LdapClient {
         return userDns.get(0);
     }
 
-    @VisibleForTesting
     public List<String> getDn(LdapQuery query) {
         init();
         try {
@@ -229,7 +228,10 @@ public class LdapClient {
         }
     }
 
-    private String getUserFilter(String userFilter, String userName) {
-        return userFilter.replaceAll("\\{login}", userName);
+    private String applyLoginFilter(String filter, String userName) {
+        if (filter == null) {
+            return null;
+        }
+        return filter.replace("{login}", LdapEncoder.filterEncode(userName));
     }
 }

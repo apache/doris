@@ -104,6 +104,13 @@ TEST(NestedGroupPathFilterTest, MatchesChildPrefixMatch) {
     EXPECT_TRUE(filter.matches_child("items"));
 }
 
+TEST(NestedGroupPathFilterTest, MatchesChildDescendantMatch) {
+    NestedGroupPathFilter filter;
+    filter.add_path("items");
+
+    EXPECT_TRUE(filter.matches_child("items.msg"));
+}
+
 TEST(NestedGroupPathFilterTest, MatchesChildNoMatch) {
     NestedGroupPathFilter filter;
     filter.add_path("items.msg");
