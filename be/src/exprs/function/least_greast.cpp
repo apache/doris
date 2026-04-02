@@ -25,10 +25,10 @@
 
 #include "core/accurate_comparison.h"
 #include "core/assert_cast.h"
-#include "core/call_on_type_index.h"
 #include "core/block/block.h"
 #include "core/block/column_numbers.h"
 #include "core/block/column_with_type_and_name.h"
+#include "core/call_on_type_index.h"
 #include "core/column/column.h"
 #include "core/column/column_const.h"
 #include "core/column/column_decimal.h"
@@ -205,8 +205,8 @@ struct FunctionFieldImpl {
                 }
             }
         } else {
-            bool dispatched = dispatch_switch_scalar(data_type->get_primitive_type(),
-                    [&](auto type_holder) {
+            bool dispatched =
+                    dispatch_switch_scalar(data_type->get_primitive_type(), [&](auto type_holder) {
                         using DT = std::decay_t<decltype(type_holder)>;
                         for (int col = 1; col < column_size; ++col) {
                             insert_result_data<DT::PType>(res_data, argument_columns[0],
