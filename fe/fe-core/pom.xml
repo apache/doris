@@ -318,13 +318,12 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-sts</artifactId>
         </dependency>
+        <!-- hadoop-huaweicloud provides OBSFileSystem; loaded via reflection in OBSProperties
+             with graceful S3A fallback — runtime only, not needed at compile time -->
         <dependency>
             <groupId>com.huaweicloud</groupId>
             <artifactId>hadoop-huaweicloud</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>com.qcloud.cos</groupId>
-            <artifactId>hadoop-cos</artifactId>
+            <scope>runtime</scope>
         </dependency>
         <!-- antl4 The version of antlr-runtime in trino parser is need to be consistent with doris,
             when upgrade doris antlr-runtime version, should take care of trino-parser.-->
