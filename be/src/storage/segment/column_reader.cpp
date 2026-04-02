@@ -1507,7 +1507,7 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
         }
         RETURN_IF_ERROR(seek_to_ordinal(start_idx));
         size_t num_read = this_run;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        RETURN_IF_ERROR(next_batch(&num_read, dst));
         DCHECK_EQ(num_read, this_run);
 
         start_idx = rowids[i];
@@ -1517,7 +1517,7 @@ Status StructFileColumnIterator::read_by_rowids(const rowid_t* rowids, const siz
 
     RETURN_IF_ERROR(seek_to_ordinal(start_idx));
     size_t num_read = this_run;
-    RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+    RETURN_IF_ERROR(next_batch(&num_read, dst));
     DCHECK_EQ(num_read, this_run);
     return Status::OK();
 }
@@ -1850,11 +1850,10 @@ Status ArrayFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size
     }
 
     for (size_t i = 0; i < count; ++i) {
-        // TODO(cambyzju): now read array one by one, need optimize later
+        // TODO(cambyszju): now read array one by one, need optimize later
         RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
         size_t num_read = 1;
-        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
-        DCHECK(num_read == 1);
+        RETURN_IF_ERROR(next_batch(&num_read, dst));
     }
     return Status::OK();
 }
@@ -2266,6 +2265,9 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                 remaining -= nrows_to_read;
             }
         }
+
+        null_map_data.resize(base_size + total_read_count);
+        nullable_col.get_nested_column().insert_many_defaults(total_read_count);
         return Status::OK();
     }
 
