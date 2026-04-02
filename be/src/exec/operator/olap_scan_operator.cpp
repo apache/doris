@@ -983,16 +983,48 @@ Status OlapScanLocalState::_build_key_ranges_and_filters() {
             if (key_to_erase.has_value()) {
                 _slot_id_to_value_range.erase(*key_to_erase);
 
+                // Determine which predicates are subsumed by the scan key range and can
+                // be removed.  The rule depends on the ColumnValueRange type:
+                //
+                //   Fixed value range  →  scan keys are exact point lookups, so both
+                //                         comparison (EQ/LT/LE/GT/GE) and positive IN_LIST
+                //                         predicates are fully captured and can be erased.
+                //
+                //   Scope range        →  scan keys only capture [low, high] boundaries,
+                //                         so only comparison predicates are subsumed.
+                //                         IN_LIST predicates (whose values may NOT have been
+                //                         absorbed into the ColumnValueRange, e.g., because
+                //                         the value count exceeded max_pushdown_conditions_per_column)
+                //                         must be preserved.
+                //
+                // In either case, predicates with negation semantics (effective NE / NOT_IN_LIST)
+                // are never subsumed by scan key ranges and must always be preserved.
+                auto can_erase_predicate = [is_fixed_value_range](const ColumnPredicate& pred) {
+                    PredicateType pt = pred.type();
+                    bool opposite = pred.opposite();
+
+                    // Effective NE: never subsumed by any scan key range.
+                    if ((pt == PredicateType::NE && !opposite) ||
+                        (pt == PredicateType::EQ && opposite)) {
+                        return false;
+                    }
+                    // Comparison predicates (EQ/LT/LE/GT/GE): subsumed by both
+                    // fixed value and scope ranges.
+                    if (PredicateTypeTraits::is_comparison(pt)) {
+                        return true;
+                    }
+                    // Effective IN_LIST: only subsumed by fixed value range.
+                    if ((pt == PredicateType::IN_LIST && !opposite) ||
+                        (pt == PredicateType::NOT_IN_LIST && opposite)) {
+                        return is_fixed_value_range;
+                    }
+                    // Everything else (BF, BITMAP, NOT_IN_LIST, IS_NULL, etc.): keep.
+                    return false;
+                };
+
                 std::vector<std::shared_ptr<ColumnPredicate>> new_predicates;
                 for (const auto& it : _slot_id_to_predicates[*key_to_erase]) {
-                    // When the ColumnValueRange is a scope range (e.g., >= X AND <= Y),
-                    // the key range only covers comparison predicates. IN_LIST predicates
-                    // whose values were not absorbed into the ColumnValueRange (e.g.,
-                    // because the value count exceeded _max_pushdown_conditions_per_column)
-                    // must be preserved, as their filtering semantics are not captured by
-                    // the scope range.
-                    if (!it->could_be_erased() ||
-                        (!is_fixed_value_range && PredicateTypeTraits::is_list(it->type()))) {
+                    if (!can_erase_predicate(*it)) {
                         new_predicates.push_back(it);
                     }
                 }
