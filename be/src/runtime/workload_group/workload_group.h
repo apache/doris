@@ -170,8 +170,6 @@ public:
 
     void try_stop_schedulers();
 
-    void update_memtable_flush_threads();
-
     std::string thread_debug_info();
 
     std::shared_ptr<IOThrottle> get_local_scan_io_throttle(const std::string& disk_dir);
