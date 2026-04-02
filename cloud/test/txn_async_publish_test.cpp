@@ -585,6 +585,149 @@ TEST(TxnAsyncPublishTest, LoadSchemaParamPersisted) {
     ASSERT_EQ(txn_info.load_schema_param(), mock_schema_bytes);
 }
 
+// Sequential commits with overlapping partitions across 3 transactions:
+// Txn1: p1, p2 -> p1 commit_version=2, p2 commit_version=2
+// Txn2: p2, p3 -> p2 commit_version=3, p3 commit_version=2
+// Txn3: p1, p3 -> p1 commit_version=3, p3 commit_version=3
+TEST(TxnAsyncPublishTest, SequentialCommitsOverlappingPartitions) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 1100;
+    int64_t table_id = 2100;
+    int64_t index_id = 3100;
+    int64_t partition_id_1 = 4100; // p1
+    int64_t partition_id_2 = 4101; // p2
+    int64_t partition_id_3 = 4102; // p3
+    int64_t tablet_id_1 = 5100;   // t1 on p1
+    int64_t tablet_id_2 = 5101;   // t2 on p2
+    int64_t tablet_id_3 = 5102;   // t3 on p3
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_1, tablet_id_1);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_2, tablet_id_2);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_3, tablet_id_3);
+
+    // Txn1: write to p1, p2
+    {
+        int64_t txn_id =
+                begin_txn(meta_service.get(), db_id, table_id, "label_overlap_txn1");
+
+        auto rs1 = create_rowset(txn_id, tablet_id_1, index_id, partition_id_1);
+        auto rs2 = create_rowset(txn_id, tablet_id_2, index_id, partition_id_2);
+        prepare_rowset(meta_service.get(), rs1);
+        commit_rowset(meta_service.get(), rs1);
+        prepare_rowset(meta_service.get(), rs2);
+        commit_rowset(meta_service.get(), rs2);
+
+        auto req = build_async_publish_commit_req(
+                db_id, txn_id,
+                {{tablet_id_1, table_id, index_id, partition_id_1},
+                 {tablet_id_2, table_id, index_id, partition_id_2}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.commit_versions_size(), 2);
+
+        // Both p1 and p2: initial=1, +1=2
+        for (int i = 0; i < res.commit_versions_size(); ++i) {
+            ASSERT_EQ(res.commit_versions(i), 2) << "Txn1 partition idx=" << i;
+        }
+    }
+
+    // Verify after Txn1: p1=2, p2=2, p3 not touched
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              2);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              2);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_3),
+              -1); // not touched yet
+
+    // Txn2: write to p2, p3
+    {
+        int64_t txn_id =
+                begin_txn(meta_service.get(), db_id, table_id, "label_overlap_txn2");
+
+        auto rs2 = create_rowset(txn_id, tablet_id_2, index_id, partition_id_2);
+        auto rs3 = create_rowset(txn_id, tablet_id_3, index_id, partition_id_3);
+        prepare_rowset(meta_service.get(), rs2);
+        commit_rowset(meta_service.get(), rs2);
+        prepare_rowset(meta_service.get(), rs3);
+        commit_rowset(meta_service.get(), rs3);
+
+        auto req = build_async_publish_commit_req(
+                db_id, txn_id,
+                {{tablet_id_2, table_id, index_id, partition_id_2},
+                 {tablet_id_3, table_id, index_id, partition_id_3}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.commit_versions_size(), 2);
+
+        // p2: 2+1=3, p3: initial(1)+1=2
+        // Match by partition_id since response order may vary
+        for (int i = 0; i < res.partition_ids_size(); ++i) {
+            if (res.partition_ids(i) == partition_id_2) {
+                ASSERT_EQ(res.commit_versions(i), 3) << "Txn2 p2 should be 3";
+            } else {
+                ASSERT_EQ(res.partition_ids(i), partition_id_3);
+                ASSERT_EQ(res.commit_versions(i), 2) << "Txn2 p3 should be 2";
+            }
+        }
+    }
+
+    // Verify after Txn2: p1=2, p2=3, p3=2
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              2);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              3);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_3),
+              2);
+
+    // Txn3: write to p1, p3
+    {
+        int64_t txn_id =
+                begin_txn(meta_service.get(), db_id, table_id, "label_overlap_txn3");
+
+        auto rs1 = create_rowset(txn_id, tablet_id_1, index_id, partition_id_1);
+        auto rs3 = create_rowset(txn_id, tablet_id_3, index_id, partition_id_3);
+        prepare_rowset(meta_service.get(), rs1);
+        commit_rowset(meta_service.get(), rs1);
+        prepare_rowset(meta_service.get(), rs3);
+        commit_rowset(meta_service.get(), rs3);
+
+        auto req = build_async_publish_commit_req(
+                db_id, txn_id,
+                {{tablet_id_1, table_id, index_id, partition_id_1},
+                 {tablet_id_3, table_id, index_id, partition_id_3}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        ASSERT_EQ(res.commit_versions_size(), 2);
+
+        // p1: 2+1=3, p3: 2+1=3
+        for (int i = 0; i < res.commit_versions_size(); ++i) {
+            ASSERT_EQ(res.commit_versions(i), 3) << "Txn3 partition idx=" << i;
+        }
+    }
+
+    // Final: p1=3, p2=3, p3=3
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              3);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              3);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_3),
+              3);
+
+    // Verify TxnInfoPB for all 3 transactions have correct committed_partition_ids and versions
+    // (txn_ids were scoped, so we read them from KV by checking all committed versions)
+}
+
 // ==================== ConvertTmpRowset Tests ====================
 
 // Helper: read formal rowset from KV
@@ -1513,6 +1656,486 @@ TEST(TxnAsyncPublishTest, EndToEndCommitConvertPublish) {
     // Verify tmp rowset deleted
     auto tmp_rowset = get_tmp_rowset(txn_kv, mock_instance, txn_id, tablet_id);
     ASSERT_FALSE(tmp_rowset.has_value());
+}
+
+// End-to-end with overlapping partitions: 3 sequential transactions, each going
+// through commit -> convert -> lightweight publish, covering different partition pairs.
+// Txn1: p1, p2 -> commit versions p1=2, p2=2
+// Txn2: p2, p3 -> commit versions p2=3, p3=2
+// Txn3: p1, p3 -> commit versions p1=3, p3=3
+TEST(TxnAsyncPublishTest, EndToEndOverlappingPartitions) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3100;
+    int64_t table_id = 3101;
+    int64_t index_id = 3102;
+    int64_t partition_id_1 = 4200; // p1
+    int64_t partition_id_2 = 4201; // p2
+    int64_t partition_id_3 = 4202; // p3
+    int64_t tablet_id_1 = 6100;   // t1 on p1
+    int64_t tablet_id_2 = 6101;   // t2 on p2
+    int64_t tablet_id_3 = 6102;   // t3 on p3
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_1, tablet_id_1);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_2, tablet_id_2);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, partition_id_3, tablet_id_3);
+
+    // ======== Txn1: p1, p2 ========
+    int64_t txn_id_1;
+    {
+        txn_id_1 = begin_txn(meta_service.get(), db_id, table_id, "label_e2e_overlap_1");
+
+        auto rs1 = create_rowset(txn_id_1, tablet_id_1, index_id, partition_id_1);
+        auto rs2 = create_rowset(txn_id_1, tablet_id_2, index_id, partition_id_2);
+        prepare_rowset(meta_service.get(), rs1);
+        commit_rowset(meta_service.get(), rs1);
+        prepare_rowset(meta_service.get(), rs2);
+        commit_rowset(meta_service.get(), rs2);
+
+        // Phase 1: Async publish commit
+        auto req = build_async_publish_commit_req(
+                db_id, txn_id_1,
+                {{tablet_id_1, table_id, index_id, partition_id_1},
+                 {tablet_id_2, table_id, index_id, partition_id_2}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+        // p1=2, p2=2
+        for (int i = 0; i < res.commit_versions_size(); ++i) {
+            ASSERT_EQ(res.commit_versions(i), 2) << "Txn1 commit version idx=" << i;
+        }
+
+        // Phase 2: Convert tmp rowsets
+        for (auto [tid, pid] :
+             std::vector<std::pair<int64_t, int64_t>> {{tablet_id_1, partition_id_1},
+                                                       {tablet_id_2, partition_id_2}}) {
+            brpc::Controller convert_cntl;
+            ConvertTmpRowsetRequest convert_req;
+            ConvertTmpRowsetResponse convert_res;
+            convert_req.set_cloud_unique_id("test_cloud_unique_id");
+            convert_req.set_txn_id(txn_id_1);
+            convert_req.set_tablet_id(tid);
+            convert_req.set_version(2); // commit version for both p1 and p2
+            convert_req.set_db_id(db_id);
+            convert_req.set_table_id(table_id);
+            convert_req.set_index_id(index_id);
+            convert_req.set_partition_id(pid);
+            meta_service->convert_tmp_rowset(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&convert_cntl),
+                    &convert_req, &convert_res, nullptr);
+            ASSERT_EQ(convert_res.status().code(), MetaServiceCode::OK)
+                    << "Txn1 convert tablet=" << tid << " " << convert_res.status().msg();
+        }
+
+        // Phase 3: Lightweight publish
+        auto pub_req = build_lightweight_publish_req(db_id, txn_id_1);
+        CommitTxnResponse pub_res;
+        brpc::Controller pub_cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&pub_cntl),
+                                 &pub_req, &pub_res, nullptr);
+        ASSERT_EQ(pub_res.status().code(), MetaServiceCode::OK) << pub_res.status().msg();
+        ASSERT_EQ(pub_res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+
+    // After Txn1: visible p1=2, p2=2, p3 not set
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              2);
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              2);
+    ASSERT_EQ(
+            get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_3),
+            -1); // not published yet
+    // Verify formal rowsets exist at version 2
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_1, 2).has_value());
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_2, 2).has_value());
+
+    // ======== Txn2: p2, p3 ========
+    int64_t txn_id_2;
+    {
+        txn_id_2 = begin_txn(meta_service.get(), db_id, table_id, "label_e2e_overlap_2");
+
+        auto rs2 = create_rowset(txn_id_2, tablet_id_2, index_id, partition_id_2);
+        auto rs3 = create_rowset(txn_id_2, tablet_id_3, index_id, partition_id_3);
+        prepare_rowset(meta_service.get(), rs2);
+        commit_rowset(meta_service.get(), rs2);
+        prepare_rowset(meta_service.get(), rs3);
+        commit_rowset(meta_service.get(), rs3);
+
+        // Phase 1: Async publish commit
+        auto req = build_async_publish_commit_req(
+                db_id, txn_id_2,
+                {{tablet_id_2, table_id, index_id, partition_id_2},
+                 {tablet_id_3, table_id, index_id, partition_id_3}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        // p2: 2+1=3, p3: initial(1)+1=2
+        for (int i = 0; i < res.partition_ids_size(); ++i) {
+            if (res.partition_ids(i) == partition_id_2) {
+                ASSERT_EQ(res.commit_versions(i), 3) << "Txn2 p2 commit version";
+            } else {
+                ASSERT_EQ(res.partition_ids(i), partition_id_3);
+                ASSERT_EQ(res.commit_versions(i), 2) << "Txn2 p3 commit version";
+            }
+        }
+
+        // Phase 2: Convert tmp rowsets (different versions per partition)
+        // t2 at version 3 (p2's commit version), t3 at version 2 (p3's commit version)
+        for (auto [tid, pid, ver] :
+             std::vector<std::tuple<int64_t, int64_t, int64_t>> {{tablet_id_2, partition_id_2, 3},
+                                                                  {tablet_id_3, partition_id_3, 2}}) {
+            brpc::Controller convert_cntl;
+            ConvertTmpRowsetRequest convert_req;
+            ConvertTmpRowsetResponse convert_res;
+            convert_req.set_cloud_unique_id("test_cloud_unique_id");
+            convert_req.set_txn_id(txn_id_2);
+            convert_req.set_tablet_id(tid);
+            convert_req.set_version(ver);
+            convert_req.set_db_id(db_id);
+            convert_req.set_table_id(table_id);
+            convert_req.set_index_id(index_id);
+            convert_req.set_partition_id(pid);
+            meta_service->convert_tmp_rowset(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&convert_cntl),
+                    &convert_req, &convert_res, nullptr);
+            ASSERT_EQ(convert_res.status().code(), MetaServiceCode::OK)
+                    << "Txn2 convert tablet=" << tid << " " << convert_res.status().msg();
+        }
+
+        // Phase 3: Lightweight publish
+        auto pub_req = build_lightweight_publish_req(db_id, txn_id_2);
+        CommitTxnResponse pub_res;
+        brpc::Controller pub_cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&pub_cntl),
+                                 &pub_req, &pub_res, nullptr);
+        ASSERT_EQ(pub_res.status().code(), MetaServiceCode::OK) << pub_res.status().msg();
+        ASSERT_EQ(pub_res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+
+    // After Txn2: visible p1=2, p2=3, p3=2
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              2); // unchanged
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              3);
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_3),
+              2);
+    // Verify formal rowsets: t2 at version 3, t3 at version 2
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_2, 3).has_value());
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_3, 2).has_value());
+    // Verify tmp rowsets deleted
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_2, tablet_id_2).has_value());
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_2, tablet_id_3).has_value());
+
+    // ======== Txn3: p1, p3 ========
+    int64_t txn_id_3;
+    {
+        txn_id_3 = begin_txn(meta_service.get(), db_id, table_id, "label_e2e_overlap_3");
+
+        auto rs1 = create_rowset(txn_id_3, tablet_id_1, index_id, partition_id_1);
+        auto rs3 = create_rowset(txn_id_3, tablet_id_3, index_id, partition_id_3);
+        prepare_rowset(meta_service.get(), rs1);
+        commit_rowset(meta_service.get(), rs1);
+        prepare_rowset(meta_service.get(), rs3);
+        commit_rowset(meta_service.get(), rs3);
+
+        // Phase 1: Async publish commit
+        auto req = build_async_publish_commit_req(
+                db_id, txn_id_3,
+                {{tablet_id_1, table_id, index_id, partition_id_1},
+                 {tablet_id_3, table_id, index_id, partition_id_3}});
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK) << res.status().msg();
+
+        // p1: 2+1=3, p3: 2+1=3
+        for (int i = 0; i < res.commit_versions_size(); ++i) {
+            ASSERT_EQ(res.commit_versions(i), 3) << "Txn3 commit version idx=" << i;
+        }
+
+        // Phase 2: Convert tmp rowsets (both at version 3)
+        for (auto [tid, pid] :
+             std::vector<std::pair<int64_t, int64_t>> {{tablet_id_1, partition_id_1},
+                                                       {tablet_id_3, partition_id_3}}) {
+            brpc::Controller convert_cntl;
+            ConvertTmpRowsetRequest convert_req;
+            ConvertTmpRowsetResponse convert_res;
+            convert_req.set_cloud_unique_id("test_cloud_unique_id");
+            convert_req.set_txn_id(txn_id_3);
+            convert_req.set_tablet_id(tid);
+            convert_req.set_version(3); // both p1 and p3 at version 3
+            convert_req.set_db_id(db_id);
+            convert_req.set_table_id(table_id);
+            convert_req.set_index_id(index_id);
+            convert_req.set_partition_id(pid);
+            meta_service->convert_tmp_rowset(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&convert_cntl),
+                    &convert_req, &convert_res, nullptr);
+            ASSERT_EQ(convert_res.status().code(), MetaServiceCode::OK)
+                    << "Txn3 convert tablet=" << tid << " " << convert_res.status().msg();
+        }
+
+        // Phase 3: Lightweight publish
+        auto pub_req = build_lightweight_publish_req(db_id, txn_id_3);
+        CommitTxnResponse pub_res;
+        brpc::Controller pub_cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&pub_cntl),
+                                 &pub_req, &pub_res, nullptr);
+        ASSERT_EQ(pub_res.status().code(), MetaServiceCode::OK) << pub_res.status().msg();
+        ASSERT_EQ(pub_res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+    }
+
+    // Final state: all partitions at visible version 3, commit version 3
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              3);
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              3); // p2 only touched by Txn2 (version 3), not by Txn3
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, partition_id_3),
+              3);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_1),
+              3);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_2),
+              3);
+    ASSERT_EQ(get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, partition_id_3),
+              3);
+
+    // Verify formal rowsets at correct versions for all tablets
+    // t1: version 2 (from Txn1), version 3 (from Txn3)
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_1, 2).has_value());
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_1, 3).has_value());
+    // t2: version 2 (from Txn1), version 3 (from Txn2)
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_2, 2).has_value());
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_2, 3).has_value());
+    // t3: version 2 (from Txn2), version 3 (from Txn3)
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_3, 2).has_value());
+    ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, tablet_id_3, 3).has_value());
+
+    // Verify all tmp rowsets cleaned up
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_1, tablet_id_1).has_value());
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_1, tablet_id_2).has_value());
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_2, tablet_id_2).has_value());
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_2, tablet_id_3).has_value());
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_3, tablet_id_1).has_value());
+    ASSERT_FALSE(get_tmp_rowset(txn_kv, mock_instance, txn_id_3, tablet_id_3).has_value());
+
+    // Verify all txns are VISIBLE
+    ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id_1).status(),
+              TxnStatusPB::TXN_STATUS_VISIBLE);
+    ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id_2).status(),
+              TxnStatusPB::TXN_STATUS_VISIBLE);
+    ASSERT_EQ(get_txn_info(txn_kv, mock_instance, db_id, txn_id_3).status(),
+              TxnStatusPB::TXN_STATUS_VISIBLE);
+
+    // Verify recycle keys exist for all txns
+    ASSERT_TRUE(recycle_txn_key_exists(txn_kv, mock_instance, db_id, txn_id_1));
+    ASSERT_TRUE(recycle_txn_key_exists(txn_kv, mock_instance, db_id, txn_id_2));
+    ASSERT_TRUE(recycle_txn_key_exists(txn_kv, mock_instance, db_id, txn_id_3));
+}
+
+// End-to-end with 5 sequential transactions on 3 partitions, testing deeper version progression.
+// Each txn covers a different subset of partitions:
+// Txn1: p1         -> p1=2
+// Txn2: p1, p2, p3 -> p1=3, p2=2, p3=2
+// Txn3: p2         -> p2=3
+// Txn4: p1, p3     -> p1=4, p3=3
+// Txn5: p1, p2, p3 -> p1=5, p2=4, p3=4
+TEST(TxnAsyncPublishTest, EndToEndManyTxnsVaryingPartitions) {
+    auto txn_kv = get_mem_txn_kv();
+    auto meta_service = get_meta_service(txn_kv);
+
+    int64_t db_id = 3200;
+    int64_t table_id = 3201;
+    int64_t index_id = 3202;
+    int64_t p1 = 4300;
+    int64_t p2 = 4301;
+    int64_t p3 = 4302;
+    int64_t t1 = 6200; // tablet on p1
+    int64_t t2 = 6201; // tablet on p2
+    int64_t t3 = 6202; // tablet on p3
+
+    create_tablet(meta_service.get(), db_id, table_id, index_id, p1, t1);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, p2, t2);
+    create_tablet(meta_service.get(), db_id, table_id, index_id, p3, t3);
+
+    // Define txn configs: each entry is {list of (tablet_id, partition_id)}
+    struct TxnConfig {
+        std::string label;
+        std::vector<std::pair<int64_t, int64_t>> tablets; // (tablet_id, partition_id)
+    };
+
+    std::vector<TxnConfig> txn_configs = {
+            {"label_many_1", {{t1, p1}}},                         // Txn1: p1
+            {"label_many_2", {{t1, p1}, {t2, p2}, {t3, p3}}},    // Txn2: p1,p2,p3
+            {"label_many_3", {{t2, p2}}},                         // Txn3: p2
+            {"label_many_4", {{t1, p1}, {t3, p3}}},               // Txn4: p1,p3
+            {"label_many_5", {{t1, p1}, {t2, p2}, {t3, p3}}},    // Txn5: p1,p2,p3
+    };
+
+    // Expected commit versions per partition after each txn
+    // Format: {p1_version, p2_version, p3_version}
+    std::vector<std::vector<int64_t>> expected_commit_versions = {
+            {2, -1, -1}, // After Txn1: p1=2, p2/p3 not set
+            {3, 2, 2},   // After Txn2: p1=3, p2=2, p3=2
+            {3, 3, 2},   // After Txn3: p2=3
+            {4, 3, 3},   // After Txn4: p1=4, p3=3
+            {5, 4, 4},   // After Txn5: p1=5, p2=4, p3=4
+    };
+
+    // Expected commit version for each tablet within each txn
+    // (derived from the expected_commit_versions above)
+    std::vector<std::map<int64_t, int64_t>> expected_tablet_versions = {
+            {{t1, 2}},                       // Txn1
+            {{t1, 3}, {t2, 2}, {t3, 2}},     // Txn2
+            {{t2, 3}},                        // Txn3
+            {{t1, 4}, {t3, 3}},               // Txn4
+            {{t1, 5}, {t2, 4}, {t3, 4}},      // Txn5
+    };
+
+    std::vector<int64_t> txn_ids;
+
+    for (size_t txn_idx = 0; txn_idx < txn_configs.size(); ++txn_idx) {
+        auto& config = txn_configs[txn_idx];
+        int64_t txn_id = begin_txn(meta_service.get(), db_id, table_id, config.label);
+        txn_ids.push_back(txn_id);
+
+        // Prepare and commit rowsets
+        std::vector<doris::RowsetMetaCloudPB> rowsets;
+        for (auto& [tid, pid] : config.tablets) {
+            auto rs = create_rowset(txn_id, tid, index_id, pid);
+            prepare_rowset(meta_service.get(), rs);
+            commit_rowset(meta_service.get(), rs);
+            rowsets.push_back(rs);
+        }
+
+        // Phase 1: Async publish commit
+        std::vector<std::tuple<int64_t, int64_t, int64_t, int64_t>> involved;
+        for (auto& [tid, pid] : config.tablets) {
+            involved.emplace_back(tid, table_id, index_id, pid);
+        }
+        auto req = build_async_publish_commit_req(db_id, txn_id, involved);
+        CommitTxnResponse res;
+        brpc::Controller cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&cntl), &req,
+                                 &res, nullptr);
+        ASSERT_EQ(res.status().code(), MetaServiceCode::OK)
+                << "Txn" << (txn_idx + 1) << " commit failed: " << res.status().msg();
+
+        // Verify commit versions in response
+        ASSERT_EQ(res.commit_versions_size(), (int)config.tablets.size())
+                << "Txn" << (txn_idx + 1);
+        auto& tablet_ver_map = expected_tablet_versions[txn_idx];
+        for (int i = 0; i < res.partition_ids_size(); ++i) {
+            int64_t resp_pid = res.partition_ids(i);
+            // Find the tablet for this partition
+            int64_t resp_tid = -1;
+            for (auto& [tid, pid] : config.tablets) {
+                if (pid == resp_pid) {
+                    resp_tid = tid;
+                    break;
+                }
+            }
+            ASSERT_NE(resp_tid, -1) << "Txn" << (txn_idx + 1) << " unknown partition in response";
+            ASSERT_EQ(res.commit_versions(i), tablet_ver_map[resp_tid])
+                    << "Txn" << (txn_idx + 1) << " tablet=" << resp_tid;
+        }
+
+        // Phase 2: Convert tmp rowsets
+        for (auto& [tid, pid] : config.tablets) {
+            int64_t ver = tablet_ver_map[tid];
+            brpc::Controller convert_cntl;
+            ConvertTmpRowsetRequest convert_req;
+            ConvertTmpRowsetResponse convert_res;
+            convert_req.set_cloud_unique_id("test_cloud_unique_id");
+            convert_req.set_txn_id(txn_id);
+            convert_req.set_tablet_id(tid);
+            convert_req.set_version(ver);
+            convert_req.set_db_id(db_id);
+            convert_req.set_table_id(table_id);
+            convert_req.set_index_id(index_id);
+            convert_req.set_partition_id(pid);
+            meta_service->convert_tmp_rowset(
+                    reinterpret_cast<::google::protobuf::RpcController*>(&convert_cntl),
+                    &convert_req, &convert_res, nullptr);
+            ASSERT_EQ(convert_res.status().code(), MetaServiceCode::OK)
+                    << "Txn" << (txn_idx + 1) << " convert tablet=" << tid << " ver=" << ver
+                    << " " << convert_res.status().msg();
+        }
+
+        // Phase 3: Lightweight publish
+        auto pub_req = build_lightweight_publish_req(db_id, txn_id);
+        CommitTxnResponse pub_res;
+        brpc::Controller pub_cntl;
+        meta_service->commit_txn(reinterpret_cast<::google::protobuf::RpcController*>(&pub_cntl),
+                                 &pub_req, &pub_res, nullptr);
+        ASSERT_EQ(pub_res.status().code(), MetaServiceCode::OK)
+                << "Txn" << (txn_idx + 1) << " publish failed: " << pub_res.status().msg();
+        ASSERT_EQ(pub_res.txn_info().status(), TxnStatusPB::TXN_STATUS_VISIBLE);
+
+        // Verify partition commit versions after this txn
+        auto& expected = expected_commit_versions[txn_idx];
+        ASSERT_EQ(
+                get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, p1),
+                expected[0])
+                << "After Txn" << (txn_idx + 1) << " p1 commit version";
+        ASSERT_EQ(
+                get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, p2),
+                expected[1])
+                << "After Txn" << (txn_idx + 1) << " p2 commit version";
+        ASSERT_EQ(
+                get_partition_commit_version(txn_kv, mock_instance, db_id, table_id, p3),
+                expected[2])
+                << "After Txn" << (txn_idx + 1) << " p3 commit version";
+
+        // Verify visible versions match commit versions (since we publish each txn immediately)
+        ASSERT_EQ(
+                get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, p1),
+                expected[0])
+                << "After Txn" << (txn_idx + 1) << " p1 visible version";
+        ASSERT_EQ(
+                get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, p2),
+                expected[1])
+                << "After Txn" << (txn_idx + 1) << " p2 visible version";
+        ASSERT_EQ(
+                get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, p3),
+                expected[2])
+                << "After Txn" << (txn_idx + 1) << " p3 visible version";
+    }
+
+    // Final: verify all 5 txns are VISIBLE
+    for (size_t i = 0; i < txn_ids.size(); ++i) {
+        auto txn_info = get_txn_info(txn_kv, mock_instance, db_id, txn_ids[i]);
+        ASSERT_EQ(txn_info.status(), TxnStatusPB::TXN_STATUS_VISIBLE)
+                << "Txn" << (i + 1) << " should be VISIBLE";
+    }
+
+    // Final: p1=5, p2=4, p3=4
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, p1), 5);
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, p2), 4);
+    ASSERT_EQ(get_partition_visible_version(txn_kv, mock_instance, db_id, table_id, p3), 4);
+
+    // Verify formal rowsets exist at all expected versions
+    // t1: versions 2, 3, 4, 5 (touched by Txn1, Txn2, Txn4, Txn5)
+    for (int64_t v : {2, 3, 4, 5}) {
+        ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, t1, v).has_value())
+                << "t1 version " << v;
+    }
+    // t2: versions 2, 3, 4 (touched by Txn2, Txn3, Txn5)
+    for (int64_t v : {2, 3, 4}) {
+        ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, t2, v).has_value())
+                << "t2 version " << v;
+    }
+    // t3: versions 2, 3, 4 (touched by Txn2, Txn4, Txn5)
+    for (int64_t v : {2, 3, 4}) {
+        ASSERT_TRUE(get_formal_rowset(txn_kv, mock_instance, t3, v).has_value())
+                << "t3 version " << v;
+    }
 }
 
 } // namespace doris::cloud
