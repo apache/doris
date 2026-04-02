@@ -17,6 +17,7 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.catalog.CloudTabletStatMgr;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.LocalTabletInvertedIndex;
 import org.apache.doris.catalog.TabletInvertedIndex;
@@ -24,8 +25,13 @@ import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.MetaServiceCode;
+import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.rpc.MetaServiceProxy;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.event.Event;
+import org.apache.doris.event.EventProcessor;
+import org.apache.doris.statistics.AnalysisManager;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
 import org.apache.doris.task.CalcDeleteBitmapAsyncPublishTask;
@@ -48,6 +54,7 @@ import java.util.Map;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class CloudPublishDaemonTest {
 
@@ -423,5 +430,208 @@ public class CloudPublishDaemonTest {
         Thread.sleep(300);
 
         Assert.assertFalse("txn2 should be removed", committedTxnManager.contains(TXN_ID_2));
+    }
+
+    /**
+     * Test: lightweight publish passes tablet ids from CommittedTxnEntry to afterCommitCommon,
+     * ensuring post-publish operations (updateVersion, addActiveTablets, etc.) are triggered.
+     */
+    @Test
+    public void testPublishPassesTabletIdsToAfterCommitCommon() throws Exception {
+        // Track tabletIds passed to CloudTabletStatMgr.addActiveTablets
+        AtomicReference<List<Long>> capturedTabletIds = new AtomicReference<>(null);
+
+        new MockUp<CloudTabletStatMgr>() {
+            @Mock
+            public CloudTabletStatMgr getInstance() {
+                return new CloudTabletStatMgr();
+            }
+
+            @Mock
+            public void addActiveTablets(List<Long> tabletIds) {
+                capturedTabletIds.set(tabletIds);
+            }
+        };
+
+        // Mock AnalysisManager and EventProcessor as no-ops
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void updateUpdatedRows(Map<Long, Long> updatedRows) {
+            }
+
+            @Mock
+            public void setNewPartitionLoaded(List<Long> tableIds) {
+            }
+        };
+        new MockUp<EventProcessor>() {
+            @Mock
+            public boolean processEvent(Event event) {
+                return true;
+            }
+        };
+        new MockUp<Env>() {
+            @Mock
+            public TabletInvertedIndex getCurrentInvertedIndex() {
+                LocalTabletInvertedIndex mockIndex = new LocalTabletInvertedIndex();
+                TabletMeta meta = new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, 0, 0, TStorageMedium.HDD);
+                mockIndex.addTablet(TABLET_ID_1, meta);
+                mockIndex.addTablet(TABLET_ID_2, meta);
+                return mockIndex;
+            }
+
+            @Mock
+            public AnalysisManager getAnalysisManager() {
+                return new AnalysisManager();
+            }
+
+            @Mock
+            public EventProcessor getEventProcessor() {
+                return new EventProcessor();
+            }
+        };
+
+        CountDownLatch publishCalled = new CountDownLatch(1);
+        new MockUp<MetaServiceProxy>() {
+            @Mock
+            public CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request) {
+                publishCalled.countDown();
+                TxnInfoPB.Builder txnInfoBuilder = TxnInfoPB.newBuilder();
+                txnInfoBuilder.setDbId(DB_ID);
+                txnInfoBuilder.setTxnId(TXN_ID_1);
+                txnInfoBuilder.addTableIds(TABLE_ID);
+
+                return CommitTxnResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.OK).setMsg("OK"))
+                        .setTxnInfo(txnInfoBuilder.build())
+                        .build();
+            }
+        };
+
+        // Build entry with two tablets on two BEs
+        CommittedTxnEntry entry = buildEntryTwoBEs(TXN_ID_1);
+        committedTxnManager.addCommittedTxn(entry);
+
+        // Dispatch and finish tasks
+        daemon.runAfterCatalogReady();
+        Map<Long, CalcDeleteBitmapAsyncPublishTask> tasks = daemon.getTxnCalcTasks().get(TXN_ID_1);
+        tasks.get(BACKEND_ID_1).setIsFinished(true);
+        tasks.get(BACKEND_ID_2).setIsFinished(true);
+
+        // Trigger lightweight publish
+        daemon.runAfterCatalogReady();
+        boolean called = publishCalled.await(5, TimeUnit.SECONDS);
+        Assert.assertTrue("lightweight publish should be called", called);
+        Thread.sleep(200);
+
+        // Verify tabletIds were passed to addActiveTablets
+        Assert.assertNotNull("addActiveTablets should be called with tabletIds",
+                capturedTabletIds.get());
+        Assert.assertEquals("should have 2 tablet ids", 2, capturedTabletIds.get().size());
+        Assert.assertTrue("should contain TABLET_ID_1",
+                capturedTabletIds.get().contains(TABLET_ID_1));
+        Assert.assertTrue("should contain TABLET_ID_2",
+                capturedTabletIds.get().contains(TABLET_ID_2));
+    }
+
+    /**
+     * Test: lightweight publish response with row count data triggers AnalysisManager update.
+     */
+    @Test
+    public void testPublishUpdatesRowCount() throws Exception {
+        long updatedRowCount = 500;
+        AtomicReference<Map<Long, Long>> capturedUpdatedRows = new AtomicReference<>(null);
+
+        new MockUp<AnalysisManager>() {
+            @Mock
+            public void updateUpdatedRows(Map<Long, Long> updatedRows) {
+                capturedUpdatedRows.set(updatedRows);
+            }
+
+            @Mock
+            public void setNewPartitionLoaded(List<Long> tableIds) {
+            }
+        };
+        new MockUp<EventProcessor>() {
+            @Mock
+            public boolean processEvent(Event event) {
+                return true;
+            }
+        };
+        new MockUp<CloudTabletStatMgr>() {
+            @Mock
+            public CloudTabletStatMgr getInstance() {
+                return new CloudTabletStatMgr();
+            }
+
+            @Mock
+            public void addActiveTablets(List<Long> tabletIds) {
+            }
+        };
+        new MockUp<Env>() {
+            @Mock
+            public TabletInvertedIndex getCurrentInvertedIndex() {
+                LocalTabletInvertedIndex mockIndex = new LocalTabletInvertedIndex();
+                TabletMeta meta = new TabletMeta(DB_ID, TABLE_ID, PARTITION_ID, 0, 0, TStorageMedium.HDD);
+                mockIndex.addTablet(TABLET_ID_1, meta);
+                return mockIndex;
+            }
+
+            @Mock
+            public AnalysisManager getAnalysisManager() {
+                return new AnalysisManager();
+            }
+
+            @Mock
+            public EventProcessor getEventProcessor() {
+                return new EventProcessor();
+            }
+
+            @Mock
+            public InternalCatalog getInternalCatalog() {
+                return new InternalCatalog();
+            }
+        };
+
+        CountDownLatch publishCalled = new CountDownLatch(1);
+        new MockUp<MetaServiceProxy>() {
+            @Mock
+            public CommitTxnResponse commitTxn(Cloud.CommitTxnRequest request) {
+                publishCalled.countDown();
+                TxnInfoPB.Builder txnInfoBuilder = TxnInfoPB.newBuilder();
+                txnInfoBuilder.setDbId(DB_ID);
+                txnInfoBuilder.setTxnId(TXN_ID_1);
+                txnInfoBuilder.addTableIds(TABLE_ID);
+
+                Cloud.TableStatsPB.Builder statsBuilder = Cloud.TableStatsPB.newBuilder();
+                statsBuilder.setTableId(TABLE_ID);
+                statsBuilder.setUpdatedRowCount(updatedRowCount);
+
+                return CommitTxnResponse.newBuilder()
+                        .setStatus(Cloud.MetaServiceResponseStatus.newBuilder()
+                                .setCode(MetaServiceCode.OK).setMsg("OK"))
+                        .setTxnInfo(txnInfoBuilder.build())
+                        .addTableStats(statsBuilder.build())
+                        .build();
+            }
+        };
+
+        CommittedTxnEntry entry = buildEntry(TXN_ID_1, BACKEND_ID_1, TABLET_ID_1);
+        committedTxnManager.addCommittedTxn(entry);
+
+        // Dispatch and finish
+        daemon.runAfterCatalogReady();
+        daemon.getTxnCalcTasks().get(TXN_ID_1).get(BACKEND_ID_1).setIsFinished(true);
+        daemon.runAfterCatalogReady();
+
+        boolean called = publishCalled.await(5, TimeUnit.SECONDS);
+        Assert.assertTrue("lightweight publish should be called", called);
+        Thread.sleep(2000);
+
+        // Verify row count was updated
+        Assert.assertNotNull("updateUpdatedRows should be called", capturedUpdatedRows.get());
+        Assert.assertEquals("should have 1 table entry", 1, capturedUpdatedRows.get().size());
+        Assert.assertEquals("row count should match",
+                Long.valueOf(updatedRowCount), capturedUpdatedRows.get().get(TABLE_ID));
     }
 }

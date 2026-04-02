@@ -17,12 +17,20 @@
 
 package org.apache.doris.cloud.transaction;
 
+import org.apache.doris.catalog.CloudTabletStatMgr;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedIndex;
+import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.cloud.catalog.CloudEnv;
+import org.apache.doris.cloud.catalog.CloudPartition;
 import org.apache.doris.cloud.proto.Cloud;
 import org.apache.doris.cloud.proto.Cloud.CommitTxnResponse;
 import org.apache.doris.cloud.proto.Cloud.RLTaskTxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.RoutineLoadProgressPB;
 import org.apache.doris.cloud.proto.Cloud.StreamingTaskCommitAttachmentPB;
+import org.apache.doris.cloud.proto.Cloud.TableStatsPB;
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB;
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB.LoadJobFinalOperationPB;
 import org.apache.doris.cloud.proto.Cloud.TxnCommitAttachmentPB.LoadJobFinalOperationPB.EtlStatusPB;
@@ -32,6 +40,7 @@ import org.apache.doris.cloud.proto.Cloud.TxnCoordinatorPB;
 import org.apache.doris.cloud.proto.Cloud.TxnInfoPB;
 import org.apache.doris.cloud.proto.Cloud.TxnSourceTypePB;
 import org.apache.doris.cloud.proto.Cloud.UniqueIdPB;
+import org.apache.doris.common.Pair;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.event.DataChangeEvent;
 import org.apache.doris.job.extensions.insert.streaming.StreamingTaskTxnCommitAttachment;
@@ -52,12 +61,18 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 import org.apache.doris.transaction.TxnStateCallbackFactory;
 import org.apache.doris.transaction.TxnStateChangeCallback;
 
+import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 public class TxnUtil {
@@ -489,12 +504,15 @@ public class TxnUtil {
     }
 
     /**
-     * Common after-commit operations: update stats, produce events.
-     * This method extracts common logic used by both one-phase and two-phase commit.
+     * Common after-commit operations: update versions, stats, and produce events.
+     * This method is the single source of truth for all post-visible operations
+     * used by both one-phase commit (via afterCommitTxnResp) and two-phase publish
+     * (via CloudPublishDaemon.executeLightweightPublish).
      *
-     * @param commitTxnResponse commit txn response from MS
+     * @param commitTxnResponse commit txn response from MS (either commit or lightweight publish)
+     * @param tabletIds list of tablet ids involved in the transaction, for tablet stat notification
      */
-    public static void afterCommitCommon(CommitTxnResponse commitTxnResponse) {
+    public static void afterCommitCommon(CommitTxnResponse commitTxnResponse, List<Long> tabletIds) {
         long dbId = commitTxnResponse.getTxnInfo().getDbId();
         long txnId = commitTxnResponse.getTxnInfo().getTxnId();
 
@@ -510,10 +528,36 @@ public class TxnUtil {
         Env env = Env.getCurrentEnv();
         env.getAnalysisManager().updateUpdatedRows(updatedRows);
 
-        // 2. notify partition first load (tablePartitionMap comes from caller)
-        // This is handled by the caller's updateVersion method
+        // 2. update table and partition version
+        Map<Long, List<Long>> tablePartitionMap = updateVersion(commitTxnResponse);
 
-        // 3. produce event
+        // 3. notify partition first load
+        env.getAnalysisManager().setNewPartitionLoaded(
+                tablePartitionMap.keySet().stream().collect(Collectors.toList()));
+        if (LOG.isDebugEnabled()) {
+            StringBuilder sb = new StringBuilder();
+            for (Map.Entry<Long, List<Long>> entry : tablePartitionMap.entrySet()) {
+                sb.append(entry.getKey()).append(":[");
+                for (Long partitionId : entry.getValue()) {
+                    sb.append(partitionId).append(",");
+                }
+                sb.append("];");
+            }
+            if (sb.length() > 0) {
+                LOG.debug("notify partition first load. {}", sb);
+            }
+        }
+
+        // 4. notify update tablet stats
+        if (tabletIds != null && !tabletIds.isEmpty()) {
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("force sync tablet stats for txnId: {}, tabletNum: {}, tabletIds: {}", txnId,
+                        tabletIds.size(), tabletIds);
+            }
+            CloudTabletStatMgr.getInstance().addActiveTablets(tabletIds);
+        }
+
+        // 5. produce event
         List<Long> tableList = commitTxnResponse.getTxnInfo().getTableIdsList()
                 .stream().distinct().collect(Collectors.toList());
         try {
@@ -526,4 +570,104 @@ public class TxnUtil {
         }
     }
 
+    /**
+     * Update partition and table versions from the MS commit/publish response.
+     * Returns a map of tableId to first-load partition ids (partitions with version == 2).
+     *
+     * @param commitTxnResponse the response from MS containing partition versions and table stats
+     * @return map of tableId to list of first-load partitionIds
+     */
+    public static Map<Long, List<Long>> updateVersion(CommitTxnResponse commitTxnResponse) {
+        long dbId = commitTxnResponse.getTxnInfo().getDbId();
+        long txnId = commitTxnResponse.getTxnInfo().getTxnId();
+        int totalPartitionNum = commitTxnResponse.getPartitionIdsList().size();
+        if (totalPartitionNum == 0 && commitTxnResponse.getTableStatsList().isEmpty()) {
+            return Collections.emptyMap();
+        }
+        Env env = Env.getCurrentEnv();
+        // partition -> <version, versionUpdateTime>
+        Map<CloudPartition, Pair<Long, Long>> partitionVersionMap = new HashMap<>();
+        // a map to record <tableId, [firstLoadPartitionIds]>
+        Map<Long, List<Long>> tablePartitionMap = Maps.newHashMap();
+        for (int idx = 0; idx < totalPartitionNum; ++idx) {
+            long version = commitTxnResponse.getVersions(idx);
+            long tableId = commitTxnResponse.getTableIds(idx);
+            if (version == 2) {
+                // inform AnalysisManager first load partitions
+                tablePartitionMap.computeIfAbsent(tableId, k -> Lists.newArrayList());
+                tablePartitionMap.get(tableId).add(commitTxnResponse.getPartitionIds(idx));
+            }
+            // update CloudPartition
+            OlapTable olapTable = (OlapTable) env.getInternalCatalog().getDb(dbId)
+                    .flatMap(db -> db.getTable(tableId)).filter(t -> t.isManagedTable())
+                    .orElse(null);
+            if (olapTable == null) {
+                continue;
+            }
+            CloudPartition partition = (CloudPartition) olapTable.getPartition(
+                    commitTxnResponse.getPartitionIds(idx));
+            if (partition == null) {
+                continue;
+            }
+            if (version == 2) {
+                partition.getMaterializedIndices(MaterializedIndex.IndexExtState.ALL)
+                        .stream().forEach(i -> i.setRowCountReported(false));
+            }
+            partitionVersionMap.put(partition, Pair.of(version, commitTxnResponse.getVersionUpdateTimeMs()));
+        }
+        // collect table versions
+        Optional<Database> dbOpt = env.getInternalCatalog().getDb(dbId);
+        if (!dbOpt.isPresent()) {
+            LOG.warn("updateVersion: database {} not found, skip table version update", dbId);
+            pushVersionAsync(env, dbId, Collections.emptyList(), partitionVersionMap);
+            return tablePartitionMap;
+        }
+        Database db = dbOpt.get();
+        List<Pair<OlapTable, Long>> tableVersions = new ArrayList<>(commitTxnResponse.getTableStatsList().size());
+        for (TableStatsPB tableStats : commitTxnResponse.getTableStatsList()) {
+            if (!tableStats.hasTableVersion()) {
+                continue;
+            }
+            Table table = db.getTableNullable(tableStats.getTableId());
+            if (table == null || !table.isManagedTable()) {
+                continue;
+            }
+            tableVersions.add(Pair.of((OlapTable) table, tableStats.getTableVersion()));
+        }
+        Collections.sort(tableVersions, Comparator.comparingLong(o -> o.first.getId()));
+        // update partition version and table version
+        for (Pair<OlapTable, Long> tableVersion : tableVersions) {
+            tableVersion.first.versionWriteLock();
+        }
+        try {
+            partitionVersionMap.forEach((partition, versionPair) -> {
+                partition.setCachedVisibleVersion(versionPair.first, versionPair.second);
+                LOG.info("Update Partition. transactionId:{}, table_id:{}, partition_id:{}, version:{}, update time:{}",
+                        txnId, partition.getTableId(), partition.getId(), versionPair.first, versionPair.second);
+            });
+            for (Pair<OlapTable, Long> tableVersion : tableVersions) {
+                tableVersion.first.setCachedTableVersion(tableVersion.second);
+                LOG.info("Update Table. transactionId:{}, table_id:{}, version:{}", txnId, tableVersion.first.getId(),
+                        tableVersion.second);
+            }
+        } finally {
+            for (int i = tableVersions.size() - 1; i >= 0; i--) {
+                tableVersions.get(i).first.versionWriteUnlock();
+            }
+        }
+        // notify follower and observer FE to update their version cache
+        pushVersionAsync(env, dbId, tableVersions, partitionVersionMap);
+        return tablePartitionMap;
+    }
+
+    private static void pushVersionAsync(Env env, long dbId,
+            List<Pair<OlapTable, Long>> tableVersions,
+            Map<CloudPartition, Pair<Long, Long>> partitionVersionMap) {
+        if (env instanceof CloudEnv) {
+            ((CloudEnv) env).getCloudFEVersionSynchronizer()
+                    .pushVersionAsync(dbId, tableVersions, partitionVersionMap);
+        }
+    }
+
 }
+

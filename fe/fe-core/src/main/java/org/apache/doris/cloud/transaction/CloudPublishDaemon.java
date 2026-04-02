@@ -341,8 +341,11 @@ public class CloudPublishDaemon extends MasterDaemon {
                     + ", code=" + code + ", msg=" + response.getStatus().getMsg());
         }
 
-        // Execute common after-commit operations (update stats, produce events)
-        TxnUtil.afterCommitCommon(response);
+        // Execute common after-commit operations (update versions, stats, produce events)
+        List<Long> tabletIds = entry.getTabletCommitInfos().stream()
+                .map(info -> info.getTabletId())
+                .collect(java.util.stream.Collectors.toList());
+        TxnUtil.afterCommitCommon(response, tabletIds);
 
         // Execute callback handling using common utility
         // For lightweight publish (two-phase), txnOperated is always true since RPC succeeded
