@@ -17,6 +17,7 @@
 
 package org.apache.doris.mtmv;
 
+import org.apache.doris.mtmv.ivm.IvmNormalizeResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.info.ColumnDefinition;
 
@@ -26,8 +27,8 @@ public class MTMVAnalyzeQueryInfo {
     private MTMVRelation relation;
     private MTMVPartitionInfo mvPartitionInfo;
     private List<ColumnDefinition> columnDefinitions;
-    // set when IVM normalization is enabled
-    private Plan ivmNormalizedPlan;
+    // set when IVM normalization is enabled; carries normalizedPlan + aggMeta
+    private IvmNormalizeResult ivmNormalizeResult;
 
     public MTMVAnalyzeQueryInfo(List<ColumnDefinition> columnDefinitions, MTMVPartitionInfo mvPartitionInfo,
             MTMVRelation relation) {
@@ -48,11 +49,16 @@ public class MTMVAnalyzeQueryInfo {
         return relation;
     }
 
-    public Plan getIvmNormalizedPlan() {
-        return ivmNormalizedPlan;
+    public IvmNormalizeResult getIvmNormalizeResult() {
+        return ivmNormalizeResult;
     }
 
-    public void setIvmNormalizedPlan(Plan ivmNormalizedPlan) {
-        this.ivmNormalizedPlan = ivmNormalizedPlan;
+    public void setIvmNormalizeResult(IvmNormalizeResult ivmNormalizeResult) {
+        this.ivmNormalizeResult = ivmNormalizeResult;
+    }
+
+    /** Convenience accessor — returns the normalized plan, or null if IVM is not active. */
+    public Plan getIvmNormalizedPlan() {
+        return ivmNormalizeResult != null ? ivmNormalizeResult.getNormalizedPlan() : null;
     }
 }
