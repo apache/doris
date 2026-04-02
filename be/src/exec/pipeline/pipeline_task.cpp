@@ -1046,19 +1046,15 @@ Status PipelineTask::revoke_memory(const std::shared_ptr<SpillContext>& spill_co
 
 Status PipelineTask::wake_up(Dependency* dep, std::unique_lock<std::mutex>& /* dep_lock */) {
     // call by dependency
-    //
-    // Race with make_all_runnable() + execute()'s running_defer:
-    // When _wake_up_early is set, execute() transitions BLOCKED→FINISHED directly (bypassing
-    // RUNNABLE). The delayed wake_up() from Dependency::set_ready() may then arrive here after
-    // the task has already left BLOCKED. Since _exec_state is atomic, reading it is safe; we
-    // simply ignore the stale wake-up.
-    if (_exec_state != State::BLOCKED) {
-        return Status::OK();
-    }
     DCHECK_EQ(_blocked_dep, dep) << "dep : " << dep->debug_string(0) << "task: " << debug_string();
     _blocked_dep = nullptr;
     auto holder = std::dynamic_pointer_cast<PipelineTask>(shared_from_this());
     RETURN_IF_ERROR(_state_transition(PipelineTask::State::RUNNABLE));
+    // When _wake_up_early is set, FINISHED→RUNNABLE is legal but is a no-op (state stays
+    // FINISHED). In that case we must NOT re-submit the task to the scheduler.
+    if (_exec_state == State::FINISHED || _exec_state == State::FINALIZED) {
+        return Status::OK();
+    }
     if (auto f = _fragment_context.lock(); f) {
         RETURN_IF_ERROR(_state->get_query_ctx()->get_pipe_exec_scheduler()->submit(holder));
     }
@@ -1072,17 +1068,18 @@ Status PipelineTask::_state_transition(State new_state) {
     }
     _task_profile->add_info_string("TaskState", _to_string(new_state));
     _task_profile->add_info_string("BlockedByDependency", _blocked_dep ? _blocked_dep->name() : "");
-    bool legal = LEGAL_STATE_TRANSITION[(int)new_state].contains(_exec_state);
-    // BLOCKED→FINISHED is in the legal table, but it is ONLY valid when _wake_up_early is set
-    // (i.e., make_all_runnable() requested early termination). Without _wake_up_early, a BLOCKED
-    // task must go through BLOCKED→RUNNABLE→FINISHED normally.
-    if (legal && !_wake_up_early && _exec_state == State::BLOCKED && new_state == State::FINISHED) {
-        legal = false;
-    }
-    if (!legal) {
+    const auto& table =
+            _wake_up_early ? WAKE_UP_EARLY_LEGAL_STATE_TRANSITION : LEGAL_STATE_TRANSITION;
+    if (!table[(int)new_state].contains(_exec_state)) {
         return Status::InternalError(
                 "Task state transition from {} to {} is not allowed! Task info: {}",
                 _to_string(_exec_state), _to_string(new_state), debug_string());
+    }
+    // FINISHED/FINALIZED → RUNNABLE is legal under wake_up_early (delayed wake_up() arriving
+    // after the task already terminated), but we must not actually move the state backwards.
+    if ((_exec_state == State::FINISHED || _exec_state == State::FINALIZED) &&
+        new_state == State::RUNNABLE) {
+        return Status::OK();
     }
     _exec_state = new_state;
     return Status::OK();

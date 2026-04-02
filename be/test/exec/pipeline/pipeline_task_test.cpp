@@ -479,44 +479,54 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         EXPECT_EQ(task->_exec_state, PipelineTask::State::RUNNABLE);
         EXPECT_GT(task->_execution_dependencies.size(), 1);
     }
-    // Test static LEGAL_STATE_TRANSITION table with _wake_up_early = false.
-    // Note: BLOCKED→FINISHED is in the table, but _state_transition() rejects it
-    // when _wake_up_early is false, so we expect it to fail in this loop.
+    // Test normal LEGAL_STATE_TRANSITION table (with _wake_up_early = false).
     task->_wake_up_early = false;
     for (int i = 0; i < task->LEGAL_STATE_TRANSITION.size(); i++) {
         auto target = (PipelineTask::State)i;
         for (int j = 0; j < task->LEGAL_STATE_TRANSITION.size(); j++) {
             auto from = (PipelineTask::State)j;
             task->_exec_state = from;
-            bool table_legal = task->LEGAL_STATE_TRANSITION[i].contains(from);
-            // BLOCKED→FINISHED requires _wake_up_early, which is false here.
-            bool expected = table_legal && !(from == PipelineTask::State::BLOCKED &&
-                                             target == PipelineTask::State::FINISHED);
-            EXPECT_EQ(task->_state_transition(target).ok(), expected);
+            EXPECT_EQ(task->_state_transition(target).ok(),
+                      task->LEGAL_STATE_TRANSITION[i].contains(from));
         }
     }
 
-    // Test that BLOCKED→FINISHED is allowed when _wake_up_early is true.
-    // This covers the race where make_all_runnable() sets _wake_up_early, but
-    // Dependency::set_ready()'s wake_up() hasn't fired yet, so the task is still BLOCKED
-    // when close() calls _state_transition(FINISHED).
+    // Test WAKE_UP_EARLY_LEGAL_STATE_TRANSITION table.
     task->_wake_up_early = true;
+    for (int i = 0; i < task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION.size(); i++) {
+        auto target = (PipelineTask::State)i;
+        for (int j = 0; j < task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION.size(); j++) {
+            auto from = (PipelineTask::State)j;
+            task->_exec_state = from;
+            EXPECT_EQ(task->_state_transition(target).ok(),
+                      task->WAKE_UP_EARLY_LEGAL_STATE_TRANSITION[i].contains(from));
+        }
+    }
+
+    // FINISHED→RUNNABLE under wake_up_early is legal but no-op: state stays FINISHED.
+    task->_exec_state = PipelineTask::State::FINISHED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
+
+    // FINALIZED→RUNNABLE under wake_up_early is legal but no-op: state stays FINALIZED.
+    task->_exec_state = PipelineTask::State::FINALIZED;
+    EXPECT_TRUE(task->_state_transition(PipelineTask::State::RUNNABLE).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+
+    // BLOCKED→FINISHED under wake_up_early does transition.
     task->_exec_state = PipelineTask::State::BLOCKED;
     EXPECT_TRUE(task->_state_transition(PipelineTask::State::FINISHED).ok());
-
-    // Other illegal transitions should remain illegal even with _wake_up_early = true.
-    task->_exec_state = PipelineTask::State::INITED;
-    EXPECT_FALSE(task->_state_transition(PipelineTask::State::FINISHED).ok());
+    EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
     task->_wake_up_early = false;
 
-    // Test that wake_up() safely ignores tasks that are no longer BLOCKED.
-    // This simulates the race where close()/finalize() already transitioned the task past
-    // BLOCKED (via BLOCKED→FINISHED with _wake_up_early), and then Dependency::set_ready()'s
-    // delayed wake_up() fires.
+    // Test that wake_up() succeeds when the task has already finished (delayed wake_up race).
+    // _state_transition(RUNNABLE) is a no-op, and wake_up() should not re-submit the task.
     {
+        task->_wake_up_early = true;
         std::mutex mtx;
         task->_exec_state = PipelineTask::State::FINISHED;
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
         std::unique_lock<std::mutex> lc(mtx);
         EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINISHED);
@@ -525,9 +535,11 @@ TEST_F(PipelineTaskTest, TEST_STATE_TRANSITION) {
         std::mutex mtx;
         task->_exec_state = PipelineTask::State::FINALIZED;
         auto dep = std::make_shared<Dependency>(0, 0, "test_dep", true);
+        task->_blocked_dep = dep.get();
         std::unique_lock<std::mutex> lc(mtx);
         EXPECT_TRUE(task->wake_up(dep.get(), lc).ok());
         EXPECT_EQ(task->_exec_state, PipelineTask::State::FINALIZED);
+        task->_wake_up_early = false;
     }
 }
 
