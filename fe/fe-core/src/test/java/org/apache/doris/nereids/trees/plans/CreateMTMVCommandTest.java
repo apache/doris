@@ -37,6 +37,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class CreateMTMVCommandTest extends TestWithFeService {
     @Override
@@ -383,5 +384,182 @@ public class CreateMTMVCommandTest extends TestWithFeService {
         org.apache.doris.nereids.trees.plans.commands.AlterTableCommand cmd2 =
                 (org.apache.doris.nereids.trees.plans.commands.AlterTableCommand) plan;
         Assertions.assertThrows(Throwable.class, () -> cmd2.run(connectContext, null));
+    }
+
+    // ====== Aggregate IVM test cases ======
+
+    @Test
+    public void testCreateAggImmvWithMultipleAggFunctions() throws Exception {
+        createTable("create table test.agg_multi_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW agg_multi_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, COUNT(*), SUM(v1) FROM agg_multi_base GROUP BY k1;");
+
+        List<Column> cols = info.getColumns();
+
+        // row_id at index 0, hidden
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, cols.get(0).getName());
+        Assertions.assertFalse(cols.get(0).isVisible());
+
+        // 3 visible user columns: k1, count(*), sum(v1)
+        List<Column> visibleCols = cols.stream()
+                .filter(Column::isVisible).collect(Collectors.toList());
+        Assertions.assertEquals(3, visibleCols.size());
+
+        // hidden trailing agg state columns:
+        // __DORIS_IVM_AGG_COUNT_COL__ (group count)
+        // __DORIS_IVM_AGG_0_COUNT_COL__ (COUNT(*) hidden)
+        // __DORIS_IVM_AGG_1_SUM_COL__ (SUM hidden)
+        // __DORIS_IVM_AGG_1_COUNT_COL__ (SUM count hidden)
+        List<Column> hiddenCols = cols.stream()
+                .filter(c -> !c.isVisible()).collect(Collectors.toList());
+        Assertions.assertEquals(5, hiddenCols.size()); // row_id + 4 trailing
+        List<String> hiddenNames = hiddenCols.stream()
+                .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_COUNT_COL__"));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_SUM_COL__"));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_COUNT_COL__"));
+    }
+
+    @Test
+    public void testCreateAggImmvWithHavingThrows() throws Exception {
+        createTable("create table test.agg_having_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        // HAVING produces a Filter above Aggregate, which is rejected by IvmNormalizeMtmv
+        org.apache.doris.nereids.exceptions.AnalysisException ex = Assertions.assertThrows(
+                org.apache.doris.nereids.exceptions.AnalysisException.class,
+                () -> getPartitionTableInfo(
+                        "CREATE MATERIALIZED VIEW agg_having_mv\n"
+                        + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                        + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                        + " PROPERTIES ('replication_num' = '1')\n"
+                        + " AS\n"
+                        + " SELECT k1, SUM(v1) FROM agg_having_base GROUP BY k1"
+                        + " HAVING SUM(v1) > 10;"));
+        Assertions.assertTrue(
+                ex.getMessage().contains("IVM aggregate must be the top-level operator"),
+                "unexpected message: " + ex.getMessage());
+    }
+
+    @Test
+    public void testCreateScalarAggImmv() throws Exception {
+        createTable("create table test.scalar_agg_base (k1 int, v1 int)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW scalar_agg_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT COUNT(*), SUM(v1) FROM scalar_agg_base;");
+
+        List<Column> cols = info.getColumns();
+
+        // row_id at index 0, hidden
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, cols.get(0).getName());
+        Assertions.assertFalse(cols.get(0).isVisible());
+
+        // 2 visible: count(*), sum(v1) — no group keys for scalar agg
+        List<Column> visibleCols = cols.stream()
+                .filter(Column::isVisible).collect(Collectors.toList());
+        Assertions.assertEquals(2, visibleCols.size());
+
+        // hidden: row_id + IVM_AGG_COUNT_COL + AGG_0_COUNT + AGG_1_SUM + AGG_1_COUNT = 5
+        List<Column> hiddenCols = cols.stream()
+                .filter(c -> !c.isVisible()).collect(Collectors.toList());
+        Assertions.assertEquals(5, hiddenCols.size());
+        List<String> hiddenNames = hiddenCols.stream()
+                .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
+    }
+
+    @Test
+    public void testCreateAggImmvWithAvg() throws Exception {
+        createTable("create table test.agg_avg_base (k1 int, v1 decimal(10, 2))\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW agg_avg_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, AVG(v1) FROM agg_avg_base GROUP BY k1;");
+
+        List<Column> cols = info.getColumns();
+
+        // row_id hidden at index 0
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, cols.get(0).getName());
+        Assertions.assertFalse(cols.get(0).isVisible());
+
+        // 2 visible: k1, avg(v1)
+        List<Column> visibleCols = cols.stream()
+                .filter(Column::isVisible).collect(Collectors.toList());
+        Assertions.assertEquals(2, visibleCols.size());
+
+        // AVG decomposes to SUM + COUNT hidden states
+        // hidden: row_id + IVM_AGG_COUNT_COL + AGG_0_SUM + AGG_0_COUNT = 4
+        List<String> hiddenNames = cols.stream()
+                .filter(c -> !c.isVisible())
+                .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_SUM_COL__"));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_COUNT_COL__"));
+    }
+
+    @Test
+    public void testCreateAggImmvWithMinMax() throws Exception {
+        createTable("create table test.agg_minmax_base (k1 int, v1 int, v2 bigint)\n"
+                + "duplicate key(k1)\n"
+                + "distributed by hash(k1) buckets 1\n"
+                + "properties('replication_num' = '1');");
+
+        CreateMTMVInfo info = getPartitionTableInfo(
+                "CREATE MATERIALIZED VIEW agg_minmax_mv\n"
+                + " BUILD DEFERRED REFRESH INCREMENTAL ON MANUAL\n"
+                + " DISTRIBUTED BY RANDOM BUCKETS 2\n"
+                + " PROPERTIES ('replication_num' = '1')\n"
+                + " AS\n"
+                + " SELECT k1, MIN(v1), MAX(v2) FROM agg_minmax_base GROUP BY k1;");
+
+        List<Column> cols = info.getColumns();
+
+        // row_id hidden at index 0
+        Assertions.assertEquals(Column.IVM_ROW_ID_COL, cols.get(0).getName());
+        Assertions.assertFalse(cols.get(0).isVisible());
+
+        // 3 visible: k1, min(v1), max(v2)
+        List<Column> visibleCols = cols.stream()
+                .filter(Column::isVisible).collect(Collectors.toList());
+        Assertions.assertEquals(3, visibleCols.size());
+
+        // MIN(ordinal=0): __DORIS_IVM_AGG_0_MIN_COL__, __DORIS_IVM_AGG_0_COUNT_COL__
+        // MAX(ordinal=1): __DORIS_IVM_AGG_1_MAX_COL__, __DORIS_IVM_AGG_1_COUNT_COL__
+        // plus group count: __DORIS_IVM_AGG_COUNT_COL__
+        List<String> hiddenNames = cols.stream()
+                .filter(c -> !c.isVisible())
+                .map(Column::getName).collect(Collectors.toList());
+        Assertions.assertTrue(hiddenNames.contains(Column.IVM_AGG_COUNT_COL));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_MIN_COL__"));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_0_COUNT_COL__"));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_MAX_COL__"));
+        Assertions.assertTrue(hiddenNames.contains("__DORIS_IVM_AGG_1_COUNT_COL__"));
     }
 }
