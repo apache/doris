@@ -75,6 +75,14 @@ under the License.
         <finalName>doris-fe-filesystem-s3</finalName>
         <plugins>
             <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <!-- Allow reflective access to ByteArrayOutputStream.count in S3OutputStreamTest -->
+                    <argLine>--add-opens=java.base/java.io=ALL-UNNAMED</argLine>
+                </configuration>
+            </plugin>
+            <plugin>
                 <artifactId>maven-assembly-plugin</artifactId>
                 <configuration>
                     <appendAssemblyId>false</appendAssemblyId>

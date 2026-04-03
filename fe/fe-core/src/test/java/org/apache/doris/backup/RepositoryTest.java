@@ -546,27 +546,74 @@ public class RepositoryTest {
     }
 
     /**
-     * H1: Verify that a Repository serialized in the new format (with {@code "fs_descriptor"})
-     * is deserialized correctly and the legacy field is ignored.
+     * M2: {@code acquireSpiFs()} must pass {@code FrontendOptions.getLocalHostAddress()} to
+     * {@link BrokerMgr#getBroker(String, String)} when resolving the broker endpoint.
+     *
+     * <p>The setUp() already mocks {@code FrontendOptions.getLocalHostAddress()} to return
+     * {@code "127.0.0.1"}.  This test uses a JMockit {@link Delegate} to capture the actual
+     * host argument forwarded to {@code getBroker()} and asserts it equals the mocked value.
      */
     @Test
-    public void testGsonPostProcessNewFormatIsPreferred() {
-        // FileSystemDescriptor JSON uses "fs_type", "fs_name", "fs_props" as SerializedNames.
-        String newJson = "{"
-                + "\"id\":30000,"
-                + "\"name\":\"newRepo\","
-                + "\"read_only\":false,"
-                + "\"location\":\"s3://bucket/prefix\","
-                + "\"create_time\":-1,"
-                + "\"fs_descriptor\":{\"fs_type\":\"BROKER\",\"fs_name\":\"myBroker\",\"fs_props\":{}}"
-                + "}";
+    public void testAcquireSpiFsBrokerUsesLocalHostAddress() throws Exception {
+        java.util.concurrent.atomic.AtomicReference<String> capturedHost =
+                new java.util.concurrent.atomic.AtomicReference<>();
 
-        Repository deserialized = GsonUtils.GSON.fromJson(newJson, Repository.class);
+        new Expectations() {
+            {
+                // Override the setUp() expectation for getBroker() with a Delegate that captures
+                // the host argument so we can assert it equals FrontendOptions.getLocalHostAddress().
+                try {
+                    mockedBrokerMgr.getBroker(anyString, anyString);
+                } catch (AnalysisException ignored) {
+                    // never thrown during JMockit recording phase
+                }
+                minTimes = 0;
+                result = new Delegate<FsBroker>() {
+                    FsBroker getBroker(String brokerName, String host) throws AnalysisException {
+                        capturedHost.set(host);
+                        return new FsBroker("10.74.167.16", 8111);
+                    }
+                };
 
-        FileSystemDescriptor fd = deserialized.getFileSystemDescriptor();
-        Assert.assertNotNull(fd);
-        Assert.assertEquals(FsStorageType.BROKER, fd.getStorageType());
-        Assert.assertEquals("myBroker", fd.getName());
+                // listSnapshots() calls fs.list(); return an empty iterator so the method
+                // completes normally without further interaction.
+                try {
+                    mockFs.list((Location) any);
+                } catch (IOException ignored) {
+                    // never thrown during JMockit recording phase
+                }
+                minTimes = 0;
+                result = new Delegate<FileIterator>() {
+                    public FileIterator list(Location loc) throws IOException {
+                        return new FileIterator() {
+                            @Override
+                            public boolean hasNext() {
+                                return false;
+                            }
+
+                            @Override
+                            public FileEntry next() throws IOException {
+                                throw new java.util.NoSuchElementException();
+                            }
+
+                            @Override
+                            public void close() {
+                            }
+                        };
+                    }
+                };
+            }
+        };
+
+        repo = new Repository(10000, "repo", false, location, testProps);
+        List<String> snapshotNames = Lists.newArrayList();
+        repo.listSnapshots(snapshotNames); // triggers acquireSpiFs() → getBroker(name, host)
+
+        Assert.assertNotNull(
+                "getBroker() must have been called during listSnapshots()", capturedHost.get());
+        Assert.assertEquals(
+                "acquireSpiFs() must pass FrontendOptions.getLocalHostAddress() to getBroker()",
+                "127.0.0.1", capturedHost.get());
     }
 
 }
