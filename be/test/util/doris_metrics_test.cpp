@@ -20,9 +20,56 @@
 #include <gtest/gtest-message.h>
 #include <gtest/gtest-test-part.h>
 
+#include <algorithm>
+#include <initializer_list>
+#include <set>
+#include <sstream>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "gtest/gtest_pred_impl.h"
 
 namespace doris {
+
+namespace {
+
+std::string strip_metric_value(const std::string& line) {
+    auto pos = line.rfind(' ');
+    EXPECT_NE(std::string::npos, pos);
+    return line.substr(0, pos);
+}
+
+std::vector<std::string> collect_metric_identities(const std::string& prometheus,
+                                                   std::string_view prefix) {
+    std::vector<std::string> identities;
+    std::istringstream input(prometheus);
+    std::string line;
+    while (std::getline(input, line)) {
+        if (line.rfind(prefix, 0) == 0) {
+            identities.emplace_back(strip_metric_value(line));
+        }
+    }
+    return identities;
+}
+
+size_t count_metric_identities(const std::vector<std::string>& identities,
+                               std::initializer_list<std::string_view> expected_label_tokens) {
+    return std::count_if(identities.begin(), identities.end(), [&](const std::string& identity) {
+        return std::all_of(
+                expected_label_tokens.begin(), expected_label_tokens.end(),
+                [&](std::string_view token) { return identity.find(token) != std::string::npos; });
+    });
+}
+
+void expect_unique_metric_identities(const std::vector<std::string>& identities,
+                                     size_t min_expected_count) {
+    EXPECT_GE(identities.size(), min_expected_count);
+    std::set<std::string> unique_identities(identities.begin(), identities.end());
+    EXPECT_EQ(unique_identities.size(), identities.size());
+}
+
+} // namespace
 
 class DorisMetricsTest : public testing::Test {
 public:
@@ -189,6 +236,59 @@ TEST_F(DorisMetricsTest, Normal) {
         EXPECT_TRUE(metric != nullptr);
         EXPECT_STREQ("10", metric->to_string().c_str());
     }
+}
+
+TEST_F(DorisMetricsTest, PrometheusCompactionMetricsHaveUniqueSeries) {
+    DorisMetrics::instance()->base_compaction_task_running_total->set_value(1);
+    DorisMetrics::instance()->base_compaction_task_pending_total->set_value(2);
+    DorisMetrics::instance()->cumulative_compaction_task_running_total->set_value(3);
+    DorisMetrics::instance()->cumulative_compaction_task_pending_total->set_value(4);
+
+    DorisMetrics::instance()->local_compaction_read_rows_total->set_value(5);
+    DorisMetrics::instance()->local_compaction_write_rows_total->set_value(6);
+    DorisMetrics::instance()->remote_compaction_read_rows_total->set_value(7);
+    DorisMetrics::instance()->remote_compaction_write_rows_total->set_value(8);
+
+    DorisMetrics::instance()->base_compaction_bytes_total->set_value(9);
+    DorisMetrics::instance()->cumulative_compaction_bytes_total->set_value(10);
+    DorisMetrics::instance()->full_compaction_bytes_total->set_value(11);
+    DorisMetrics::instance()->local_compaction_read_bytes_total->set_value(12);
+    DorisMetrics::instance()->local_compaction_write_bytes_total->set_value(13);
+    DorisMetrics::instance()->remote_compaction_read_bytes_total->set_value(14);
+    DorisMetrics::instance()->remote_compaction_write_bytes_total->set_value(15);
+
+    const auto prometheus = DorisMetrics::instance()->metric_registry()->to_prometheus();
+
+    const auto task_state_metrics =
+            collect_metric_identities(prometheus, "doris_be_compaction_task_state_total");
+    expect_unique_metric_identities(task_state_metrics, 4);
+    EXPECT_EQ(1,
+              count_metric_identities(task_state_metrics, {"type=\"base\"", "state=\"running\""}));
+    EXPECT_EQ(1,
+              count_metric_identities(task_state_metrics, {"type=\"base\"", "state=\"pending\""}));
+    EXPECT_EQ(1, count_metric_identities(task_state_metrics,
+                                         {"type=\"cumulative\"", "state=\"running\""}));
+    EXPECT_EQ(1, count_metric_identities(task_state_metrics,
+                                         {"type=\"cumulative\"", "state=\"pending\""}));
+
+    const auto row_metrics =
+            collect_metric_identities(prometheus, "doris_be_compaction_rows_total");
+    expect_unique_metric_identities(row_metrics, 4);
+    EXPECT_EQ(1, count_metric_identities(row_metrics, {"type=\"read\"", "location=\"local\""}));
+    EXPECT_EQ(1, count_metric_identities(row_metrics, {"type=\"write\"", "location=\"local\""}));
+    EXPECT_EQ(1, count_metric_identities(row_metrics, {"type=\"read\"", "location=\"remote\""}));
+    EXPECT_EQ(1, count_metric_identities(row_metrics, {"type=\"write\"", "location=\"remote\""}));
+
+    const auto byte_metrics =
+            collect_metric_identities(prometheus, "doris_be_compaction_bytes_total");
+    expect_unique_metric_identities(byte_metrics, 7);
+    EXPECT_EQ(1, count_metric_identities(byte_metrics, {"type=\"base\""}));
+    EXPECT_EQ(1, count_metric_identities(byte_metrics, {"type=\"cumulative\""}));
+    EXPECT_EQ(1, count_metric_identities(byte_metrics, {"type=\"full\""}));
+    EXPECT_EQ(1, count_metric_identities(byte_metrics, {"type=\"read\"", "location=\"local\""}));
+    EXPECT_EQ(1, count_metric_identities(byte_metrics, {"type=\"write\"", "location=\"local\""}));
+    EXPECT_EQ(1, count_metric_identities(byte_metrics, {"type=\"read\"", "location=\"remote\""}));
+    EXPECT_EQ(1, count_metric_identities(byte_metrics, {"type=\"write\"", "location=\"remote\""}));
 }
 
 } // namespace doris
