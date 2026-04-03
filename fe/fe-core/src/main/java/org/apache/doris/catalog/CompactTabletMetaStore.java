@@ -50,7 +50,6 @@ public class CompactTabletMetaStore {
     private long[] partitionIds;
     private long[] indexIds;
     private int[] oldSchemaHashes;
-    private int[] newSchemaHashes;
     private byte[] storageMediumOrdinals;
 
     // free list head; ABSENT means empty
@@ -77,13 +76,12 @@ public class CompactTabletMetaStore {
         this.partitionIds = new long[this.capacity];
         this.indexIds = new long[this.capacity];
         this.oldSchemaHashes = new int[this.capacity];
-        this.newSchemaHashes = new int[this.capacity];
         this.storageMediumOrdinals = new byte[this.capacity];
     }
 
-    public void add(long tabletId, TabletMeta meta) {
+    public boolean add(long tabletId, TabletMeta meta) {
         if (tabletIdToSlot.containsKey(tabletId)) {
-            return;
+            return false;
         }
         int slot = allocateSlot();
         tabletIdToSlot.put(tabletId, slot);
@@ -92,9 +90,9 @@ public class CompactTabletMetaStore {
         partitionIds[slot] = meta.getPartitionId();
         indexIds[slot] = meta.getIndexId();
         oldSchemaHashes[slot] = meta.getOldSchemaHash();
-        newSchemaHashes[slot] = -1;
         storageMediumOrdinals[slot] = (byte) meta.getStorageMedium().getValue();
         size++;
+        return true;
     }
 
     public void remove(long tabletId) {
@@ -222,7 +220,6 @@ public class CompactTabletMetaStore {
         partitionIds = Arrays.copyOf(partitionIds, newCapacity);
         indexIds = Arrays.copyOf(indexIds, newCapacity);
         oldSchemaHashes = Arrays.copyOf(oldSchemaHashes, newCapacity);
-        newSchemaHashes = Arrays.copyOf(newSchemaHashes, newCapacity);
         storageMediumOrdinals = Arrays.copyOf(storageMediumOrdinals, newCapacity);
         capacity = newCapacity;
     }

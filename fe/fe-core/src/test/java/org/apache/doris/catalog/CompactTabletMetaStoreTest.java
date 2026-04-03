@@ -81,8 +81,8 @@ public class CompactTabletMetaStoreTest {
         TabletMeta meta1 = new TabletMeta(1L, 2L, 3L, 4L, 100, TStorageMedium.HDD);
         TabletMeta meta2 = new TabletMeta(10L, 20L, 30L, 40L, 200, TStorageMedium.SSD);
 
-        store.add(10001L, meta1);
-        store.add(10001L, meta2);
+        Assert.assertTrue(store.add(10001L, meta1));
+        Assert.assertFalse(store.add(10001L, meta2));
 
         Assert.assertEquals(1, store.size());
         // original values preserved

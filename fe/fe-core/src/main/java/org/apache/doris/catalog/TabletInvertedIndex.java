@@ -126,10 +126,9 @@ public abstract class TabletInvertedIndex {
     public void addTablet(long tabletId, TabletMeta tabletMeta) {
         long stamp = writeLock();
         try {
-            if (tabletMetaStore.containsKey(tabletId)) {
+            if (!tabletMetaStore.add(tabletId, tabletMeta)) {
                 return;
             }
-            tabletMetaStore.add(tabletId, tabletMeta);
             if (LOG.isDebugEnabled()) {
                 LOG.debug("add tablet: {}", tabletId);
             }

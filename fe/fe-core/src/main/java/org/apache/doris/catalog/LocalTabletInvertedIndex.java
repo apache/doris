@@ -896,7 +896,7 @@ public class LocalTabletInvertedIndex extends TabletInvertedIndex {
             Map<Long, Replica> replicaMetaWithBackend = backingReplicaMetaTable.get(backendId);
             if (replicaMetaWithBackend != null) {
                 for (long tabletId : replicaMetaWithBackend.keySet()) {
-                    if (tabletMetaStore.getTabletMeta(tabletId).getStorageMedium() == TStorageMedium.HDD) {
+                    if (tabletMetaStore.getStorageMedium(tabletId) == TStorageMedium.HDD) {
                         hddNum++;
                     } else {
                         ssdNum++;
