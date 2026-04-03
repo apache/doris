@@ -46,6 +46,19 @@ juicefs_detect_hadoop_version() {
     echo "${juicefs_jar%.jar}"
 }
 
+juicefs_packaging_enabled() {
+    local disable_build_juicefs="${1:-}"
+
+    case "$(printf '%s' "${disable_build_juicefs}" | tr '[:lower:]' '[:upper:]')" in
+        OFF)
+            echo "ON"
+            ;;
+        *)
+            echo "OFF"
+            ;;
+    esac
+}
+
 juicefs_hadoop_jar_download_url() {
     local juicefs_version="$1"
     local jar_name="juicefs-hadoop-${juicefs_version}.jar"

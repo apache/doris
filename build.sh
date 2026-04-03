@@ -80,7 +80,7 @@ Usage: $0 <options>
     DISABLE_BE_JAVA_EXTENSIONS  If set DISABLE_BE_JAVA_EXTENSIONS=ON, we will do not build binary with java-udf,hadoop-hudi-scanner,jdbc-scanner and so on Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
     DISABLE_BUILD_AZURE         If set DISABLE_BUILD_AZURE=ON, it will not build azure into BE.
-    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=ON, it will skip packaging juicefs-hadoop jar into FE/BE output.
+    DISABLE_BUILD_JUICEFS       If set DISABLE_BUILD_JUICEFS=ON, it will skip packaging juicefs-hadoop jar into FE/BE output. Default is ON (juicefs is disabled by default; set DISABLE_BUILD_JUICEFS=OFF to enable).
 
   Eg.
     $0                                      build all
@@ -547,11 +547,7 @@ else
     BUILD_JINDOFS='ON'
 fi
 
-if [[ "$(echo "${DISABLE_BUILD_JUICEFS}" | tr '[:lower:]' '[:upper:]')" == "ON" ]]; then
-    BUILD_JUICEFS='OFF'
-else
-    BUILD_JUICEFS='ON'
-fi
+BUILD_JUICEFS="$(juicefs_packaging_enabled "${DISABLE_BUILD_JUICEFS}")"
 
 if [[ -z "${ENABLE_INJECTION_POINT}" ]]; then
     ENABLE_INJECTION_POINT='OFF'
