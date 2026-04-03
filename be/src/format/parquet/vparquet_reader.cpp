@@ -501,9 +501,31 @@ Status ParquetReader::_do_init_reader(ReaderInitContext* base_ctx) {
     }
     _current_row_group_index = RowGroupReader::RowGroupIndex {-1, 0, 0};
 
+    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
+    // so _read_file_columns etc. are not populated. Fall back to simple 1:1 mapping
+    // where all column_names are treated as file columns (no schema change, no partition values).
+    if (!has_column_descs() && _read_file_columns.empty()) {
+        auto schema_desc = _file_metadata->schema();
+        std::unordered_set<std::string> file_col_set;
+        for (int i = 0; i < schema_desc.size(); ++i) {
+            file_col_set.insert(schema_desc.get_column(i)->name);
+        }
+        for (const auto& col_name : base_ctx->column_names) {
+            if (file_col_set.contains(col_name)) {
+                _read_file_columns.emplace_back(col_name);
+                _read_table_columns.emplace_back(col_name);
+                _read_table_columns_set.insert(col_name);
+            }
+        }
+    }
+
     // build column predicates for column lazy read
-    _lazy_read_ctx.conjuncts = *ctx->conjuncts;
-    _lazy_read_ctx.slot_id_to_predicates = *ctx->slot_id_to_predicates;
+    if (ctx->conjuncts != nullptr) {
+        _lazy_read_ctx.conjuncts = *ctx->conjuncts;
+    }
+    if (ctx->slot_id_to_predicates != nullptr) {
+        _lazy_read_ctx.slot_id_to_predicates = *ctx->slot_id_to_predicates;
+    }
 
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
 

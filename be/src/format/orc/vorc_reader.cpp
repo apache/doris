@@ -476,7 +476,9 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
     auto* ctx = checked_context_cast<OrcInitContext>(base_ctx);
     _table_column_names = base_ctx->column_names;
     _col_name_to_block_idx = base_ctx->col_name_to_block_idx;
-    _lazy_read_ctx.conjuncts = *ctx->conjuncts;
+    if (ctx->conjuncts != nullptr) {
+        _lazy_read_ctx.conjuncts = *ctx->conjuncts;
+    }
     _tuple_descriptor = ctx->tuple_descriptor;
     _row_descriptor = ctx->row_descriptor;
     _table_info_node_ptr = base_ctx->table_info_node;
@@ -504,6 +506,16 @@ Status OrcReader::_do_init_reader(ReaderInitContext* base_ctx) {
         RETURN_IF_ERROR(_create_file_reader());
     }
     RETURN_IF_ERROR(_init_read_columns());
+
+    // Standalone callers (column_descs == nullptr) skip on_before_init_reader,
+    // so _read_file_cols etc. are not populated. Fall back to simple 1:1 mapping
+    // where all column_names are treated as file columns.
+    if (!has_column_descs() && _read_file_cols.empty()) {
+        for (const auto& col_name : _table_column_names) {
+            _read_file_cols.emplace_back(col_name);
+            _read_table_cols.emplace_back(col_name);
+        }
+    }
 
     // ---- Inlined set_fill_columns logic (partition/missing/synthesized classification) ----
     SCOPED_RAW_TIMER(&_statistics.set_fill_column_time);
