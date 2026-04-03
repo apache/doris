@@ -596,7 +596,7 @@ public class CloudReplica extends Replica implements GsonPostProcessable {
     }
 
     public void setStatsIntervalIndex(int index) {
-        packedStatsState = ((long) index << INTERVAL_SHIFT) | (packedStatsState & TIMESTAMP_MASK);
+        packedStatsState = (((long) (index & 0xF)) << INTERVAL_SHIFT) | (packedStatsState & TIMESTAMP_MASK);
     }
 
     public void updateClusterToPrimaryBe(String cluster, long beId) {
