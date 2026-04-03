@@ -353,6 +353,13 @@ public class TSOService extends MasterDaemon {
         if (timeLag > UPDATE_TIME_WINDOW_GUARD) {
             // Align physical time to current time
             nextPhysicalTime = currentTime;
+        } else if (Config.enable_tso_forward_when_counter_full
+                && prevLogicalCounter > TSOTimestamp.MAX_LOGICAL_COUNTER / 2) {
+            // Logical counter nearly full → advance to next millisecond
+            nextPhysicalTime = prevPhysicalTime + 1;
+        } else {
+            // Logical counter not nearly full → just increment logical counter
+            // do nothing
         }
 
         // 4. Check if time window right boundary needs renewal

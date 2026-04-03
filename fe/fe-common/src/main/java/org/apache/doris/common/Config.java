@@ -3428,6 +3428,10 @@ public class Config extends ConfigBase {
                     + "unknown modules when reading new images."})
     public static boolean enable_tso_checkpoint_module = false;
 
+    @ConfField(mutable = true, masterOnly = true, description = {
+            "Whether to forward TSO 1ms when logical counter is nearly full. Default is true."})
+    public static boolean enable_tso_forward_when_counter_full = true;
+
     @ConfField(mutable = true, masterOnly = true)
     public static boolean enable_notify_be_after_load_txn_commit = false;
 
