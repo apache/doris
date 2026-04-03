@@ -115,6 +115,10 @@ public final class FileSystemTransferUtil {
                 if (entry.isDirectory()) {
                     if (recursive) {
                         collectEntries(fs, entry.location(), pattern, true, result);
+                    } else if (pattern != null && pattern.matcher(entry.location().uri()).matches()) {
+                        // Include matching directories only when an explicit glob pattern is present.
+                        // Without a pattern the caller expects a plain file listing.
+                        result.add(entry);
                     }
                 } else {
                     if (pattern == null || pattern.matcher(entry.location().uri()).matches()) {
