@@ -15,10 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "information_schema/schema_scanner.h"
-
 #include <gen_cpp/Descriptors_types.h>
 #include <gtest/gtest.h>
+
+#include "information_schema/schema_scanner.h"
 
 namespace doris {
 
